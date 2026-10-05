@@ -9,7 +9,10 @@ import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_UR
 import { DEFAULT_DISCOVERY_PAYLOAD, makeLogger } from "../../pureHelpers";
 import { makeProvider } from "../../testUtils";
 
-/** The unresolved-credentials failure's two log renderings: the classification (status window, issue-report buffer) and the English mirror (output channel). */
+/**
+ * The unresolved-credentials failure's two log renderings: the classification (status window, issue-report buffer)
+ * and the English mirror (output channel).
+ */
 const EXPECTED_CLASSIFICATION = "EntryCredentialsUnavailable(secretsUnreadable)";
 const EXPECTED_ENGLISH = "entry credentials unavailable";
 
@@ -20,7 +23,6 @@ function groupOptions(configuration: unknown, silent = true): { silent: boolean 
 
 const cancellation = () => new vscode.CancellationTokenSource().token;
 
-/** One discovery handler that records the Authorization header each fetch carried. */
 function capturingDiscovery(): { headers: (string | null)[] } {
 	const captured: { headers: (string | null)[] } = { headers: [] };
 	mswServer.use(
@@ -54,8 +56,8 @@ suite("provider credential overlay", () => {
 		assert.deepStrictEqual(resolved, [["Default", TEST_BASE_URL]], "the resolver gets the group's identity");
 		const server = infos[0]?.litellm?.server;
 		assert.strictEqual(server?.apiKey, "sk-rotated", "the attached connection carries the overlaid key");
-		// The status identity follows the overlaid credentials too, so the cache,
-		// prune keep-set, and dashboard join all describe what requests use.
+		// The status identity follows the overlaid credentials too, so the cache, prune keep-set, and dashboard join
+		// all describe what requests use.
 		const snapshot = provider.getServerSnapshots()[0];
 		assert.ok(snapshot !== undefined);
 		assert.strictEqual(provider.getGroupServer(snapshot.status.serverId)?.apiKey, "sk-rotated");
@@ -139,25 +141,29 @@ suite("provider credential overlay", () => {
 	});
 
 	test("an expected model-listing failure does not soften an unresolved-credentials failure", async () => {
-		// The declaration speaks about the listing endpoint. A non-silent serve of an entry declaring it with declared
-		// models normally hands the declared set out under an expected error; a credential failure must not take
-		// that route, or the window reads connected while every request fails before transport.
+		// The declaration speaks about the listing endpoint. A credential failure hands the declared set out like any
+		// failure, but under an UNEXPECTED error, or the window reads connected while every request fails before
+		// transport.
 		const provider = makeProvider(undefined, "unused", undefined, {
 			resolveEntryCredentials: async () => ({ kind: "unavailable", reason: "secretsUnreadable" }),
 			getExpectedFailures: () => ["modelListing"],
 			getEntryDeclaredModels: () => ["declared-model"],
 		});
-		capturingDiscovery();
+		const captured = capturingDiscovery();
 
-		await assert.rejects(
-			provider.provideLanguageModelChatInformation(
-				groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" }, false),
-				cancellation()
-			),
-			(error: unknown) => error instanceof MirroredError && publicErrorText(error) === EXPECTED_CLASSIFICATION
+		const served = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" }, false),
+			cancellation()
 		);
+		assert.deepStrictEqual(
+			served.map((info) => info.id),
+			["declared-model"],
+			"the declared model registers under the credential failure"
+		);
+		assert.deepStrictEqual(captured.headers, [], "no discovery request carries the baked key");
 		const status = provider.getServerSnapshots()[0]?.status;
 		assert.strictEqual(status?.state, "error");
+		assert.strictEqual(status.logSafeError, EXPECTED_CLASSIFICATION, "the failure keeps its classification");
 		assert.strictEqual(status.expected, undefined, "the failure stays unexpected");
 		assert.strictEqual(status.servedModelCount, 1, "the declared model stays listed under the error");
 		assert.strictEqual(classifyOverall([status]), "degraded", "serving under an unexpected error, never connected");
@@ -187,9 +193,8 @@ suite("provider credential overlay", () => {
 	});
 
 	test("a late pre-rotation discovery completion cannot clobber the rotated identity's record", async () => {
-		// The old-key fetch is still in flight when the new-key serve completes;
-		// its late completion must yield the record instead of restoring the
-		// retired identity (arrival order is not credential freshness).
+		// The old-key fetch is still in flight when the new-key serve completes; its late completion must yield the
+		// record instead of restoring the retired identity (arrival order is not credential freshness).
 		let key = "sk-first";
 		let releaseFirst!: () => void;
 		const firstGate = new Promise<void>((resolve) => {
@@ -223,10 +228,9 @@ suite("provider credential overlay", () => {
 	});
 
 	test("a serve stalled in the RESOLVER cannot stamp itself current after a newer serve recorded", async () => {
-		// The generation is claimed before the overlay's secrets read: a first
-		// call stalls in the resolver, a second call resolves and records the
-		// rotated identity, then the first resumes - its record must yield even
-		// though its fetch would start (and finish) after the second's.
+		// The generation is claimed before the overlay's secrets read: a first call stalls in the resolver, a second
+		// call resolves and records the rotated identity, then the first resumes - its record must yield even though
+		// its fetch would start (and finish) after the second's.
 		let call = 0;
 		let releaseFirst!: () => void;
 		const firstGate = new Promise<void>((resolve) => {

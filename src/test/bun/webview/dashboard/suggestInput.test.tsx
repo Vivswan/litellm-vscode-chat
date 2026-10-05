@@ -1,8 +1,3 @@
-/**
- * The record editors' suggestion listboxes (SuggestInput): case-insensitive substring filtering, the combobox aria
- * wiring, the keyboard paths (arrows move the highlight, Enter accepts, Escape closes), mousedown-to-accept, and
- * close-on-blur - on all three inputs that carry suggestions: capability key, matcher keys, parameter names.
- */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
@@ -39,7 +34,6 @@ function sectionByHeading(root: ParentNode, heading: string): HTMLElement {
 	return section as HTMLElement;
 }
 
-/** Mount App, open a fresh matcher's overlay in the named editor, and add one field row; returns the overlay getter. */
 function mountEditor(
 	heading: string,
 	addButton: string,
@@ -88,12 +82,11 @@ test("the capability key input filters its suggested vocabulary case-insensitive
 	const names = optionTexts(keyInput);
 	expect(names.length).toBeGreaterThan(0);
 	expect(names.every((name) => name.toLowerCase().includes("sup"))).toBe(true);
-	// The suggestions span the consumed vocabulary: core flags and the
-	// advisory-typed keys (caching flags, supported_openai_params) alike.
+	// The suggestions span the consumed vocabulary: core flags and the advisory-typed keys (caching flags,
+	// supported_openai_params) alike.
 	expect(names).toContain("supports_vision");
 	expect(names).toContain("supports_prompt_caching");
 	expect(names).toContain("supported_openai_params");
-	// Cost keys ride the list too.
 	fireInput(keyInput, "cost");
 	expect(optionTexts(keyInput)).toContain("input_cost_per_token");
 
@@ -101,7 +94,6 @@ test("the capability key input filters its suggested vocabulary case-insensitive
 	fireInput(keyInput, "router");
 	expect(optionTexts(keyInput)).toEqual(["_openrouter_model"]);
 
-	// No match closes the popup instead of showing an empty box.
 	fireInput(keyInput, "zzz");
 	expect(keyInput.getAttribute("aria-expanded")).toBe("false");
 });
@@ -133,8 +125,8 @@ test("arrows move the highlight with wrap-around, Enter accepts, and aria-active
 });
 
 test("ArrowDown reaches every suggestion in a long list and wraps back to the top", () => {
-	// The popup is max-height + scrollable; the highlight itself must still
-	// visit every option from the keyboard (the scroll-follow rides on it).
+	// The popup is max-height + scrollable; the highlight itself must still visit every option from the keyboard (the
+	// scroll-follow rides on it).
 	const section = mountEditor("Model capabilities", "Add capability matcher");
 	const keyInput = () => section().querySelector("input.key[placeholder^='Capability']") as HTMLInputElement;
 
@@ -147,7 +139,6 @@ test("ArrowDown reaches every suggestion in a long list and wraps back to the to
 		visited.push(listboxOf(keyInput())?.querySelector("[aria-selected='true']")?.textContent ?? "");
 	}
 	expect(visited).toEqual([...options]);
-	// One more wraps back to the first entry.
 	fireKeyDown(keyInput(), "ArrowDown");
 	expect(listboxOf(keyInput())?.querySelector("[aria-selected='true']")?.textContent).toBe(options[0] ?? "");
 });
@@ -162,8 +153,8 @@ test("Escape closes the listbox without picking; ArrowDown reopens onto a highli
 	expect(nameInput().getAttribute("aria-expanded")).toBe("false");
 	expect(nameInput().value).toBe("te");
 
-	// Reopening by arrow lands straight on an option: an unhighlighted reopen
-	// would send the very next Enter to Apply instead of accepting.
+	// Reopening by arrow lands straight on an option: an unhighlighted reopen would send the very next Enter to Apply
+	// instead of accepting.
 	fireKeyDown(nameInput(), "ArrowDown");
 	expect(nameInput().getAttribute("aria-expanded")).toBe("true");
 	const active = listboxOf(nameInput())?.querySelector("[aria-selected='true']");
@@ -186,11 +177,8 @@ test("an open listbox consumes Escape; a closed one lets it reach the enclosing 
 	expect(nameInput().getAttribute("aria-expanded")).toBe("true");
 	fireKeyDown(nameInput(), "Escape");
 	expect(nameInput().getAttribute("aria-expanded")).toBe("false");
-	// The overlay is still open: the listbox consumed that Escape.
 	expect(document.querySelector(".matcher-editor")).not.toBeNull();
 
-	// With nothing open, Escape is not the listbox's to consume: the overlay
-	// closes instead.
 	fireKeyDown(nameInput(), "Escape");
 	expect(document.querySelector(".matcher-editor")).toBeNull();
 });
@@ -253,8 +241,6 @@ test("the GLOBAL capability key suggestions extend with the cross-server observe
 	const names = optionTexts(keyInput());
 	expect(names).toContain("litellm_provider");
 	expect(names[0]).toBe("context_length");
-	// The observed block sits after the consumed vocabulary, sorted, with the
-	// directives closing the list.
 	const observedStart = names.indexOf("base_model");
 	expect(names.slice(observedStart)).toEqual([
 		"base_model",
@@ -264,7 +250,6 @@ test("the GLOBAL capability key suggestions extend with the cross-server observe
 		"_openrouter_model",
 	]);
 
-	// Filtering reaches the server names like any other suggestion.
 	fireInput(keyInput(), "litellm");
 	expect(optionTexts(keyInput())).toEqual(["litellm_provider"]);
 });
@@ -280,9 +265,8 @@ test("without an observed union the global capability suggestions stay the stati
 });
 
 test("the PARAMETERS editor's name suggestions ignore the observed capability vocabulary", () => {
-	// The autocomplete is capability-key only: request parameters are not
-	// model_info fields, so the server vocabulary must not leak into the
-	// parameter-name listbox.
+	// The autocomplete is capability-key only: request parameters are not model_info fields, so the server vocabulary
+	// must not leak into the parameter-name listbox.
 	const section = mountEditor("Model parameters", "Add model matcher", {
 		observedModelInfoKeys: ["litellm_provider"],
 	});
@@ -294,9 +278,8 @@ test("the PARAMETERS editor's name suggestions ignore the observed capability vo
 });
 
 test("the table's compact [+] add popover offers the same observed vocabulary as the overlay rows", () => {
-	// The two entry surfaces for a capability key - the matcher table's [+]
-	// chip and the full editor's rows - must draw on one list, or the popover
-	// would deny a key the overlay suggests.
+	// The two entry surfaces for a capability key - the matcher table's [+] chip and the full editor's rows - must draw
+	// on one list, or the popover would deny a key the overlay suggests.
 	mount(<App />);
 	pushToWebview(
 		statePush(

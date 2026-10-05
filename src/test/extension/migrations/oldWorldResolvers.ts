@@ -1,15 +1,13 @@
 /**
- * The FROZEN pre-redesign resolvers, pinned as test-local copies for the
- * migration fuzzer's old-world side (settingsRedesignOracle.ts): the live
- * resolvers were rewritten for the matcher/inheritance redesign, so the old
- * prefix/scoped semantics survive only here, trimmed to what the oracle
- * projects. Quarantined on purpose - nothing outside the oracle may import it.
+ * The FROZEN pre-redesign resolvers, pinned as test-local copies for the migration fuzzer's old-world side
+ * (settingsRedesignOracle.ts): the live resolvers were rewritten for the matcher/inheritance redesign, so the old
+ * prefix/scoped semantics survive only here, trimmed to what the oracle projects.
  */
 
 import type { ServerDeclaredCapabilities } from "../../../shared/config/capabilityResolution";
 
-// The pre-redesign vocabulary and policy constants, frozen LOCALLY: importing the
-// live ones would let a later vocabulary change mutate this oracle's old-world behavior.
+// The pre-redesign vocabulary and policy constants, frozen LOCALLY: importing the live ones would let a later
+// vocabulary change mutate this oracle's old-world behavior.
 const CAPABILITY_FIELDS = {
 	context_length: "number",
 	max_input_tokens: "number",
@@ -56,7 +54,6 @@ function parameterSkipReason(key: string): "underscore" | "provider-owned" | und
 
 const CATCH_ALL_PREFIX = "*";
 
-/** How many characters `prefix` pins down of `id`, or undefined when it does not match. */
 function prefixSpecificity(id: string, prefix: string): number | undefined {
 	if (prefix === CATCH_ALL_PREFIX) {
 		return 0;
@@ -82,7 +79,6 @@ export function findLongestPrefixEntry<T>(
 	return best === undefined ? undefined : { key: best.key, value: best.value };
 }
 
-/** The most specific scoped entry across all scopes; see the pre-redesign findScopedMatch for the tie rules. */
 export function findScopedMatch<T>(
 	rawId: string,
 	scopes: readonly string[],
@@ -117,9 +113,7 @@ export function findScopedMatch<T>(
 const FORCE_DIRECTIVE = "_force";
 
 export interface OldParsedParameterRecord {
-	/** Every key of the record except the directive; the open pass-through vocabulary stays open. */
 	readonly fields: Record<string, unknown>;
-	/** The field names the record's `_force` directive marks; always own keys of `fields`. */
 	readonly forced: ReadonlySet<string>;
 }
 
@@ -154,16 +148,13 @@ export function parseOldParameterRecord(record: Readonly<Record<string, unknown>
 export interface OldResolvedModelParameters {
 	readonly params: Record<string, unknown>;
 	readonly forcedParams: Readonly<Record<string, unknown>>;
-	/** Present when a scoped global match replaced the unscoped record WHOLE. */
 	readonly replacedUnscoped?: { readonly key: string; readonly record: Readonly<Record<string, unknown>> } | undefined;
 }
 
 /**
- * The pre-redesign parameter merge verbatim: any scoped global match replaces
- * the whole unscoped record (scoped ?? longest-unscoped), the entry record's
- * longest-prefix match overrides key by key, and forced fields win on top
- * (forced entry over forced global; a globally forced key beats an unforced
- * entry value).
+ * The pre-redesign parameter merge verbatim: any scoped global match replaces the whole unscoped record (scoped ??
+ * longest-unscoped), the entry record's longest-prefix match overrides key by key, and forced fields win on top (forced
+ * entry over forced global; a globally forced key beats an unforced entry value).
  */
 export function resolveOldModelParameters(input: {
 	readonly rawModelId: string;
@@ -212,11 +203,12 @@ function isCapabilityFieldName(key: string): key is CapabilityFieldName {
 export interface OldParsedCapabilityRecord {
 	readonly fields: Readonly<Partial<CapabilityFieldValues>>;
 	readonly declare: boolean;
-	/** The field names `_fallback` marks; always keys of `fields`. */
 	readonly fallback: readonly CapabilityFieldName[];
 }
 
-/** The pre-redesign capability-record parse, minus diagnostics and `_openrouter_model` (the oracle runs catalog-free). */
+/**
+ * The pre-redesign capability-record parse, minus diagnostics and `_openrouter_model` (the oracle runs catalog-free).
+ */
 export function parseOldCapabilityRecord(
 	record: Readonly<Record<string, unknown>>,
 	options: { readonly allowDeclare: boolean }
@@ -266,7 +258,6 @@ function isUrlScopedKey(key: string): boolean {
 	return key.includes("://");
 }
 
-/** The exact model ID a scoped key may declare: its longest remainder under the matching scopes. */
 function scopedDeclarableId(key: string, scopes: readonly string[]): string | undefined {
 	let remainder: string | undefined;
 	for (const scope of scopes) {
@@ -280,7 +271,6 @@ function scopedDeclarableId(key: string, scopes: readonly string[]): string | un
 	return remainder === "" || remainder === CATCH_ALL_PREFIX ? undefined : remainder;
 }
 
-/** The pre-redesign `_declare` extraction: exact entry keys plus scoped global remainders, entry-over-global dedupe. */
 export function extractOldDeclaredModels(input: {
 	readonly globalCapabilities: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 	readonly serverScopes: readonly string[];
@@ -307,21 +297,16 @@ export function extractOldDeclaredModels(input: {
 }
 
 export interface OldResolvedCapabilityOverrides {
-	/** Per field, the winning override value (entry over global, fallback-demoted fields excluded). */
 	readonly overrides: Partial<Record<CapabilityFieldName, number | boolean>>;
-	/** Per field, the highest fallback candidate's value (entry-fallback over global-fallback). */
 	readonly fallbacks: Partial<Record<CapabilityFieldName, number | boolean>>;
-	/** Present when a scoped global match replaced the unscoped record WHOLE. */
 	readonly replacedUnscoped?: { readonly key: string; readonly record: Readonly<Record<string, unknown>> } | undefined;
 }
 
 /**
- * The pre-redesign capability override/fallback resolution at value level: the
- * scoped-replaces-unscoped global merge, the entry-over-global field chain, and
- * the `_declare`+`_fallback` ban (a record whose declaration creates the resolved
- * model keeps its fields as overrides). `liftDeclareFallbackBan` disables the ban,
- * which the redesign RETIRES; the oracle compares against these ban-free semantics
- * and pins the ban itself as a documented divergence.
+ * The pre-redesign capability override/fallback resolution at value level: the scoped-replaces-unscoped global merge,
+ * the entry-over-global field chain, and the `_declare`+`_fallback` ban (a record whose declaration creates the
+ * resolved model keeps its fields as overrides). `liftDeclareFallbackBan` disables the ban, which the redesign RETIRES;
+ * the oracle compares against these ban-free semantics and pins the ban itself as a documented divergence.
  */
 export function resolveOldCapabilityOverrides(input: {
 	readonly rawModelId: string;
@@ -380,33 +365,27 @@ export function resolveOldCapabilityOverrides(input: {
 	return { overrides, fallbacks, ...(replacedUnscoped !== undefined ? { replacedUnscoped } : {}) };
 }
 
-/** One deprecated default* token setting: its effective value and whether the user really set it. */
 export interface OldCapabilityTokenDefaults {
 	readonly contextLength: { readonly value: number; readonly explicitlyConfigured: boolean };
 	readonly maxOutputTokens: { readonly value: number; readonly explicitlyConfigured: boolean };
 	readonly maxInputTokens: number | undefined;
 }
 
-/** The effective capability values the pre-redesign full walk resolves (values only, catalog-free). */
 type OldEffectiveCapabilityValues = { readonly [K in CapabilityFieldName]: number | boolean };
 
-/** The pre-redesign walk's result plus the wire-clamp provenance of the output limit. */
 export interface OldWalkResult {
 	readonly fields: OldEffectiveCapabilityValues;
 	/**
-	 * Old USER_SET_LEVELS semantics: override and fallback levels are "user"
-	 * (uncapped on the wire), the server level is "provider" only under
-	 * outputDeclared, and default-setting and floor stay "defaults" (min(4096, limit)).
+	 * Old USER_SET_LEVELS semantics: override and fallback levels are "user" (uncapped on the wire), the server level
+	 * is "provider" only under outputDeclared, and default-setting and floor stay "defaults" (min(4096, limit)).
 	 */
 	readonly outputLimitSource: "user" | "provider" | "defaults";
 }
 
 /**
- * The pre-redesign full capability walk at value level, catalog-free: entry >
- * global > server > fallbacks > explicitly-configured default* setting >
- * floor, with defaultMaxInputTokens keeping its quirk of beating even the
- * server-declared max input, and max_input_tokens deriving
- * max(1, context - output) as its backstop.
+ * The pre-redesign full capability walk at value level, catalog-free: entry > global > server > fallbacks >
+ * explicitly-configured default* setting > floor, with defaultMaxInputTokens keeping its quirk of beating even the
+ * server-declared max input, and max_input_tokens deriving max(1, context - output) as its backstop.
  */
 export function resolveOldModelCapabilities(input: {
 	readonly rawModelId: string;

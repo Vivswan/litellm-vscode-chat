@@ -10,7 +10,6 @@ import {
 import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
-// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
 const SEED = resolveFuzzSeed();
 
 describe("provider/transport/fim buildFimPrompt", () => {
@@ -27,8 +26,8 @@ describe("provider/transport/fim buildFimPrompt", () => {
 		assert.strictEqual(atBudget.suffix, suffixAtBudget);
 
 		const over = buildFimPrompt({ prefix: `A${prefixAtBudget}`, suffix: `${suffixAtBudget}Z` });
-		// The prefix truncates FROM THE LEFT (the tail nearest the cursor
-		// survives); the suffix truncates from the right (the head survives).
+		// The prefix truncates FROM THE LEFT (the tail nearest the cursor survives); the suffix truncates from the
+		// right (the head survives).
 		assert.strictEqual(over.prompt, prefixAtBudget);
 		assert.strictEqual(over.prompt.length, FIM_PREFIX_BUDGET);
 		assert.strictEqual(over.suffix, suffixAtBudget);
@@ -50,8 +49,8 @@ describe("provider/transport/fim buildFimPrompt", () => {
 	});
 
 	test("placeholder-looking document text is never re-expanded", () => {
-		// The prefix itself spells {suffix}; a naive sequential replace would
-		// substitute into it. The single-pass rule keeps document text literal.
+		// The prefix itself spells {suffix}; a naive sequential replace would substitute into it. The single-pass rule
+		// keeps document text literal.
 		const result = buildFimPrompt({ prefix: "A{suffix}B", suffix: "S", fimTemplate: "<{prefix}>[{suffix}]" });
 		assert.strictEqual(result.prompt, "<A{suffix}B>[S]");
 		assert.strictEqual(result.suffix, undefined);
@@ -92,8 +91,8 @@ describe("provider/transport/fim buildFimPrompt", () => {
 	}
 
 	test("a cut landing inside a surrogate pair drops the severed half instead of sending it", () => {
-		// 8001 units: the budget cut severs the first emoji, leaving its low
-		// surrogate at the head; the lone unit is dropped.
+		// 8001 units: the budget cut severs the first emoji, leaving its low surrogate at the head; the lone unit is
+		// dropped.
 		const prefix = `${"\u{1F600}".repeat(FIM_PREFIX_BUDGET / 2)}b`;
 		const prefixResult = buildFimPrompt({ prefix, suffix: "" });
 		assert.strictEqual(prefixResult.prompt.length, FIM_PREFIX_BUDGET - 1);
@@ -168,11 +167,10 @@ function expandOracle(template: string, prefix: string, suffix: string): string 
 }
 
 describe("provider/transport/fim properties", () => {
-	// ASCII-only ON PURPOSE: without surrogates the raw slice IS the truncation
-	// rule, so the oracle below stays exact and independent; the unicode
-	// property owns the surrogate-boundary behavior. Some runs must exceed the
-	// budget by construction - fast-check's default sizes never would, and a
-	// property whose truncation branch never runs proves nothing.
+	// ASCII-only ON PURPOSE: without surrogates the raw slice IS the truncation rule, so the oracle below stays exact
+	// and independent; the unicode property owns the surrogate-boundary behavior. Some runs must exceed the budget by
+	// construction - fast-check's default sizes never would, and a property whose truncation branch never runs proves
+	// nothing.
 	const contextArb = fc.oneof(
 		fc.string({ maxLength: 40 }),
 		fc.string({ minLength: FIM_PREFIX_BUDGET + 1, maxLength: FIM_PREFIX_BUDGET + 200 })
@@ -222,10 +220,9 @@ describe("provider/transport/fim properties", () => {
 	});
 
 	test("truncation keeps well-formed unicode well-formed and stays a window of the input", () => {
-		// unit: "binary" generates whole code points, so inputs are well-formed
-		// by construction. minLength counts CODE POINTS: astral-heavy strings
-		// land far past the UTF-16 budgets, so the cut branch runs on the
-		// oversized samples (asserted below, not assumed).
+		// unit: "binary" generates whole code points, so inputs are well-formed by construction. minLength counts CODE
+		// POINTS: astral-heavy strings land far past the UTF-16 budgets, so the cut branch runs on the oversized
+		// samples (asserted below, not assumed).
 		const overBudgetArb = fc.string({
 			unit: "binary",
 			minLength: FIM_PREFIX_BUDGET + 1,

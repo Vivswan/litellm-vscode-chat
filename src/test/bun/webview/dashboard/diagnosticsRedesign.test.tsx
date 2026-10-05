@@ -1,8 +1,3 @@
-/**
- * The Diagnostics destination's Configuration section (which diagnostics it
- * shows, how it ranks them, what it refuses to repeat) and the Resolution view
- * (tree, flat provenance table, filter, the per-row jump to the inspectors).
- */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ConfigDiagnosticView, ResolvedModelsView } from "../../../../dashboard/viewModels";
 import { DiagnosticsSection, pageConfigDiagnostics } from "../../../../webview/dashboard/diagnostics";
@@ -89,8 +84,6 @@ function mountDiagnostics(options: {
 		stateSeq: 0,
 		onInspect: options.onInspect ?? (() => undefined),
 	};
-	// Mounting posts the readResolvedModels request; answering it through the
-	// window delivers the view exactly like the extension would.
 	const root = mount(<DiagnosticsSection currencySymbol="$" {...props} />);
 	respondTo(lastRequest("readResolvedModels"), { view: options.view ?? makeView() });
 	return { root };
@@ -112,7 +105,6 @@ describe("Configuration diagnostics", () => {
 		);
 	}
 
-	/** What a sighted reader sees: the node's text minus the screen-reader-only parts. */
 	function sightedText(element: Element | null | undefined): string {
 		if (element === null || element === undefined) {
 			return "";
@@ -127,20 +119,19 @@ describe("Configuration diagnostics", () => {
 	test("clean settings keep the section and say so in one clause", () => {
 		const root = mountConfig([]);
 		expect(root.querySelector(".config-diagnostics")).toBeNull();
-		// The section itself stays: the destination's shape must not change
-		// under the reader between a clean install and a broken one.
+		// The section itself stays: the destination's shape must not change under the reader between a clean install
+		// and a broken one.
 		expect(root.querySelector("#config-diagnostics-section")).not.toBeNull();
-		// Pinned exactly, not by substring: the healthy state is a place prose
-		// regrows, and a `toContain` would pass against a paragraph again.
+		// Pinned exactly, not by substring: the healthy state is a place prose regrows, and a `toContain` would pass
+		// against a paragraph again.
 		expect(root.querySelector("#config-diagnostics-section p.hint")?.textContent).toBe("Your settings read cleanly.");
 		// Nothing to act on means no count beside the title.
 		expect(root.textContent).not.toContain("needs attention");
 	});
 
 	test("two records failing on the same field stay tellable apart", () => {
-		// The record key left five of the seven sentences when they were cut to
-		// one clause; without it as a location chip these rows are byte-identical
-		// and neither names the record the reader has to go find.
+		// The record key left five of the seven sentences when they were cut to one clause; without it as a location
+		// chip these rows are byte-identical and neither names the record the reader has to go find.
 		const root = mountConfig([
 			{
 				kind: "record",
@@ -206,9 +197,8 @@ describe("Configuration diagnostics", () => {
 		const root = mountConfig(diagnostics);
 		const items = Array.from(root.querySelectorAll(".config-diagnostics li"));
 		expect(items).toHaveLength(4);
-		// Ranked by what it costs, not by the order the host emitted them: the
-		// two wholly inert pieces of configuration first, then the partly
-		// ignored one, then the field that applies as written.
+		// Ranked by what it costs, not by the order the host emitted them: the two wholly inert pieces of configuration
+		// first, then the partly ignored one, then the field that applies as written.
 		expect(items.map((li) => li.className)).toEqual([
 			"row-diagnostic tier-error",
 			"row-diagnostic tier-error",
@@ -218,14 +208,13 @@ describe("Configuration diagnostics", () => {
 		const text = items.map((li) => li.textContent ?? "");
 		expect(text[0]).toContain('"gpt*5"');
 		expect(text[1]).toContain("https://gw/gpt-4");
-		// The remedy ("move it into that server entry's record") lives behind
-		// Learn more: one consequence clause is the whole visible budget.
+		// The remedy ("move it into that server entry's record") lives behind Learn more: one consequence clause is the
+		// whole visible budget.
 		expect(text[1]).toContain("Learn more");
 		expect(text[2]).toContain("2");
 		expect(text[3]).toContain('"supports_web_search"');
-		// The count beside the title excludes the advisory (the configuration
-		// applies as written), but carries the total too, because the rail badge
-		// counts the whole list and "3" beside a list of 4 is a question.
+		// The count beside the title excludes the advisory (the configuration applies as written), but carries the
+		// total too, because the rail badge counts the whole list and "3" beside a list of 4 is a question.
 		expect(root.querySelector(".section-meta")?.textContent).toBe("3 of 4 need attention");
 	});
 
@@ -239,8 +228,7 @@ describe("Configuration diagnostics", () => {
 			},
 		]);
 		const headline = sightedText(root.querySelector(".config-diagnostics .row-diagnostic-headline"));
-		// One clause: the consequence, then the cause, then stop. The matcher
-		// grammar the sentence used to recite lives behind this row's Learn more.
+		// The matcher grammar the sentence used to recite lives behind this row's Learn more.
 		expect(headline).toBe('Nothing in record "gpt*5" is applied: that is not a valid matcher key.');
 		expect(headline).not.toContain("trailing-*");
 		expect(root.querySelector(".row-diagnostic-actions a")?.textContent).toBe("Learn more");
@@ -257,8 +245,6 @@ describe("Configuration diagnostics", () => {
 			},
 		]);
 		const badges = Array.from(root.querySelectorAll(".row-diagnostic-where .chip-prov")).map((el) => el.textContent);
-		// Setting, then entry, then the record - a path to the exact object,
-		// all machine text, none of it folded into the sentence.
 		expect(badges).toEqual(["models.parameters", "entry prod", "gpt-4"]);
 		expect(root.querySelector(".row-diagnostic-headline")?.textContent).not.toContain("(models.parameters)");
 	});
@@ -305,8 +291,8 @@ describe("Configuration diagnostics", () => {
 			},
 			{ kind: "hidden-groups", labels: ["prod-hidden", "staging-hidden"], severity: "warning" },
 		];
-		// The filter is shared with the rail's badge, so the count above the
-		// destination can never disagree with the list inside it.
+		// The filter is shared with the rail's badge, so the count above the destination can never disagree with the
+		// list inside it.
 		expect(pageConfigDiagnostics(diagnostics)).toEqual([]);
 		const root = mountConfig(diagnostics);
 		expect(root.querySelector(".config-diagnostics")).toBeNull();
@@ -315,9 +301,8 @@ describe("Configuration diagnostics", () => {
 	});
 
 	test("a rejected entry with NO row of its own still reports here: nothing else states it", () => {
-		// The host refuses a row to rejects without a drawable identity and leaves
-		// them to this list, so keying the filter on `misconfigured` alone would
-		// erase the user's broken entry from both surfaces at once.
+		// The host refuses a row to rejects without a drawable identity and leaves them to this list, so keying the
+		// filter on `misconfigured` alone would erase the user's broken entry from both surfaces at once.
 		const diagnostics: ConfigDiagnosticView[] = [
 			{
 				kind: "entry",
@@ -358,8 +343,8 @@ describe("Configuration diagnostics", () => {
 		expect(item?.querySelector(".row-diagnostic-headline")?.textContent).toContain(
 			'Server entry "prod" runs without part of its configuration.'
 		);
-		// The parser's structural report stays English by policy and rides its
-		// own line rather than being spliced into the sentence.
+		// The parser's structural report stays English by policy and rides its own line rather than being spliced into
+		// the sentence.
 		expect(item?.querySelector(".row-diagnostic-detail")?.textContent).toBe("dropped an unknown discovery key");
 	});
 
@@ -379,9 +364,8 @@ describe("Configuration diagnostics", () => {
 				severity: "advisory",
 			},
 		]);
-		// Severity rides hue, a wash, and the rule's weight on screen - none of
-		// which a screen reader can report. Without the hidden word the three
-		// tiers announce identically and the sort is invisible.
+		// Severity rides hue, a wash, and the rule's weight on screen - none of which a screen reader can report.
+		// Without the hidden word the three tiers announce identically and the sort is invisible.
 		const spoken = Array.from(root.querySelectorAll(".row-diagnostic-headline .visually-hidden")).map(
 			(el) => el.textContent
 		);
@@ -390,8 +374,7 @@ describe("Configuration diagnostics", () => {
 
 	test("the host's advisory stamp caps every kind, not just record lints", () => {
 		const root = mountConfig([{ kind: "thresholds", dropped: 1, severity: "advisory" }]);
-		// A diagnostic the rail badge leaves untinted must not render as an
-		// actionable row underneath it.
+		// A diagnostic the rail badge leaves untinted must not render as an actionable row underneath it.
 		expect(root.querySelector(".config-diagnostics li")?.className).toBe("row-diagnostic tier-advisory");
 	});
 
@@ -409,8 +392,8 @@ describe("Configuration diagnostics", () => {
 				diagnostic: { kind: "invalid-value", recordKey: "claude-*", key: "top_p" },
 				severity: "warning",
 			},
-			// Two lints inside ONE record: the record key alone would name both
-			// buttons identically, so the offending field has to ride along.
+			// Two lints inside ONE record: the record key alone would name both buttons identically, so the offending
+			// field has to ride along.
 			{
 				kind: "record",
 				setting: "models.parameters",
@@ -429,9 +412,8 @@ describe("Configuration diagnostics", () => {
 	});
 
 	test("an accepted and a rejected entry sharing a label keep separate keys and button names", () => {
-		// A reject can reuse a label an accepted entry already owns, and the two
-		// diagnostics must not collapse onto one React key - that would drop a
-		// problem from the page and move focus to the wrong block on a push.
+		// A reject can reuse a label an accepted entry already owns, and the two diagnostics must not collapse onto one
+		// React key - that would drop a problem from the page and move focus to the wrong block on a push.
 		const root = mountConfig([
 			{
 				kind: "entry",
@@ -463,9 +445,8 @@ describe("Configuration diagnostics", () => {
 	});
 
 	test("one leftover key in both record settings renders as two blocks, not one", () => {
-		// collectLegacyHints emits an inert-url-scoped-key hint per setting with
-		// the same oldKey, differing only in `detail`; a key without it collides
-		// and React drops a block.
+		// collectLegacyHints emits an inert-url-scoped-key hint per setting with the same oldKey, differing only in
+		// `detail`; a key without it collides and React drops a block.
 		const root = mountConfig([
 			{
 				kind: "legacy",
@@ -505,13 +486,11 @@ describe("Configuration diagnostics", () => {
 
 describe("Resolved models", () => {
 	test("the resolution view carries no standing paragraph around the tree", () => {
-		// The tree and the table ARE the explanation; a paragraph above them was
-		// read once and scrolled past forever. Pinned so it cannot regrow.
+		// The tree and the table ARE the explanation; a paragraph above them was read once and scrolled past forever.
 		const { root } = mountDiagnostics({});
 		const section = root.querySelector("#resolution-section") as HTMLElement;
 		expect(section.textContent).not.toContain("precomputed resolution");
 		expect(section.textContent).not.toContain("never part of issue reports");
-		// The concept still has a home: the header's help affordance.
 		expect(section.querySelector(".section-head .tip-bubble")?.textContent).toContain("Which record set each value");
 	});
 
@@ -573,8 +552,8 @@ describe("Resolved models", () => {
 	});
 
 	test("every table chip speaks the one provenance vocabulary, phrase register included", () => {
-		// The chips must render EXACTLY what the shared phrase functions say for the
-		// fixture's cells: a local level-word literal in the table is the drift this pins out.
+		// The chips must render EXACTLY what the shared phrase functions say for the fixture's cells: a local
+		// level-word literal in the table is the drift this pins out.
 		const { root } = mountDiagnostics({});
 		const chips = Array.from(root.querySelectorAll("table.resolved-models .chip-prov")).map((chip) => chip.textContent);
 		expect(chips).toEqual([
@@ -586,9 +565,8 @@ describe("Resolved models", () => {
 	});
 
 	test("an invalid matcher key is told once: Configuration owns the verdict, the tree points", () => {
-		// The tree names the key (a record the reader wrote must not silently
-		// vanish from the figure) but defers the verdict to the ranked row above,
-		// so the outcome is told exactly once.
+		// The tree names the key (a record the reader wrote must not silently vanish from the figure) but defers the
+		// verdict to the ranked row above, so the outcome is told exactly once.
 		const { root } = mountDiagnostics({
 			diagnostics: [
 				{
@@ -618,8 +596,6 @@ describe("Resolved models", () => {
 		if (filter === null) {
 			throw new Error("no filter input");
 		}
-		// "show everything gpt-5* touched": the matcher key matches the row even
-		// though the text is not part of the model ID.
 		fireInput(filter, "gpt-5*");
 		const rows = Array.from(root.querySelectorAll("table.resolved-models tbody tr"));
 		expect(rows).toHaveLength(1);
@@ -646,8 +622,7 @@ describe("Resolved models", () => {
 	});
 
 	test("an empty Parameters cell is the Absent idiom: a hidden dash with the reason for screen readers", () => {
-		// The claude-4 row resolves no parameters. A bare "-" reads as nothing to
-		// a screen reader, so the dash is decoration and the words carry the fact.
+		// A bare "-" reads as nothing to a screen reader, so the dash is decoration and the words carry the fact.
 		const { root } = mountDiagnostics({});
 		const rows = Array.from(root.querySelectorAll("table.resolved-models tbody tr"));
 		const cell = rows.find((row) => row.textContent?.includes("claude-4"))?.querySelector(".resolved-cells");
@@ -675,7 +650,6 @@ describe("Resolved models", () => {
 			candidate.textContent?.includes("bare-model")
 		);
 		const cells = Array.from(row?.querySelectorAll(".resolved-cells") ?? []);
-		// Both the Parameters and the Capabilities cell speak their absence.
 		expect(cells).toHaveLength(2);
 		for (const cell of cells) {
 			expect(cell.querySelector('span.hint [aria-hidden="true"]')?.textContent).toBe("-");
@@ -710,17 +684,14 @@ describe("Resolved models", () => {
 		expect(text).toContain("Input $5.00");
 		expect(text).toContain("Output $25.00");
 		expect(text).toContain("Cache read $0.50");
-		// Never scientific notation on the rendered line; the exact per-token
-		// wire values stay one focusable tip away, keyed by their wire names.
+		// Never scientific notation on the rendered line; the exact per-token wire values stay one focusable tip away,
+		// keyed by their wire names.
 		expect(text).not.toMatch(/\$\de[+-]?\d|\$\d*\.?\d+e/);
 		const lineTip = pricing?.querySelector(".tip-wrap");
 		expect(lineTip?.getAttribute("tabindex")).toBe("0");
 		expect(lineTip?.querySelector('[role="tooltip"]')?.textContent).toContain("cache_read_input_token_cost 5e-7");
-		// Uniform source: exactly one provenance chip on the whole line.
 		expect(pricing?.querySelectorAll(".chip-prov").length).toBe(1);
 		expect(pricing?.querySelector(".chip-prov")?.textContent).toBe("server");
-		// The non-cost field keeps its own cell, friendly-labeled, with the
-		// wire key on a focusable tip of its own.
 		const context = cells.find((cell) => cell.textContent?.includes("Context length"));
 		expect(context?.textContent).toContain("200000");
 		const contextTip = context?.querySelector(".tip-wrap");
@@ -752,9 +723,8 @@ describe("Resolved models", () => {
 		);
 		const parts = Array.from(pricing?.querySelectorAll(".resolved-price-part") ?? []);
 		expect(parts).toHaveLength(3);
-		// The dominant source's chip LEADS the line ("default: X, except where
-		// noted"); dominant parts carry no chip and only the outlier badges
-		// itself.
+		// The dominant source's chip LEADS the line ("default: X, except where noted"); dominant parts carry no chip
+		// and only the outlier badges itself.
 		expect(parts[0]?.querySelector(".chip-prov")).toBeNull();
 		expect(parts[1]?.querySelector(".chip-prov")).toBeNull();
 		expect(parts[2]?.querySelector(".chip-prov")?.textContent).toBe("entry gpt-5.6");
@@ -806,14 +776,12 @@ describe("Resolved models", () => {
 		const cell = Array.from(root.querySelectorAll("table.resolved-models .resolved-cell")).find((candidate) =>
 			candidate.textContent?.includes("Supported parameters")
 		);
-		// The tip is focusable and carries the wire key plus the exact wire
-		// value: element boundaries survive.
 		const tip = cell?.querySelector(".tip-wrap");
 		expect(tip?.getAttribute("tabindex")).toBe("0");
 		expect(tip?.querySelector('[role="tooltip"]')?.textContent).toBe(`supported_openai_params ${JSON.stringify(list)}`);
 		expect(cell?.querySelector(".chip-prov")?.textContent).toBe("server");
-		// The visible cell shows only the bare count - the label beside it
-		// already says "parameters" - and the array lives in the tip.
+		// The visible cell shows only the bare count - the label beside it already says "parameters" - and the array
+		// lives in the tip.
 		expect(cell?.querySelector(".tip-wrap > span:not(.tip-bubble)")?.textContent).toBe("5");
 	});
 

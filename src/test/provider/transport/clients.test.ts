@@ -18,10 +18,8 @@ function config(overrides: Partial<ServerClientConfig> = {}): ServerClientConfig
 }
 
 /**
- * Issue a GET through the client against an msw handler and capture the
- * outgoing request. The transport reads http.request off the module at call
- * time, so msw's ClientRequest patch applies even to clients constructed
- * before the server started.
+ * The transport reads http.request off the module at call time, so msw's ClientRequest patch applies even to clients
+ * constructed before the server started.
  */
 async function captureGet(
 	client: OpenAI,

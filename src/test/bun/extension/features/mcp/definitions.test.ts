@@ -69,9 +69,10 @@ describe("extension/features/mcp/definitions", () => {
 	});
 
 	test("the published URI IS the shared derivation the server form promises", () => {
-		// The form's hint names the address an empty endpoint will publish. It
-		// gets that address from mcpEndpointOf; so does the publisher. Pinning
-		// the identity here is what keeps the promise from drifting into a lie.
+		// The form's hint names the address an empty endpoint will publish. It gets that address from mcpEndpointOf; so
+		// does the publisher.
+		//
+		//   Pinning the identity here -> keeps the promise from drifting into a lie
 		for (const baseUrl of [
 			"http://localhost:4000",
 			"http://localhost:4000/",

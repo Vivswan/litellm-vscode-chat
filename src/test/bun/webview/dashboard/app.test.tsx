@@ -1,7 +1,3 @@
-/**
- * App-level behavior: the ready handshake, the message guard, the state fan out, and which failure notices a state
- * push retires (the acked-method contract documented on App and the endpoint table).
- */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
@@ -21,8 +17,8 @@ import {
 } from "../harness";
 
 /**
- * Every rail item's label and count, each read from the element that holds it: the button's text run also carries
- * the tip the collapsed rail shows, so it is not a label by itself.
+ * Every rail item's label and count, each read from the element that holds it: the button's text run also carries the
+ * tip the collapsed rail shows, so it is not a label by itself.
  */
 function railCounts(root: ParentNode): Record<string, string | undefined> {
 	return Object.fromEntries(
@@ -72,15 +68,13 @@ test("a full state push replaces the skeleton with the rail's verdict and counts
 	expect(counts.Servers).toBe("2");
 	expect(counts.Models).toBe("3");
 	expect(counts.Diagnostics).toBeUndefined();
-	// The state fanned out to the sections.
 	expect(root.textContent).toContain("Broken");
 	expect(root.textContent).toContain("connect ECONNREFUSED");
 });
 
 test("a hidden-only state renders the connected zero-model hero, never Not configured", () => {
-	// Hidden groups leave the servers array entirely; the shell must pass
-	// state.hiddenGroups.length through to the verdict, or the hero reads
-	// "Not configured" beside a warning status bar.
+	//   the shell -> must pass state.hiddenGroups.length through to the verdict, or the hero reads "Not configured"
+	//                beside a warning status bar
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
@@ -107,16 +101,12 @@ test("unknown message types and non-object event data are ignored without crashi
 	expect(root.textContent).toContain("Kept");
 	expect(root.querySelector("main[aria-label='Loading']")).toBeNull();
 
-	// And a subsequent valid push still applies.
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Applied" })] })));
 	expect(root.textContent).toContain("Applied");
 	expect(root.textContent).not.toContain("Kept");
 });
 
 test("a setNumberSetting intentFailed lands on the Settings page and the next state push retires it", () => {
-	// Scalar-write failures render inside the settings section (placed by the
-	// row the envelope names, or its top line for a row-less fail like this
-	// one) rather than on the shared pane top; the store retires them on push.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	pushToWebview({
@@ -143,8 +133,7 @@ test("an executeCommand intentFailed keeps the pane-top line: it is posted from 
 		message: "the command bounced",
 		failureKind: "operation",
 	});
-	// Announced on arrival: an error line with no live role is invisible to a
-	// reader who is anywhere else on the page.
+	// Announced on arrival: an error line with no live role is invisible to a reader who is anywhere else on the page.
 	const notice = root.querySelector(".pane > p.error[role='alert']");
 	expect(notice?.textContent).toContain("The last change did not apply: the command bounced");
 
@@ -170,9 +159,8 @@ test("a refused write is visible from another tab, and announced exactly once pe
 	const away = root.querySelector(".pane > p.error[role='alert']");
 	expect(away?.textContent).toContain("The last change did not apply: the write was refused");
 
-	// On Settings the owning row claims the notice in its covered slot and the
-	// away line stands down; the failure was already spoken, so the row's line
-	// renders WITHOUT the role.
+	// On Settings the owning row claims the notice in its covered slot and the away line stands down; the failure was
+	// already spoken, so the row's line renders WITHOUT the role.
 	const settingsTab = root.querySelector("#tab-settings");
 	if (!(settingsTab instanceof HTMLElement)) {
 		throw new Error("no settings rail tab");
@@ -183,8 +171,6 @@ test("a refused write is visible from another tab, and announced exactly once pe
 	expect(claimed?.textContent).toContain("The last change did not apply: the write was refused");
 	expect(claimed?.getAttribute("role")).toBeNull();
 
-	// Navigating away again re-mounts the pane-top line for the SAME standing
-	// failure: still visible, still silent.
 	const serversTab = root.querySelector("#tab-overview");
 	if (!(serversTab instanceof HTMLElement)) {
 		throw new Error("no servers rail tab");
@@ -209,11 +195,9 @@ test("a refused write is visible from another tab, and announced exactly once pe
 });
 
 test("a Features-owned failure routes by the owner map: away everywhere else, claimed on Features, never on Settings", () => {
-	// The away line keys on the failure's OWN page (SETTING_ROW_PAGES), not on
-	// "am I on Settings": a setFeatureModel refusal must stand visible from the
-	// Settings tab and stand down only on the Features tab, where its row
-	// claims it. A map regression routing feature rows to "settings" fails
-	// both halves of this test.
+	// The away line keys on the failure's OWN page (SETTING_ROW_PAGES), not on "am I on Settings": a setFeatureModel
+	// refusal must stand visible from the Settings tab and stand down only on the Features tab, where its row claims
+	// it.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	pushToWebview({
@@ -229,8 +213,6 @@ test("a Features-owned failure routes by the owner map: away everywhere else, cl
 		"The last change did not apply: the pick was refused"
 	);
 
-	// SETTINGS is not the owning page: the away line must STILL stand there,
-	// and no settings row may claim the notice.
 	const settingsTab = root.querySelector("#tab-settings");
 	if (!(settingsTab instanceof HTMLElement)) {
 		throw new Error("no settings rail tab");
@@ -241,8 +223,6 @@ test("a Features-owned failure routes by the owner map: away everywhere else, cl
 	);
 	expect(root.querySelector("#panel-settings .setting-hint .error")).toBeNull();
 
-	// FEATURES is the owning page: the away line stands down and the model
-	// row's covered slot claims the notice.
 	const featuresTab = root.querySelector("#tab-features");
 	if (!(featuresTab instanceof HTMLElement)) {
 		throw new Error("no features rail tab");
@@ -269,8 +249,6 @@ test("a Settings-owned failure stays an away line while the Features tab is acti
 		throw new Error("no features rail tab");
 	}
 	fireClick(featuresTab);
-	// Features does not own usage.currencySymbol, so the away line stands and
-	// no feature row claims it.
 	expect(root.querySelector(".pane > p.error")?.textContent).toContain(
 		"The last change did not apply: the write was refused"
 	);
@@ -293,7 +271,6 @@ test("a saveServerSetting fail notice survives a subsequent state push", () => {
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
 	expect(root.textContent).toContain("the group upsert failed");
 
-	// Its own success is what retires it.
 	pushToWebview({ kind: "ack", id: "req-2", method: "saveServerSetting" });
 	expect(root.textContent).not.toContain("the group upsert failed");
 });
@@ -336,9 +313,6 @@ test("the rail carries one quiet Report-a-bug action that posts the reportIssue 
 });
 
 test("the Diagnostics table's inspector opens in place over the tab and closing stays there", () => {
-	// The inspector is an App-level overlay: opening it from the Resolved-models
-	// table must not switch to the overview tab, and closing it must leave the
-	// Diagnostics page exactly as the reader left it.
 	const model = makeModel({ id: "gpt-4o", rawId: "gpt-4o", name: "Omni", scopeKey: "s0" });
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()], models: [model] })));
@@ -347,7 +321,6 @@ test("the Diagnostics table's inspector opens in place over the tab and closing 
 	const diagnosticsTab = () => root.querySelector("#tab-diagnostics") as HTMLButtonElement;
 	expect(diagnosticsTab().getAttribute("aria-selected")).toBe("true");
 
-	// Answer the tab's readResolvedModels with one row for the model.
 	respondTo(lastRequest("readResolvedModels"), {
 		view: {
 			trees: [],
@@ -368,9 +341,7 @@ test("the Diagnostics table's inspector opens in place over the tab and closing 
 	const row = root.querySelector("table.resolved-models tbody tr") as HTMLElement;
 	fireClick(buttonByText(row, "Inspect"));
 	expect(document.querySelector("[role='dialog']")).not.toBeNull();
-	// No tab switch: the overlay rides over the Diagnostics page.
 	expect(diagnosticsTab().getAttribute("aria-selected")).toBe("true");
-	// The merged panel asks both feeds about exactly the clicked row.
 	for (const method of ["readModelParameters", "readModelCapabilities"] as const) {
 		const read = postedRequests(method).at(-1);
 		expect(read).not.toBeUndefined();

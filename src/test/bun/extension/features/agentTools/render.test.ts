@@ -1,8 +1,6 @@
 /**
- * The agent-tools text shaping: what a model reads back. Pinned as whole
- * outputs, because a shaped reply that drops a section or echoes an
- * unredacted response body fails only in the agent's context window, where
- * no test would notice.
+ * Pinned as whole outputs, because a shaped reply that drops a section or echoes an unredacted response body fails only
+ * in the agent's context window, where no test would notice.
  */
 import { describe, expect, test } from "bun:test";
 import type { AgentRequest } from "../../../../../extension/features/agentTools/planner";
@@ -31,9 +29,8 @@ const LEAKED_MARKER = "bearer-marker-9f8e7d";
 const redact = (text: string): string => text.replaceAll(LEAKED_MARKER, "[redacted]");
 
 describe("agentTools render", () => {
-	// Drifts silently: a server row's error is the transport's display text
-	// and embeds the response body, which can echo the request's own
-	// Authorization header; the row must pass through the report's redaction.
+	// Drifts silently: a server row's error is the transport's display text and embeds the response body, which can
+	// echo the request's own Authorization header; the row must pass through the report's redaction.
 	test("a server row in error comes out of shapeConfiguration with both error texts redacted", () => {
 		const failing = makeState({
 			servers: [
@@ -56,8 +53,8 @@ describe("agentTools render", () => {
 		]);
 	});
 
-	// Drifts silently: a probe failure's message carries the transport error,
-	// so a fail reply echoed verbatim hands the agent the response body.
+	// Drifts silently: a probe failure's message carries the transport error, so a fail reply echoed verbatim hands the
+	// agent the response body.
 	test("a fail reply's message is redacted by shapeSubmission", () => {
 		const request: AgentRequest = { method: "testServerDraft", payload: null };
 		const shaped = shapeSubmission(
@@ -138,9 +135,8 @@ describe("agentTools render", () => {
 		},
 	];
 
-	// Drifts silently: a response-derived string (server error, latest error,
-	// log line) reaching the agent without the issue reporter's redaction, or
-	// the stack, which the report itself never includes, riding along.
+	//   Drifts silently -> a response-derived string (server error, latest error, log line) reaching the agent without
+	//                      the issue reporter's redaction, or the stack
 	test.each([
 		["with logs", true, 3],
 		["without logs", false, 2],
@@ -188,18 +184,16 @@ describe("agentTools render", () => {
 		}
 	);
 
-	// Drifts silently: the dashboard accepts "http://alice:pw@host" as a base
-	// URL, so a configuration read or a save card would hand the agent the
-	// password with no error anywhere. Every URL-shaped string in a value is
-	// rebuilt before it renders, so nested fields and card values are covered.
+	// Drifts silently: the dashboard accepts "http://alice:pw@host" as a base URL, so a configuration read or a save
+	// card would hand the agent the password with no error anywhere.
 	test("a base URL's userinfo never reaches a rendered result or card", () => {
-		// A password with a space defeats the text scrub (it stops at whitespace);
-		// the URL fields are rebuilt from parsed components instead.
+		// A password with a space defeats the text scrub (it stops at whitespace); the URL fields are rebuilt from
+		// parsed components instead.
 		const secret = "url secret 57";
 		const withCredentials = `http://alice:${secret}@localhost:4000`;
 		const tokenUrl = `https://bob:${secret}@idp.test/token`;
-		// Nested as a declared row's config nests them: the token URL and the
-		// MCP URL sit below the row, where a top-level field scrub would miss them.
+		// Nested as a declared row's config nests them: the token URL and the MCP URL sit below the row, where a
+		// top-level field scrub would miss them.
 		const credState = makeState({
 			servers: [
 				makeExternalServer({ label: "Cred", baseUrl: withCredentials }),
@@ -227,8 +221,8 @@ describe("agentTools render", () => {
 		);
 		expect(card).not.toContain(secret);
 		expect(card).toContain("//localhost:4000");
-		// Dropping the credentials is itself a change: both sides display the
-		// same host, and the card must still list the field.
+		// Dropping the credentials is itself a change: both sides display the same host, and the card must still list
+		// the field.
 		const dropCredentials = describeServerChange(
 			"Cred",
 			{ baseUrl: withCredentials },
@@ -240,8 +234,8 @@ describe("agentTools render", () => {
 		expect(dropCredentials).toMatch(
 			/baseUrl: "http:\/\/localhost:4000" \(carries text the card does not show[^\n]*-> "http:\/\/localhost:4000"/
 		);
-		// A value that stores credentials the card cannot show is annotated on
-		// every card kind, so accepting it is an informed choice.
+		// A value that stores credentials the card cannot show is annotated on every card kind, so accepting it is an
+		// informed choice.
 		const recordCard = describeRecordChange(
 			"parameters",
 			"m",
@@ -261,8 +255,7 @@ describe("agentTools render", () => {
 		);
 		expect(dropCredentials).not.toContain("(no field changes)");
 		expect(dropCredentials).not.toContain(secret);
-		// One password replaced by another renders alike on both sides; the card
-		// still says the hidden text changed.
+		// One password replaced by another renders alike on both sides; the card still says the hidden text changed.
 		const rotated = describeServerChange(
 			"Cred",
 			{ baseUrl: withCredentials },
@@ -273,9 +266,8 @@ describe("agentTools render", () => {
 		expect(rotated).toContain("(the hidden text changed)");
 		expect(rotated).not.toContain("new-pass-99");
 		expect(rotated).not.toContain(secret);
-		// The rebuild is per string: a text-level pass over the serialized card
-		// ran from one field's "//" to the next field's "@" and ate the JSON
-		// between, showing the wrong webhook and hiding the email.
+		// The rebuild is per string: a text-level pass over the serialized card ran from one field's "//" to the next
+		// field's "@" and ate the JSON between, showing the wrong webhook and hiding the email.
 		const neighbours = describeRecordChange(
 			"parameters",
 			"m",
@@ -287,9 +279,8 @@ describe("agentTools render", () => {
 		expect(neighbours).toContain('"email":"user@example.com"');
 	});
 
-	// Drifts silently: a record key is agent-written text; three backticks in
-	// it would close a fixed fence and let the rest of the key forge the card
-	// the user approves.
+	// Drifts silently: a record key is agent-written text; three backticks in it would close a fixed fence and let the
+	// rest of the key forge the card the user approves.
 	test("a card's fence outruns any backtick run in an agent-written key", () => {
 		const card = describeRecordChange("parameters", "m", undefined, { note: "a\n```\nforged: yes" }, "global settings");
 		const fence = card.slice(0, card.indexOf("\n"));

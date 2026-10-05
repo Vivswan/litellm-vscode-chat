@@ -31,9 +31,8 @@ const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://l
 const commitCtx: MapErrorContext = { surface: "commitGeneration", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 
 /**
- * The cause chain the SDK produces for transport failures: its "Connection
- * error." wrapper around undici's TypeError "fetch failed", which carries the
- * actionable socket/TLS/timeout error as its own cause.
+ * The cause chain the SDK produces for transport failures: its "Connection error." wrapper around undici's TypeError
+ * "fetch failed", which carries the actionable socket/TLS/timeout error as its own cause.
  */
 function connectionError(deepest: unknown): APIConnectionError {
 	return new APIConnectionError({
@@ -59,16 +58,14 @@ suite("provider/transport/errorMapping", () => {
 					mapped.message
 				);
 				assert.strictEqual(mapped.cause, err);
-				// The proxy's own gate rejected this client's key, so the
-				// configure-the-key advice is certain.
+				// The proxy's own gate rejected this client's key, so the configure-the-key advice is certain.
 				assert.strictEqual(mapped.setupHint, "configure-api-key");
 			}
 		});
 
 		test("401 wrapping an upstream provider failure blames the server's provider credentials, not the extension key", () => {
-			// The exact envelope a LiteLLM proxy returns when the caller's key was
-			// accepted but the proxy could not authenticate to the upstream
-			// provider (e.g. a catalog model whose provider key is unset).
+			// The exact envelope a LiteLLM proxy returns when the caller's key was accepted but the proxy could not
+			// authenticate to the upstream provider (e.g. a catalog model whose provider key is unset).
 			const err = new AuthenticationError(
 				401,
 				{
@@ -113,9 +110,8 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("a litellm exception name quoted inside the proxy's auth_error envelope stays proxy-auth", () => {
-			// The envelope type is the proxy gate's own signature and outranks the
-			// message text; a body that merely mentions litellm.AuthenticationError
-			// is still the proxy rejecting this client's key.
+			// The envelope type is the proxy gate's own signature and outranks the message text; a body that merely
+			// mentions litellm.AuthenticationError is still the proxy rejecting this client's key.
 			const err = new AuthenticationError(
 				401,
 				{
@@ -194,17 +190,16 @@ suite("provider/transport/errorMapping", () => {
 				),
 				chat.message
 			);
-			// The code is just the stringified status, so the detail carries only the
-			// type, never "LiteLLM 429 429". The chat surface leads the detail with
-			// "Details:" (Copilot Chat flattens newlines).
+			// The code is just the stringified status, so the detail carries only the type, never "LiteLLM 429 429".
+			// The chat surface leads the detail with "Details:" (Copilot Chat flattens newlines).
 			assert.ok(
 				chat.message.endsWith(
 					"\n\nDetails: LiteLLM 429 budget_exceeded: Budget has been exceeded! Current cost: 0.40, Max budget: 0.37"
 				),
 				chat.message
 			);
-			// The token is the classifier's own closed-set decision, never echoed
-			// body text (the isUpstreamAuthFailure precedent).
+			// The token is the classifier's own closed-set decision, never echoed body text (the isUpstreamAuthFailure
+			// precedent).
 			assert.strictEqual(chat.logClassification, "RequestError(http, status 429, budget_exceeded)");
 			assert.strictEqual(chat.englishMessage, chat.message);
 
@@ -227,9 +222,8 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test('chat messages separate headline and detail with "Details:"; discovery keeps the plain newline', () => {
-			// Copilot Chat's error block flattens newlines, so the chat surface
-			// needs the textual boundary; the dashboard and tooltips split
-			// discovery messages on the single "\n".
+			// Copilot Chat's error block flattens newlines, so the chat surface needs the textual boundary; the
+			// dashboard and tooltips split discovery messages on the single "\n".
 			const err = APIError.generate(500, { error: { message: "boom" } }, undefined, new Headers());
 			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
 			assert.ok(chat.message.includes("\n\nDetails: "), chat.message);
@@ -249,8 +243,7 @@ suite("provider/transport/errorMapping", () => {
 				"The server rejected this request as invalid.\n\nDetails: LiteLLM 400: plain text failure, not JSON"
 			);
 			assert.strictEqual(mapped.status, 400);
-			// Discovery does not brand a non-envelope body as LiteLLM's: the
-			// gateway may be the one speaking.
+			// Discovery does not brand a non-envelope body as LiteLLM's: the gateway may be the one speaking.
 			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
 			assert.ok(discovery.message.endsWith("\nHTTP 400: plain text failure, not JSON"), discovery.message);
 		});
@@ -262,13 +255,10 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(mapped.setupHint, "check-base-url");
 			assertShows(mapped.message, "http://litellm.test", "discovery 404 names the base URL");
 			assert.ok(mapped.message.includes("version segment like /v1 or /v2"), mapped.message);
-			// Drift guard: if DEFAULT_API_VERSION ever changes, the guidance must
-			// be reworded to name the new default.
+			// Drift guard: if DEFAULT_API_VERSION ever changes, the guidance must be reworded to name the new default.
 			assert.ok(mapped.message.includes(`appends /${DEFAULT_API_VERSION}`), mapped.message);
 			assert.ok(mapped.message.includes("default port is 4000"), mapped.message);
 			assert.strictEqual(mapped.logClassification, "RequestError(http, status 404, discovery)");
-			// The envelope's message rides as a compact detail line, never the
-			// re-serialized JSON envelope.
 			assert.ok(mapped.message.endsWith("\nLiteLLM 404: no such route"), mapped.message);
 			assert.strictEqual(mapped.englishMessage, mapped.message, "English fallback: the two renderings coincide");
 		});
@@ -285,20 +275,20 @@ suite("provider/transport/errorMapping", () => {
 				"a chat 404 usually means a removed model, not a bad base URL, so no hint"
 			);
 			assert.strictEqual(mapped.logClassification, "RequestError(http, status 404, chat)");
-			// docker-transport.test.ts pins `LiteLLM ${status}\b` against the live
-			// stack, so the detail line must keep the status greppable.
+			// docker-transport.test.ts pins `LiteLLM ${status}\b` against the live stack, so the detail line must keep
+			// the status greppable.
 			assert.ok(mapped.message.endsWith("\n\nDetails: LiteLLM 404: model not found"), mapped.message);
 			assert.strictEqual(mapped.englishMessage, mapped.message, "English fallback: the two renderings coincide");
 		});
 
 		test("a 404 with a non-JSON body keeps the recovery on chat and drops the detail on discovery", () => {
 			const err = new APIError(404, undefined, "default backend - 404", new Headers());
-			// Chat keeps the recovered text: the nginx/wrong-server signature of a
-			// /v1-doubled base URL is the useful clue.
+			// Chat keeps the recovered text: the nginx/wrong-server signature of a /v1-doubled base URL is the useful
+			// clue.
 			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
 			assert.ok(chat.message.endsWith("\n\nDetails: LiteLLM 404: default backend - 404"), chat.message);
-			// The discovery headline already says this address does not serve the
-			// LiteLLM API; an HTML 404 page or plain-text body adds nothing.
+			// The discovery headline already says this address does not serve the LiteLLM API; an HTML 404 page or
+			// plain-text body adds nothing.
 			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
 			assert.ok(!discovery.message.includes("\n"), discovery.message);
 			assert.ok(!discovery.message.includes("default backend"), discovery.message);
@@ -314,8 +304,8 @@ suite("provider/transport/errorMapping", () => {
 				"Connection Error: Unable to connect to http://litellm.test. Please check that the server is running and the URL is correct.\n\nDetails: fetch failed (cause: connect ECONNREFUSED 127.0.0.1:4000)"
 			);
 			assert.strictEqual(mapped.cause, err);
-			// Nothing listens on that port - the one connection failure where "is
-			// the proxy running?" is certainly the right first question.
+			// Nothing listens on that port - the one connection failure where "is the proxy running?" is certainly the
+			// right first question.
 			assert.strictEqual(mapped.setupHint, "proxy-not-running");
 		});
 
@@ -332,8 +322,8 @@ suite("provider/transport/errorMapping", () => {
 				mapped.message.endsWith("\n\nDetails: fetch failed (cause: getaddrinfo ENOTFOUND litellm.internal)"),
 				mapped.message
 			);
-			// DNS failure does not establish the proxy is stopped (a mistyped hostname
-			// resolves nowhere with the proxy running fine), so no hint.
+			// DNS failure does not establish the proxy is stopped (a mistyped hostname resolves nowhere with the proxy
+			// running fine), so no hint.
 			assert.strictEqual(mapped.setupHint, undefined);
 		});
 
@@ -349,15 +339,15 @@ suite("provider/transport/errorMapping", () => {
 					mapSdkError(enotfound(), localhostCtx("http://www.localhost:8001")),
 					"connection"
 				);
-				// The correction leads the headline: toasts truncate from the tail,
-				// so a trailing try-this sentence would be the first thing cut.
+				// The correction leads the headline: toasts truncate from the tail, so a trailing try-this sentence
+				// would be the first thing cut.
 				assertStartsWith(
 					mapped.message,
 					"Connection Error: Try http://localhost:8001 instead of http://www.localhost:8001 - subdomains of localhost usually do not resolve."
 				);
 				assert.strictEqual(mapped.setupHint, "use-bare-localhost");
-				// The classification rides to the status surfaces (toast actions and
-				// the dashboard's draft-test footer branch on it).
+				// The classification rides to the status surfaces (toast actions and the dashboard's draft-test footer
+				// branch on it).
 				assert.strictEqual(statusErrorTexts(mapped).classification?.setupHint, "use-bare-localhost");
 				assert.strictEqual(mapped.englishMessage, mapped.message, "English fallback: the two renderings coincide");
 			});
@@ -399,9 +389,8 @@ suite("provider/transport/errorMapping", () => {
 			});
 
 			test("ECONNREFUSED at a *.localhost host keeps proxy-not-running: resolution worked, nothing listens", () => {
-				// The refusal proves the name resolved and the port answered "nothing
-				// here"; bare localhost would reach the same loopback, so the
-				// corrected-URL advice cannot fix the observed failure.
+				// The refusal proves the name resolved and the port answered "nothing here"; bare localhost would reach
+				// the same loopback, so the corrected-URL advice cannot fix the observed failure.
 				const err = connectionError(new Error("connect ECONNREFUSED 127.0.0.1:8001"));
 				const mapped = expectRequestError(mapSdkError(err, localhostCtx("http://www.localhost:8001")), "connection");
 				assert.strictEqual(mapped.setupHint, "proxy-not-running");
@@ -455,8 +444,8 @@ suite("provider/transport/errorMapping", () => {
 			});
 
 			test("the bare-localhost correction strips credentials from both echoed URLs", () => {
-				// Before the display pipeline, the one headline echoed the userinfo
-				// TWICE: once in the configured URL and once in the corrected one.
+				// Before the display pipeline, the one headline echoed the userinfo TWICE: once in the configured URL
+				// and once in the corrected one.
 				const err = connectionError(
 					Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" })
 				);
@@ -495,9 +484,8 @@ suite("provider/transport/errorMapping", () => {
 			});
 
 			test("a cause-chain message quoting a credentialed URL is scrubbed on the detail line", () => {
-				// Node and undici quote the offending URL verbatim in some failure
-				// messages; the chain-derived detail must not re-leak what the
-				// headline stripped.
+				// Node and undici quote the offending URL verbatim in some failure messages; the chain-derived detail
+				// must not re-leak what the headline stripped.
 				const err = connectionError(new Error("Failed to parse URL from http://user:sekret@litellm.test:4000/v1"));
 				const mapped = expectRequestError(
 					mapSdkError(err, { surface: "chat", baseUrl: "http://user:sekret@litellm.test:4000", timeoutMs: 5000 }),
@@ -534,8 +522,8 @@ suite("provider/transport/errorMapping", () => {
 					"certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM " +
 					"server administrator.\n\nDetails: SSL certificate error for http://litellm.test: self-signed certificate"
 			);
-			// Node's hostname-mismatch text can embed the certificate's SAN list
-			// (server-supplied), so the public surfaces get a classification.
+			// Node's hostname-mismatch text can embed the certificate's SAN list (server-supplied), so the public
+			// surfaces get a classification.
 			assert.strictEqual(mapped.logClassification, "RequestError(certificate, unverified)");
 		});
 
@@ -556,11 +544,9 @@ suite("provider/transport/errorMapping", () => {
 	});
 
 	suite("socket-failure classifier parity (chat transport vs OAuth token endpoint)", () => {
-		// Both entry points classify the same raw fetch failures through the one
-		// shared classifier: identical kind and identical cause-detail
-		// extraction, with only the context-sanctioned advice differing. The
-		// expected headlines are pinned per entry point so every wording
-		// difference is a decision recorded here, not drift.
+		// Both entry points classify the same raw fetch failures through the one shared classifier: identical kind and
+		// identical cause-detail extraction, with only the context-sanctioned advice differing. The expected headlines
+		// are pinned per entry point so every wording difference is a decision recorded here, not drift.
 		const URL_UNDER_TEST = "http://litellm.test";
 
 		/** Drive the OAuth exchange's socket-failure tail: fetch rejects with the synthetic failure on every retry. */
@@ -586,12 +572,13 @@ suite("provider/transport/errorMapping", () => {
 			assert.fail("expected the token exchange to reject");
 		}
 
-		/** The undici shape both entry points see: TypeError "fetch failed" carrying the socket failure as its cause. */
+		/**
+		 * The undici shape both entry points see: TypeError "fetch failed" carrying the socket failure as its cause.
+		 */
 		function fetchFailure(deepest: unknown): TypeError {
 			return Object.assign(new TypeError("fetch failed"), { cause: deepest });
 		}
 
-		/** The chat-surface join split back into headline and detail. */
 		function parts(message: string): { headline: string; detail: string } {
 			const [headline = "", detail = ""] = message.split("\n\nDetails: ");
 			return { headline, detail };
@@ -653,9 +640,8 @@ suite("provider/transport/errorMapping", () => {
 				detail: "fetch failed (cause: connect ECONNREFUSED 127.0.0.1:4000)",
 				chatHeadline: CHAT_CONNECTION_HEADLINE,
 				oauthHeadline: OAUTH_CONNECTION_HEADLINE,
-				// Sanctioned per-endpoint difference: at the server "is the proxy
-				// running?" is certain; at the token endpoint the stopped process
-				// would be the identity provider, so the OAuth side gets no hint.
+				// Sanctioned per-endpoint difference: at the server "is the proxy running?" is certain; at the token
+				// endpoint the stopped process would be the identity provider, so the OAuth side gets no hint.
 				chatSetupHint: "proxy-not-running",
 			},
 			{
@@ -668,8 +654,8 @@ suite("provider/transport/errorMapping", () => {
 			},
 			{
 				name: "an AggregateError of parallel connect attempts",
-				// Node's happy-eyeballs shape: the aggregate's own message is empty
-				// and the first attempt carries the actionable socket text.
+				// Node's happy-eyeballs shape: the aggregate's own message is empty and the first attempt carries the
+				// actionable socket text.
 				deepest: () =>
 					Object.assign(
 						new AggregateError([
@@ -682,13 +668,12 @@ suite("provider/transport/errorMapping", () => {
 				detail: "fetch failed (cause: connect ECONNREFUSED 127.0.0.1:4000)",
 				chatHeadline: CHAT_CONNECTION_HEADLINE,
 				oauthHeadline: OAUTH_CONNECTION_HEADLINE,
-				// Still an ECONNREFUSED, so the chat side keeps its sanctioned hint.
 				chatSetupHint: "proxy-not-running",
 			},
 			{
 				name: "an AggregateError carrying only a code",
-				// The aggregate stays the deepest link when it has no Error members,
-				// so its bare code is the only cause text available.
+				// The aggregate stays the deepest link when it has no Error members, so its bare code is the only cause
+				// text available.
 				deepest: () => Object.assign(new AggregateError([]), { code: "ECONNREFUSED" }),
 				kind: "connection",
 				detail: "fetch failed (cause: ECONNREFUSED)",
@@ -721,13 +706,10 @@ suite("provider/transport/errorMapping", () => {
 				);
 				const oauth = await oauthSocketFailure(() => fetchFailure(c.deepest()));
 
-				// One classification rule: identical kind, identical cause-detail extraction.
 				assert.strictEqual(oauth.kind, chat.kind);
 				assert.strictEqual(parts(chat.message).detail, c.detail);
 				assert.strictEqual(parts(oauth.message).detail, parts(chat.message).detail);
 
-				// The sanctioned differences: advice wording per endpoint, the chat-only
-				// setup hint, and the token-endpoint provenance mark.
 				assert.strictEqual(parts(chat.message).headline, c.chatHeadline);
 				assert.strictEqual(parts(oauth.message).headline, c.oauthHeadline);
 				assert.strictEqual(chat.setupHint, c.chatSetupHint);
@@ -735,16 +717,14 @@ suite("provider/transport/errorMapping", () => {
 				assert.strictEqual(oauth.oauthTokenEndpoint, true);
 				assert.strictEqual(chat.oauthTokenEndpoint, undefined);
 
-				// English fallback: both entry points keep byte-faithful mirrors.
 				assert.strictEqual(chat.englishMessage, chat.message);
 				assert.strictEqual(oauth.englishMessage, oauth.message);
 			});
 		}
 
 		test("a TimeoutError link classifies as timeout at both entry points, each rendering its own budget message", async () => {
-			// The classifier's onTimeout parameter is the one sanctioned
-			// classification-level hand-back: the kind is one rule, but the message
-			// stays endpoint-owned because each endpoint has its own budget.
+			// The classifier's onTimeout parameter is the one sanctioned classification-level hand-back: the kind is
+			// one rule, but the message stays endpoint-owned because each endpoint has its own budget.
 			const deepest = () => new DOMException("The operation was aborted due to timeout", "TimeoutError");
 
 			const chat = expectRequestError(
@@ -762,13 +742,11 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("the exchange-timeout advice follows the budget's setting on every surface, never the surface itself", async () => {
-			// The advice identity rides the TimeoutBudget from the caller that
-			// read the number, so a surface can never smuggle in advice for a
-			// setting that does not bound its exchange. Every surface (derived
-			// from the copy table's own key list, so the sweep stays total when a
-			// row is added) runs under a rotated budget identity: the cross pairs
-			// (a chat-timeout budget on the discovery surface, a fixed budget on a
-			// chat feature's surface) prove the surface plays no part.
+			// The advice identity rides the TimeoutBudget from the caller that read the number, so a surface can never
+			// smuggle in advice for a setting that does not bound its exchange. Every surface (derived from the copy
+			// table's own key list, so the sweep stays total when a row is added) runs under a rotated budget identity:
+			// the cross pairs (a chat-timeout budget on the discovery surface, a fixed budget on a chat feature's
+			// surface) prove the surface plays no part.
 			const budgets: { budget: TimeoutBudget; advice: string }[] = [
 				{
 					budget: { ms: 5000, setting: "discovery.timeout" },
@@ -877,9 +855,8 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("a bare body-read termination maps to the mid-stream network message per surface", () => {
-			// The shape undici throws when the socket dies AFTER headers: the SDK
-			// already returned the Response, so no SDK error class wraps it and
-			// the user would otherwise see the raw "terminated".
+			// The shape undici throws when the socket dies AFTER headers: the SDK already returned the Response, so no
+			// SDK error class wraps it and the user would otherwise see the raw "terminated".
 			const err = Object.assign(new TypeError("terminated"), {
 				cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
 			});
@@ -892,8 +869,8 @@ suite("provider/transport/errorMapping", () => {
 				"the deepest cause stays in the detail line"
 			);
 			assert.strictEqual(mapped.cause, err);
-			// The commit call is non-streaming: no partial answer exists, so the
-			// "cut short" wording would be false there.
+			// The commit call is non-streaming: no partial answer exists, so the "cut short" wording would be false
+			// there.
 			const commit = expectRequestError(mapSdkError(err, commitCtx), "network");
 			assertStartsWith(
 				commit.message,
@@ -946,17 +923,15 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("an Error already carrying an englishMessage mirror passes through unwrapped", () => {
-			// The localizedError construction sites (chatClient pre-flight throws,
-			// the stream processor) arrive here already shaped; re-headlining
-			// would double-wrap them.
+			// The localizedError construction sites (chatClient pre-flight throws, the stream processor) arrive here
+			// already shaped; re-headlining would double-wrap them.
 			const err = localizedError("display", "english");
 			assert.strictEqual(mapSdkError(err, chatCtx), err);
 		});
 
 		test("a classification-only MirroredError passes through unwrapped too", () => {
-			// The other valid EnglishRendering arm: no englishMessage, only the terse
-			// classification. Re-headlining would fold its possibly body-quoting
-			// display message into the English mirror and onto the output channel.
+			// The other valid EnglishRendering arm: no englishMessage, only the terse classification. Re-headlining
+			// would fold its possibly body-quoting display message into the English mirror and onto the output channel.
 			const err = new MirroredError("display quoting a response body", {
 				logClassification: "ValidationError(example)",
 			});
@@ -965,9 +940,8 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("a plain Error merely containing the word terminated is not reclassified as network", () => {
-			// The termination branch requires a socket-level signature or undici's
-			// exact top-level TypeError; unrelated errors fall to the anonymous
-			// wrapper instead.
+			// The termination branch requires a socket-level signature or undici's exact top-level TypeError; unrelated
+			// errors fall to the anonymous wrapper instead.
 			const err = new Error("worker terminated by policy");
 			const mapped = mapSdkError(err, chatCtx);
 			assert.ok(!(mapped instanceof RequestError), "must not classify as a transport RequestError");
@@ -982,8 +956,7 @@ suite("provider/transport/errorMapping", () => {
 				"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.\n\nDetails: Unexpected Error during the chat request to http://litellm.test: boom"
 			);
 			assert.strictEqual(mapped.englishMessage, mapped.message);
-			// The thrown value's text is arbitrary, so the public surfaces record
-			// only the fixed shape.
+			// The thrown value's text is arbitrary, so the public surfaces record only the fixed shape.
 			assert.strictEqual(mapped.logClassification, "unhandled Error in transport (Error, chat)");
 			assert.strictEqual(mapped.cause, err);
 			const disco = mapSdkError(err, discoveryCtx) as Error & { logClassification?: string };
@@ -1021,8 +994,8 @@ suite("provider/transport/errorMapping", () => {
 
 		test("a message-less stream error frame still surfaces its type and code", () => {
 			const err = streamErrorFrame({ type: "rate_limit_error", code: 429 });
-			// A known class swaps in that class's headline: "trying again may
-			// work" would be wrong advice for a rate limit or a blown budget.
+			// A known class swaps in that class's headline: "trying again may work" would be wrong advice for a rate
+			// limit or a blown budget.
 			assert.ok(err.message.startsWith("The server is handling too many requests"), err.message);
 			assert.ok(err.message.endsWith("\n\nDetails: LiteLLM stream error rate_limit_error (429)"), err.message);
 			assert.strictEqual(err.status, undefined, "no status may be derived from the envelope's code");
@@ -1075,9 +1048,8 @@ suite("provider/transport/errorMapping", () => {
 	});
 
 	suite("envelope classification parity (HTTP response vs mid-stream frame)", () => {
-		// The same LiteLLM envelope must sort into the same class - and so the
-		// same chat headline - whether it arrives as an HTTP error response or
-		// as an in-band stream error frame after the 200.
+		// The same LiteLLM envelope must sort into the same class - and so the same chat headline - whether it arrives
+		// as an HTTP error response or as an in-band stream error frame after the 200.
 		const cases: {
 			name: string;
 			status: number;
@@ -1143,9 +1115,8 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("a statusless frame merely mentioning the context window keeps the generic interrupted-stream headline", () => {
-			// No status vouches for the frame, so a bare mention proves nothing:
-			// "trim the conversation" would be wrong advice for an upstream that
-			// died for another reason while talking about its context window.
+			// No status vouches for the frame, so a bare mention proves nothing: "trim the conversation" would be wrong
+			// advice for an upstream that died for another reason while talking about its context window.
 			const frame = streamErrorFrame({
 				message: "The upstream provider failed while preparing the model's context window",
 			});
@@ -1154,8 +1125,8 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("a statusless frame naming the maximum context length without a limit figure stays generic too", () => {
-			// The signature is the exceedance, not the word "maximum": a message
-			// describing the limit without overrunning it proves nothing.
+			// The signature is the exceedance, not the word "maximum": a message describing the limit without
+			// overrunning it proves nothing.
 			const frame = streamErrorFrame({
 				message: "The upstream failed while reading the model's maximum context length",
 			});
@@ -1198,24 +1169,23 @@ suite("provider/transport/errorMapping", () => {
 			const chat = twoPartTexts("chat", headline, "detail line");
 			assert.strictEqual(chat.message, "AFFICHAGE\n\nDetails: detail line");
 			assert.strictEqual(chat.englishMessage, "HEADLINE\n\nDetails: detail line");
-			// Commit errors reach a VS Code notification, which flattens newlines:
-			// the "Details:" lead-in is the visible boundary there, like chat.
+			// Commit errors reach a VS Code notification, which flattens newlines: the "Details:" lead-in is the
+			// visible boundary there, like chat.
 			const commit = twoPartTexts("commitGeneration", headline, "detail line");
 			assert.strictEqual(commit.message, "AFFICHAGE\n\nDetails: detail line");
 			assert.strictEqual(commit.englishMessage, "HEADLINE\n\nDetails: detail line");
 			const discovery = twoPartTexts("discovery", headline, "detail line");
 			assert.strictEqual(discovery.message, "AFFICHAGE\ndetail line");
 			assert.strictEqual(discovery.englishMessage, "HEADLINE\ndetail line");
-			// Completion errors serve the dashboard's test probe, which splits on
-			// the discovery-style "\n".
+			// Completion errors serve the dashboard's test probe, which splits on the discovery-style "\n".
 			const completion = twoPartTexts("completion", headline, "detail line");
 			assert.strictEqual(completion.message, "AFFICHAGE\ndetail line");
 			assert.strictEqual(completion.englishMessage, "HEADLINE\ndetail line");
 		});
 
 		test("an English headline yields a byte-identical message and mirror on every surface", () => {
-			// Under the test host's English fallback the display headline IS the
-			// English headline, so the two products must coincide byte for byte.
+			// Under the test host's English fallback the display headline IS the English headline, so the two products
+			// must coincide byte for byte.
 			const headline = { display: "same text", english: "same text" };
 			for (const surface of TRANSPORT_ERROR_SURFACES) {
 				const texts = twoPartTexts(surface, headline, "LiteLLM 500: boom");
@@ -1235,9 +1205,8 @@ suite("provider/transport/errorMapping", () => {
 
 	suite("display/English split (localized display, English logs)", () => {
 		test("every localized mapSdkError site records an englishMessage identical to the English display", () => {
-			// Under the test host's English fallback, l10n.t returns the English
-			// template, so display and hand-written mirror must be the same string.
-			// A mismatch means a site's English mirror drifted from its t() literal.
+			// Under the test host's English fallback, l10n.t returns the English template, so display and hand-written
+			// mirror must be the same string. A mismatch means a site's English mirror drifted from its t() literal.
 			const upstream401 = {
 				message: "litellm.AuthenticationError: AnthropicException - upstream key missing",
 				type: null,

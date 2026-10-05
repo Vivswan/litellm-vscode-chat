@@ -7,9 +7,8 @@ import { markLogSafe } from "../../../shared/logger";
 import { expectDefined } from "../../pureHelpers";
 import { makeServerStatus, withConfig } from "../../testUtils";
 
-// The interactive diagnostics surface is the dashboard's Diagnostics tab
-// (pinned in extension/dashboard/panel.test.ts, dashboard/protocol.test.ts, and
-// the webview suite); what remains here is the issue reporter's snapshot.
+//   The interactive diagnostics surface is the dashboard's Diagnostics tab
+//     -> what remains here is the issue reporter's snapshot
 suite("extension/ui/diagnostics", () => {
 	suite("buildDiagnosticsSnapshot", () => {
 		test("collects environment, connection, and reporter data", async () => {
@@ -18,10 +17,9 @@ suite("extension/ui/diagnostics", () => {
 			reporter.appendLog("second log line");
 			reporter.recordError("discovery", new Error("fetch exploded"));
 
-			// Non-default configuration on every settings-derived field, through
-			// the same getConfiguration surface the snapshot reads (withConfig
-			// restores it in its finally): a build that hardcoded the defaults
-			// must fail here. Unset features keep their package.json defaults.
+			// Non-default configuration on every settings-derived field, through the same getConfiguration surface the
+			// snapshot reads (withConfig restores it in its finally): a build that hardcoded the defaults must fail
+			// here. Unset features keep their package.json defaults.
 			const snapshot = await withConfig(
 				{
 					"commitGeneration.enabled": true,
@@ -41,12 +39,8 @@ suite("extension/ui/diagnostics", () => {
 					)
 			);
 
-			// The whole record: this snapshot prefills public issues, so a field
-			// added to DiagnosticsSnapshot must be seen here before it ships. The
-			// Required<> literal is total over the record, optional fields
-			// included, and over FEATURE_IDS by construction. The error's
-			// timestamp and stack are the run's own, so they are checked for
-			// shape and read once into the expectation.
+			// The whole record: this snapshot prefills public issues, so a field added to DiagnosticsSnapshot must be
+			// seen here before it ships.
 			const latestError = expectDefined(snapshot.latestError);
 			assert.strictEqual(
 				latestError.timestamp,
@@ -63,8 +57,8 @@ suite("extension/ui/diagnostics", () => {
 				// A secure key cannot be ruled out without a group report.
 				apiKeyConfigured: "unknown",
 				baseUrlConfigured: true,
-				// Flags only, never the model or label the configured ref names;
-				// the participant carries no model flag by construction.
+				// Flags only, never the model or label the configured ref names; the participant carries no model flag
+				// by construction.
 				featureFlags: {
 					inlineCompletions: { enabled: false, modelConfigured: false },
 					commitGeneration: { enabled: true, modelConfigured: true },
@@ -90,8 +84,8 @@ suite("extension/ui/diagnostics", () => {
 
 		test("the snapshot passes the latest error's classification through", () => {
 			const reporter = new IssueReporter();
-			// Duck-typed like a transport RequestError: transportClassificationOf
-			// reads kind/status/setupHint off any thrown value.
+			// Duck-typed like a transport RequestError: transportClassificationOf reads kind/status/setupHint off any
+			// thrown value.
 			reporter.recordError(
 				"discovery",
 				Object.assign(new Error("connect ECONNREFUSED"), { kind: "connection", setupHint: "proxy-not-running" })
@@ -110,8 +104,8 @@ suite("extension/ui/diagnostics", () => {
 			});
 		});
 
-		// The observed statuses empty out during a Test Connection pass, and a
-		// report built in that window once denied a configured server (#389).
+		// The observed statuses empty out during a Test Connection pass, and a report built in that window once denied
+		// a configured server (#389).
 		const presenceCases: readonly {
 			readonly name: string;
 			readonly servers: readonly Record<string, unknown>[];

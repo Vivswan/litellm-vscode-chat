@@ -5,9 +5,8 @@ import type { PreImportSnapshot, SnapshotRestore } from "../../../../extension/s
 import { buildPreImportSnapshot, planSnapshotRestore } from "../../../../extension/settingsTransfer/snapshot";
 import { ALL_SETTING_KEYS } from "../../../../shared/config/settingSpec";
 
-// The frozen signatures are pinned at compile time: a drift fails typecheck,
-// so no runtime test restates what the types already prove. The SnapshotEntry
-// shape is pinned by the typed PreImportSnapshot literal below.
+// The frozen signatures are pinned at compile time: a drift fails typecheck, so no runtime test restates what the types
+// already prove. The SnapshotEntry shape is pinned by the typed PreImportSnapshot literal below.
 void (buildPreImportSnapshot satisfies (
 	readGlobalSetting: (key: string) => unknown,
 	readServerSecrets: (label: string) => Promise<StoredSecretsRecord>,

@@ -1,8 +1,7 @@
 /**
- * The shared spend vocabulary (src/dashboard/spendFormat.ts): money and
- * percentage printing, the fraction-to-tone map, and the worst-fraction
- * reducer that the meter, the row diagnostics, the Servers header, and the
- * status bar all read. Pure functions, so this suite renders nothing.
+ * The shared spend vocabulary (src/dashboard/spendFormat.ts): money and percentage printing, the fraction-to-tone map,
+ * and the worst-fraction reducer that the meter, the row diagnostics, the Servers header, and the status bar all read.
+ * Pure functions, so this suite renders nothing.
  */
 import { describe, expect, test } from "bun:test";
 import * as fc from "fast-check";
@@ -83,23 +82,21 @@ describe("worstSpendTone", () => {
 
 describe("formatting", () => {
 	test("percentages floor to the greatest whole percent reached, past 100 included", () => {
-		// A floor, never a round: the tone map compares fraction >= threshold, so
-		// 0.995 beside two-threshold [0.8, 0.95] tones error but must not claim
-		// a "100%" it never reached; likewise 0.845 has not reached 85%.
+		// A floor, never a round: the tone map compares fraction >= threshold, so 0.995 beside two-threshold
+		// [0.8, 0.95] tones error but must not claim a "100%" it never reached; likewise 0.845 has not reached 85%.
 		expect(formatPercent(1.12)).toBe("112%");
 		expect(formatPercent(0.845)).toBe("84%");
 		expect(formatPercent(0.995)).toBe("99%");
-		// Float artifacts stay corrected: 0.57 * 100 floats to 56.999..., yet the
-		// 0.57 threshold IS reached at 0.57 under >=, so the floor may not drop it.
+		// Float artifacts stay corrected: 0.57 * 100 floats to 56.999..., yet the 0.57 threshold IS reached at 0.57
+		// under >=, so the floor may not drop it.
 		expect(formatPercent(0.57)).toBe("57%");
 		expect(formatPercent(0.29)).toBe("29%");
 		expect(formatPercent(0)).toBe("0%");
 	});
 
 	test("pathological fractions terminate: non-finite products and integers past ulp-1 territory", () => {
-		// The computation is bounded by construction; these inputs are the ones
-		// where a corrective walk would spin (Infinity - 1 === Infinity, and
-		// percent + 1 is a value no-op past 2^53).
+		// The computation is bounded by construction; these inputs are the ones where a corrective walk would spin
+		// (Infinity - 1 === Infinity, and percent + 1 is a value no-op past 2^53).
 		expect(formatPercent(Number.NaN)).toBe("NaN%");
 		expect(formatPercent(Number.POSITIVE_INFINITY)).toBe("Infinity%");
 		expect(formatPercent(Number.MAX_VALUE)).toBe("Infinity%");
@@ -107,10 +104,9 @@ describe("formatting", () => {
 	});
 
 	test("the monotonicity pin: no rendered percent the fraction has not reached under >=", () => {
-		// The property every threshold surface leans on: if the string says "80%",
-		// then fraction >= 0.80 is true under the exact comparison spendTone and
-		// the alert store run - and the percent is the greatest such, so the
-		// display never understates a crossing either.
+		// The property every threshold surface leans on: if the string says "80%", then fraction >= 0.80 is true under
+		// the exact comparison spendTone and the alert store run - and the percent is the greatest such, so the display
+		// never understates a crossing either.
 		fc.assert(
 			fc.property(fc.double({ min: 0, max: 10, noNaN: true, noDefaultInfinity: true }), (fraction) => {
 				const rendered = formatPercent(fraction);
@@ -124,8 +120,8 @@ describe("formatting", () => {
 	});
 
 	test("configured trigger points render unfloored, float noise trimmed", () => {
-		// formatPercent floors reached amounts under the >= scale; a threshold the
-		// user WROTE has nothing to floor - 0.855 is the 85.5% trigger, not "85%".
+		// formatPercent floors reached amounts under the >= scale; a threshold the user WROTE has nothing to floor -
+		// 0.855 is the 85.5% trigger, not "85%".
 		expect(formatPercentExact(0.855)).toBe("85.5%");
 		expect(formatPercentExact(0.85)).toBe("85%");
 		expect(formatPercentExact(1)).toBe("100%");
@@ -139,10 +135,8 @@ describe("formatting", () => {
 	});
 
 	test("one locale policy for the whole column: grouping never asks the ambient locale", () => {
-		// The status bar (extension host) and the dashboard (webview) can run
-		// under different ambient locales; a de-DE toLocaleString() would print
-		// "1.500" beside toFixed's "12.50" in the same column. The pin: an
-		// ambient-locale call (no locale argument) fails the test outright.
+		// The status bar (extension host) and the dashboard (webview) can run under different ambient locales; a de-DE
+		// toLocaleString() would print "1.500" beside toFixed's "12.50" in the same column.
 		const original = Number.prototype.toLocaleString;
 		Number.prototype.toLocaleString = function (this: number, ...args: Parameters<typeof original>) {
 			if (args[0] === undefined) {

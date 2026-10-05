@@ -5,7 +5,6 @@ import type { UsageViewInput } from "../../../../extension/dashboard/usageView";
 import { buildUsageView } from "../../../../extension/dashboard/usageView";
 import type { BudgetStatus, ServerUsageState, UsageTotals } from "../../../../extension/servers/usage";
 
-/** Narrow a card to the full usage view; fails the test on the forbidden variant. */
 function fullCard(card: UsageServerCardView | undefined): UsageServerView {
 	assert.ok(card !== undefined);
 	if (card.kind !== "usage") {
@@ -197,9 +196,8 @@ describe("extension/dashboard/usageView", () => {
 	});
 
 	test("a once-available server whose BOTH endpoints turn forbidden downgrades to the forbidden card", () => {
-		// The poller drops the retained numbers when both key endpoints go
-		// permanently unavailable, so the honest surface left is the reduced
-		// forbidden card - not another key's stale data, and not silence.
+		// The poller drops the retained numbers when both key endpoints go permanently unavailable, so the honest
+		// surface left is the reduced forbidden card - not another key's stale data, and not silence.
 		const view = buildUsageView(
 			makeInput({
 				states: [

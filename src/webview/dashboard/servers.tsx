@@ -34,7 +34,16 @@ import { sendRequest } from "./vscodeApi";
  * would arm both rows at once.
  */
 function serverRowKey(server: DashboardServer): string {
-	return `${server.origin}:${server.origin === "legacy" ? server.groupHandle : (server.adoptHandle ?? server.label)}`;
+	switch (server.origin) {
+		case "legacy":
+			return `legacy:${server.groupHandle}`;
+		case "external":
+			return `external:${server.adoptHandle}`;
+		default:
+			// The URL is part of the key so a re-pointed entry is a new row: an armed Remove or declare never follows
+			// the label onto its successor.
+			return `${server.origin}:${server.label}:${server.baseUrl}`;
+	}
 }
 
 /**

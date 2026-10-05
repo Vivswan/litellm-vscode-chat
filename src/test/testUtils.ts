@@ -14,17 +14,13 @@ import { normalizeBaseUrl } from "../shared/util/baseUrl";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeLogger, toHeaderMap } from "./pureHelpers";
 
-/** A fixed-state fingerprint-salt session for MigrationContext and sync-env construction in tests. */
 export function fakeFingerprintSaltSession(state: FingerprintSaltState = "durable"): FingerprintSaltSession {
 	return { state: () => state, confirmDurable: async () => state };
 }
 
 /**
- * Run `fn` with `vscode.workspace.getConfiguration` overridden for the
- * "litellm-vscode-chat" section. Keys present in `sectionValues` are returned
- * as-is (including explicit null); absent keys fall back to the caller's default
- * value and inspect as untouched. Other sections delegate to the real
- * implementation.
+ * Keys present in `sectionValues` are returned as-is (including explicit null); absent keys fall back to the caller's
+ * default value and inspect as untouched.
  */
 export async function withConfig<T>(
 	sectionValues: Record<string, unknown>,
@@ -50,21 +46,20 @@ export async function withConfig<T>(
 }
 
 /**
- * The group server makeProvider's injected configuration resolves to, mirroring
- * what parseGroupConfiguration produces.
+ * The group server makeProvider's injected configuration resolves to, mirroring what parseGroupConfiguration produces.
  */
 export function testGroupServer(apiKey = "test-key"): GroupServer {
 	return { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey, label: "Default" };
 }
 
 /**
- * Create a provider that serves models the way the host does. With `baseUrl`,
- * configuration-less discovery calls are rewritten into the host's per-group
- * call for that server, and the provider gets a discovery cache that never
- * serves stored results, so every discovery call observes the handlers installed
- * at that moment. Without `baseUrl` the provider is bare: configuration-less
- * calls exercise the group-agnostic contract (no models), and group suites pass
- * their own configuration explicitly.
+ * Create a provider that serves models the way the host does.
+ *
+ *   With `baseUrl`     -> configuration-less discovery calls are rewritten into the host's per-group call for that
+ *                         server, and the provider gets a discovery cache that never serves stored results, so every
+ *                         discovery call observes the handlers installed at that moment
+ *   Without `baseUrl`  -> the provider is bare: configuration-less calls exercise the group-agnostic contract (no
+ *                         models), and group suites pass their own configuration explicitly
  */
 export function makeProvider(
 	baseUrl?: string,
@@ -133,21 +128,14 @@ export interface CaptureRequestOverrides {
 	messages?: vscode.LanguageModelChatRequestMessage[];
 	discoveryPayload?: JsonBodyType;
 	/**
-	 * Send the chat request with the model object discovery returned (matched by
-	 * id), mirroring the host contract of handing the provider's own info objects
-	 * back. Required for behavior that rides on the model object, such as
+	 * Send the chat request with the model object discovery returned (matched by id), mirroring the host contract of
+	 * handing the provider's own info objects back. Required for behavior that rides on the model object, such as
 	 * prompt-caching support.
 	 */
 	useDiscoveredModel?: boolean;
 }
 
-/**
- * Run model discovery followed by a chat request against msw handlers: discovery
- * endpoints return `discoveryPayload` (default: a valid "test-model" listing),
- * and POST /v1/chat/completions captures the request body and headers before
- * answering with a minimal SSE stream. The calling suite must have installed the
- * msw lifecycle via useMsw().
- */
+/** The calling suite must have installed the msw lifecycle via useMsw(). */
 export async function captureRequest(
 	provider: LiteLLMChatModelProvider,
 	model: LiteLLMModelInfo,
@@ -176,9 +164,8 @@ export async function captureRequest(
 				`discovery returned no model with id "${model.id}"`
 			)
 		: undefined;
-	// A hand-built model without its own attached server gets the group server the
-	// injected configuration resolves to, mirroring the host contract: every
-	// served model carries its group's connection, and the request path routes by
+	// A hand-built model without its own attached server gets the group server the injected configuration resolves to,
+	// mirroring the host contract: every served model carries its group's connection, and the request path routes by
 	// nothing else.
 	const sent =
 		discovered ??
@@ -202,7 +189,6 @@ export async function captureRequestBody(
 	return (await captureRequest(provider, model, opts, overrides)).body;
 }
 
-/** Overrides for makeServerStatus; the state-specific payload rides the matching variant. */
 type ServerStatusOverrides = Partial<
 	Pick<ServerStatus, "serverId" | "label" | "entryLabel" | "baseUrl" | "lastChecked" | "hasApiKey" | "hasOAuth">
 > &
@@ -224,7 +210,6 @@ type ServerStatusOverrides = Partial<
 		  }
 	);
 
-/** A ServerStatus with sensible defaults for status-driven tests. */
 export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerStatus {
 	const common = {
 		serverId: overrides.serverId ?? "srv1",
@@ -242,8 +227,7 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 				error: overrides.error,
 				// An error still serves its declared models unless the test says otherwise.
 				servedModelCount: overrides.servedModelCount ?? overrides.declaredModelCount ?? 0,
-				// Tests hand plain strings; the helper is the one place that brands
-				// them.
+				// Tests hand plain strings; the helper is the one place that brands them.
 				logSafeError:
 					overrides.logSafeError !== undefined ? markLogSafe(overrides.logSafeError) : publicErrorText(overrides.error),
 				...(overrides.classification !== undefined ? { classification: overrides.classification } : {}),
@@ -293,7 +277,6 @@ export function makeExtensionStorage(initialMemento?: Record<string, unknown>): 
 	return { memento, secrets, mementoStore, secretStore };
 }
 
-/** A MigrationContext over the fake storage; overrides replace individual members. */
 export function makeMigrationContext(
 	storage: FakeExtensionStorage = makeExtensionStorage(),
 	overrides: Partial<MigrationContext> = {}
@@ -310,13 +293,8 @@ export function makeMigrationContext(
 type StorageOperation = "mementoUpdate" | "secretGet" | "secretStore" | "secretDelete";
 
 /**
- * A fault-injecting view over a fake storage: each operation named in `failOn`
- * consults its trigger per call and rejects with the returned error, while
- * `undefined` lets the call through to `storage`. Secret operations fail before
- * mutating; `mementoUpdate` mutates first and then fails, mirroring VS Code's
- * Memento, which caches an update optimistically before the async write settles.
- * `ops` records every store/update/delete attempt in call order. The backing
- * maps are shared with `storage`.
+ * Secret operations fail before mutating; `mementoUpdate` mutates first and then fails, mirroring VS Code's Memento,
+ * which caches an update optimistically before the async write settles. The backing maps are shared with `storage`.
  */
 export function failingStorage(
 	storage: FakeExtensionStorage,

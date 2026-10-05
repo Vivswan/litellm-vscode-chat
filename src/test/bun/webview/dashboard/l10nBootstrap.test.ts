@@ -29,15 +29,14 @@ test("an injected bundle configures t() to resolve translations", () => {
 
 	expect(l10n.t("Manage LiteLLM Provider")).toBe("translated-title");
 	expect(l10n.t("{0} models", 3)).toBe("models: 3");
-	// A key outside the bundle still falls back to its inline message.
 	expect(l10n.t("Not in the bundle")).toBe("Not in the bundle");
 });
 
 test("malformed injections are rejected wholesale and the configured bundle survives", () => {
 	const badBundles: unknown[] = [
 		{ "Manage LiteLLM Provider": 42 },
-		// The {message, comment} shape is legal only in the generated English
-		// reference; an injected bundle must be flat strings.
+		// The {message, comment} shape is legal only in the generated English reference; an injected bundle must be
+		// flat strings.
 		{ "Manage LiteLLM Provider": { message: "clobbered", comment: ["c"] } },
 		["Manage LiteLLM Provider"],
 		"Manage LiteLLM Provider",
@@ -52,14 +51,11 @@ test("malformed injections are rejected wholesale and the configured bundle surv
 });
 
 test("prototype-polluting keys are dropped while honest keys still configure", () => {
-	// JSON.parse creates an own "__proto__" property, matching what a hostile
-	// injected payload would carry.
+	// JSON.parse creates an own "__proto__" property, matching what a hostile injected payload would carry.
 	window.__l10nBundle = JSON.parse('{"__proto__": "polluted", "Manage LiteLLM Provider": "safe-title"}');
 	bootstrapL10n();
 
 	expect(l10n.t("Manage LiteLLM Provider")).toBe("safe-title");
-	// The dropped key resolves like any absent key, and nothing leaked into
-	// the object prototype.
 	expect(l10n.t("__proto__")).toBe("__proto__");
 	expect(Object.getPrototypeOf({})).toBe(Object.prototype);
 });

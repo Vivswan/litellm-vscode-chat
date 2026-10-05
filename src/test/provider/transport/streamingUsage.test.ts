@@ -1,6 +1,3 @@
-/**
- * The usage DataPart at the end of a stream.
- */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { StreamProcessor } from "../../../provider/transport/streaming";
@@ -40,11 +37,10 @@ suite("provider/streaming usage DataPart", () => {
 
 	const TRAILER = 'data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":80,"total_tokens":200}}\n';
 
-	test("the empty-choices trailer emits exactly one usage DataPart despite the repeated end-of-stream runs", async () => {
+	test("the empty-choices trailer between finish_reason and [DONE] emits one usage DataPart", async () => {
 		const { parts, progress } = collector();
 		const stream = usageProcessor(progress);
-		// finish_reason, [DONE], and EOF each run finishStream; the trailer
-		// arrives between the first two, the standard OpenAI stream shape.
+		// The standard OpenAI stream shape: the trailer arrives between finish_reason and [DONE].
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"content":"answer"}}]}\n',
 			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
@@ -56,7 +52,7 @@ suite("provider/streaming usage DataPart", () => {
 
 		assert.strictEqual(visibleTextOf(parts), "answer");
 		const usages = usagePartsOf(parts);
-		assert.strictEqual(usages.length, 1, "one usage part per stream, however many times finishStream runs");
+		assert.strictEqual(usages.length, 1, "one usage part per stream");
 		assert.deepStrictEqual(usages[0], { prompt_tokens: 120, completion_tokens: 80, total_tokens: 200 });
 	});
 
@@ -76,8 +72,9 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("an interim usage object does not pin stale counts: the final trailer wins", async () => {
-		// Some providers stamp running usage onto ordinary chunks. Emission is
-		// reserved for the post-loop run, so the interim counts never ship.
+		// Some providers stamp running usage onto ordinary chunks.
+		//
+		//   Emission -> reserved for the post-loop run
 		const { parts, progress } = collector();
 		const stream = usageProcessor(progress);
 		const body = sseStream([
@@ -118,9 +115,8 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("non-finite counts are rejected: JSON.stringify would null them and the consumer drops the payload", async () => {
-		// A wire literal like 1e999 parses to Infinity. As a required count it
-		// kills the emission outright; as an optional detail it is omitted
-		// while the finite trio still ships.
+		// A wire literal like 1e999 parses to Infinity. As a required count it kills the emission outright; as an
+		// optional detail it is omitted while the finite trio still ships.
 		const { parts, progress } = collector();
 		const stream = usageProcessor(progress);
 		const body = sseStream([
@@ -153,7 +149,7 @@ suite("provider/streaming usage DataPart", () => {
 			choices: [],
 			usage: { prompt_tokens: Number.NaN, completion_tokens: 2, total_tokens: Number.POSITIVE_INFINITY },
 		});
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] });
+		stream.endOfStream();
 
 		assert.strictEqual(usagePartsOf(parts).length, 0, "a payload missing finite required counts must not emit");
 		const usageLog = logged.find((l) => l.message === "Token usage");
@@ -295,8 +291,6 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("the usage part is bookkeeping: a reasoning-only stream fails loudly and forfeits its usage", async () => {
-		// The reasoning-only error fires at the [DONE] run; usage emission is
-		// reserved for the final post-loop run, which the throw never reaches.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress, null, fakeDataCtor);
 		const body = sseStream([
@@ -313,29 +307,9 @@ suite("provider/streaming usage DataPart", () => {
 		assert.strictEqual(parts.length, 0, "the failed request emits nothing, usage included");
 	});
 
-	test("a reasoning-only stream that fails at its finish_reason chunk forfeits the later trailer too", async () => {
-		// Same forfeit through the other route: the throw at finish_reason
-		// aborts the request before the trailer is even parsed.
-		const { parts, progress } = collector();
-		const stream = new StreamProcessor(idSource(), () => {}, progress, null, fakeDataCtor);
-		const body = sseStream([
-			'data: {"choices":[{"delta":{"reasoning_content":"hidden"}}]}\n',
-			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
-			TRAILER,
-			"data: [DONE]\n",
-		]);
-
-		await assert.rejects(
-			() => stream.processStreamingResponse(body, token()),
-			(e: unknown) => e instanceof Error && e.message.startsWith("The model produced only reasoning output")
-		);
-		assert.strictEqual(parts.length, 0, "the failed request emits nothing, usage included");
-	});
-
 	test("reasoning-only plus citations plus a usage trailer: the throw wins and nothing emits", async () => {
-		// The three-way collision: terminal checks run before either trailer,
-		// so the failed request ships neither the Sources list nor the
-		// accounting part.
+		// The three-way collision: terminal checks run before either trailer, so the failed request ships neither the
+		// Sources list nor the accounting part.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress, null, fakeDataCtor);
 		const body = sseStream([
@@ -353,9 +327,6 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("a failure surfacing only at EOF still forfeits the usage part", async () => {
-		// No finish_reason and no [DONE]: the post-loop EOF run is the first
-		// end-of-stream run, and its invalid buffered tool call must throw
-		// before the trailers emit.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress, null, fakeDataCtor);
 		const body = sseStream([
@@ -372,8 +343,7 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("the sources trailer precedes the usage DataPart at end of stream", async () => {
-		// Citations are chat content, usage is metadata: the visible trailer
-		// renders before the accounting part.
+		// Citations are chat content, usage is metadata: the visible trailer renders before the accounting part.
 		const { parts, progress } = collector();
 		const stream = usageProcessor(progress);
 		const body = sseStream([

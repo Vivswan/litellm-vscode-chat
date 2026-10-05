@@ -34,11 +34,6 @@ interface RunResult {
 	parts: vscode.LanguageModelResponsePart[];
 }
 
-/**
- * Drive every assembled chunk through parseChunk and processDelta, then run the post-loop
- * end of stream, mirroring the transport loop's delta handling plus its final run, where
- * the trailers emit.
- */
 function runChunks(chunks: unknown[]): RunResult {
 	const parts: vscode.LanguageModelResponsePart[] = [];
 	const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
@@ -90,8 +85,8 @@ const eventSpecArb = fc.tuple(kindArb, seedArb);
 const tailSpecArb = fc.option(fc.tuple(fc.constantFrom(...TAIL_EVENT_KINDS), seedArb), { nil: undefined });
 
 /**
- * A whole stream as (kind, seed) coordinates: fast-check shrinks by dropping
- * events and simplifying seeds, and each list rebuilds deterministically.
+ * A whole stream as (kind, seed) coordinates: fast-check shrinks by dropping events and simplifying seeds, and each
+ * list rebuilds deterministically.
  */
 const eventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 	.tuple(fc.array(eventSpecArb, { minLength: 1, maxLength: 8 }), tailSpecArb)
@@ -105,8 +100,8 @@ const eventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 	});
 
 /**
- * Streams that always end in one delta-channel tool call (and never a tail), so
- * the index-invariance property has a numeric index to rewrite in every run.
+ * Streams that always end in one delta-channel tool call (and never a tail), so the index-invariance property has a
+ * numeric index to rewrite in every run.
  */
 const eventsWithDeltaArb: fc.Arbitrary<FuzzEvent[]> = fc
 	.tuple(fc.array(eventSpecArb, { maxLength: 7 }), seedArb)
@@ -158,8 +153,8 @@ suite("provider/streaming dedup properties", () => {
 		const copiesArb = fc.tuple(fc.integer({ min: 1, max: 3 }), fc.integer({ min: 0, max: 3 })).chain(([n, m]) => {
 			const argText = JSON.stringify({ seq: 0, city: "berlin" });
 			const deltas = Array.from({ length: n }, (_, i) => deltaCallChunk("get_weather", i, argText));
-			// Distinct inline index headers, so inline-replay dedup stays out of
-			// the way and the pure cross-channel rule is what gets measured.
+			// Distinct inline index headers, so inline-replay dedup stays out of the way and the pure cross-channel
+			// rule is what gets measured.
 			const inlines = Array.from({ length: m }, (_, j) => inlineCallChunk("get_weather", 100 + j, argText));
 			const all = [...deltas, ...inlines];
 			return fc

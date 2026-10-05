@@ -1,7 +1,3 @@
-/**
- * StreamProcessor and the modern chunk fields: refusals and annotations, unhandled
- * fields passing through, and generated media with and without DataPart support.
- */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { StreamProcessor } from "../../../provider/transport/streaming";
@@ -43,8 +39,6 @@ suite("provider/streaming refusal and annotations", () => {
 					},
 				],
 			},
-			{ choices: [{ delta: {}, finish_reason: "stop" }] },
-			// A replayed finish_reason runs the end-of-stream path again; the trailer must not repeat.
 			{ choices: [{ delta: {}, finish_reason: "stop" }] },
 		]);
 
@@ -287,8 +281,8 @@ suite("provider/streaming refusal and annotations", () => {
 	});
 
 	test("a source arriving after [DONE] still lands in the trailer", async () => {
-		// Mirrors the straggling usage trailer: [DONE] continues the loop, so
-		// the post-loop run is the one that renders the sources.
+		// Mirrors the straggling usage trailer: [DONE] continues the loop, so the post-loop run is the one that renders
+		// the sources.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 		const body = sseStream([
@@ -324,8 +318,8 @@ suite("provider/streaming refusal and annotations", () => {
 	});
 
 	test("a citations-only stream without dropped reasoning resolves with its trailer", async () => {
-		// The trailer never counts as substantive output for the reasoning-only
-		// check, but with nothing dropped there is nothing to report.
+		// The trailer never counts as substantive output for the reasoning-only check, but with nothing dropped there
+		// is nothing to report.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 
@@ -342,8 +336,8 @@ suite("provider/streaming refusal and annotations", () => {
 
 suite("provider/streaming pass-through of unhandled modern fields", () => {
 	test("usage logging is restricted to the known numeric token counts", async () => {
-		// The usage record is response-owned: unknown keys and non-numeric values
-		// in known slots must never ride into the log data.
+		// The usage record is response-owned: unknown keys and non-numeric values in known slots must never ride into
+		// the log data.
 		const cases = [
 			{
 				usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
@@ -404,8 +398,6 @@ suite("provider/streaming generated media", () => {
 	function dataPartsOf(parts: vscode.LanguageModelResponsePart[]): FakeDataPart[] {
 		return parts.filter((p) => p instanceof FakeDataPart) as unknown as FakeDataPart[];
 	}
-
-	const finish = { choices: [{ delta: {}, finish_reason: "stop" }] };
 
 	test("a delta.images data URL becomes one DataPart with decoded bytes and the header mime", () => {
 		const { parts, progress } = collector();
@@ -478,8 +470,8 @@ suite("provider/streaming generated media", () => {
 	});
 
 	test("base64 validation is canonical: truncated groups and noncanonical pad bits skip instead of corrupting", () => {
-		// Bare/short padding and noncanonical pad bits, which Buffer would silently
-		// decode to empty or truncated bytes, plus bad alphabet, length, URL-safe.
+		// Bare/short padding and noncanonical pad bits, which Buffer would silently decode to empty or truncated bytes,
+		// plus bad alphabet, length, URL-safe.
 		const rejected = ["=", "==", "AA=", "AAA==", "AB==", "U", "UklGRg", "AQI_", "AQI-", "@@@@", "AQ=A", "===="];
 		for (const payload of rejected) {
 			const logs: string[] = [];
@@ -534,8 +526,8 @@ suite("provider/streaming generated media", () => {
 	});
 
 	test("a model-controlled mime that is not a safe type/subtype is rejected at the source", () => {
-		// Each bad mime carries the marker "zq9" so the log assertion cannot
-		// trip on innocent substrings of the classification message itself.
+		// Each bad mime carries the marker "zq9" so the log assertion cannot trip on innocent substrings of the
+		// classification message itself.
 		const badMimes = ["not a zq9 mime", "imagezq9", "image/zq9; charset=x", `image/zq9${"y".repeat(120)}`, "a/zq9/c"];
 		for (const mime of badMimes) {
 			const logs: string[] = [];
@@ -576,7 +568,7 @@ suite("provider/streaming generated media", () => {
 		assert.equal(dataPartsOf(parts).length, 0, "audio accumulates; the clip may not emit before the stream finishes");
 		assert.equal(visibleTextOf(parts), "spoken words", "the transcript is the model's text and streams immediately");
 
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		const audio = dataPartsOf(parts);
 		assert.equal(audio.length, 1);
@@ -592,7 +584,7 @@ suite("provider/streaming generated media", () => {
 
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "U", transcript: "Hel" } } }] }); // typos: ignore
 		stream.processDelta({ choices: [{ delta: { audio: { data: "klGRg==", transcript: "lo" } } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		assert.equal(visibleTextOf(parts), "Hello");
 		const audio = dataPartsOf(parts);
@@ -607,7 +599,7 @@ suite("provider/streaming generated media", () => {
 		// "U" alone is undecodable base64; only the concatenation is valid.
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "U" } } }] });
 		stream.processDelta({ choices: [{ delta: { audio: { data: "klGRg==" } } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		const audio = dataPartsOf(parts);
 		assert.equal(audio.length, 1, "fragments must merge into a single DataPart");
@@ -620,7 +612,7 @@ suite("provider/streaming generated media", () => {
 
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] });
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a2", data: "BAUG" } } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		const audio = dataPartsOf(parts);
 		assert.equal(audio.length, 2);
@@ -635,7 +627,7 @@ suite("provider/streaming generated media", () => {
 
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "!!!bad!!!" } } }] });
 		stream.processDelta({ choices: [{ delta: { content: "text survives" } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		assert.equal(dataPartsOf(parts).length, 0);
 		assert.equal(visibleTextOf(parts), "text survives");
@@ -659,7 +651,7 @@ suite("provider/streaming generated media", () => {
 			const { parts, progress } = collector();
 			const stream = new StreamProcessor(idSource(), () => {}, progress, null, fakeDataCtor, format);
 			stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] });
-			stream.processDelta(finish);
+			stream.endOfStream();
 			const audio = dataPartsOf(parts);
 			assert.equal(audio.length, 1, `format ${JSON.stringify(format)} must still emit`);
 			assert.equal(expectDefined(audio[0]).mimeType, expectedMime, `format ${JSON.stringify(format)}`);
@@ -672,7 +664,7 @@ suite("provider/streaming generated media", () => {
 		const stream = mediaProcessor(progress, (msg) => logs.push(msg));
 
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "\n" } } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		assert.equal(dataPartsOf(parts).length, 0, "whitespace strips to nothing; an empty clip must not emit");
 		assert.ok(logs.some((l) => l.includes("Skipping generated audio")));
@@ -683,8 +675,8 @@ suite("provider/streaming generated media", () => {
 		const { parts, progress } = collector();
 		const stream = mediaProcessor(progress, (msg) => logs.push(msg));
 
-		// "AQID" under text/html would otherwise round-trip its bytes back
-		// into assistant text on the next turn via the history converter.
+		// "AQID" under text/html would otherwise round-trip its bytes back into assistant text on the next turn via the
+		// history converter.
 		stream.processDelta({
 			choices: [
 				{
@@ -702,25 +694,13 @@ suite("provider/streaming generated media", () => {
 		assert.ok(logs.some((l) => l.includes("Skipping generated image")));
 	});
 
-	test("repeated end-of-stream runs do not duplicate the audio part", () => {
-		const { parts, progress } = collector();
-		const stream = mediaProcessor(progress);
-
-		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] });
-		stream.processDelta(finish);
-		// The [DONE] line runs the end-of-stream path a second time.
-		stream.processDelta(finish);
-
-		assert.equal(dataPartsOf(parts).length, 1);
-	});
-
 	test("id-less fragments before the first id'd fragment merge into that id's single part", () => {
 		const { parts, progress } = collector();
 		const stream = mediaProcessor(progress);
 
 		stream.processDelta({ choices: [{ delta: { audio: { data: "U" } } }] });
 		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "klGRg==" } } }] });
-		stream.processDelta(finish);
+		stream.endOfStream();
 
 		const audio = dataPartsOf(parts);
 		assert.equal(audio.length, 1, "the late id adopts the open accumulation instead of splitting it");
@@ -740,19 +720,8 @@ suite("provider/streaming generated media", () => {
 		assert.equal(dataPartsOf(parts).length, 0, "a cancelled request must not emit a partial clip");
 
 		// The same processor serving a subsequent stream must start clean.
-		stream.processDelta(finish);
+		stream.endOfStream();
 		assert.equal(dataPartsOf(parts).length, 0, "the dropped accumulation must not resurface later");
-	});
-
-	test("resetState clears an in-flight audio accumulation", () => {
-		const { parts, progress } = collector();
-		const stream = mediaProcessor(progress);
-
-		stream.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] });
-		stream.resetState();
-		stream.processDelta(finish);
-
-		assert.equal(dataPartsOf(parts).length, 0);
 	});
 
 	test("the audio part flushes before the citations trailer", async () => {
@@ -771,7 +740,7 @@ suite("provider/streaming generated media", () => {
 					},
 				],
 			},
-			finish,
+			{ choices: [{ delta: {}, finish_reason: "stop" }] },
 		]);
 
 		const kinds = parts.map((p) => (p instanceof FakeDataPart ? "data" : "text"));
@@ -872,8 +841,8 @@ suite("provider/streaming generated media", () => {
 	});
 
 	test("an SSE stream carrying an audio delta surfaces the host's real LanguageModelDataPart", async () => {
-		// Default constructor arguments: the module probe finds the host's
-		// stable LanguageModelDataPart class in the extension test host.
+		// Default constructor arguments: the module probe finds the host's stable LanguageModelDataPart class in the
+		// extension test host.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 		const body = sseStream([
@@ -909,9 +878,9 @@ suite("provider/streaming media without DataPart support", () => {
 			choices: [{ delta: { images: [{ type: "image_url", image_url: { url: "data:image/png;base64,AQID" } }] } }],
 		});
 		first.processDelta({ choices: [{ delta: { content: "still text" } }] });
-		first.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] });
+		first.endOfStream();
 		second.processDelta({ choices: [{ delta: { audio: { id: "a1", data: "UklGRg==", transcript: " and words" } } }] });
-		second.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] });
+		second.endOfStream();
 
 		assert.equal(
 			visibleTextOf(parts),

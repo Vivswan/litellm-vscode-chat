@@ -18,8 +18,9 @@ export interface Block {
 
 /**
  * Every brace block in a compiled sheet, with the at-rules around it. Exported so a pin can scope a scan to one
- * layer's rules (the utility collision guard reads only `@layer utilities`). A brace walk rather than a parser
- * dependency; comments and string literals are stepped over, since a `content: "{"` would unbalance the stack.
+ * layer's rules (the utility collision guard reads only `@layer utilities`).
+ *
+ *   a `content: "{"` would unbalance the stack -> comments and string literals are stepped over
  */
 export function blocks(css: string): readonly Block[] {
 	const found: Block[] = [];

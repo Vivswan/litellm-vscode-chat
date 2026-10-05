@@ -19,7 +19,7 @@ import { expectDefined } from "./pureHelpers";
 
 /**
  * Pins the declarative chain end to end: the servers setting -> serverSync -> lm.addLanguageModelsProviderGroup
- * -> discovery -> chat against the docker LiteLLM proxy. Run via `bun run test:docker`.
+ * -> discovery -> chat against the docker LiteLLM proxy.
  *
  * Provider groups are ADD-ONLY for the host lifetime, so this suite needs its own extension host label and a
  * unique label per scenario; the scenarios are sequential and each builds on the previous ones' groups.
@@ -64,7 +64,6 @@ const CAPS_MODEL = "llama-4-scout";
 const UNEXPECTED_DECLARED_MODEL = "fake-declared";
 /** Scenario 11's entry key: its bucket in the fake backend's discovery-attempt counters. */
 const UNEXPECTED_DECLARED_KEY = "declared-unexpected-key";
-/** Scenario 10's entry-declared model. */
 const EXPECTED_DECLARED_MODEL = "fake-expected";
 /** Scenario 10's entry key, unique so its discovery-attempt bucket counts only its own group. */
 const EXPECTED_FAILURES_KEY = "expected-failures-key";
@@ -122,7 +121,6 @@ suite("Docker server sync", () => {
 		await vscode.commands.executeCommand(CMD.syncModels);
 	}
 
-	/** Append one entry to the servers setting and force a sync pass. */
 	async function declareServer(entry: ServersSettingEntry): Promise<void> {
 		await writeServersSetting([...readServersSetting(), entry]);
 		await syncNow();
@@ -426,9 +424,8 @@ suite("Docker server sync", () => {
 		await syncNow();
 		const blocked = await declaredFor(LABEL_INLINE);
 		assert.strictEqual(blocked.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
-		// The live group still carries the entry's label at the OLD URL, which the
-		// entry no longer declares: a superseded leftover. The provider serves
-		// nothing from it, so exactly this one group's models leave the picker
+		// The live group still carries the entry's label at the OLD URL, which the entry no longer declares: a
+		// superseded leftover. The provider serves nothing from it, so exactly this one group's models leave the picker
 		// while every other group keeps its own.
 		await waitForHostModels(
 			60000,
@@ -436,8 +433,8 @@ suite("Docker server sync", () => {
 			`exactly ${proxyGroups - 1} proxy-backed group(s) to expose ${ALIAS} (the superseded leftover serving none)`
 		);
 
-		// Pointing the entry back at the live group's URL clears the error without
-		// a host call and lifts the suppression: the models return.
+		// Pointing the entry back at the live group's URL clears the error without a host call and lifts the
+		// suppression: the models return.
 		entries[index] = original;
 		await writeServersSetting(entries);
 		await syncNow();
@@ -710,9 +707,8 @@ suite("Docker server sync", () => {
 
 	test("scenario 12: fixing a stored key heals the server without recreating the group (#277)", async function () {
 		this.timeout(120000);
-		// The group is created with a WRONG key baked into its host configuration
-		// (stored before the entry exists, so it lands unstamped and the first
-		// sync pass bakes it in); the add itself succeeds, discovery then fails.
+		// The group is created with a WRONG key baked into its host configuration (stored before the entry exists, so
+		// it lands unstamped and the first sync pass bakes it in); the add itself succeeds, discovery then fails.
 		await setStoredSecret(LABEL_ROTATED, "apiKey", WRONG_ROTATED_KEY);
 		await declareServer({ label: LABEL_ROTATED, baseUrl: BASE_URL });
 		assert.strictEqual(
@@ -740,7 +736,6 @@ suite("Docker server sync", () => {
 		const view = await declaredFor(LABEL_ROTATED);
 		assert.strictEqual(view.syncFailure?.message, undefined, "a credential rotation never enters the blocked state");
 		assert.strictEqual(view.secrets.apiKey, "secure", "the rotated key lives in SecretStorage");
-		// The healed group carries chat end to end with the rotated credentials.
 		const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
 		assert.ok(countModels(models, ALIAS) >= proxyGroups, "the healed group serves the proxy models");
 	});

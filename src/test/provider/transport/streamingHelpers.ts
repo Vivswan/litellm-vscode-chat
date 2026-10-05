@@ -1,8 +1,3 @@
-/**
- * Shared fixtures for the streaming suites: a counting tool-call ID source, a part
- * collector, the visible-text and event-sequence views of a response, and the
- * SSE stream plus replay loop that drive chunks through the real transport.
- */
 import * as vscode from "vscode";
 import type { StreamProcessor } from "../../../provider/transport/streaming";
 
@@ -36,7 +31,6 @@ export function visibleTextOf(parts: vscode.LanguageModelResponsePart[]): string
 		.join("");
 }
 
-/** Normalized event sequence: adjacent text parts merge, tool calls keep order. */
 export function eventSequenceOf(parts: vscode.LanguageModelResponsePart[]): string[] {
 	const events: string[] = [];
 	for (const part of parts) {
@@ -70,9 +64,8 @@ export function sseStream(chunks: string[], onEnd?: () => void): ReadableStream<
 }
 
 /**
- * Drive chunk objects through the real transport loop, appending [DONE]. The
- * end-of-stream trailers emit only on the loop's final run, so tests asserting
- * on them must go through here rather than calling processDelta.
+ * The trailers emit only at the end of the stream, so a test asserting on them goes through here or calls
+ * endOfStream.
  */
 export async function playChunks(stream: StreamProcessor, chunks: unknown[]): Promise<void> {
 	const lines = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n`);

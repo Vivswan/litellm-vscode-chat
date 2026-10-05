@@ -170,7 +170,8 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"validateRequest",
 	// src/provider error constructors, catalog presenters, and schema builders.
 	"unparseableModelsResponse",
-	"coerceJsonPayload",
+	"parseJsonBody",
+	"getJson",
 	"modelListingUnservedError",
 	"noEndpointServedError",
 	"refineModelsListingFailure",

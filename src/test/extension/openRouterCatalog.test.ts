@@ -19,9 +19,8 @@ const MIN_DELAY_MS = 60_000;
 const fixtureText = catalogFixtureText();
 
 /**
- * A payload distinguishable from the fixture, in the live endpoint's shape, over
- * the model-count floor. Its pricing block must never survive into the slimmed
- * cache (LiteLLM is the only pricing source).
+ * A payload distinguishable from the fixture, in the live endpoint's shape, over the model-count floor. Its pricing
+ * block must never survive into the slimmed cache (LiteLLM is the only pricing source).
  */
 const refreshedPayload = {
 	data: Array.from({ length: 250 }, (_, index) => ({
@@ -43,9 +42,8 @@ interface ScheduledCall {
 }
 
 /**
- * A recording timer: long delays (the weekly/daily schedule) are captured for
- * the test to fire; short retry-backoff sleeps run on a microtask so awaited
- * refreshes complete without real time.
+ * A recording timer: long delays (the weekly/daily schedule) are captured for the test to fire; short retry-backoff
+ * sleeps run on a microtask so awaited refreshes complete without real time.
  */
 function makeTimer(): { timer: Timer; scheduled: ScheduledCall[] } {
 	const scheduled: ScheduledCall[] = [];
@@ -186,6 +184,19 @@ suite("extension openRouterCatalog store", () => {
 		assert.strictEqual(pendingSchedules(harness.scheduled).length, 1);
 	});
 
+	test("re-initializing after the cache file vanished stops serving the snapshot it held", async () => {
+		// The docker suite's reset: seed a cache in a build without a bundled file, then delete it and re-run
+		// initialize. The both-missing branch installed nothing, so the six-model fixture kept serving.
+		const harness = makeHarness({ cached: fixtureText });
+		await harness.store.initialize();
+		assert.strictEqual(harness.store.snapshot().models.length, 6);
+
+		fs.rmSync(harness.cachePath);
+		await harness.store.initialize();
+		assert.strictEqual(harness.store.snapshot().models.length, 0);
+		assert.deepStrictEqual(harness.store.lookup.byExactId("anthropic/claude-sonnet-4.5"), { kind: "not-found" });
+	});
+
 	test("a malformed cache file falls back to the bundled snapshot with a classification log", async () => {
 		const harness = makeHarness({ bundled: fixtureText, cached: '{"data": [{"torn...' });
 		await harness.store.initialize();
@@ -211,8 +222,7 @@ suite("extension openRouterCatalog store", () => {
 			[WEEK_MS - DAY_MS]
 		);
 
-		// Advisory metadata lost (globalState reverted): the file still serves
-		// and the only cost is an early refresh.
+		// Advisory metadata lost (globalState reverted): the file still serves and the only cost is an early refresh.
 		const reverted = makeHarness({ cached: fixtureText, now });
 		await reverted.store.initialize();
 		assert.strictEqual(reverted.store.lookup.byExactId("gemma-7b").kind, "found");
@@ -246,7 +256,6 @@ suite("extension openRouterCatalog store", () => {
 		assert.strictEqual(harness.store.lookup.byExactId("refreshed/model-1").kind, "found");
 		assert.strictEqual(harness.store.lookup.byExactId("anthropic/claude-sonnet-4.5").kind, "not-found");
 
-		// The cache file is the slimmed artifact: parseable, complete, pricing-free.
 		const writtenText = fs.readFileSync(harness.cachePath, "utf8");
 		const written = JSON.parse(writtenText) as { data: unknown[] };
 		assert.strictEqual(written.data.length, 250);
@@ -284,13 +293,12 @@ suite("extension openRouterCatalog store", () => {
 			!harness.logLines.some((line) => line.includes("secret-response-text")),
 			"error text leaked into the log"
 		);
-		// The retry is armed at the failure cadence, not the weekly one.
 		assert.deepStrictEqual(
 			pendingSchedules(harness.scheduled).map((call) => call.ms),
 			[DAY_MS]
 		);
-		// The dashboard row's status carries the standing failure as the fixed
-		// classification vocabulary, never response text, until a success clears it.
+		// The dashboard row's status carries the standing failure as the fixed classification vocabulary, never
+		// response text, until a success clears it.
 		const status: OpenRouterCatalogStatus = harness.store.status();
 		assert.strictEqual(status.modelCount, 6);
 		assert.strictEqual(status.lastSuccessAt, undefined);
@@ -299,8 +307,7 @@ suite("extension openRouterCatalog store", () => {
 	});
 
 	test("a payload below the model-count floor counts as failure, never as a truncated catalog", async () => {
-		// One valid model is still far under the floor: a truncated live
-		// response must not replace the full snapshot.
+		// One valid model is still far under the floor: a truncated live response must not replace the full snapshot.
 		const partial = { data: [{ id: "partial/model", context_length: 1000 }] };
 		const harness = makeHarness({ bundled: fixtureText, fetchCatalog: async () => partial });
 		await harness.store.initialize();
@@ -320,9 +327,8 @@ suite("extension openRouterCatalog store", () => {
 		await harness.store.initialize();
 		await harness.store.refreshNow();
 
-		// The refreshed data serves this session, but nothing claims durable
-		// success: a restart would fall back to the bundled snapshot, so the
-		// next attempt comes at the retry cadence.
+		// The refreshed data serves this session, but nothing claims durable success: a restart would fall back to the
+		// bundled snapshot, so the next attempt comes at the retry cadence.
 		assert.strictEqual(harness.updates, 1);
 		assert.strictEqual(harness.store.lookup.byExactId("refreshed/model-1").kind, "found");
 		assert.ok(harness.logLines.some((line) => line.includes("cache write failed")));
@@ -347,8 +353,7 @@ suite("extension openRouterCatalog store", () => {
 		await harness.store.refreshNow();
 		assert.strictEqual(harness.fetchCalls, 1, "no retry after the opt-out");
 		assert.ok(!harness.logLines.some((line) => line.includes("refresh failed")));
-		// The config-change listener calls applyEnabledSetting, which drops the
-		// still-armed schedule.
+		// The config-change listener calls applyEnabledSetting, which drops the still-armed schedule.
 		harness.store.applyEnabledSetting();
 		assert.deepStrictEqual(pendingSchedules(harness.scheduled), []);
 	});
@@ -360,11 +365,9 @@ suite("extension openRouterCatalog store", () => {
 		assert.deepStrictEqual(pendingSchedules(harness.scheduled), []);
 		assert.deepStrictEqual(harness.store.lookup.byRawModelId("gemma-7b"), { kind: "not-found" });
 		assert.strictEqual(harness.store.lookup.byExactId("gemma-7b").kind, "found");
-		// refreshNow under opt-out is a no-op: no network.
 		await harness.store.refreshNow();
 		assert.strictEqual(harness.fetchCalls, 0);
 
-		// Re-enabling schedules a refresh and reopens the implicit lookup.
 		enabled = true;
 		harness.store.applyEnabledSetting();
 		assert.strictEqual(pendingSchedules(harness.scheduled).length, 1);
@@ -381,18 +384,17 @@ suite("extension openRouterCatalog store", () => {
 		await harness.store.initialize();
 		const [initial] = pendingSchedules(harness.scheduled);
 		assert.ok(initial !== undefined);
-		// The user disables, but the armed timer fires first: the refresh starts
-		// and bails on the disabled check, its promise not yet settled.
+		// The user disables, but the armed timer fires first: the refresh starts and bails on the disabled check, its
+		// promise not yet settled.
 		enabled = false;
 		initial.cb();
 		harness.store.applyEnabledSetting();
-		// The user re-enables while that refresh is still settling: a timer must
-		// stay pending or a refresh outstanding, or the weekly cadence dies for
-		// the session.
+		// The user re-enables while that refresh is still settling: a timer must stay pending or a refresh outstanding,
+		// or the weekly cadence dies for the session.
 		enabled = true;
 		harness.store.applyEnabledSetting();
-		// The same in-flight promise (nothing yielded since cb()): this drains
-		// the settling refresh, never starts a new one.
+		// The same in-flight promise (nothing yielded since cb()): this drains the settling refresh, never starts a new
+		// one.
 		await harness.store.refreshNow();
 		assert.strictEqual(harness.fetchCalls, 0, "the disabled refresh reached the network");
 		assert.deepStrictEqual(
@@ -454,11 +456,9 @@ suite("extension openRouterCatalog store", () => {
 		assert.deepStrictEqual(pendingSchedules(harness.scheduled), []);
 	});
 
-	// The retry rule the runtime shares with the fetch script
-	// (isRetryableOpenRouterFailure, discovery's SDK rule): 408/409/429/5xx and
-	// connection failures retry, and a 200 with garbage or a settled 4xx gets
-	// exactly one attempt - as discovery's body parse sits outside the SDK's
-	// retry loop.
+	// The retry rule the runtime shares with the fetch script (isRetryableOpenRouterFailure, discovery's SDK rule):
+	// 408/409/429/5xx and connection failures retry, and a 200 with garbage or a settled 4xx gets exactly one attempt -
+	// as discovery's body parse sits outside the SDK's retry loop.
 	for (const { name, body, status, classification, attempts } of [
 		{ name: "a 503", body: "upstream-secret-body", status: 503, classification: "HTTP 503", attempts: 3 },
 		{ name: "a 429", body: "upstream-secret-body", status: 429, classification: "HTTP 429", attempts: 3 },
@@ -574,9 +574,8 @@ suite("extension openRouterCatalog store", () => {
 });
 
 /**
- * Run `fn` with the store's per-attempt budget under the test's control: every
- * AbortSignal.timeout the refresh arms comes back as a controller `expire`
- * fires with the platform's own TimeoutError, so a stall costs no real seconds.
+ * Run `fn` with the store's per-attempt budget under the test's control: every AbortSignal.timeout the refresh arms
+ * comes back as a controller `expire` fires with the platform's own TimeoutError, so a stall costs no real seconds.
  */
 async function withControlledBudget<T>(fn: (expire: () => void) => Promise<T>): Promise<T> {
 	const original = AbortSignal.timeout;
@@ -598,10 +597,9 @@ async function withControlledBudget<T>(fn: (expire: () => void) => Promise<T>): 
 }
 
 /**
- * A 200 whose body starts and then never finishes - today's Cloudflare-edge
- * failure mode. Like a fetch-created body it errors with the abort reason when
- * the attempt's signal fires; `onStall` runs once the body read reaches the
- * stall, so the test acts mid-body, never before the headers.
+ * A 200 whose body starts and then never finishes - today's Cloudflare-edge failure mode. Like a fetch-created body it
+ * errors with the abort reason when the attempt's signal fires; `onStall` runs once the body read reaches the stall, so
+ * the test acts mid-body, never before the headers.
  */
 function stalledResponse(init: RequestInit | undefined, onStall: () => void): Response {
 	const signal = init?.signal ?? undefined;

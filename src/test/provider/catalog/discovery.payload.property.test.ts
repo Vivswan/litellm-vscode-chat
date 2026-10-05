@@ -24,21 +24,12 @@ import { MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "..
 import { expectDefined } from "../../pureHelpers";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
-// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
 const SEED = resolveFuzzSeed();
-
-/**
- * Wire-payload properties for discovery's normalization layer: parsing is total over
- * arbitrary JSON, cost fields come out usable or absent, the long-context tier selection
- * cannot be confused by junk keys, internal markers cannot be forged from the wire, and
- * fetchModels never drops a model with a usable id.
- */
 
 const noLog = () => {};
 
-// ── Shared arbitraries ────────────────────────────────────────────────────────
+// --- Shared arbitraries
 
-/** A cost-ish value: usable numbers, junk numbers, and non-numbers. */
 const costValue = fc.oneof(
 	fc.double({ noNaN: true, noDefaultInfinity: true, min: 0, max: 1 }),
 	fc.constantFrom(-0, Number.NaN, Number.POSITIVE_INFINITY, -1, -0.5, null, undefined, "0.001", { usd: 1 }, true, [])
@@ -67,7 +58,6 @@ const tierEntry = fc.record({
 	value: costValue,
 });
 
-/** A record of tiered cost keys plus lookalikes plus arbitrary noise fields. */
 const tieredRecord = fc
 	.tuple(
 		fc.array(tierEntry, { maxLength: 8 }),
@@ -97,7 +87,6 @@ function assertCostFieldUsableOrAbsent(provider: LiteLLMProvider, field: CostCap
 	);
 }
 
-/** The tier selection oracle: lowest threshold holding at least one usable cost; per-field values at it. */
 function expectedLongContextCosts(
 	tiers: readonly { base: string; threshold: number; value: unknown }[]
 ): Partial<Record<LongContextCostField, number>> {
@@ -114,8 +103,8 @@ function expectedLongContextCosts(
 	const expected: Partial<Record<LongContextCostField, number>> = {};
 	for (const tier of usable) {
 		if (tier.threshold === lowest) {
-			// Mirror the implementation's canonicalization (-0 comes out as 0);
-			// isUsableCost already guaranteed the value normalizes to a number.
+			// Mirror the implementation's canonicalization (-0 comes out as 0); isUsableCost already guaranteed the
+			// value normalizes to a number.
 			expected[expectDefined(LONG_CONTEXT_FIELD_BY_BASE.get(tier.base))] = expectDefined(
 				normalizeCostPerToken(tier.value)
 			);
@@ -168,7 +157,6 @@ suite("provider/discovery payload parsing properties", () => {
 });
 
 suite("provider/discovery /v1/models normalization properties", () => {
-	/** A wire provider entry: usually a valid core plus pass-through noise, sometimes malformed (non-string provider). */
 	const wireProviderArb = fc
 		.tuple(
 			fc.dictionary(fc.string({ maxLength: 16 }), fc.jsonValue({ maxDepth: 1 }), { maxKeys: 5 }),
@@ -211,7 +199,6 @@ suite("provider/discovery /v1/models normalization properties", () => {
 suite("provider/discovery fetchModels payload properties", () => {
 	useMsw();
 
-	/** An entry with a usable /v1/model/info identity, possibly blocked. */
 	const infoEntryArb = fc
 		.tuple(
 			fc.string({ minLength: 1, maxLength: 12 }),
@@ -223,7 +210,6 @@ suite("provider/discovery fetchModels payload properties", () => {
 			model_info: { ...extra, ...(blocked ? { blocked: true } : {}) },
 		}));
 
-	/** Junk entries that must be skipped, never aborting the fetch. */
 	const junkEntryArb = fc.oneof(
 		fc.jsonValue({ maxDepth: 1 }),
 		fc.constant({ model_name: 42 }),
@@ -254,8 +240,8 @@ suite("provider/discovery fetchModels payload properties", () => {
 
 	test("no usable unblocked model is ever dropped, and blocked-only payloads yield an empty list", async function () {
 		this.timeout(120000);
-		// One stable handler pair reading mutable state: use() inside the property
-		// would stack a handler pair per run and grow unboundedly at high FUZZ_RUNS.
+		// One stable handler pair reading mutable state: use() inside the property would stack a handler pair per run
+		// and grow unboundedly at high FUZZ_RUNS.
 		let servedEntries: unknown[] = [];
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => HttpResponse.json({ data: servedEntries })),
@@ -266,9 +252,8 @@ suite("provider/discovery fetchModels payload properties", () => {
 				servedEntries = entries;
 				const { models } = await fetchModels(makeRequest());
 
-				// The oracle mirrors narrowModelInfoData's slot order: model-info
-				// entries dedupe into their first-seen deployment slot, blocked ones
-				// drop, models-listing entries pass through in place, junk is skipped.
+				// The oracle mirrors narrowModelInfoData's slot order: model-info entries dedupe into their first-seen
+				// deployment slot, blocked ones drop, models-listing entries pass through in place, junk is skipped.
 				const expectedIds: string[] = [];
 				const seenDeployments = new Set<string>();
 				for (const entry of entries) {

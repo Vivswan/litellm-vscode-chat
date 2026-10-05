@@ -13,19 +13,13 @@ export interface ToolCallBuffer {
 }
 
 /** Providers may send values beyond the OpenAI set. */
-export type FinishReason =
+type FinishReason =
 	| "stop"
 	| "length"
 	| "tool_calls"
 	| "content_filter"
 	| "function_call"
 	| (string & Record<never, never>);
-
-/**
- * Deliberately not every FinishReason: length, content_filter, and function_call flush only at [DONE] or EOF. Typed
- * as a FinishReason list, not a literal tuple, so any parsed finish_reason can be membership-tested.
- */
-export const TERMINAL_FINISH_REASONS: readonly FinishReason[] = ["stop", "tool_calls"];
 
 /** Structured thinking payload used by Anthropic-style providers. */
 export interface ThinkingBlock {

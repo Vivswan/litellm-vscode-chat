@@ -1,15 +1,8 @@
 /**
- * The inheritance fuzzer: random record trees with random `_inheritable`,
- * `_inherit_from`, `_force`, and `_fallback` placements, resolved for random
- * model IDs against a NAIVE oracle that restates the documented semantics from
- * scratch (its own matcher, its own recursive walk, no code shared with the
- * engine). Directive values are generated well-formed; the malformed shapes are
- * unit-pinned in recordResolution.test.ts. Three targeted invariants ride on
- * top: a barrier winner resolves to exactly its own fields, an exclusive-list
- * winner draws only from its own and the named records' literal fields, and
- * markings always ride from the writer. The flat-table properties pin
- * ModelResolutionTable == direct resolution, with memo hits by identity and
- * fingerprint invalidation on changed inputs.
+ * The inheritance fuzzer: random record trees with random `_inheritable`, `_inherit_from`, `_force`, and `_fallback`
+ * placements, resolved for random model IDs against a NAIVE oracle that restates the documented semantics from scratch
+ * (its own matcher, its own recursive walk, no code shared with the engine). Directive values are generated
+ * well-formed; the malformed shapes are unit-pinned in recordResolution.test.ts.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -30,8 +23,8 @@ import { resolveFuzzSeed } from "../../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
 const SEED = resolveFuzzSeed();
 
-// No regex metacharacters, so the naive matcher below can treat the one
-// generated regex form ("/<literal>.*/") with plain startsWith semantics.
+// No regex metacharacters, so the naive matcher below can treat the one generated regex form ("/<literal>.*/") with
+// plain startsWith semantics.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789-");
 const modelIdArb = fc.string({ unit: idChar, minLength: 1, maxLength: 8 });
 
@@ -50,7 +43,6 @@ interface RecordSpec {
 	readonly inheritFrom: "absent" | "all" | "none" | "list";
 	readonly inheritKeys: readonly number[];
 	readonly ghostKey: boolean;
-	/** The parameters side's `_fim_template` directive: absent, a valid template, or a junk value. */
 	readonly fim: "absent" | "valid" | "invalid";
 }
 
@@ -77,7 +69,6 @@ interface Scenario {
 	readonly records: Record<string, RawRecord>;
 }
 
-/** Build one raw record from its spec, given the map's final key list (for _inherit_from names). */
 function buildRecord(
 	spec: RecordSpec,
 	allKeys: readonly string[],
@@ -108,8 +99,8 @@ function buildRecord(
 			.filter((f) => f !== undefined);
 	}
 	if (markingDirective === "_force" && spec.fim !== "absent") {
-		// Valid templates vary by salt so a winner swap is observable; the
-		// invalid arm covers both wrong-type and missing-placeholder shapes.
+		// Valid templates vary by salt so a winner swap is observable; the invalid arm covers both wrong-type and
+		// missing-placeholder shapes.
 		record._fim_template = spec.fim === "valid" ? `<s${salt}>{prefix}|{suffix}` : salt % 2 === 0 ? 42 : "{prefix} only";
 	}
 	if (spec.inheritFrom === "all") {
@@ -171,7 +162,6 @@ function scenarioArb(fieldPool: readonly string[], markingDirective: "_force" | 
 		});
 }
 
-/** Deterministic primitive values; capability number fields get positive ints, flags get booleans. */
 function fieldValueFor(fieldPool: readonly string[]): (name: string, salt: number) => unknown {
 	return (name, salt) => {
 		if (fieldPool === CAP_FIELD_POOL) {
@@ -222,7 +212,6 @@ function naiveMatches(matcher: NaiveMatcher, id: string): boolean {
 
 const NAIVE_TIER = { star: 0, regex: 1, glob: 2, exact: 3 } as const;
 
-/** Matching keys, broadest first, per the documented tiers, prefix lengths, and record positions. */
 function naiveChain(id: string, records: Record<string, RawRecord>): string[] {
 	const order = Object.keys(records);
 	return order
@@ -253,9 +242,8 @@ interface NaiveField {
 	marked: boolean; // _force (params) / _fallback (caps)
 }
 
-// The engine's unforceable set: provider-owned keys except max_tokens, plus
-// underscore keys. The field pools never produce these, so this is spec
-// restatement, not a live branch.
+// The engine's unforceable set: provider-owned keys except max_tokens, plus underscore keys. The field pools never
+// produce these, so this is spec restatement, not a live branch.
 const UNFORCEABLE = new Set(["model", "messages", "stream", "stream_options", "tools", "tool_choice"]);
 
 function naiveOwnFields(
@@ -306,8 +294,8 @@ function naiveResolve(
 				const matcher = naiveParse(k);
 				return matcher !== undefined && naiveMatches(matcher, id);
 			});
-			// Nearest-first is specificity order: apply broadest first so the
-			// most specific named record wins per field.
+			// Nearest-first is specificity order: apply broadest first so the most specific named record wins per
+			// field.
 			const chainOrder = naiveChain(id, records);
 			named.sort((a, b) => chainOrder.indexOf(a) - chainOrder.indexOf(b));
 			for (const namedKey of named) {
@@ -349,9 +337,8 @@ describe("shared/config recordResolution inheritance fuzzer", () => {
 				const layer = resolveParameterLayer(id, records);
 				const engine = engineView(layer.fields, "_force");
 				assert.deepStrictEqual(engine, naiveResolve(id, records, "_force"));
-				// The `_fim_template` directive belongs to the chain's WINNER alone:
-				// never inherited, never taken from a broader record, and an invalid
-				// value reads as absent (its diagnostic is covered elsewhere).
+				// The `_fim_template` directive belongs to the chain's WINNER alone: never inherited, never taken from
+				// a broader record, and an invalid value reads as absent (its diagnostic is covered elsewhere).
 				const winnerKey = naiveChain(id, records).at(-1);
 				const winnerValue = winnerKey === undefined ? undefined : (records[winnerKey] as RawRecord)._fim_template;
 				const expected = isFimTemplateValue(winnerValue) ? winnerValue : undefined;
@@ -444,7 +431,6 @@ describe("shared/config resolutionTable equivalence", () => {
 				// Equal-but-not-identical inputs still hit the memo (fingerprinted).
 				const clone = JSON.parse(JSON.stringify(inputs));
 				assert.strictEqual(table.resolveParameters("srv", id, clone), viaTable);
-				// A changed record invalidates.
 				const changed = { ...inputs, globalParameters: { ...records, "*": { temperature: "changed" } } };
 				assert.deepStrictEqual(
 					table.resolveParameters("srv", id, changed).params,
@@ -479,7 +465,6 @@ describe("shared/config resolutionTable equivalence", () => {
 				});
 				assert.deepStrictEqual(viaTable, direct);
 				assert.strictEqual(table.resolveCapabilities("srv", id, inputs), viaTable, "a repeat is a memo hit");
-				// A changed ENTRY record invalidates like a changed global one.
 				const changedEntry = { ...second.records, "*": { context_length: 424242 } };
 				assert.deepStrictEqual(
 					table.resolveCapabilities("srv", id, { ...inputs, entryCapabilities: changedEntry }),
@@ -500,8 +485,6 @@ describe("shared/config resolutionTable equivalence", () => {
 		const table = new ModelResolutionTable();
 		const inputs = { globalParameters: { "*": { temperature: 0.5 } } };
 		const first = table.resolveParameters("kept", "model-0", inputs);
-		// Overflow the per-server bound: the oldest entry (model-0) is evicted and
-		// recomputes to an equal-but-new resolution; a younger entry stays a hit.
 		for (let i = 1; i <= 512; i += 1) {
 			table.resolveParameters("kept", `model-${i}`, inputs);
 		}
@@ -520,8 +503,8 @@ describe("shared/config resolutionTable equivalence", () => {
 	});
 
 	test("a catalog whose data swaps behind a stable facade still invalidates the cached capabilities", () => {
-		// The real store keeps one lookup object and swaps its inner snapshot on
-		// refresh, so the table must judge the catalog by its ANSWERS.
+		// The real store keeps one lookup object and swaps its inner snapshot on refresh, so the table must judge the
+		// catalog by its ANSWERS.
 		fc.assert(
 			fc.property(capsScenario, serverDeclaredArb, ({ id, records }, serverDeclared) => {
 				const table = new ModelResolutionTable();

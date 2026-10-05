@@ -21,12 +21,8 @@ import { COMPLETIONS_URL, completionJsonResponse, mswServer, TEST_BASE_URL, useM
 import { withConfig } from "../../../testUtils";
 
 /**
- * The inline-completions provider core, driven with an injected send: the
- * gate order (debounce, language filter, model ref, cache) and its silent
- * degradation, with the zero-send claims counted at the seam itself. The
- * happy path routes the send through a real fetch against msw, so the
- * /completions URL helper, the response helper, and parseCompletionText
- * are exercised together the way the production transport composes them.
+ * The happy path routes the send through a real fetch against msw, so the /completions URL helper, the response
+ * helper, and parseCompletionText are exercised together the way the production transport composes them.
  */
 
 const MODEL_REF = { server: "Main", model: "codestral-fim" };
@@ -43,7 +39,6 @@ interface Harness {
 	readonly cache: CompletionCache;
 }
 
-/** A provider over a counted send; the default send fetches msw's /completions like the real transport. */
 function makeHarness(send?: InlineCompletionSend): Harness {
 	const requests: InlineCompletionRequest[] = [];
 	const logs: LoggedLine[] = [];
@@ -102,8 +97,8 @@ suite("extension/features/inline/inlineCompletionProvider", () => {
 		const harness = makeHarness();
 		const started = Date.now();
 		const items = await withConfig({ "inlineCompletions.model": MODEL_REF }, () => invoke(harness));
-		// Coarse lower bound only: timers never fire meaningfully early, and an
-		// upper bound would flake on loaded CI hosts.
+		// Coarse lower bound only: timers never fire meaningfully early, and an upper bound would flake on loaded CI
+		// hosts.
 		assert.ok(Date.now() - started >= INLINE_COMPLETION_DEBOUNCE_MS - 50, "the debounce ran before any work");
 		assert.strictEqual(items?.length, 1);
 		assert.strictEqual(items[0]?.insertText, "\n\treturn a + b;");
@@ -301,8 +296,8 @@ suite("extension/features/inline/inlineCompletionProvider", () => {
 
 	test("a budget boundary inside astral text never sends a severed surrogate", async () => {
 		const harness = makeHarness(async () => "ignored");
-		// Pure astral content: any boundary parity is one code unit away from a
-		// severed pair, so both windows exercise the shared truncation pipeline.
+		// Pure astral content: any boundary parity is one code unit away from a severed pair, so both windows exercise
+		// the shared truncation pipeline.
 		const emoji = "\u{1F600}";
 		const content = emoji.repeat(12000);
 		await withConfig({ "inlineCompletions.model": MODEL_REF }, async () => {

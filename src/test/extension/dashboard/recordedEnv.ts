@@ -1,6 +1,6 @@
 /**
- * Shared fixtures for the executeDashboardIntent suites: a recording
- * IntentEnvironment fake plus the keep-everything secrets directive.
+ * Shared fixtures for the executeDashboardIntent suites: a recording IntentEnvironment fake plus the keep-everything
+ * secrets directive.
  */
 
 import type { ReplacedEntryIdentity, SaveServerPayload } from "../../../dashboard/endpoints";
@@ -45,11 +45,9 @@ function displayedFields(entry: DeclaredServer): NonSecretOptionalFields & { rea
 }
 
 /**
- * The identity an open edit form of the env's CURRENT entry under `label`
- * would display, by the production derivation, so intents whose subject is
- * something else can identify the entry they replace without hand-writing
- * locations. Tests about the identity check itself build mismatches by hand
- * (replaceIdentity).
+ * The identity an open edit form of the env's CURRENT entry under `label` would display, by the production derivation,
+ * so intents whose subject is something else can identify the entry they replace without hand-writing locations. Tests
+ * about the identity check itself build mismatches by hand (replaceIdentity).
  */
 export async function displayedReplace(recorded: RecordedEnv, label: string): Promise<ReplacedEntryIdentity> {
 	const match = acceptedEntry(recorded.env.readServersSetting(), label);
@@ -68,9 +66,8 @@ export async function displayedReplace(recorded: RecordedEnv, label: string): Pr
 }
 
 /**
- * The blob-free displayed identity for inline-prefill tests: inline fields
- * read "settings", everything else "none" (the prefill's own check never
- * consults the blob).
+ * The blob-free displayed identity for inline-prefill tests: inline fields read "settings", everything else "none" (the
+ * prefill's own check never consults the blob).
  */
 export function inlineOnlyIdentity(raw: unknown, label: string): ReplacedEntryIdentity {
 	const match = acceptedEntry(raw, label);
@@ -87,8 +84,8 @@ export function inlineOnlyIdentity(raw: unknown, label: string): ReplacedEntryId
 }
 
 /**
- * A full SaveServerPayload with the always-sent record and list fields empty.
- * The schema requires those fields, so every minted payload must carry them.
+ * A full SaveServerPayload with the always-sent record and list fields empty. The schema requires those fields, so
+ * every minted payload must carry them.
  */
 export function serverPayload(
 	fields: Partial<SaveServerPayload> & Pick<SaveServerPayload, "label" | "baseUrl">
@@ -138,11 +135,14 @@ export interface RecordedEnv {
 	failStoreField?: string;
 	/** When set, deleteServerSecrets rejects with this error. */
 	failBlobDeletes?: Error;
-	/** When set, runs after each readServerSecrets call: the seam for injecting a concurrent edit between the plan read and the guarded unit. */
+	/**
+	 * When set, runs after each readServerSecrets call: the seam for injecting a concurrent edit between the plan read
+	 * and the guarded unit.
+	 */
 	onSecretsRead?: ((label: string) => void) | undefined;
 	/**
-	 * Runs after each successful writeServersSetting with the now-visible array,
-	 * the seam for injecting a concurrent edit between the write and the cleanup.
+	 * Runs after each successful writeServersSetting with the now-visible array, the seam for injecting a concurrent
+	 * edit between the write and the cleanup.
 	 */
 	afterWrite?: (current: unknown[]) => void;
 	/** What resolveAdoptionCredentials returns; every call is recorded in adoptionLookups. */
@@ -179,8 +179,8 @@ export interface RecordedEnv {
 }
 
 export function makeEnv(serversSetting: unknown = []): RecordedEnv {
-	// The visible setting: reads reflect landed writes, like the real
-	// machine-scoped configuration (post-write re-reads must see the write).
+	// The visible setting: reads reflect landed writes, like the real machine-scoped configuration (post-write re-reads
+	// must see the write).
 	let currentSetting = serversSetting;
 	const recorded: RecordedEnv = {
 		updates: [],
@@ -328,9 +328,8 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 					}
 					return recorded.fimProbeResult;
 				},
-				// Two more registered probes, so the executor's per-feature outcome
-				// copy can be exercised for features other than inline completions -
-				// with only the FIM key here, both of its non-inline arms would be
+				// Two more registered probes, so the executor's per-feature outcome copy can be exercised for features
+				// other than inline completions - with only the FIM key here, both of its non-inline arms would be
 				// unreachable from any test. Each suite names the feature it means.
 				prGeneration: async (model: FeatureModelRef) => {
 					recorded.fimProbes.push(model);

@@ -1,11 +1,6 @@
 /**
- * The effective-values inspector's safety argument: the projection the dashboard renders
- * and the request body the transport sends are two reads of one shared resolution, and
- * this property pins that they cannot drift. Every key the projection marks sent appears
- * in buildRequestBody's output with the right value under the full chain
- * (forced > runtime > picker > entry > global), every non-provider-owned body key appears
- * in the projection as sent, and the projected max_tokens equals the body's. A
- * configuration property pins the live-settings read to the resolver's normalized input.
+ * The effective-values inspector's safety argument: the projection the dashboard renders and the request body the
+ * transport sends are two reads of one shared resolution, and this property pins that they cannot drift.
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -27,8 +22,8 @@ import { withConfig } from "../../testUtils";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
-// "constructor" and "prototype" are reachable in this alphabet and
-// normalizeModelParameters drops them, which would void the wrapper property.
+// "constructor" and "prototype" are reachable in this alphabet and normalizeModelParameters drops them, which would
+// void the wrapper property.
 const RESERVED_KEYS = new Set(["constructor", "prototype"]);
 
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
@@ -61,7 +56,6 @@ const forceDirective = (record: Record<string, unknown>) =>
 		{ arbitrary: fc.constantFrom<unknown>("yes", 1, null), weight: 1 }
 	);
 
-/** Optionally add `_force`, `_inheritable`, and `_inherit_from` directives to a generated record. */
 const recordWithDirectives = (recordKeys: () => readonly string[]) =>
 	paramRecord.chain((record) =>
 		fc
@@ -96,10 +90,10 @@ interface Scenario {
 }
 
 /**
- * A raw ID plus records whose keys often match it: glob keys are cuts of the
- * raw ID plus "*" (so matches are the common case), exact keys are the ID or
- * a cut of it, "*" keeps the catch-all alive, and a cut of an unrelated ID
- * keeps the no-match branch alive. Records may carry the full directive set.
+ * Records may carry the full directive set.
+ *
+ *   glob keys are cuts of the raw ID plus "*" -> matches are the common case
+ *   "*" -> keeps the catch-all alive
  */
 const scenarioArb: fc.Arbitrary<Scenario> = fc
 	.record({
@@ -170,8 +164,8 @@ const scenarioArb: fc.Arbitrary<Scenario> = fc
 					rawModelId: spec.rawModelId,
 					globalParameters,
 					entryParameters,
-					// The projection takes the entry record paired with its label
-					// (entry-layer refs carry it); any fixed label satisfies that.
+					// The projection takes the entry record paired with its label (entry-layer refs carry it); any
+					// fixed label satisfies that.
 					entry: entryParameters === undefined ? undefined : { label: "entry", parameters: entryParameters },
 					maxOutputTokens: spec.maxOutputTokens,
 					outputLimitDeclared: spec.outputLimitDeclared,
@@ -188,9 +182,8 @@ suite("shared/config parameterResolution equivalence properties", () => {
 		const runtimeArb = fc.option(paramRecord, { nil: undefined });
 		fc.assert(
 			fc.property(scenarioArb, runtimeArb, pickerArb, (s, modelOptions, pickerEffort) => {
-				// The transport side, exactly as chatClient.send composes it: the
-				// shared merge, the shared max_tokens chain, then the pass-through
-				// body build over config, picker, runtime, and forced sources.
+				// The transport side, exactly as chatClient.send composes it: the shared merge, the shared max_tokens
+				// chain, then the pass-through body build over config, picker, runtime, and forced sources.
 				const resolved = resolveModelParameters(s);
 				const { value: maxTokens } = resolveMaxTokens({
 					forcedMaxTokens: resolved.forcedParams.max_tokens,
@@ -214,8 +207,8 @@ suite("shared/config parameterResolution equivalence properties", () => {
 
 				const projection = projectEffectiveParameters(s);
 
-				// The chain, restated independently: configured sent rows, then the
-				// picker, then runtime options, then the forced rows on top.
+				// The chain, restated independently: configured sent rows, then the picker, then runtime options, then
+				// the forced rows on top.
 				const expected = new Map<string, unknown>();
 				for (const row of projection.rows) {
 					if (row.sent && row.forced === undefined) {
@@ -232,9 +225,9 @@ suite("shared/config parameterResolution equivalence properties", () => {
 				}
 				for (const row of projection.rows) {
 					if (row.forced === true) {
-						// max_tokens is the one forceable provider-owned key: its value rides
-						// the derivation (numeric) or nothing (junk), never the pass-through
-						// body, so it is also the one forced row that can render as not sent.
+						// max_tokens is the one forceable provider-owned key: its value rides the derivation (numeric)
+						// or nothing (junk), never the pass-through body, so it is also the one forced row that can
+						// render as not sent.
 						if (row.name === "max_tokens") {
 							assert.ok(!row.sent, "a max_tokens row exists only when non-numeric, and never passes through");
 							continue;
@@ -254,9 +247,9 @@ suite("shared/config parameterResolution equivalence properties", () => {
 					}
 				}
 
-				// The derivation line states the body's exact max_tokens whenever the one
-				// thing the projection cannot know (a runtime numeric option) is absent -
-				// and always when a forced value tops the chain, since forced beats runtime.
+				// The derivation line states the body's exact max_tokens whenever the one thing the projection cannot
+				// know (a runtime numeric option) is absent - and always when a forced value tops the chain, since
+				// forced beats runtime.
 				if (typeof resolved.forcedParams.max_tokens === "number" || typeof modelOptions?.max_tokens !== "number") {
 					assert.strictEqual(projection.maxTokens.value, body.max_tokens);
 				}

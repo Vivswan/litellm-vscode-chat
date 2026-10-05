@@ -1,5 +1,4 @@
 /**
- * The spinner's rest contract in the compiled sheet: a spinner inside an aria-hidden subtree does not turn.
  * `visibility: hidden` stops paint but NOT animation in Chromium, so an always-mounted invisible width twin (the
  * Refresh button's busy label) would turn forever without the stand-down rule. The DOM half lives in the servers tests.
  */
@@ -22,9 +21,8 @@ test("a spinner under an aria-hidden ancestor stands down, and the visible spinn
 	expect(standDownRule.declarations).toContain("animation: none");
 	expect(standDownRule.unconditional).toBe(true);
 
-	// It must stay a DESCENDANT rule: every decorative spinner marks itself
-	// aria-hidden while running, so a rule matching the spinner's own attribute
-	// would freeze the in-flight spinners this contract keeps turning.
+	// It must stay a DESCENDANT rule: every decorative spinner marks itself aria-hidden while running, so a rule
+	// matching the spinner's own attribute would freeze the in-flight spinners this contract keeps turning.
 	expect(compiled).not.toContain('.spinner[aria-hidden="true"]');
 
 	// The pin only means something while the base spinner animates infinitely;

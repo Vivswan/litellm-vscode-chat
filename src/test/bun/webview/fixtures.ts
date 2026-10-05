@@ -28,9 +28,9 @@ type ServerStateKey =
 	| "modelInfoUnsupported";
 
 /**
- * Per-variant overrides for a builder whose base sits in the "ok" cluster: row fields override
- * freely, but the state cluster rides its variant's own shape - `state: "error"` without its
- * `error` fails to typecheck, and an "ok" override cannot smuggle error-only companions.
+ * Per-variant overrides for a builder whose base sits in the "ok" cluster: row fields override freely, but the state
+ * cluster rides its variant's own shape - `state: "error"` without its `error` fails to typecheck, and an "ok" override
+ * cannot smuggle error-only companions.
  */
 type ServerOverrides<V extends DashboardServer> = Partial<Omit<V, ServerStateKey>> &
 	(
@@ -39,7 +39,6 @@ type ServerOverrides<V extends DashboardServer> = Partial<Omit<V, ServerStateKey
 		| Pick<Extract<V, { state: "unchecked" }>, ServerStateKey>
 	);
 
-/** The Servers page's empty usage snapshot; override per test. */
 export function makeUsage(overrides: Partial<DashboardUsage> = {}): DashboardUsage {
 	return {
 		servers: [],
@@ -53,7 +52,6 @@ export function makeUsage(overrides: Partial<DashboardUsage> = {}): DashboardUsa
 	};
 }
 
-/** One usage server card's view; override per test. */
 export function makeUsageServer(overrides: Partial<UsageServerView> = {}): UsageServerView {
 	return {
 		kind: "usage",
@@ -98,8 +96,8 @@ export function provenSecrets(
 }
 
 export function makeDeclaredServer(overrides: ServerOverrides<DeclaredServer> = {}): DeclaredServer {
-	// Only the merge is cast: the checker cannot prove a spread lands on one union member. The
-	// override TYPE is per-variant, so an incoherent state cluster fails at the call site.
+	// Only the merge is cast: the checker cannot prove a spread lands on one union member. The override TYPE is
+	// per-variant, so an incoherent state cluster fails at the call site.
 	const base: DeclaredServer = {
 		origin: "declared",
 		label: "Prod",
@@ -113,7 +111,6 @@ export function makeDeclaredServer(overrides: ServerOverrides<DeclaredServer> = 
 	return { ...base, ...overrides } as DeclaredServer;
 }
 
-/** A declared server whose secret fields live in the given (proven) locations. */
 export function declaredWithSecrets(
 	secrets: Partial<Record<SecretFieldId, SecretLocation>>,
 	overrides: ServerOverrides<DeclaredServer> = {}
@@ -126,12 +123,9 @@ export function declaredWithSecrets(
 }
 
 /**
- * A declared row from the pre-first-pass settings fallback: its secret
- * locations are unproven, so it carries none - and is no edit target. The
- * unproven marker wins over any config override; a helper named for the
- * marker must not silently hand back a proven row. The credential verdict
- * defaults to the builder's own pre-proof value ("unknown"), overridable for
- * the rows something else vouches for.
+ * A declared row from the pre-first-pass settings fallback: its secret locations are unproven, so it carries none - and
+ * is no edit target. The unproven marker wins over any config override; a helper named for the marker must not silently
+ * hand back a proven row.
  */
 export function makeUnprovenServer(overrides: ServerOverrides<DeclaredServer> = {}): DeclaredServer {
 	return makeDeclaredServer({ credentials: "unknown", ...overrides, config: { secrets: { kind: "unproven" } } });
@@ -171,9 +165,8 @@ export function makeModel(overrides: Partial<DashboardModel> = {}): DashboardMod
 }
 
 export function makeState(overrides: Partial<DashboardState> = {}): DashboardState {
-	// Derived like production's builder (the rows' served sum), so component
-	// tests build states the real builder could produce; an explicit override
-	// still wins for the deliberately inconsistent cases.
+	// Derived like production's builder (the rows' served sum), so component tests build states the real builder could
+	// produce; an explicit override still wins for the deliberately inconsistent cases.
 	const servers = overrides.servers ?? [];
 	return {
 		servers,
@@ -188,15 +181,13 @@ export function makeState(overrides: Partial<DashboardState> = {}): DashboardSta
 	};
 }
 
-/** The extension's full state push for the given state. */
 export function statePush(state: DashboardState): ExtensionToWebviewMessage {
 	return { kind: "push", state };
 }
 
 /**
  * A state push whose server rows illegally carry secret VALUE fields (pushes carry locations only). Any component
- * that spreads a server or config object into the DOM surfaces the sentinel for the leak sweep. The cast through
- * unknown is confined to this helper on purpose; never let it normalize into non-test code.
+ * that spreads a server or config object into the DOM surfaces the sentinel for the leak sweep.
  */
 export function poisonedStatePush(sentinel: string): ExtensionToWebviewMessage {
 	const poisonedServer = {
@@ -222,8 +213,8 @@ export function poisonedStatePush(sentinel: string): ExtensionToWebviewMessage {
 type MisconfiguredServer = Extract<DashboardServer, { origin: "misconfigured" }>;
 
 /**
- * A misconfigured row's overrides, base cluster "error": no "unchecked" arm, because the
- * base's `error` would survive the spread and the unchecked variant forbids carrying one.
+ * A misconfigured row's overrides, base cluster "error": no "unchecked" arm, because the base's `error` would survive
+ * the spread and the unchecked variant forbids carrying one.
  */
 type MisconfiguredOverrides = Partial<Omit<MisconfiguredServer, ServerStateKey>> &
 	(

@@ -1,8 +1,3 @@
-/**
- * The inspector's inheritance chain figures (RecordChainFigure): each feed's per-map chains render as one compact
- * record path each - broadest to winner, opened by the layer's provenance badge, keys clickable through the edit-jump
- * wiring, barrier and exclusive-list markers worded like the Diagnostics tree - and a single match renders no figure.
- */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { RecordChainView } from "../../../../dashboard/viewModels";
 import type { ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
@@ -21,7 +16,6 @@ const EMPTY_PROJECTION: Projection = {
 	diagnostics: [],
 };
 
-/** Render the inspector, answer its parameters read with the given chains, and return the root. */
 function mountParamsWithChains(
 	chains: readonly RecordChainView[] | undefined,
 	callbacks: {
@@ -60,8 +54,6 @@ describe("the params inspector's record path", () => {
 		const chain = root.querySelector(".record-chain") as HTMLElement;
 		expect(chain).not.toBeNull();
 		const text = (chain.textContent ?? "").replace(/\s+/g, " ").trim();
-		// The layer opens the line as the same provenance badge every value in
-		// the panel wears; the keys and markers follow, broadest to winner.
 		expect(text).toBe(
 			"Record path settings * -> gpt-5* [inheritance stops here] -> gpt-5.6 [inherits from: *, gpt-5*]"
 		);
@@ -104,14 +96,13 @@ describe("the params inspector's record path", () => {
 		expect(chains[1]?.querySelector(".prov")?.textContent?.trim()).toBe("entry");
 		expect(chains[1]?.querySelector(".prov-key")).toBeNull();
 
-		// An entry-layer key opens the entry's form (entry records live there).
 		const entryKey = chains[1]?.querySelector("button.chain-key") as HTMLButtonElement;
 		expect(entryKey.getAttribute("aria-label")).toBe('Edit in server entry "Prod"');
 		fireClick(entryKey);
 		expect(entryJumps).toEqual(["Prod"]);
 
-		// A global key focuses its settings record, never minting a draft, and
-		// the PARAMS chain routes to the parameters editor.
+		// A global key focuses its settings record, never minting a draft, and the PARAMS chain routes to the
+		// parameters editor.
 		const globalKeys = Array.from(chains[0]?.querySelectorAll("button.chain-key") ?? []);
 		expect(globalKeys.map((b) => b.getAttribute("aria-label"))).toEqual([
 			'Edit record "*" in settings',
@@ -122,8 +113,8 @@ describe("the params inspector's record path", () => {
 	});
 
 	test("an entry chain without the entry-form jump renders plain keys, never the global fallback", () => {
-		// The jump gates on the LAYER: with only onEditRecord wired, an entry
-		// key must not route to the global editor its aria-label contradicts.
+		// The jump gates on the LAYER: with only onEditRecord wired, an entry key must not route to the global editor
+		// its aria-label contradicts.
 		const recordJumps: [string, string, boolean][] = [];
 		const root = mountParamsWithChains(
 			[

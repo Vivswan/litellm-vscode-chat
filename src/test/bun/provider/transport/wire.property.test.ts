@@ -17,7 +17,6 @@ import {
 import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
-// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
 const SEED = resolveFuzzSeed();
 
 function isPlainRecord(value: unknown): boolean {
@@ -191,7 +190,10 @@ function assertChunkInvariants(chunk: ChatCompletionChunk): void {
 	}
 }
 
-/** JSON-representable values plus fast-check's wider default value pool (still prototype-ordinary, like JSON.parse output). */
+/**
+ * JSON-representable values plus fast-check's wider default value pool (still prototype-ordinary, like JSON.parse
+ * output).
+ */
 const fuzzValue = fc.oneof(fc.jsonValue({ maxDepth: 2 }), fc.anything({ maxDepth: 2, maxKeys: 5 }));
 
 const toolCallShaped = fc.record(
@@ -326,8 +328,8 @@ describe("provider/wire parseChunk totality properties", () => {
 	});
 
 	test("a content object with a non-callable toString narrows to absent instead of throwing", () => {
-		// Fuzz-found at seed 20260726, run 16804: String() on this shape throws, and
-		// the pre-fix coercion streamed "[object Object]" as output text.
+		// Fuzz-found at seed 20260726, run 16804: String() on this shape throws, and the pre-fix coercion streamed
+		// "[object Object]" as output text.
 		const result = parseChunk({ choices: [{ delta: { content: { toString: 0 } } }] });
 		assert.ok(result !== undefined);
 		const delta = result.choices?.[0]?.delta;

@@ -85,9 +85,8 @@ suite("extension/fingerprintSalt", () => {
 	});
 
 	test("two racing first activations converge on ONE salt: the loser adopts the winner's", async () => {
-		// Both windows share the keychain and the globalStorage directory. The
-		// winner's store is held open until the loser polls, so the interleaving
-		// the lock exists for really happens: the loser waits, then adopts.
+		// The winner's store is held open until the loser polls, so the interleaving the lock exists for really
+		// happens: the loser waits, then adopts.
 		const storage = makeExtensionStorage();
 		const { uri } = tmpStorage();
 		let releaseStore!: () => void;
@@ -123,9 +122,8 @@ suite("extension/fingerprintSalt", () => {
 	});
 
 	test("an unwritable globalStorage degrades immediately instead of polling for a salt nobody writes", async () => {
-		// EEXIST is the one mkdir failure worth waiting on (someone holds the
-		// lock); anything else means nobody CAN hold it, so polling would stall
-		// activation every session.
+		// EEXIST is the one mkdir failure worth waiting on (someone holds the lock); anything else means nobody CAN
+		// hold it, so polling would stall activation every session.
 		const storage = makeExtensionStorage();
 		let reads = 0;
 		const original = storage.secrets.get.bind(storage.secrets);
@@ -150,10 +148,9 @@ suite("extension/fingerprintSalt", () => {
 	});
 
 	test("a salt appearing while the lock is held is adopted, never overwritten", async () => {
-		// The winner re-reads immediately before storing: if its marker was
-		// reclaimed as stale and a second creator installed a salt meanwhile,
-		// storing now would overwrite it - the one ordering that could break
-		// the "never regenerated" rule.
+		// The winner re-reads immediately before storing: if its marker was reclaimed as stale and a second creator
+		// installed a salt meanwhile, storing now would overwrite it - the one ordering that could break the "never
+		// regenerated" rule.
 		const storage = makeExtensionStorage();
 		const { uri, lockPath } = tmpStorage();
 		let reads = 0;
@@ -216,8 +213,7 @@ suite("extension/fingerprintSalt", () => {
 	});
 
 	test("the value read back after the store is the one installed", async () => {
-		// The keychain's current value is what later sessions see, so it is what
-		// this session must key by.
+		// The keychain's current value is what later sessions see, so it is what this session must key by.
 		const storage = makeExtensionStorage();
 		const original = storage.secrets.store.bind(storage.secrets);
 		(storage.secrets as { store: typeof original }).store = async (key, value) => {
@@ -233,9 +229,8 @@ suite("extension/fingerprintSalt", () => {
 	});
 
 	test("confirmDurable catches a store mutated AFTER load and downgrades for good", async () => {
-		// What the creation lock cannot serialize: the stored salt changing later.
-		// The downgrade happens at decision time and sticks, because identities
-		// were computed under the superseded salt all session.
+		// What the creation lock cannot serialize: the stored salt changing later. The downgrade happens at decision
+		// time and sticks, because identities were computed under the superseded salt all session.
 		const storage = makeExtensionStorage();
 		const { logger, lines } = makeLogger();
 		const { install, installed } = capture();
@@ -247,8 +242,8 @@ suite("extension/fingerprintSalt", () => {
 		assert.strictEqual(await session.confirmDurable(), "session-only");
 		assert.strictEqual(session.state(), "session-only", "the downgrade sticks");
 
-		// Even a store restored to this session's salt cannot re-enable
-		// persistence: an ever-unconfirmable salt stays untrusted.
+		// Even a store restored to this session's salt cannot re-enable persistence: an ever-unconfirmable salt stays
+		// untrusted.
 		storage.secretStore.set(FINGERPRINT_SALT_SECRET, ourSalt);
 		assert.strictEqual(await session.confirmDurable(), "session-only");
 		assert.ok(lines.some((line) => line.includes("changed under this session")));
@@ -295,9 +290,8 @@ suite("extension/fingerprintSalt", () => {
 		const storage = makeExtensionStorage();
 		const { uri, lockPath } = tmpStorage();
 		(storage.secrets as { store: (key: string, value: string) => Thenable<void> }).store = async (_key, value) => {
-			// The worst SecretStorage: message AND name carry the stored value,
-			// and every other property read throws. The loader must log fixed
-			// strings only and still land on the degraded path.
+			// The worst SecretStorage: message AND name carry the stored value, and every other property read throws.
+			// The loader must log fixed strings only and still land on the degraded path.
 			const error = new Error(`keychain refused the value ${value}`);
 			error.name = `Refused(${value})`;
 			throw new Proxy(error, {
@@ -380,7 +374,6 @@ suite("extension/fingerprintSalt", () => {
 	});
 });
 
-/** An Error whose message is readable but every other property access throws. */
 function hostileError(message: string): Error {
 	const error = new Error(message);
 	return new Proxy(error, {

@@ -1,10 +1,9 @@
 /**
- * The fake identity provider behind the fake backend's /oauth/token endpoint and
- * /authed path prefix: fixed test credentials plus pure grant/bearer/revocation
- * logic, shared by the server and the suites so the two cannot drift apart.
- * Deterministic on purpose - tokens are counter-numbered, never random or
- * clock-derived. Counters reset only on a process restart, so tests assert
- * deltas, not absolutes.
+ * The fake identity provider behind the fake backend's /oauth/token endpoint and /authed path prefix: fixed test
+ * credentials plus pure grant/bearer/revocation logic, shared by the server and the suites so the two cannot drift
+ * apart. Deterministic on purpose - tokens are counter-numbered, never random or clock-derived.
+ *
+ *   Counters reset only on a process restart -> tests assert deltas, not absolutes
  */
 
 export const FAKE_OAUTH_CLIENT_ID = "fake-oauth-client";
@@ -19,9 +18,8 @@ export interface OAuthProviderState {
 	issued: number;
 	rejected: number;
 	/**
-	 * Wire attempts on the bearer-guarded chat endpoint, auth outcome included.
-	 * The no-retry assertions read this as "how many times did the extension
-	 * actually hit the endpoint", which token-issuance counters cannot answer: a
+	 * Wire attempts on the bearer-guarded chat endpoint, auth outcome included. The no-retry assertions read this as
+	 * "how many times did the extension actually hit the endpoint", which token-issuance counters cannot answer: a
 	 * background discovery sweep may legitimately re-exchange.
 	 */
 	authedChatRequests: number;
@@ -33,21 +31,18 @@ export function createOAuthProviderState(): OAuthProviderState {
 }
 
 /**
- * Raw-URL guard the server applies before URL parsing: new URL() normalizes dot
- * segments, so "/authed/../v1/models" (or a percent-encoded spelling) would
- * otherwise reach the unguarded handlers with the prefix folded away. No served
- * route contains ".." or a percent-encoded dot, so rejecting the raw string is
- * total.
+ * Raw-URL guard the server applies before URL parsing: new URL() normalizes dot segments, so "/authed/../v1/models" (or
+ * a percent-encoded spelling) would otherwise reach the unguarded handlers with the prefix folded away. No served route
+ * contains ".." or a percent-encoded dot, so rejecting the raw string is total.
  */
 export function hasDotSegmentBypass(rawUrl: string): boolean {
 	return rawUrl.includes("..") || /%2e/i.test(rawUrl);
 }
 
 /**
- * The token request's parameters, from either encoding a client may pick: form
- * urlencoded (what the extension sends) or a JSON object with string values.
- * Anything unparseable comes back empty and fails the credential check
- * downstream instead of erroring here.
+ * The token request's parameters, from either encoding a client may pick: form urlencoded (what the extension sends) or
+ * a JSON object with string values. Anything unparseable comes back empty and fails the credential check downstream
+ * instead of erroring here.
  */
 export function parseTokenRequestBody(raw: string, contentType: string | undefined): Record<string, string> {
 	if (contentType?.toLowerCase().includes("json")) {
@@ -76,8 +71,7 @@ export type TokenGrantOutcome =
 	| { readonly status: 400 | 401; readonly body: { error: string; error_description: string } };
 
 /**
- * One client-credentials grant attempt. Only the exact fixed test credentials
- * succeed; every outcome lands in the counters so suites can assert deltas. The
+ * Only the exact fixed test credentials succeed; every outcome lands in the counters so suites can assert deltas. The
  * error descriptions never echo anything the client submitted.
  */
 export function grantToken(state: OAuthProviderState, params: Record<string, string>): TokenGrantOutcome {
@@ -102,9 +96,8 @@ export function grantToken(state: OAuthProviderState, params: Record<string, str
 }
 
 /**
- * Whether an Authorization header carries a currently live bearer token. The
- * scheme match is exact-case: the extension always sends "Bearer", so accepting
- * other spellings would only mask a regression.
+ * The scheme match is exact-case: the extension always sends "Bearer", so accepting other spellings would only mask a
+ * regression.
  */
 export function isLiveBearer(state: OAuthProviderState, authorization: string | undefined): boolean {
 	if (authorization === undefined || !authorization.startsWith("Bearer ")) {
@@ -113,7 +106,6 @@ export function isLiveBearer(state: OAuthProviderState, authorization: string | 
 	return state.live.has(authorization.slice("Bearer ".length));
 }
 
-/** Revoke every live token; returns how many were revoked. */
 export function revokeAllTokens(state: OAuthProviderState): number {
 	const revoked = state.live.size;
 	state.live.clear();
@@ -136,9 +128,8 @@ export function oauthStats(state: OAuthProviderState): {
 }
 
 /**
- * The 401 envelope LiteLLM's proxy sends for a rejected key, so the /authed
- * prefix fails requests in the exact shape the extension's error mapping
- * classifies as an auth error.
+ * The 401 envelope LiteLLM's proxy sends for a rejected key, so the /authed prefix fails requests in the exact shape
+ * the extension's error mapping classifies as an auth error.
  */
 export function authErrorBody(message: string): {
 	error: { message: string; type: string; param: string; code: string };

@@ -38,8 +38,8 @@ describe("shared/config openRouterCatalog mapping", () => {
 	});
 
 	test("a present modality or parameter list is authoritative both ways", () => {
-		// Text-only with a supported_parameters list lacking tools and reasoning:
-		// the booleans are known false, not unknown.
+		// Text-only with a supported_parameters list lacking tools and reasoning: the booleans are known false, not
+		// unknown.
 		assert.deepStrictEqual(modelById("meta-llama/llama-3-8b-instruct").fields, {
 			context_length: 8192,
 			max_output_tokens: 4096,
@@ -50,8 +50,8 @@ describe("shared/config openRouterCatalog mapping", () => {
 	});
 
 	test("absent lists and absent numbers leave their fields unset", () => {
-		// Every boolean stays unset so lower precedence levels keep those fields.
-		// The numeric string context_length parses leniently.
+		// Every boolean stays unset so lower precedence levels keep those fields. The numeric string context_length
+		// parses leniently.
 		assert.deepStrictEqual(modelById("mistralai/mistral-tiny"), {
 			id: "mistralai/mistral-tiny",
 			name: "Mistral Tiny",
@@ -132,7 +132,6 @@ describe("shared/config openRouterCatalog lookup", () => {
 
 	test("a suffix carried by two vendors answers ambiguous, never a guess", () => {
 		assert.deepStrictEqual(lookup.byRawModelId("llama-3-8b-instruct"), { kind: "ambiguous" });
-		// Naming the vendor disambiguates.
 		const fireworks = lookup.byRawModelId("fireworks/llama-3-8b-instruct");
 		assert.ok(fireworks.kind === "found");
 		assert.strictEqual(fireworks.fields.context_length, 16384);
@@ -198,9 +197,8 @@ describe("shared/config openRouterCatalog slimming", () => {
 	});
 
 	test("legacy slim artifacts that still carry pricing blocks parse fine and re-slim without them", () => {
-		// Older cached and packaged artifacts were slimmed while pricing still rode
-		// the catalog: the decoder must keep reading them, and nothing
-		// pricing-derived may reach a snapshot, lookup, or re-encode.
+		// Older cached and packaged artifacts were slimmed while pricing still rode the catalog: the decoder must keep
+		// reading them, and nothing pricing-derived may reach a snapshot, lookup, or re-encode.
 		const legacySlimFile = {
 			data: [
 				{
@@ -238,8 +236,8 @@ describe("shared/config openRouterCatalog slimming", () => {
 		const lookup = createCatalogLookup(snapshot, { implicitLookup: true });
 		assert.deepStrictEqual(lookup.byExactId("free/model"), { kind: "found", id: "free/model", fields: {} });
 
-		// The runtime store re-encodes through slimCatalogPayload on every
-		// successful refresh, so a legacy file sheds its pricing keys.
+		// The runtime store re-encodes through slimCatalogPayload on every successful refresh, so a legacy file sheds
+		// its pricing keys.
 		const reSlimmed = slimCatalogPayload(legacySlimFile);
 		assert.deepStrictEqual(reSlimmed, {
 			data: [
@@ -259,12 +257,12 @@ describe("shared/config openRouterCatalog slimming", () => {
 });
 
 /**
- * The one retry rule both fetchers consult, pinned as whole outcomes per
- * failure class. Discovery's SDK rule: the transport failures and the four
- * status classes the SDK retries (408, 409, 429, 5xx) earn another attempt;
- * every other 4xx and a body that is not JSON are settled. The 407/410,
- * 499/500 and 599/600 neighbours pin the edges of the two status windows;
- * 600 is not an HTTP 5xx and earns nothing.
+ * The one retry rule both fetchers consult, pinned as whole outcomes per failure class. Discovery's SDK rule: the
+ * transport failures and the four status classes the SDK retries (408, 409, 429, 5xx) earn another attempt; every
+ * other 4xx and a body that is not JSON are settled.
+ *
+ *   The 407/410, 499/500 and 599/600 neighbours -> pin the edges of the two status windows
+ *   600                                         -> is not an HTTP 5xx and earns nothing
  */
 describe("isRetryableOpenRouterFailure", () => {
 	const http = (status: number): OpenRouterFetchFailure => ({ kind: "http", status });

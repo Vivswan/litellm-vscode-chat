@@ -1,18 +1,71 @@
 /**
- * Provider transport (fim.ts) and the extension features (commitGen) both consume these, so they live in
+ * Provider transport (fim.ts) and the extension features (commitGen, prGen) both consume these, so they live in
  * src/shared/util - the one tree both may import under the Biome layering. Pure string logic: no vscode, no
  * localization, nothing here throws.
  */
 
-/** text that legitimately OPENS with a code block -> loses that fence */
-export function stripMarkdownFences(text: string): string {
-	let message = text.trim();
-	if (message.startsWith("```")) {
-		message = message.replace(/^```[^\n]*\n?/, "");
-		message = message.replace(/\n?```\s*$/, "");
-		message = message.trim();
+/** A fence line's backtick count and whether an info string follows: a closing fence never carries one. */
+export interface FenceLine {
+	readonly run: number;
+	readonly bare: boolean;
+}
+
+const FENCE_LINE = /^\s*(`{3,})([^`]*)$/;
+
+export function fenceLine(line: string): FenceLine | undefined {
+	const match = FENCE_LINE.exec(line);
+	return match === null ? undefined : { run: (match[1] ?? "").length, bare: (match[2] ?? "").trim() === "" };
+}
+
+export function closesFence(line: string, opener: FenceLine): boolean {
+	const fence = fenceLine(line);
+	return fence?.bare === true && fence.run >= opener.run;
+}
+
+/**
+ * CommonMark would take the first bare fence as the closer; here a same-length fence carrying an info string ends the
+ * search instead, read as a nested block whose outer wrapper lost its closer, so that inner block keeps both of its
+ * fences. Shorter fences are content (three-backtick blocks inside a four-backtick wrapper).
+ */
+function closerOf(lines: readonly string[], opener: FenceLine): number | undefined {
+	for (let i = 1; i < lines.length; i++) {
+		const line = lines[i] ?? "";
+		if (closesFence(line, opener)) {
+			return i;
+		}
+		if ((fenceLine(line)?.run ?? 0) >= opener.run) {
+			return undefined;
+		}
 	}
-	return message;
+	return undefined;
+}
+
+/**
+ * The content of a reply that is ONE fenced block end to end, else undefined. prGen unwraps only this shape as a pair:
+ * a description that merely ENDS with its own code block fails the predicate and keeps that block's closer.
+ */
+export function unwrapWholeReplyFence(text: string): string | undefined {
+	const lines = text.trim().split("\n");
+	const opener = fenceLine(lines[0] ?? "");
+	if (opener === undefined || closerOf(lines, opener) !== lines.length - 1) {
+		return undefined;
+	}
+	return lines.slice(1, -1).join("\n").trim();
+}
+
+/**
+ * Models sometimes fence only the subject and go on in prose: both of that block's fences are furniture, and an
+ * opener nothing closes costs its own line alone.
+ */
+export function stripMarkdownFences(text: string): string {
+	const lines = text.trim().split("\n");
+	const opener = fenceLine(lines[0] ?? "");
+	if (opener === undefined) {
+		return lines.join("\n");
+	}
+	const closer = closerOf(lines, opener);
+	const kept = closer === undefined ? lines.slice(1) : [...lines.slice(1, closer), ...lines.slice(closer + 1)];
+	return kept.join("\n").trim();
 }
 
 /**

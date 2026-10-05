@@ -2,13 +2,12 @@
  * The narrow system's own arithmetic, checked against the stylesheet rather than a memory of it. Two hazards,
  * neither of which any suite can observe (happy-dom has no layout), both of which are arithmetic:
  *
- * The rail collapses on a WINDOW query while every other threshold asks the PANE, so the pane's width is
- * DISCONTINUOUS at the collapse and every width in that band happens twice - a breakpoint inside it fires in
- * REVERSE as the window widens, folding the page as the reader drags a splitter rightward.
- *
- * Spelling: Tailwind compiles `@max-[Npx]/pane:` to `width < N` while `@container pane (max-width: N)` is
- * `<= N`, so a rule and the utility it PAIRS with disagree at exactly N. The third test therefore enforces
- * ONE PAIR - `width < N` and `width >= N`, which partition at N - and reports every other spelling.
+ *   The rail collapses on a WINDOW query while every other threshold asks the PANE
+ *     -> the pane's width is DISCONTINUOUS at the collapse and every width in that band happens twice
+ *   every width in that band happens twice
+ *     -> a breakpoint inside it fires in REVERSE as the window widens
+ *   Tailwind compiles `@max-[Npx]/pane:` to `width < N` while `@container pane (max-width: N)` is `<= N`
+ *     -> a rule and the utility it PAIRS with disagree at exactly N
  */
 
 import { expect, test } from "bun:test";
@@ -40,7 +39,6 @@ function stylesheet(): string {
 	return readFileSync(STYLESHEET, "utf8");
 }
 
-/** A number the stylesheet states once and everything else derives from. */
 function declared(pattern: RegExp, what: string): number {
 	const found = pattern.exec(stylesheet());
 	if (found?.[1] === undefined) {
@@ -55,13 +53,10 @@ function selectsRailItself(selectorList: string): boolean {
 }
 
 /**
- * The window width the rail collapses at, from the media block that actually contains the rail's own rule.
- * `<=`, the rail's own spelling (its block in dashboard.css derives it): layout applies a `< N` block AT N
- * under the render harness while matchMedia reports false there, and `<=` is the spelling both evaluate the
- * same way at every integer. Brace-matched rather than pattern-anchored: the anchored regex could not tell
- * membership from adjacency and captured a decoy query's number, putting 235 in the band's floor where 735
- * belongs. A rule counts only when it opens at depth 1 and `.rail` is a whole member of its selector list;
- * comments come out first.
+ * `<=`, the rail's own spelling (its block in dashboard.css derives it): layout applies a `< N` block AT N under the
+ * render harness while matchMedia reports false there, and `<=` is the spelling both evaluate the same way at every
+ * integer. Brace-matched rather than pattern-anchored: the anchored regex could not tell membership from adjacency and
+ * captured a decoy query's number, putting 235 in the band's floor where 735 belongs.
  */
 function railCollapseWidth(): number {
 	const css = stylesheet().replace(/\/\*.*?\*\//gs, "");
@@ -92,9 +87,8 @@ function railCollapseWidth(): number {
 }
 
 /**
- * The band of PANE widths that occur on both sides of the rail's collapse. Every input is read from the
- * stylesheet, because the band moves whenever any of them does - a change to the pane's padding alone moves
- * the band's top by 8px, enough to swallow a threshold that was clear of it.
+ * Every input is read from the stylesheet, because the band moves whenever any of them does - a change to the pane's
+ * padding alone moves the band's top by 8px, enough to swallow a threshold that was clear of it.
  */
 function reversalBand(): { readonly low: number; readonly high: number } {
 	const railWidth = declared(/\.rail \{[^}]*flex: 0 0 (\d+)px/s, "the rail's width");
@@ -113,15 +107,11 @@ function reversalBand(): { readonly low: number; readonly high: number } {
 	};
 }
 
-/**
- * The pair a pane width query may be spelled as, and the pair a component may
- * use. `<` and `>=` at the same number partition; anything else is reported.
- */
+/** `<` and `>=` at the same number partition; anything else is reported. */
 const LEGAL_CSS_QUERY = /^@container pane \(width (?:<|>=) (\d+)px\)$/;
 const LEGAL_VARIANT = /^@(?:max|min)-\[(\d+)px\]\/pane:$/;
 
 interface PaneQuery {
-	/** The threshold, when the query is spelled legally; absent when it is not. */
 	readonly value: number | undefined;
 	readonly source: string;
 	/** Which harvest found it, so each can be floored against its own population. */
@@ -131,13 +121,12 @@ interface PaneQuery {
 }
 
 /**
- * Does this prelude constrain the PANE's width, which is the only thing the one-pixel argument is about?
- * Scoped rather than blanket: a container that is not the pane is a different box on a different axis, and a
- * query with no size in it cannot disagree at a pixel.
+ * Scoped rather than blanket: a container that is not the pane is a different box on a different axis, and a query
+ * with no size in it cannot disagree at a pixel.
  */
 function constrainsPaneWidth(text: string): boolean {
-	// A style query is stripped rather than skipped: `((max-width: 620px) and style(...))` does BOTH, and
-	// skipping the whole prelude on sight of `style(` waved it through. Stripping decides SCOPE only.
+	// A style query is stripped rather than skipped: `((max-width: 620px) and style(...))` does BOTH, and skipping
+	// the whole prelude on sight of `style(` waved it through.
 	const size = text.replace(/style\([^)]*\)/gi, "");
 	// `inline-size` as well as `width`: the pane is an `inline-size` container, so that is the feature's other
 	// name, and `max-inline-size: 620px` is the same inclusive mistake wearing it.
@@ -153,11 +142,10 @@ function constrainsPaneWidth(text: string): boolean {
 }
 
 /**
- * Every pane width query in the webview, legal or not. Both halves match BROADLY and judge afterwards: a
- * matcher recognizing only the spellings someone thought of would report a sheet full of `max-width` as a
- * sheet with no thresholds, and every assertion below passes over an empty list - hence the floors.
- * Regexes over source, not a parser: CSS built by a template literal or a variant minted by `@variant`
- * is invisible here (there are none of either).
+ * Both halves match BROADLY and judge afterwards: a matcher recognizing only the spellings someone thought of would
+ * report a sheet full of `max-width` as a sheet with no thresholds, and every assertion below passes over an empty
+ * list - hence the floors. Regexes over source, not a parser: CSS built by a template literal or a variant minted by
+ * `@variant` is invisible here (there are none of either).
  */
 function paneQueries(): PaneQuery[] {
 	const found: PaneQuery[] = [];
@@ -173,17 +161,16 @@ function paneQueries(): PaneQuery[] {
 			found.push({ value: legal === null ? undefined : Number(legal[1]), source: file, side: "stylesheet", text });
 		}
 	}
-	// The components' own halves: a row's track template sits with the component because a utility always beats
-	// the stylesheet. Read the trees TAILWIND reads, named in theme.css's `@source` lines.
+	// The components' own halves: a row's track template sits with the component because a utility always beats the
+	// stylesheet.
 	for (const root of classRoots()) {
 		for (const file of readdirSync(root, { recursive: true, encoding: "utf8" })) {
 			if (!file.endsWith(".tsx") && !file.endsWith(".ts")) {
 				continue;
 			}
 			const source = readFileSync(join(root, file), "utf8");
-			// Every container variant, named or not: an `@` run up to its colon. Unnamed counts because
-			// `@max-[620px]:` compiles to an unnamed query, which lands on the pane anyway. Stopping at the colon
-			// keeps a second variant on the same class from being swallowed whole.
+			// Unnamed counts because `@max-[620px]:` compiles to an unnamed query, which lands on the pane anyway.
+			// Stopping at the colon keeps a second variant on the same class from being swallowed whole.
 			for (const match of source.matchAll(/@[^\s"'`{}:]+:/g)) {
 				const text = match[0];
 				// Tailwind's arbitrary at-rule variants put their `@` directly after a `[` and are not container
@@ -200,11 +187,10 @@ function paneQueries(): PaneQuery[] {
 }
 
 /**
- * Every stylesheet under the webview tree, comments stripped, with its path. Not just styles/: a
- * component-local sheet elsewhere is exactly the file nobody would think to scan. Comments go because the
- * prose ABOUT a rule otherwise reads as a rule - the note above the 700px block spells the legal form.
- * CSS's comment grammar, not a tokenizer: an unterminated /* inside a quoted value would swallow the
- * rules after it.
+ * Not just styles/: a component-local sheet elsewhere is exactly the file nobody would think to scan. Comments go
+ * because the prose ABOUT a rule otherwise reads as a rule - the note above the 700px block spells the legal form.
+ *
+ *   an unterminated /* inside a quoted value would swallow the rules after it -> CSS's comment grammar, not a tokenizer
  */
 function stylesheetSources(): { readonly file: string; readonly css: string }[] {
 	const sheets: { file: string; css: string }[] = [];
@@ -246,11 +232,16 @@ const ROOT_SUBJECT = /(?:^|[^\w-])(?:html|:root)\b/i;
 const UNIVERSAL_SUBJECT = /^(?:\*|:is\(\*\)|:where\(\*\))$/i;
 
 /**
- * What one selector points AT - its subject, its last compound, not everything it mentions. A bare `*` is the
- * root and only a bare one (`.x *` cannot match html), so that case asks the whole selector; the pattern is
- * exact-anchored, never a prefix, so `*::before` (a box the root grows, not the root) stays out. "parent" is
- * the nesting answer: `&[data-theme]` styles whatever `&` resolves to, while `& body` has body as its
- * subject - contains rather than starts-with, because `:is(&)` and `&.x` are the same question.
+ * What one selector points AT - its subject, its last compound, not everything it mentions.
+ *
+ *   A bare `*` is the root and only a bare one (`.x *` cannot match html)
+ *     -> that case asks the whole selector
+ *   the pattern is exact-anchored, never a prefix
+ *     -> `*::before` (a box the root grows, not the root) stays out
+ *   `&[data-theme]` styles whatever `&` resolves to, while `& body` has body as its subject
+ *     -> contains rather than starts-with
+ *   `:is(&)` and `&.x` are the same question
+ *     -> contains rather than starts-with
  */
 function subjectKind(part: string): "root" | "parent" | "other" {
 	const compounds = splitTopLevel(part, " \t\n\r>+~");
@@ -265,8 +256,8 @@ function subjectKind(part: string): "root" | "parent" | "other" {
 }
 
 /**
- * Does a rule nested this deep style the root box? Walks the prelude stack outward, since a `&`-rooted
- * selector answers with its parent's subject. At-rule preludes are transparent.
+ * Walks the prelude stack outward, since a `&`-rooted selector answers with its parent's subject. At-rule preludes are
+ * transparent.
  */
 function selectsRoot(stack: readonly string[]): boolean {
 	for (let index = stack.length - 1; index >= 0; index -= 1) {
@@ -289,10 +280,12 @@ function selectsRoot(stack: readonly string[]): boolean {
 const FONT_SIZE_DECLARATION = /^\s*font(?:-size)?\s*:/i;
 
 /**
- * Every rule setting a font size on the ROOT box - the one `rem` resolves against, so the one that decides
- * what this page's rem sizes are worth against its px thresholds. A brace walk rather than a regex per rule:
- * CSS nesting hides the answer, since `html { &[data-theme="dark"] { font-size } }` styles html while its own
- * prelude says only `&[data-theme="dark"]`. String literals are blanked first so `content` cannot desync it.
+ * Every rule setting a font size on the ROOT box - the one `rem` resolves against, so the one that decides what this
+ * page's rem sizes are worth against its px thresholds. A brace walk rather than a regex per rule: CSS nesting hides
+ * the answer, since `html { &[data-theme="dark"] { font-size } }` styles html while its own prelude says only
+ * `&[data-theme="dark"]`.
+ *
+ *   String literals are blanked first -> `content` cannot desync it
  */
 function rootFontSizeDeclarations(): string[] {
 	const found: string[] = [];
@@ -321,7 +314,6 @@ function rootFontSizeDeclarations(): string[] {
 	return found;
 }
 
-/** The legal ones, which are the only ones with a number to do arithmetic on. */
 function paneThresholds(): { readonly value: number; readonly source: string }[] {
 	const thresholds: { value: number; source: string }[] = [];
 	for (const query of paneQueries()) {
@@ -349,17 +341,16 @@ test("the rail's collapse width is the same number in its stylesheet and in its 
 	// CSS decides what the rail looks like; the component decides what it can do. Neither can read the other.
 	const inCss = railCollapseWidth();
 	expect(RAIL_COLLAPSE_QUERY).toBe(`(width <= ${inCss}px)`);
-	// And the utilities that give the collapsed rail its geometry, which ride the
-	// same `<=` spelling as raw arbitrary variants. Floored before judging, since
-	// every per-match assertion passes over an empty list.
+	// And the utilities that give the collapsed rail its geometry, which ride the same `<=` spelling as raw arbitrary
+	// variants. Floored before judging, since every per-match assertion passes over an empty list.
 	const railSource = readFileSync(join(WEBVIEW, "rail.tsx"), "utf8");
 	const raw = [...railSource.matchAll(/\[@media\(width<=(\d+)px\)\]:/g)];
 	expect(raw.length).toBeGreaterThan(0);
 	for (const match of raw) {
 		expect(Number(match[1])).toBe(inCss);
 	}
-	// max-[N] compiles to `< N` and may not return: it re-opens the boundary
-	// integer where the paint and the hook disagreed.
+	// max-[N] compiles to `< N` and may not return: it re-opens the boundary integer where the paint and the hook
+	// disagreed.
 	expect(railSource).not.toMatch(/max-\[\d+px\]:/);
 });
 
@@ -377,14 +368,12 @@ test("every pane query is spelled one of the two legal ways", () => {
 });
 
 test("the settings rows' shared tracks leave the description a working column at the stack threshold", () => {
-	// The Settings page runs full-bleed on four shared tracks - label, control, description, actions - and
-	// stacks on a pane query. The description is the one elastic track, so the state to guard is a pane just
-	// above the threshold where the label cap, the fixed tracks, and the gaps leave it a word per line. The
-	// geometry lives in dashboard.css (the .settings-groups block), so this reads it out of the stylesheet.
+	// The Settings page runs full-bleed on four shared tracks - label, control, description, actions - and stacks on a
+	// pane query. The description is the one elastic track, so the state to guard is a pane just above the threshold
+	// where the label cap, the fixed tracks, and the gaps leave it a word per line.
 	const css = stylesheet();
-	// The gutter is a fixed token both settings pages read, declared on the
-	// track owner; settingLabelGutter.test.ts owns WHY it is fixed, this reads
-	// its width so the arithmetic below prices the real column.
+	// The gutter is a fixed token both settings pages read, declared on the track owner; settingLabelGutter.test.ts
+	// owns WHY it is fixed, this reads its width so the arithmetic below prices the real column.
 	const gutter = /\.settings-groups \{\s*--setting-label-gutter: (\d+(?:\.\d+)?)rem;/.exec(css);
 	if (gutter?.[1] === undefined) {
 		throw new Error("could not read --setting-label-gutter from dashboard.css's .settings-groups block");
@@ -418,14 +407,13 @@ test("the settings rows' shared tracks leave the description a working column at
 		}
 	}
 	const wideBlock = css.slice(blockStart, blockEnd);
-	// The cell's own bound reads the SAME token as the track, so the gutter has
-	// one width rather than a track and a cap that can disagree.
+	// The cell's own bound reads the SAME token as the track, so the gutter has one width rather than a track and a cap
+	// that can disagree.
 	expect(wideBlock).toContain("max-width: var(--setting-label-gutter)");
 	expect(wideBlock).toContain("grid-template-columns: subgrid");
-	// The stacked band opens where the wide tier closes: the `< threshold` block
-	// (brace-balanced, like the wide one - an unbounded scan would be satisfied
-	// by an "auto 1fr" template anywhere later in the file) carries the
-	// two-column template, so the label column and the rows turn at one width.
+	// The stacked band opens where the wide tier closes: the `< threshold` block (brace-balanced, like the wide one -
+	// an unbounded scan would be satisfied by an "auto 1fr" template anywhere later in the file) carries the two-column
+	// template, so the label column and the rows turn at one width.
 	const stackedOpen = css.indexOf(`@container pane (width < ${threshold}px) {`, blockEnd);
 	expect(stackedOpen, `no stacked band opens at ${threshold}`).toBeGreaterThan(-1);
 	let stackedDepth = 0;

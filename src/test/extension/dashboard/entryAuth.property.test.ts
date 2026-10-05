@@ -1,19 +1,6 @@
 /**
- * The shared auth assembler's guards (seed-pinned, FUZZ_RUNS-scaled), with
- * serverSync's parser as the independent oracle:
- *  - round trip: every pairing-legal field combination assembles into an auth
- *    object the parser ACCEPTS and reads back to exactly the usable inline
- *    fields, so no credential can silently change or vanish between a save
- *    and the sync engine;
- *  - refusal: the assembler fails exactly the combinations that violate the
- *    pairing rules, routed to the right form field;
- *  - strip: no assembler output can carry a secret outside the auth subtree -
- *    stripEntrySecrets certifies every assembled entry and removes every
- *    inline secret value, so a no-secrets export of an assembled entry can
- *    never ship plaintext credentials.
- *
- * Header names stay valid here on purpose: their charset is the intent
- * boundary's rule (validateConnectionFields), not the assembler's.
+ * Header names stay valid here on purpose: their charset is the intent boundary's rule (validateConnectionFields), not
+ * the assembler's.
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -28,7 +15,6 @@ import { resolveFuzzSeed } from "../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
 const SEED = resolveFuzzSeed();
 
-/** A field pool per slot: absent, usable, padded-usable, and whitespace-only shapes. */
 const valueArb = (values: readonly string[]) => fc.option(fc.constantFrom(...values), { nil: undefined });
 
 const fieldsArb = fc.record({
@@ -78,7 +64,6 @@ function expectedFailure(fields: Fields, resolves: SecretResolution): PairingFai
 	return undefined;
 }
 
-/** The usable inline fields, trimmed: what the parser must read back. */
 function usableFields(fields: Fields): Partial<Record<OptionalEntryFieldId, string>> {
 	const out: { -readonly [K in OptionalEntryFieldId]?: string } = {};
 	for (const { id } of OPTIONAL_ENTRY_FIELDS) {

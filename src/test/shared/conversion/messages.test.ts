@@ -199,8 +199,8 @@ suite("shared/conversion/messages", () => {
 	});
 
 	test("an image-bearing history replays to a non-vision model without image blocks", () => {
-		// The model-switch case: the history carries images the previous
-		// (vision) model accepted; the new model must not receive them.
+		// The model-switch case: the history carries images the previous (vision) model accepted; the new model must
+		// not receive them.
 		const img = () => new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
 		const history: vscode.LanguageModelChatMessage[] = [
 			{
@@ -327,8 +327,8 @@ suite("shared/conversion/messages", () => {
 	});
 
 	test("a PDF on an assistant turn is dropped like any other non-text block, keeping the text", () => {
-		// PDFs convert to content blocks only for user messages; the assistant
-		// wire shape has none, so the same keep-the-text rule applies.
+		// PDFs convert to content blocks only for user messages; the assistant wire shape has none, so the same
+		// keep-the-text rule applies.
 		const pdf = new vscode.LanguageModelDataPart(new Uint8Array([0x25, 0x50]), "application/pdf");
 		const messages: vscode.LanguageModelChatMessage[] = [
 			{
@@ -350,14 +350,45 @@ suite("shared/conversion/messages", () => {
 			content: [new vscode.LanguageModelTextPart(text), img(), img()],
 			name: undefined,
 		});
-		const out = convertMessages([turn("one"), turn("two"), turn("three")], {
-			log: (message, data) => logged.push({ message, data }),
+		// An agent session's history: every tool result carries a screenshot the model cannot take. These drops rode
+		// outside the once flag and logged one line per image per request.
+		const toolTurn = (id: string) => [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelToolCallPart(id, "screenshot", {})],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelToolResultPart(id, [img()])],
+				name: undefined,
+			},
+		];
+		const history = [turn("one"), turn("two"), turn("three"), ...toolTurn("call_1"), ...toolTurn("call_2")];
+		const out = convertMessages(history, { log: (message, data) => logged.push({ message, data }) });
+		const screenshot = (id: string) => ({
+			role: "assistant",
+			tool_calls: [{ id, type: "function", function: { name: "screenshot", arguments: "{}" } }],
 		});
-		assert.equal(out.length, 3, "every turn keeps its text");
-		assert.equal(
-			logged.filter((l) => l.message.includes("Skipping LanguageModelDataPart")).length,
-			1,
-			"six dropped parts must produce one log, not evict the issue buffer"
+		// JSON round-trip drops the undefined-valued keys the wire never carries.
+		assert.deepStrictEqual(JSON.parse(JSON.stringify(out)), [
+			{ role: "assistant", content: "one" },
+			{ role: "assistant", content: "two" },
+			{ role: "assistant", content: "three" },
+			screenshot("call_1"),
+			{ role: "tool", tool_call_id: "call_1", content: "" },
+			screenshot("call_2"),
+			{ role: "tool", tool_call_id: "call_2", content: "" },
+		]);
+		assert.deepStrictEqual(
+			logged,
+			[
+				{
+					message: "Skipping LanguageModelDataPart with no wire mapping",
+					data: { role: "assistant", mimeType: "image/png" },
+				},
+			],
+			"eight dropped parts must produce one log, not evict the issue buffer"
 		);
 	});
 
@@ -445,9 +476,8 @@ suite("shared/conversion/messages", () => {
 		});
 
 		test("images from all tool results of a turn collect into one message after the last tool message", () => {
-			// One host message carrying both results, and the split-across-host-
-			// messages shape, must both keep OpenAI's pairing rule: nothing
-			// between the assistant tool_calls message and its tool messages.
+			// One host message carrying both results, and the split-across-host-messages shape, must both keep OpenAI's
+			// pairing rule: nothing between the assistant tool_calls message and its tool messages.
 			const shapes: vscode.LanguageModelChatMessage[][] = [
 				[
 					assistantToolCalls("call_a", "call_b"),
@@ -543,7 +573,7 @@ suite("shared/conversion/messages", () => {
 			assert.strictEqual(expectDefined(out[1]).content, "plain");
 		});
 
-		test("non-image media inside a tool result drops with its own classification log", () => {
+		test("non-image media inside a tool result drops with a classification log", () => {
 			// PDF and audio blocks exist only on user messages; inside a tool
 			// result they cannot ride the wire even for a fully capable model,
 			// and the drop must stay observable like the non-vision image case.
@@ -563,19 +593,17 @@ suite("shared/conversion/messages", () => {
 				"no message may be synthesized for undeliverable media"
 			);
 			assert.strictEqual(expectDefined(out[1]).content, "report", "the text survives, the media drops");
-			const drops = logged.filter((l) => l.message === "Tool returned media with no tool-result wire mapping");
 			assert.deepEqual(
-				drops.map((l) => l.data),
-				[{ mimeType: "application/pdf" }, { mimeType: "audio/wav" }],
-				"each dropped part logs its classification"
+				logged.map((l) => [l.message, l.data]),
+				[["Tool returned media with no tool-result wire mapping", { mimeType: "application/pdf" }]],
+				"the first drop logs its classification; the rest share the conversion's once flag"
 			);
 		});
 	});
 
 	suite("tool calls sourced outside assistant messages", () => {
-		// Pairing is role-agnostic and validation's positional walk covers only
-		// assistant messages, so these shapes reach conversion; the wire must
-		// still keep every tool answer directly after its tool_calls message.
+		// Pairing is role-agnostic and validation's positional walk covers only assistant messages, so these shapes
+		// reach conversion; the wire must still keep every tool answer directly after its tool_calls message.
 		function userMsg(parts: unknown[]): vscode.LanguageModelChatMessage {
 			return {
 				role: vscode.LanguageModelChatMessageRole.User,
@@ -631,8 +659,8 @@ suite("shared/conversion/messages", () => {
 		});
 
 		test("text inside nested open turns defers past both answers", () => {
-			// The drain is first-emittable, not head-only: reopening a turn while
-			// draining must not strand its answer behind an earlier deferral.
+			// The drain is first-emittable, not head-only: reopening a turn while draining must not strand its answer
+			// behind an earlier deferral.
 			const out = convertMessages([
 				userMsg([new vscode.LanguageModelToolCallPart("call_a", "fn", {})]),
 				userMsg([new vscode.LanguageModelToolCallPart("call_b", "fn", {})]),
@@ -799,8 +827,8 @@ suite("shared/conversion/messages", () => {
 		test("tool result content collects PromptTsxPart, raw string, and unknown-object elements", () => {
 			const result = new vscode.LanguageModelToolResultPart("call_1", [
 				new vscode.LanguageModelPromptTsxPart("tsx says: "),
-				// Some hosts hand tool-result content over as bare strings after a
-				// serialization round trip; unknown shapes fall back to JSON.
+				// Some hosts hand tool-result content over as bare strings after a serialization round trip; unknown
+				// shapes fall back to JSON.
 				"raw string, " as unknown as vscode.LanguageModelTextPart,
 				{ verdict: "ok" } as unknown as vscode.LanguageModelTextPart,
 			]);
@@ -832,7 +860,7 @@ suite("shared/conversion/messages", () => {
 			assert.strictEqual(expectDefined(out[0]).content, "before after");
 		});
 
-		test("non-vision tool result DataParts: text mimes decode, image and other binary mimes each log their drop", () => {
+		test("non-vision tool result DataParts: text mimes decode, binary mimes drop with one log", () => {
 			const logged: string[] = [];
 			const result = new vscode.LanguageModelToolResultPart("call_1", [
 				new vscode.LanguageModelDataPart(new TextEncoder().encode('{"rows":3}'), "application/json"),
@@ -853,9 +881,8 @@ suite("shared/conversion/messages", () => {
 			// The vision arm (imageInput: true synthesizing an image message) is
 			// pinned by the tool-result images suite above; this is the gate's
 			// other side, with no imageInput capability.
-			assert.strictEqual(logged.length, 2, "the image and the opaque binary each log their drop");
+			assert.strictEqual(logged.length, 1, "the image logs its drop; the opaque binary shares the once flag");
 			assert.ok(expectDefined(logged[0]).includes("cannot be forwarded"), expectDefined(logged[0]));
-			assert.ok(expectDefined(logged[1]).includes("no tool-result wire mapping"), expectDefined(logged[1]));
 		});
 
 		test("an empty tool result still emits a tool message with empty-string content", () => {
@@ -959,8 +986,8 @@ suite("shared/conversion/messages", () => {
 				],
 				{ log: (message, data) => logged.push({ message, data }) }
 			);
-			// Content-block arrays on system messages are rejected by many
-			// OpenAI-compatible backends; the text must stay a plain string.
+			// Content-block arrays on system messages are rejected by many OpenAI-compatible backends; the text must
+			// stay a plain string.
 			assert.deepStrictEqual(out, [{ role: "system", content: "you are helpful" }]);
 			assert.deepStrictEqual(expectDefined(logged[0]).data, { role: "system", mimeType: "image/png" });
 		});
@@ -978,7 +1005,6 @@ suite("shared/conversion/messages", () => {
 	});
 
 	suite("thinking block replay", () => {
-		/** Shape of a host thinking part carried in assistant history. */
 		function thinkingPart(value: string, metadata: unknown): unknown {
 			return { value, id: "think_1", metadata };
 		}
@@ -1071,8 +1097,8 @@ suite("shared/conversion/messages", () => {
 				this.skip();
 				return;
 			}
-			// Anthropic streams thinking text first and the signature at block
-			// end; the replay must reunite them into one signed block.
+			// Anthropic streams thinking text first and the signature at block end; the replay must reunite them into
+			// one signed block.
 			const out = convertMessages([
 				assistantMessage([
 					new cls("part one"),
@@ -1123,8 +1149,8 @@ suite("shared/conversion/messages", () => {
 					new vscode.LanguageModelTextPart("Answer."),
 				]),
 			]) as Array<{ thinking_blocks?: unknown }>;
-			// Replaying a non-string value verbatim would produce an invalid
-			// thinking_blocks entry the provider rejects, failing the follow-up.
+			// Replaying a non-string value verbatim would produce an invalid thinking_blocks entry the provider
+			// rejects, failing the follow-up.
 			assert.deepStrictEqual(expectDefined(out[0]).thinking_blocks, [
 				{ type: "thinking", thinking: "", signature: "sig-n" },
 			]);
@@ -1145,9 +1171,8 @@ suite("shared/conversion/messages", () => {
 					new vscode.LanguageModelTextPart("Answer."),
 				]),
 			]) as Array<{ thinking_blocks?: unknown }>;
-			// Text accumulated before the redaction must not attach to the later
-			// signature (providers reject the mismatch), and trailing unsigned
-			// text has no replay value.
+			// Text accumulated before the redaction must not attach to the later signature (providers reject the
+			// mismatch), and trailing unsigned text has no replay value.
 			assert.deepStrictEqual(expectDefined(out[0]).thinking_blocks, [
 				{ type: "redacted_thinking", data: "opaque" },
 				{ type: "thinking", thinking: "late signed", signature: "sig-late" },

@@ -15,7 +15,10 @@ import { expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
 
 suite("extension/ui/commands", () => {
-	/** Poll until `condition` holds: the gate flow is deliberately not awaited by the command, so its effects land later. */
+	/**
+	 * Poll until `condition` holds: the gate flow is deliberately not awaited by the command, so its effects land
+	 * later.
+	 */
 	async function waitFor(condition: () => boolean, what: string): Promise<void> {
 		const deadline = Date.now() + 2000;
 		while (!condition()) {
@@ -61,9 +64,8 @@ suite("extension/ui/commands", () => {
 	test("helpAndFeedback delegates to reportIssue when Report Bug selected", async () => {
 		let openedUri: string | undefined;
 		const mock = mockHelpFeedback("$(bug) Report Bug", (uri) => (openedUri = uri));
-		// The unit host's status is not-configured, so reportIssue hits the setup
-		// gate; answering Report Anyway keeps this test about the delegation. The
-		// gate flow is not awaited, so the opened URL is waited for.
+		// The unit host's status is not-configured, so reportIssue hits the setup gate; answering Report Anyway keeps
+		// this test about the delegation.
 		const origWarn = vscode.window.showWarningMessage;
 		(vscode.window as Record<string, unknown>).showWarningMessage = async (_message: string, ...buttons: string[]) =>
 			buttons.includes("Report Anyway") ? "Report Anyway" : undefined;
@@ -165,8 +167,8 @@ suite("extension/ui/commands", () => {
 	suite("runConnectionTest", () => {
 		const logger = new Logger({ info: () => {}, error: () => {} });
 		test("reports the last known group statuses when the refresh cannot fetch them itself", async () => {
-			// After the migration the host owns group fetches: the triggered
-			// refresh returns nothing and reports nothing.
+			// After the migration the host owns group fetches: the triggered refresh returns nothing and reports
+			// nothing.
 			const statusBar = makeStatusBar({
 				state: "connected",
 				totalModels: 3,
@@ -186,9 +188,8 @@ suite("extension/ui/commands", () => {
 		});
 
 		test("the zero-model verdict is not framed as a connection failure; a hidden group earns Open Dashboard", async () => {
-			// The verdict text already names the removal and the recovery, so the
-			// "Connection failed - " framing must not wrap it; warning-grade like
-			// the bar and the notifier (one judgment, one severity).
+			// The verdict text already names the removal and the recovery, so the "Connection failed - " framing must
+			// not wrap it; warning-grade like the bar and the notifier (one judgment, one severity).
 			const lines: string[] = [];
 			const bufferLogger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
 			const statusBar = makeStatusBar({
@@ -289,8 +290,8 @@ suite("extension/ui/commands", () => {
 		});
 
 		test("the degraded toast counts only unexpected failures, like the status bar tooltip", async () => {
-			// One expected + one real failure once showed a count of 1 in the
-			// tooltip and "2" here; the shared count pins them together.
+			// One expected + one real failure once showed a count of 1 in the tooltip and "2" here; the shared count
+			// pins them together.
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
 				provideLanguageModelChatInformation: async () => {
@@ -335,11 +336,10 @@ suite("extension/ui/commands", () => {
 			assert.ok(toast.message.includes("ECONNREFUSED"), toast.message);
 		});
 
-		// Composed from ACTUAL transport mappings (mapSdkError -> statusErrorTexts) so
-		// the toast cannot drift from what the transport produces: the toast carries the
-		// message's headline line only, plus the Troubleshooting Docs deep link.
-		// Keyed by SETUP_HINT_KINDS and walked from that registry, so a new hint id
-		// without a coverage row here fails typecheck instead of shipping untested.
+		// Composed from ACTUAL transport mappings (mapSdkError -> statusErrorTexts) so the toast cannot drift from
+		// what the transport produces: the toast carries the message's headline line only, plus the Troubleshooting
+		// Docs deep link. Keyed by SETUP_HINT_KINDS and walked from that registry, so a new hint id without a coverage
+		// row here fails typecheck instead of shipping untested.
 		suite("classified error toasts composed from real transport mappings", () => {
 			const ctx = { surface: "discovery" as const, baseUrl: "http://litellm.test", timeoutMs: 5000 };
 			const causes: Record<SetupHintKind, { label: string; buildError: () => Error }> = {
@@ -480,9 +480,8 @@ suite("extension/ui/commands", () => {
 		});
 
 		test("a classified refresh failure reaches the buffer as its classification, never its body", async () => {
-			// The Test Connection catch logs the thrown error; with the provider
-			// rethrowing the ORIGINAL classified error (never one rebuilt from the
-			// display string), the buffer line stays body-free.
+			// The Test Connection catch logs the thrown error; with the provider rethrowing the ORIGINAL classified
+			// error (never one rebuilt from the display string), the buffer line stays body-free.
 			const bufferLines: string[] = [];
 			const bufferLogger = new Logger(
 				{ info: () => {}, error: () => {} },
@@ -528,9 +527,8 @@ suite("extension/ui/commands", () => {
 
 	suite("runModelSync", () => {
 		test("a second call mid-pass joins the running one instead of answering immediately", async () => {
-			// The re-entrancy guard refuses a duplicate pass, but it must NOT answer the
-			// second caller instantly: the dashboard's Retry waits on this promise to
-			// decide the sync is over.
+			// The re-entrancy guard refuses a duplicate pass, but it must NOT answer the second caller instantly: the
+			// dashboard's Retry waits on this promise to decide the sync is over.
 			const lines: string[] = [];
 			const logger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
 			const statusBar = makeStatusBar({
@@ -552,8 +550,7 @@ suite("extension/ui/commands", () => {
 				const second = runModelSync(provider, statusBar, outputChannel, logger).then(() => {
 					secondSettled = true;
 				});
-				// The first pass is parked inside refreshViaHost; neither caller
-				// may have an answer yet.
+				// The first pass is parked inside refreshViaHost; neither caller may have an answer yet.
 				await Promise.resolve();
 				assert.strictEqual(secondSettled, false, "the second call answered while the first pass was still running");
 
@@ -652,9 +649,8 @@ suite("extension/ui/commands", () => {
 		});
 
 		test("the sync-failed log carries the log-safe rendering while the toast keeps the display headline", async () => {
-			// The "Model sync failed" line lands in the issue-report buffer, so it
-			// must use logSafeError; the toast keeps `error`'s headline line, while
-			// the detail line (which may carry response bodies) stays off it.
+			// The "Model sync failed" line lands in the issue-report buffer, so it must use logSafeError; the toast
+			// keeps `error`'s headline line, while the detail line (which may carry response bodies) stays off it.
 			const lines: string[] = [];
 			const logger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
 			const statusBar = makeStatusBar({ state: "not-configured" });
@@ -685,8 +681,8 @@ suite("extension/ui/commands", () => {
 		});
 
 		test("a classified error status keeps the exact transport headline and adds the docs action", async () => {
-			// Composed from the actual transport mapping, like the connection-test
-			// suite above: the toast carries the message's first line, nothing else.
+			// Composed from the actual transport mapping, like the connection-test suite above: the toast carries the
+			// message's first line, nothing else.
 			const logger = new Logger({ info: () => {}, error: () => {} });
 			const mapped = mapSdkError(
 				new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()),
@@ -758,8 +754,8 @@ suite("extension/ui/commands", () => {
 		});
 
 		test("the degraded sync toast counts only unexpected failures, like the status bar tooltip", async () => {
-			// The sync toast reads the same shared count as the connection test and
-			// the tooltip: an expected failure never inflates it.
+			// The sync toast reads the same shared count as the connection test and the tooltip: an expected failure
+			// never inflates it.
 			const logger = new Logger({ info: () => {}, error: () => {} });
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
@@ -836,9 +832,8 @@ suite("extension/ui/commands", () => {
 		});
 	});
 
-	// The Report Issue command's setup gate: setup-shaped diagnostics get one non-modal
-	// offer of the faster fix before GitHub opens. The verdict comes from the CURRENT
-	// connection status only, never the historical latestError.
+	// The Report Issue command's setup gate: setup-shaped diagnostics get one non-modal offer of the faster fix before
+	// GitHub opens. The verdict comes from the CURRENT connection status only, never the historical latestError.
 	suite("runReportIssue", () => {
 		function makeReporter(openedIssueUrls: string[]): IssueReporter {
 			return new IssueReporter({
@@ -868,7 +863,6 @@ suite("extension/ui/commands", () => {
 			restore: () => void;
 		}
 
-		/** Mock the gate dialog (answering with `answer`) and intercept every executeCommand the chosen action runs. */
 		function mockGate(answer: string | undefined): GateMocks {
 			const warnings: GateMocks["warnings"] = [];
 			const executed: unknown[][] = [];
@@ -891,7 +885,9 @@ suite("extension/ui/commands", () => {
 			};
 		}
 
-		/** Only the gate's own dialogs: the mocks intercept process-wide, so a stray host toast must not shift indices. */
+		/**
+		 * Only the gate's own dialogs: the mocks intercept process-wide, so a stray host toast must not shift indices.
+		 */
 		function gateWarnings(mocks: GateMocks): GateMocks["warnings"] {
 			return mocks.warnings.filter((warning) => warning.buttons.includes("Report Anyway"));
 		}
@@ -981,7 +977,6 @@ suite("extension/ui/commands", () => {
 				const reporter = makeReporter(openedIssueUrls);
 				await runReportIssue(() => classified404, "1.2.3", "9.9.9", reporter, freshMemento());
 				await waitFor(() => gateWarnings(mocks).length === 1, "the gate to show");
-				// Nothing is remembered: the second invocation offers the gate again.
 				await runReportIssue(() => classified404, "1.2.3", "9.9.9", reporter, freshMemento());
 				await waitFor(() => gateWarnings(mocks).length === 2, "the gate to re-offer");
 				// A settled turn for any stray action; there must be none.
@@ -996,8 +991,8 @@ suite("extension/ui/commands", () => {
 		test("a healthy status goes straight to GitHub even with a stale classified latestError recorded", async () => {
 			const openedIssueUrls: string[] = [];
 			const reporter = makeReporter(openedIssueUrls);
-			// The historical latestError is never cleared; a setup-shaped failure
-			// recorded before recovery must not gate a now-healthy user.
+			// The historical latestError is never cleared; a setup-shaped failure recorded before recovery must not
+			// gate a now-healthy user.
 			reporter.recordError(
 				"discovery",
 				mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), {
@@ -1055,14 +1050,13 @@ suite("extension/ui/commands", () => {
 				});
 			try {
 				let status: ConnectionStatus = { state: "not-configured" };
-				// Pins the non-blocking contract: the dashboard's executeCommand intent
-				// awaits this promise inside its serialized message chain, so it must
-				// settle while showWarningMessage's promise is still pending.
+				// Pins the non-blocking contract: the dashboard's executeCommand intent awaits this promise inside its
+				// serialized message chain, so it must settle while showWarningMessage's promise is still pending.
 				await runReportIssue(() => status, "1.2.3", "9.9.9", makeReporter(openedIssueUrls), freshMemento());
 				assert.ok(answer !== undefined, "the gate must be on screen when the command settles");
 				assert.strictEqual(openedIssueUrls.length, 0, "no issue opens before the gate is answered");
-				// The world changes while the dialog sits unanswered; the report must
-				// still carry the snapshot the gate judged.
+				// The world changes while the dialog sits unanswered; the report must still carry the snapshot the gate
+				// judged.
 				status = { state: "connected", totalModels: 1, serverStatuses: [makeServerStatus({ servedModelCount: 1 })] };
 				expectDefined(answer)("Report Anyway");
 				await waitFor(() => openedIssueUrls.length > 0, "Report Anyway to open the issue");
@@ -1075,9 +1069,6 @@ suite("extension/ui/commands", () => {
 			);
 		});
 
-		// The repeat-report hint: each opened report's diagnostic fingerprint is
-		// remembered in globalState, and a look-alike attempt inside the window
-		// gets a modal prompt first.
 		suite("repeat-report hint", () => {
 			const healthy: ConnectionStatus = {
 				state: "connected",
@@ -1091,7 +1082,6 @@ suite("extension/ui/commands", () => {
 				restore: () => void;
 			}
 
-			/** Mock the modal hint (answering with `answer`) and intercept executeCommand for the issues-list link. */
 			function mockHint(answer: string | undefined): HintMocks {
 				const dialogs: HintMocks["dialogs"] = [];
 				const executed: unknown[][] = [];
@@ -1327,9 +1317,8 @@ suite("extension/ui/commands", () => {
 						answer = resolve;
 					});
 				try {
-					// Pins the non-blocking contract, like the setup-gate twin above:
-					// the dashboard awaits this command in its serialized message
-					// chain, so it must settle while the modal is still pending.
+					// Pins the non-blocking contract, like the setup-gate twin above: the dashboard awaits this command
+					// in its serialized message chain, so it must settle while the modal is still pending.
 					await runReportIssue(() => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 					assert.ok(answer !== undefined, "the modal must be on screen when the command settles");
 					assert.strictEqual(openedIssueUrls.length, 1, "no issue opens before the modal is answered");
@@ -1344,7 +1333,6 @@ suite("extension/ui/commands", () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
 				const reporter = makeReporter(openedIssueUrls);
-				// First gated report: Report Anyway opens and remembers the fingerprint.
 				const firstGate = mockGate("Report Anyway");
 				try {
 					await runReportIssue(() => classified404, "1.2.3", "9.9.9", reporter, storage.memento);
@@ -1353,9 +1341,6 @@ suite("extension/ui/commands", () => {
 				} finally {
 					firstGate.restore();
 				}
-				// The second attempt, same state, inside the window: the gate shows
-				// again (a setup problem keeps showing its guidance) and the modal
-				// hint never appears.
 				const gate = mockGate("Report Anyway");
 				const hint = mockHint(undefined);
 				try {
@@ -1371,9 +1356,9 @@ suite("extension/ui/commands", () => {
 		});
 	});
 
-	// The groups-file deep link: leftover provider groups can only be deleted by
-	// editing the host's chatLanguageModels.json, so the command must land on
-	// exactly that file, and fail with guidance rather than a bare throw.
+	// The groups-file deep link: leftover provider groups can only be deleted by editing the host's
+	// chatLanguageModels.json, so the command must land on exactly that file, and fail with guidance rather than a bare
+	// throw.
 	suite("open groups file command", () => {
 		test("resolves chatLanguageModels.json two levels above global storage and shows it", async () => {
 			const opened: vscode.Uri[] = [];
@@ -1425,15 +1410,13 @@ suite("extension/ui/commands", () => {
 		});
 	});
 
-	// The docker-serversync harness commands. Their end-to-end behavior belongs
-	// to the docker suite; the unit host pins the safe shapes the suite's
-	// assertions build on.
+	// The docker-serversync harness commands. Their end-to-end behavior belongs to the docker suite; the unit host pins
+	// the safe shapes the suite's assertions build on.
 	suite("test-only serversync commands", () => {
 		test("getRecentLogs returns the classification-only string buffer", async () => {
-			// A refused dashboard intent logs through the activated extension's
-			// real logger, so the buffer this command reads must carry the
-			// rejection's classification line and never the validation message,
-			// which quotes the offending (user-typed) record key.
+			// A refused dashboard intent logs through the activated extension's real logger, so the buffer this command
+			// reads must carry the rejection's classification line and never the validation message, which quotes the
+			// offending (user-typed) record key.
 			assert.strictEqual(
 				await vscode.commands.executeCommand("litellm._test.dashboardMessage", {
 					kind: "request",
@@ -1476,8 +1459,8 @@ suite("extension/ui/commands", () => {
 				resumed.lines.length,
 				"a resumed read returns exactly the lines logged since the cursor"
 			);
-			// A junk cursor reads from the start instead of throwing: the seam
-			// must stay usable from the command palette during debugging.
+			// A junk cursor reads from the start instead of throwing: the seam must stay usable from the command
+			// palette during debugging.
 			const junk = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", "junk")) as Batch;
 			assert.ok(junk.lines.length >= first.lines.length, "a junk cursor reads from the beginning");
 		});
@@ -1493,9 +1476,8 @@ suite("extension/ui/commands", () => {
 		});
 
 		test("registerTestCommands is a no-op in a production-mode context", () => {
-			// Everything the function registers goes through context.subscriptions,
-			// so an empty array proves the gate held; a broken gate would also
-			// throw here on this host's already-registered command ids.
+			// Everything the function registers goes through context.subscriptions, so an empty array proves the gate
+			// held; a broken gate would also throw here on this host's already-registered command ids.
 			const context = {
 				extensionMode: vscode.ExtensionMode.Production,
 				subscriptions: [] as vscode.Disposable[],
@@ -1512,14 +1494,12 @@ suite("extension/ui/commands", () => {
 		});
 	});
 
-	// The monkey fuzzer's harness commands. Its end-to-end behavior belongs to
-	// the docker-monkey suite; the unit host pins that injection outcomes come
-	// from the panel's real schema and that storage reads hit the right Memento.
+	// The monkey fuzzer's harness commands. Its end-to-end behavior belongs to the docker-monkey suite; the unit host
+	// pins that injection outcomes come from the panel's real schema and that storage reads hit the right Memento.
 	suite("test-only monkey harness commands", () => {
 		test("getStorageKeys returns the extension's globalState key strings", async () => {
-			// The monkey fuzzer enumerates real storage through this command, so an
-			// empty answer must fail here, and so must a read off the wrong Memento:
-			// every host run is a fresh profile, whose first activation writes the
+			// The monkey fuzzer enumerates real storage through this command, so an empty answer must fail here, and so
+			// must a read off the wrong Memento: every host run is a fresh profile, whose first activation writes the
 			// welcome flag into globalState and nowhere else.
 			const keys = (await vscode.commands.executeCommand("litellm._test.getStorageKeys")) as unknown;
 			assert.ok(Array.isArray(keys) && keys.every((key) => typeof key === "string"), "the command returns string keys");

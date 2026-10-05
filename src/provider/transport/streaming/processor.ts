@@ -20,7 +20,7 @@ import { streamErrorFrame } from "../errorMapping";
 import type { TextParseResult, TextToolCall } from "../textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "../textToolCallParser";
 import type { ChatCompletionChunk, ChunkAudio, ChunkDelta, ChunkSearchResult, ToolCallBuffer } from "../wire";
-import { parseChunk, TERMINAL_FINISH_REASONS } from "../wire";
+import { parseChunk } from "../wire";
 import { ToolCallLedger } from "./dedup";
 import type { AudioBuffer } from "./media";
 import { audioMimeForFormat, decodeBase64DataUrl, decodeBase64Strict } from "./media";
@@ -72,7 +72,11 @@ interface RequestState {
 	citations: Map<string, string>;
 	usage: Record<string, unknown> | undefined;
 	audioBuffer: AudioBuffer | undefined;
-	reportedAnyPart: boolean;
+	/**
+	 * Parts the model produced. The trailers emitTrailers adds are not counted, so they cannot stand in for a
+	 * response.
+	 */
+	contentParts: number;
 	droppedReasoning: DroppedReasoning;
 	lastFinishReason: string | undefined;
 }
@@ -90,7 +94,7 @@ function freshRequestState(): RequestState {
 		citations: new Map(),
 		usage: undefined,
 		audioBuffer: undefined,
-		reportedAnyPart: false,
+		contentParts: 0,
 		droppedReasoning: freshDroppedReasoning(),
 		lastFinishReason: undefined,
 	};
@@ -98,12 +102,7 @@ function freshRequestState(): RequestState {
 
 export class StreamProcessor {
 	private _req: RequestState;
-	/**
-	 * The one road to the host: every part counts toward the end-of-stream empty-response check, then reaches the
-	 * sink. The raw sink is a constructor argument this closure alone captures, so no handler can report around the
-	 * count; a processor serves the one request whose progress it was built for.
-	 */
-	private readonly _emit: (part: vscode.LanguageModelResponsePart) => void;
+	private readonly _progress: ResponsePartSink;
 	private _toolCallIds: ToolCallIdSource;
 	private _log: (message: string, data?: unknown) => void;
 	private _thinkingPartCtor: ThinkingPartCtor | undefined;
@@ -119,10 +118,7 @@ export class StreamProcessor {
 		requestAudioFormat: string | undefined = undefined
 	) {
 		this._req = freshRequestState();
-		this._emit = (part) => {
-			this._req.reportedAnyPart = true;
-			progress.report(part);
-		};
+		this._progress = progress;
 		this._toolCallIds = toolCallIds;
 		this._log = log;
 		this._thinkingPartCtor = partCtor ?? undefined;
@@ -136,8 +132,24 @@ export class StreamProcessor {
 		this._audioMime = audioMimeForFormat(requestAudioFormat);
 	}
 
-	resetState(): void {
+	/**
+	 * The dropped-reasoning aggregate is logged here so every way a request ends (the finish, an error frame, a reader
+	 * failure) reports it exactly once.
+	 */
+	private closeRequest(): void {
+		const dropped = this._req.droppedReasoning;
+		if (dropped.parts > 0) {
+			this._log("Dropped reasoning output; LanguageModelThinkingPart missing or failed", {
+				parts: dropped.parts,
+				totalLength: dropped.length,
+			});
+		}
 		this._req = freshRequestState();
+	}
+
+	private emit(part: vscode.LanguageModelResponsePart): void {
+		this._req.contentParts += 1;
+		this._progress.report(part);
 	}
 
 	/** Aggregate only (part count and character length); the reasoning text never reaches the logs. */
@@ -146,28 +158,17 @@ export class StreamProcessor {
 		this._req.droppedReasoning.length += thinking.text.length;
 	}
 
-	private logDroppedReasoningAggregate(): void {
-		const dropped = this._req.droppedReasoning;
-		if (dropped.parts === 0 || dropped.logged) {
-			return;
-		}
-		dropped.logged = true;
-		this._log("Dropped reasoning output; LanguageModelThinkingPart missing or failed", {
-			parts: dropped.parts,
-			totalLength: dropped.length,
-		});
-	}
-
 	async processStreamingResponse(
 		responseBody: ReadableStream<Uint8Array>,
 		token: vscode.CancellationToken
 	): Promise<void> {
+		// [DONE] does not end the stream: providers trail usage and sources behind it, so only EOF finishes. It does
+		// retire the error-frame rule, so a straggling error cannot fail a reply the user has already watched complete.
 		let sawDone = false;
 		try {
 			for await (const frame of sseFrames(responseBody, token)) {
 				if (frame.kind === "done") {
 					sawDone = true;
-					this.finishStream(!token.isCancellationRequested);
 					continue;
 				}
 				const data = frame.payload;
@@ -192,28 +193,22 @@ export class StreamProcessor {
 				if (!sawDone && chunk.error && !(chunk.choices && chunk.choices.length > 0)) {
 					throw streamErrorFrame(chunk.error);
 				}
-				this.processDelta(chunk, token);
+				this.processDelta(chunk);
 			}
-			this.endOfStream(!token.isCancellationRequested);
-		} finally {
-			this.logDroppedReasoningAggregate();
-			this._req = freshRequestState();
+		} catch (e) {
+			// A failed request has no end-of-stream finish: nothing buffered may flush behind the error.
+			this.closeRequest();
+			throw e;
 		}
+		this.endOfStream(!token.isCancellationRequested);
 	}
 
-	/**
-	 * The post-loop end-of-stream run: the terminal checks, then - only for a stream that finished normally and passed
-	 * them - the trailers, then a fresh request state, so nothing this run counted (the trailers included) can satisfy
-	 * a later run's checks. A harness that feeds processDelta directly calls it to mirror the transport loop.
-	 */
+	/** The one finish, run at EOF. A harness that feeds processDelta directly calls it to mirror the transport loop. */
 	endOfStream(finishedNormally = true): void {
 		try {
-			this.finishStream(finishedNormally, true);
-			if (finishedNormally) {
-				this.emitTrailers();
-			}
+			this.finishStream(finishedNormally);
 		} finally {
-			this._req = freshRequestState();
+			this.closeRequest();
 		}
 	}
 
@@ -246,7 +241,7 @@ export class StreamProcessor {
 		}
 	}
 
-	processDelta(chunk: ChatCompletionChunk, token?: vscode.CancellationToken): boolean {
+	processDelta(chunk: ChatCompletionChunk): boolean {
 		let emitted = false;
 
 		if (chunk.usage) {
@@ -279,7 +274,7 @@ export class StreamProcessor {
 					this._log("Failed to construct thinking part", { error: String(e) });
 				}
 				if (part) {
-					this._emit(part);
+					this.emit(part);
 					emitted = true;
 				} else {
 					this.recordDroppedReasoning(thinking);
@@ -298,7 +293,7 @@ export class StreamProcessor {
 				// No content: refusal text can echo user data into issue reports.
 				this._log("Model refused the request");
 			}
-			this._emit(new vscode.LanguageModelTextPart(delta.refusal));
+			this.emit(new vscode.LanguageModelTextPart(delta.refusal));
 			this._req.hasEmittedAssistantText = true;
 			emitted = true;
 		}
@@ -352,7 +347,7 @@ export class StreamProcessor {
 
 		if (delta?.tool_calls) {
 			if (!this._req.emittedBeginToolCallsHint && this._req.hasEmittedAssistantText && delta.tool_calls.length > 0) {
-				this._emit(new vscode.LanguageModelTextPart(" "));
+				this.emit(new vscode.LanguageModelTextPart(" "));
 				this._req.emittedBeginToolCallsHint = true;
 			}
 
@@ -379,9 +374,6 @@ export class StreamProcessor {
 
 		if (choice.finish_reason !== undefined) {
 			this._req.lastFinishReason = choice.finish_reason;
-			if (TERMINAL_FINISH_REASONS.includes(choice.finish_reason)) {
-				this.finishStream(!token?.isCancellationRequested);
-			}
 		}
 
 		return emitted;
@@ -408,7 +400,7 @@ export class StreamProcessor {
 			}
 			const part = this.constructDataPart(decoded.bytes, decoded.mime);
 			if (part) {
-				this._emit(part);
+				this.emit(part);
 				emitted = true;
 			}
 		}
@@ -455,7 +447,7 @@ export class StreamProcessor {
 		if (!part) {
 			return false;
 		}
-		this._emit(part);
+		this.emit(part);
 		return true;
 	}
 
@@ -478,7 +470,7 @@ export class StreamProcessor {
 
 		for (const event of result.events) {
 			if (event.type === "text") {
-				this._emit(new vscode.LanguageModelTextPart(event.text));
+				this.emit(new vscode.LanguageModelTextPart(event.text));
 				emittedText = true;
 				emittedAny = true;
 				continue;
@@ -551,7 +543,7 @@ export class StreamProcessor {
 
 		this._req.ledger.recordEmission(source, key);
 		const id = call.id ?? `call_${this._toolCallIds.next()}`;
-		this._emit(new vscode.LanguageModelToolCallPart(id, call.name, call.parsedArgs));
+		this.emit(new vscode.LanguageModelToolCallPart(id, call.name, call.parsedArgs));
 		retireBuffer();
 		return true;
 	}
@@ -577,67 +569,32 @@ export class StreamProcessor {
 	}
 
 	/**
-	 * How an end-of-stream flush treats a delta buffer whose accumulated arguments are empty.
-	 *   "hold"    -> leave it pending - the finish_reason and [DONE] runs can still be followed by chunks carrying the
-	 *                arguments, and emitting now would retire the index and drop them
-	 *   "emit"    -> the final EOF run's no-argument reading (flushArgsText)
+	 * finishedNormally is false only when the request was cancelled: unparseable leftovers then downgrade to logged
+	 * drops and accumulated media is discarded. flushArgsText's empty-argument reading applies only to a complete,
+	 * uncut stream: a call cut off before any argument bytes (cancelled, or finish_reason "length") classifies instead
+	 * of running with arguments the model never sent.
 	 */
-	private flushToolCallBuffers(emptyArgs: "hold" | "emit" | "invalid"): number {
+	private finishStream(finishedNormally: boolean): void {
+		const emptyArgsAreNoArgs = finishedNormally && this._req.lastFinishReason !== "length";
+		const finalArgsText = (args: string) => (emptyArgsAreNoArgs ? StreamProcessor.flushArgsText(args) : args);
 		let invalidCount = 0;
-		for (const [index, buf] of Array.from(this._req.toolCallBuffers.entries())) {
-			if (buf.args.trim() === "") {
-				if (emptyArgs === "hold") {
-					continue;
-				}
-				if (emptyArgs === "invalid") {
-					// Classification only: buffered arguments are response text.
-					this._log("Invalid JSON for tool call", { index, argsLength: buf.args.length });
-					invalidCount++;
-					this._req.toolCallBuffers.delete(index);
-					continue;
-				}
-				this.emitToolCall({ id: buf.id, name: buf.name ?? "unknown_tool", parsedArgs: {} }, index);
-				continue;
-			}
-			const parsed = tryParseJSONObject(buf.args);
+
+		for (const [index, buf] of this._req.toolCallBuffers) {
+			const parsed = tryParseJSONObject(finalArgsText(buf.args));
 			if (!parsed.ok) {
 				// Classification only: buffered arguments are response text.
-				this._log("Invalid JSON for tool call", { index, argsLength: (buf.args || "").length });
+				this._log("Invalid JSON for tool call", { index, argsLength: buf.args.length });
 				invalidCount++;
 				this._req.toolCallBuffers.delete(index);
 				continue;
 			}
 			this.emitToolCall({ id: buf.id, name: buf.name ?? "unknown_tool", parsedArgs: parsed.value }, index);
 		}
-		return invalidCount;
-	}
-
-	/**
-	 * finishedNormally is false only when the request was cancelled; a cancelled stream downgrades unparseable
-	 * leftovers to logged drops and discards accumulated media instead of emitting it. `isFinal` is true only for the
-	 * post-loop EOF run (endOfStream), which alone may finalize empty delta buffers and emit the trailers; the
-	 * finish_reason and [DONE] runs can still be followed by more chunks.
-	 */
-	private finishStream(finishedNormally: boolean, isFinal = false): void {
-		const emptyArgs = !isFinal
-			? "hold"
-			: !finishedNormally || this._req.lastFinishReason === "length"
-				? "invalid"
-				: "emit";
-		let invalidCount = this.flushToolCallBuffers(emptyArgs);
 
 		const rest = this._req.textParser.flush();
 		const call = rest.provisionalCall;
 		if (call && !this._req.ledger.alreadyHandled(call.seq)) {
-			// The parser's held state is gone after flush(), so an unterminated call cannot resume on a later run:
-			// finality is a given here, and only two gates apply - cancellation (a cancelled partial call must drop,
-			// not run) and the length gate (an output limit that cut the call off must classify, not emit a call the
-			// model never finished).
-			const inlineArgs =
-				finishedNormally && this._req.lastFinishReason !== "length"
-					? StreamProcessor.flushArgsText(call.args)
-					: call.args;
-			const parsed = tryParseJSONObject(inlineArgs);
+			const parsed = tryParseJSONObject(finalArgsText(call.args));
 			if (parsed.ok) {
 				this._req.ledger.markHandled(call.seq);
 				this.emitInlineToolCall(call, parsed.value);
@@ -660,20 +617,17 @@ export class StreamProcessor {
 					length: trailingText.length,
 				});
 			} else {
-				this._emit(new vscode.LanguageModelTextPart(trailingText));
+				this.emit(new vscode.LanguageModelTextPart(trailingText));
 			}
 		}
 
-		// Flushing clears the buffer, so the repeated finishStream runs cannot emit the audio twice.
-		if (finishedNormally) {
-			this.flushAudioBuffer();
-		} else {
+		if (!finishedNormally) {
 			this._req.audioBuffer = undefined;
+			return;
 		}
+		this.flushAudioBuffer();
 
-		this.logDroppedReasoningAggregate();
-
-		if (invalidCount > 0 && finishedNormally) {
+		if (invalidCount > 0) {
 			// The English mirror is what the output channel and issue-report buffer record: count only - tool names and
 			// argument snippets are response text and must never join it.
 			if (this._req.lastFinishReason === "length") {
@@ -707,25 +661,16 @@ export class StreamProcessor {
 			);
 		}
 
-		// A normally-finished stream that emitted nothing but did drop reasoning must fail loudly instead of resolving
-		// empty. The flag keeps the repeated finishStream runs from double-throwing.
-		if (
-			finishedNormally &&
-			!this._req.reportedAnyPart &&
-			this._req.droppedReasoning.parts > 0 &&
-			!this._req.droppedReasoning.threw
-		) {
-			this._req.droppedReasoning.threw = true;
+		// A stream that produced nothing the host can show, but did drop reasoning, fails loudly instead of resolving
+		// empty.
+		if (this._req.contentParts === 0 && this._req.droppedReasoning.parts > 0) {
 			throw localizedError(reasoningOnlyResponseMessage(), REASONING_ONLY_RESPONSE_MESSAGE);
 		}
+
+		this.emitTrailers();
 	}
 
-	/**
-	 * They decorate a response, so they must not satisfy finishStream's reasoning-only check: only endOfStream calls
-	 * this, after that check has run and before it resets the request state, so the count they add reaches no check.
-	 * Earlier runs are premature - more chunks may still deliver sources, title upgrades, or a later usage trailer, and
-	 * last-wins must hold - and a cancelled or failed stream has no successful response to trail.
-	 */
+	/** Decoration, not response: the trailers report around the contentParts count, so they never satisfy a check. */
 	private emitTrailers(): void {
 		if (this._req.citations.size > 0) {
 			const escapeTitle = (title: string) => title.replace(/[\r\n]+/g, " ").replace(/[[\]\\]/g, "\\$&");
@@ -736,7 +681,7 @@ export class StreamProcessor {
 			const lines = Array.from(this._req.citations.entries()).map(
 				([url, title]) => `- [${escapeTitle(title)}](${escapeUrl(url)})`
 			);
-			this._emit(new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
+			this._progress.report(new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
 		}
 
 		// The retained usage trailer rides out as one DataPart with the bare mimeType "usage", the convention the
@@ -746,7 +691,7 @@ export class StreamProcessor {
 			if (payload !== undefined && this._dataPartCtor) {
 				const part = this.constructDataPart(new TextEncoder().encode(JSON.stringify(payload)), "usage");
 				if (part !== undefined) {
-					this._emit(part);
+					this._progress.report(part);
 				}
 			}
 		}

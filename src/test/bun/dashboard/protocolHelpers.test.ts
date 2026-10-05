@@ -1,7 +1,3 @@
-/**
- * The pure wire and draft helpers the panel and webview share: failure retirement, message guards, header and
- * JSON value parsing, draft sync keys.
- */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import { failuresAfterStatePush, isExtensionMessage } from "../../../dashboard/endpoints";
@@ -18,9 +14,8 @@ import type { NumberSettingId } from "../../../shared/config/settingSpec";
 describe("dashboard: protocol value helpers", () => {
 	describe("wire and draft helpers", () => {
 		test("failuresAfterStatePush: acked server-intent notices survive a push, push-signaled ones retire", () => {
-			// The operation-kind save failure is the load-bearing case: the save
-			// itself requests a sync whose push arrives moments later and must not
-			// erase the warning that the stored secret is still in effect.
+			// The operation-kind save failure is the load-bearing case: the save itself requests a sync whose push
+			// arrives moments later and must not erase the warning that the stored secret is still in effect.
 			const failures = {
 				saveServerSetting: { seq: 1, message: "the stored secret remains", kind: "operation" },
 				removeServerSetting: { seq: 2, message: "not applied", kind: "validation" },
@@ -63,9 +58,8 @@ describe("dashboard: protocol value helpers", () => {
 			assert.strictEqual(parseHeaderValue('"42"'), "42");
 			assert.strictEqual(parseHeaderValue("abc def"), "abc def");
 			assert.strictEqual(parseHeaderValue("[1]"), "[1]", "non-scalar JSON stays a string");
-			// Overflowing numeric literals parse to Infinity, which isHeaderScalar
-			// refuses at the intent boundary; the literal string is the only
-			// reading that keeps Apply from being a silent no-op.
+			// Overflowing numeric literals parse to Infinity, which isHeaderScalar refuses at the intent boundary; the
+			// literal string is the only reading that keeps Apply from being a silent no-op.
 			assert.strictEqual(parseHeaderValue("1e999"), "1e999", "non-finite numbers stay strings");
 			assert.strictEqual(parseHeaderValue("-1e999"), "-1e999", "non-finite numbers stay strings");
 		});
@@ -83,8 +77,7 @@ describe("dashboard: protocol value helpers", () => {
 				kind: "invalid",
 				problem: "Enter a number",
 			});
-			// ms settings read drafts under the duration grammar, so their junk
-			// verdict names the grammar.
+			// ms settings read drafts under the duration grammar, so their junk verdict names the grammar.
 			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "soon"), {
 				kind: "invalid",
 				problem: "Not a duration - use ms, s, m, or h",
@@ -98,13 +91,11 @@ describe("dashboard: protocol value helpers", () => {
 			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "90s"), { kind: "value", value: 90000 });
 			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "5m"), { kind: "value", value: 300000 });
 			assert.deepStrictEqual(parseNumberDraft("discovery.cacheTtl", "1h"), { kind: "value", value: 3600000 });
-			// Case-insensitive, whitespace-tolerant, fractional prefixes allowed.
 			assert.deepStrictEqual(parseNumberDraft("chat.timeout", " 5 M "), { kind: "value", value: 300000 });
 			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "1.5h"), { kind: "value", value: 5400000 });
-			// Suffixed values commit whole milliseconds: sub-ms precision in a
-			// duration string is noise, and fractional timeouts are unusable.
+			// Suffixed values commit whole milliseconds: sub-ms precision in a duration string is noise, and fractional
+			// timeouts are unusable.
 			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "1.0005s"), { kind: "value", value: 1001 });
-			// A suffix needs a number, and a suffixed value still honors the bound.
 			assert.strictEqual(parseNumberDraft("chat.timeout", "ms").kind, "invalid");
 			assert.strictEqual(parseNumberDraft("chat.timeout", "h").kind, "invalid");
 			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "500ms"), {
@@ -138,8 +129,8 @@ describe("dashboard: protocol value helpers", () => {
 				["3599999", "= ~59 min 59 s"],
 				["3600000", "= 1 h"],
 				["3661000", "= ~1 h 1 min"],
-				// Duration-grammar drafts feed the same one parse, so the hint
-				// echoes the suffixed spelling back in clock units.
+				// Duration-grammar drafts feed the same one parse, so the hint echoes the suffixed spelling back in
+				// clock units.
 				["90s", "= 1 min 30 s"],
 				["5m", "= 5 min"],
 				["1.5h", "= 1 h 30 min"],
@@ -167,17 +158,15 @@ describe("dashboard: protocol value helpers", () => {
 		});
 
 		test("draftSyncKey changes on a reset that only removes the configured scope, so a stale draft resyncs", () => {
-			// The sequence this pins: a setting pinned to exactly its default holds
-			// a rejected draft, Reset changes the configured scope but not the
-			// value, and the field's draft-resync effect keys on draftSyncKey - so
-			// the key must change or the invalid draft survives the reset.
+			// The sequence this pins: a setting pinned to exactly its default holds a rejected draft, Reset changes the
+			// configured scope but not the value, and the field's draft-resync effect keys on draftSyncKey - so the
+			// key must change or the invalid draft survives the reset.
 			const beforeReset = draftSyncKey(300000, "workspace");
 			const afterReset = draftSyncKey(300000, null);
 			assert.notStrictEqual(afterReset, beforeReset);
 
-			// Stable across pushes that change nothing, so typing is never
-			// clobbered by an unrelated refresh; sensitive to value changes and
-			// to null values becoming numbers.
+			// Stable across pushes that change nothing, so typing is never clobbered by an unrelated refresh; sensitive
+			// to value changes and to null values becoming numbers.
 			assert.strictEqual(draftSyncKey(300000, "workspace"), beforeReset);
 			assert.notStrictEqual(draftSyncKey(60000, "workspace"), beforeReset);
 			assert.notStrictEqual(draftSyncKey(null, null), draftSyncKey(300000, null));

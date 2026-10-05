@@ -141,8 +141,8 @@ describe("agentTools planner set_setting", () => {
 	};
 	const SWITCHES = new Set<string>(AGENT_TOOLS_SETTING_KEYS);
 
-	// Drifts silently: a setting added to the spec without a route (it would
-	// read as unknown-setting), or a route whose payload the dashboard refuses.
+	// Drifts silently: a setting added to the spec without a route (it would read as unknown-setting), or a route whose
+	// payload the dashboard refuses.
 	test.each([...ALL_SETTING_KEYS] as string[])(
 		"%s routes, refuses, or resets exactly as the dashboard schema accepts",
 		(setting) => {
@@ -187,8 +187,8 @@ describe("agentTools planner set_setting", () => {
 // ---------------------------------------------------------------------------
 
 describe("agentTools planner model records", () => {
-	// Drifts silently: a route that patched `effective` (the scope-merged view)
-	// would copy the workspace's "ws-*" record into the global scope.
+	// Drifts silently: a route that patched `effective` (the scope-merged view) would copy the workspace's "ws-*"
+	// record into the global scope.
 	test.each([
 		[
 			"capabilities patch writes the whole edit-scope map, never the merged view",
@@ -207,8 +207,8 @@ describe("agentTools planner model records", () => {
 		expect(requestsOf(planEditModelRecords(input, state)).requests).toEqual([request]);
 	});
 
-	// Drifts silently: an entry save that omitted a stored field would clear
-	// it, because the dashboard schema reads absence as "none".
+	// Drifts silently: an entry save that omitted a stored field would clear it, because the dashboard schema reads
+	// absence as "none".
 	test("a per-entry capabilities patch saves the stored entry with only that map changed, keeping every secret", () => {
 		const payload = savePayload(
 			planEditModelRecords(
@@ -247,8 +247,8 @@ describe("agentTools planner save_server", () => {
 		});
 	});
 
-	// Drifts silently: an edit that omitted a field from the payload would
-	// clear it, because the dashboard schema reads absence as "none".
+	// Drifts silently: an edit that omitted a field from the payload would clear it, because the dashboard schema reads
+	// absence as "none".
 	test("editing an existing entry carries every stored field, keeps every secret, and names the displayed identity", () => {
 		const payload = savePayload(planSaveServer({ label: "Prod", budget: 40 }, state, false));
 		expect(payload).toEqual({
@@ -270,9 +270,8 @@ describe("agentTools planner save_server", () => {
 		});
 	});
 
-	// Drifts silently: the dashboard's save trims the label, so an untrimmed
-	// " Prod " that missed the stored Prod here would overwrite it with
-	// new-entry defaults and no replace identity, deleting its configuration.
+	// Drifts silently: the dashboard's save trims the label, so an untrimmed " Prod " that missed the stored Prod here
+	// would overwrite it with new-entry defaults and no replace identity, deleting its configuration.
 	test("a whitespace-padded label still edits the stored entry it names", () => {
 		const parsed = parseAgentToolInput("saveServer", { label: " Prod ", budget: 40 });
 		expect(parsed.ok).toBe(true);
@@ -286,8 +285,8 @@ describe("agentTools planner save_server", () => {
 		expect(payload.replace).toEqual(PROD_REPLACE);
 	});
 
-	// Drifts silently: null and absent collapse to the same thing in a naive
-	// `??` merge, so a clear would keep the stored value.
+	// Drifts silently: null and absent collapse to the same thing in a naive `??` merge, so a clear would keep the
+	// stored value.
 	test("null clears a clearable field and a string sets it; the rename keeps the old identity in replace", () => {
 		const payload = savePayload(
 			planSaveServer({ label: "Prod2", renameFrom: "Prod", apiVersion: null, virtualKeyHeader: "X-Key" }, state, false)
@@ -298,8 +297,8 @@ describe("agentTools planner save_server", () => {
 		expect(payload.replace).toEqual(PROD_REPLACE);
 	});
 
-	// Drifts silently: the tool envelope judging entry fields would refuse or
-	// admit shapes the dashboard decides differently; the dashboard is the judge.
+	// Drifts silently: the tool envelope judging entry fields would refuse or admit shapes the dashboard decides
+	// differently; the dashboard is the judge.
 	test.each([
 		["an array header value", { "X-Retry": ["2"] }, false],
 		["a scalar header value", { "X-Retry": 2 }, true],
@@ -362,9 +361,8 @@ describe("agentTools planner save_server", () => {
 		expect(savePayload(plan).secrets.apiKey).toEqual(expected as SecretDirective);
 	});
 
-	// Drifts silently: the destination rule per field. apiKey follows the
-	// base URL, oauthClientSecret follows the token URL; a check on the base
-	// URL alone would refuse the OAuth host move and allow the token URL move.
+	// Drifts silently: the destination rule per field. apiKey follows the base URL, oauthClientSecret follows the token
+	// URL; a check on the base URL alone would refuse the OAuth host move and allow the token URL move.
 	test.each<[string, Input, "allowed" | { fields: string; label: string }]>([
 		[
 			"Prod host change with apiKey kept",
@@ -406,8 +404,8 @@ describe("agentTools planner save_server", () => {
 		expect(plan).toEqual({ kind: "refused", reason: "kept-secret-destination-change", detail: expected });
 	});
 
-	// Drifts silently: two external groups can share a base URL; a URL-only
-	// match would adopt (or hide) the first one's handle under the other's label.
+	// Drifts silently: two external groups can share a base URL; a URL-only match would adopt (or hide) the first one's
+	// handle under the other's label.
 	test.each([
 		[
 			"Copilot",
@@ -438,9 +436,8 @@ describe("agentTools planner save_server", () => {
 		}
 	);
 
-	// Drifts silently: the adopt grammar is closed so the intent copies exactly
-	// what the group holds; an edit field or a secret directive riding it would
-	// be dropped without a word.
+	// Drifts silently: the adopt grammar is closed so the intent copies exactly what the group holds; an edit field or
+	// a secret directive riding it would be dropped without a word.
 	test.each([
 		["an edit field", { budget: 10 }],
 		["a secrets directive", { secrets: { apiKey: { action: "set", location: "secure" } } }],
@@ -457,9 +454,8 @@ describe("agentTools planner save_server", () => {
 // ---------------------------------------------------------------------------
 
 describe("agentTools planner empty patches", () => {
-	// Drifts silently: a patch naming a missing key with nothing to set would
-	// mint "gpt-5": {}, and that more specific empty record wins the walk and
-	// hides broader records' fields although the call asked for no edit.
+	// Drifts silently: a patch naming a missing key with nothing to set would mint "gpt-5": {}, and that more specific
+	// empty record wins the walk and hides broader records' fields although the call asked for no edit.
 	test("a patch with nothing to set on a missing key changes nothing and is refused", () => {
 		expect(planEditModelRecords({ kind: "parameters", key: "gpt-5" }, state)).toEqual({
 			kind: "refused",
@@ -470,8 +466,8 @@ describe("agentTools planner empty patches", () => {
 });
 
 describe("agentTools planner external groups by the URL the agent sees", () => {
-	// Drifts silently: results render a URL without its userinfo, so an agent
-	// that hands that URL back must still find the group whose stored URL has it.
+	// Drifts silently: results render a URL without its userinfo, so an agent that hands that URL back must still find
+	// the group whose stored URL has it.
 	test("adopting and hiding a credentialed external group works with the displayed URL and keeps the stored one", () => {
 		const adopted = planSaveServer(
 			{ label: "Imported", adoptFrom: { label: "Cred", baseUrl: CRED_DISPLAY_URL } },
@@ -511,16 +507,16 @@ describe("agentTools planner remove_server, run_action, inspect_model", () => {
 		expect(requestsOf(planRemoveServer(input, state)).requests).toEqual([request]);
 	});
 
-	// Drifts silently: a superseded group has no removal tombstone, so an
-	// unhide submitted for it fails at the dashboard after the user approved a card.
+	// Drifts silently: a superseded group has no removal tombstone, so an unhide submitted for it fails at the
+	// dashboard after the user approved a card.
 	test("unhiding a superseded group is refused before anything is submitted", () => {
 		expect(
 			refusalOf(planRemoveServer({ label: "Moved", baseUrl: "http://moved.test", action: "unhide" }, state)).reason
 		).toBe("hidden-group-not-found");
 	});
 
-	// Drifts silently: an external-only label falling into the declared branch
-	// would submit a removeServerSetting the dashboard then fails on.
+	// Drifts silently: an external-only label falling into the declared branch would submit a removeServerSetting the
+	// dashboard then fails on.
 	test("removing an external-only label is refused as not declared", () => {
 		expect(refusalOf(planRemoveServer({ action: "remove", label: "Copilot" }, state)).reason).toBe(
 			"server-not-declared"
@@ -543,8 +539,8 @@ describe("agentTools planner remove_server, run_action, inspect_model", () => {
 		expect(requestsOf(planRunAction(input, state)).requests).toEqual([request]);
 	});
 
-	// Drifts silently: a probe built from agent-supplied fields would send the
-	// kept key wherever the agent pointed it; the draft must be the stored entry.
+	// Drifts silently: a probe built from agent-supplied fields would send the kept key wherever the agent pointed it;
+	// the draft must be the stored entry.
 	test("testConnection probes the STORED entry with every secret kept", () => {
 		const { requests } = requestsOf(planRunAction({ action: "testConnection", label: "Prod" }, state));
 		expect(requests.map((request) => request.method)).toEqual(["testServerDraft"]);
@@ -555,8 +551,8 @@ describe("agentTools planner remove_server, run_action, inspect_model", () => {
 		expect(payload.replace).toEqual(PROD_REPLACE);
 	});
 
-	// Drifts silently: the reads are addressed by the model's opaque scope key,
-	// so a lookup by label alone would resolve the wrong server's model.
+	// Drifts silently: the reads are addressed by the model's opaque scope key, so a lookup by label alone would
+	// resolve the wrong server's model.
 	test("inspect_model yields both inspector reads under the served model's scope key", () => {
 		const { requests } = requestsOf(planInspectModel({ server: "Copilot", model: "claude" }, state));
 		expect(requests).toEqual([
@@ -565,9 +561,8 @@ describe("agentTools planner remove_server, run_action, inspect_model", () => {
 		]);
 	});
 
-	// Drifts silently: after an adoption the declared entry and its external
-	// leftover share a label and serve the same IDs; a first-row pick would
-	// inspect whichever the state listed first, with no sign it was the wrong one.
+	// Drifts silently: after an adoption the declared entry and its external leftover share a label and serve the same
+	// IDs; a first-row pick would inspect whichever the state listed first, with no sign it was the wrong one.
 	test("inspect_model refuses an ambiguous label and model pair until the scopeKey says which row", () => {
 		expect(refusalOf(planInspectModel({ server: "Twin", model: "m-dup" }, state))).toMatchObject({
 			reason: "model-ambiguous",
@@ -590,8 +585,8 @@ describe("agentTools planner secrets never reach rendered text", () => {
 	const fieldArb = fc.constantFrom<SecretFieldId>("apiKey", "oauthClientSecret", "virtualKeyValue");
 	const identity = (text: string): string => text;
 
-	// Drifts silently: a card, a refusal detail, or a submission echo that
-	// spreads the payload's `secrets` instead of the location summary.
+	// Drifts silently: a card, a refusal detail, or a submission echo that spreads the payload's `secrets` instead of
+	// the location summary.
 	test("a typed or inline secret value appears in no card, refusal, or submission text", () => {
 		fc.assert(
 			fc.property(secretArb, fieldArb, (secret, field) => {

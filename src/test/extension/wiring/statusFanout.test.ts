@@ -1,7 +1,6 @@
 /**
- * The status fanout's sync leg: a completed sync pass must re-judge the status
- * bar and the notifier through the sync-failure overlay, because a sync-only
- * change (a failed upsert, a blocked entry clearing) never fires the
+ * The status fanout's sync leg: a completed sync pass must re-judge the status bar and the notifier through the
+ * sync-failure overlay, because a sync-only change (a failed upsert, a blocked entry clearing) never fires the
  * provider's status callback.
  */
 
@@ -64,15 +63,11 @@ suite("extension/wiring statusFanout", () => {
 			});
 			assert.ok(statusCallback !== undefined && syncListener !== undefined, "both legs must wire");
 
-			// The cold-start groupless refresh: an empty window on a configured
-			// install renders the neutral spinner.
+			// The cold-start groupless refresh: an empty window on a configured install renders the neutral spinner.
 			statusCallback({ serverStatuses: [], totalModels: 0, silent: true });
 			const initial = harness.manager.connectionStatus;
 			assert.strictEqual(initial.state, "connecting");
 
-			// The sync pass fails the entry's upsert; its completion alone must
-			// move the bar to the honest error, and toast it, with no provider
-			// report in between.
 			declared = [failedView("pending")];
 			syncListener();
 			await new Promise((resolve) => setImmediate(resolve));
@@ -82,8 +77,6 @@ suite("extension/wiring statusFanout", () => {
 			assert.ok(item.last.tooltip.includes(UPSERT_FAILED), "the tooltip names the sync failure");
 			assert.deepStrictEqual(toasts, [`LiteLLM: ${UPSERT_FAILED}`]);
 
-			// The entry recovers on the next pass: the same leg re-judges back to
-			// the spinner without waiting for a provider report.
 			declared = [];
 			syncListener();
 			await new Promise((resolve) => setImmediate(resolve));
@@ -91,8 +84,6 @@ suite("extension/wiring statusFanout", () => {
 			assert.strictEqual(recovered.state, "connecting");
 			assert.strictEqual(harness.manager.connectingAttention, false, "a sync replay never escalates the spinner");
 
-			// A pass that changes nothing re-judges nothing: no render, no
-			// escalation, no duplicate log lines.
 			const renders = item.views.length;
 			syncListener();
 			await new Promise((resolve) => setImmediate(resolve));
@@ -107,8 +98,8 @@ suite("extension/wiring statusFanout", () => {
 	});
 
 	test("a sync failure surfaces even before any provider report exists", async () => {
-		// Variant: activation's first pass fails before the host ever calls the
-		// provider; refreshFromSync must judge the synthesized empty report.
+		// Variant: activation's first pass fails before the host ever calls the provider; refreshFromSync must judge
+		// the synthesized empty report.
 		const item = new RecordingItem();
 		const harness = createStatusBarManager({
 			hasConfiguredServers: () => true,

@@ -41,7 +41,6 @@ describe("InheritFromControl keys mode", () => {
 		if (select === null) {
 			throw new Error("no inherit-from select");
 		}
-		// Switch to keys mode: NO write, the input appears, the select stays put.
 		void act(() => {
 			select.value = "keys";
 			select.dispatchEvent(new Event("change", { bubbles: true }));
@@ -52,7 +51,6 @@ describe("InheritFromControl keys mode", () => {
 		if (keys === null) {
 			throw new Error("keys input did not appear");
 		}
-		// The first key writes the list.
 		fireInput(keys, "gpt-5*");
 		expect(writes).toHaveLength(1);
 		expect(writes[0]?.[0]?.params.some((p) => p.key === "_inherit_from" && p.valueText === '["gpt-5*"]')).toBe(true);
@@ -60,7 +58,6 @@ describe("InheritFromControl keys mode", () => {
 		void act(() => {
 			render(<Harness groups={groups} onChange={onChange} />, root);
 		});
-		// Emptying the input drops the row instead of writing [].
 		const keysAgain = root.querySelector<HTMLInputElement>(".inherit-keys");
 		if (keysAgain === null) {
 			throw new Error("keys input vanished");
@@ -71,9 +68,8 @@ describe("InheritFromControl keys mode", () => {
 	});
 
 	test("emptying a STORED keys row keeps the input mounted instead of unmounting it mid-edit", () => {
-		// A keys row loaded from the store enters edit with the local pending
-		// flag false; dropping the row on empty must set it, or the input
-		// vanishes under the user's cursor and the select snaps to default.
+		// A keys row loaded from the store enters edit with the local pending flag false; dropping the row on empty
+		// must set it, or the input vanishes under the user's cursor and the select snaps to default.
 		let groups: PrefixGroup[] = [
 			{
 				prefix: "gpt-5.6",

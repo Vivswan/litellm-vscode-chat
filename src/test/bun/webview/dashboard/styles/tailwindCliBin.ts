@@ -1,7 +1,7 @@
 /**
- * The installed Tailwind CLI's entry, resolved by path. `bun x @tailwindcss/cli` re-resolves against the npm
- * registry on every spawn, making each bundle and compiled-sheet spawn hostage to a registry blip. The exports map
- * exposes only the package.json, so resolve that and read the bin it declares; a missing devDependency throws.
+ * `bun x @tailwindcss/cli` re-resolves against the npm registry on every spawn, making each bundle and compiled-sheet
+ * spawn hostage to a registry blip. The exports map exposes only the package.json, so resolve that and read the bin it
+ * declares; a missing devDependency throws.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";

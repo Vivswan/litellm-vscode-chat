@@ -84,8 +84,7 @@ function pickerDescription(value: string): string {
 
 /**
  * Sanitized rather than trusted: a level equal to the sentinel would make "send this level" and "send nothing" one
- * menu entry, and an empty string cannot be a wire value. The one enum builder, shared by the schema and by
- * capabilityOverrides' advertises check, so the two can never disagree.
+ * menu entry, and an empty string cannot be a wire value.
  */
 export function reasoningEffortPickerValues(levels: readonly string[]): readonly string[] {
 	const seen = new Set<string>([PROVIDER_DEFAULT, ""]);

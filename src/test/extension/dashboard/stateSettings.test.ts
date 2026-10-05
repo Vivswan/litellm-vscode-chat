@@ -1,6 +1,3 @@
-/**
- * readDashboardSettings: the settings page's rows, scopes, and diagnostics.
- */
 import * as assert from "node:assert";
 import { FEATURE_MODEL_IDS } from "../../../shared/config/settingSpec";
 import { recordFromKeys } from "../../../shared/util/json";
@@ -156,9 +153,8 @@ suite("extension/dashboard/state: settings", () => {
 		});
 
 		test("effective is the scope-merged read (reader.get), normalized like the request path", () => {
-			// makeReader's get() stands in for VS Code's cross-scope merge while the
-			// per-scope records come from inspect: the inspector must see the merged
-			// record even when the edit scope holds only part of it.
+			// makeReader's get() stands in for VS Code's cross-scope merge while the per-scope records come from
+			// inspect: the inspector must see the merged record even when the edit scope holds only part of it.
 			const settings = readSettings(
 				makeReader(
 					{ "models.parameters": { "gpt-4": { temperature: 0.2 }, bad: 7 } },
@@ -177,8 +173,8 @@ suite("extension/dashboard/state: settings", () => {
 					"commitGeneration.model": { server: "Prod" },
 				})
 			);
-			// One record entry per FEATURE_MODEL_IDS member, the unconfigured
-			// features included: recordFromKeys totals the snapshot by construction.
+			// One record entry per FEATURE_MODEL_IDS member, the unconfigured features included: recordFromKeys totals
+			// the snapshot by construction.
 			const unsetRefs = recordFromKeys(FEATURE_MODEL_IDS, () => null);
 			assert.deepStrictEqual(settings.featureModels, {
 				...unsetRefs,
@@ -205,20 +201,18 @@ suite("extension/dashboard/state: settings", () => {
 		});
 
 		test("the commit prompt CR-normalizes at the state boundary alone: the webview drafts in LF", () => {
-			// A CRLF (or bare-CR) settings.json prompt would never compare equal to
-			// the textarea's own LF round trip, reading as a permanently modified
-			// draft on every push; the first dashboard edit rewrites the stored
-			// value to LF. The REQUEST path stays verbatim (model-facing text) -
-			// getCommitGenerationPrompt is pinned separately in settings.test.ts.
+			// A CRLF (or bare-CR) settings.json prompt would never compare equal to the textarea's own LF round trip,
+			// reading as a permanently modified draft on every push; the first dashboard edit rewrites the stored value
+			// to LF. The REQUEST path stays verbatim (model-facing text) - getCommitGenerationPrompt is pinned
+			// separately in settings.test.ts.
 			const crlf = readSettings(makeReader({ "commitGeneration.prompt": "Subject.\r\nBody line.\rTail." }));
 			assert.strictEqual(crlf.commitPrompt, "Subject.\nBody line.\nTail.");
 		});
 
 		test("the language filter snapshots normalized, and the lossy flag marks exactly the raw values an edit would rewrite", () => {
-			// The flag is what stands between a hand-written settings.json filter
-			// and a dashboard edit silently canonicalizing it: any drop, trim,
-			// dedupe, unrecognized mode, or extra key marks the filter lossy and
-			// its rows fall back to read-only.
+			// The flag is what stands between a hand-written settings.json filter and a dashboard edit silently
+			// canonicalizing it: any drop, trim, dedupe, unrecognized mode, or extra key marks the filter lossy and its
+			// rows fall back to read-only.
 			const clean = readSettings(
 				makeReader({ "inlineCompletions.languageFilter": { mode: "allow", languages: ["typescript", "python"] } })
 			);

@@ -15,10 +15,9 @@ function oauthConfig(overrides: Partial<OAuthConfig> = {}): OAuthConfig {
 	return { tokenUrl: TOKEN_URL, clientId: "client-1", clientSecret: "secret-1", ...overrides };
 }
 
-// The budget identities the shipped callers mint where they read their
-// numbers: the chat and discovery transports pass the discovery timeout, the
-// one-shot chat features their chat.timeout whole-call budget, and the
-// inline-completion call its fixed FIM bound that names no setting.
+// The budget identities the shipped callers mint where they read their numbers: the chat and discovery transports pass
+// the discovery timeout, the one-shot chat features their chat.timeout whole-call budget, and the inline-completion
+// call its fixed FIM bound that names no setting.
 function discoveryBudget(ms = 5000): TimeoutBudget {
 	return { ms, setting: "discovery.timeout" };
 }
@@ -53,9 +52,8 @@ function tokenEndpoint(options: TokenEndpointOptions = {}): { requests: Array<Re
 }
 
 /**
- * A token endpoint that answers only when released, counting requests: the
- * gate keeps an exchange in flight so tests can attach joiners to it and
- * decide the shared outcome afterwards.
+ * A token endpoint that answers only when released, counting requests: the gate keeps an exchange in flight so tests
+ * can attach joiners to it and decide the shared outcome afterwards.
  */
 function gatedTokenEndpoint(): {
 	requests: () => number;
@@ -93,9 +91,8 @@ async function expectRequestError(promise: Promise<unknown>, kind: RequestError[
 	} catch (error) {
 		assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
 		assert.strictEqual(error.kind, kind);
-		// Every auth.ts construction site localizes its headline and must carry the
-		// full English mirror; under the test host's English fallback the two
-		// coincide byte-for-byte on every surface.
+		// Every auth.ts construction site localizes its headline and must carry the full English mirror; under the test
+		// host's English fallback the two coincide byte-for-byte on every surface.
 		assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
 		return error;
 	}
@@ -156,8 +153,8 @@ suite("provider/transport/auth", () => {
 		});
 
 		test('a chat-triggered failure carries the "Details:" lead-in; a discovery one keeps the plain newline', async () => {
-			// Failed exchanges are never cached, so both calls hit the endpoint
-			// and each gets the shape of its own surface.
+			// Failed exchanges are never cached, so both calls hit the endpoint and each gets the shape of its own
+			// surface.
 			mswServer.use(http.post(TOKEN_URL, () => HttpResponse.json({ error: "invalid_client" }, { status: 401 })));
 			const source = new OAuthTokenSource();
 
@@ -196,9 +193,8 @@ suite("provider/transport/auth", () => {
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
 
 			assert.ok(error.message.includes("invalid_scope: unknown scope"), `unexpected message: ${error.message}`);
-			// The IdP detail is response-derived (Azure AD puts correlation IDs
-			// there), so this site opts into a classification public surfaces record
-			// instead of the message.
+			// The IdP detail is response-derived (Azure AD puts correlation IDs there), so this site opts into a
+			// classification public surfaces record instead of the message.
 			assert.strictEqual(error.logClassification, "RequestError(auth, status 400, oauth token endpoint)");
 			assert.strictEqual(error.oauthTokenEndpoint, true, "usage-availability classification keys on this flag");
 		});
@@ -243,9 +239,8 @@ suite("provider/transport/auth", () => {
 		});
 
 		test("a secret containing whitespace cannot be reassembled by the whitespace collapse", async () => {
-			// The exact-match scrub misses when the IdP echoes the secret with
-			// different whitespace, and the detail's newline collapse would then
-			// reconstruct it; the second, post-collapse scrub pass must catch it.
+			// The exact-match scrub misses when the IdP echoes the secret with different whitespace, and the detail's
+			// newline collapse would then reconstruct it; the second, post-collapse scrub pass must catch it.
 			mswServer.use(
 				http.post(TOKEN_URL, () =>
 					HttpResponse.json(
@@ -295,10 +290,9 @@ suite("provider/transport/auth", () => {
 		});
 
 		test("a DNS failure classifies as a connection error with the cause chain on the detail line", async () => {
-			// Under undici a DNS failure surfaces as TypeError "fetch failed" with
-			// the real reason on error.cause; the shared socket-failure classifier
-			// gives it the same "connection" kind and cause-detail extraction as
-			// the chat and discovery transports, with token-endpoint advice.
+			// Under undici a DNS failure surfaces as TypeError "fetch failed" with the real reason on error.cause; the
+			// shared socket-failure classifier gives it the same "connection" kind and cause-detail extraction as the
+			// chat and discovery transports, with token-endpoint advice.
 			const realFetch = globalThis.fetch;
 			globalThis.fetch = () =>
 				Promise.reject(
@@ -392,8 +386,8 @@ suite("provider/transport/auth", () => {
 		});
 
 		test("a status outside the credential and 5xx sets fails immediately through the catch-all http branch", async () => {
-			// 404 is neither a credential rejection (400/401/403) nor retryable
-			// (5xx), so it exercises the catch-all throw.
+			// 404 is neither a credential rejection (400/401/403) nor retryable (5xx), so it exercises the catch-all
+			// throw.
 			let attempts = 0;
 			mswServer.use(
 				http.post(TOKEN_URL, () => {
@@ -484,8 +478,8 @@ suite("provider/transport/auth", () => {
 			assert.ok(commit.message.includes("chat.timeout"), `unexpected message: ${commit.message}`);
 			assert.ok(!commit.message.includes("discovery.timeout"), "the commit bound is not the discovery timeout");
 
-			// The inline-completion bound is fixed in code (FIM_TIMEOUT_MS), so its
-			// budget names no setting - advice to raise one would be a lie.
+			// The inline-completion bound is fixed in code (FIM_TIMEOUT_MS), so its budget names no setting - advice to
+			// raise one would be a lie.
 			const completion = await expectRequestError(
 				new OAuthTokenSource().getToken(oauthConfig(), "completion", fixedBudget(100)),
 				"timeout"
@@ -706,9 +700,8 @@ suite("provider/transport/auth", () => {
 			const originator = source.getToken(oauthConfig(), "discovery", discoveryBudget(20000));
 			const joiner = source.getToken(oauthConfig(), "commitGeneration", chatBudget(100));
 
-			// Race a 2s fuse instead of awaiting the joiner outright: a joiner that
-			// wrongly inherits the originator's 20000ms bound would otherwise hang
-			// here until the mocha timeout instead of failing an assertion.
+			// Race a 2s fuse instead of awaiting the joiner outright: a joiner that wrongly inherits the originator's
+			// 20000ms bound would otherwise hang here until the mocha timeout instead of failing an assertion.
 			const outcome = await Promise.race([
 				joiner.then(
 					(token) => ({ token }),
@@ -737,9 +730,8 @@ suite("provider/transport/auth", () => {
 			await endpoint.whenRequested();
 			endpoint.respond(HttpResponse.json({ error: "invalid_client" }, { status: 401 }));
 
-			// The two surfaces' copy rows join differently (errorMapping's table):
-			// chat leads the detail with "Details:", discovery keeps the plain
-			// newline - so each waiter provably rendered through its own surface.
+			// The two surfaces' copy rows join differently (errorMapping's table): chat leads the detail with
+			// "Details:", discovery keeps the plain newline - so each waiter provably rendered through its own surface.
 			const discoveryError = await expectRequestError(discovery, "auth");
 			const chatError = await expectRequestError(chat, "auth");
 			assert.ok(chatError.message.includes(`\n\nDetails: OAuth 401 at ${TOKEN_URL}`), chatError.message);
@@ -759,8 +751,8 @@ suite("provider/transport/auth", () => {
 			);
 			const source = new OAuthTokenSource();
 
-			// completion's fixed bound names no setting; the joiner's budget names
-			// chat.timeout, so inherited rendering is distinguishable per waiter.
+			// completion's fixed bound names no setting; the joiner's budget names chat.timeout, so inherited rendering
+			// is distinguishable per waiter.
 			const originator = source.getToken(oauthConfig(), "completion", fixedBudget(100));
 			const joiner = source.getToken(oauthConfig(), "commitGeneration", chatBudget(300));
 

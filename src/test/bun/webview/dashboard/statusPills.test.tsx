@@ -1,5 +1,4 @@
 /**
- * The status pills (dot + plain-language verdict + relative time) and the relative-time formatter behind them.
  * Native titles do not render in the webview host, so everything a pill says is either in its visible text or in
  * the CSS hover tip element next to it.
  */
@@ -72,23 +71,20 @@ test("each server state renders its pill tone, verdict, and relative check time"
 	const unchecked = byText("Not checked");
 	expect(unchecked?.classList.contains("tone-muted")).toBe(true);
 	expect(unchecked?.querySelector(".pill-time")).toBeNull();
-	// No tip on the pill: it sits inside the row's disclosure button, where a
-	// focusable tip wrapper would be a nested interactive. The unchecked row's
-	// next step lives in its drawer's Discovery last checked fact instead.
+	// No tip on the pill: it sits inside the row's disclosure button, where a focusable tip wrapper would be a nested
+	// interactive. The unchecked row's next step lives in its drawer's Discovery last checked fact instead.
 	expect(unchecked?.closest(".tip-wrap")).toBeNull();
 });
 
 test("a serving row whose sync failed shows the warn tone, matching its own diagnostic line", () => {
-	// declaredOutcome's sync branch: an error row that keeps the live served
-	// count - degraded, never blocking, on the pill and the line alike.
+	// declaredOutcome's sync branch: an error row that keeps the live served count - degraded, never blocking, on the
+	// pill and the line alike.
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", state: "error", error: "the group upsert failed", servedModelCount: 3 }),
 	]);
 	const pill = root.querySelector(".server-list .pill");
 	expect(pill?.classList.contains("tone-warn")).toBe(true);
 	expect(pill?.textContent).toContain("Sync issue");
-	// The full error text stays visible and selectable under the row. A row that kept serving is degraded, not
-	// blocking, and the tone says so on both.
 	const diagnostic = root.querySelector(".row-diagnostic");
 	expect(diagnostic?.classList.contains("tier-warn")).toBe(true);
 	expect(diagnostic?.textContent).toContain("the group upsert failed");
@@ -96,9 +92,9 @@ test("a serving row whose sync failed shows the warn tone, matching its own diag
 });
 
 test("an error-state row still serving models reads Sync issue beside the warn dot, never Error", () => {
-	// The one-classifier guard: a declared entry serving through an UNEXPECTED failure ranks
-	// degraded (its diagnostic says "serving its last known models"), so the word must be the
-	// degraded verdict's. A second state walk once put "Error" beside this row's warn dot.
+	// The one-classifier guard: a declared entry serving through an UNEXPECTED failure ranks degraded (its diagnostic
+	// says "serving its last known models"), so the word must be the degraded verdict's. A second state walk once put
+	// "Error" beside this row's warn dot.
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Gateway",
@@ -112,7 +108,6 @@ test("an error-state row still serving models reads Sync issue beside the warn d
 	expect(pill?.textContent).toContain("Sync issue");
 	expect(pill?.textContent).not.toContain("Error");
 	expect(pill?.classList.contains("tone-warn")).toBe(true);
-	// The word, the dot, and the line all say the same verdict: degraded, still serving.
 	const diagnostic = root.querySelector(".row-diagnostic");
 	expect(diagnostic?.classList.contains("tier-warn")).toBe(true);
 	expect(diagnostic?.textContent).toContain("serving its last known models");
@@ -122,7 +117,6 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 	// One classifier, one output: a pill working the row out for itself put two verdicts on one server and let them
 	// contradict each other in public.
 	const cases: readonly { readonly server: ReturnType<typeof makeDeclaredServer>; readonly tone: string }[] = [
-		// Nothing wrong at all.
 		{ server: makeDeclaredServer({ label: "Healthy", state: "ok" }), tone: "tone-ok" },
 		// Advisory: the entry declared this failure and is serving through it.
 		{
@@ -158,8 +152,7 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 			}),
 			tone: "tone-warn",
 		},
-		// SEVERAL problems at once: the dot must take the worst, not the first found. This row carries an
-		// inactive-entry notice (degraded) alongside a failure that serves nothing (blocking).
+		// SEVERAL problems at once: the dot must take the worst, not the first found.
 		{
 			server: makeDeclaredServer({
 				label: "Both",
@@ -185,9 +178,8 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 		// and "no diagnostic" must not read as health.
 		{ server: makeDeclaredServer({ label: "Fresh", baseUrl: "http://g", state: "unchecked" }), tone: "tone-muted" },
 	];
-	// These rows carry no spend tone, so each band's paint tier maps 1:1 onto its
-	// severity; the spend tone's lift (a degraded band painted error-tier) is the
-	// one sanctioned divergence and has its own suite (serverSpend.test.tsx).
+	// These rows carry no spend tone, so each band's paint tier maps 1:1 onto its severity; the spend tone's lift (a
+	// degraded band painted error-tier) is the one sanctioned divergence and has its own suite (serverSpend.test.tsx).
 	const tierToTone: Readonly<Record<string, string>> = {
 		"tier-error": "tone-error",
 		"tier-warn": "tone-warn",
@@ -197,7 +189,6 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 		const root = mountSection([server]);
 		const pill = root.querySelector(".server-row .pill");
 		expect(pill?.classList.contains(tone), `${server.label} pill`).toBe(true);
-		// And the line beneath it, where there is one, ranks the row identically.
 		const line = root.querySelector(".row-diagnostic");
 		if (line !== null) {
 			const tier = [...line.classList].find((name) => name.startsWith("tier-")) ?? "";

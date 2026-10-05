@@ -55,8 +55,8 @@ suite("extension/dashboard/state misconfigured rows", () => {
 			entryReports: [
 				rejectedReport({ index: 0, label: undefined }),
 				rejectedReport({ index: 1, baseUrl: undefined }),
-				// A reject whose label an ACCEPTED entry already renders under: a
-				// second "Taken" row would read as two entries where one serves.
+				// A reject whose label an ACCEPTED entry already renders under: a second "Taken" row would read as two
+				// entries where one serves.
 				rejectedReport({ index: 2, label: "Taken" }),
 			],
 		});

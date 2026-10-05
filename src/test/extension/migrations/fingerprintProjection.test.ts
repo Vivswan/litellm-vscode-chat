@@ -51,7 +51,6 @@ function legacyPrint(setting: unknown, label: string, stored: StoredServerSecret
 	return fingerprint(JSON.stringify(buildGroupArgs(entry, stored)));
 }
 
-/** The identity rendering the engine compares against today. */
 function identityPrint(setting: unknown, label: string, stored: StoredServerSecrets = {}): string {
 	const entry = parseServersSetting(setting).entries.find((candidate) => candidate.label === label);
 	assert.ok(entry, `entry ${label} must parse`);
@@ -105,10 +104,8 @@ suite("extension/migrations/fingerprintProjection", () => {
 			{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-now" } },
 			{ label: "B", baseUrl: "http://b.test" },
 		];
-		// A's record was written for a DIFFERENT configuration (an old inline
-		// key), the ledger names ANOTHER host for it (so no identity proof), and
-		// the record must stay for the engine's own blocked classification. B is
-		// already projected. "Gone" has no entry.
+		// A's record was written for a DIFFERENT configuration (an old inline key), the ledger names ANOTHER host for
+		// it (so no identity proof), and the record must stay for the engine's own blocked classification.
 		const foreign = legacyPrint([{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-old" } }], "A");
 		const stored = {
 			A: foreign,
@@ -136,10 +133,9 @@ suite("extension/migrations/fingerprintProjection", () => {
 	});
 
 	test("the #277 state heals: a pre-upgrade rotation rewrites via the ledger's identity proof", async () => {
-		// The v0.6 record was computed with the OLD key, the user rotated the
-		// stored secret before upgrading, and the legacy rendering can never be
-		// recomputed - but the ledger proves the live group holds this label at
-		// this host, which is the whole identity the new print covers.
+		// The v0.6 record was computed with the OLD key, the user rotated the stored secret before upgrading, and the
+		// legacy rendering can never be recomputed - but the ledger proves the live group holds this label at this
+		// host, which is the whole identity the new print covers.
 		const setting = [{ label: "A", baseUrl: "http://a.test/" }];
 		const secrets = makeSecretStore();
 		await updateServerSecret(secrets, "A", "apiKey", "sk-rotated-new", "http://a.test");
@@ -169,10 +165,9 @@ suite("extension/migrations/fingerprintProjection", () => {
 		const memento = makeMemento({
 			[SERVER_SYNC_FINGERPRINTS_KEY]: { A: legacyPrint(setting, "A") },
 		});
-		// The second read of the fingerprints key (the merge base at write time)
-		// sees a record another window's engine persisted while this pass ran; a
-		// whole-key write of the pass-start snapshot would destroy it (#220's
-		// failure class).
+		// The second read of the fingerprints key (the merge base at write time) sees a record another window's engine
+		// persisted while this pass ran; a whole-key write of the pass-start snapshot would destroy it (#220's failure
+		// class).
 		let fingerprintReads = 0;
 		const originalGet = memento.get.bind(memento);
 		memento.get = (key: string) => {
@@ -208,8 +203,8 @@ suite("extension/migrations/fingerprintProjection", () => {
 		const memento = makeMemento({
 			[SERVER_SYNC_FINGERPRINTS_KEY]: { A: legacyPrint(setting, "A") },
 		});
-		// The merge base (the second read) shows A already re-synced by another
-		// window - its record must win over this pass's now-stale projection.
+		// The merge base (the second read) shows A already re-synced by another window - its record must win over this
+		// pass's now-stale projection.
 		let fingerprintReads = 0;
 		const originalGet = memento.get.bind(memento);
 		memento.get = (key: string) => {
@@ -275,8 +270,8 @@ suite("extension/migrations/fingerprintProjection", () => {
 	});
 
 	test("an ownership-refused secret leaves its record for the engine's own classification", async () => {
-		// The stored key is stamped for another host, so the entry's legacy
-		// rendering cannot be recomputed; the record waits for re-pairing.
+		// The stored key is stamped for another host, so the entry's legacy rendering cannot be recomputed; the record
+		// waits for re-pairing.
 		const setting = [{ label: "A", baseUrl: "http://a.test" }];
 		const secrets = makeSecretStore();
 		await updateServerSecret(secrets, "A", "apiKey", "sk-elsewhere", "http://other.test");

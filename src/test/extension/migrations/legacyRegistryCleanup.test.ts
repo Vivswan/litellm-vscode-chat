@@ -76,8 +76,8 @@ suite("extension/migrations/legacyRegistryCleanup", () => {
 	});
 
 	test("a pre-versioning bare-array registry blob still yields its secret ids", async () => {
-		// The bare-array wrapping view no longer covers this key, so the cleanup
-		// must read the oldest persisted shape itself.
+		// The bare-array wrapping view no longer covers this key, so the cleanup must read the oldest persisted shape
+		// itself.
 		const storage = makeExtensionStorage({
 			[SERVER_REGISTRY_KEY]: [{ id: "old1", label: "Old", baseUrl: "http://old.test" }],
 		});
@@ -100,9 +100,8 @@ suite("extension/migrations/legacyRegistryCleanup", () => {
 	});
 
 	test("a corrupt registry blob orphans no credential another blob still references", async () => {
-		// Every id-bearing source contributes independently: with the registry
-		// blob unreadable, the skip markers, migrated-ids ledger, and in-flight
-		// submission marker are what still name the stored secrets.
+		// Every id-bearing source contributes independently: with the registry blob unreadable, the skip markers,
+		// migrated-ids ledger, and in-flight submission marker are what still name the stored secrets.
 		const storage = makeExtensionStorage({
 			[SERVER_REGISTRY_KEY]: "corrupt",
 			[SKIPPED_MIGRATION_SERVERS_KEY]: ["skp1"],
@@ -119,12 +118,8 @@ suite("extension/migrations/legacyRegistryCleanup", () => {
 	});
 
 	test("the retired label expansion's label map and entry-copy ledger are purged", async () => {
-		// The inverse of the retired survival pin: MIGRATED_SERVER_LABELS_KEY and
-		// MIGRATED_ENTRY_PARAMETER_COPIES_KEY once outlived this cleanup because
-		// the settings-redesign pipeline's label-scoped expansion read them. That
-		// expansion is deleted, nothing reads either key, and either can be the
-		// sole survivor of an interrupted pass, so each alone must trigger a
-		// purge.
+		// That expansion is deleted, nothing reads either key, and either can be the sole survivor of an interrupted
+		// pass, so each alone must trigger a purge.
 		const seeds: [string, unknown][] = [
 			[MIGRATED_SERVER_LABELS_KEY, { "http://prod.test": ["Prod"] }],
 			[MIGRATED_ENTRY_PARAMETER_COPIES_KEY, ['["Prod","gpt-4"]']],
@@ -140,12 +135,8 @@ suite("extension/migrations/legacyRegistryCleanup", () => {
 	});
 
 	test("the retired parked-global-headers record is purged without touching any secret", async () => {
-		// The settings-redesign migration parked the removed global headers value
-		// only after copying it verbatim into declared entries, so the record is a
-		// duplicate holding possible auth values in unencrypted globalState. Its
-		// Apply/Discard recovery flow is deleted; this purge is what remains. The
-		// record holds header values, never per-server secret ids, so the secret
-		// sweep must not read it.
+		//   the record -> is a duplicate holding possible auth values in unencrypted globalState
+		//   The record holds header values, never per-server secret ids -> the secret sweep must not read it
 		const storage = makeExtensionStorage({
 			[PARKED_GLOBAL_HEADERS_KEY]: { headers: { "x-env": "prod", authorization: "Bearer tok" }, migratedAt: 1 },
 		});
@@ -163,11 +154,9 @@ suite("extension/migrations/legacyRegistryCleanup", () => {
 	});
 
 	test("the parked record is purged before ANY keychain touch, so a failing secret get or delete cannot keep it", async () => {
-		// The purge order is the point: the record holds plaintext auth header
-		// values, and a locked keychain (whose get or delete throws and defers the
-		// rest of the cleanup to the next activation) must not defer the plaintext
-		// delete along with it. Both fallible operations are exercised: the
-		// single-server probe reads and the per-server deletes.
+		// The purge order is the point: the record holds plaintext auth header values, and a locked keychain (whose get
+		// or delete throws and defers the rest of the cleanup to the next activation) must not defer the plaintext
+		// delete along with it.
 		const failureModes: [string, "secretGet" | "secretDelete"][] = [
 			["a failing probe read", "secretGet"],
 			["a failing per-server delete", "secretDelete"],

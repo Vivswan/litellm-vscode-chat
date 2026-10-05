@@ -20,7 +20,6 @@ afterAll(() => {
 	}
 });
 
-/** A disposable checkout holding a manifest whose generated blocks are exactly what the generator renders. */
 function makeFixture(): string {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "manifest-cli-"));
 	tempDirs.push(root);
@@ -45,7 +44,6 @@ function runCli(root: string, ...flags: readonly string[]): { exitCode: number; 
 	return { exitCode: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 
-/** The --check refusal for one block, naming it and the regeneration command. */
 function stale(block: string): RegExp {
 	return new RegExp(`manifest: contributes\\.${block} is stale; run: bun run manifest:generate`);
 }

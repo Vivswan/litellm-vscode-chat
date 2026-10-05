@@ -8,9 +8,8 @@ import type { MigrationExpiry } from "../../../../extension/migrations/index";
 import { REPO_ROOT } from "../../../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
 
-// Synthetic rows typed as the real registry entry type, taken through the
-// index re-export on purpose: this pins that the re-export stays in place
-// for consumers (the type itself is the leaf's, so it cannot drift).
+// Synthetic rows typed as the real registry entry type, taken through the index re-export on purpose: this pins that
+// the re-export stays in place for consumers (the type itself is the leaf's, so it cannot drift).
 const ENTRIES: readonly MigrationExpiry[] = [
 	{ state: "settings-redesign", file: "settingsRedesign/apply.ts", introduced: "2026-08-08", expires: "2026-11-08" },
 	{ state: "expires-today", file: "expiresToday.ts", introduced: "2026-06-01", expires: "2026-09-01" },
@@ -35,10 +34,9 @@ describe("renderMigrationExpiryTable", () => {
 	});
 
 	test("renders nothing for an empty registry, which the release workflow reads as delete the comment", () => {
-		// The workflow tests the rendered file with `-s` and hands `delete: true`
-		// to the sticky-comment action when it is empty; a header note or a
-		// bare table skeleton here would keep an empty table alive on every
-		// release PR instead.
+		// The workflow tests the rendered file with `-s` and hands `delete: true` to the sticky-comment action when it
+		// is empty; a header note or a bare table skeleton here would keep an empty table alive on every release PR
+		// instead.
 		expect(renderMigrationExpiryTable([], new Date("2026-09-01T00:00:00Z"))).toBe("");
 	});
 
@@ -53,10 +51,9 @@ describe("renderMigrationExpiryTable", () => {
 
 	test("update-release-pr.yml hands the sticky-comment action the PR number", () => {
 		const workflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "update-release-pr.yml"), "utf8");
-		// The caller runs on push, so the action learns the release PR only from
-		// this input, and it skips green rather than failing without one: on the
-		// drained-registry path no output betrays the skip, so the wiring is
-		// pinned here.
+		// The caller runs on push, so the action learns the release PR only from this input, and it skips green rather
+		// than failing without one: on the drained-registry path no output betrays the skip, so the wiring is pinned
+		// here.
 		expect(workflow).toMatch(
 			/uses: marocchino\/sticky-pull-request-comment@[0-9a-f]{40} # v\d+\.\d+\.\d+\n\s+with:\n\s+header: migration-expiries\n\s+number: \$\{\{ inputs\.pr_number \}\}\n/
 		);
@@ -65,12 +62,10 @@ describe("renderMigrationExpiryTable", () => {
 	test(
 		"the executable renders the real registry without node_modules",
 		() => {
-			// The release-PR workflow runs the executable with bare bun and no
-			// dependency install, so its runtime graph must stay repo-local with
-			// zero package imports. Running it from a scaffold holding exactly that
-			// graph, with --no-install matching the workflow invocation (without it
-			// bun silently auto-installs a package import when node_modules is
-			// absent), pins the contract: a new import fails here, on the PR that
+			// The release-PR workflow runs the executable with bare bun and no dependency install, so its runtime graph
+			// must stay repo-local with zero package imports. Running it from a scaffold holding exactly that graph,
+			// with --no-install matching the workflow invocation (without it bun silently auto-installs a package
+			// import when node_modules is absent), pins the contract: a new import fails here, on the PR that
 			// introduced it, instead of on a release run.
 			const RUNTIME_GRAPH = [
 				join("scripts", "ci", "migration-expiry-table.ts"),
@@ -90,9 +85,7 @@ describe("renderMigrationExpiryTable", () => {
 				expect(result.stderr.toString()).toBe("");
 				expect(result.exitCode).toBe(0);
 				const stdout = result.stdout.toString();
-				// The real registry decides which rendering the workflow must see: a
-				// drained registry renders nothing (the delete path), a live one the
-				// table. Widened because the registry's tuple type knows its length.
+				// Widened because the registry's tuple type knows its length.
 				const live: readonly MigrationExpiry[] = MIGRATION_EXPIRIES;
 				if (live.length === 0) {
 					expect(stdout).toBe("");

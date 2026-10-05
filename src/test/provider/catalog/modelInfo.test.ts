@@ -56,8 +56,8 @@ suite("provider/model info and fallback", () => {
 		};
 		mswServer.use(http.get(MODEL_INFO_URL, captureHeaders), http.get(MODELS_URL, captureHeaders));
 
-		// Custom headers live on the server entry (there is no global headers
-		// setting), resolved through the injected per-entry seam.
+		// Custom headers live on the server entry (there is no global headers setting), resolved through the injected
+		// per-entry seam.
 		await makeProvider(TEST_BASE_URL, "test-key", undefined, {
 			getEntryHeaders: (label, headerBaseUrl) =>
 				label === "Default" && headerBaseUrl === TEST_BASE_URL
@@ -73,9 +73,8 @@ suite("provider/model info and fallback", () => {
 	});
 
 	test("a declared entry's apiVersion re-roots model discovery off /v1", async () => {
-		// The client is built on the overridden API root, so discovery's requests
-		// (and its logged URLs) leave /v1 behind. The default handlers stay unused:
-		// hitting them would fail the unhandled-request guard.
+		// The client is built on the overridden API root, so discovery's requests (and its logged URLs) leave /v1
+		// behind. The default handlers stay unused: hitting them would fail the unhandled-request guard.
 		mswServer.use(
 			http.get(`${TEST_BASE_URL}/v2/model/info`, () =>
 				HttpResponse.json({
@@ -386,13 +385,11 @@ suite("provider/model info and fallback", () => {
 
 		const findInfo = async (id: string) => expectDefined((await discover()).find((i) => i.id === id));
 
-		/** A /v1/model/info entry for one deployment of `name` with extra model_info fields. */
 		const infoEntry = (name: string, modelInfo: Record<string, unknown>) => ({
 			model_name: name,
 			model_info: { supports_function_calling: true, ...modelInfo },
 		});
 
-		/** A /v1/models providers-array listing for one model. */
 		const providersListing = (providers: Record<string, unknown>[]) => ({
 			object: "list",
 			data: [
@@ -495,9 +492,8 @@ suite("provider/model info and fallback", () => {
 		});
 
 		test("an explicit supports_reasoning: false survives the merge even when the params intersect", async () => {
-			// The merge ANDs supports_reasoning to false but the intersected
-			// supported_openai_params still lists reasoning_effort; the veto must keep
-			// the disclaimed capability from being resurrected.
+			// The merge ANDs supports_reasoning to false but the intersected supported_openai_params still lists
+			// reasoning_effort; the veto must keep the disclaimed capability from being resurrected.
 			mswServer.use(
 				...discoveryHandlers({
 					data: [

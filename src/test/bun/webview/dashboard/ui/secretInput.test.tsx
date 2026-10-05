@@ -1,8 +1,7 @@
 /**
- * The uncontrolled secret input's own contract, proven at the primitive: the value lives in
- * the node's value PROPERTY and nowhere else (findSentinel sweeps attributes, value
- * properties, serialized HTML, and textContent), through prefill, typing, re-renders,
- * reset, external replacement, and unmount. The form-level flows live in secrets.test.tsx.
+ * The uncontrolled secret input's own contract, proven at the primitive: the value lives in the node's value PROPERTY
+ * and nowhere else (findSentinel sweeps attributes, value properties, serialized HTML, and textContent), through
+ * prefill, typing, re-renders, reset, external replacement, and unmount. The form-level flows live in secrets.test.tsx.
  */
 import { afterEach, expect, test } from "bun:test";
 import { useState } from "react";
@@ -56,12 +55,10 @@ test("typing reports through onValueChange and the echoed re-render leaves the n
 	const root = mount(<Harness onValue={(next) => seen.push(next)} />);
 	expectOnlyInValueProperty(SECRET);
 
-	// The title's actual claim needs the node captured BEFORE the echoed
-	// re-render: same element after, so React updated in place rather than
-	// remounting (a remount would wipe an uncontrolled input's value).
+	// The title's actual claim needs the node captured BEFORE the echoed re-render: same element after, so React
+	// updated in place rather than remounting (a remount would wipe an uncontrolled input's value).
 	const node = input(root);
 	fireInput(node, TYPED);
-	// The submit read-out: what the parent state holds is exactly what was typed.
 	expect(seen).toEqual([TYPED]);
 	expect(input(root)).toBe(node);
 	expect(node.value).toBe(TYPED);

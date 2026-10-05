@@ -21,7 +21,6 @@ import {
 import { RequestError } from "../../../../provider/transport/errorMapping";
 import type { Clock, Timer } from "../../../../shared/util/timer";
 
-/** A recording timer: nothing fires until the test fires it. */
 class FakeTimer implements Timer {
 	readonly scheduled: { callback: () => void; ms: number; cancelled: boolean }[] = [];
 
@@ -71,7 +70,6 @@ const KEY_OK: KeyUsage = {
 
 type EndpointResult<T> = T | RequestError;
 
-/** A programmable client: per-endpoint results, call counts, the last window seen. */
 class FakeClient implements UsageFetchClient {
 	keyInfoResult: EndpointResult<KeyUsage> = KEY_OK;
 	dailyResult: EndpointResult<DailyUsage> = EMPTY_DAILY;
@@ -190,21 +188,18 @@ function settle(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** One scheduled poll `ms` later: advance the fake clock, fire the pending tick, let the pass settle. */
 async function tick(h: Harness, ms: number): Promise<void> {
 	h.advanceClock(ms);
 	h.timer.firePending();
 	await settle();
 }
 
-/** The tracked state for a label, asserted present. */
 function stateOf(h: Harness, label: string): ServerUsageState {
 	const state = h.poller.store.get(label);
 	assert.ok(state !== undefined, `no usage state tracked for ${label}`);
 	return state;
 }
 
-/** The server-level availability verdict the UI keys on. */
 function availabilityOf(h: Harness, label: string): UsageAvailability {
 	return stateOf(h, label).availability;
 }
@@ -239,11 +234,9 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("a servers edit landing mid-pass skips the probe: the stale entry never pairs with the fresh secret", async () => {
-		// The pass snapshots the entries at its start and reads each server's
-		// secrets later; this edit lands inside that window. Without the
-		// pre-probe re-read the authenticated call goes out with the rotated
-		// key against the OLD host. The skip says nothing untruthful (no store
-		// write), and the next refresh probes the true pairing.
+		// The pass snapshots the entries at its start and reads each server's secrets later; this edit lands inside
+		// that window. Without the pre-probe re-read the authenticated call goes out with the rotated key against the
+		// OLD host.
 		let h: Harness | undefined;
 		const readSecrets = async () => {
 			h?.setServers([{ label: "alpha", baseUrl: "http://two.test" }]);
@@ -323,13 +316,11 @@ suite("extension/servers/usage poller", () => {
 		assert.deepStrictEqual(state?.endpoints.keyInfo, { kind: "unavailable", reason: "unsupported", status: 404 });
 		assert.strictEqual(state?.availability, "available", "daily activity still answers");
 
-		// The next scheduled poll must not hammer the classified endpoint.
 		h.timer.firePending();
 		await settle();
 		assert.strictEqual(h.client.calls.keyInfo, 1);
 		assert.strictEqual(h.client.calls.dailyActivity, 2, "available endpoints keep polling");
 
-		// An explicit refresh re-probes.
 		h.client.keyInfoResult = KEY_OK;
 		await h.poller.refreshNow();
 		assert.strictEqual(h.client.calls.keyInfo, 2);
@@ -346,15 +337,13 @@ suite("extension/servers/usage poller", () => {
 		const unavailableLines = h.logs.filter((line) => line.includes("Usage endpoint unavailable"));
 		assert.strictEqual(unavailableLines.length, 2, "one classification line per endpoint transition");
 
-		// Re-probing an unchanged server logs nothing new.
 		await h.poller.refreshNow();
 		assert.strictEqual(h.logs.filter((line) => line.includes("Usage endpoint unavailable")).length, 2);
 	});
 
 	test("an activity success never advances the spend age: spendUpdatedAt follows /key/info only", async () => {
-		// The spend age is its own field, moved only by a key-info success: sharing the
-		// last-updated stamp let an answering activity endpoint advance it and render
-		// old spend as "updated just now".
+		// The spend age is its own field, moved only by a key-info success: sharing the last-updated stamp let an
+		// answering activity endpoint advance it and render old spend as "updated just now".
 		const h = makeHarness({ intervalMs: 0 });
 		h.client.keyInfoResult = unavailableError(500);
 		await h.poller.refreshNow();
@@ -425,8 +414,8 @@ suite("extension/servers/usage poller", () => {
 		h.poller.start();
 		h.timer.firePending();
 		await settle();
-		// The pass is in flight (held on the secrets read); a servers change now
-		// must not see its prompt re-probe stomped by the pass-end reschedule.
+		// The pass is in flight (held on the secrets read); a servers change now must not see its prompt re-probe
+		// stomped by the pass-end reschedule.
 		h.poller.applyServersChange();
 		release();
 		await settle();
@@ -438,7 +427,6 @@ suite("extension/servers/usage poller", () => {
 			"the pass-end reschedule must honor the pending probe's prompt delay"
 		);
 
-		// The prompt tick consumes the probe; the next reschedule returns to the cadence.
 		h.timer.firePending();
 		await settle();
 		assert.strictEqual(h.timer.pending()[0]?.ms, 300_000);
@@ -540,8 +528,8 @@ suite("extension/servers/usage poller", () => {
 
 		const pass = h.poller.refreshNow();
 		await Promise.resolve();
-		// The second pass is in flight, holding on the secrets read; the server
-		// leaves the setting and is pruned before the pass writes its state back.
+		// The second pass is in flight, holding on the secrets read; the server leaves the setting and is pruned before
+		// the pass writes its state back.
 		h.setServers([]);
 		h.poller.applyServersChange();
 		release();
@@ -556,9 +544,8 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("applyConfiguration never alerts from cached data: crossings re-baseline on the next fetch", async () => {
-		// Alerts evaluate on fetches only (docs/usage.md): a threshold edit must not
-		// toast from data already in the store, so applyConfiguration leaves the stored
-		// crossings untouched and the next fetch diffs against them.
+		// Alerts evaluate on fetches only (docs/usage.md): a threshold edit must not toast from data already in the
+		// store, so applyConfiguration leaves the stored crossings untouched and the next fetch diffs against them.
 		const h = makeHarness({ intervalMs: 0 });
 		h.client.keyInfoResult = { ...KEY_OK, spend: 70, maxBudget: 100 };
 		await h.poller.refreshNow();
@@ -573,12 +560,43 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(h.events.length, eventsBefore, "no store event, so no toast, without a fetch");
 		assert.deepStrictEqual(h.poller.store.get("alpha")?.budget.crossedThresholds, []);
 
-		// The next fetch evaluates against the new list: the standing 70%
-		// position crosses the new 0.5 threshold exactly once.
 		await h.poller.refreshNow();
 		assert.deepStrictEqual(h.poller.store.get("alpha")?.budget.crossedThresholds, [0.5]);
 		const last = h.events.at(-1);
 		assert.ok(last?.kind === "updated" && last.newlyCrossedThresholds.includes(0.5));
+	});
+
+	test("a pass that carries the key forward never alerts: a threshold edit waits for the next fetch", async () => {
+		// Cached spend 80 of 100 with 0.5 and 0.75 crossed; the user adds 0.79 and the next pass cannot read the
+		// secrets. The carried key crossed the new threshold against the stored list and the alert toasted without
+		// a fetch, the shape applyConfiguration exists to prevent.
+		let secretsReadable = true;
+		const h = makeHarness({
+			intervalMs: 0,
+			readSecrets: () =>
+				secretsReadable ? Promise.resolve({ values: {}, owners: {} }) : Promise.reject(new Error("store broken")),
+		});
+		h.setThresholds([0.5, 0.75]);
+		h.client.keyInfoResult = { ...KEY_OK, spend: 80, maxBudget: 100 };
+		await h.poller.refreshNow();
+		assert.deepStrictEqual(stateOf(h, "alpha").budget.crossedThresholds, [0.5, 0.75]);
+
+		h.setThresholds([0.5, 0.75, 0.79]);
+		h.poller.applyConfiguration();
+		secretsReadable = false;
+		const fetchesBefore = h.client.calls.keyInfo;
+		await h.poller.refreshNow();
+		assert.strictEqual(h.client.calls.keyInfo, fetchesBefore, "the pass skipped the key fetch");
+		const carried = h.events.at(-1);
+		assert.ok(carried?.kind === "updated");
+		assert.deepStrictEqual([...carried.newlyCrossedThresholds], [], "no fetch, no alert");
+		assert.deepStrictEqual(carried.state.budget.crossedThresholds, [0.5, 0.75], "the stored crossings wait");
+
+		secretsReadable = true;
+		await h.poller.refreshNow();
+		const fetched = h.events.at(-1);
+		assert.ok(fetched?.kind === "updated");
+		assert.deepStrictEqual([...fetched.newlyCrossedThresholds], [0.79], "the fetch after the edit alerts once");
 	});
 
 	test("applyServersChange prunes removed servers and re-probes the rest when polling is on", async () => {
@@ -608,7 +626,6 @@ suite("extension/servers/usage poller", () => {
 
 		h.timer.firePending();
 		await settle();
-		// The change-triggered pass re-probes the endpoint a probe had classified.
 		assert.strictEqual(h.client.calls.keyInfo, 3);
 		assert.deepStrictEqual(h.poller.store.get("alpha")?.endpoints.keyInfo, { kind: "ok" });
 	});
@@ -636,8 +653,8 @@ suite("extension/servers/usage poller", () => {
 			h.events.filter((event) => event.kind === "updated" && event.newlyCrossedThresholds.length > 0);
 		assert.strictEqual(crossingEvents().length, 1);
 
-		// One keystroke away from valid: the auth is momentarily misconfigured,
-		// so the parser rejects the entry while its label stays present.
+		// One keystroke away from valid: the auth is momentarily misconfigured, so the parser rejects the entry while
+		// its label stays present.
 		h.setServers([{ label: "alpha", baseUrl: "http://one.test", auth: { oauth: {} } }]);
 		h.poller.applyServersChange();
 		await h.poller.refreshNow();
@@ -646,7 +663,6 @@ suite("extension/servers/usage poller", () => {
 		assert.ok(!h.events.some((event) => event.kind === "removed"), "presence, not acceptance, decides removal");
 		assert.strictEqual(h.client.calls.keyInfo, 1, "a misconfigured entry is skipped, never fetched");
 
-		// The repair: the crossing was already alerted and must not re-fire.
 		h.setServers([{ label: "alpha", baseUrl: "http://one.test", apiKey: "sk-1" }]);
 		h.poller.applyServersChange();
 		await h.poller.refreshNow();
@@ -679,9 +695,8 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("a stored secret stamped for another destination skips the probes and acknowledges the refresh", async () => {
-		// The same ownership check the sync engine applies: the label's surviving
-		// blob belongs to http://retired.test, so no authenticated probe may pair
-		// it with this entry's host.
+		// The same ownership check the sync engine applies: the label's surviving blob belongs to http://retired.test,
+		// so no authenticated probe may pair it with this entry's host.
 		const h = makeHarness({
 			intervalMs: 0,
 			readSecrets: async () => ({ values: { apiKey: "sk-old" }, owners: { apiKey: "http://retired.test" } }),
@@ -799,8 +814,8 @@ suite("extension/servers/usage poller", () => {
 		await h.poller.refreshNow();
 		assert.strictEqual(availabilityOf(h, "alpha"), "available");
 
-		// The whole server goes dark transiently: the forced pass resets the
-		// carried standings, but the card the user is looking at must not vanish.
+		// The whole server goes dark transiently: the forced pass resets the carried standings, but the card the user
+		// is looking at must not vanish.
 		h.client.keyInfoResult = new RequestError("net down", "network", { englishMessage: "net down" });
 		h.client.dailyResult = new RequestError("net down", "network", { englishMessage: "net down" });
 		await h.poller.refreshNow();
@@ -810,7 +825,6 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(state.key?.spend, 10, "the last-known numbers stay");
 		assert.deepStrictEqual(state.endpoints.keyInfo, { kind: "error", classification: "network" });
 
-		// A permanent both-endpoints verdict still hides the server.
 		h.client.keyInfoResult = unavailableError(400);
 		h.client.dailyResult = unavailableError(400);
 		await h.poller.refreshNow();
@@ -818,10 +832,9 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("never-answered transport kinds classify as network failures, not http", async () => {
-		// The shared socket-failure classifier surfaces "connection" and
-		// "certificate" from the OAuth token exchange; the usage vocabulary folds
-		// every never-answered kind into "network", so the drawer and the refresh
-		// toast say "network error" rather than implying the server answered.
+		// The shared socket-failure classifier surfaces "connection" and "certificate" from the OAuth token exchange;
+		// the usage vocabulary folds every never-answered kind into "network", so the drawer and the refresh toast say
+		// "network error" rather than implying the server answered.
 		const h = makeHarness({ intervalMs: 0 });
 		for (const kind of ["connection", "certificate"] as const) {
 			h.client.keyInfoResult = new RequestError("no answer", kind, {
@@ -838,9 +851,8 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("consecutive statusless failures back off scheduled attempts, doubling to a 16x cap", async () => {
-		// The dead-address shape: timeouts with no HTTP status classify as
-		// error-kind, and before the backoff they re-burned the full discovery
-		// timeout on every poll forever.
+		// The dead-address shape: timeouts with no HTTP status classify as error-kind, and before the backoff they
+		// re-burned the full discovery timeout on every poll forever.
 		const interval = 100_000;
 		const h = makeHarness({ intervalMs: interval });
 		h.client.keyInfoResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
@@ -881,9 +893,8 @@ suite("extension/servers/usage poller", () => {
 		await tick(h, interval);
 		assert.strictEqual(h.client.calls.keyInfo, 7);
 
-		// Transitions only: one escalation line per multiplier per endpoint, plus the two
-		// initial error transitions, and NOTHING else - so a skipped attempt provably
-		// logs nothing at all.
+		// Transitions only: one escalation line per multiplier per endpoint, plus the two initial error transitions,
+		// and NOTHING else - so a skipped attempt provably logs nothing at all.
 		const escalations = h.logEntries.filter((entry) => entry.message.includes("backing off"));
 		assert.deepStrictEqual(
 			escalations
@@ -932,7 +943,6 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(h.client.calls.keyInfo, 3, "the reopened window attempts and succeeds");
 		assert.strictEqual(h.logs.filter((line) => line.includes("recovered; backoff cleared")).length, 1);
 
-		// A fresh failure starts over: attempt, then a normal next-poll retry.
 		h.client.keyInfoResult = unavailableError(500);
 		await tick(h, interval);
 		assert.strictEqual(h.client.calls.keyInfo, 4);
@@ -952,7 +962,6 @@ suite("extension/servers/usage poller", () => {
 		await tick(h, interval);
 		assert.strictEqual(h.client.calls.keyInfo, 2, "the streak is in its 2x window");
 
-		// The manual command must not wait out the window - and it restarts the count.
 		await h.poller.refreshNow();
 		assert.strictEqual(h.client.calls.keyInfo, 3);
 		await tick(h, interval);
@@ -971,15 +980,13 @@ suite("extension/servers/usage poller", () => {
 		await tick(h, interval);
 		assert.strictEqual(h.client.calls.keyInfo, 2, "the streak is in its 2x window");
 
-		// An entry edit re-probes without waiting: the prompt forced pass attempts.
 		h.poller.applyServersChange();
 		h.timer.firePending();
 		await settle();
 		assert.strictEqual(h.client.calls.keyInfo, 3);
 
-		// The forced pass attempting proves nothing about the reset (a forced
-		// pass always attempts); the NEXT scheduled poll does: a surviving
-		// streak (now 3 failures deep) would sit in a 4x window and skip it.
+		// The forced pass attempting proves nothing about the reset (a forced pass always attempts); the NEXT scheduled
+		// poll does: a surviving streak (now 3 failures deep) would sit in a 4x window and skip it.
 		await tick(h, interval);
 		assert.strictEqual(h.client.calls.keyInfo, 4, "the change restarted the count: one failure, normal retry");
 	});
@@ -994,8 +1001,8 @@ suite("extension/servers/usage poller", () => {
 		await tick(h, interval);
 		assert.strictEqual(h.client.calls.keyInfo, 2);
 
-		// The server starts answering 404: the reopened attempt classifies the
-		// endpoint permanently unavailable, which outranks any backoff window.
+		// The server starts answering 404: the reopened attempt classifies the endpoint permanently unavailable, which
+		// outranks any backoff window.
 		h.client.keyInfoResult = unavailableError(404);
 		await tick(h, 2 * interval);
 		assert.strictEqual(h.client.calls.keyInfo, 3);
@@ -1005,11 +1012,9 @@ suite("extension/servers/usage poller", () => {
 			status: 404,
 		});
 
-		// However much time passes, scheduled polls never re-probe it...
 		await tick(h, 32 * interval);
 		assert.strictEqual(h.client.calls.keyInfo, 3);
 
-		// ...and an explicit refresh still does.
 		h.client.keyInfoResult = KEY_OK;
 		await h.poller.refreshNow();
 		assert.strictEqual(h.client.calls.keyInfo, 4);
@@ -1026,8 +1031,7 @@ suite("extension/servers/usage poller", () => {
 		await tick(h, interval);
 		assert.strictEqual(h.client.calls.keyInfo, 2, "the streak is in its 2x window");
 
-		// A system clock adjustment must not wedge the endpoint until the new
-		// time catches the old timestamps up.
+		// A system clock adjustment must not wedge the endpoint until the new time catches the old timestamps up.
 		await tick(h, -10 * interval);
 		assert.strictEqual(h.client.calls.keyInfo, 3);
 	});
@@ -1043,8 +1047,8 @@ suite("extension/servers/usage poller", () => {
 		await tick(h, interval);
 		assert.strictEqual(h.client.calls.keyInfo, 2, "one interval into the 2x window is a skip");
 
-		// Halving the interval halves the window: the same one-interval-old
-		// attempt now sits exactly at 2 x the new interval.
+		// Halving the interval halves the window: the same one-interval-old attempt now sits exactly at 2 x the new
+		// interval.
 		h.setIntervalMs(interval / 2);
 		h.poller.applyConfiguration();
 		h.timer.firePending();
@@ -1064,16 +1068,15 @@ suite("extension/servers/usage poller", () => {
 		await tick(h, interval);
 		assert.strictEqual(h.client.calls.keyInfo, 2, "the streak is in its 2x window");
 
-		// The setting changes under a scheduled pass (no applyServersChange, so
-		// no forced probe): the different base URL alone must reset the streak.
+		// The setting changes under a scheduled pass (no applyServersChange, so no forced probe): the different base
+		// URL alone must reset the streak.
 		h.setServers([{ label: "alpha", baseUrl: "http://two.test", apiKey: "sk-1" }]);
 		h.timer.firePending();
 		await settle();
 		assert.strictEqual(h.client.calls.keyInfo, 3);
 
-		// The re-point pass itself always attempts (its carried standing is
-		// unprobed); only the NEXT poll proves the reset - an inherited streak,
-		// now 3 failures deep, would sit in a 4x window and skip it.
+		// The re-point pass itself always attempts (its carried standing is unprobed); only the NEXT poll proves the
+		// reset - an inherited streak, now 3 failures deep, would sit in a 4x window and skip it.
 		await tick(h, interval);
 		assert.strictEqual(h.client.calls.keyInfo, 4, "the new host starts its own count: one failure, normal retry");
 	});
@@ -1114,20 +1117,16 @@ suite("extension/servers/usage poller", () => {
 	test("refreshIfStale runs a pass when nothing completed yet, and none while the last pass is younger than the interval", async () => {
 		const h = makeHarness();
 
-		// No completed pass this session: stale by definition.
 		const first = h.poller.refreshIfStale();
 		assert.ok(first !== undefined, "the first open must fetch");
 		await settle();
 		assert.strictEqual(h.client.calls.keyInfo, 1);
 
-		// Re-opening a minute later: the numbers are younger than the interval,
-		// so the open serves them as they are.
 		h.advanceClock(60_000);
 		assert.strictEqual(h.poller.refreshIfStale(), undefined, "a fresh open must not re-probe the fleet");
 		await settle();
 		assert.strictEqual(h.client.calls.keyInfo, 1);
 
-		// Past the interval the same open fetches again.
 		h.advanceClock(300_000);
 		assert.ok(h.poller.refreshIfStale() !== undefined, "a stale open must fetch");
 		await settle();
@@ -1147,7 +1146,6 @@ suite("extension/servers/usage poller", () => {
 		await settle();
 		assert.strictEqual(h.client.calls.keyInfo, 1);
 
-		// Past it: stale, even though no poll will ever run on its own.
 		h.advanceClock(200_000);
 		assert.ok(h.poller.refreshIfStale() !== undefined);
 		await settle();
@@ -1178,9 +1176,9 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("a pending servers-change probe overrides the staleness gate outright", async () => {
-		// With polling OFF the pending probe waits for the next explicit refresh, and an
-		// open counts: the stored numbers may describe a server or credentials that no
-		// longer exist, so a fresh timestamp must not talk the open out of the probe.
+		// With polling OFF the pending probe waits for the next explicit refresh, and an open counts: the stored
+		// numbers may describe a server or credentials that no longer exist, so a fresh timestamp must not talk the
+		// open out of the probe.
 		const h = makeHarness({ intervalMs: 0 });
 		await h.poller.refreshNow();
 		assert.strictEqual(h.client.calls.keyInfo, 1);
@@ -1214,9 +1212,8 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(starts, 1, "a scheduled pass announces its start");
 		assert.strictEqual(refreshingAtStart, true, "the start listener observes the engine already busy");
 		await settle();
-		// The completion listener must observe the engine IDLE: the dashboard
-		// re-publishes engine state from it, and a completion push still reading "in
-		// flight" freezes Refresh now disabled until an unrelated push happens by.
+		// The completion listener must observe the engine IDLE: the dashboard re-publishes engine state from it, and a
+		// completion push still reading "in flight" freezes Refresh now disabled until an unrelated push happens by.
 		assert.strictEqual(refreshingAtDone, false, "the completion listener observes the engine idle again");
 
 		await h.poller.refreshNow();
@@ -1225,9 +1222,8 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("a completion listener that disposes the poller stops the detached follow-up from starting", async () => {
-		// The teardown detaches the queued follow-up before the listeners run, so
-		// dispose() can no longer settle it: refresh()'s own disposed guard must resolve
-		// it undefined instead of starting (and announcing) a phantom pass.
+		// The teardown detaches the queued follow-up before the listeners run, so dispose() can no longer settle it:
+		// refresh()'s own disposed guard must resolve it undefined instead of starting (and announcing) a phantom pass.
 		const h = makeHarness();
 		let starts = 0;
 		h.poller.onDidStartRefresh(() => {
@@ -1247,9 +1243,8 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("a completion firing with an explicit follow-up queued never publishes 'idle but explicit'", async () => {
-		// isRefreshingExplicitly reads the QUEUE too, so the completion listeners must run
-		// after the follow-up detaches: caught mid-teardown, a listener publishes
-		// refreshing: false with refreshingExplicitly still true.
+		// isRefreshingExplicitly reads the QUEUE too, so the completion listeners must run after the follow-up
+		// detaches: caught mid-teardown, a listener publishes refreshing: false with refreshingExplicitly still true.
 		const h = makeHarness({ initialRefreshDelayMs: 5_000 });
 		const releases: (() => void)[] = [];
 		h.client.fetchKeyInfo = async () => {
@@ -1281,9 +1276,8 @@ suite("extension/servers/usage poller", () => {
 
 	test("only explicit passes read as refreshing explicitly; scheduled and open-triggered ones stay quiet", async () => {
 		const h = makeHarness({ initialRefreshDelayMs: 5_000 });
-		// Every keyInfo call blocks until released, one release per call, so the
-		// test can observe each pass mid-flight (a shared gate would unblock a
-		// queued pass it never meant to).
+		// Every keyInfo call blocks until released, one release per call, so the test can observe each pass mid-flight
+		// (a shared gate would unblock a queued pass it never meant to).
 		const releases: (() => void)[] = [];
 		h.client.fetchKeyInfo = async () => {
 			h.client.calls.keyInfo += 1;
@@ -1291,21 +1285,18 @@ suite("extension/servers/usage poller", () => {
 			return KEY_OK;
 		};
 		const release = async () => {
-			// Settle FIRST: the pass reaches the gate a few microtasks after it
-			// starts, and a release fired before the resolver exists would leave
-			// the gate closed forever (the shift is a no-op on an empty queue).
+			// Settle FIRST: the pass reaches the gate a few microtasks after it starts, and a release fired before the
+			// resolver exists would leave the gate closed forever (the shift is a no-op on an empty queue).
 			await settle();
 			releases.shift()?.();
 			await settle();
 		};
 
-		// A scheduled poll: in flight, but not explicit.
 		h.poller.start();
 		h.timer.firePending();
 		await Promise.resolve();
 		assert.strictEqual(h.poller.isRefreshing(), true);
 		assert.strictEqual(h.poller.isRefreshingExplicitly(), false, "a scheduled poll must not wear the busy label");
-		// An explicit refresh queued behind it flips the explicit reading at once.
 		const explicit = h.poller.refreshNow();
 		assert.strictEqual(h.poller.isRefreshingExplicitly(), true, "a queued explicit refresh is asked-for work");
 		await release();
@@ -1316,7 +1307,6 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(h.poller.isRefreshing(), false);
 		assert.strictEqual(h.poller.isRefreshingExplicitly(), false);
 
-		// An open-triggered staleness pass: in flight, never explicit.
 		h.advanceClock(600_000);
 		const stale = h.poller.refreshIfStale();
 		assert.ok(stale !== undefined);

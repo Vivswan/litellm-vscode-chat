@@ -12,8 +12,8 @@ suite("extension/migrations/bareArrayBlobs", () => {
 			baseUrl: "http://left.test",
 			origin: { kind: "removed-entry-leftover", removedLabel: "Left" },
 		};
-		// Corrupt members ride the wrap untouched: losslessness is the contract
-		// here, and the readers' own sanitization keeps judging them.
+		// Corrupt members ride the wrap untouched: losslessness is the contract here, and the readers' own sanitization
+		// keeps judging them.
 		const storage = makeExtensionStorage({
 			[REMOVED_GROUP_TOMBSTONES_KEY]: [tombstone, 42],
 			[ORPHANED_GROUP_PROVENANCE_KEY]: [provenance],
@@ -22,12 +22,11 @@ suite("extension/migrations/bareArrayBlobs", () => {
 
 		assert.deepStrictEqual(view.get(REMOVED_GROUP_TOMBSTONES_KEY), { version: "0", records: [tombstone, 42] });
 		assert.deepStrictEqual(view.get(ORPHANED_GROUP_PROVENANCE_KEY), { version: "0", records: [provenance] });
-		// The view never writes on its own (see the module doc for why): the
-		// stored blobs stay bare until a genuine persist promotes them.
+		// The view never writes on its own (see the module doc for why): the stored blobs stay bare until a genuine
+		// persist promotes them.
 		assert.ok(Array.isArray(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY)));
 
-		// The store constructed over the view (the activation wiring) adopts the
-		// records like any versioned snapshot.
+		// The store constructed over the view (the activation wiring) adopts the records like any versioned snapshot.
 		const removals = new GroupRemovalStore(view);
 		assert.strictEqual(
 			removals.isTombstoned({
@@ -42,9 +41,8 @@ suite("extension/migrations/bareArrayBlobs", () => {
 	});
 
 	test("the first genuine persist promotes the format durably above the bare array", async () => {
-		// Adoption is strictly-newer only, so the view wraps at the protocol's
-		// floor (version 0) and the store's first persist writes version 1 - a
-		// versioned superset that outranks the bare blob for every later reader.
+		// Adoption is strictly-newer only, so the view wraps at the protocol's floor (version 0) and the store's first
+		// persist writes version 1 - a versioned superset that outranks the bare blob for every later reader.
 		const storage = makeExtensionStorage({
 			[REMOVED_GROUP_TOMBSTONES_KEY]: [{ label: "Old", baseUrl: "http://old.test" }],
 		});

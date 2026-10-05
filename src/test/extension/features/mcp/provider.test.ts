@@ -1,12 +1,7 @@
 /**
- * The MCP publisher end to end in the host: what an eager provide pass may
- * carry, what resolve composes, and what moves the change event.
- *
- * The load-bearing test here is "provide carries no secret material". The
- * types already make headers unrepresentable on the provide-side descriptor,
- * but the definition VS Code receives is a plain object the editor may
- * serialize, so the value-level claim is pinned too - over an entry that
- * carries every kind of credential at once.
+ * The types already make headers unrepresentable on the provide-side descriptor, but the definition VS Code receives
+ * is a plain object the editor may serialize, so the value-level claim is pinned too - over an entry that carries
+ * every kind of credential at once.
  */
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
@@ -35,10 +30,8 @@ function entry(overrides: Record<string, unknown> = {}): Record<string, unknown>
 	return { label: "Main", baseUrl: TEST_BASE_URL, mcp: true, ...overrides };
 }
 
-/** A Memento standing in for globalState; the counters only ever read and write one key. */
 interface TestMemento extends vscode.Memento {
 	readonly values: Map<string, unknown>;
-	/** While true every write rejects, the way a failing globalState does. */
 	failWrites: boolean;
 }
 
@@ -68,7 +61,6 @@ async function settle(): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** A SecretStorage that holds nothing: the entries in this suite keep their secrets inline. */
 function emptySecrets(): vscode.SecretStorage {
 	return {
 		get: async () => undefined,
@@ -78,7 +70,6 @@ function emptySecrets(): vscode.SecretStorage {
 	} as unknown as vscode.SecretStorage;
 }
 
-/** The provider under test. */
 function makeProvider(
 	options: { logged?: [string, unknown?][]; versions?: McpVersionCounters } = {}
 ): vscode.McpServerDefinitionProvider<vscode.McpHttpServerDefinition> {
@@ -203,9 +194,8 @@ suite("extension/features/mcp", () => {
 		});
 
 		test("an endpoint on another origin is published, but bare: credentials stay with the entry's host", async () => {
-			// The stored key is paired with the entry's base URL. A URL pointing
-			// somewhere else is a destination nothing authorized, so the server is
-			// still offered - it may need no credential - but ours do not ride.
+			// The stored key is paired with the entry's base URL. A URL pointing somewhere else is a destination
+			// nothing authorized, so the server is still offered - it may need no credential - but ours do not ride.
 			const servers = [
 				entry({
 					mcp: { url: "https://elsewhere.example/mcp" },
@@ -232,8 +222,8 @@ suite("extension/features/mcp", () => {
 		});
 
 		test("a same-origin endpoint on another scheme or port is not the same origin", async () => {
-			// Origin is scheme + host + port, so a downgrade to http or a hop to
-			// another port is a different destination and loses the credentials.
+			// Origin is scheme + host + port, so a downgrade to http or a hop to another port is a different
+			// destination and loses the credentials.
 			const url = new URL(TEST_BASE_URL);
 			for (const elsewhere of [`https://${url.host}/mcp`, `${url.protocol}//${url.hostname}:9999/mcp`]) {
 				const servers = [entry({ mcp: { url: elsewhere }, auth: { apiKey: SECRET_VALUES.apiKey } })];
@@ -268,9 +258,8 @@ suite("extension/features/mcp", () => {
 		});
 
 		test("a definition whose entry stopped publishing is refused, not credentialed", async () => {
-			// The editor may hold a definition from before an edit retired the
-			// opt-in. Attaching current credentials to it would send them to an
-			// endpoint the setting no longer names.
+			// The editor may hold a definition from before an edit retired the opt-in. Attaching current credentials to
+			// it would send them to an endpoint the setting no longer names.
 			const provider = makeProvider();
 			const [definition] = await withConfig({ servers: [entry({ auth: { apiKey: "sk-1" } })] }, () =>
 				provide(provider)
@@ -289,8 +278,8 @@ suite("extension/features/mcp", () => {
 			const provider = makeProvider();
 			const [definition] = await withConfig({ servers: [entry()] }, () => provide(provider));
 			assert.ok(definition);
-			// Same origin, so this stays credentialed and the assertion is about the
-			// URI alone; the cross-origin case has its own test above.
+			// Same origin, so this stays credentialed and the assertion is about the URI alone; the cross-origin case
+			// has its own test above.
 			const moved = [entry({ mcp: { url: `${TEST_BASE_URL}/moved/mcp` }, auth: { apiKey: "sk-1" } })];
 			const resolved = await withConfig({ servers: moved }, () => resolve(provider, definition));
 			assert.strictEqual(resolved.uri.toString(), `${TEST_BASE_URL}/moved/mcp`);
@@ -298,8 +287,8 @@ suite("extension/features/mcp", () => {
 		});
 
 		test("a setting edit DURING the exchange is refused, not answered with live credentials", async () => {
-			// The window the pre-await check alone cannot close: the opt-in is
-			// retired while the token exchange is in flight.
+			// The window the pre-await check alone cannot close: the opt-in is retired while the token exchange is in
+			// flight.
 			let release: (() => void) | undefined;
 			mswServer.use(
 				http.post(
@@ -315,8 +304,6 @@ suite("extension/features/mcp", () => {
 			const [definition] = await withConfig({ servers: [oauthEntry] }, () => provide(provider));
 			assert.ok(definition);
 
-			// Start the resolve under the opted-in setting, then swap the setting
-			// out from under it before letting the exchange finish.
 			let pending: Promise<vscode.McpHttpServerDefinition> | undefined;
 			await withConfig({ servers: [oauthEntry] }, async () => {
 				pending = resolve(provider, definition);
@@ -330,10 +317,9 @@ suite("extension/features/mcp", () => {
 				await assert.rejects(
 					() => pending as Promise<unknown>,
 					(error: unknown) => {
-						// The classification, not merely the type: a FAILED exchange
-						// would also throw a MirroredError and pass a type-only check.
-						// The entry was DELETED mid-exchange, so "no such server" is
-						// the true fact - "try again" would send the user in circles.
+						// The classification, not merely the type: a FAILED exchange would also throw a MirroredError
+						// and pass a type-only check. The entry was DELETED mid-exchange, so "no such server" is the
+						// true fact - "try again" would send the user in circles.
 						assert.ok(error instanceof MirroredError);
 						assert.strictEqual(error.logClassification, "Mcp(resolved label is not published)");
 						return true;
@@ -357,9 +343,9 @@ suite("extension/features/mcp", () => {
 		});
 
 		test("a failed token exchange is logged exactly once, as a classification", async () => {
-			// RequestError extends MirroredError, so a base-class check here would
-			// silence every real failure: the OAuth refusal below would reach no
-			// log line and never become the issue report's latest error.
+			//   RequestError            -> extends MirroredError
+			//   a base-class check here -> the OAuth refusal below would reach no log line and never become the issue
+			//                              report's latest error
 			mswServer.use(http.post(TOKEN_URL, () => HttpResponse.json({ error: "invalid_client" }, { status: 401 })));
 			const logged: [string, unknown?][] = [];
 			const provider = makeProvider({ logged });
@@ -376,9 +362,8 @@ suite("extension/features/mcp", () => {
 		});
 
 		test("a stored secret stamped for another destination refuses the pairing", async () => {
-			// The chat path already refuses this (the sync engine's ownership
-			// check). Here it matters more: the credentials leave our process, so
-			// no 401 of ours could ever correct a wrong pairing.
+			// The chat path already refuses this (the sync engine's ownership check). Here it matters more: the
+			// credentials leave our process, so no 401 of ours could ever correct a wrong pairing.
 			const blobs = new Map<string, string>();
 			const store: vscode.SecretStorage = {
 				get: async (key: string) => blobs.get(key),
@@ -410,8 +395,8 @@ suite("extension/features/mcp", () => {
 				await assert.rejects(
 					() => resolve(provider, definition),
 					(error: unknown) => {
-						// Its own sentence: "no such server" would send the user
-						// looking for a missing entry instead of re-storing the key.
+						// Its own sentence: "no such server" would send the user looking for a missing entry instead of
+						// re-storing the key.
 						assert.ok(error instanceof MirroredError);
 						assert.strictEqual(error.logClassification, "Mcp(stored secrets stamped for another destination)");
 						assert.ok(error.englishMessage?.includes("saved for a different server"));
@@ -423,11 +408,9 @@ suite("extension/features/mcp", () => {
 		});
 
 		test("an inert stale stamp resolves; declaring the field's shape refuses the same stored value", async () => {
-			// Refusal is scoped by the one wire rule (entryUsesSecretField): a
-			// stale-stamped virtualKeyValue with no declared header has no carrier
-			// (usageConnectionFor builds the virtualKey unit only with a header),
-			// so the pairing resolves - and none of the composed headers may carry
-			// the stored value.
+			// Refusal is scoped by the one wire rule (entryUsesSecretField): a stale-stamped virtualKeyValue with no
+			// declared header has no carrier (usageConnectionFor builds the virtualKey unit only with a header), so the
+			// pairing resolves - and none of the composed headers may carry the stored value.
 			const blobs = new Map<string, string>();
 			const store: vscode.SecretStorage = {
 				get: async (key: string) => blobs.get(key),
@@ -455,9 +438,8 @@ suite("extension/features/mcp", () => {
 			const [definition] = await withConfig({ servers: inertServers }, () => provide(provider));
 			assert.ok(definition);
 			const resolved = await withConfig({ servers: inertServers }, () => resolve(provider, definition));
-			// The positive control keeps the negative claim meaningful: the inline
-			// apiKey DID compose into the handed headers, so an empty-headers
-			// regression (a flipped origin verdict) cannot fake the pass below.
+			// The positive control keeps the negative claim meaningful: the inline apiKey DID compose into the handed
+			// headers, so an empty-headers regression (a flipped origin verdict) cannot fake the pass below.
 			assert.ok(
 				JSON.stringify(resolved.headers).includes(SECRET_VALUES.apiKey),
 				"the entry's own credential composes into the handed headers"
@@ -467,9 +449,8 @@ suite("extension/features/mcp", () => {
 				"the inert stored value must never reach the handed headers"
 			);
 
-			// The field-becomes-used transition: declaring the header makes the
-			// entry's shape send the field, so the SAME stored value now refuses
-			// before any header composition - unchanged for sendable credentials.
+			// The field-becomes-used transition: declaring the header makes the entry's shape send the field, so the
+			// SAME stored value now refuses before any header composition - unchanged for sendable credentials.
 			const usedServers = [entry({ auth: { apiKey: SECRET_VALUES.apiKey, virtualKey: { header: "x-litellm-key" } } })];
 			const [republished] = await withConfig({ servers: usedServers }, () => provide(provider));
 			assert.ok(republished);
@@ -497,8 +478,8 @@ suite("extension/features/mcp", () => {
 		});
 
 		test("a base URL that moves during the exchange refuses: it is what decided the credentials", async () => {
-			// The endpoint URL and the version can both stay put while baseUrl moves,
-			// flipping the same-origin verdict the headers were composed under.
+			// The endpoint URL and the version can both stay put while baseUrl moves, flipping the same-origin verdict
+			// the headers were composed under.
 			let release: (() => void) | undefined;
 			mswServer.use(
 				http.post(
@@ -561,8 +542,8 @@ suite("extension/features/mcp", () => {
 		});
 
 		test("the log line redacts URL-embedded credentials", async () => {
-			// A configured URL may embed userinfo, and log lines feed public issue
-			// reports; the redaction is enforced in the code, not promised in prose.
+			// A configured URL may embed userinfo, and log lines feed public issue reports; the redaction is enforced
+			// in the code, not promised in prose.
 			const logged: [string, unknown?][] = [];
 			const provider = makeProvider({ logged });
 			const servers = [entry({ mcp: { url: "https://user:hunter2@gw.example/mcp" } })];
@@ -584,7 +565,6 @@ suite("extension/features/mcp", () => {
 			readonly store: TestMemento;
 		}
 
-		/** Wire the feature with the host surfaces recorded, and run `fn` against them. */
 		async function withWiring(initialServers: unknown[], fn: (spies: WiredSpies) => Promise<void>): Promise<void> {
 			const registrations: vscode.McpServerDefinitionProvider[] = [];
 			const configListeners: ((event: vscode.ConfigurationChangeEvent) => unknown)[] = [];
@@ -592,13 +572,11 @@ suite("extension/features/mcp", () => {
 			let changes = 0;
 			const store = memento();
 
-			// The spies are global while installed, and the production extension is
-			// activated in this host, so anything IT registers while they are in
-			// place would otherwise count as ours. The spies therefore only COLLECT,
-			// and the call under test is bracketed by BOTH indices, captured inside
-			// the synchronous callback: a lower bound alone proves nothing here
-			// (these arrays start empty, so it is always zero), and the window that
-			// actually admits a stray registration is the await AFTER the call.
+			// The spies are global while installed, and the production extension is activated in this host, so anything
+			// IT registers while they are in place would otherwise count as ours. The spies therefore only COLLECT, and
+			// the call under test is bracketed by BOTH indices, captured inside the synchronous callback: a lower bound
+			// alone proves nothing here (these arrays start empty, so it is always zero), and the window that actually
+			// admits a stray registration is the await AFTER the call.
 			const originalRegister = vscode.lm.registerMcpServerDefinitionProvider;
 			const originalOnDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration;
 			(vscode.lm as Record<string, unknown>).registerMcpServerDefinitionProvider = (
@@ -630,9 +608,8 @@ suite("extension/features/mcp", () => {
 			} as unknown as vscode.ExtensionContext;
 
 			try {
-				// Both bounds are read inside the synchronous callback, so the range
-				// is exactly what wireMcpServers appended and nothing that lands
-				// while the surrounding await settles.
+				// Both bounds are read inside the synchronous callback, so the range is exactly what wireMcpServers
+				// appended and nothing that lands while the surrounding await settles.
 				let ours = { registrations: [0, 0], listeners: [0, 0] };
 				await withConfig({ servers: initialServers }, () => {
 					const from = { registrations: registrations.length, listeners: configListeners.length };
@@ -653,10 +630,9 @@ suite("extension/features/mcp", () => {
 						return changes;
 					},
 					store,
-					// The wiring's listeners are synchronous - VS Code does not await
-					// what a handler returns - and hand their counter writes to a
-					// promise tail. So dispatching is not enough: the helpers settle
-					// that tail before the assertions read it.
+					// The wiring's listeners are synchronous - VS Code does not await what a handler returns - and hand
+					// their counter writes to a promise tail. So dispatching is not enough: the helpers settle that
+					// tail before the assertions read it.
 					fireConfigChange: async () => {
 						for (const listener of configListeners.slice(ours.listeners[0], ours.listeners[1])) {
 							listener({ affectsConfiguration: () => true });
@@ -710,24 +686,20 @@ suite("extension/features/mcp", () => {
 		});
 
 		test("a failed counter write leaves the old counter; the next rotation still bumps and fires", async () => {
-			// Nothing retries a failed write, deliberately: the version is an
-			// opaque change token nobody reads as a count, so the worst case is
-			// the editor serving its previous cached credential until the next
-			// rotation moves the counter anyway - which this pins.
+			// Nothing retries a failed write, deliberately: the version is an opaque change token nobody reads as a
+			// count, so the worst case is the editor serving its previous cached credential until the next rotation
+			// moves the counter anyway - which this pins.
 			await withWiring([entry()], async (spies) => {
 				spies.store.failWrites = true;
 				await withConfig({ servers: [entry()] }, () => spies.fireSecretChange(serverSecretsKey("Main")));
 				assert.strictEqual(spies.store.get(MCP_ENTRY_VERSIONS_KEY), undefined, "the write really failed");
 				assert.strictEqual(spies.changes, 0, "nothing new to publish while the counter did not move");
 
-				// No later event retries the failed write: this pass would have
-				// replayed it under the old recovery layer, and must not now.
 				spies.store.failWrites = false;
 				await withConfig({ servers: [entry()] }, () => spies.fireConfigChange());
 				assert.strictEqual(spies.store.get(MCP_ENTRY_VERSIONS_KEY), undefined, "no retry writes the counter");
 				assert.strictEqual(spies.changes, 0, "no retry publishes anything");
 
-				// The next rotation is its own signal, and its write lands.
 				await withConfig({ servers: [entry()] }, () => spies.fireSecretChange(serverSecretsKey("Main")));
 				assert.deepStrictEqual(spies.store.get(MCP_ENTRY_VERSIONS_KEY), { Main: 1 });
 				assert.strictEqual(spies.changes, 1, "the next rotation publishes a new version");
@@ -736,7 +708,6 @@ suite("extension/features/mcp", () => {
 
 		test("a failed write for one label does not abandon the rest of the batch", async () => {
 			await withWiring([entry({ label: "A" }), entry({ label: "B" })], async (spies) => {
-				// Both labels rotate; only the first write fails.
 				let writes = 0;
 				const store = spies.store;
 				const realUpdate = store.update.bind(store);

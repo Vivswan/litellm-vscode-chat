@@ -1,11 +1,6 @@
 /**
- * The capability-resolution unit pins: the open vocabulary boundary
- * (parseCapabilityRecord: typed consumed fields, verbatim extras), the
- * override/fallback/directive layering, the full precedence walk
- * (entry > global > directive > server > fallbacks > catalog > floor), and
- * output-limit provenance - including that BOTH catalog paths stay clamped
- * guesses. Matcher grammar and inheritance have their own suites; here they
- * appear only where they interact with capability semantics.
+ * Matcher grammar and inheritance have their own suites; here they appear only where they interact with capability
+ * semantics.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -34,7 +29,6 @@ import {
 import { resolveMaxTokens } from "../../../../shared/config/parameterResolution";
 import { FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE } from "../../../../shared/config/recordResolution";
 
-/** A catalog over literal entries: exact IDs and unambiguous post-vendor suffixes answer found. */
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
 	const byExactId = (id: string): CatalogLookupResult => {
 		const fields = entries[id];
@@ -99,11 +93,9 @@ describe("shared/config capabilityResolution parseCapabilityRecord", () => {
 	});
 
 	test("field keys are judged trimmed, the editor's own normalization: padded keys mean the same field", () => {
-		// One trim rule on both sides of the seam: the editor judges and saves
-		// keys trimmed, and this parse boundary reads stored records the same
-		// way, so a hand-padded settings.json key is a typed consumed field (or
-		// a padded directive is a directive) everywhere instead of a padded open
-		// field until the next Apply rewrote it.
+		// One trim rule on both sides of the seam: the editor judges and saves keys trimmed, and this parse boundary
+		// reads stored records the same way, so a hand-padded settings.json key is a typed consumed field (or a padded
+		// directive is a directive) everywhere instead of a padded open field until the next Apply rewrote it.
 		const parsed = parseCapabilityRecord({
 			" context_length ": 128000,
 			"supports_vision\t": true,
@@ -116,9 +108,8 @@ describe("shared/config capabilityResolution parseCapabilityRecord", () => {
 		assert.deepStrictEqual([...parsed.inheritable].sort(), ["context_length", "supports_vision"]);
 		assert.strictEqual(parsed.openrouterModel, "openai/gpt-4o");
 		assert.deepStrictEqual(parsed.diagnostics, []);
-		// The field-naming directives' LIST ENTRIES trim at the same boundary, so
-		// a padded entry still names its trimmed field instead of reading as an
-		// invalid directive.
+		// The field-naming directives' LIST ENTRIES trim at the same boundary, so a padded entry still names its
+		// trimmed field instead of reading as an invalid directive.
 		const paddedEntries = parseCapabilityRecord({
 			" context_length": 128000,
 			_fallback: [" context_length "],
@@ -127,8 +118,6 @@ describe("shared/config capabilityResolution parseCapabilityRecord", () => {
 		assert.deepStrictEqual([...paddedEntries.fallback], ["context_length"]);
 		assert.deepStrictEqual([...paddedEntries.inheritable], ["context_length"]);
 		assert.deepStrictEqual(paddedEntries.diagnostics, []);
-		// A trim collision resolves by the record's object key order, the later
-		// spelling winning; and a padded hostile name is still just an own key.
 		const collided = parseCapabilityRecord({ context_length: 1000, " context_length": 2000 });
 		assert.strictEqual(collided.fields.context_length, 2000);
 		const hostile = parseCapabilityRecord({ " __proto__ ": { polluted: true } });
@@ -215,8 +204,6 @@ describe("shared/config capabilityResolution parseCapabilityRecord", () => {
 	});
 
 	test("a leftover _declare key is an unknown underscore key: silently ignored", () => {
-		// Declaration moved to the entry's discovery.declared list; the retired
-		// directive parses like any reserved underscore key.
 		const parsed = parseCapabilityRecord({ _declare: true, context_length: 1000 });
 		assert.deepStrictEqual(parsed.diagnostics, []);
 		assert.strictEqual(parsed.fields.context_length, 1000);
@@ -451,8 +438,7 @@ describe("shared/config capabilityResolution resolveModelCapabilities walk", () 
 	});
 
 	test("a declared model has no server level and resolves from the remaining sources", () => {
-		// The model exists because discovery.declared names it, so the walk sees no
-		// server values at all.
+		// The model exists because discovery.declared names it, so the walk sees no server values at all.
 		const effective = resolve({
 			rawModelId: "my-model",
 			globalCapabilities: { "*": { [FALLBACK_DIRECTIVE]: true, context_length: 64000 } },
@@ -494,8 +480,6 @@ describe("shared/config capabilityResolution resolveModelCapabilities walk", () 
 	});
 
 	test("within one layer a field is an override or a fallback, never both: the chain's winner decides", () => {
-		// The exact record overrides the field the inheritable "*" marks _fallback,
-		// so the layer carries the override and the candidate disappears with it.
 		const effective = resolve({
 			globalCapabilities: {
 				"gpt-4": { context_length: 200000 },
@@ -603,8 +587,8 @@ describe("shared/config capabilityResolution open fields in the walk", () => {
 	});
 
 	test("prototype-named extras are ordinary fields: no inherited Object member ever leaks into the walk", () => {
-		// A user-controlled name like "toString" must never read Object.prototype's
-		// member, so open-name reads go through the capabilityField accessor.
+		// A user-controlled name like "toString" must never read Object.prototype's member, so open-name reads go
+		// through the capabilityField accessor.
 		const openField = (effective: EffectiveCapabilities, name: string) => capabilityField(effective.fields, name);
 		const resolved = resolve({
 			globalCapabilities: {
@@ -712,9 +696,8 @@ describe("shared/config capabilityResolution diagnostics", () => {
 
 describe("shared/config capabilityResolution advisory filter", () => {
 	test("filterUnrecognizedKeyDiagnostics drops consumed-vocabulary keys even when the set would keep them", () => {
-		// The parse never emits unrecognized-key for a consumed field, but if the
-		// vocabulary drifted the filter must not resurrect hints for keys the
-		// extension reads.
+		// The parse never emits unrecognized-key for a consumed field, but if the vocabulary drifted the filter must
+		// not resurrect hints for keys the extension reads.
 		const kept = filterUnrecognizedKeyDiagnostics(
 			[
 				{ kind: "unrecognized-key", recordKey: "r", key: "supports_vision" },
@@ -726,8 +709,8 @@ describe("shared/config capabilityResolution advisory filter", () => {
 	});
 
 	test("filterUnrecognizedKeyDiagnostics treats an empty set as no evidence, exactly like no set", () => {
-		// A listing with zero deployments proves nothing about the server's key
-		// vocabulary; hinting against it would flag every open field.
+		// A listing with zero deployments proves nothing about the server's key vocabulary; hinting against it would
+		// flag every open field.
 		const hints = [{ kind: "unrecognized-key" as const, recordKey: "r", key: "mystery_flag" }];
 		assert.deepStrictEqual(filterUnrecognizedKeyDiagnostics(hints, []), []);
 		assert.deepStrictEqual(filterUnrecognizedKeyDiagnostics(hints, undefined), []);

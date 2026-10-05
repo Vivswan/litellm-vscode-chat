@@ -14,13 +14,9 @@ import {
 } from "../../fuzzStream";
 
 /**
- * Byte-level fuzzing of the SSE transport in processStreamingResponse: line splitting,
- * [DONE] handling, and the log-and-skip contract for malformed lines. The docker fuzzer
- * cannot reach this layer (the LiteLLM proxy re-frames SSE itself), so framing is fuzzed
- * here, in-process.
- *
- * A shrunk counterexample here is a byte layout, not a FuzzEvent[], so it cannot go in
- * fuzzCorpus.ts: pin regressions as example tests in streaming.test.ts instead.
+ * The docker fuzzer cannot reach this layer (the LiteLLM proxy re-frames SSE itself), so framing is fuzzed here,
+ * in-process. A shrunk counterexample here is a byte layout, not a FuzzEvent[], so it cannot go in fuzzCorpus.ts: pin
+ * regressions as example tests in streaming.test.ts instead.
  */
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -53,7 +49,6 @@ function expectArrayItem(chunks: Uint8Array[], index: number): Uint8Array {
 interface RunResult {
 	parts: vscode.LanguageModelResponsePart[];
 	malformedLogs: number;
-	/** The data payload of each malformed-line log, for the classification-only assertion. */
 	malformedPayloads: unknown[];
 }
 
@@ -118,10 +113,9 @@ function cutAt(bytes: Uint8Array, offsets: number[]): Uint8Array[] {
 const seedArb = fc.integer({ min: 0, max: 0x7fffffff });
 
 /**
- * Streams for framing properties: generated events led by a fixed multi-byte unicode text
- * event, so every byte layout contains UTF-8 sequences a cut can split. Tails are omitted
- * because the framing properties re-terminate streams in ways that would change what "end
- * of stream" means for a tail event.
+ * Streams for framing properties: generated events led by a fixed multi-byte unicode text event, so every byte layout
+ * contains UTF-8 sequences a cut can split. Tails are omitted because the framing properties re-terminate streams in
+ * ways that would change what "end of stream" means for a tail event.
  */
 const framingEventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 	.array(
@@ -240,9 +234,8 @@ suite("provider/streaming SSE framing properties", () => {
 					injectedDataLines,
 					"each injected bad data line must log exactly one skip"
 				);
-				// The log buffer feeds public issue reports: malformed-line logs must
-				// carry classifications only, never the line or a parser message that
-				// embeds an excerpt of it.
+				// The log buffer feeds public issue reports: malformed-line logs must carry classifications only, never
+				// the line or a parser message that embeds an excerpt of it.
 				for (const payload of withJunk.malformedPayloads) {
 					const record = payload as Record<string, unknown>;
 					assert.ok(record !== null && typeof record === "object", "malformed-line logs carry a data record");
@@ -267,8 +260,8 @@ suite("provider/streaming SSE framing properties", () => {
 				const assembled = assemble(events);
 				const lines = [...renderLines(assembled.chunks), "data: [DONE]"];
 				const full = await runBytes([encode(`${lines.join("\n")}\n`)]);
-				// Drop the trailing newline plus up to the whole "data: [DONE]" line:
-				// the incomplete line stays in the buffer and EOF finishes the stream.
+				// Drop the trailing newline plus up to the whole "data: [DONE]" line: the incomplete line stays in the
+				// buffer and EOF finishes the stream.
 				const rendered = lines.join("\n");
 				const truncated = rendered.slice(0, rendered.length - (cutBack % ("data: [DONE]".length + 1)));
 				const partial = await runBytes([encode(truncated)]);
@@ -308,8 +301,8 @@ suite("provider/streaming SSE framing properties", () => {
 				try {
 					await runBytes(byteChunks);
 				} catch (e) {
-					// The one legitimate rejection: end-of-stream leftovers that were a
-					// tool call with unparseable arguments.
+					// The one legitimate rejection: end-of-stream leftovers that were a tool call with unparseable
+					// arguments.
 					assert.match(String(e), /The model sent a broken tool call/, `unexpected rejection: ${String(e)}`);
 				}
 			}),

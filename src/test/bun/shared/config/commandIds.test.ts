@@ -29,11 +29,9 @@ function contributedTitle(key: keyof typeof CMD): string {
 
 describe("shared/config/commandIds: titles and deep-links", () => {
 	test("the GitHub Pull Requests provider title never claims the Copilot slot, in any locale", () => {
-		// That extension picks a provider by case-insensitive substring, and
-		// "Copilot" is the search term of its own slot: a title carrying that
-		// word would hijack a request this extension has no business answering.
-		// Every translation is checked, because the registered title is the
-		// localized one.
+		// That extension picks a provider by case-insensitive substring, and "Copilot" is the search term of its own
+		// slot: a title carrying that word would hijack a request this extension has no business answering. Every
+		// translation is checked, because the registered title is the localized one.
 		assert.ok(!/copilot/i.test(prGenerationProviderTitle()));
 		const key = prGenerationProviderTitle();
 		for (const file of ["bundle.l10n.json", "bundle.l10n.zh-cn.json", "bundle.l10n.zh-tw.json"]) {
@@ -49,9 +47,8 @@ describe("shared/config/commandIds: titles and deep-links", () => {
 	});
 
 	test("every command with a shared title function is contributed under exactly that title", () => {
-		// User-facing messages interpolate these titles when telling the user to
-		// run the command (the chat-404 guidance names the manage and sync-models
-		// commands), so each must be exactly what the palette shows.
+		// User-facing messages interpolate these titles when telling the user to run the command (the chat-404 guidance
+		// names the manage and sync-models commands), so each must be exactly what the palette shows.
 		const pins: readonly [keyof typeof CMD, string][] = [
 			["manage", manageCommandTitle()],
 			["syncModels", syncModelsCommandTitle()],
@@ -67,8 +64,7 @@ describe("shared/config/commandIds: titles and deep-links", () => {
 	});
 
 	test("the docs and walkthrough prose name the manage command by its contributed title", () => {
-		// Presence-only guard: a retitled command must at least reach every doc
-		// that tells the user to run it.
+		// Presence-only guard: a retitled command must at least reach every doc that tells the user to run it.
 		for (const file of [
 			path.join("docs", "getting-started.md"),
 			path.join("docs", "servers.md"),

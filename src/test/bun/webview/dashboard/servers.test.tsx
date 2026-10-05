@@ -1,8 +1,3 @@
-/**
- * ServersSection behavior: toolbar command wiring, the two-step remove, the add-form save round trip with
- * requestId correlation, and the adopt intent's exact payload (a credential-shaped field smuggled into
- * adoptServer must fail the exhaustive key inspection).
- */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import type { ReplacedEntryIdentity, RpcRequest } from "../../../../dashboard/endpoints";
@@ -51,10 +46,7 @@ afterEach(() => {
 	cleanup();
 });
 
-/**
- * The section alone, with the shell's callbacks stubbed: what the list does with a row, not where the edit
- * destination opens. Tests that need the destination mount the real shell through mountShell below.
- */
+/** Tests that need the destination mount the real shell through mountShell below. */
 function mountSection(servers: readonly DashboardServer[]) {
 	return mount(
 		<ServersSection
@@ -70,8 +62,9 @@ function mountSection(servers: readonly DashboardServer[]) {
 
 test("a server row keeps the shape the narrow stylesheet folds: one disclosure button beside the actions", () => {
 	// Every narrow rule keys off this structure: the disclosure button and the actions cluster are SIBLINGS
-	// under a non-interactive wrapper, with the second line's members inside .server-meta. Move a badge out or
-	// rename a part and the fold breaks at every width with this suite green - happy-dom has no cascade.
+	// under a non-interactive wrapper, with the second line's members inside .server-meta.
+	//
+	//   Move a badge out or rename a part -> the fold breaks at every width with this suite green
 	const root = mountSection([makeDeclaredServer({ label: "Prod", servedModelCount: 2 })]);
 	const row = root.querySelector(".server-row");
 	expect(row).not.toBeNull();
@@ -92,9 +85,8 @@ test("a server row keeps the shape the narrow stylesheet folds: one disclosure b
 	expect(meta?.querySelector(".server-count")).not.toBeNull();
 	expect(meta?.querySelector(".server-usage")).not.toBeNull();
 	expect(meta?.querySelector(".server-badges")).not.toBeNull();
-	// No focusable element may ride inside the disclosure button: a nested
-	// interactive is invalid content there, and the count link and the hover
-	// tips moved into the drawer for exactly that reason.
+	// No focusable element may ride inside the disclosure button: a nested interactive is invalid content there, and
+	// the count link and the hover tips moved into the drawer for exactly that reason.
 	expect(line?.querySelector("button, a, [tabindex]")).toBeNull();
 });
 
@@ -113,24 +105,22 @@ test("a row's URL keeps its exact configured text, with only the https scheme ma
 		"https://litellm.example.com",
 		"http://localhost:4000",
 		"https://",
-		// The row prints the scheme the setting holds, not a normalized copy of
-		// it: the match is case-insensitive so an uppercase scheme is hidden with
-		// the rest, but hiding is all it does.
+		// The row prints the scheme the setting holds, not a normalized copy of it: the match is case-insensitive so an
+		// uppercase scheme is hidden with the rest, but hiding is all it does.
 		"HTTPS://loud.example.com",
 	]);
 	expect(urls[0]?.querySelector(".url-scheme.visually-hidden")?.textContent).toBe("https://");
 	expect(urls[1]?.querySelector(".url-scheme")).toBe(null);
-	// A scheme with nothing after it is the whole value, so it stays painted:
-	// marked quiet it would render as an empty space at narrow, which is the
-	// width at which being told the entry is half-typed matters most.
+	// A scheme with nothing after it is the whole value, so it stays painted: marked quiet it would render as an empty
+	// space at narrow, which is the width at which being told the entry is half-typed matters most.
 	expect(urls[2]?.querySelector(".url-scheme.visually-hidden")).toBe(null);
 	expect(urls[3]?.querySelector(".url-scheme.visually-hidden")?.textContent).toBe("HTTPS://");
 });
 
 /**
- * The edit destination alone, on the entry a test is about. Mounting the whole dashboard for a form test makes
- * every query ambiguous (diagnostics has its own "Test connection", settings its own matcher editors); the
- * tests that ARE about the shell - pane swap, navigation guard, focus on the way out - use mountShell below.
+ * Mounting the whole dashboard for a form test makes every query ambiguous (diagnostics has its own "Test
+ * connection", settings its own matcher editors); the tests that ARE about the shell - pane swap, navigation guard,
+ * focus on the way out - use mountShell below.
  */
 function mountEditPage(
 	servers: readonly DashboardServer[],
@@ -154,17 +144,15 @@ function mountEditPage(
 	);
 }
 
-/** The whole shell over one pushed fleet: the route every edit-destination test takes. */
 function mountShell(servers: readonly DashboardServer[]): HTMLElement {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers })));
-	// Clearing the shell's own ready handshake keeps every posted-message assertion reading as
-	// "what this interaction sent".
+	// Clearing the shell's own ready handshake keeps every posted-message assertion reading as "what this interaction
+	// sent".
 	resetPosted();
 	return root;
 }
 
-/** Open the form's full matcher editor overlay for one record through its table pencil. */
 function openMatcherEditor(root: HTMLElement, prefix: string): HTMLElement {
 	const pencil = [...root.querySelectorAll("button")].find(
 		(candidate) => candidate.getAttribute("aria-label") === `Open the full editor for "${prefix}"`
@@ -180,7 +168,6 @@ function openMatcherEditor(root: HTMLElement, prefix: string): HTMLElement {
 	return overlay;
 }
 
-/** The field chip button whose visible key matches, in the form's record tables. */
 function chipFor(root: HTMLElement, key: string): HTMLButtonElement {
 	const chip = [...root.querySelectorAll("button.chip-field")].find(
 		(candidate) => candidate.querySelector(".chip-key")?.textContent === key
@@ -192,14 +179,13 @@ function chipFor(root: HTMLElement, key: string): HTMLButtonElement {
 }
 
 test("the header actions render only once a server exists: Add server and the usage Refresh now", () => {
-	// First run: the guided card is the only affordance, no strip of dead
-	// controls above it.
+	// First run: the guided card is the only affordance, no strip of dead controls above it.
 	const empty = mountSection([]);
 	expect(empty.querySelector(".section-actions")).toBeNull();
 
-	// Add server plus the usage refresh stand alone on the header line; test connection and the diagnostics
-	// view live on the Diagnostics tab. The refresh button mounts BOTH labels (the hidden one holds the width
-	// so the busy swap cannot resize it); the visible resting label is Refresh now.
+	// Add server plus the usage refresh stand alone on the header line; test connection and the diagnostics view live
+	// on the Diagnostics tab. The refresh button mounts BOTH labels (the hidden one holds the width so the busy swap
+	// cannot resize it); the visible resting label is Refresh now.
 	const populated = mountSection([makeDeclaredServer()]);
 	const buttons = [...populated.querySelectorAll(".section-actions button")];
 	expect(buttons.map((el) => el.textContent?.trim())).toEqual(["Add server", "Refreshing...Refresh now"]);
@@ -217,7 +203,6 @@ test("with no servers the guided start renders and its call to action opens the 
 	const start = root.querySelector(".empty-start");
 	expect(start).not.toBeNull();
 	expect(start?.querySelector("h3")?.textContent).toBe("Connect LiteLLM to Copilot Chat");
-	// Three concrete steps, no bare table.
 	expect(start?.querySelectorAll("ol li").length).toBe(3);
 	expect(root.querySelector("table.servers")).toBeNull();
 
@@ -243,7 +228,6 @@ test("a noticed entry states its inactive surfaces under its own row, not in a s
 	// would also keep the row out of the summary count.
 	expect(line.classList.contains("tier-warn")).toBe(true);
 	expect(root.querySelector(".section-meta")?.textContent).toContain("1 needs attention");
-	// The remedy the retired banner spelled out survives on the line.
 	expect(line.textContent).toContain("chatLanguageModels.json");
 	expect(line.textContent).toContain("under a new label");
 	// Reveal, never rewrite: both actions open the place a human fixes it.
@@ -256,8 +240,7 @@ test("a noticed entry states its inactive surfaces under its own row, not in a s
 test("without a notice a healthy row carries no diagnostic line at all", () => {
 	const root = mountSection([makeDeclaredServer()]);
 	expect(root.querySelector(".row-diagnostic")).toBeNull();
-	// And no attention clause in the header meta: a permanent "0 problems" is
-	// furniture.
+	// And no attention clause in the header meta: a permanent "0 problems" is furniture.
 	expect(root.querySelector(".section-meta")?.textContent).not.toContain("needs attention");
 });
 
@@ -272,8 +255,6 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 		}),
 	]);
 
-	// The entry already carries parameters, so the table summarizes them; the
-	// row inputs live in the record's matcher editor overlay.
 	expect(root.querySelector(".record-table .matcher-key")?.textContent).toBe("gpt-4");
 	const overlay = openMatcherEditor(root, "gpt-4");
 	const prefixInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
@@ -286,24 +267,21 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 	expect(keyInput.value).toBe("temperature");
 	expect(valueInput.value).toBe("0.2");
 
-	// The entry editor's matcher copy must not advertise URL keys: entry
-	// keys match model IDs only (the entry is already scoped to its server),
-	// while the global editor's help routes server records to entries
-	// (pinned in recordEditors.test.tsx). One shared overlay, two registers.
+	// The entry editor's matcher copy must not advertise URL keys: entry keys match model IDs only (the entry is
+	// already scoped to its server), while the global editor's help routes server records to entries (pinned in
+	// recordEditors.test.tsx).
 	expect(prefixInput.placeholder).toBe("Model ID or matcher, e.g. gpt-4 or gpt-4*");
-	// The matcher help rides the MATCHER section label since the overlay
-	// redesign (labels above inputs), not the input's own cell.
+	// The matcher help rides the MATCHER section label since the overlay redesign (labels above inputs), not the
+	// input's own cell.
 	const glyph = prefixInput.closest(".editor-section")?.querySelector("button.help");
 	const tip = document.getElementById(glyph?.getAttribute("aria-describedby") ?? "");
 	expect(tip?.textContent).toBe(helpEntryModelParameterPrefix());
 
-	// An invalid JSON value blocks Save without posting anything.
 	fireInput(valueInput, "not json");
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages).toEqual([]);
 	expect(root.textContent).toContain("Cannot save: fix Model parameters");
 
-	// Fixed, the save intent carries the edited record.
 	fireInput(valueInput, "0.9");
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages.length).toBe(1);
@@ -318,9 +296,8 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 });
 
 test("blur alone paints no problem on an empty field, and blurring content is what makes a touch stick", () => {
-	// The touch guard: brushing focus past a pristine empty field (toward
-	// Cancel, say) must not repaint the form mid-click - an inserted error
-	// line would move the buttons under the pointer.
+	// The touch guard: brushing focus past a pristine empty field (toward Cancel, say) must not repaint the form
+	// mid-click - an inserted error line would move the buttons under the pointer.
 	const root = mountEditPage([], { kind: "add" });
 	const label = inputByLabel(root, "Label");
 
@@ -329,8 +306,8 @@ test("blur alone paints no problem on an empty field, and blurring content is wh
 	expect(root.textContent).not.toContain("Cannot save");
 	expect(label.getAttribute("aria-invalid")).toBe("false");
 
-	// Typing, thinking better of it, and clearing before any blur returns the
-	// field to pristine: blur on the emptied field still paints nothing.
+	// Typing, thinking better of it, and clearing before any blur returns the field to pristine: blur on the emptied
+	// field still paints nothing.
 	fireInput(label, "P");
 	fireInput(label, "");
 	fireBlur(label);
@@ -343,9 +320,8 @@ test("blur alone paints no problem on an empty field, and blurring content is wh
 	expect(root.textContent).toContain("Must be a usable http(s) URL");
 	expect(baseUrl.getAttribute("aria-invalid")).toBe("true");
 
-	// Blurring the field while it holds content is what marks it touched:
-	// clearing it afterwards swaps in the empty-field problem instead of
-	// going quiet the way the never-blurred Label above did.
+	// Blurring the field while it holds content is what marks it touched: clearing it afterwards swaps in the
+	// empty-field problem instead of going quiet the way the never-blurred Label above did.
 	fireBlur(baseUrl);
 	fireInput(baseUrl, "");
 	expect(root.textContent).toContain("Enter the server URL");
@@ -353,8 +329,8 @@ test("blur alone paints no problem on an empty field, and blurring content is wh
 });
 
 test("Save on the empty form touches every field: both required-field problems surface at once", () => {
-	// Required-but-empty fields stay quiet on blur, so Save is the moment
-	// they all speak up: not just the first blocking field, every one.
+	// Required-but-empty fields stay quiet on blur, so Save is the moment they all speak up: not just the first
+	// blocking field, every one.
 	const root = mountEditPage([], { kind: "add" });
 
 	fireClick(buttonByText(root, "Save"));
@@ -370,14 +346,12 @@ test("Save on the empty form touches every field: both required-field problems s
 test("remove is two-step: Remove arms the row, Confirm posts removeServerSetting with a fresh requestId, Cancel disarms", () => {
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 
-	// Arm, then cancel: nothing posted, the row returns to Edit/Remove.
 	fireClick(buttonByText(root, "Remove"));
 	expect(root.textContent).toContain("Confirm remove?");
 	fireClick(buttonByText(root, "Cancel"));
 	expect(postedMessages).toEqual([]);
 	expect(root.textContent).not.toContain("Confirm remove?");
 
-	// Arm and confirm: exactly one removeServerSetting for the label.
 	fireClick(buttonByText(root, "Remove"));
 	fireClick(buttonByText(root, "Confirm remove?"));
 	expect(postedMessages.length).toBe(1);
@@ -387,7 +361,6 @@ test("remove is two-step: Remove arms the row, Confirm posts removeServerSetting
 	expect(typeof first.id).toBe("string");
 	expect(first.id.length).toBeGreaterThan(0);
 
-	// A second confirmation carries a fresh correlation ID.
 	fireClick(buttonByText(root, "Remove"));
 	fireClick(buttonByText(root, "Confirm remove?"));
 	const second = postedMessages[1] as RpcRequest<"removeServerSetting">;
@@ -407,19 +380,18 @@ test("the armed pair names the server it is about, in its buttons and in the cov
 	for (const button of [confirm, cancel]) {
 		expect(button.getAttribute("aria-label")).toContain(button.textContent);
 	}
-	// The visible copy the floor tier stands up (the stylesheet decides where
-	// it paints; the markup is what has to carry it).
+	// The visible copy the floor tier stands up (the stylesheet decides where it paints; the markup is what has to
+	// carry it).
 	expect(root.querySelector(".server-actions.armed .armed-subject")?.textContent).toBe("Prod");
 	fireClick(buttonByText(root, "Cancel"));
 	expect(root.querySelector(".armed-subject")).toBeNull();
 });
 
 test("arming Remove is keyed by row identity, so two rows sharing a label never arm together", () => {
-	// Labels are unique only among declared entries: an external provider group
-	// (named in the native editor) can wear a declared entry's exact label while
-	// pointing elsewhere - the joins that would merge them need the URL or the
-	// connection to match too. Arming by label would put "Confirm remove?" on
-	// both rows at once, and the reader's yes could land on the wrong one.
+	// Labels are unique only among declared entries: an external provider group (named in the native editor) can wear a
+	// declared entry's exact label while pointing elsewhere - the joins that would merge them need the URL or the
+	// connection to match too. Arming by label would put "Confirm remove?" on both rows at once, and the reader's yes
+	// could land on the wrong one.
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", baseUrl: "http://a.test" }),
 		makeExternalServer({ label: "Prod", baseUrl: "http://b.test", adoptHandle: "handle-prod" }),
@@ -432,12 +404,10 @@ test("arming Remove is keyed by row identity, so two rows sharing a label never 
 	expect(declaredRemove).toBeDefined();
 	fireClick(declaredRemove as HTMLButtonElement);
 
-	// Exactly one armed pair, and it sits on the row that asked.
 	expect(root.querySelectorAll(".server-actions.armed").length).toBe(1);
 	expect(items[0]?.querySelector(".server-actions.armed")).not.toBeNull();
 	expect(items[1]?.querySelector(".server-actions.armed")).toBeNull();
 
-	// The external twin arms independently after the declared row disarms.
 	fireClick(buttonByText(root, "Cancel"));
 	const externalRemove = removeIn(items[1] as Element);
 	expect(externalRemove).toBeDefined();
@@ -447,9 +417,8 @@ test("arming Remove is keyed by row identity, so two rows sharing a label never 
 });
 
 test("a Retry in flight busies only the asking row, even when another row wears the same label", () => {
-	// The same collision class as the armed Remove: the "Checking..." relabel
-	// and spinner must follow the row identity, not the display label - the
-	// fleet-wide disable is shared on purpose, the busy claim is not.
+	// The same collision class as the armed Remove: the "Checking..." relabel and spinner must follow the row identity,
+	// not the display label - the fleet-wide disable is shared on purpose, the busy claim is not.
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", baseUrl: "http://a.test", state: "error", error: "refused" }),
 		makeExternalServer({
@@ -467,8 +436,7 @@ test("a Retry in flight busies only the asking row, even when another row wears 
 	expect(declaredRetry).toBeDefined();
 	fireClick(declaredRetry as HTMLButtonElement);
 
-	// The asking row relabels; the same-labeled twin keeps "Retry" (disabled
-	// fleet-wide, because the sync command is).
+	// The asking row relabels; the same-labeled twin keeps "Retry" (disabled fleet-wide, because the sync command is).
 	expect(buttonsIn(items[0]).some((button) => button.textContent === "Checking...")).toBe(true);
 	expect(buttonsIn(items[1]).some((button) => button.textContent === "Checking...")).toBe(false);
 	const twinRetry = buttonsIn(items[1]).find((button) => button.textContent === "Retry");
@@ -482,22 +450,19 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	fireClick(buttonByText(root, "Add your first server"));
 	expect(root.querySelector(".form-card")).not.toBeNull();
 
-	// Invalid draft: Save posts nothing and names the first blocking problem.
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages).toEqual([]);
 	expect(root.textContent).toContain("Cannot save: fix Label");
 
-	// Valid draft: Save posts one saveServerSetting; its own ack closes the form.
 	fireInput(inputByLabel(root, "Label"), "Prod");
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages.length).toBe(1);
 	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
 	expect(saved.method).toBe("saveServerSetting");
-	// The entry-record fields ride every save, even empty: absent is
-	// reserved for payloads that predate their editors (the save carries the
-	// stored values forward for those instead of deleting them).
+	// The entry-record fields ride every save, even empty: absent is reserved for payloads that predate their editors
+	// (the save carries the stored values forward for those instead of deleting them).
 	expect(saved.payload.server).toEqual({
 		label: "Prod",
 		baseUrl: "http://localhost:4000",
@@ -510,7 +475,6 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 		mcp: null,
 	});
 
-	// An ack for some other intent must not close it.
 	pushToWebview({ kind: "ack", id: "someone-elses", method: "saveServerSetting" });
 	expect(root.querySelector(".form-card")).not.toBeNull();
 	pushToWebview({ kind: "ack", id: saved.id, method: "saveServerSetting" });
@@ -549,7 +513,6 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	expect(root.textContent).toContain("saved, but the group sync failed");
 });
 
-/** The API version mode select; the flat page has no fold around it to open. */
 function apiVersionControl(root: HTMLElement): { select: HTMLSelectElement } {
 	const select = root.querySelector<HTMLSelectElement>("#server-apiVersion-mode");
 	if (select === null) {
@@ -620,10 +583,9 @@ test("Custom with no text blocks Save with the version-segment problem, in view 
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages).toEqual([]);
 	expect(root.textContent).toContain("Cannot save: fix API version");
-	// The problem renders as the overlay covering the row's own hint column,
-	// reachable with no gesture at all: the page has nothing that can hide a
-	// field. The hint stays mounted under it, invisible, holding the cell's
-	// height (the covered-description mechanism).
+	// The hint stays mounted under it, invisible, holding the cell's height (the covered-description mechanism).
+	//
+	//   The problem -> renders as the overlay covering the row's own hint column, reachable with no gesture at all
 	expect(root.querySelector("#server-apiVersion-error .error")?.textContent).toBe("Enter the version segment, e.g. v2");
 	const coveredHint = root.querySelector("#server-apiVersion-error span:not(.error)");
 	expect(coveredHint?.classList.contains("invisible")).toBe(true);
@@ -634,20 +596,17 @@ test("Custom with no text blocks Save with the version-segment problem, in view 
 test("an entry's apiVersion prefills the matching mode", () => {
 	const secrets = provenSecrets();
 
-	// "" prefills None.
 	const noneRoot = mountShell([makeDeclaredServer({ label: "Bare", config: { secrets, apiVersion: "" } })]);
 	fireClick(buttonByText(noneRoot, "Edit"));
 	const none = apiVersionControl(noneRoot);
 	expect(none.select.value).toBe("none");
 
-	// Text prefills Custom with the input filled.
 	const customRoot = mountShell([makeDeclaredServer({ label: "V2", config: { secrets, apiVersion: "v2" } })]);
 	fireClick(buttonByText(customRoot, "Edit"));
 	const custom = apiVersionControl(customRoot);
 	expect(custom.select.value).toBe("custom");
 	expect(inputByLabel(customRoot, "Version segment").value).toBe("v2");
 
-	// Saving the prefilled entry round-trips the override unchanged.
 	resetPosted();
 	fireClick(buttonByText(customRoot, "Save"));
 	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
@@ -685,7 +644,6 @@ test("removing an external row is two-step and posts hideExternalServer with the
 	const external = makeExternalServer({ label: "Copilot", baseUrl: "http://copilot.example:4000" });
 	const root = mountSection([external]);
 
-	// Arm, then cancel: nothing posted.
 	fireClick(buttonByText(root, "Remove"));
 	expect(root.textContent).toContain("Confirm remove?");
 	fireClick(buttonByText(root, "Cancel"));
@@ -695,7 +653,6 @@ test("removing an external row is two-step and posts hideExternalServer with the
 	fireClick(buttonByText(root, "Confirm remove?"));
 	expect(postedMessages.length).toBe(1);
 	const posted = postedMessages[0] as RpcRequest<"hideExternalServer">;
-	// Exact key set: the intent names the group by its opaque handle and URL, nothing more.
 	expect(Object.keys(posted).sort()).toEqual(["id", "kind", "method", "payload"]);
 	expect(Object.keys(posted.payload).sort()).toEqual(["baseUrl", "sourceHandle"]);
 	expect(posted.method).toBe("hideExternalServer");
@@ -720,7 +677,6 @@ test("the hide ack raises the guidance notice naming the group, with the models-
 	fireClick(buttonByText(root, "Confirm remove?"));
 	const posted = postedMessages[0] as RpcRequest<"hideExternalServer">;
 
-	// A foreign ack does nothing; the intent's own ack raises the notice.
 	pushToWebview({ kind: "ack", id: "someone-elses", method: "hideExternalServer" });
 	expect(root.querySelector(".notice")).toBeNull();
 	pushToWebview({ kind: "ack", id: posted.id, method: "hideExternalServer" });
@@ -773,23 +729,22 @@ test("the hidden-groups line states the count, expands to rows, offers Unhide to
 	// The disclosure wears the page's rotating chevron: an aria-expanded control with no state mark was the
 	// page's one disclosure that looked like a plain button.
 	expect(line?.querySelector("button[aria-expanded] .disclosure-chevron")).not.toBeNull();
-	// Collapsed by default: no Unhide until shown.
 	expect(line?.textContent).not.toContain("Unhide");
 
 	fireClick(buttonByText(root, "Show 3 hidden groups"));
 	expect(buttonByText(root, "Hide")).not.toBeNull();
 	expect(line?.textContent).toContain("Old");
 	expect(line?.textContent).toContain("http://old.test");
-	// A superseded leftover states where its entry points now and offers no Unhide: the
-	// suppression lasts as long as the entry does, so a button could not lift it.
+	// A superseded leftover states where its entry points now and offers no Unhide: the suppression lasts as long as
+	// the entry does, so a button could not lift it.
 	const unhides = [...root.querySelectorAll("button")].filter((el) => el.textContent?.trim() === "Unhide");
 	expect(unhides.length).toBe(2);
 	const rows = [...(line?.querySelectorAll("li") ?? [])];
 	const moved = rows.find((el) => el.textContent?.includes("Moved"));
 	expect(moved?.textContent).toContain("the entry now points at http://moved.test");
 	expect(moved?.querySelector("button")).toBeNull();
-	// Every removed row says the group still exists in VS Code and carries the deletion routes:
-	// the models file always, plus the host editor when the sync named the group.
+	// Every removed row says the group still exists in VS Code and carries the deletion routes: the models file always,
+	// plus the host editor when the sync named the group.
 	const old = rows.find((el) => el.textContent?.includes("Old"));
 	expect(old?.textContent).toContain("VS Code still keeps this group");
 	expect([...(old?.querySelectorAll("button") ?? [])].map((el) => el.textContent?.trim())).toEqual([
@@ -807,19 +762,17 @@ test("the hidden-groups line states the count, expands to rows, offers Unhide to
 	expect(postedMessages.length).toBe(1);
 	const posted = postedMessages[0] as RpcRequest<"unhideServer">;
 	expect(posted.method).toBe("unhideServer");
-	// The identity is echoed verbatim from the first listed row.
 	expect(posted.payload.label).toBe("Old");
 	expect(posted.payload.baseUrl).toBe("http://old.test");
 	expect(typeof posted.id).toBe("string");
-	// The editor button posts the same identity; the models-file button is the shared command.
 	fireClick(buttonByText(root, "Manage Language Models"));
 	const manage = postedMessages[1] as RpcRequest<"manageHiddenGroup">;
 	expect(manage.method).toBe("manageHiddenGroup");
 	expect(manage.payload).toEqual({ label: "Old", baseUrl: "http://old.test" });
 	fireClick(buttonByText(root, "Open Models File"));
 	expect(postedCalls()[2]).toEqual({ method: "executeCommand", payload: { command: "openGroupsFile" } });
-	// An acked intent's failure is the section's to show: a host without the editor must not
-	// fail silently behind a button that looked like it worked.
+	// An acked intent's failure is the section's to show: a host without the editor must not fail silently behind a
+	// button that looked like it worked.
 	pushToWebview({
 		kind: "fail",
 		id: manage.id,
@@ -880,7 +833,6 @@ test("a declared row's drawer lists the entry's own records read-only; an entry 
 	expect(textOf(params, ".matcher-kind")).toBe("prefix match");
 	expect(textOf(params, ".chip-key")).toBe("temperature");
 	expect(textOf(params, ".chip-flag")).toBe("force");
-	// Read-only: chips are plain spans and no add or pencil affordance renders.
 	expect(params.querySelector("button.chip-field")).toBeNull();
 	expect(params.querySelector(".chip-add")).toBeNull();
 	expect(params.querySelector(".edit-cell")).toBeNull();
@@ -905,7 +857,6 @@ test("the drawer's records wear the inactive caveat, and only on the family the 
 	fireClick(root.querySelector("button.server-line") as HTMLElement);
 	const [params, caps] = [...root.querySelectorAll(".drawer-records h5")] as HTMLElement[];
 	expect(params?.textContent).toContain("may not be applied");
-	// The capabilities family is not noticed here, so its table stands as read.
 	expect(caps?.textContent).toBe("Model capabilities");
 });
 
@@ -928,7 +879,6 @@ test("an external row's drawer states the provenance classification, or the hone
 		makeExternalServer({ label: "Native", baseUrl: "http://c.test", adoptHandle: "handle-native" }),
 	]);
 
-	// The badge itself stays visible and tip-free on every row.
 	const badges = [...root.querySelectorAll("span[data-slot='badge']")].filter(
 		(el) => el.textContent?.trim() === "external"
 	);
@@ -983,8 +933,8 @@ test("a legacy row carries the badge and the Origin fact, and offers neither Edi
 });
 
 test("the drawer's Authentication fact keeps the three credential verdicts apart", () => {
-	// Pre-proof, "none" would be a guess (the fallback cannot read secret blobs),
-	// so the unknown row goes absent-with-reason instead of denying a key.
+	// Pre-proof, "none" would be a guess (the fallback cannot read secret blobs), so the unknown row goes
+	// absent-with-reason instead of denying a key.
 	const root = mountSection([
 		declaredWithSecrets({ apiKey: "secure" }, { label: "Keyed", baseUrl: "http://keyed.test" }),
 		makeDeclaredServer({ label: "Open", baseUrl: "http://open.test" }),
@@ -1015,8 +965,8 @@ test("the header's auth badge asserts presence only: shown when vouched for, bla
 });
 
 test("an external OAuth group's badge and Authentication fact both say OAuth, never API key", () => {
-	// The host's report carries the credential kind for external groups too; the
-	// row and the drawer read the same field, so the two surfaces cannot drift.
+	// The host's report carries the credential kind for external groups too; the row and the drawer read the same
+	// field, so the two surfaces cannot drift.
 	const root = mountSection([makeExternalServer({ hasOAuth: true })]);
 	const badges = [...root.querySelectorAll(".server-badges span[data-slot='badge']")].map((el) =>
 		el.textContent?.trim()
@@ -1030,10 +980,9 @@ test("an external OAuth group's badge and Authentication fact both say OAuth, ne
 });
 
 test("the drawer leads with the entry's whole label, through the fact pipeline, whatever the origin", () => {
-	// The collapsed header may ellipsize the label (a paint-only clip), so the drawer's first
-	// fact is where the full name is guaranteed readable; the .fact-name class carries the
-	// stylesheet's wrap-instead-of-clip rule. "Label" is the server form's own name for the
-	// field, read from the one vocabulary (serverFormFieldLabel).
+	// The collapsed header may ellipsize the label (a paint-only clip), so the drawer's first fact is where the full
+	// name is guaranteed readable; the .fact-name class carries the stylesheet's wrap-instead-of-clip rule. "Label" is
+	// the server form's own name for the field, read from the one vocabulary (serverFormFieldLabel).
 	const longLabel = "Dev Error (unreachable host used for connection diagnostics)";
 	const root = mountSection([
 		makeDeclaredServer({ label: longLabel }),
@@ -1048,7 +997,6 @@ test("the drawer leads with the entry's whole label, through the fact pipeline, 
 		[items[0], longLabel],
 		[items[1], "Native"],
 	] as const) {
-		// First fact of the inventory: identity leads.
 		const first = item?.querySelector(".server-facts dt");
 		expect(first?.textContent).toBe("Label");
 		expect(first?.nextElementSibling?.querySelector(".fact-name")?.textContent).toBe(label);
@@ -1057,7 +1005,6 @@ test("the drawer leads with the entry's whole label, through the fact pipeline, 
 
 test("the drawer's model count is a scope link only when the section is given onShowModels", () => {
 	// The link lives in the drawer: the row is one disclosure button and a button cannot contain a button.
-	// Direct mounts without the callback (and zero-count rows) keep the count as plain text.
 	const plain = mountSection([makeDeclaredServer({ label: "Prod", servedModelCount: 3 })]);
 	fireClick(plain.querySelector("button.server-line") as HTMLElement);
 	expect(plain.querySelector("button[aria-label='Show models from Prod']")).toBeNull();
@@ -1074,7 +1021,6 @@ test("the drawer's model count is a scope link only when the section is given on
 			onShowModels={(label) => labels.push(label)}
 		/>
 	);
-	// The collapsed row keeps the count as plain text either way.
 	expect(root.querySelector(".server-count .count-plain")?.textContent).toBe("3 models");
 	expect(root.querySelector("button[aria-label='Show models from Prod']")).toBeNull();
 	for (const line of root.querySelectorAll("button.server-line")) {
@@ -1119,7 +1065,6 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 	});
 	expect(typeof posted.id).toBe("string");
 
-	// In flight: the button goes busy, Save and Cancel stay live.
 	expect(buttonByText(root, "Testing...").disabled).toBe(true);
 	expect(buttonByText(root, "Save").disabled).toBe(false);
 	expect(buttonByText(root, "Discard changes").disabled).toBe(false);
@@ -1140,7 +1085,6 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 	});
 	expect(root.querySelector(".test-result")?.textContent).toBe("Connected - 3 models");
 	expect(root.textContent).not.toContain("Testing...");
-	// A pass never carries a troubleshooting link.
 	expect(root.querySelector(".test-hint")).toBeNull();
 	// The form stayed open throughout: the probe never doubles as a save.
 	expect(root.querySelector(".form-card")).not.toBeNull();
@@ -1173,7 +1117,6 @@ test("a failed test with a setup hint renders the troubleshooting link inside th
 	expect(anchor?.getAttribute("aria-label")).toBe("Troubleshoot: the server answered 404");
 	expect(anchor?.textContent).toContain("Troubleshoot");
 
-	// A classification without a setup hint renders no link line either.
 	resetPosted();
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
 	fireClick(buttonByText(root, "Test connection"));
@@ -1208,8 +1151,6 @@ test("classified refresh failures carry a Troubleshoot link on their own row; un
 		}),
 	]);
 
-	// One line per failing row, each naming its own server, with each link inside its own entry before the
-	// separator and a space kept between the error and the link label. A missing link fails this line loudly.
 	const lines = [...root.querySelectorAll(".row-diagnostic")];
 	expect(lines.length).toBe(3);
 	expect(lines[0]?.textContent).toContain("Prod");
@@ -1218,8 +1159,6 @@ test("classified refresh failures carry a Troubleshoot link on their own row; un
 	expect(lines[1]?.querySelector("a.docs-link")).toBeNull();
 	expect(lines[2]?.textContent).toContain("answered 404");
 
-	// Two classified failures, two links, each targeting the troubleshooting section matching its own setup-hint
-	// id, with an accessible label that LEADS with the visible verb (Label in Name).
 	const anchors = [...root.querySelectorAll<HTMLAnchorElement>(".row-diagnostic a.docs-link")];
 	expect(anchors.map((anchor) => anchor.getAttribute("href"))).toEqual([
 		SETUP_HINT_DOCS_URLS["proxy-not-running"],
@@ -1243,7 +1182,6 @@ test("without a classification a row's failure line is plain text, with no link"
 	expect(lines.length).toBe(2);
 	expect(lines[0]?.textContent).toContain("boom");
 	expect(lines[1]?.textContent).toContain("bang");
-	// No link, and no wrapper element, appears for an unclassified failure.
 	expect(root.querySelector(".row-diagnostic a.docs-link")).toBeNull();
 });
 
@@ -1261,11 +1199,9 @@ test("a hintless classification renders no troubleshooting link", () => {
 });
 
 test("a same-label swap under an open form does not re-vouch: the posted identity stays frozen", () => {
-	// The label is re-pointed while the form sits open (another window's edit
-	// arriving as a state push). The mounted form keeps its draft, and the
-	// identity it vouches for must stay frozen with it: a live identity would
-	// make the extension resolve the REPLACEMENT's credentials for a form
-	// still displaying the old entry.
+	// The label is re-pointed while the form sits open (another window's edit arriving as a state push). The mounted
+	// form keeps its draft, and the identity it vouches for must stay frozen with it: a live identity would make the
+	// extension resolve the REPLACEMENT's credentials for a form still displaying the old entry.
 	const request: ServerEditRequest = { kind: "edit", label: "Prod" };
 	const handlers = {
 		onDirtyChange: () => {},
@@ -1307,8 +1243,8 @@ test("a failed test renders its message inline and the result clears on any cred
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
 	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
-	// Editing an entry: the intent carries the displayed identity so "keep"
-	// resolution is refused if the entry changed underneath the form.
+	// Editing an entry: the intent carries the displayed identity so "keep" resolution is refused if the entry changed
+	// underneath the form.
 	expect(posted.payload.replace).toEqual({
 		label: "Prod",
 		baseUrl: "http://localhost:4000",
@@ -1324,9 +1260,7 @@ test("a failed test renders its message inline and the result clears on any cred
 	});
 	const result = root.querySelector(".test-result");
 	expect(result?.textContent).toContain("Network Error: unable to reach the server");
-	// Inline only: no section-level failure banner for the probe.
 	expect(root.querySelector(".banner-error")).toBeNull();
-	// A notice without a classification renders no troubleshooting link anywhere in the footer.
 	expect(root.querySelector(".test-hint")).toBeNull();
 	expect(root.querySelector(".form-card .toolbar a.docs-link")).toBeNull();
 
@@ -1335,7 +1269,6 @@ test("a failed test renders its message inline and the result clears on any cred
 	fireInput(inputByLabel(root, "Label"), "Prod renamed");
 	expect(root.querySelector(".test-result")).toBeNull();
 
-	// A credential edit invalidates a fresh result the same way.
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
 	const second = postedMessages[0] as RpcRequest<"testServerDraft">;
@@ -1349,7 +1282,6 @@ test("a failed test renders its message inline and the result clears on any cred
 	fireInput(inputByLabel(root, "API key"), "sk-new");
 	expect(root.querySelector(".test-result")).toBeNull();
 
-	// Same for the base URL, from a fresh PASS.
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
 	const third = postedMessages[0] as RpcRequest<"testServerDraft">;
@@ -1373,9 +1305,7 @@ test("an in-flight test is abandoned by a connection edit: the stale outcome is 
 	fireClick(buttonByText(root, "Test connection"));
 	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
-	// The edit returned the button to idle and dropped the pending requestId...
 	expect(root.textContent).not.toContain("Testing...");
-	// ...so the late outcome for the old draft paints nothing.
 	pushToWebview({
 		kind: "ack",
 		id: posted.id,
@@ -1429,8 +1359,6 @@ test("the edit form round-trips model capabilities and expected failures into th
 		}),
 	]);
 
-	// The entry already carries capabilities: the table summarizes them, the overlay renders the typed controls,
-	// and the expected-failure category is ticked in the form itself.
 	const overlay = openMatcherEditor(root, "my-model");
 	const prefixInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
 	expect(prefixInput?.value).toBe("my-model");
@@ -1449,7 +1377,6 @@ test("the edit form round-trips model capabilities and expected failures into th
 	);
 	expect(info?.querySelector("input")?.checked).toBe(false);
 
-	// An invalid token count blocks Save without posting anything.
 	if (numberInput === null) {
 		throw new Error("the capability rows did not render");
 	}
@@ -1458,7 +1385,6 @@ test("the edit form round-trips model capabilities and expected failures into th
 	expect(postedMessages).toEqual([]);
 	expect(root.textContent).toContain("Cannot save: fix Model capabilities");
 
-	// Fixed, plus ticking the second category: the save intent carries both.
 	fireInput(numberInput, "200000");
 	fireCheck(info?.querySelector("input") as HTMLInputElement, true);
 	fireClick(buttonByText(root, "Save"));
@@ -1471,8 +1397,8 @@ test("the edit form round-trips model capabilities and expected failures into th
 });
 
 test("an unknown capability key gets a JSON input and no hint without observed evidence; the save still posts", () => {
-	// The server never reported a /model/info key set: no evidence, so the
-	// live draft mirrors the host's advisory filter and stays silent.
+	// The server never reported a /model/info key set: no evidence, so the live draft mirrors the host's advisory
+	// filter and stays silent.
 	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Add capability matcher"));
 	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
@@ -1487,16 +1413,14 @@ test("an unknown capability key gets a JSON input and no hint without observed e
 	}
 	fireInput(prefixInput, "gpt-4");
 	fireInput(keyInput, "supports_web_search");
-	// An unknown key stays free-form JSON, not a checkbox (the open vocabulary
-	// carries any JSON value).
+	// An unknown key stays free-form JSON, not a checkbox (the open vocabulary carries any JSON value).
 	const valueInput = overlay.querySelector<HTMLInputElement>('input[placeholder="JSON value"]');
 	if (valueInput === null) {
 		throw new Error("the unknown-key value input did not render");
 	}
 	fireInput(valueInput, "true");
 	expect(root.textContent).not.toContain("is not a field this extension knows");
-	// Open fields take the fallback mark too: the resolver's _fallback accepts
-	// any field the record sets.
+	// Open fields take the fallback mark too: the resolver's _fallback accepts any field the record sets.
 	const fallbackBox = [...overlay.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
 		(input) => input.getAttribute("aria-label") === 'Fall back for "supports_web_search"'
 	);
@@ -1529,11 +1453,10 @@ test("an unknown capability key hints when the server's observed keys lack it, a
 	fireInput(valueInput, "true");
 	expect(root.textContent).toContain('"supports_web_search" is not a field this extension knows');
 	expect(root.textContent).toContain("applied as an override as-is");
-	// An observed key is real whatever the vocabulary says: switching the row
-	// onto one the server reported clears the hint.
+	// An observed key is real whatever the vocabulary says: switching the row onto one the server reported clears the
+	// hint.
 	fireInput(keyInput, "mode");
 	expect(root.textContent).not.toContain("is not a field this extension knows");
-	// The hint never blocks the save either way.
 	fireInput(keyInput, "supports_web_search");
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages.length).toBe(1);
@@ -1553,13 +1476,11 @@ test("a consumed capability key gets its typed input: costs a decimal number fie
 		throw new Error("the capability rows did not render");
 	}
 	fireInput(prefixInput, "gpt-4");
-	// A consumed boolean (supports_prompt_caching) renders the support-flag
-	// checkbox and seeds true, exactly like a core flag.
 	fireInput(keyInput, "supports_prompt_caching");
 	const flag = overlay.querySelector<HTMLInputElement>("label.capability-flag input");
 	expect(flag?.checked).toBe(true);
-	// A cost key renders a number input allowing zero and decimals. The "true" the flag key seeded does not fit
-	// a cost, so the row first keeps the raw input showing it; clearing it flips the row onto the typed control.
+	// The "true" the flag key seeded does not fit a cost, so the row first keeps the raw input showing it; clearing it
+	// flips the row onto the typed control.
 	fireInput(keyInput, "input_cost_per_token");
 	const carried = overlay.querySelector<HTMLInputElement>("input.value");
 	if (carried === null) {
@@ -1575,7 +1496,6 @@ test("a consumed capability key gets its typed input: costs a decimal number fie
 	expect(costInput.min).toBe("0");
 	fireInput(costInput, "0");
 	expect(root.textContent).not.toContain("this value is ignored");
-	// Consumed fields carry the fallback mark like any other set field.
 	expect(
 		[...overlay.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
 			(input) => input.getAttribute("aria-label") === 'Fall back for "input_cost_per_token"'
@@ -1647,7 +1567,6 @@ test("a preserved invalid consumed value keeps the raw JSON input instead of a t
 	expect(values.map((input) => input.value)).toEqual(['"free"', "1"]);
 	expect(overlay.querySelector("label.capability-flag")).toBeNull();
 	expect(root.textContent).toContain("this value is ignored");
-	// Fixing the cost flips the row back onto the typed number input.
 	const costInput = values[0];
 	if (costInput === undefined) {
 		throw new Error("the cost row did not render");
@@ -1729,8 +1648,6 @@ test("fallback checkbox: a support-flag row carries its own box beside the value
 	]);
 	const overlay = openMatcherEditor(root, "gpt-4");
 
-	// The row renders the boolean value control (label.capability-flag); the
-	// fallback mark is the separate .directive-flag box.
 	const valueBox = overlay.querySelector<HTMLInputElement>("label.capability-flag input");
 	expect(valueBox?.checked).toBe(true);
 	const fallbackBox = overlay.querySelector<HTMLInputElement>(".directive-flag input");
@@ -1758,12 +1675,10 @@ test("fallback checkbox: a hand-written _fallback true loads checked and saves u
 		}),
 	]);
 
-	// The chip badge and the popover checkbox both read the literal true.
 	fireClick(chipFor(root, "context_length"));
 	const box = root.querySelector<HTMLInputElement>(`.chip-popover input[aria-label='Fall back for "context_length"']`);
 	expect(box?.checked).toBe(true);
 
-	// Saving without touching the mark keeps the user's literal true.
 	fireClick(buttonByText(root, "Save"));
 	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
 	expect(saved.payload.server.modelCapabilities).toEqual({ "gpt-4": { context_length: 128000, _fallback: true } });
@@ -1790,18 +1705,14 @@ test("an expected failure serving declared models reads Connected, and states th
 	const line = root.querySelector(".row-diagnostic");
 	expect(line?.textContent).toContain("2 declared models");
 	expect(line?.textContent).toContain("Gateway");
-	// The entry declared this failure category and is serving through it, so
-	// nothing is wrong: quiet tier, and never the blocking one.
 	expect(line?.classList.contains("tier-advisory")).toBe(true);
 	expect(root.querySelector(".row-diagnostic.tier-error")).toBeNull();
-	// It still says what the server said, for the reader who wants the cause.
 	expect(line?.textContent).toContain("404 on /models");
 });
 
 test("an expected failure serving stale AND declared models headlines the served total, declared as qualifier", () => {
-	// The shared breakdown (servedModelsBreakdown) is the one count vocabulary:
-	// the headline must state the row's own served count, never just the
-	// declared subset beside a bigger number.
+	// The shared breakdown (servedModelsBreakdown) is the one count vocabulary: the headline must state the row's own
+	// served count, never just the declared subset beside a bigger number.
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Gateway",
@@ -1825,7 +1736,6 @@ test("an expected failure serving stale AND declared models headlines the served
 	expect(lines.some((text) => text.includes("Gateway serves 5 models, 2 declared"))).toBe(true);
 	// A single declared model beside stale ones stays the same two-count form.
 	expect(lines.some((text) => text.includes("Edge serves 3 models, 1 declared"))).toBe(true);
-	// The headline and the row's own count state the same number.
 	const counts = [...root.querySelectorAll(".server-count")].map((count) => count.textContent ?? "");
 	expect(counts.some((text) => text.includes("5 models"))).toBe(true);
 });
@@ -1874,8 +1784,8 @@ test("every model skipped by mode reads blocking, names the counts, and offers I
 	expect(actions).toContain("Include modes");
 	expect(actions).toContain("Retry");
 
-	// A group that joined by URL alone cannot be reached by an entry edit, so
-	// the one-click edit is withheld and the identity fix stands in its place.
+	// A group that joined by URL alone cannot be reached by an entry edit, so the one-click edit is withheld and the
+	// identity fix stands in its place.
 	const inactive = mountSection([
 		makeDeclaredServer({
 			label: "Gateway",
@@ -1896,7 +1806,6 @@ test("every model skipped by mode reads blocking, names the counts, and offers I
 });
 
 test("the include-modes checkboxes appear only with evidence, carry the skipped counts, and ride the save", () => {
-	// No listing ever dropped a model here: the control stays out of the form.
 	const silent = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 	expect(silent.querySelector('fieldset[aria-label="Include skipped modes"]')).toBeNull();
 
@@ -1912,8 +1821,8 @@ test("the include-modes checkboxes appear only with evidence, carry the skipped 
 	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
 	expect(saved.payload.server.includeModes).toEqual(["completion"]);
 
-	// A saved mode whose skips have since ended stays offered while the form is
-	// open: unchecking it must leave the box in place so the edit can be undone.
+	// A saved mode whose skips have since ended stays offered while the form is open: unchecking it must leave the box
+	// in place so the edit can be undone.
 	const retained = mountEditPage([
 		makeDeclaredServer({ label: "Prod", config: { secrets: provenSecrets(), includeModes: ["completion"] } }),
 	]);
@@ -1931,23 +1840,22 @@ test("an unserved model-info probe raises the quiet declare hint; the two-step c
 		makeDeclaredServer({ label: "Ollama", servedModelCount: 3, modelInfoUnsupported: "timeout" }),
 	]);
 
-	// The models serve and the configuration applies as written, so this is the
-	// quiet tier - and stays out of the needs-attention count.
+	// The models serve and the configuration applies as written, so this is the quiet tier - and stays out of the
+	// needs-attention count.
 	const line = root.querySelector(".row-diagnostic");
 	expect(line?.classList.contains("tier-advisory")).toBe(true);
 	expect(line?.textContent).toContain("model-info probe never answers");
 	expect(line?.textContent).toContain('"expectedFailures": ["modelInfo"]');
 	expect(root.textContent).not.toContain("needs attention");
 
-	// Arm, then cancel: nothing posted, the plain button returns.
 	fireClick(buttonByText(root, "Declare expected failure"));
 	expect(root.textContent).toContain("Confirm declaration?");
 	fireClick(buttonByText(root, "Cancel"));
 	expect(postedMessages).toEqual([]);
 	expect(root.textContent).not.toContain("Confirm declaration?");
 
-	// Arm and confirm: exactly one declareExpectedFailure naming the entry and
-	// the modelInfo category - the closed vocabulary, nothing free-typed.
+	// Arm and confirm: exactly one declareExpectedFailure naming the entry and the modelInfo category - the closed
+	// vocabulary, nothing free-typed.
 	fireClick(buttonByText(root, "Declare expected failure"));
 	fireClick(buttonByText(root, "Confirm declaration?"));
 	expect(postedMessages.length).toBe(1);
@@ -1955,8 +1863,8 @@ test("an unserved model-info probe raises the quiet declare hint; the two-step c
 	expect(posted.method).toBe("declareExpectedFailure");
 	expect(posted.payload).toEqual({ label: "Ollama", baseUrl: "http://localhost:4000", category: "modelInfo" });
 
-	// In flight the pair stays and states that it is working; Cancel refuses
-	// too, because the posted write cannot be cancelled - it only ever disarms.
+	// In flight the pair stays and states that it is working; Cancel refuses too, because the posted write cannot be
+	// cancelled - it only ever disarms.
 	expect(root.textContent).toContain("Declaring...");
 	expect(buttonByText(root, "Cancel").getAttribute("aria-disabled")).toBe("true");
 });
@@ -2098,8 +2006,8 @@ test("editing a capability row or an expected-failure checkbox clears a standing
 	fireClick(buttonByText(root, "Test connection"));
 	const probe = postedMessages.at(-1) as RpcRequest<"testServerDraft">;
 	expect(probe.method).toBe("testServerDraft");
-	// The in-flight state is visible; a capability edit abandons the probe,
-	// because its outcome (declared count, expected downgrade) depends on it.
+	// The in-flight state is visible; a capability edit abandons the probe, because its outcome (declared count,
+	// expected downgrade) depends on it.
 	expect(root.textContent).toContain("Testing...");
 	fireClick(buttonByText(root, "Add capability matcher"));
 	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
@@ -2113,7 +2021,6 @@ test("editing a capability row or an expected-failure checkbox clears a standing
 test("the save bar names where the entry lands and counts what is unsaved", () => {
 	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 
-	// A form that has not been touched has nothing to save and says nothing.
 	const bar = root.querySelector(".form-card .toolbar") as HTMLElement;
 	expect(bar.textContent).toContain("Saved to litellm-vscode-chat.servers");
 	expect(bar.querySelector(".unsaved-count")).toBeNull();
@@ -2123,9 +2030,8 @@ test("the save bar names where the entry lands and counts what is unsaved", () =
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
 	expect(root.querySelector(".unsaved-count")?.textContent).toBe("2 unsaved changes");
 
-	// The facts share ONE wrap-proof line (.commit-status): the count is the
-	// slot's own non-shrinking child (dashboard.css pins it flex-none), so a
-	// narrow pane's ellipsis clips only the standing saved-to fact beside it,
+	// The facts share ONE wrap-proof line (.commit-status): the count is the slot's own non-shrinking child
+	// (dashboard.css pins it flex-none), so a narrow pane's ellipsis clips only the standing saved-to fact beside it,
 	// and the slot's title carries the whole text for pointers.
 	const count = bar.querySelector(".unsaved-count") as HTMLElement;
 	const target = bar.querySelector(".save-target") as HTMLElement;
@@ -2135,8 +2041,8 @@ test("the save bar names where the entry lands and counts what is unsaved", () =
 	expect(count.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 	expect(slot.getAttribute("title")).toBe("2 unsaved changes - Saved to litellm-vscode-chat.servers");
 
-	// Typing a field back to what it was retires its count: the bar reports
-	// the difference from the entry, not the number of keystrokes.
+	// Typing a field back to what it was retires its count: the bar reports the difference from the entry, not the
+	// number of keystrokes.
 	fireInput(inputByLabel(root, "Label"), "Prod");
 	expect(root.querySelector(".unsaved-count")?.textContent).toBe("1 unsaved change");
 });
@@ -2163,17 +2069,14 @@ test("the record rows and the expected-failure checkboxes keep a programmatic gr
 test("every problem is in view without a gesture: the page holds no fold that could hide one", () => {
 	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 
-	// The entry is one scroll: no disclosure anywhere, so no problem can
-	// surface behind something the reader has to find and open first.
+	// The entry is one scroll: no disclosure anywhere, so no problem can surface behind something the reader has to
+	// find and open first.
 	expect(root.querySelectorAll(".form-card details").length).toBe(0);
 
-	// A header problem renders under its own row the moment it exists.
 	fireClick(buttonByText(root, "Add header"));
 	fireInput(root.querySelector("input[aria-label='Header name']") as HTMLInputElement, "bad name");
 	expect(root.textContent).toContain("Not a valid HTTP header name");
 
-	// So does a matcher problem raised in the overlay, which lands on the row
-	// the flat page shows in the Model parameters section.
 	fireClick(buttonByText(root, "Add model matcher"));
 	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
 	if (overlay === null) {
@@ -2186,7 +2089,6 @@ test("every problem is in view without a gesture: the page holds no fold that co
 	fireClick(buttonByText(overlay, "Done"));
 	expect(root.querySelector(".record-table .chip-field.invalid")).not.toBeNull();
 
-	// Save refuses and names the first offender; both problems are on screen.
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages).toEqual([]);
@@ -2199,8 +2101,8 @@ test("the form's transient slots are reserved: the error covers the hint, the co
 	// edit makes it speak, and every custom-header row carries its one status line whether or not it speaks.
 	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 
-	// The connection note's twin is mounted on the pristine edit form,
-	// invisible: the sentence reserves its own wrapped height at every width.
+	// The connection note's twin is mounted on the pristine edit form, invisible: the sentence reserves its own wrapped
+	// height at every width.
 	const note = () =>
 		[...root.querySelectorAll("p")].find((p) => (p.textContent ?? "").includes("keeps the old connection"));
 	expect(note()).not.toBeUndefined();
@@ -2210,18 +2112,18 @@ test("the form's transient slots are reserved: the error covers the hint, the co
 	fireInput(inputByLabel(root, "Base URL"), "not a url");
 	expect(note()?.classList.contains("invisible")).toBe(false);
 
-	// The URL problem is the overlay in the same cell the (empty) hint slot
-	// reserves; the id announces only the visible voice.
+	// The URL problem is the overlay in the same cell the (empty) hint slot reserves; the id announces only the visible
+	// voice.
 	const cell = root.querySelector("#server-baseUrl-error");
 	expect(cell?.querySelector(".error")?.textContent).toContain("Must be a usable http(s) URL");
 
-	// A rename outranks the note (the rename toast carries the remediation):
-	// the twin goes back to holding the box, not to unmounting.
+	// A rename outranks the note (the rename toast carries the remediation): the twin goes back to holding the box, not
+	// to unmounting.
 	fireInput(inputByLabel(root, "Label"), "Renamed");
 	expect(note()?.classList.contains("invisible")).toBe(true);
 
-	// Every header row's status line is the same mounted element in every state: speaking on the fresh
-	// (empty-name) row, empty but still holding its line once the name is valid, and speaking again when bad.
+	// Every header row's status line is the same mounted element in every state: speaking on the fresh (empty-name)
+	// row, empty but still holding its line once the name is valid, and speaking again when bad.
 	fireClick(buttonByText(root, "Add header"));
 	const headerRow = root.querySelector("#server-edit-page .row");
 	const status = headerRow?.querySelector(".row-status");
@@ -2249,17 +2151,12 @@ test("add matcher then cancel is a no-op: the pristine sweep leaves the form cle
 		throw new Error("Add model matcher did not open the overlay");
 	}
 	fireClick(buttonByText(overlay, "Done"));
-	// The pristine group is swept; nothing counts as a user edit, so Cancel
-	// closes directly instead of raising the discard confirm over a no-op.
 	expect(root.querySelector(".record-table")).toBeNull();
-	// Nothing was reported dirty, so the shell has nothing to ask about: the
-	// request to leave goes up unqualified.
 	expect(dirty).toEqual([]);
 	fireClick(buttonByText(root, "Discard changes"));
 	expect(closes).toHaveLength(1);
 });
 
-/** The entry form's capability key input inside the open matcher editor overlay, with its listbox options. */
 function capabilityKeyOptions(root: HTMLElement): string[] {
 	fireClick(buttonByText(root, "Add capability matcher"));
 	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
@@ -2291,16 +2188,14 @@ test("the entry form's capability key suggestions carry THAT server's observed v
 	expect(names).toContain("prod_only_key");
 	expect(names).toContain("mode");
 	expect(names).not.toContain("other_only_key");
-	// The composed order holds here too: consumed first, observed sorted
-	// after, directives last.
+	// The composed order holds here too: consumed first, observed sorted after, directives last.
 	expect(names[0]).toBe("context_length");
 	expect(names.slice(-2)).toEqual(["_fallback", "_openrouter_model"]);
 });
 
 test("an entry without an observed key set (the add form) keeps the static capability suggestions", () => {
 	const root = mountShell([makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["prod_only_key"] })]);
-	// The ADD form targets no server yet, so no vocabulary is borrowed - not
-	// even the one existing server's.
+	// The ADD form targets no server yet, so no vocabulary is borrowed - not even the one existing server's.
 	fireClick(buttonByText(root, "Add server"));
 	const names = capabilityKeyOptions(root);
 	expect(names).toContain("context_length");
@@ -2309,8 +2204,6 @@ test("an entry without an observed key set (the add form) keeps the static capab
 });
 
 test("the entry table's compact [+] add popover draws on the same entry-scoped vocabulary as the overlay", () => {
-	// The two entry surfaces for a capability key - the table's [+] chip and
-	// the full editor's rows - must share one list.
 	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
@@ -2344,13 +2237,11 @@ test("a nested overlay hears Esc alone: it closes, the form beneath survives and
 		}),
 	]);
 	const overlay = openMatcherEditor(root, "gpt-4");
-	// One dialog, over a page: the destination is not a panel, so the overlay
-	// is the only slide-over on screen.
+	// One dialog, over a page: the destination is not a panel, so the overlay is the only slide-over on screen.
 	expect(root.querySelectorAll(".slide-over")).toHaveLength(1);
 
 	fireKeyDown(overlay.querySelector("input") as HTMLElement, "Escape");
 
-	// Only the inner one goes; the page beneath is still open and still holds focus.
 	expect(root.querySelector(".matcher-editor")).toBeNull();
 	expect(root.querySelectorAll(".slide-over")).toHaveLength(0);
 	const form = root.querySelector(".server-form") as HTMLElement;
@@ -2358,7 +2249,6 @@ test("a nested overlay hears Esc alone: it closes, the form beneath survives and
 });
 
 test("Retry says it is working, and only its own ack releases it - no push, of any age, does", () => {
-	// Only the sync's own ack releases the button; no push does, whatever check time it carries.
 	// Fixed instants, not offsets from now: two calls to a now-relative helper differ by the ms between them.
 	const BEFORE = Date.now() - 10 * 60_000;
 	const AFTER = Date.now() - 60_000;
@@ -2389,12 +2279,10 @@ test("Retry says it is working, and only its own ack releases it - no push, of a
 	expect(busyRegions.length).toBe(1);
 	expect(busyRegions[0]?.textContent).toContain("Prod");
 	expect(busyRegions[0]?.querySelector("button")).toBeNull();
-	// A second click while it is in flight posts nothing.
 	resetPosted();
 	fireClick(pending);
 	expect(postedCalls()).toEqual([]);
 
-	// The reconciliation push, carrying the same check time.
 	pushToWebview(statePush(makeState({ servers: [failing(BEFORE)] })));
 	expect(buttonByText(root, "Checking...").getAttribute("aria-disabled")).toBe("true");
 
@@ -2408,7 +2296,6 @@ test("Retry says it is working, and only its own ack releases it - no push, of a
 	pushToWebview({ kind: "ack", id: `${syncId}-other`, method: "syncModels" });
 	expect(buttonByText(root, "Checking...").getAttribute("aria-disabled")).toBe("true");
 
-	// Only the ack for this row's own request releases it.
 	pushToWebview({ kind: "ack", id: syncId, method: "syncModels" });
 	expect(buttonByText(root, "Retry").getAttribute("aria-disabled")).toBe("false");
 });
@@ -2452,7 +2339,6 @@ test("a fleet-wide sync disables every row's Retry, not just the one clicked", (
 	expect(retries().length).toBe(2);
 
 	fireClick(retries()[0] as HTMLButtonElement);
-	// Only the row that asked SAYS it is checking; both refuse a click.
 	expect(retries().map((b) => b.textContent?.trim())).toEqual(["Checking...", "Retry"]);
 	expect(retries().every((b) => b.getAttribute("aria-disabled") === "true")).toBe(true);
 	resetPosted();
@@ -2471,7 +2357,6 @@ test("pressing Retry keeps the reader's focus on the button", () => {
 	button.focus();
 	expect(document.activeElement).toBe(button);
 	fireClick(button);
-	// Same node, new wording - not a replacement.
 	expect(document.activeElement).toBe(button);
 	expect(button.textContent?.trim()).toBe("Checking...");
 });
@@ -2506,7 +2391,5 @@ test("the list carries one polite live region, so a sync's outcome is announced"
 		)
 	);
 	expect(region.textContent).toContain("All servers are healthy");
-	// And the header meta stays free of an attention clause when there is
-	// nothing to report.
 	expect(root.querySelector(".section-meta")?.textContent).not.toContain("needs attention");
 });

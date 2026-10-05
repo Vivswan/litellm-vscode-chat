@@ -13,18 +13,13 @@ import { manageCommandTitle } from "../../../shared/config/commandIds";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
-// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
 const SEED = resolveFuzzSeed();
 
 /**
- * Property suite for provider/errorMapping. Mapped messages are user-facing and feed the
- * issue-report buffer that opens public GitHub issues, so mapSdkError must be total
- * (always an Error, never a throw) and a 401 must map to one of the two fixed
- * classification strings, never to response-derived text.
- *
- * authMessage and UPSTREAM_AUTH_MESSAGE are not exported, so the expected strings are
- * mirrored here; the authMessage mirror is built lazily from the same
- * manageCommandTitle() helper, after any l10n configuration.
+ * Mapped messages are user-facing and feed the issue-report buffer that opens public GitHub issues, so mapSdkError must
+ * be total (always an Error, never a throw) and a 401 must map to one of the two fixed classification strings, never to
+ * response-derived text. authMessage and UPSTREAM_AUTH_MESSAGE are not exported, so the expected strings are mirrored
+ * here; the authMessage mirror is built lazily from the same manageCommandTitle() helper, after any l10n configuration.
  */
 function authMessage(): string {
 	return `Authentication failed: Your LiteLLM server requires an API key. Please run the "${manageCommandTitle()}" command to configure your API key.`;
@@ -34,8 +29,7 @@ const UPSTREAM_AUTH_MESSAGE =
 	"Authentication failed upstream: the LiteLLM server accepted your key but could not authenticate to the model's upstream provider. Fix that provider's credentials on the LiteLLM server.";
 
 const ctxArb: fc.Arbitrary<MapErrorContext> = fc.record({
-	// Derived from the copy table's keys, so a new surface row joins every
-	// property here without touching this file.
+	// Derived from the copy table's keys, so a new surface row joins every property here without touching this file.
 	surface: fc.constantFrom(...TRANSPORT_ERROR_SURFACES),
 	baseUrl: fc.constantFrom("http://litellm.test", "https://proxy.internal:4000/v1", "http://localhost:4000/"),
 	timeoutMs: fc.integer({ min: 1, max: 3_600_000 }),
@@ -46,9 +40,9 @@ function auth401(body: unknown): AuthenticationError {
 }
 
 /**
- * How a surface joins headline and detail, DERIVED from twoPartTexts itself
- * rather than listed here: the copy table owns that choice per surface, and a
- * list in this file would silently assert the wrong thing the day a surface is added.
+ * How a surface joins headline and detail, DERIVED from twoPartTexts itself rather than listed here: the copy table
+ * owns that choice per surface, and a list in this file would silently assert the wrong thing the day a surface is
+ * added.
  */
 function joinDetail(surface: MapErrorContext["surface"], headline: string, detail: string): string {
 	if (detail === "") {
@@ -73,9 +67,8 @@ const litellmMentionArb = fc.constantFrom(
 );
 
 /** Upstream-provider failures: a litellm exception name in the top-level message, no auth_error envelope. */
-// The nested-body expectations lean on the openai SDK assigning the parsed body
-// to APIError.error verbatim; if the SDK ever unwraps error.error, the nested
-// cases' expected classifications invert.
+// The nested-body expectations lean on the openai SDK assigning the parsed body to APIError.error verbatim; if the SDK
+// ever unwraps error.error, the nested cases' expected classifications invert.
 const upstreamCaseArb: fc.Arbitrary<Auth401Case> = fc
 	.record({
 		marker: markerArb,
@@ -194,17 +187,14 @@ suite("provider/errorMapping properties", () => {
 					assert.strictEqual(mapped.kind, status === 401 ? "auth" : "http");
 					assert.notStrictEqual(mapped.kind, "network", "a status-bearing error must never classify as network");
 					if (status === 404) {
-						// 404 carries per-surface guidance; what is invariant here is that the
-						// base-URL advice is claimed for discovery ALONE - on every other
-						// surface a 404 usually means the model went away, so
-						// "check the base URL" would be wrong advice for a healthy server.
+						// 404 carries per-surface guidance; what is invariant here is that the base-URL advice is
+						// claimed for discovery ALONE - on every other surface a 404 usually means the model went away,
+						// so "check the base URL" would be wrong advice for a healthy server.
 						assert.strictEqual(mapped.setupHint, ctx.surface === "discovery" ? "check-base-url" : undefined);
 						assert.strictEqual(mapped.logClassification, `RequestError(http, status 404, ${ctx.surface})`);
 					} else if (status !== 401) {
-						// Two-part shape: a headline, then one compact detail line keeping
-						// the status greppable, never a re-serialized envelope. Which join
-						// a surface uses is the copy table's own choice, so it is derived
-						// rather than listed (see joinDetail).
+						// Two-part shape: a headline, then one compact detail line keeping the status greppable, never
+						// a re-serialized envelope.
 						const lines = mapped.message.split("\n");
 						let detail: string;
 						if (joinDetail(ctx.surface, "H", "D") === "H\n\nDetails: D") {
@@ -231,12 +221,9 @@ suite("provider/errorMapping properties", () => {
 	});
 
 	test("every twoPartTexts product keeps the display/English pairing byte-faithful", () => {
-		// Pinned against the naive join: the English mirror is the SAME join
-		// applied to the English headline and the SAME detail, on every surface,
-		// with an empty detail rendering the headline alone. The newline-flattened
-		// surfaces (chat's error block, the commit notification) get the "Details:"
-		// lead-in, which localizes, so the display leg holds under the test host's
-		// English fallback; the englishMessage leg is locale-independent.
+		// The newline-flattened surfaces (chat's error block, the commit notification) get the "Details:" lead-in,
+		// which localizes, so the display leg holds under the test host's English fallback; the englishMessage leg is
+		// locale-independent.
 		fc.assert(
 			fc.property(
 				fc.constantFrom(...TRANSPORT_ERROR_SURFACES),
@@ -262,9 +249,8 @@ suite("provider/errorMapping properties", () => {
 				assert.strictEqual(timedOut.status, undefined);
 				assert.strictEqual(timedOut.message, timeoutMessage(ctx));
 				assert.ok(timedOut.message.includes(`${ctx.timeoutMs}ms`));
-				// Per-surface setting advice: the FIM bound is fixed in code, so
-				// the completion surface names no setting; commit generation runs
-				// under chat.timeout like chat itself.
+				// Per-surface setting advice: the FIM bound is fixed in code, so the completion surface names no
+				// setting; commit generation runs under chat.timeout like chat itself.
 				if (ctx.surface === "completion") {
 					assert.ok(!timedOut.message.includes("setting"), timedOut.message);
 				} else {
@@ -274,8 +260,8 @@ suite("provider/errorMapping properties", () => {
 					);
 				}
 
-				// This layer maps SDK aborts to kind "aborted"; converting a
-				// cancellation to vscode.CancellationError is the caller's concern.
+				// This layer maps SDK aborts to kind "aborted"; converting a cancellation to vscode.CancellationError
+				// is the caller's concern.
 				const aborted = mapSdkError(new APIUserAbortError(), ctx);
 				assert.ok(aborted instanceof RequestError, `expected RequestError, got ${aborted.name}`);
 				assert.strictEqual(aborted.kind, "aborted");

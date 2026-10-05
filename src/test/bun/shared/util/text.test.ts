@@ -9,32 +9,53 @@ import {
 	truncationMarker,
 } from "../../../../shared/util/text";
 
-// Drift pins for the consolidated text helpers: these cases are ported from
-// the consumers' suites (commitGen's fence edge cases, fim's surrogate
-// boundaries), so the shared module cannot drift from the semantics the
-// consumers shipped with.
+// Drift pins for the consolidated text helpers: these cases are ported from the consumers' suites (commitGen's fence
+// edge cases, fim's surrogate boundaries), so the shared module cannot drift from the semantics the consumers shipped
+// with.
 
 describe("shared/util/text stripMarkdownFences", () => {
-	test("removes a fence pair, language tag included", () => {
-		assert.strictEqual(stripMarkdownFences("```\nfeat: x\n```"), "feat: x");
-		assert.strictEqual(stripMarkdownFences("```text\nfeat: x\n\nbody line\n```\n"), "feat: x\n\nbody line");
-	});
-
-	test("removes a lone opening fence", () => {
-		assert.strictEqual(stripMarkdownFences("```\nfeat: x"), "feat: x");
-	});
-
-	test("leaves unfenced text and interior fences alone", () => {
-		assert.strictEqual(stripMarkdownFences("feat: x"), "feat: x");
-		const interior = "feat: x\n\nadds a ```code``` sample";
-		assert.strictEqual(stripMarkdownFences(interior), interior);
-	});
-
-	test("trims surrounding whitespace, and an all-fence reply strips to the empty string", () => {
-		assert.strictEqual(stripMarkdownFences("  feat: x \n"), "feat: x");
-		assert.strictEqual(stripMarkdownFences("```\n```"), "");
-		assert.strictEqual(stripMarkdownFences(""), "");
-	});
+	const cases: readonly { readonly name: string; readonly reply: string; readonly expected: string }[] = [
+		{ name: "a fence pair", reply: "```\nfeat: x\n```", expected: "feat: x" },
+		{
+			name: "a tagged pair with a body",
+			reply: "```text\nfeat: x\n\nbody line\n```\n",
+			expected: "feat: x\n\nbody line",
+		},
+		{ name: "a lone opener costs its own line", reply: "```\nfeat: x", expected: "feat: x" },
+		{ name: "unfenced text", reply: "feat: x", expected: "feat: x" },
+		{
+			name: "interior inline fences",
+			reply: "feat: x\n\nadds a ```code``` sample",
+			expected: "feat: x\n\nadds a ```code``` sample",
+		},
+		{ name: "surrounding whitespace", reply: "  feat: x \n", expected: "feat: x" },
+		{ name: "an all-fence reply", reply: "```\n```", expected: "" },
+		{ name: "the empty reply", reply: "", expected: "" },
+		// The model fenced the subject and went on in prose: both of the block's fences are furniture. Judging each
+		// end alone left this closer in the message written to the SCM box.
+		{
+			name: "a fenced subject followed by prose",
+			reply: "```\nfeat: add thing\n```\n\nThis commit adds a thing.",
+			expected: "feat: add thing\n\nThis commit adds a thing.",
+		},
+		// A longer pair must strip to nothing; a three-backtick match left a stray backtick here.
+		{ name: "a longer all-fence reply", reply: "````\n````", expected: "" },
+		{
+			name: "a four-backtick wrapper around a three-backtick block",
+			reply: "````\nfeat: x\n\n```ts\ncode\n```\n````",
+			expected: "feat: x\n\n```ts\ncode\n```",
+		},
+		{
+			name: "a lone opener before a nested block keeps that block's closer",
+			reply: "```\nfeat: x\n\n```ts\ncode\n```",
+			expected: "feat: x\n\n```ts\ncode\n```",
+		},
+	];
+	for (const { name, reply, expected } of cases) {
+		test(name, () => {
+			assert.strictEqual(stripMarkdownFences(reply), expected);
+		});
+	}
 });
 
 describe("shared/util/text truncateKeepingTail", () => {
@@ -50,8 +71,6 @@ describe("shared/util/text truncateKeepingTail", () => {
 	});
 
 	test("a cut landing inside a surrogate pair drops the severed low half", () => {
-		// The cut severs an emoji, leaving its low surrogate at the head; the
-		// lone unit is dropped rather than sent.
 		const text = `${"\u{1F600}".repeat(4)}b`; // 9 units
 		const cut = truncateKeepingTail(text, 8);
 		assert.strictEqual(cut.length, 7);
@@ -89,7 +108,6 @@ describe("shared/util/text truncateKeepingHead", () => {
 	});
 
 	test("a cut landing inside a surrogate pair drops the severed high half", () => {
-		// The mirror rule: the cut leaves a high surrogate at the tail.
 		const text = `c${"\u{1F600}".repeat(4)}`; // 9 units
 		const cut = truncateKeepingHead(text, 8);
 		assert.strictEqual(cut.length, 7);

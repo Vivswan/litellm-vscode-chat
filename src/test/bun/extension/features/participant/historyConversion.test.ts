@@ -75,8 +75,8 @@ describe("extension/features/participant historyMessages", () => {
 	});
 
 	test("the mirrors accept the host's real history type at compile time", () => {
-		// Type-only pin: vscode.ChatContext["history"] must stay assignable to the
-		// structural mirrors, so a host shape change fails typecheck, not runtime.
+		// Type-only pin: vscode.ChatContext["history"] must stay assignable to the structural mirrors, so a host shape
+		// change fails typecheck, not runtime.
 		const accepts = (history: vscode.ChatContext["history"]): readonly HistoryTurn[] => history;
 		expect(accepts([])).toEqual([]);
 	});

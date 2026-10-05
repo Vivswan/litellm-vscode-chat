@@ -1,8 +1,3 @@
-/**
- * The models list's interactive layer: sorting (key, direction, absent values
- * last), the windowed rendering past the row threshold with its spacer
- * arithmetic including one open row's measured detail, and the copy-ID action.
- */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import type { DashboardModel } from "../../../../dashboard/viewModels";
@@ -35,17 +30,16 @@ function firstColumn(root: ParentNode): string[] {
 }
 
 test("the sort control picks the key and the toggle picks the direction, and both announce the state", () => {
-	// The rows carry no column headers to click, so sorting moved onto the
-	// section header line. aria-sort went with the headers; the announcement is
-	// now the labelled control's own value plus the toggle's pressed state.
+	// aria-sort went with the headers; the announcement is now the labelled control's own value plus the toggle's
+	// pressed state.
 	const models = [
 		makeModel({ id: "b", name: "Bravo", maxInputTokens: 200 }),
 		makeModel({ id: "c", name: "Charlie", maxInputTokens: 100 }),
 		makeModel({ id: "a", name: "Alpha", maxInputTokens: 300 }),
 	];
 	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={1} onInspect={() => {}} />);
-	// Unsorted is a real choice - the order the servers reported - so it is a
-	// value of the control, and there is no direction to flip while it holds.
+	// Unsorted is a real choice - the order the servers reported - so it is a value of the control, and there is no
+	// direction to flip while it holds.
 	expect(sortSelect(root).value).toBe("discovered");
 	expect(sortDirection(root).disabled).toBe(true);
 	expect(firstColumn(root)).toEqual(["Bravo", "Charlie", "Alpha"]);
@@ -59,13 +53,11 @@ test("the sort control picks the key and the toggle picks the direction, and bot
 	expect(firstColumn(root)).toEqual(["Charlie", "Bravo", "Alpha"]);
 	expect(sortDirection(root).getAttribute("aria-pressed")).toBe("true");
 
-	// A new key starts ascending again rather than inheriting the old direction.
 	fireSelect(sortSelect(root), "input");
 	expect(firstColumn(root)).toEqual(["Charlie", "Bravo", "Alpha"]);
 	expect(sortSelect(root).value).toBe("input");
 	expect(sortDirection(root).getAttribute("aria-pressed")).toBe("false");
 
-	// And the reader can get back to the reported order.
 	fireSelect(sortSelect(root), "discovered");
 	expect(firstColumn(root)).toEqual(["Bravo", "Charlie", "Alpha"]);
 	expect(sortDirection(root).disabled).toBe(true);
@@ -107,8 +99,8 @@ test("past the threshold the table windows: spacers stand in for off-screen rows
 	const rendered = firstColumn(root);
 	expect(rendered.length).toBeLessThan(200);
 	expect(rendered[0]).toBe("Model 000");
-	// Only the trailing spacer at the top of the list; spacers are layout
-	// filler and stay out of the accessibility tree.
+	// Only the trailing spacer at the top of the list; spacers are layout filler and stay out of the accessibility
+	// tree.
 	expect(root.querySelectorAll("li.spacer").length).toBe(1);
 	expect(root.querySelector("li.spacer")?.getAttribute("role")).toBe("presentation");
 
@@ -118,8 +110,6 @@ test("past the threshold the table windows: spacers stand in for off-screen rows
 	expect(scrolled).toContain("Model 100");
 	expect(root.querySelectorAll("li.spacer").length).toBe(2);
 
-	// The boundary: scrolled to the very end, the last row renders and only
-	// the leading spacer remains.
 	scrollTo(container, ROW * 200);
 	const atEnd = firstColumn(root);
 	expect(atEnd[atEnd.length - 1]).toBe("Model 199");
@@ -134,15 +124,12 @@ test("sorting while scrolled deep re-fills the window from the new order without
 	scrollTo(container, ROW * 150);
 	expect(firstColumn(root)).toContain("Model 150");
 
-	// Descending by name: the window at the same scroll offset now shows the
-	// reversed order's slice, still fully in range with both spacers.
 	fireSelect(sortSelect(root), "name");
 	fireClick(sortDirection(root));
 	const rows = firstColumn(root);
 	expect(rows.length).toBeGreaterThan(0);
 	const sortedDesc = [...rows].sort().reverse();
 	expect(rows).toEqual(sortedDesc);
-	// scrollTop 150 rows down a 200-row list: the window sits mid-list, spacers on both sides.
 	expect(root.querySelectorAll("li.spacer").length).toBe(2);
 	expect(rows).toContain("Model 059"); // 200 - 1 - 140 = 59: the descending row near index 140
 });
@@ -168,9 +155,8 @@ test("under the threshold every row renders with no scrollport", () => {
 });
 
 test("one row past the threshold windows, with or without the server on the rows", () => {
-	// 51 rows is one past the 50-row threshold; with the 50-row full-render test
-	// above this pins the boundary exactly. Neither side of serverCount > 1
-	// changes it - the rows have no column count left to shear.
+	// 51 rows is one past the 50-row threshold; with the 50-row full-render test above this pins the boundary exactly.
+	// Neither side of serverCount > 1 changes it - the rows have no column count left to shear.
 	for (const serverCount of [1, 2]) {
 		const root = mount(
 			<ModelsSection currencySymbol="$" models={manyModels(51)} serverCount={serverCount} onInspect={() => {}} />
@@ -182,9 +168,8 @@ test("one row past the threshold windows, with or without the server on the rows
 });
 
 test("a row is a disclosure plus its two controls, and the Inspect action is not hover-revealed", () => {
-	// The two readable lines ARE the disclosure, so they must be one button and
-	// the row's other controls must sit outside it: a button cannot contain a
-	// button, and nesting them would make the copy action unreachable.
+	// The two readable lines ARE the disclosure, so they must be one button and the row's other controls must sit
+	// outside it: a button cannot contain a button, and nesting them would make the copy action unreachable.
 	const root = mount(
 		<ModelsSection
 			currencySymbol="$"
@@ -198,33 +183,25 @@ test("a row is a disclosure plus its two controls, and the Inspect action is not
 	expect(disclosure.querySelectorAll("button").length).toBe(0);
 	expect(disclosure.getAttribute("aria-expanded")).toBe("false");
 
-	// A row that opens has to LOOK like one. The mark is inside the disclosure
-	// and decorative, since the button already carries aria-expanded.
+	// The mark is inside the disclosure and decorative, since the button already carries aria-expanded.
 	const chevron = disclosure.querySelector(".model-chevron") as HTMLElement;
 	expect(chevron).not.toBeNull();
 	expect(chevron.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
 	expect(row.classList.contains("is-open")).toBe(false);
 	fireClick(disclosure);
-	// The open state is a class the stylesheet turns the mark with, not a
-	// second icon that could disagree with aria-expanded.
+	// The open state is a class the stylesheet turns the mark with, not a second icon that could disagree with
+	// aria-expanded.
 	expect(row.classList.contains("is-open")).toBe(true);
 	expect(disclosure.getAttribute("aria-expanded")).toBe("true");
 	fireClick(disclosure);
 
-	// The name renders inside the ellipsis-capped span the stylesheet trims;
-	// the full text stays in the DOM.
 	expect(disclosure.querySelector(".model-name-text")?.textContent).toBe("Omni");
 
-	// Copy and Inspect are the row's only other controls, both outside the
-	// disclosure and both present at rest.
 	const actions = row.querySelector(".model-row-actions") as HTMLElement;
 	expect(actions.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']")).not.toBeNull();
 	expect(actions.querySelectorAll("button.params-action").length).toBe(1);
 	expect(row.querySelectorAll("button").length).toBe(3);
 
-	// The Inspect action is the inspector's only entry point: it stays a
-	// direct child of the actions cell, outside the reveal wrapper, and
-	// carries no reveal state of its own - it must read at rest.
 	const params = row.querySelector("button.params-action") as HTMLElement;
 	expect(params.parentElement).toBe(actions);
 	expect(params.classList.contains("opacity-0")).toBe(false);
@@ -238,20 +215,16 @@ test("one row opens at a time, and its detail is wired to the disclosure that op
 	fireClick(disclosure(0));
 	expect(rows()[0]?.querySelector(".model-detail")).not.toBeNull();
 	expect(disclosure(0).getAttribute("aria-expanded")).toBe("true");
-	// aria-controls names the detail it opened, so the relationship survives
-	// for a reader who cannot see the row grow.
+	// aria-controls names the detail it opened, so the relationship survives for a reader who cannot see the row grow.
 	const detailId = (root.querySelector("li.model-row .model-detail") as HTMLElement).id;
 	expect(detailId).not.toBe("");
 	expect(disclosure(0).getAttribute("aria-controls")).toBe(detailId);
 
-	// Opening another closes the first: one at a time, and the page never
-	// navigates to show it.
 	fireClick(disclosure(1));
 	expect(rows()[0]?.querySelector(".model-detail")).toBeNull();
 	expect(rows()[1]?.querySelector(".model-detail")).not.toBeNull();
 	expect(root.querySelectorAll(".model-detail").length).toBe(1);
 
-	// And it closes itself.
 	fireClick(disclosure(1));
 	expect(root.querySelectorAll(".model-detail").length).toBe(0);
 	expect(disclosure(1).getAttribute("aria-expanded")).toBe("false");
@@ -259,9 +232,6 @@ test("one row opens at a time, and its detail is wired to the disclosure that op
 });
 
 test("the open row is remembered by identity, so sorting does not move the detail to another model", () => {
-	// The open row is held by row id, not by index. An index would follow the
-	// position through a re-sort and leave the detail hanging under whichever
-	// model landed there.
 	const models = [
 		makeModel({ id: "b", name: "Bravo" }),
 		makeModel({ id: "c", name: "Charlie" }),
@@ -276,21 +246,17 @@ test("the open row is remembered by identity, so sorting does not move the detai
 
 	fireSelect(sortSelect(root), "name");
 	expect(firstColumn(root)).toEqual(["Alpha", "Bravo", "Charlie"]);
-	// Bravo moved from first to second and its detail went with it.
 	expect(openRowName()).toBe("Bravo");
 	expect(root.querySelectorAll(".model-detail").length).toBe(1);
 
-	// Filtered away entirely, the detail simply is not rendered - and nothing
-	// else inherits it.
 	fireInput(root.querySelector("input[aria-label='Filter models']") as HTMLInputElement, "Alpha");
 	expect(firstColumn(root)).toEqual(["Alpha"]);
 	expect(root.querySelectorAll(".model-detail").length).toBe(0);
 });
 
 /**
- * happy-dom performs no layout, so every offsetHeight is 0 and the component's
- * measurement path is dead (`delta` always zero). Stubbing the two boxes it
- * measures is the only way the assertions below can fail.
+ * happy-dom performs no layout, so every offsetHeight is 0 and the component's measurement path is dead (`delta` always
+ * zero). Stubbing the two boxes it measures is the only way the assertions below can fail.
  */
 function withMeasuredLayout(rowHeight: number, detailHeight: number, run: () => void): void {
 	const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
@@ -317,7 +283,6 @@ function withMeasuredLayout(rowHeight: number, detailHeight: number, run: () => 
 	}
 }
 
-/** Spacers plus rendered rows, as the DOM claims them. */
 function claimedHeight(root: ParentNode, rowHeight: number, detailHeight: number): number {
 	const spacers = Array.from(root.querySelectorAll("li.spacer")).reduce(
 		(total, spacer) => total + Number.parseInt((spacer as HTMLElement).style.height, 10),
@@ -329,9 +294,8 @@ function claimedHeight(root: ParentNode, rowHeight: number, detailHeight: number
 }
 
 test("the open row's measured detail is accounted for at every scroll position, in the window or out of it", () => {
-	// The one row allowed to break the uniform grid. A height missing from
-	// whichever spacer stands in for it makes the list claim less height than it
-	// has, and every row below the open one jumps as it scrolls out.
+	// A height missing from whichever spacer stands in for it makes the list claim less height than it has, and every
+	// row below the open one jumps as it scrolls out.
 	const DETAIL = 120;
 	withMeasuredLayout(ROW, DETAIL, () => {
 		const root = mount(
@@ -340,20 +304,15 @@ test("the open row's measured detail is accounted for at every scroll position, 
 		const container = root.querySelector(".table-scroll") as HTMLElement;
 		const total = () => claimedHeight(root, ROW, DETAIL);
 
-		// Closed, the list is exactly its rows.
 		expect(total()).toBe(200 * ROW);
 
 		fireClick(root.querySelectorAll("button.model-disclosure")[3] as HTMLElement);
-		// Open, it is its rows plus the one measured detail - and stays that way
-		// whether the open row is rendered, above the window, or below it.
 		expect(total()).toBe(200 * ROW + DETAIL);
 		for (const top of [0, ROW * 2, ROW * 3 + 1, ROW * 3 + DETAIL, ROW * 40, ROW * 150, ROW * 200 + DETAIL]) {
 			scrollTo(container, top);
 			expect(total()).toBe(200 * ROW + DETAIL);
 		}
 
-		// Scrolled far enough that the open row is above the window, the leading
-		// spacer is the one carrying it: whole rows plus the detail.
 		scrollTo(container, ROW * 150);
 		expect(root.querySelector(".model-detail")).toBeNull();
 		const rendered = firstColumn(root);
@@ -362,7 +321,6 @@ test("the open row's measured detail is accounted for at every scroll position, 
 		const leading = (root.querySelector("li.spacer") as HTMLElement).style.height;
 		expect(leading).toBe(`${start * ROW + DETAIL}px`);
 
-		// Closing it takes the detail back out of the spacer arithmetic.
 		scrollTo(container, 0);
 		fireClick(root.querySelectorAll("button.model-disclosure")[3] as HTMLElement);
 		expect(total()).toBe(200 * ROW);
@@ -370,9 +328,8 @@ test("the open row's measured detail is accounted for at every scroll position, 
 });
 
 test("a detail that resizes while it is scrolled out of the window is re-measured when it comes back", () => {
-	// Scrolling far enough unmounts the detail and scrolling back mounts a fresh
-	// element; a measurement bound to the first would freeze the height at what
-	// it was when the row left, putting every row below at the wrong offset.
+	// Scrolling far enough unmounts the detail and scrolling back mounts a fresh element; a measurement bound to the
+	// first would freeze the height at what it was when the row left, putting every row below at the wrong offset.
 	let detailHeight = 100;
 	const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
 	Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
@@ -392,8 +349,7 @@ test("a detail that resizes while it is scrolled out of the window is re-measure
 		fireClick(root.querySelectorAll("button.model-disclosure")[2] as HTMLElement);
 		expect(claimedHeight(root, ROW, detailHeight)).toBe(200 * ROW + 100);
 
-		// Out of the window, then taller (the pane reflowed and its field grid
-		// rewrapped), then back.
+		// Out of the window, then taller (the pane reflowed and its field grid rewrapped), then back.
 		scrollTo(container, ROW * 150);
 		expect(root.querySelector(".model-detail")).toBeNull();
 		detailHeight = 260;
@@ -420,9 +376,8 @@ test("a detail that resizes while it is scrolled out of the window is re-measure
 });
 
 test("two provider groups sharing a label keep separate rows: opening one does not open the other", () => {
-	// Labels are not identities - two groups may share one - so a row identity
-	// built from the label alone would collide here and open (or flash the copy
-	// check on) the wrong row.
+	// Labels are not identities - two groups may share one - so a row identity built from the label alone would collide
+	// here and open (or flash the copy check on) the wrong row.
 	const models = [
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Shared", scopeKey: "s1" }),
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Shared", scopeKey: "s2" }),
@@ -435,6 +390,25 @@ test("two provider groups sharing a label keep separate rows: opening one does n
 	expect(rows[1]?.querySelector(".model-detail")).not.toBeNull();
 	expect(rows[0]?.querySelector(".model-detail")).toBeNull();
 	expect(rows[0]?.querySelector("button.model-disclosure")?.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("a label and a model ID that concatenate alike keep separate rows: open and copy flash hit the clicked row", () => {
+	const models = [
+		makeModel({ id: "openai/gpt-4", name: "First", serverLabel: "prod", scopeKey: "s1" }),
+		makeModel({ id: "gpt-4", name: "Second", serverLabel: "prod/openai", scopeKey: "s1" }),
+	];
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={2} onInspect={() => {}} />);
+	const rows = Array.from(root.querySelectorAll("li.model-row"));
+	expect(rows.length).toBe(2);
+
+	fireClick(rows[1]?.querySelector("button.model-disclosure") as HTMLElement);
+	expect(rows[1]?.querySelector(".model-detail")).not.toBeNull();
+	expect(rows[0]?.querySelector(".model-detail")).toBeNull();
+
+	const copyButton = (row: Element | undefined) => row?.querySelector(".model-row-actions button") as HTMLButtonElement;
+	const iconPath = (row: Element | undefined) => copyButton(row).querySelector("svg path")?.getAttribute("d") ?? "";
+	fireClick(copyButton(rows[1]));
+	expect(iconPath(rows[0])).not.toBe(iconPath(rows[1]));
 });
 
 test("the row's copy action writes the model ID to the clipboard and flashes a check", async () => {
@@ -462,10 +436,9 @@ test("the row's copy action writes the model ID to the clipboard and flashes a c
 });
 
 test("one raw model ID on two servers renders two rows with distinct accessible names, and the copy flash hits only the clicked row", () => {
-	// The same model registered through two groups is two rows; the aria-label
-	// carries the server so the two copy buttons stay distinguishable, and the
-	// check-mark feedback is keyed by server AND id, so the sibling row's
-	// button stays a copy icon.
+	// The same model registered through two groups is two rows; the aria-label carries the server so the two copy
+	// buttons stay distinguishable, and the check-mark feedback is keyed by server AND id, so the sibling row's button
+	// stays a copy icon.
 	const models = [
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Prod" }),
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Staging" }),
@@ -482,15 +455,15 @@ test("one raw model ID on two servers renders two rows with distinct accessible 
 });
 
 test("the windowed scrollport publishes its own page offset, re-measured, so its height is never guessed", () => {
-	// The stylesheet caps this scrollport from a custom property rather than a
-	// guess at the chrome above it; this pins the half JavaScript owns.
+	// The stylesheet caps this scrollport from a custom property rather than a guess at the chrome above it; this pins
+	// the half JavaScript owns.
 	const root = mount(<ModelsSection currencySymbol="$" models={manyModels(60)} serverCount={1} onInspect={() => {}} />);
 	const scrollport = root.querySelector(".table-scroll.windowed") as HTMLElement;
 	expect(scrollport).not.toBeNull();
 
-	// happy-dom reports every rect as zero - the same shape an unrendered element
-	// has, and panels stay mounted while hidden - so a zero box means "no answer
-	// yet"; publishing it would cap the scrollport at nearly the whole viewport.
+	// happy-dom reports every rect as zero - the same shape an unrendered element has, and panels stay mounted while
+	// hidden - so a zero box means "no answer yet"; publishing it would cap the scrollport at nearly the whole
+	// viewport.
 	expect(scrollport.style.getPropertyValue("--models-scroll-top")).toBe("");
 
 	const scrollYDescriptor = Object.getOwnPropertyDescriptor(window, "scrollY");
@@ -499,13 +472,12 @@ test("the windowed scrollport publishes its own page offset, re-measured, so its
 		Object.defineProperty(window, "scrollY", { value: 22, configurable: true });
 		window.dispatchEvent(new Event("resize"));
 
-		// 90 + 22: adding the scroll offset back names the same distance at every
-		// scroll position. A viewport-relative top would shrink as the page
-		// scrolls, raising the cap and climbing on every republish.
+		// 90 + 22: adding the scroll offset back names the same distance at every scroll position. A viewport-relative
+		// top would shrink as the page scrolls, raising the cap and climbing on every republish.
 		expect(scrollport.style.getPropertyValue("--models-scroll-top")).toBe("112px");
 
-		// And it keeps following: the chrome above this element reflows at the
-		// container breakpoints, so a value measured once would go stale.
+		// And it keeps following: the chrome above this element reflows at the container breakpoints, so a value
+		// measured once would go stale.
 		scrollport.getBoundingClientRect = () => ({ top: 40, width: 800, height: 500 }) as DOMRect;
 		window.dispatchEvent(new Event("resize"));
 		expect(scrollport.style.getPropertyValue("--models-scroll-top")).toBe("62px");

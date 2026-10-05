@@ -1,7 +1,4 @@
-/**
- * executeDashboardIntent: the setting intents, adoptServer, and hidden
- * groups. The servers-setting intents have their own suite file.
- */
+/** The servers-setting intents have their own suite file. */
 import * as assert from "node:assert";
 import type { RequestPayload } from "../../../dashboard/endpoints";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
@@ -73,7 +70,6 @@ suite("extension/dashboard/intents", () => {
 				["litellm.openSettingKey", "chat.timeout"],
 				["litellm.openSettingKey", "models.parameters"],
 			]);
-			// A jump reads; it must never write or sync anything.
 			assert.deepStrictEqual(recorded.updates, []);
 			assert.deepStrictEqual(recorded.removals, []);
 			assert.strictEqual(recorded.syncRequests, 0);
@@ -236,20 +232,18 @@ suite("extension/dashboard/intents", () => {
 			);
 			assert.deepStrictEqual(recorded.updates, []);
 
-			// A languages patch writes trimmed and deduplicated, keeping the
-			// stored (here: default) block mode.
+			// A languages patch writes trimmed and deduplicated, keeping the stored (here: default) block mode.
 			await executeDashboardIntent(
 				{ method: "setLanguageFilter", payload: { languages: [" typescript ", "python", "typescript"] } },
 				recorded.env
 			);
-			// A mode patch keeps the JUST-WRITTEN languages: the merge reads
-			// landed writes, never a caller's stale snapshot.
+			// A mode patch keeps the JUST-WRITTEN languages: the merge reads landed writes, never a caller's stale
+			// snapshot.
 			await executeDashboardIntent({ method: "setLanguageFilter", payload: { mode: "allow" } }, recorded.env);
-			// Allow mode with the empty list is a real configuration (completions
-			// run nowhere), so it writes rather than resets.
+			// Allow mode with the empty list is a real configuration (completions run nowhere), so it writes rather
+			// than resets.
 			await executeDashboardIntent({ method: "setLanguageFilter", payload: { languages: [] } }, recorded.env);
-			// Block mode with the empty list IS the default, so patching the mode
-			// back resets the setting.
+			// Block mode with the empty list IS the default, so patching the mode back resets the setting.
 			await executeDashboardIntent({ method: "setLanguageFilter", payload: { mode: "block" } }, recorded.env);
 
 			assert.deepStrictEqual(recorded.updates, [
@@ -308,9 +302,8 @@ suite("extension/dashboard/intents", () => {
 					{
 						label: "Adopted",
 						baseUrl: "http://ext.test",
-						// The NESTED auth shape the sync engine parses, secure-routed
-						// values omitted: a flat credential field would sync
-						// credential-less and escape the no-secrets export's strip.
+						// The NESTED auth shape the sync engine parses, secure-routed values omitted: a flat credential
+						// field would sync credential-less and escape the no-secrets export's strip.
 						auth: {
 							oauth: {
 								tokenUrl: "https://idp.test/token",
@@ -349,9 +342,8 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("the adopted entry is parser-accepted and its group args carry every copied credential", async () => {
-			// The healing guarantee by construction: what adopt writes is already
-			// the shape the sync engine parses, so the entry serves its
-			// credentials immediately, no activation-time restructure needed.
+			// The healing guarantee by construction: what adopt writes is already the shape the sync engine parses, so
+			// the entry serves its credentials immediately, no activation-time restructure needed.
 			const recorded = makeEnv([]);
 			recorded.adoptionCredentials = FULL_CREDENTIALS;
 
@@ -373,9 +365,8 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("a no-secrets strip of a fully inlined adopted entry certifies and removes every credential", async () => {
-			// The export-hole closure: with every secret routed to settings, the
-			// adopted entry holds them all inline - and the no-secrets export's
-			// strip must reach every one, which only the nested auth shape allows.
+			// The export-hole closure: with every secret routed to settings, the adopted entry holds them all inline -
+			// and the no-secrets export's strip must reach every one, which only the nested auth shape allows.
 			const recorded = makeEnv([]);
 			recorded.adoptionCredentials = FULL_CREDENTIALS;
 
@@ -412,8 +403,8 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("refuses a label collision with a parser-rejected raw entry too", async () => {
-			// Adoption always appends; a rejected entry still occupies its label,
-			// so appending beside it would land two entries under one label.
+			// Adoption always appends; a rejected entry still occupies its label, so appending beside it would land two
+			// entries under one label.
 			const recorded = makeEnv([{ label: "Adopted", baseUrl: "http://other.test", auth: {} }]);
 			recorded.adoptionCredentials = FULL_CREDENTIALS;
 
@@ -474,9 +465,8 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("a stale secure blob under the new label is cleared, never inherited", async () => {
-			// serverSync keeps a removed entry's blob on purpose, but an adoption
-			// under that label asked for the GROUP's secrets, so leftovers from
-			// neither the group nor the user must not resolve for the new entry.
+			// serverSync keeps a removed entry's blob on purpose, but an adoption under that label asked for the
+			// GROUP's secrets, so leftovers from neither the group nor the user must not resolve for the new entry.
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Adopted", { apiKey: "sk-stale", virtualKeyValue: "vk-stale" });
 			recorded.adoptionCredentials = { apiKey: "sk-live" };
@@ -528,8 +518,7 @@ suite("extension/dashboard/intents", () => {
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Adopted", { virtualKeyValue: "vk-stale" });
 			recorded.adoptionCredentials = { apiKey: "sk-live" };
-			// The stale clear (an unstore) fails once; the rollback's own
-			// unstore of the copied apiKey then succeeds.
+			// The stale clear (an unstore) fails once; the rollback's own unstore of the copied apiKey then succeeds.
 			recorded.failUnstoreTimes = 1;
 
 			await assert.rejects(
@@ -550,8 +539,8 @@ suite("extension/dashboard/intents", () => {
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Adopted", { apiKey: "sk-stale" });
 			recorded.failUnstoreTimes = 1;
-			// adoptionCredentials stays unset: nothing to copy, but the stale
-			// blob still must not resolve for the would-be entry.
+			// adoptionCredentials stays unset: nothing to copy, but the stale blob still must not resolve for the
+			// would-be entry.
 
 			await assert.rejects(
 				() => adopt(recorded),
@@ -566,8 +555,7 @@ suite("extension/dashboard/intents", () => {
 			const recorded = makeEnv([]);
 			recorded.adoptionCredentials = { apiKey: "sk-live" };
 			recorded.failWrites = new Error("settings store unavailable");
-			// The rollback deletes the copied secret (a store of undefined),
-			// which this knob rejects.
+			// The rollback deletes the copied secret (a store of undefined), which this knob rejects.
 			recorded.failUnstore = new Error("keychain locked");
 
 			await assert.rejects(
@@ -663,8 +651,8 @@ suite("extension/dashboard/intents", () => {
 			);
 			assert.deepStrictEqual(recorded.manageOpens, ["Old"]);
 
-			// A stale or forged identity opens nothing: the search string handed to
-			// the host is always a tombstone's own name.
+			// A stale or forged identity opens nothing: the search string handed to the host is always a tombstone's
+			// own name.
 			await assert.rejects(
 				executeDashboardIntent(
 					{ method: "manageHiddenGroup", payload: { label: "Old", baseUrl: "http://elsewhere.test" } },

@@ -1,7 +1,6 @@
 /**
- * Shared fixtures for the serverSync suites: an in-memory SecretStore and a
- * recording ServerSyncEnv whose group operations and removal events the suites
- * inspect.
+ * Shared fixtures for the serverSync suites: an in-memory SecretStore and a recording ServerSyncEnv whose group
+ * operations and removal events the suites inspect.
  */
 import type {
 	DeclaredGroupIdentity,
@@ -78,8 +77,8 @@ export function makeSyncEnv(setting: unknown = [], secrets: Record<string, Store
 			}),
 			confirmFingerprintsDurable: async () => recorded.saltDurable,
 			addProviderGroup: async (args) => {
-				// The name check comes first, as on the host: a taken name is refused
-				// before anything else about the add is considered.
+				// The name check comes first, as on the host: a taken name is refused before anything else about the
+				// add is considered.
 				if (recorded.duplicateLabels.has(args.name ?? "")) {
 					throw new Error(`Language model group with name ${args.name} already exists for vendor litellm`);
 				}

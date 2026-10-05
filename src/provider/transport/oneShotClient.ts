@@ -81,34 +81,6 @@ export interface OneShotCallOptions {
 }
 
 /**
- * Consumers that let the body outlive the call hold this scope in their bridge closures, which also keeps both signals
- * strongly reachable for the body's lifetime - AbortSignal.any's source tracking has been weak in some runtimes
- * (nodejs/node#57736), and the whole-call bound must not be collectable while a body is outstanding.
- */
-interface CallScope {
-	readonly requestSignal: AbortSignal;
-	readonly timeoutSignal: AbortSignal;
-	readonly abort: () => void;
-}
-
-/**
- * Keep user cancellation aborting an in-flight response whose body outlives the call: postJson's own call-scoped
- * bridge dies in its finally, so a consumer handing the body outward (sendJson) arms this second bridge. It disposes
- * itself when the combined signal fires - the whole-call timeout always does - so nothing dangles past the call's hard
- * bound, and its closures hold `scope` (see CallScope) for the body's lifetime.
- */
-function armOutlivingCancelBridge(scope: CallScope, token: vscode.CancellationToken): void {
-	const bridge = token.onCancellationRequested(() => scope.abort());
-	if (scope.requestSignal.aborted) {
-		// An already-aborted signal never fires "abort" again (a token cancelled synchronously during registration
-		// lands here), so the bridge would linger on the token's emitter; dispose it on the spot instead.
-		bridge.dispose();
-		return;
-	}
-	scope.requestSignal.addEventListener("abort", () => bridge.dispose(), { once: true });
-}
-
-/**
  * The reply text of a non-streaming chat completion, leniently: anything not shaped as choices[0].message.content
  * reads as an empty answer rather than an error, so a malformed 200 body never rides into an error message.
  */
@@ -144,24 +116,6 @@ export class OneShotClient {
 		this.fetch = options.fetch ?? nodeHttpFetch;
 	}
 
-	/**
-	 * The returned body stays armed with the whole-call timeout signal, and user cancellation keeps aborting the
-	 * in-flight response for as long as that bound runs, so an unconsumed or stalled body is always reclaimed; failures
-	 * while the CALLER reads the body surface raw and are that caller's to map.
-	 */
-	async sendJson(
-		url: string,
-		body: string,
-		connection: OneShotConnection,
-		surface: TransportErrorSurface,
-		opts: OneShotCallOptions
-	): Promise<Response> {
-		return this.postJson(url, body, connection, surface, opts, async (response, scope) => {
-			armOutlivingCancelBridge(scope, opts.token);
-			return response;
-		});
-	}
-
 	async completeChatOnce(
 		connection: OneShotConnection,
 		request: OneShotChatRequest,
@@ -175,10 +129,7 @@ export class OneShotClient {
 			stream: false,
 			...(request.maxTokens !== undefined ? { max_tokens: request.maxTokens } : {}),
 		});
-		const payload = await this.postJson(url, body, connection, surface, opts, (response, scope) =>
-			this.readBodyText(response, scope.requestSignal)
-		);
-		return oneShotContentOf(payload);
+		return oneShotContentOf(await this.postJson(url, body, connection, surface, opts));
 	}
 
 	/**
@@ -198,9 +149,7 @@ export class OneShotClient {
 			max_tokens: request.maxTokens,
 			stream: false,
 		});
-		const payload = await this.postJson(url, body, connection, "completion", opts, (response, scope) =>
-			this.readBodyText(response, scope.requestSignal)
-		);
+		const payload = await this.postJson(url, body, connection, "completion", opts);
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(payload);
@@ -270,26 +219,22 @@ export class OneShotClient {
 	}
 
 	/**
-	 * The shared HTTP core of every one-shot call: header composition through the shared overlay, the whole-call
-	 * timeout, and the one error pipeline (mapSdkError via the SDK's own error factory). `consume` runs INSIDE the
-	 * pipeline with the vetted Response and the call's abort scope, so a body read there fails exactly like the fetch
-	 * itself would; each caller owns its lenient parse of what consume returns.
+	 * The shared HTTP core of every one-shot call, one error pipeline (mapSdkError via the SDK's own error factory)
+	 * for the fetch and the body read alike; each caller owns its lenient parse of the returned body text.
 	 */
-	private async postJson<T>(
+	private async postJson(
 		url: string,
 		body: string,
 		connection: OneShotConnection,
 		surface: TransportErrorSurface,
-		opts: OneShotCallOptions,
-		consume: (response: Response, scope: CallScope) => Promise<T>
-	): Promise<T> {
+		opts: OneShotCallOptions
+	): Promise<string> {
 		// User cancellation must abort the in-flight request, not just abandon the await, so the token is bridged onto
 		// an AbortController combined with the whole-call timeout (the chatClient.send pattern).
 		const cancelController = new AbortController();
 		const cancelListener = opts.token.onCancellationRequested(() => cancelController.abort());
 		const timeoutSignal = AbortSignal.timeout(opts.timeout.ms);
 		const requestSignal = AbortSignal.any([cancelController.signal, timeoutSignal]);
-		const scope: CallScope = { requestSignal, timeoutSignal, abort: () => cancelController.abort() };
 		const errorContext: MapErrorContext = { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeout.ms };
 		let auth: AuthOverlayScope | undefined;
 
@@ -336,7 +281,7 @@ export class OneShotClient {
 				const recoveredText = envelope === undefined && payload !== "" ? payload : undefined;
 				throw APIError.generate(response.status, envelope, recoveredText, response.headers);
 			}
-			return await consume(response, scope);
+			return await this.readBodyText(response, requestSignal);
 		} catch (err) {
 			if (opts.token.isCancellationRequested) {
 				throw new vscode.CancellationError();

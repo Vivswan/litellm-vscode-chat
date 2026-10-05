@@ -1,8 +1,3 @@
-/**
- * The models list's filter semantics, pinned exhaustively: AND across
- * dimensions, OR within family/server/price, AND within capabilities, and the
- * text filter as one more AND on top.
- */
 import { describe, expect, test } from "bun:test";
 import type { CapabilityFilterKey, ModelFilter, PriceFilterKey } from "../../../dashboard/modelFilters";
 import {
@@ -48,8 +43,6 @@ function capabilityFilter(keys: readonly CapabilityFilterKey[]): ModelFilter {
 
 describe("capability pills", () => {
 	test("compose AND, exhaustively: a model matches iff it has every selected capability", () => {
-		// All 16 filter subsets against all 16 capability combinations: the
-		// verdict is subset inclusion, nothing else.
 		for (const selected of capabilitySubsets()) {
 			const filter = capabilityFilter(selected);
 			for (const owned of capabilitySubsets()) {
@@ -78,14 +71,13 @@ describe("family pills", () => {
 
 describe("server pills", () => {
 	test("key on scopeKey, never on label: two servers sharing a label stay two filters", () => {
-		// The label is NOT an identity - two provider groups can carry the same
-		// label - so a label-keyed pill would silently merge them.
+		// The label is NOT an identity - two provider groups can carry the same label - so a label-keyed pill would
+		// silently merge them.
 		const a = makeModel({ id: "m-a", scopeKey: "s1", serverLabel: "prod" });
 		const b = makeModel({ id: "m-b", scopeKey: "s2", serverLabel: "prod" });
 		const filter = toggleServer(EMPTY_MODEL_FILTER, "s1", "prod");
 		expect(matchesFilter(a, filter)).toBe(true);
 		expect(matchesFilter(b, filter)).toBe(false);
-		// OR within the dimension: both selected admits both.
 		const both = toggleServer(filter, "s2", "prod");
 		expect(matchesFilter(a, both)).toBe(true);
 		expect(matchesFilter(b, both)).toBe(true);
@@ -99,8 +91,7 @@ describe("price pills", () => {
 		expect(isPriced(makeModel({ outputCost: 2 }))).toBe(true);
 		// A user-written 0 prices as genuinely free, which is a price.
 		expect(isPriced(makeModel({ inputCost: 0, outputCost: 0 }))).toBe(true);
-		// Cache-only costs do not make a model "priced": the row prints no
-		// price when both headline costs are absent.
+		// Cache-only costs do not make a model "priced": the row prints no price when both headline costs are absent.
 		expect(isPriced(makeModel({ cacheReadCost: 0.1 }))).toBe(false);
 	});
 
@@ -136,13 +127,10 @@ describe("composition across dimensions", () => {
 			makeModel({ id: "gpt-mini", name: "Mini", family: "gpt", serverLabel: "Prod", toolCalling: false }),
 		];
 		const tools = toggleCapability(EMPTY_MODEL_FILTER, "toolCalling");
-		// Text alone reaches all four row strings.
 		expect(filterModels(models, EMPTY_MODEL_FILTER, "  OMNI ").map((m) => m.id)).toEqual(["gpt-4o"]);
 		expect(filterModels(models, EMPTY_MODEL_FILTER, "claude-s").map((m) => m.id)).toEqual(["claude-s"]);
 		expect(filterModels(models, EMPTY_MODEL_FILTER, "prod").length).toBe(3);
-		// Pills and text intersect: family "gpt" via text, tools via pill.
 		expect(filterModels(models, tools, "gpt").map((m) => m.id)).toEqual(["gpt-4o"]);
-		// An empty (or blank) query is no condition at all.
 		expect(filterModels(models, tools, "   ").length).toBe(2);
 	});
 });
@@ -161,7 +149,6 @@ describe("filter state", () => {
 			"f"
 		);
 		expect(isFilterActive(undone)).toBe(false);
-		// EMPTY_MODEL_FILTER stayed empty through it all.
 		expect(isFilterActive(EMPTY_MODEL_FILTER)).toBe(false);
 		expect(EMPTY_MODEL_FILTER.families.size).toBe(0);
 		expect(EMPTY_MODEL_FILTER.servers.size).toBe(0);
@@ -170,8 +157,6 @@ describe("filter state", () => {
 
 describe("offered pills", () => {
 	test("a dimension's pills render only where the list disagrees on it", () => {
-		// One family, one server, all unpriced, uniform capabilities: nothing to
-		// narrow, so nothing is offered.
 		const uniform = [makeModel({ id: "a" }), makeModel({ id: "b" })];
 		const none = modelFilterOptions(uniform, EMPTY_MODEL_FILTER);
 		expect(none.families).toEqual([]);
@@ -184,8 +169,8 @@ describe("offered pills", () => {
 			makeModel({ id: "b", family: "claude", scopeKey: "s2", serverLabel: "A-server", toolCalling: false }),
 		];
 		const options = modelFilterOptions(mixed, EMPTY_MODEL_FILTER);
-		// Families and servers alphabetical; prices priced-then-unknown;
-		// capabilities in the flags' fixed order, only the contested ones.
+		// Families and servers alphabetical; prices priced-then-unknown; capabilities in the flags' fixed order, only
+		// the contested ones.
 		expect(options.families).toEqual(["claude", "gpt"]);
 		expect(options.servers).toEqual([
 			{ scopeKey: "s2", label: "A-server", display: "A-server" },
@@ -202,9 +187,8 @@ describe("offered pills", () => {
 			makeModel({ id: "c", scopeKey: "s3", serverLabel: "staging" }),
 		];
 		const options = modelFilterOptions(models, EMPTY_MODEL_FILTER);
-		// Identity stays the scopeKey and the RAW label stays the label; the
-		// ordinal lives only in the display string, so nothing numbered leaks
-		// into filter state. A label without a collision carries no number.
+		// Identity stays the scopeKey and the RAW label stays the label; the ordinal lives only in the display string,
+		// so nothing numbered leaks into filter state.
 		expect(options.servers).toEqual([
 			{ scopeKey: "s1", label: "prod", display: "prod (1)" },
 			{ scopeKey: "s2", label: "prod", display: "prod (2)" },
@@ -213,9 +197,8 @@ describe("offered pills", () => {
 	});
 
 	test("numbering never round-trips: an orphaned selection cannot collide with a live pill's display", () => {
-		// Three groups labelled "prod": the user presses the one shown first, then
-		// its server leaves. The orphaned selection re-enters from filter state,
-		// which stored the RAW label, so all three still get DISTINCT ordinals;
+		// Three groups labelled "prod": the user presses the one shown first, then its server leaves. The orphaned
+		// selection re-enters from filter state, which stored the RAW label, so all three still get DISTINCT ordinals;
 		// storing the displayed "prod (1)" would put two pills reading "prod (1)"
 		// side by side, one pressed and one not.
 		const all = [
@@ -235,7 +218,6 @@ describe("offered pills", () => {
 		const displays = after.servers.map((server) => server.display);
 		expect(new Set(displays).size).toBe(displays.length);
 		expect(after.servers.every((server) => server.label === "prod")).toBe(true);
-		// The pressed pill is still among the options, still clearable.
 		expect(after.servers.some((server) => server.scopeKey === pressed.scopeKey)).toBe(true);
 	});
 
@@ -246,9 +228,8 @@ describe("offered pills", () => {
 			prices: new Set<PriceFilterKey>(["unpriced"]),
 			capabilities: new Set<CapabilityFilterKey>(["imageInput"]),
 		};
-		// The remaining list is uniform AND disjoint from every selection. The
-		// selections stay offered so they stay clearable, and their presence
-		// activates the dimension, so the list's own value is offered beside them.
+		// The remaining list is uniform AND disjoint from every selection. The selections stay offered so they stay
+		// clearable, and their presence activates the dimension, so the list's own value is offered beside them.
 		const options = modelFilterOptions([makeModel({ inputCost: 1 })], active);
 		expect(options.families).toEqual(["gone-family", "gpt"]);
 		expect(options.servers).toEqual([

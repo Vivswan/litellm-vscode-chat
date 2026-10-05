@@ -144,7 +144,6 @@ suite("extension/devSeed", () => {
 				records: { parameters: {} },
 			})
 		);
-		// The one usable extra survives (invalid budget dropped); empty or malformed models/records read as absent.
 		assert.deepStrictEqual(seed, {
 			label: "Fake LiteLLM",
 			baseUrl: "http://localhost:4000",
@@ -159,7 +158,8 @@ suite("extension/devSeed", () => {
 			JSON.stringify({ label: "Seeded", baseUrl: "http://localhost:4000", apiKey: "sk-test", openDashboard: true })
 		);
 		const fake = makeEnv();
-		// A previous run's secure-side key: the seed must clear it so the inline key is unambiguously the one in effect.
+		// A previous run's secure-side key: the seed must clear it so the inline key is unambiguously the one in
+		// effect.
 		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-previous-run", undefined);
 		const originalWrite = fake.env.writeServersSetting;
 		fake.env.writeServersSetting = async (value) => {
@@ -264,8 +264,7 @@ suite("extension/devSeed", () => {
 			parameters: {
 				// A user's own record under a key the seed does not name: never touched.
 				"my-model": { top_p: 0.5 },
-				// A previous run's seeded key the developer edited: the seed owns
-				// the key, so it re-pins it wholesale.
+				// A previous run's seeded key the developer edited: the seed owns the key, so it re-pins it wholesale.
 				"*": { temperature: 0.1 },
 			},
 		});
@@ -387,8 +386,8 @@ suite("extension/devSeed", () => {
 	});
 
 	test("the ignore files keep the seed file out of commits and the VSIX", () => {
-		// The seed carries the local stack's master key inline: renaming DEV_SEED_FILENAME
-		// must not un-ignore a secret-bearing file. Tests run from out/test/extension.
+		// The seed carries the local stack's master key inline: renaming DEV_SEED_FILENAME must not un-ignore a
+		// secret-bearing file. Tests run from out/test/extension.
 		const repoRoot = resolve(__dirname, "..", "..", "..");
 		for (const ignoreFile of [".gitignore", ".vscodeignore"]) {
 			const lines = fs.readFileSync(join(repoRoot, ignoreFile), "utf8").split(/\r?\n/);

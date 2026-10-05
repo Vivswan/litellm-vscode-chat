@@ -1,8 +1,4 @@
-/**
- * The Button primitive's class resolution: the contracts a screenshot cannot show. Every variant rests on its own
- * colour, a caller's override still wins, and secondary alone carries the resting underline, which follows the
- * label however it is wrapped.
- */
+/** The Button primitive's class resolution: the contracts a screenshot cannot show. */
 import { afterEach, expect, test } from "bun:test";
 import { Button } from "../../../../../webview/dashboard/ui/button";
 import { cleanup, mount } from "../../harness";
@@ -43,9 +39,8 @@ test("no variant rests on the same colour as another, so rank is legible before 
 });
 
 test("a caller's hover colour still replaces the variant's instead of stacking with it", () => {
-	// No shipped call site needs this now that danger is a variant, but the
-	// merge behaviour is what any future override rests on: both must carry the
-	// same modifier, or two rules survive and source order picks the colour.
+	// No shipped call site needs this now that danger is a variant, but the merge behaviour is what any future override
+	// rests on: both must carry the same modifier, or two rules survive and source order picks the colour.
 	const classes = classesOf(mount(<Button variant="secondary" className="hover:text-err" />));
 	expect(classes.filter((name) => /(^|:)hover:text-/.test(name))).toEqual(["hover:text-err"]);
 });
@@ -68,13 +63,14 @@ test("secondary's resting underline follows the LABEL, however deeply the label 
 			)
 		)
 	).toBe(true);
-	// The label inside a fragment (serverEditPage "Test connection", and every
-	// spinner branch: settings and usage while an action runs).
+	// The label inside a fragment (serverEditPage "Test connection", and every spinner branch: settings and usage while
+	// an action runs).
 	expect(
 		underlined(
 			mount(
 				<Button variant="secondary">
-					{/* Children.toArray does not flatten a fragment, the bug this case pins; unwrapped, it would test nothing. */}
+					{/* Children.toArray does not flatten a fragment, the bug this case pins; unwrapped, it would test
+					    nothing. */}
 					{/* biome-ignore lint/complexity/noUselessFragments: the fragment IS the case */}
 					<>
 						<Icon /> Test connection
@@ -93,7 +89,6 @@ test("secondary's resting underline follows the LABEL, however deeply the label 
 			)
 		)
 	).toBe(true);
-	// A glyph alone still has nothing to underline, wrapped or not.
 	expect(
 		underlined(
 			mount(
@@ -107,7 +102,8 @@ test("secondary's resting underline follows the LABEL, however deeply the label 
 		underlined(
 			mount(
 				<Button variant="secondary">
-					{/* Refuses the naive repair "a fragment has children, so call it labelled", which the case above accepts. */}
+					{/* Refuses the naive repair "a fragment has children, so call it labelled", which the case above
+					    accepts. */}
 					{/* biome-ignore lint/complexity/noUselessFragments: the wrapper is the case */}
 					<>
 						<Icon />
@@ -116,8 +112,8 @@ test("secondary's resting underline follows the LABEL, however deeply the label 
 			)
 		)
 	).toBe(false);
-	// Whitespace is not a label: JSX puts a space between an icon and its text,
-	// and that space must not make a glyph-only button look labelled.
+	// Whitespace is not a label: JSX puts a space between an icon and its text, and that space must not make a
+	// glyph-only button look labelled.
 	expect(underlined(mount(<Button variant="secondary"> </Button>))).toBe(false);
 });
 
@@ -130,9 +126,8 @@ test("the underline is secondary's alone", () => {
 });
 
 test("a numeric label counts as a label, bigint included", () => {
-	// React renders numbers and bigints as their digits and React 19's
-	// ReactNode admits both, so a count rendered as `{n}` is as much a label as
-	// a word.
+	// React renders numbers and bigints as their digits and React 19's ReactNode admits both, so a count rendered as
+	// `{n}` is as much a label as a word.
 	const underlined = (node: HTMLElement) => classesOf(node).includes("underline");
 	expect(underlined(mount(<Button variant="secondary">{42}</Button>))).toBe(true);
 	expect(underlined(mount(<Button variant="secondary">{9007199254740993n}</Button>))).toBe(true);

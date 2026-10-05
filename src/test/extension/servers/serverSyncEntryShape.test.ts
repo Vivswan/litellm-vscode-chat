@@ -1,7 +1,3 @@
-/**
- * The nested entry shape: auth forms, headers, declared models and budget, and
- * the fingerprint stability the entry restructure's migration depends on.
- */
 import * as assert from "node:assert";
 import type { DeclaredServer, StoredServerSecrets } from "../../../extension/servers/serverSync";
 import { buildGroupArgs, parseServersSetting, ServerSyncEngine } from "../../../extension/servers/serverSync";
@@ -84,8 +80,8 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 		});
 
 		test("a form waiting for its secret VALUE is not misconfiguration: the entry works without the value", () => {
-			// The normal add-entry-then-set-secret state (docs: servers.md,
-			// Authentication): the shape is complete, only the secret is elsewhere.
+			// The normal add-entry-then-set-secret state (docs: servers.md, Authentication): the shape is complete,
+			// only the secret is elsewhere.
 			const virtualKey = parseOne({ auth: { virtualKey: { header: "x-vk" } } });
 			assert.deepStrictEqual(virtualKey.problems, []);
 			assert.deepStrictEqual(virtualKey.entries[0], {
@@ -132,7 +128,6 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 				`${virtualKeyBeside.problems}`
 			);
 
-			// Both companions beside oauth: one problem per offending key.
 			const bothBeside = parseOne({
 				auth: {
 					oauth: { tokenUrl: "https://idp.test/token", clientId: "c1" },
@@ -251,9 +246,6 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 		});
 
 		test("unknown discovery keys are named (a typo must not silently read as nothing configured)", () => {
-			// The same per-key precision as the unknown auth keys: the report names
-			// the structural key, so "expectedFailure" cannot silently read as "no
-			// expected failures". Diagnostic only - the entry stays usable.
 			const { entries, problems } = parseOne({
 				discovery: { expectedFailure: ["modelInfo"], declared: ["deepseek-r1"] },
 			});
@@ -339,11 +331,10 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 	});
 
 	suite("FINGERPRINT STABILITY across the entry restructure (R3's migration depends on this pin)", () => {
-		// The migration rewrites entries from the flat pre-redesign fields to the nested
-		// auth shape without touching SERVER_SYNC_FINGERPRINTS_KEY or any SecretStorage
-		// value. That is sound only while a migrated entry flattens to byte-identical
-		// group args - same keys, same values, same insertion order - as its flat
-		// original, for every credential combination the old world honored.
+		// The migration rewrites entries from the flat pre-redesign fields to the nested auth shape without touching
+		// SERVER_SYNC_FINGERPRINTS_KEY or any SecretStorage value. That is sound only while a migrated entry flattens
+		// to byte-identical group args - same keys, same values, same insertion order - as its flat original, for every
+		// credential combination the old world honored.
 		const pin = (flat: DeclaredServer, nested: Record<string, unknown>, stored: StoredServerSecrets = {}) => {
 			const { entries, problems } = parseServersSetting([nested]);
 			assert.deepStrictEqual(problems, [], JSON.stringify(nested));
@@ -443,8 +434,8 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 		});
 
 		test("stored-only secrets keep resolving: a no-auth entry with a stored apiKey still sends the bearer", () => {
-			// The quick-start shape: the entry omits auth entirely and the value
-			// sits in SecretStorage; the migration writes no auth object for it.
+			// The quick-start shape: the entry omits auth entirely and the value sits in SecretStorage; the migration
+			// writes no auth object for it.
 			pin({ label: "A", baseUrl: "http://a.test" }, { label: "A", baseUrl: "http://a.test" }, { apiKey: "sk-stored" });
 			assert.strictEqual(
 				buildGroupArgs(parseServersSetting([{ label: "A", baseUrl: "http://a.test" }]).entries[0] as DeclaredServer, {
@@ -462,13 +453,11 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 			);
 		});
 
-		// The ruled exceptions: auth fragments the old runtime never honored on the wire
-		// drop at migration, so THESE entries' fingerprints change once on upgrade - a
-		// single group update with identical wire behavior.
+		// The ruled exceptions: auth fragments the old runtime never honored on the wire drop at migration, so THESE
+		// entries' fingerprints change once on upgrade - a single group update with identical wire behavior.
 		test("ACCEPTED EXCEPTION: a wire-inert partial-oauth fragment drops and the fingerprint changes once", () => {
 			const flat: DeclaredServer = { label: "A", baseUrl: "http://a.test", apiKey: "sk-1", oauthClientId: "c1" };
-			// entries.ts drops the lone oauth piece: the migrated entry is the
-			// plain apiKey form.
+			// entries.ts drops the lone oauth piece: the migrated entry is the plain apiKey form.
 			const { entries, problems } = parseServersSetting([
 				{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-1" } },
 			]);

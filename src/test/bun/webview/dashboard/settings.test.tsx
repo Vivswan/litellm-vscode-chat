@@ -1,6 +1,3 @@
-/**
- * The scalar settings form: draft parsing, commit rules, blur-gated errors, resync, Reset, scope notes, ms hints.
- */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as fc from "fast-check";
 import { act } from "react";
@@ -77,24 +74,21 @@ test("an error covers the hint cell without taking its height, and the one glyph
 	// The overlay rule keys on these two classes; the cell stays the anchor.
 	expect(hint?.classList.contains("setting-covered")).toBe(true);
 	expect(hint?.classList.contains("relative")).toBe(true);
-	// The covering text replaces the resting flow IN the live flow; the resting
-	// copy that holds the box is the aria-hidden twin (visibility-hidden by
-	// dashboard.css, so its words and controls leave the accessibility tree).
+	// The covering text replaces the resting flow IN the live flow; the resting copy that holds the box is the
+	// aria-hidden twin (visibility-hidden by dashboard.css, so its words and controls leave the accessibility tree).
 	expect(live?.querySelector(".setting-rest")).toBeNull();
 	const twin = hint?.querySelector(".setting-twin");
 	expect(twin?.getAttribute("aria-hidden")).toBe("true");
 	expect(twin?.querySelector(".setting-desc")).not.toBeNull();
-	// The error span holds the message alone (the field's aria-describedby
-	// reads its subtree, so a glyph inside it would announce its own name with
-	// every problem); the glyph is the cover's SIBLING in the same inline flow.
+	// The error span holds the message alone (the field's aria-describedby reads its subtree, so a glyph inside it
+	// would announce its own name with every problem); the glyph is the cover's SIBLING in the same inline flow.
 	expect(error?.querySelector("button.help")).toBeNull();
 	expect(cover?.querySelector("button.help")).toBeNull();
 	const glyph = live?.querySelector("button.help");
 	expect(glyph).not.toBeNull();
 	expect(cover?.nextElementSibling).toBe(glyph?.closest(".whitespace-nowrap") as Element);
-	// ONE live control: the twin renders its own inert copy - present (it holds
-	// the resting box), inside the aria-hidden height holder - and no glyph
-	// outside the twin exists besides the live one.
+	// ONE live control: the twin renders its own inert copy - present (it holds the resting box), inside the
+	// aria-hidden height holder - and no glyph outside the twin exists besides the live one.
 	const twinGlyph = hint?.querySelector(".setting-twin button.help");
 	expect(twinGlyph).not.toBeNull();
 	expect(twinGlyph?.closest('[aria-hidden="true"]')).not.toBeNull();
@@ -107,14 +101,13 @@ test("an error covers the hint cell without taking its height, and the one glyph
 
 test("the help glyph is one mount: focus on it survives an overlay landing and clearing", () => {
 	// The bug class this structure kills: the old rest/cover twin glyphs were two mounts of one control, so a swap
-	// landing while the reader was ON the "?" needed a hand-off effect to keep the keyboard. One element, no hand-off.
+	// landing while the reader was ON the "?" needed a hand-off effect to keep the keyboard.
 	// check-geometry's settings-write-failure-overlay pair asserts the same persistence in a real browser.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "discovery.cacheTtl");
 	const hint = () => rowOf(input).querySelector(".setting-hint") as HTMLElement;
 	const glyph = hint().querySelector(".setting-live button.help") as HTMLButtonElement;
-	// Real focus (activeElement moves), act-wrapped because the tip primitive
-	// updates state on focus.
+	// Real focus (activeElement moves), act-wrapped because the tip primitive updates state on focus.
 	void act(() => glyph.focus());
 	expect(document.activeElement).toBe(glyph);
 
@@ -174,7 +167,6 @@ test("a User-scope modified number row keeps its words on demand: the default no
 	const note = hint?.querySelector(".setting-modified-note");
 	expect(note?.textContent).toBe("default: 1 h");
 	expect(note?.textContent).not.toContain("Modified");
-	// In the live flow (the hint cell's own inline flow), trailing the glyph.
 	expect(note?.parentElement?.classList.contains("setting-live")).toBe(true);
 	expect(note?.parentElement?.parentElement).toBe(hint as HTMLElement);
 	expect(note?.classList.contains("opacity-0")).toBe(true);
@@ -186,11 +178,9 @@ test("a below-minimum draft stays calm until blur reveals it; commit posts nothi
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "discovery.timeout");
 
-	// Mid-typing, an honest below-minimum draft raises no error yet...
 	fireInput(input, "500");
 	expect(rowOf(input).textContent).not.toContain("Must be at least");
 	expect(input.getAttribute("aria-invalid")).toBe("false");
-	// ...but blur reveals it, and the invalid draft still never commits.
 	fireBlur(input);
 	expect(rowOf(input).textContent).toContain("Must be at least 1000");
 	expect(input.getAttribute("aria-invalid")).toBe("true");
@@ -204,7 +194,6 @@ test("a below-minimum draft stays calm until blur reveals it; commit posts nothi
 		{ method: "setNumberSetting", payload: { setting: "discovery.timeout", value: 20480 } },
 	]);
 
-	// A draft equal to the stored value posts nothing on commit.
 	resetPosted();
 	fireInput(input, "30000");
 	fireBlur(input);
@@ -221,14 +210,11 @@ test("Enter reveals a bound error like blur does; parse errors show live per key
 	fireKeyDown(input, "Enter");
 	expect(rowOf(input).textContent).toContain("Must be at least 1000");
 	expect(postedMessages).toEqual([]);
-	// Once revealed, the bound verdict tracks every keystroke.
 	fireInput(input, "999");
 	expect(rowOf(input).textContent).toContain("Must be at least 1000");
 	fireInput(input, "9999");
 	expect(rowOf(input).textContent).not.toContain("Must be at least");
 
-	// Parse failures never wait for blur: emptying the field shows on the
-	// keystroke.
 	const other = settingInput(root, "discovery.timeout");
 	fireInput(other, "");
 	expect(rowOf(other).textContent).toContain("Enter a number");
@@ -236,8 +222,7 @@ test("Enter reveals a bound error like blur does; parse errors show live per key
 
 test("isBoundViolation classifies exactly parseNumberDraft's minimum-bound rejections, for every setting", () => {
 	// The drift guard the display gating leans on: both functions read the draft with one grammar (durations on ms
-	// settings), so "invalid because of the minimum" and isBoundViolation must agree on every draft. The list covers
-	// empties, unparsable text, non-finite numbers, both sides of every minimum, and the duration grammar's edges.
+	// settings), so "invalid because of the minimum" and isBoundViolation must agree on every draft.
 	const drafts = [
 		"",
 		"  ",
@@ -283,12 +268,10 @@ test("aria-invalid and the error's aria-describedby wiring follow the displayed 
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "chat.timeout");
 
-	// While a bound error is held back, assistive tech hears a valid field.
 	fireInput(input, "500");
 	expect(input.getAttribute("aria-invalid")).toBe("false");
 	expect(input.getAttribute("aria-describedby")).toBe("setting-chat.timeout-unit");
 
-	// Once revealed, the error element joins the description chain.
 	fireBlur(input);
 	expect(input.getAttribute("aria-invalid")).toBe("true");
 	expect(input.getAttribute("aria-describedby")).toBe("setting-chat.timeout-unit setting-chat.timeout-error");
@@ -336,8 +319,8 @@ test("an external state push resyncs a rejected draft and re-arms the calm start
 	fireBlur(input);
 	expect(rowOf(input).textContent).toContain("Must be at least");
 
-	// The push changes only the configured scope (a reset of a value pinned to
-	// its default); the stale rejected draft must resync anyway.
+	// The push changes only the configured scope (a reset of a value pinned to its default); the stale rejected draft
+	// must resync anyway.
 	const scopeOnly = makeSettings();
 	pushToWebview(
 		statePush(
@@ -354,8 +337,6 @@ test("an external state push resyncs a rejected draft and re-arms the calm start
 	);
 	expect(input.value).toBe("300000");
 	expect(rowOf(input).textContent).not.toContain("Must be at least");
-	// The resync also re-armed the blur latch: a fresh below-minimum draft
-	// stays calm again until the next blur.
 	fireInput(input, "1");
 	expect(rowOf(input).textContent).not.toContain("Must be at least");
 });
@@ -426,12 +407,11 @@ test("annotation earns its place by being news: a workspace override speaks at r
 	// here"), so its note stands at rest - no reveal idiom - and the ms default reads in the duration idiom.
 	expect(noteOf("chat.timeout")?.textContent).toBe("Modified in Workspace settings (default: 5 min)");
 	expect(noteOf("chat.timeout")?.classList.contains("opacity-0")).toBe(false);
-	// A User-scope boolean has no default worth revealing and no scope worth
-	// naming: the bar is the whole annotation.
+	// A User-scope boolean has no default worth revealing and no scope worth naming: the bar is the whole annotation.
 	expect(noteOf("ui.maskSecretInputs")).toBeNull();
 	// An unmodified number row reserves the note's box as an invisible, aria-hidden spacing twin: the revealed note
 	// holds in-flow space on a modified row (opacity, never display), so without the twin, marking a row modified
-	// re-wrapped its description line and grew the row. The twin never reveals and says nothing to assistive tech.
+	// re-wrapped its description line and grew the row.
 	const phantom = noteOf("discovery.timeout");
 	expect(phantom?.getAttribute("aria-hidden")).toBe("true");
 	expect(phantom?.textContent).toBe("default: 30 s");
@@ -469,19 +449,18 @@ test("a duration draft commits its millisecond value, with the equivalence hint 
 
 	fireInput(input, "5m");
 	expect(rowOf(input).querySelector(".setting-equiv")?.textContent).toBe("= 5 min");
-	// "5m" IS the stored 300000, so committing it posts nothing (the
-	// unchanged-posts-nothing rule sees through the spelling)...
+	// "5m" IS the stored 300000, so committing it posts nothing (the unchanged-posts-nothing rule sees through the
+	// spelling)...
 	fireKeyDown(input, "Enter");
 	expect(postedMessages).toEqual([]);
 
-	// ...while a real change posts the milliseconds the suffix scales to.
 	fireInput(input, "90s");
 	expect(rowOf(input).querySelector(".setting-equiv")?.textContent).toBe("= 1 min 30 s");
 	fireKeyDown(input, "Enter");
 	expect(postedCalls()).toEqual([{ method: "setNumberSetting", payload: { setting: "chat.timeout", value: 90000 } }]);
 
-	// A draft spelling the stored value differently ("90s" over 90000) still
-	// counts as unchanged once committed: same value, no second post.
+	// A draft spelling the stored value differently ("90s" over 90000) still counts as unchanged once committed: same
+	// value, no second post.
 	resetPosted();
 	const stored = makeSettings({ numbers: { ...makeSettings().numbers, "chat.timeout": 90000 } });
 	const storedRoot = mount(<SettingsSection settings={stored} models={[]} />);
@@ -495,16 +474,14 @@ test("a unit typo reads as a live grammar error; a below-bound duration stays ca
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "discovery.timeout");
 
-	// A suffixed value below the bound is an honest mid-typing state ("500ms"
-	// on the way to "1500ms"), so it keeps the blur gate plain numbers get.
-	// This runs before any settle: the first blur arms the reveal latch.
+	// A suffixed value below the bound is an honest mid-typing state ("500ms" on the way to "1500ms"), so it keeps the
+	// blur gate plain numbers get. This runs before any settle: the first blur arms the reveal latch.
 	fireInput(input, "500ms");
 	expect(rowOf(input).textContent).not.toContain("Must be at least");
 	fireBlur(input);
 	expect(rowOf(input).textContent).toContain("Must be at least 1000");
 	expect(postedMessages).toEqual([]);
 
-	// Typos never wait for blur: the grammar verdict tracks every keystroke.
 	fireInput(input, "5 min");
 	expect(rowOf(input).textContent).toContain("Not a duration - use ms, s, m, or h");
 	fireKeyDown(input, "Enter");
@@ -541,13 +518,9 @@ test("the filter hides rows by label or description match and collapses emptied 
 	expect(rowOf(settingInput(root, "discovery.timeout")).hidden).toBe(false);
 	expect(rowOf(settingInput(root, "usage.pollInterval")).hidden).toBe(true);
 	expect(rowOf(settingInput(root, "ui.maskSecretInputs")).hidden).toBe(true);
-	// A group with no visible rows collapses whole, heading included; the
-	// hiding is the hidden attribute, never an unmount (the rows above were
-	// still queryable).
 	const groupOf = (id: string) => rowOf(settingInput(root, id)).closest(".settings-group") as HTMLElement;
 	expect(groupOf("chat.timeout").hidden).toBe(false);
 	expect(groupOf("ui.maskSecretInputs").hidden).toBe(true);
-	// The record editor does not talk about timeouts.
 	expect(editorSection(root, "Model parameters").hidden).toBe(true);
 
 	// Descriptions match too: only the request timeout's mentions the calls it bounds.
@@ -573,11 +546,9 @@ test("the filter matches the record editor by its key names (nested parameter na
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
 	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
 
-	// A nested parameter name reaches the editor, not just its own keys.
 	fireInput(filter, "temperature");
 	expect(editorSection(root, "Model parameters").hidden).toBe(false);
 
-	// The editor's own title matches like a scalar row's label does.
 	fireInput(filter, "model param");
 	expect(editorSection(root, "Model parameters").hidden).toBe(false);
 
@@ -598,9 +569,8 @@ test("the filter matches a row's help text", () => {
 });
 
 test("the filter matches a record editor's own help, which is where its save model moved", () => {
-	// An editor matched through its header help is one visible unit whose "?"
-	// carries the match - the same reading as a scalar row matched through its
-	// help, not a group kept alive by group-level help.
+	// An editor matched through its header help is one visible unit whose "?" carries the match - the same reading as a
+	// scalar row matched through its help, not a group kept alive by group-level help.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
 	fireInput(filter, "apply together");
@@ -614,13 +584,11 @@ test("zero hits show the no-match line, and a dirty draft survives being filtere
 	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
 	const input = settingInput(root, "chat.timeout");
 
-	// A half-typed (and even rejected) draft...
 	fireInput(input, "5x");
 	fireInput(filter, "no such setting");
 	expect(root.textContent).toContain("No settings match the filter.");
 	expect(rowOf(input).hidden).toBe(true);
 
-	// ...survives the round trip: hidden, never unmounted.
 	fireInput(filter, "");
 	expect(root.textContent).not.toContain("No settings match the filter.");
 	expect(input.value).toBe("5x");
@@ -647,7 +615,6 @@ test("the capabilities editor renders as a second record editor and applies via 
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const section = editorSection(root, "Model capabilities");
 
-	// Add matcher opens the full editor overlay; the row is built there.
 	fireClick(buttonByText(section, "Add capability matcher"));
 	const overlay = section.querySelector(".matcher-editor") as HTMLElement;
 	fireInput(overlay.querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement, "gpt-4*");
@@ -667,8 +634,8 @@ test("the capabilities editor renders as a second record editor and applies via 
 test("every settings row anchors its actions in one trailing slot: Reset then the settings.json jump", () => {
 	// Fail-closed structural pin behind the "{} renders in two different positions" defect: the slot is the row
 	// template's LAST cell, the jump its LAST child, and no action leaks into the control or hint cells. Counted
-	// against the page's row INVENTORY (every scalar id this page owns plus the seven non-scalar rows - the
-	// feature rows live on the Features page now), so it fails both ways.
+	// against the page's row INVENTORY (every scalar id this page owns plus the seven non-scalar rows - the feature
+	// rows live on the Features page now), so it fails both ways.
 	const base = makeSettings();
 	const settings = makeSettings({
 		configuredScopes: {
@@ -690,9 +657,8 @@ test("every settings row anchors its actions in one trailing slot: Reset then th
 		expect(row.lastElementChild).toBe(slot);
 		const jumps = row.querySelectorAll("button.reveal-json");
 		if (row.classList.contains("setting-companion")) {
-			// A multi-row setting's secondary row: the primary row owns the
-			// actions, so the companion keeps the empty slot (the grid track
-			// stays) and offers neither gesture.
+			// A multi-row setting's secondary row: the primary row owns the actions, so the companion keeps the empty
+			// slot (the grid track stays) and offers neither gesture.
 			expect(jumps.length, row.textContent ?? "").toBe(0);
 			expect(row.querySelectorAll("button.reset").length, row.textContent ?? "").toBe(0);
 			expect(slot.children.length, row.textContent ?? "").toBe(0);
@@ -701,15 +667,13 @@ test("every settings row anchors its actions in one trailing slot: Reset then th
 		expect(jumps.length, row.textContent ?? "").toBe(1);
 		expect(slot.contains(jumps[0] as HTMLElement)).toBe(true);
 		expect(slot.lastElementChild?.querySelector("button.reveal-json") ?? null).not.toBeNull();
-		// Reset, when the row offers one, lives in the same slot - never in the
-		// control cell, where its x would follow the control's width.
+		// Reset, when the row offers one, lives in the same slot - never in the control cell, where its x would follow
+		// the control's width.
 		for (const reset of Array.from(row.querySelectorAll("button.reset"))) {
 			expect(slot.contains(reset)).toBe(true);
 		}
 		expect(row.querySelector(".setting-control button.reveal-json")).toBeNull();
 		expect(row.querySelector(".setting-control button.reset")).toBeNull();
-		// Both actions wear the one reveal idiom: wrapper opacity, both reveal
-		// clauses, and the narrow-pane always-visible fallback.
 		for (const wrap of Array.from(slot.children)) {
 			expect(wrap.classList.contains("opacity-0")).toBe(true);
 			expect(wrap.classList.contains("group-hover/setting:opacity-100")).toBe(true);
@@ -717,38 +681,31 @@ test("every settings row anchors its actions in one trailing slot: Reset then th
 			expect(wrap.classList.contains("@max-[560px]/pane:opacity-100")).toBe(true);
 		}
 	}
-	// No companion rows live on this page: the one companion (the language
-	// filter's mode row) moved to the Features page with its setting, where
-	// featureSettings.test.tsx pins it.
+	// No companion rows live on this page: the one companion (the language filter's mode row) moved to the Features
+	// page with its setting, where featureSettings.test.tsx pins it.
 	expect(rows.filter((row) => row.classList.contains("setting-companion")).length).toBe(0);
 });
 
 test("the catalog status renders inside the row's own description slot, with the moved prose in the row's ?", () => {
-	// The cluster lives in the row's hint cell where every other row shows its text, so the row reads label, checkbox,
-	// status, "?" - and the sentence the status displaced is the tip's.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const row = rowOf(settingInput(root, "models.openRouterCatalog"));
 	const status = row.querySelector(".catalog-status") as HTMLElement;
 	expect(status).not.toBeNull();
 	expect(status.closest(".setting-hint")).not.toBeNull();
-	// No free-standing second line remains anywhere on the page.
 	expect(root.querySelector(".catalog-row")).toBeNull();
-	// The row's help tip carries the description that moved out of the row.
 	const tip = row.querySelector(".setting-hint .tip-bubble") as HTMLElement;
 	expect(tip.textContent).toBe(settingRowHelp("models.openRouterCatalog") ?? "");
 	expect(tip.textContent).toContain("Fill missing model capabilities from the OpenRouter catalog");
-	// With the description <label> displaced by the status, the checkbox must
-	// still carry its name - the row's title, stated directly on the input -
-	// while a label-named checkbox carries no second, competing name.
+	// With the description <label> displaced by the status, the checkbox must still carry its name - the row's title,
+	// stated directly on the input - while a label-named checkbox carries no second, competing name.
 	const checkbox = settingInput(root, "models.openRouterCatalog");
 	expect(checkbox.getAttribute("aria-label")).toBe("OpenRouter catalog");
 	expect(settingInput(root, "ui.maskSecretInputs").hasAttribute("aria-label")).toBe(false);
 });
 
 test("the filter matches the catalog row's live status text, which is what its description slot shows", () => {
-	// The static description moved into the tip; the slot shows the status
-	// cluster, so its words are the row's haystack ("no refreshes" while off,
-	// "bundled snapshot" while on) - a needle finds what it can see.
+	// The static description moved into the tip; the slot shows the status cluster, so its words are the row's haystack
+	// ("no refreshes" while off, "bundled snapshot" while on) - a needle finds what it can see.
 	const base = makeSettings();
 	const off = makeSettings({ booleans: { ...base.booleans, "models.openRouterCatalog": false } });
 	const root = mount(<SettingsSection settings={off} models={[]} />);
@@ -806,9 +763,8 @@ test("the catalog row without a refresh yet names the bundled snapshot; a runnin
 });
 
 test("the catalog status hides with the row it belongs to", () => {
-	// The cluster renders inside the row's own hint cell, so the row's hidden
-	// attribute covers it: a filter that hides the setting can no longer leave
-	// its status and Refresh button stranded under another group.
+	// The cluster renders inside the row's own hint cell, so the row's hidden attribute covers it: a filter that hides
+	// the setting can no longer leave its status and Refresh button stranded under another group.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
 	const row = rowOf(settingInput(root, "models.openRouterCatalog"));
@@ -827,9 +783,8 @@ test("with the catalog setting off the row shows the inert hint instead of the s
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
 	const row = rowOf(settingInput(root, "models.openRouterCatalog"));
 	expect(row.textContent).toContain("Catalog off:");
-	// The off-state consequence moved into the row's "?" with the description;
-	// asserted on the tip element itself, not row.textContent, which would
-	// pass merely because the hidden bubble stays mounted.
+	// The off-state consequence moved into the row's "?" with the description; asserted on the tip element itself, not
+	// row.textContent, which would pass merely because the hidden bubble stays mounted.
 	expect(row.querySelector(".setting-hint .tip-bubble")?.textContent).toContain(OPENROUTER_MODEL_DIRECTIVE);
 	expect(Array.from(row.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim())).not.toContain("Refresh");
 });
@@ -847,14 +802,12 @@ test("a standing catalog failure renders in the row with its classification, nev
 	const row = rowOf(settingInput(root, "models.openRouterCatalog"));
 	const failure = row.querySelector(".error") as HTMLElement;
 	expect(failure.textContent).toBe("Last refresh failed (HTTP 503); serving the cached snapshot.");
-	// The failure starts a line of its own - the break before it - while the
-	// error span itself stays inline, so the row's trailing "?" can glue to
-	// its last word instead of stranding alone on the next line.
+	// The failure starts a line of its own - the break before it - while the error span itself stays inline, so the
+	// row's trailing "?" can glue to its last word instead of stranding alone on the next line.
 	expect(failure.previousElementSibling?.tagName).toBe("BR");
 	expect(document.querySelector(".toast")).toBeNull();
 });
 
-/** The two threshold boxes, addressed by their stable ids. */
 function thresholdBoxes(root: ParentNode): { warning: HTMLInputElement; error: HTMLInputElement } {
 	return {
 		warning: settingInput(root, "usage.alertThresholds-warning"),
@@ -887,7 +840,6 @@ test("the thresholds row renders the stored pair as percents and commits an edit
 	fireBlur(error);
 	expect(postedCalls()).toEqual([{ method: "setUsageAlertThresholds", payload: { values: [0.5, 0.9] } }]);
 
-	// A draft equal to the stored list posts nothing on commit.
 	resetPosted();
 	fireInput(warning, "80%");
 	fireInput(error, "0.95");
@@ -896,8 +848,8 @@ test("the thresholds row renders the stored pair as percents and commits an edit
 });
 
 test("a non-whole stored threshold reaches the boxes exactly, not floored to a whole percent", () => {
-	// The alert toast and this row print one configured number through the same
-	// exact renderer; a floor here would restate 0.855 as the 85% it is not.
+	// The alert toast and this row print one configured number through the same exact renderer; a floor here would
+	// restate 0.855 as the 85% it is not.
 	const root = mount(<SettingsSection settings={settingsWithThresholds([0.855, 0.99])} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 	expect(warning.value).toBe("85.5%");
@@ -914,15 +866,14 @@ test("thresholds accept fractions, percent signs, and bare numbers above 1 as pe
 });
 
 test("a blur that only moves focus to the sibling box does not commit the half-edited pair", () => {
-	// The two boxes are one draft: committing on the Tab between them would
-	// let the write's own state push resync the pair mid-edit.
+	// The two boxes are one draft: committing on the Tab between them would let the write's own state push resync the
+	// pair mid-edit.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 	fireInput(warning, "60%");
 	fireBlur(warning, error);
 	expect(postedMessages).toEqual([]);
 
-	// Leaving the pair commits once, with both edits.
 	fireInput(error, "0.9");
 	fireBlur(error);
 	expect(postedCalls()).toEqual([{ method: "setUsageAlertThresholds", payload: { values: [0.6, 0.9] } }]);
@@ -932,14 +883,12 @@ test("one filled box means error-at-that-value: a single-element list plus the i
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 
-	// Only Error set.
 	fireInput(warning, "");
 	fireInput(error, "90%");
 	expect(rowOf(error).textContent).toContain("A single threshold goes straight to the error alert.");
 	fireBlur(error);
 	expect(postedCalls()).toEqual([{ method: "setUsageAlertThresholds", payload: { values: [0.9] } }]);
 
-	// Only Warning set: same single-value semantics, same hint.
 	resetPosted();
 	fireInput(error, "");
 	fireInput(warning, "60%");
@@ -992,14 +941,13 @@ test("an invalid threshold shows its error live and never posts: 0, over 100%, a
 });
 
 test("render -> parse -> render is a fixed point for every representable threshold", () => {
-	// The property commit() leans on: the box text a stored value renders to
-	// must reparse to a value that renders the same text, or an untouched box
-	// would read as an edit. Value space is NOT a fixed point (the specimen
-	// below), so the rendered vocabulary is the one the pair compares in.
+	// The property commit() leans on: the box text a stored value renders to must reparse to a value that renders the
+	// same text, or an untouched box would read as an edit. Value space is NOT a fixed point (the specimen below), so
+	// the rendered vocabulary is the one the pair compares in.
 	fc.assert(
 		fc.property(
-			// The full representable range, with half the budget spent where real
-			// thresholds live so the property is not all denormal exponents.
+			// The full representable range, with half the budget spent where real thresholds live so the property is
+			// not all denormal exponents.
 			fc.oneof(
 				fc.double({ min: Number.MIN_VALUE, max: 1, noNaN: true }),
 				fc.double({ min: 0.001, max: 1, noNaN: true })
@@ -1022,9 +970,8 @@ test("render -> parse -> render is a fixed point for every representable thresho
 });
 
 test("an untouched threshold box never rewrites settings on focus and blur", () => {
-	// 0.533 is one of the stored values whose reparse shifts by an ulp; before
-	// commit() compared rendered strings, focusing and leaving this box rewrote
-	// settings.json to 0.5329999999999999 with no edit anywhere.
+	// 0.533 is one of the stored values whose reparse shifts by an ulp; before commit() compared rendered strings,
+	// focusing and leaving this box rewrote settings.json to 0.5329999999999999 with no edit anywhere.
 	const root = mount(<SettingsSection settings={settingsWithThresholds([0.533, 0.9])} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 	expect(warning.value).toBe("53.3%");
@@ -1038,9 +985,8 @@ test("an untouched threshold box never rewrites settings on focus and blur", () 
 });
 
 test("an unsorted stored pair still normalizes on an untouched blur: ordering is a real difference", () => {
-	// The no-rewrite guarantee compares rendered values in position, so a
-	// stored [high, low] list the boxes display swapped commits back sorted -
-	// a deliberate normalizing write, not float noise.
+	// The no-rewrite guarantee compares rendered values in position, so a stored [high, low] list the boxes display
+	// swapped commits back sorted - a deliberate normalizing write, not float noise.
 	const root = mount(<SettingsSection settings={settingsWithThresholds([0.9, 0.533])} models={[]} />);
 	const { warning } = thresholdBoxes(root);
 	warning.focus();
@@ -1073,8 +1019,8 @@ test("a hand-written list of 3+ values renders read-only with the values, the hi
 	expect(row.textContent).toContain("Warns from 50%; errors at 95%.");
 	expect(row.textContent).not.toContain("Alerts are off.");
 	expect(row.textContent).not.toContain("Clear both fields");
-	// No inputs: the two boxes cannot represent the list, and rendering them
-	// would let a blur destroy the hand-written values.
+	// No inputs: the two boxes cannot represent the list, and rendering them would let a blur destroy the hand-written
+	// values.
 	expect(row.querySelector("input")).toBeNull();
 	expect(row.querySelector("button[aria-label='Open Usage alert thresholds in settings.json']")).not.toBeNull();
 });
@@ -1088,7 +1034,6 @@ test("the currency-symbol row renders the stored value and commits an edit on bl
 	fireBlur(input);
 	expect(postedCalls()).toEqual([{ method: "setCurrencySymbol", payload: { value: "EUR " } }]);
 
-	// A draft equal to the stored value posts nothing on commit.
 	resetPosted();
 	fireInput(input, "$");
 	fireKeyDown(input, "Enter");
@@ -1119,11 +1064,9 @@ test("an over-limit symbol from settings.json round-trips whole, errors instead 
 	fireBlur(input);
 	expect(postedMessages).toEqual([]);
 
-	// An edited draft still over the cap keeps erroring and never posts...
 	fireInput(input, "x".repeat(WIRE_LIMITS.currencySymbol + 1));
 	fireKeyDown(input, "Enter");
 	expect(postedMessages).toEqual([]);
-	// ...and one at the cap commits.
 	fireInput(input, "x".repeat(WIRE_LIMITS.currencySymbol));
 	expect(rowOf(input).textContent).not.toContain("At most");
 	expect(input.getAttribute("aria-invalid")).toBe("false");
@@ -1152,7 +1095,6 @@ test("the token-estimation select renders in the Chat group with the default and
 	expect(select).not.toBeNull();
 	expect(select.value).toBe("auto");
 	expect(Array.from(select.options).map((option) => option.value)).toEqual([...TOKEN_ESTIMATION_MODES]);
-	// The row rides the Chat group, beside the scalar chat settings.
 	const group = select.closest(".settings-group") as HTMLElement;
 	expect(group.querySelector("#setting-chat\\.timeout")).not.toBeNull();
 
@@ -1167,7 +1109,6 @@ test("the tool-schema-keywords box renders in the Chat group and posts the parse
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "chat.additionalToolSchemaKeywords");
 	expect(input.value).toBe("");
-	// The row rides the Chat group, beside the scalar chat settings.
 	const group = input.closest(".settings-group") as HTMLElement;
 	expect(group.querySelector("#setting-chat\\.timeout")).not.toBeNull();
 
@@ -1194,9 +1135,8 @@ test("a stored keyword list round-trips into the box, and an unchanged blur post
 });
 
 test("a keyword draft past the intent schema's bounds shows the bound and never posts", () => {
-	// The bounds mirror intentSchema.ts (z.array(z.string().max(256)).max(64)):
-	// without the mirror a big paste committed, failed host-side, and surfaced
-	// as a generic envelope failure instead of a row error.
+	// The bounds mirror intentSchema.ts (z.array(z.string().max(256)).max(64)): without the mirror a big paste
+	// committed, failed host-side, and surfaced as a generic envelope failure instead of a row error.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "chat.additionalToolSchemaKeywords");
 
@@ -1212,7 +1152,6 @@ test("a keyword draft past the intent schema's bounds shows the bound and never 
 	fireKeyDown(input, "Enter");
 	expect(postedMessages).toEqual([]);
 
-	// Back inside the bounds, the same draft machinery commits normally.
 	fireInput(input, "propertyNames");
 	expect(input.getAttribute("aria-invalid")).toBe("false");
 	fireKeyDown(input, "Enter");
@@ -1272,11 +1211,9 @@ test("the Import & Export group renders last with its help, and each button post
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const group = importExportGroup(root);
 	const head = group.querySelector(".settings-group-head");
-	// The heading names the group and nothing else: the Help button is its
-	// sibling, so the group does not announce as "Import & Export Help: ...".
+	// The heading names the group and nothing else: the Help button is its sibling, so the group does not announce as
+	// "Import & Export Help: ...".
 	expect(group.querySelector(".settings-group-title")?.textContent).toBe("Import & Export");
-	// The explanation moved out of a standing paragraph and behind the glyph;
-	// it is still on the page, and still reachable as the trigger's description.
 	expect(group.querySelector("p.hint")).toBeNull();
 	expect(head?.querySelector('[role="tooltip"]')?.textContent).toContain("Export writes your settings to a JSON file");
 	const helpButton = head?.querySelector("button.help");
@@ -1289,8 +1226,8 @@ test("the Import & Export group renders last with its help, and each button post
 	const importButton = buttonByText(group, "Import settings");
 	for (const button of [exportButton, importButton]) {
 		expect(button.getAttribute("type")).toBe("button");
-		// Primary rank: the two actions are the section's whole content, so there
-		// is no quieter neighbour for a supporting rank to sit under.
+		// Primary rank: the two actions are the section's whole content, so there is no quieter neighbour for a
+		// supporting rank to sit under.
 		expect(button.getAttribute("data-variant")).toBe("default");
 	}
 
@@ -1307,9 +1244,8 @@ test("the Import & Export group follows the filter: kept by its own words, hidde
 	const group = importExportGroup(root);
 	expect(group.hidden).toBe(false);
 
-	// Its title and button labels match like a scalar row's label would - and
-	// exclusively: no scalar label or description mentions "export", so every
-	// scalar row hides while the group stays.
+	// Its title and button labels match like a scalar row's label would - and exclusively: no scalar label or
+	// description mentions "export", so every scalar row hides while the group stays.
 	fireInput(filter, "export");
 	expect(group.hidden).toBe(false);
 	expect(rowOf(settingInput(root, "chat.timeout")).hidden).toBe(true);
@@ -1321,11 +1257,9 @@ test("the Import & Export group follows the filter: kept by its own words, hidde
 	expect(group.hidden).toBe(true);
 	expect(root.textContent).toContain("No settings match the filter.");
 
-	// A scalar-only needle hides the group whole (hidden, never unmounted).
 	fireInput(filter, "timeout");
 	expect(group.hidden).toBe(true);
 
-	// A pure miss counts the group out of the no-match verdict too.
 	fireInput(filter, "no such setting");
 	expect(root.textContent).toContain("No settings match the filter.");
 
@@ -1340,7 +1274,6 @@ test("the theme select posts setUiTheme, and the accent swatches post setUiAccen
 		throw new Error("no theme select");
 	}
 	expect(select.value).toBe("auto");
-	// ...and the controls render the stored value, not a hardcoded default.
 	const pinned = mount(
 		<SettingsSection
 			settings={makeSettings({
@@ -1356,8 +1289,8 @@ test("the theme select posts setUiTheme, and the accent swatches post setUiAccen
 			.filter((node): node is HTMLInputElement => node instanceof HTMLInputElement && node.checked)
 			.map((node) => node.value)
 	).toEqual(["amber"]);
-	// A configured row shows its scope and offers a Reset; both rows are
-	// configured here, so neither branch is left unrendered.
+	// A configured row shows its scope and offers a Reset; both rows are configured here, so neither branch is left
+	// unrendered.
 	expect(pinned.textContent).toContain("Workspace");
 	fireSelect(select, "dark");
 	expect(postedCalls()).toEqual([{ method: "setUiTheme", payload: { value: "dark" } }]);
@@ -1378,8 +1311,8 @@ test("the theme select posts setUiTheme, and the accent swatches post setUiAccen
 });
 
 test("a filter matching only an appearance row shows it instead of the nothing-matched line", () => {
-	// The empty-state verdict reads the scalar rows; a tail row that matched
-	// while the verdict said nothing did rendered both at once.
+	// The empty-state verdict reads the scalar rows; a tail row that matched while the verdict said nothing did
+	// rendered both at once.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const filter = root.querySelector('input[aria-label="Filter settings"]');
 	if (!(filter instanceof HTMLInputElement)) {
@@ -1394,9 +1327,8 @@ test("a filter matching only an appearance row shows it instead of the nothing-m
 });
 
 test("appearance rides every state push onto the root element, so a setting change lands without a reopen", () => {
-	// The HTML shell stamps these once at panel creation. Live-apply is this
-	// effect: the picker (or a hand edit of settings.json) writes the setting,
-	// the configuration change re-pushes state, and the root restamps.
+	// The HTML shell stamps these once at panel creation. Live-apply is this effect: the picker (or a hand edit of
+	// settings.json) writes the setting, the configuration change re-pushes state, and the root restamps.
 	document.documentElement.dataset.theme = "auto";
 	document.documentElement.dataset.accent = "blue";
 	mount(<App />);
@@ -1413,9 +1345,8 @@ test("appearance rides every state push onto the root element, so a setting chan
 	});
 	expect(document.documentElement.dataset.theme).toBe("dark");
 	expect(document.documentElement.dataset.accent).toBe("amber");
-	// A second push has to land too: the effect keys on the pushed object, and
-	// an appearance that only ever restamped once would pass a single-push test
-	// while leaving an open dashboard stuck after the reader's second change.
+	// A second push has to land too: the effect keys on the pushed object, and an appearance that only ever restamped
+	// once would pass a single-push test while leaving an open dashboard stuck after the reader's second change.
 	act(() => {
 		pushToWebview(
 			statePush(
@@ -1454,16 +1385,13 @@ test("the settings filter finds a row by its description and its id, whichever k
 	expect(root.textContent).not.toContain("No settings match the filter.");
 	expect(visibleRowTitles().length).toBeGreaterThan(0);
 
-	// And a needle matching nothing still says so.
 	fireInput(filter, "zzzzz-no-such-setting");
 	expect(root.textContent).toContain("No settings match the filter.");
 });
 
 test("a failed write reports under the row the fail envelope names, covering the description slot", () => {
 	// The fail envelope carries the owning row (extension-derived from the refused payload; never payload text), so
-	// the page places each standing notice with no correlation state of its own. Placement is the covered-description
-	// slot the parse errors already use, not an inserted block, which would move every row below it. The slot carries
-	// the framed HEADLINE only.
+	// the page places each standing notice with no correlation state of its own.
 	const failure = { seq: 1, row: "chat.timeout" as const, message: "the write was refused\nsetting detail line" };
 	const withFailure = mount(
 		<SettingsSection settings={makeSettings()} models={[]} writeFailures={{ setNumberSetting: failure }} />
@@ -1471,27 +1399,24 @@ test("a failed write reports under the row the fail envelope names, covering the
 	const hint = rowOf(settingInput(withFailure, "chat.timeout")).querySelector(".setting-hint");
 	const notice = hint?.querySelector(".error");
 	expect(notice?.textContent).toBe("The last change did not apply: the write was refused");
-	// Headline only: the detail line stays off this surface (the host
-	// notifier's toast rule), because the covered cell cannot grow for it.
+	// Headline only: the detail line stays off this surface (the host notifier's toast rule), because the covered cell
+	// cannot grow for it.
 	expect(notice?.textContent).not.toContain("setting detail line");
-	// Covered, not inserted: the resting flow's invisible twin keeps the cell's
-	// height while the notice takes the live flow, so the refusal landing moves
-	// nothing - and the row's one glyph trails the notice's own tail.
+	// Covered, not inserted: the resting flow's invisible twin keeps the cell's height while the notice takes the live
+	// flow, so the refusal landing moves nothing - and the row's one glyph trails the notice's own tail.
 	expect(hint?.querySelector(".setting-twin .setting-desc")).not.toBeNull();
 	const cover = notice?.closest(".setting-cover");
 	expect(cover?.parentElement?.classList.contains("setting-live")).toBe(true);
 	expect(cover?.parentElement?.querySelector("button.help")).not.toBeNull();
 	// Announced: a refusal after a quiet blur commit is otherwise invisible.
 	expect(notice?.getAttribute("role")).toBe("alert");
-	// No inserted diagnostic block anywhere, and no section-top double.
 	expect(withFailure.querySelector(".row-diagnostic")).toBeNull();
 	expect(withFailure.querySelector("p.error[role='alert']")).toBeNull();
 });
 
 test("a live parse error outranks the standing write failure in the covered slot", () => {
-	// The error describes the draft under the user's fingers, the failure the
-	// commit before it; both at once would be two sentences in one cell. The
-	// failure resurfaces when the draft parses clean again.
+	// The error describes the draft under the user's fingers, the failure the commit before it; both at once would be
+	// two sentences in one cell.
 	const withFailure = mount(
 		<SettingsSection
 			settings={makeSettings()}
@@ -1521,7 +1446,6 @@ test("a failure arriving while a parse error holds the slot still announces when
 	);
 	const hint = () => rowOf(settingInput(container, "chat.timeout")).querySelector(".setting-hint");
 
-	// A live parse error holds the slot when the refusal lands.
 	fireInput(settingInput(container, "chat.timeout"), "not a number");
 	fireBlur(settingInput(container, "chat.timeout"));
 	render(
@@ -1535,7 +1459,6 @@ test("a failure arriving while a parse error holds the slot still announces when
 		container
 	);
 	expect(hint()?.querySelector(".error")?.textContent).toContain("Not a duration");
-	// The draft parses clean again: the failure surfaces AND announces.
 	fireInput(settingInput(container, "chat.timeout"), "5000");
 	const surfaced = hint()?.querySelector(".error");
 	expect(surfaced?.textContent).toContain("the write was refused");
@@ -1546,8 +1469,8 @@ test("a failure arriving while a parse error holds the slot still announces when
 });
 
 test("a failure no row claims falls back to one section-top line", () => {
-	// A refusal whose payload never parsed carries no row (the extension cannot
-	// derive one), and it still has to surface somewhere.
+	// A refusal whose payload never parsed carries no row (the extension cannot derive one), and it still has to
+	// surface somewhere.
 	const root = mount(
 		<SettingsSection
 			settings={makeSettings()}
@@ -1589,8 +1512,8 @@ test("two methods' failures on one row keep the latest, not the method-list orde
 });
 
 test("a failure whose owning row the filter hides routes to the section-top line instead of a hidden notice", () => {
-	// The filter hides rows without unmounting them, so a claimed notice under
-	// a hidden row would be placed and invisible at once - the worst of both.
+	// The filter hides rows without unmounting them, so a claimed notice under a hidden row would be placed and
+	// invisible at once - the worst of both.
 	const withFailure = mount(
 		<SettingsSection
 			settings={makeSettings()}
@@ -1598,11 +1521,9 @@ test("a failure whose owning row the filter hides routes to the section-top line
 			writeFailures={{ setNumberSetting: { seq: 1, row: "chat.timeout", message: "the write was refused" } }}
 		/>
 	);
-	// Visible row: the notice stands in its covered slot.
 	expect(withFailure.querySelector(".setting-hint .error")).not.toBeNull();
 	expect(withFailure.querySelector("p.error[role='alert']")).toBeNull();
 
-	// Filter the owning row away: the notice moves to the always-visible line.
 	const filter = withFailure.querySelector('input[aria-label="Filter settings"]');
 	if (!(filter instanceof HTMLInputElement)) {
 		throw new Error("no settings filter");

@@ -18,9 +18,8 @@ import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { isIntegerSetting, NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 
 /**
- * Wording pins for the shared diagnostics renderers. These lines are what users
- * copy out of the Diagnostics tab into issue reports, so the exact text is
- * pinned once here instead of per surface.
+ * These lines are what users copy out of the Diagnostics tab into issue reports, so the exact text is pinned once here
+ * instead of per surface.
  */
 
 type DeclaredServer = Extract<DashboardServer, { origin: "declared" }>;
@@ -71,9 +70,8 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("hidden groups alone read as the connected zero-model warning, never as not configured", () => {
-			// Hidden groups leave the server list, but they are answering
-			// configuration the user chose to silence: the classifier and the
-			// paste line must match the status bar's warning.
+			// Hidden groups leave the server list, but they are answering configuration the user chose to silence: the
+			// classifier and the paste line must match the status bar's warning.
 			assert.strictEqual(classifyOverall([], { hiddenGroupCount: 1 }), "connected");
 			assert.strictEqual(
 				overallStatusText([], 0, { hiddenGroupCount: 1 }),
@@ -149,16 +147,15 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("a misconfigured entry beside a healthy server stays neutral: connected, not degraded", () => {
-			// The status bar cannot see misconfigured entries, so counting them here
-			// would split the headline from the bar.
+			// The status bar cannot see misconfigured entries, so counting them here would split the headline from the
+			// bar.
 			const servers = [misconfiguredServer(["auth must pick one form"]), declaredServer({ servedModelCount: 3 })];
 			assert.strictEqual(classifyOverall(servers), "connected");
 			assert.strictEqual(overallStatusText(servers, 3), "Connected (3 models)");
 		});
 
 		test("with every real server down, the headline names the transport failure, not the misconfigured row", () => {
-			// Rows sort by label ("Broken" first); the real outage is the line
-			// worth pasting into an issue report.
+			// Rows sort by label ("Broken" first); the real outage is the line worth pasting into an issue report.
 			const servers = [
 				misconfiguredServer(["auth must pick one form"]),
 				declaredServer({ state: "error", error: "connection refused" }),
@@ -198,8 +195,8 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("a reachable server whose sync failed reads Error with its still-served count", () => {
-			// declaredOutcome renders a sync failure as an error row keeping the
-			// live served count, so the paste line says both facts.
+			// declaredOutcome renders a sync failure as an error row keeping the live served count, so the paste line
+			// says both facts.
 			const server = declaredServer({ state: "error", error: "upsert refused", servedModelCount: 2 });
 			assert.strictEqual(serverOutcomeText(server), "Error (2 models still served): upsert refused");
 		});
@@ -214,8 +211,8 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("a two-part error flattens to one physical line in the paste form", () => {
-			// The grid renders headline and detail as separate lines; the copied
-			// issue-report line must stay one physical line per server.
+			// The grid renders headline and detail as separate lines; the copied issue-report line must stay one
+			// physical line per server.
 			const server = declaredServer({
 				state: "error",
 				error: "The server refused this request.\nLiteLLM 403: blocked by policy",
@@ -248,8 +245,8 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("an expected failure serving stale AND declared models names the served total, declared as qualifier", () => {
-			// The declared subset must never displace the served count: the row's
-			// "5 models" and the paste line have to agree on one number.
+			// The declared subset must never displace the served count: the row's "5 models" and the paste line have to
+			// agree on one number.
 			const server = declaredServer({
 				state: "error",
 				error: "404 on /models",
@@ -261,15 +258,14 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("servedModelsBreakdown classifies once for both string surfaces", () => {
-			// The English paste line and the Servers row's localized headline both
-			// render this classification; these pins are the shared vocabulary.
+			// The English paste line and the Servers row's localized headline both render this classification; these
+			// pins are the shared vocabulary.
 			assert.deepStrictEqual(servedModelsBreakdown(2, 2), { kind: "declared", declared: 2 });
 			assert.deepStrictEqual(servedModelsBreakdown(5, 2), { kind: "mixed", served: 5, declared: 2 });
-			// Discovery serves every declared model (served = discovered + declared,
-			// groupDiscovery), so declared never exceeds served and mixed implies
-			// served >= 2 - which is why neither surface carries a singular mixed
-			// form. An out-of-contract input still classifies as the two-count form
-			// rather than claiming the whole served set is declared.
+			// Discovery serves every declared model (served = discovered + declared, groupDiscovery), so declared never
+			// exceeds served and mixed implies served >= 2 - which is why neither surface carries a singular mixed
+			// form. An out-of-contract input still classifies as the two-count form rather than claiming the whole
+			// served set is declared.
 			assert.deepStrictEqual(servedModelsBreakdown(1, 2), { kind: "mixed", served: 1, declared: 2 });
 			assert.deepStrictEqual(servedModelsBreakdown(3, 0), { kind: "stale", served: 3 });
 		});
@@ -335,16 +331,13 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("an entry whose group cannot serve its per-entry parameters says so on a healthy line", () => {
-			// The row is healthy, which is why the line must call the inactive
-			// parameters out.
+			// The row is healthy, which is why the line must call the inactive parameters out.
 			const line = serverOutcomeText(declaredServer({ servedModelCount: 2, notices: ["entry-params-inactive"] }));
 			assert.ok(line.startsWith("OK (2 models) - per-entry modelParameters are not applied"), line);
 			assert.ok(line.includes("run Sync Models Now"), line);
 		});
 
 		test("an entry whose group cannot serve its apiVersion override says so on a healthy line", () => {
-			// Same policy as the params notice: healthy row, English diagnostics
-			// prose, and the line must say requests fell back to the auto rule.
 			const line = serverOutcomeText(declaredServer({ servedModelCount: 2, notices: ["entry-api-version-inactive"] }));
 			assert.ok(line.startsWith("OK (2 models) - the per-entry API version override is not applied"), line);
 			assert.ok(line.includes("requests use the auto rule"), line);
@@ -369,8 +362,8 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("the four entry-*-inactive notices share one composed cause-and-remedy clause", () => {
-			// Each notice is its own subject plus the clause the composer appends;
-			// the clause is pinned here once, as users paste it into issue reports.
+			// Each notice is its own subject plus the clause the composer appends; the clause is pinned here once, as
+			// users paste it into issue reports.
 			const clause =
 				" (the provider group does not carry this entry's labeled identity); " +
 				"delete the group in Manage Language Models (or remove its object from the models file, chatLanguageModels.json, and reload the window), " +
@@ -418,9 +411,8 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("the one-line form is exactly the composition of serverOutcomeParts", () => {
-			// The Diagnostics grid renders the decomposed parts; the pinned line is
-			// what lands in issue reports. Re-deriving one from the other keeps the
-			// two surfaces from drifting.
+			// The Diagnostics grid renders the decomposed parts; the pinned line is what lands in issue reports.
+			// Re-deriving one from the other keeps the two surfaces from drifting.
 			const cases: DashboardServer[] = [
 				declaredServer({ servedModelCount: 3 }),
 				declaredServer({ state: "error", error: "upsert refused", servedModelCount: 2 }),
@@ -473,8 +465,8 @@ describe("dashboard/presenters renderers", () => {
 
 	describe("zero-model prose", () => {
 		test("the localized explanation names hidden groups first, then the empty listings", () => {
-			// The one sentence the bar tooltip, the toasts, and the draft probe
-			// share (English-bundle wording pinned here once).
+			// The one sentence the bar tooltip, the toasts, and the draft probe share (English-bundle wording pinned
+			// here once).
 			assert.strictEqual(
 				zeroModelExplanation(1, 0),
 				"1 server is hidden and serves no models: it was removed here, or its entry now points at another URL. The dashboard's server list shows which."
@@ -522,9 +514,8 @@ describe("dashboard/presenters renderers", () => {
 
 describe("dashboard/presenters number-unit grammars", () => {
 	test("a setting's draft grammar refuses fractions exactly when its spec is integer-only", () => {
-		// The integer-only fact has one source, the spec's `integer` flag, so a new
-		// integer setting cannot ship a unit whose input accepts values the host
-		// would silently floor.
+		// The integer-only fact has one source, the spec's `integer` flag, so a new integer setting cannot ship a unit
+		// whose input accepts values the host would silently floor.
 		for (const id of Object.keys(NUMBER_SETTING_SPECS) as NumberSettingId[]) {
 			const fractionReading = unitBehavior(id).parseDraft("1.5");
 			assert.strictEqual(

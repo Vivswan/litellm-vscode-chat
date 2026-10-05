@@ -44,8 +44,8 @@ suite("provider/diagnostics", () => {
 			true,
 			"The callback must carry the silent flag of the refresh"
 		);
-		// Each model's single tool-capable provider registers three entries: the
-		// cheapest and fastest aggregates plus the per-provider entry.
+		// Each model's single tool-capable provider registers three entries: the cheapest and fastest aggregates plus
+		// the per-provider entry.
 		assert.strictEqual(expectDefined(callbackStatus).totalModels, 6);
 		assert.deepStrictEqual(
 			expectDefined(callbackStatus).serverStatuses.map((s) => [s.state, s.servedModelCount]),
@@ -134,8 +134,8 @@ suite("provider/diagnostics", () => {
 		assert.ok(logs.some((log) => log.includes("Serving no models for the group-agnostic refresh")));
 	});
 
-	// Injects the transport: the assertion needs a known injected error message
-	// ("Test error") to show up in the log lines, which msw cannot produce.
+	// Injects the transport: the assertion needs a known injected error message ("Test error") to show up in the log
+	// lines, which msw cannot produce.
 	test("output channel receives error logs at the error level", async () => {
 		const errors: string[] = [];
 		const mockOutputChannel = {

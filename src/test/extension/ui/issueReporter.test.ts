@@ -47,9 +47,8 @@ suite("IssueReporter", () => {
 	}
 
 	/**
-	 * The host rides a parameter so a hostname literal never sits at an
-	 * includes() call, the shape CodeQL reads as URL-sanitization-by-substring
-	 * (js/incomplete-url-substring-sanitization).
+	 * The host rides a parameter so a hostname literal never sits at an includes() call, the shape CodeQL reads as
+	 * URL-sanitization-by-substring (js/incomplete-url-substring-sanitization).
 	 */
 	function assertHostRedacted(text: string, host: string): void {
 		assert.ok(!text.includes(host), "Should not leak hostname");
@@ -120,9 +119,8 @@ suite("IssueReporter", () => {
 	});
 
 	test("the feature-flag loop reproduces the two shipped features' lines byte-for-byte", () => {
-		// The loop replaced hand-written per-feature lines; these strings are the
-		// old renderer's exact output, so a prose or casing drift in the loop's
-		// composition fails here instead of silently rewording public reports.
+		// The loop replaced hand-written per-feature lines; these strings are the old renderer's exact output, so a
+		// prose or casing drift in the loop's composition fails here instead of silently rewording public reports.
 		const reporter = new IssueReporter();
 		const body = reporter.buildBody(
 			makeSnapshot({
@@ -146,7 +144,6 @@ suite("IssueReporter", () => {
 		]) {
 			assert.ok(body.includes(`\n${line}\n`), `body must carry the exact line: ${line}`);
 		}
-		// The participant has no model key, so exactly one line renders for it.
 		assert.ok(body.includes("\n- Chat participant enabled: yes\n"));
 		assert.ok(!body.includes("Chat participant model configured"));
 	});
@@ -187,9 +184,8 @@ suite("IssueReporter", () => {
 
 	test("an http RequestError's response body never reaches the issue prefill", () => {
 		const reporter = new IssueReporter();
-		// Through the real mapping: a non-JSON body carrying both a marker and a
-		// line SHAPED like a stack frame - prefix-stripping by length must remove
-		// it, where a frame-shape filter alone would keep it.
+		// Through the real mapping: a non-JSON body carrying both a marker and a line SHAPED like a stack frame -
+		// prefix-stripping by length must remove it, where a frame-shape filter alone would keep it.
 		const sdkError = new APIError(
 			422,
 			undefined,
@@ -206,7 +202,6 @@ suite("IssueReporter", () => {
 		assert.ok(body.includes("RequestError(http, status 422)"), "the classification replaces the message");
 		assert.ok(!reporter.buildTitle(snapshot).includes("BODY-MARKER-422"), "the title must not leak the body either");
 
-		// The stack section keeps its call frames but nothing message-derived.
 		const stack = expectDefined(expectDefined(reporter.getLatestError()).stack);
 		assert.ok(!stack.includes("BODY-MARKER-422"), "the stack's message line leaked the body");
 		assertOmits(stack, "com.example.Foo.bar", "the stack kept the body's frame-shaped line");
@@ -308,8 +303,8 @@ suite("IssueReporter", () => {
 	});
 
 	test("a classified error's redaction stays exactly as before", () => {
-		// The Classification line is enum ids plus an integer; the message and
-		// title redaction pipeline must behave as if the field were not there.
+		// The Classification line is enum ids plus an integer; the message and title redaction pipeline must behave as
+		// if the field were not there.
 		const reporter = new IssueReporter();
 		const snapshot = makeSnapshot({
 			latestError: {
@@ -593,9 +588,8 @@ suite("IssueReporter", () => {
 	});
 
 	test("redactSecrets removes username-only URL credentials, localhost carve-out included", () => {
-		// A username-only userinfo has no colon, and the host rule's localhost
-		// carve-out keeps the rest of the URL verbatim - the credential must be
-		// gone before that rule runs. The userinfo is dropped, not marked: a
+		// A username-only userinfo has no colon, and the host rule's localhost carve-out keeps the rest of the URL
+		// verbatim - the credential must be gone before that rule runs. The userinfo is dropped, not marked: a
 		// bracketed marker would split the host rule's reparse.
 		const result = redactSecrets("Fetching from: http://tok-secret@localhost:4000/v1/models");
 		assert.ok(!result.includes("tok-secret"), result);
@@ -670,19 +664,19 @@ suite("IssueReporter", () => {
 	});
 
 	test("redactSecrets over-redacts bare token mentions, deliberately erring toward safety", () => {
-		// "endpoint" here is prose, not a secret; the bare patterns cannot tell.
-		// That is the accepted trade-off: never weaken them to preserve prose.
+		// "endpoint" here is prose, not a secret; the bare patterns cannot tell. That is the accepted trade-off: never
+		// weaken them to preserve prose.
 		assert.equal(redactSecrets("access_token endpoint failed"), "access_token [REDACTED] failed");
 	});
 
-	// The repeat-report fingerprint is the diagnostic signature only (enum ids,
-	// counts, flags), so nothing response-derived can reach globalState.
+	// The repeat-report fingerprint is the diagnostic signature only (enum ids, counts, flags), so nothing
+	// response-derived can reach globalState.
 	suite("repeat-report fingerprint and ledger", () => {
 		test("the fingerprint never carries log lines, error text, stacks, sources, or timestamps", () => {
 			const snapshot = makeSnapshot({
 				latestError: {
-					// Real sources interpolate server labels and base URLs
-					// (logError callers), so the source must stay out too.
+					// Real sources interpolate server labels and base URLs (logError callers), so the source must stay
+					// out too.
 					source: 'Failed to fetch models from server "corp-label-MARKER"',
 					message: "boom resp-body-MARKER",
 					stack: "stack-MARKER",

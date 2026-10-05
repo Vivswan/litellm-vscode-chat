@@ -1,7 +1,3 @@
-/**
- * The ServerSyncEngine's passes: adds, blocked identity changes, removals and
- * renames, and the fingerprint persistence createServerSyncEnv gives it.
- */
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
 import { classifyOverall } from "../../../dashboard/presenters";
@@ -28,7 +24,10 @@ import { expectDefined } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } from "../../testUtils";
 import { makeSyncEnv, recordedEvents } from "./serverSyncHelpers";
 
-/** Host-call attempts, not landed adds: a duplicate refusal records no upsert, so only this count can show hammering. */
+/**
+ * Host-call attempts, not landed adds: a duplicate refusal records no upsert, so only this count can show
+ * hammering.
+ */
 function countHostCalls(recorded: ReturnType<typeof makeSyncEnv>): { readonly count: number } {
 	const counter = { count: 0 };
 	const addProviderGroup = recorded.env.addProviderGroup;
@@ -63,11 +62,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a mid-pass settings edit skips the add: a stale entry never pairs with fresh secrets", async () => {
-			// The pass reads the setting once and each entry's secrets later; this
-			// edit lands inside that window (the readSecrets await). Without the
-			// pre-add re-read the add goes out pairing the OLD host with the NEW
-			// secret - permanent, because the host is add-only. The skip is
-			// silent, and the next pass syncs the true pairing.
+			// The pass reads the setting once and each entry's secrets later; this edit lands inside that window (the
+			// readSecrets await). Without the pre-add re-read the add goes out pairing the OLD host with the NEW
+			// secret - permanent, because the host is add-only.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://old.test" }], { A: { apiKey: "sk-new" } });
 			const originalRead = recorded.env.readSecrets.bind(recorded.env);
 			recorded.env.readSecrets = async (label) => {
@@ -93,11 +90,10 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a secret rotated mid-pass no longer blocks the add: identity is what the pre-add re-read guards", async () => {
-			// The identity fingerprint does not cover credentials, so the pass-start
-			// pairing may reach the host even when the secret rotates between the
-			// loop's read and the add. Harmless where it was once permanent: the
-			// baked credentials are a serve-time-overridden fallback, and the
-			// rotation's own follow-up pass reads as in-sync without another add.
+			// The identity fingerprint does not cover credentials, so the pass-start pairing may reach the host even
+			// when the secret rotates between the loop's read and the add. Harmless where it was once permanent: the
+			// baked credentials are a serve-time-overridden fallback, and the rotation's own follow-up pass reads as
+			// in-sync without another add.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { apiKey: "sk-1" } });
 			const originalRead = recorded.env.readSecrets.bind(recorded.env);
 			let rotated = false;
@@ -124,10 +120,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("dispose settles a queued syncNow, and no pass may start after disposal", async () => {
-			// A queued follow-up will never run once the engine is disposed, so
-			// its waiters must settle instead of hanging - and neither the queued
-			// follow-up nor a later syncNow may reach the host (a disposed
-			// engine's window is going away; its adds would be unobservable).
+			// A queued follow-up will never run once the engine is disposed, so its waiters must settle instead of
+			// hanging - and neither the queued follow-up nor a later syncNow may reach the host (a disposed engine's
+			// window is going away; its adds would be unobservable).
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			let release!: () => void;
 			const gate = new Promise<void>((resolve) => {
@@ -161,9 +156,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "the second identical pass upserts nothing");
 
-			// A credential rotation is a sync no-op BY DESIGN: the identity print
-			// does not cover secrets, the host could not update the group anyway,
-			// and the serve-time overlay delivers the new value.
+			// A credential rotation is a sync no-op BY DESIGN: the identity print does not cover secrets, the host
+			// could not update the group anyway, and the serve-time overlay delivers the new value.
 			recorded.secrets = { A: { apiKey: "sk-2" } };
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "a secret change owes the host nothing");
@@ -316,9 +310,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				["A"]
 			);
 
-			// A caller that sees the view disappear may rely on the removal's tombstone
-			// already being installed, so the view must still show the previous pass's
-			// truth while reconciliation runs.
+			// A caller that sees the view disappear may rely on the removal's tombstone already being installed, so the
+			// view must still show the previous pass's truth while reconciliation runs.
 			let releaseReconcile!: () => void;
 			const gate = new Promise<void>((resolve) => {
 				releaseReconcile = resolve;
@@ -386,12 +379,10 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("removing Old beside a Twin that was declared all along is a removal, never a rename, whatever Twin's records", async () => {
-			// The rename's other half must be NEW this pass. Twin was declared beside
-			// Old from the start, so removing Old is a removal - whether Twin synced
-			// (fingerprint and ledger), was refused but observed (ledger only), or was
-			// refused and never observed (no record of any kind). Reading a record-less
-			// Twin as new would leave Old's group visible with rename provenance instead
-			// of hidden by a tombstone.
+			// The rename's other half must be NEW this pass. Reading a record-less Twin as new would leave Old's group
+			// visible with rename provenance instead of hidden by a tombstone.
+			//
+			//   Twin was declared beside Old from the start -> removing Old is a removal
 			const cases: { name: string; twinRefused: boolean; twinObserved: boolean }[] = [
 				{ name: "synced twin", twinRefused: false, twinObserved: true },
 				{ name: "refused, observed twin", twinRefused: true, twinObserved: true },
@@ -427,8 +418,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				);
 			}
 
-			// The record-absence fallback still serves a session's first pass, where a
-			// rename made while VS Code was closed has no declaration baseline.
+			// The record-absence fallback still serves a session's first pass, where a rename made while VS Code was
+			// closed has no declaration baseline.
 			const coldRename = makeSyncEnv([{ label: "New", baseUrl: "http://host.test" }]);
 			coldRename.fingerprints = { Old: "pre-ledger-record" };
 			coldRename.entryBaseUrls = { Old: "http://host.test" };
@@ -440,9 +431,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a stale ledger re-read cannot degrade a removal to the untracked notice (#220)", async () => {
-			// The session ledger is the truth for a removed label's base URL; the store
-			// read only fills gaps. A stale read leaves the event without a URL, so the
-			// env writes no tombstone and the removed group's models never leave.
+			// The session ledger is the truth for a removed label's base URL; the store read only fills gaps. A stale
+			// read leaves the event without a URL, so the env writes no tombstone and the removed group's models never
+			// leave.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			recorded.env.getEntryBaseUrls = () => ({}); // every read is the stale pre-declare snapshot
 			const engine = new ServerSyncEngine(recorded.env);
@@ -454,11 +445,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a removal the identity ledger predates resolves its base URL from the host's own serving of the label, or not at all", async () => {
-			// A fingerprint record from an older version, with no ledger entry to
-			// resolve its host. The provider's observation of which base URLs the
-			// host served the label's group at is the second source: exactly one
-			// distinct URL is evidence, none or several leave the event untracked
-			// (the env must not tombstone a guess).
+			// A fingerprint record from an older version, with no ledger entry to resolve its host. The provider's
+			// observation of which base URLs the host served the label's group at is the second source: exactly one
+			// distinct URL is evidence, none or several leave the event untracked (the env must not tombstone a guess).
 			const cases: { observed: readonly string[]; expected: string | undefined }[] = [
 				{ observed: [], expected: undefined },
 				{ observed: ["http://ghost.test/"], expected: "http://ghost.test" },
@@ -486,17 +475,15 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1);
 
-			// A mid-edit settings.json: the entry is present, just unusable. Tombstoning
-			// it would suppress a group the user did not remove, and shedding its records
-			// would wedge the repaired entry on an unrecognizable duplicate.
+			// A mid-edit settings.json: the entry is present, just unusable. Tombstoning it would suppress a group the
+			// user did not remove, and shedding its records would wedge the repaired entry on an unrecognizable
+			// duplicate.
 			recorded.setting = [{ label: "Prod" }];
 			await engine.syncNow();
 			assert.deepStrictEqual(recordedEvents(recorded), [], "a carried label is present, not removed");
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Prod"], "the fingerprint record carries");
 			assert.deepStrictEqual(recorded.entryBaseUrls, { Prod: "http://prod.test" }, "the ledger record carries");
 
-			// The edit completes: the unchanged entry reads as in-sync again (no
-			// host call, no spurious name-conflict error) and still no event.
 			recorded.setting = [{ label: "Prod", baseUrl: "http://prod.test" }];
 			await engine.syncNow();
 			assert.deepStrictEqual(recordedEvents(recorded), []);
@@ -509,9 +496,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 
-			// The session map drops the removed label before the persist, so an
-			// aborting persist would lose the removal's only evidence: the event
-			// (and its tombstone) must still go out.
+			// The session map drops the removed label before the persist, so an aborting persist would lose the
+			// removal's only evidence: the event (and its tombstone) must still go out.
 			recorded.setting = [];
 			recorded.failFingerprintWrites = new Error("memento write failed");
 			await engine.syncNow();
@@ -530,18 +516,16 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 
-			// A mid-edit settings.json where the array itself is broken: presence
-			// is unknowable, so nothing may read as removed and nothing may shed
-			// its records.
+			// A mid-edit settings.json where the array itself is broken: presence is unknowable, so nothing may read as
+			// removed and nothing may shed its records.
 			recorded.setting = "not an array";
 			await engine.syncNow();
 			assert.deepStrictEqual(recordedEvents(recorded), []);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Prod"]);
 			assert.deepStrictEqual(recorded.entryBaseUrls, { Prod: "http://prod.test" });
 
-			// undefined and null prove nothing either: the setting declares an array
-			// schema with a [] default, so a non-array is a malformed or partial state,
-			// never how a real "remove everything" arrives.
+			// undefined and null prove nothing either: the setting declares an array schema with a [] default, so a
+			// non-array is a malformed or partial state, never how a real "remove everything" arrives.
 			recorded.setting = undefined;
 			await engine.syncNow();
 			recorded.setting = null;
@@ -549,8 +533,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			assert.deepStrictEqual(recordedEvents(recorded), []);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Prod"]);
 
-			// Clearing the setting for real IS explicit removal of every entry,
-			// and it arrives as the schema's empty array.
+			// Clearing the setting for real IS explicit removal of every entry, and it arrives as the schema's empty
+			// array.
 			recorded.setting = [];
 			await engine.syncNow();
 			assert.deepStrictEqual(recordedEvents(recorded), [
@@ -564,16 +548,15 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1);
 
-			// The next forced add fails outright (the live group may have been
-			// removed natively), leaving the upsertFailed marker that must send
-			// this exact configuration back to the host.
+			// The next forced add fails outright (the live group may have been removed natively), leaving the
+			// upsertFailed marker that must send this exact configuration back to the host.
 			recorded.failLabels.add("Prod");
 			await engine.syncNow(true);
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "upsertFailed");
 
-			// A mid-edit container proves nothing: the entry is present, not removed, so
-			// the pending retry must survive like the fingerprint and ledger records -
-			// erasing it would read the carried fingerprint as in-sync and skip the retry.
+			// A mid-edit container proves nothing: the entry is present, not removed, so the pending retry must survive
+			// like the fingerprint and ledger records - erasing it would read the carried fingerprint as in-sync and
+			// skip the retry.
 			recorded.setting = null;
 			await engine.syncNow();
 
@@ -589,9 +572,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 
-			// Another window persisted "Other" after this engine seeded its session map,
-			// and the entry then goes malformed here. The carry must take the store's
-			// proof (carryLastGood's asymmetry), or this pass-end write erases the copy.
+			// Another window persisted "Other" after this engine seeded its session map, and the entry then goes
+			// malformed here. The carry must take the store's proof (carryLastGood's asymmetry), or this pass-end write
+			// erases the copy.
 			recorded.fingerprints = { ...recorded.fingerprints, Other: "other-window-record" };
 			recorded.entryBaseUrls = { ...recorded.entryBaseUrls, Other: "http://other.test" };
 			recorded.setting = [{ label: "Prod", baseUrl: "http://prod.test" }, { label: "Other" }];
@@ -603,13 +586,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a blocked URL change with no prior ledger record never guesses: the ledger takes the host's serving, or nothing", async () => {
-			// The URL changed before the first pass and the add was refused, so the
-			// declared URL was never proven and must not enter the ledger. What may:
-			// the OLD URL the host is serving the label's group at, which the live
-			// group still holds. A later removal then resolves the group's identity
-			// from that record, or degrades to the untracked notice when nothing was
-			// observed. A fingerprint record is not required: the observed group is
-			// itself the evidence a group exists for the label.
+			// The URL changed before the first pass and the add was refused, so the declared URL was never proven
+			// and must not enter the ledger. A fingerprint record is not required: the observed group is itself the
+			// evidence a group exists for the label.
 			const cases: { record: boolean; observed: readonly string[] }[] = [
 				{ record: true, observed: [] },
 				{ record: true, observed: ["http://old.test"] },
@@ -643,11 +622,10 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a group observed only after the blocked pass still enters the ledger on the next pass, so its removal is tracked", async () => {
-			// The host's file is out of reach, so the served identity is the only
-			// evidence, and at cold start the pass runs before the host has reported
-			// the blocked entry's group: nothing is recorded. The wiring re-runs a
-			// pass when the group enters the window; that pass records the served
-			// identity, and the later removal names it.
+			// The host's file is out of reach, so the served identity is the only evidence, and at cold start the pass
+			// runs before the host has reported the blocked entry's group: nothing is recorded. The wiring re-runs a
+			// pass when the group enters the window; that pass records the served identity, and the later removal names
+			// it.
 			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://new.test" }]);
 			recorded.duplicateLabels.add("Prod");
 			const engine = new ServerSyncEngine(recorded.env);
@@ -666,15 +644,13 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("an untracked removal is carried until an observation names the group, then tombstones once", async () => {
-			// Cold start: a pre-ledger fingerprint, no ledger, no observation. The
-			// first pass reports the removal untracked, once, and KEEPS the fingerprint
-			// record - the only durable evidence - so a session ending before the host
-			// reports the group leaves the next session a candidate. When the host
-			// later serves Ghost's labeled group (the wiring re-runs a pass on that),
-			// the carried removal resolves to the observed identity and fires once
-			// more, this time with the URL the tombstone needs, and the record goes;
-			// later passes stay quiet. Declaring Ghost again meanwhile drops the carry
-			// without an event.
+			// Cold start: a pre-ledger fingerprint, no ledger, no observation. The first pass reports the removal
+			// untracked, once, and KEEPS the fingerprint record - the only durable evidence - so a session ending
+			// before the host reports the group leaves the next session a candidate.
+			//
+			//   the host later serves Ghost's labeled group (the wiring re-runs a pass on that)
+			//     -> the carried removal resolves to the observed identity and fires once more, this time with the URL
+			//        the tombstone needs, and the record goes
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			recorded.fingerprints = { Ghost: "pre-ledger-record" };
 			const engine = new ServerSyncEngine(recorded.env);
@@ -687,8 +663,6 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				"the unresolved removal's record survives the pass-end write"
 			);
 
-			// The next session seeds from that store and detects the removal again
-			// (untracked once more), then resolves it once the group is observed.
 			const nextSession = new ServerSyncEngine(recorded.env);
 			await nextSession.syncNow();
 			recorded.observedGroups = { Ghost: ["http://ghost.test"] };
@@ -700,8 +674,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				{ kind: "removed", label: "Ghost", baseUrl: "http://ghost.test" },
 			]);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the resolved removal's record is pruned");
-			// The aggregate log follows the emitted events, never the carried
-			// candidate (the log buffer feeds issue reports).
+			// The aggregate log follows the emitted events, never the carried candidate (the log buffer feeds issue
+			// reports).
 			assert.strictEqual(
 				recorded.logged.filter(([message]) => message.includes("provider groups remain")).length,
 				3,
@@ -722,13 +696,10 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a carried removal survives malformed-container passes and keeps its own detecting pass's rename delta", async () => {
-			// Ghost (pre-ledger fingerprint) is removed before any observation. A
-			// malformed container in between proves nothing and must not end the
-			// carry; when the observation lands, the carry resolves to a tombstone.
-			// An entry ADDED later at that URL is not the rename's other half - the
-			// declaration delta that counts is the detecting pass's - while a real
-			// rename (New declared in the same pass Old left) still reads as one
-			// even though Old's observation came later.
+			// A malformed container in between proves nothing and must not end the carry; when the observation
+			// lands, the carry resolves to a tombstone. An entry ADDED later at that URL is not the rename's other
+			// half - the declaration delta that counts is the detecting pass's - while a real rename (New declared in
+			// the same pass Old left) still reads as one even though Old's observation came later.
 			const recorded = makeSyncEnv([]);
 			recorded.fingerprints = { Ghost: "pre-ledger-record" };
 			const engine = new ServerSyncEngine(recorded.env);
@@ -754,9 +725,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				{ kind: "renamed", oldLabel: "Old", newLabel: "New", baseUrl: "http://host.test" },
 			]);
 
-			// The delta is the labels WITH the URLs they declared then: a new entry
-			// re-pointed to the removed label's URL before the observation arrives
-			// is not the rename's other half.
+			// The delta is the labels WITH the URLs they declared then: a new entry re-pointed to the removed label's
+			// URL before the observation arrives is not the rename's other half.
 			const repointed = makeSyncEnv([{ label: "New", baseUrl: "http://elsewhere.test" }]);
 			repointed.fingerprints = { Old: "pre-ledger-record" };
 			const engine3 = new ServerSyncEngine(repointed.env);
@@ -772,13 +742,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a stale store read through a malformed-container pass cannot replay a settled removal, from either record kind", async () => {
-			// A removal settles on the valid empty setting. A malformed container
-			// next, with the store still returning the label's old record, must not
-			// carry it back into the session maps, or the following valid pass would
+			// A removal settles on the valid empty setting. A malformed container next, with the store still returning
+			// the label's old record, must not carry it back into the session maps, or the following valid pass would
 			// remove the label again (undoing an Unhide and repeating the notice).
-			// Both candidate sources - the ledger and the fingerprint map - are
-			// covered, the latter through an untracked removal an observation
-			// resolved.
 			const ledgerOnly = makeSyncEnv([]);
 			ledgerOnly.entryBaseUrls = { Ghost: "http://ghost.test" };
 			const engine = new ServerSyncEngine(ledgerOnly.env);
@@ -809,9 +775,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a ledger record from an earlier session detects a removal made while VS Code was closed, once", async () => {
-			// The stored ledger names Ghost (proven or observed last session) and no
-			// fingerprint exists (its add never landed). The first pass raises the
-			// removal; a stale store read that re-surfaces Ghost afterwards must not
+			// The stored ledger names Ghost (proven or observed last session) and no fingerprint exists (its add never
+			// landed). The first pass raises the removal; a stale store read that re-surfaces Ghost afterwards must not
 			// raise it again - detection keys on the session ledger.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			recorded.entryBaseUrls = { Ghost: "http://ghost.test" };
@@ -834,8 +799,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.deepStrictEqual(recorded.entryBaseUrls, { Prod: "http://old.test" });
 
-			// The URL changes but the add-only host refuses the update: the live
-			// group keeps the OLD connection, so the ledger must not move.
+			// The URL changes but the add-only host refuses the update: the live group keeps the OLD connection, so the
+			// ledger must not move.
 			recorded.setting = [{ label: "Prod", baseUrl: "http://new.test" }];
 			recorded.duplicateLabels.add("Prod");
 			await engine.syncNow();
@@ -846,7 +811,6 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				"the ledger records the group that exists, not the configuration that never landed"
 			);
 
-			// Removing the entry now names the live group's identity.
 			recorded.setting = [];
 			await engine.syncNow();
 			assert.deepStrictEqual(recordedEvents(recorded), [
@@ -890,8 +854,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 
-			// The group now exists host-side, so the forced activation re-add is
-			// refused as a duplicate; that must not surface as an error.
+			// The group now exists host-side, so the forced activation re-add is refused as a duplicate; that must not
+			// surface as an error.
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow(true);
 
@@ -954,16 +918,14 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				"the last-known-good fingerprint is carried, not dropped"
 			);
 
-			// The user reverts the entry instead of removing the group natively:
-			// the live group already holds this content, so the error clears
-			// without a host call.
+			// The user reverts the entry instead of removing the group natively: the live group already holds this
+			// content, so the error clears without a host call.
 			recorded.setting = [{ label: "A", baseUrl: "http://a.test" }];
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "the revert unwedges the entry");
 			assert.strictEqual(recorded.upserts.length, 1, "the revert is a silent no-op, not a retry");
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
 
-			// A genuine change afterwards still surfaces the error.
 			recorded.setting = [{ label: "A", baseUrl: "http://c.test" }];
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
@@ -975,17 +937,15 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
 
-			// A forced pass (activation) re-adds the healthy entry and the host
-			// fails transiently. The fingerprint record must survive: it is the
-			// only thing that lets the next duplicate response read as in-sync.
+			// A forced pass (activation) re-adds the healthy entry and the host fails transiently. The fingerprint
+			// record must survive: it is the only thing that lets the next duplicate response read as in-sync.
 			recorded.failLabels.add("A");
 			await engine.syncNow(true);
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPSERT_FAILED_MESSAGE);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "last-known-good survives the failure");
 
-			// The next unforced pass retries and gets the healthy group's normal
-			// duplicate rejection; misreading it as changed/name-taken would
-			// block the entry forever.
+			// The next unforced pass retries and gets the healthy group's normal duplicate rejection; misreading it as
+			// changed/name-taken would block the entry forever.
 			recorded.failLabels.delete("A");
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow();
@@ -1003,17 +963,16 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1);
 
-			// The entry's identity changes and the add for the NEW configuration
-			// fails transiently (not as a duplicate).
+			// The entry's identity changes and the add for the NEW configuration fails transiently (not as a
+			// duplicate).
 			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.failLabels.add("A");
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPSERT_FAILED_MESSAGE);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "last-known-good survives the failure");
 
-			// The user reverts instead: the entry matches the live group again,
-			// and the pending retry concerned a configuration that no longer
-			// exists, so this is in sync without a host call.
+			// The user reverts instead: the entry matches the live group again, and the pending retry concerned a
+			// configuration that no longer exists, so this is in sync without a host call.
 			recorded.failLabels.delete("A");
 			recorded.setting = [{ label: "A", baseUrl: "http://a.test" }];
 			await engine.syncNow();
@@ -1033,9 +992,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
 
-			// The user removes the group natively and forces a sync, but the
-			// re-add fails transiently. The stale duplicate knowledge must clear
-			// with it, or the blocked shortcut would suppress every retry below.
+			// The user removes the group natively and forces a sync, but the re-add fails transiently. The stale
+			// duplicate knowledge must clear with it, or the blocked shortcut would suppress every retry below.
 			recorded.duplicateLabels.delete("A");
 			recorded.failLabels.add("A");
 			await engine.syncNow(true);
@@ -1045,7 +1003,6 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				"the classification follows the latest outcome"
 			);
 
-			// The next UNFORCED pass reaches the host and lands.
 			recorded.failLabels.delete("A");
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 2, "the unforced retry reaches the host");
@@ -1067,7 +1024,6 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 
-			// A landed and is recorded; B is skipped with the classified error.
 			assert.deepStrictEqual(
 				recorded.upserts.map((upsert) => upsert.name),
 				["A"]
@@ -1076,14 +1032,12 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const byLabel = new Map(engine.getDeclared().map((view) => [view.label, view]));
 			assert.strictEqual(byLabel.get("A")?.syncFailure?.message, undefined);
 			assert.strictEqual(byLabel.get("B")?.syncFailure?.message, SECRETS_READ_FAILED_MESSAGE);
-			// The read-failure class stands alone: consumers key on it to mark the
-			// view's secret locations unproven, which the other skip classes
-			// (saltUnavailable, secretsMismatched) must never imply.
+			// The read-failure class stands alone: consumers key on it to mark the view's secret locations unproven,
+			// which the other skip classes (saltUnavailable, secretsMismatched) must never imply.
 			assert.strictEqual(byLabel.get("B")?.syncFailure?.class, "secretsUnreadable");
 
-			// The store recovers and a forced pass re-adds both: A's duplicate response
-			// reads as the steady state - only possible because its fingerprint survived
-			// B's failure - and B's first add lands.
+			// The store recovers and a forced pass re-adds both: A's duplicate response reads as the steady state -
+			// only possible because its fingerprint survived B's failure - and B's first add lands.
 			recorded.env.readSecrets = readSecrets;
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow(true);
@@ -1099,8 +1053,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			let calls = 0;
 			recorded.env.setFingerprints = async (map) => {
 				calls += 1;
-				// Call 1 is the write-through after A's add; call 2 is the
-				// end-of-pass wholesale write.
+				// Call 1 is the write-through after A's add; call 2 is the end-of-pass wholesale write.
 				if (calls === 2) {
 					throw new Error("memento write failed");
 				}
@@ -1110,9 +1063,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the write-through record survives");
 
-			// A forced pass re-adds the group and gets the duplicate response;
-			// only the write-through record makes it read as the steady state
-			// instead of a name conflict.
+			// A forced pass re-adds the group and gets the duplicate response; only the write-through record makes it
+			// read as the steady state instead of a name conflict.
 			recorded.env.setFingerprints = setFingerprints;
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow(true);
@@ -1134,8 +1086,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
 
-			// One pass cannot read the stored secrets; its classification takes
-			// over for that pass.
+			// One pass cannot read the stored secrets; its classification takes over for that pass.
 			const readSecrets = recorded.env.readSecrets;
 			recorded.env.readSecrets = async () => {
 				throw new Error("keychain locked");
@@ -1143,9 +1094,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, SECRETS_READ_FAILED_MESSAGE);
 
-			// The store recovers and the entry still holds the refused
-			// configuration: the shortcut must show the name-conflict text
-			// again, not the stale secrets text.
+			// The store recovers and the entry still holds the refused configuration: the shortcut must show the
+			// name-conflict text again, not the stale secrets text.
 			recorded.env.readSecrets = readSecrets;
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
@@ -1169,8 +1119,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
 
-			// The user deletes the stale group from the models file and runs Sync
-			// Models Now: the forced pass retries the add, and this time it lands.
+			// The user deletes the stale group from the models file and runs Sync Models Now: the forced pass retries
+			// the add, and this time it lands.
 			recorded.duplicateLabels.delete("Taken");
 			await engine.syncNow(true);
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "the blocked entry heals");
@@ -1282,9 +1232,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a stale fingerprint re-read cannot misclassify the engine's own group as a name conflict", async () => {
-			// The engine's session map is in-memory and the persisted map only seeds the
-			// first pass: a stale re-read must not make the engine re-add its own group
-			// and read the duplicate rejection as a foreign name conflict.
+			// The engine's session map is in-memory and the persisted map only seeds the first pass: a stale re-read
+			// must not make the engine re-add its own group and read the duplicate rejection as a foreign name
+			// conflict.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			recorded.env.getFingerprints = () => ({});
 			const engine = new ServerSyncEngine(recorded.env);
@@ -1292,9 +1242,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the add persisted its fingerprint");
 			recorded.duplicateLabels.add("A");
 
-			// The debounced follow-up pass: in-sync from the session map, so no
-			// host call at all and no spurious error - even though the store's
-			// re-read still claims no fingerprint exists.
+			// The debounced follow-up pass: in-sync from the session map, so no host call at all and no spurious
+			// error - even though the store's re-read still claims no fingerprint exists.
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "the in-sync entry must not be re-added");
 			assert.strictEqual(
@@ -1303,8 +1252,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				"no spurious name-conflict classification"
 			);
 
-			// Even a forced pass (activation, Sync Models Now) reads the duplicate
-			// rejection as the add-only steady state, not a conflict.
+			// Even a forced pass (activation, Sync Models Now) reads the duplicate rejection as the add-only steady
+			// state, not a conflict.
 			await engine.syncNow(true);
 			assert.strictEqual(
 				engine.getDeclared()[0]?.syncFailure?.message,
@@ -1314,9 +1263,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a restarted engine seeds from the persisted map, so the steady-state duplicate stays silent", async () => {
-			// The most-executed production path: every activation after the first
-			// runs a forced pass whose adds all come back as duplicates, and the
-			// silence depends entirely on the seed from the persisted map.
+			// The most-executed production path: every activation after the first runs a forced pass whose adds all
+			// come back as duplicates, and the silence depends entirely on the seed from the persisted map.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			await new ServerSyncEngine(recorded.env).syncNow();
 			recorded.duplicateLabels.add("A");
@@ -1332,9 +1280,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a secrets-unreadable pass preserves a store record this window never seeded", async () => {
-			// The pass-end write is whole-key: a record another window persisted after
-			// this window's session map seeded must ride through a pass that cannot read
-			// the entry's secrets, or the write destroys the only copy.
+			// The pass-end write is whole-key: a record another window persisted after this window's session map seeded
+			// must ride through a pass that cannot read the entry's secrets, or the write destroys the only copy.
 			const recorded = makeSyncEnv([]);
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
@@ -1355,9 +1302,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a failed upsert preserves a store record this window never seeded", async () => {
-			// Same whole-key hazard on the non-duplicate failure path: a failed add
-			// changes nothing about the live group, so a record this window has no
-			// memory of must not be the one thing the pass deletes.
+			// Same whole-key hazard on the non-duplicate failure path: a failed add changes nothing about the live
+			// group, so a record this window has no memory of must not be the one thing the pass deletes.
 			const recorded = makeSyncEnv([]);
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
@@ -1376,9 +1322,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("an unconfirmed salt pauses the pass: no adds, classified skip, last-known-good carried", async () => {
-			// Under a salt no later session will see, an added group could never be
-			// confirmed again and a recorded fingerprint would match nothing, so the
-			// pass skips every entry: classified error, stored records carried.
+			// Under a salt no later session will see, an added group could never be confirmed again and a recorded
+			// fingerprint would match nothing, so the pass skips every entry: classified error, stored records carried.
 			const setting = [
 				{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-1" } },
 				{ label: "New", baseUrl: "http://new.test", auth: { apiKey: "sk-2" } },
@@ -1418,9 +1363,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a salt mutation detected mid-pass stops further adds", async () => {
-			// The salt is re-confirmed immediately before EACH host add, not only
-			// at pass start: a group created after the store mutated could only
-			// ever be proven by a fingerprint no later session can recompute.
+			// The salt is re-confirmed immediately before EACH host add, not only at pass start: a group created after
+			// the store mutated could only ever be proven by a fingerprint no later session can recompute.
 			const setting = [
 				{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-1" } },
 				{ label: "B", baseUrl: "http://b.test", auth: { apiKey: "sk-2" } },
@@ -1442,10 +1386,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a duplicate for a configuration another window already synced confirms against the store", async () => {
-			// Two windows share the setting, globalState, and the host's groups but run
-			// separate engines. This window seeded before the other's add landed, so the
-			// fresh store read on the duplicate path is the positive confirmation that
-			// the live group holds exactly these args; the pass-end persist must keep it.
+			// Two windows share the setting, globalState, and the host's groups but run separate engines. This window
+			// seeded before the other's add landed, so the fresh store read on the duplicate path is the positive
+			// confirmation that the live group holds exactly these args; the pass-end persist must keep it.
 			const setting = [{ label: "A", baseUrl: "http://a.test" }];
 			const recorded = makeSyncEnv(setting);
 			const parsed = expectDefined(parseServersSetting(setting).entries[0]);
@@ -1470,9 +1413,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a store record for a different configuration does not confirm; the conflict stays", async () => {
-			// The confirmation is positive-only: a stale store can under-report
-			// but never invent a match, so anything but an exact fingerprint
-			// match keeps the actionable name-conflict classification.
+			// The confirmation is positive-only: a stale store can under-report but never invent a match, so anything
+			// but an exact fingerprint match keeps the actionable name-conflict classification.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			let seeded = false;
 			recorded.env.getFingerprints = () => {
@@ -1489,9 +1431,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a confirmed fingerprint joins the session map at once, so a later write-through keeps it", async () => {
-			// Confirmed A, then successfully-added B, in ONE pass: B's write-through
-			// persists a spread of the session map, so a confirmation that flowed only
-			// into the pass's `next` would re-clobber the other window's record mid-pass.
+			// Confirmed A, then successfully-added B, in ONE pass: B's write-through persists a spread of the session
+			// map, so a confirmation that flowed only into the pass's `next` would re-clobber the other window's record
+			// mid-pass.
 			const setting = [
 				{ label: "A", baseUrl: "http://a.test" },
 				{ label: "B", baseUrl: "http://b.test" },
@@ -1617,9 +1559,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("entries sharing one connection get distinct client IDs but one shared connection ID", async () => {
-			// Two declared entries, one base URL, one key: the labeled IDs keep their
-			// status entries apart, and the label-agnostic connection ID is what both
-			// share, so the dashboard join can hand a pre-label snapshot to both.
+			// Two declared entries, one base URL, one key: the labeled IDs keep their status entries apart, and the
+			// label-agnostic connection ID is what both share, so the dashboard join can hand a pre-label snapshot to
+			// both.
 			const recorded = makeSyncEnv([
 				{ label: "A", baseUrl: "http://x.test", auth: { apiKey: "sk-shared" } },
 				{ label: "B", baseUrl: "http://x.test", auth: { apiKey: "sk-shared" } },
@@ -1640,9 +1582,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("the client ID mirrors the provider's narrowing for OAuth and virtual-key entries too", async () => {
-			// If the narrowOAuth/narrowVirtualKey mirroring drifts, pass 0 of the
-			// dashboard join silently falls through to the URL join, so equality with an
-			// independently built GroupServer is pinned per credential shape.
+			// If the narrowOAuth/narrowVirtualKey mirroring drifts, pass 0 of the dashboard join silently falls through
+			// to the URL join, so equality with an independently built GroupServer is pinned per credential shape.
 			const recorded = makeSyncEnv(
 				[
 					{
@@ -1803,10 +1744,9 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 	});
 
 	test("a carried legacy-format record never overwrites a store record another window projected", async () => {
-		// Only pre-projection records lack the "i1:" prefix, and the engine
-		// carries them purely as last-known-good, so the projected store record
-		// is strictly newer knowledge; the engine's next duplicate response
-		// confirms against the store and adopts it into the session map.
+		// Only pre-projection records lack the "i1:" prefix, and the engine carries them purely as last-known-good, so
+		// the projected store record is strictly newer knowledge; the engine's next duplicate response confirms against
+		// the store and adopts it into the session map.
 		const { env, storage } = makeEnv("durable");
 		await env.setFingerprints({ A: "i1:projected-elsewhere", B: "i1:fresh" });
 		await env.setFingerprints({ A: "legacy-carried", B: "i1:fresh" });
@@ -1817,9 +1757,10 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 	});
 
 	test("a session-only salt never touches the stored map", async () => {
-		// Session-only renderings match nothing next session, so persisting them would
-		// overwrite the durable records that let a healthy group read as in-sync once
-		// the real salt is back. The in-memory map still carries the session's state.
+		// Session-only renderings match nothing next session, so persisting them would overwrite the durable records
+		// that let a healthy group read as in-sync once the real salt is back.
+		//
+		//   The in-memory map -> still carries the session's state
 		const { env, storage, lines } = makeEnv("session-only");
 		await env.setFingerprints({ A: "ephemeral" });
 		assert.deepStrictEqual(
@@ -1834,12 +1775,10 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 	});
 
 	test("a corrupted stored map is validated at the read boundary", async () => {
-		// The key is engine-owned and only ever written with strings under
-		// parser-accepted labels, so a non-string value (storage corruption, an
-		// external write) must not reach the session map behind an unchecked cast,
-		// a value that is not a map reads as empty, and a reserved
-		// (prototype-mutating) key is dropped HERE - the engine assigns these keys
-		// into plain records unguarded, so the boundary is the one filter.
+		// The key is engine-owned and only ever written with strings under parser-accepted labels, so a non-string
+		// value (storage corruption, an external write) must not reach the session map behind an unchecked cast, a
+		// value that is not a map reads as empty, and a reserved (prototype-mutating) key is dropped HERE - the engine
+		// assigns these keys into plain records unguarded, so the boundary is the one filter.
 		const { env, storage } = makeEnv("durable");
 		storage.mementoStore.set(SERVER_SYNC_FINGERPRINTS_KEY, { A: "ok", B: 42 });
 		assert.deepStrictEqual(env.getFingerprints(), { A: "ok" });
@@ -1847,8 +1786,7 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 		storage.mementoStore.set(SERVER_SYNC_FINGERPRINTS_KEY, "not-a-map");
 		assert.deepStrictEqual(env.getFingerprints(), {});
 
-		// JSON.parse so __proto__ is an own key (an object literal would set the
-		// prototype instead of a data property).
+		// JSON.parse so __proto__ is an own key (an object literal would set the prototype instead of a data property).
 		storage.mementoStore.set(
 			SERVER_SYNC_FINGERPRINTS_KEY,
 			JSON.parse('{"A": "ok", "__proto__": "fp", "constructor": "fp", "prototype": "fp"}')
@@ -1863,8 +1801,8 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 	});
 
 	test("a salt mutation detected at write time stops that persist", async () => {
-		// setFingerprints re-confirms per write, not per pass: a store mutation
-		// landing between two writes must stop the second one.
+		// setFingerprints re-confirms per write, not per pass: a store mutation landing between two writes must stop
+		// the second one.
 		const storage = makeExtensionStorage({ [SERVER_SYNC_FINGERPRINTS_KEY]: { A: "before" } });
 		const context = {
 			globalState: storage.memento,

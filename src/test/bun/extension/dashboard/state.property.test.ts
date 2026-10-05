@@ -1,11 +1,7 @@
 /**
- * Property coverage for the dashboard's trust boundary: panel.ts acts on
- * nothing that has not passed parseDashboardRequest, so a hole in that parse
- * turns hostile webview JSON into settings writes, SecretStorage writes, and
- * command execution. Pins that the parse is total, that every table method's
- * well-formed request is admitted, that near-miss mutants (unknown keys,
- * wrong-typed fields, oversized correlation tokens) are refused, and that
- * secretDirectiveSchema admits exactly its documented shapes.
+ * Property coverage for the dashboard's trust boundary: panel.ts acts on nothing that has not passed
+ * parseDashboardRequest, so a hole in that parse turns hostile webview JSON into settings writes, SecretStorage writes,
+ * and command execution.
  */
 
 import { describe, test } from "bun:test";
@@ -49,8 +45,8 @@ const requestId = fc.string({ minLength: 1, maxLength: REQUEST_ID_MAX_LENGTH });
 
 const safeRecordKey = fc.string({ maxLength: 12 }).filter((key) => !isUnsafeRecordKey(key));
 
-// The schema admits an empty "set" value on purpose; refusing it is
-// validateSaveServerSetting's job, one validation layer later.
+// The schema admits an empty "set" value on purpose; refusing it is validateSaveServerSetting's job, one validation
+// layer later.
 const validSecretDirective: fc.Arbitrary<Record<string, unknown>> = fc.oneof(
 	fc.constant({ action: "keep" }),
 	fc.constant({ action: "clear" }),
@@ -95,8 +91,7 @@ const saveServerPayload = fc.record(
 			fc.constant(null)
 		),
 	},
-	// The always-sent fields are schema-required; only modelParameters and the
-	// non-secret text fields may be absent.
+	// The always-sent fields are schema-required; only modelParameters and the non-secret text fields may be absent.
 	{
 		requiredKeys: [
 			"label",
@@ -131,11 +126,6 @@ const serverDraftPayload = fc.record(
 	{ requiredKeys: ["server", "secrets"] }
 );
 
-/**
- * One well-formed payload generator per table method. A Record over the
- * endpoint table's own keys, so a method added to DASHBOARD_ENDPOINTS stops
- * compiling until it is covered here.
- */
 const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	ready: fc.constant(null),
 	syncModels: fc.constant(null),
@@ -177,8 +167,8 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 		),
 	}),
 	setCommitPrompt: fc.record({ value: fc.string({ maxLength: 256 }) }),
-	// One field per patch, like the dashboard rows: each sends only its own
-	// half, and the schema refuses a payload naming both fields or neither.
+	// One field per patch, like the dashboard rows: each sends only its own half, and the schema refuses a payload
+	// naming both fields or neither.
 	setLanguageFilter: fc.oneof(
 		fc.record({ mode: fc.constantFrom(...LANGUAGE_FILTER_MODES) }),
 		fc.record({ languages: fc.array(fc.string({ maxLength: 128 }), { maxLength: 16 }) })
@@ -250,10 +240,9 @@ const validRequest: fc.Arbitrary<RawRequest> = fc.constantFrom(...METHODS).chain
 );
 
 /**
- * Values invalid for every field the payload shapes declare: NaN fails even
- * z.number(); an array fails records, strict objects, and strings; the one-key
- * object fails strict shapes, both record fields, and strings. All three also
- * fail the parameterless methods' literal null.
+ * Values invalid for every field the payload shapes declare: NaN fails even z.number(); an array fails records, strict
+ * objects, and strings; the one-key object fails strict shapes, both record fields, and strings. All three also fail
+ * the parameterless methods' literal null.
  */
 const junkValue: fc.Arbitrary<unknown> = fc.constantFrom(Number.NaN, [], { unexpected: [] });
 
@@ -285,8 +274,8 @@ describe("extension/dashboard/state webview request schema properties", () => {
 	});
 
 	test("a single mutation of a valid request is refused", () => {
-		// The corpus replays first: every request a past fuzz run found accepted
-		// stays refused after the generators or the mutation model change.
+		// The corpus replays first: every request a past fuzz run found accepted stays refused after the generators or
+		// the mutation model change.
 		for (const entry of REFUSED_DASHBOARD_REQUESTS) {
 			assert.strictEqual(parseDashboardRequest(entry.request).success, false, `corpus entry ${entry.name}`);
 		}
@@ -302,8 +291,8 @@ describe("extension/dashboard/state webview request schema properties", () => {
 					const mutant: Record<string, unknown> = { ...request };
 					const payload = request.payload;
 					if (kind === "unknown-key") {
-						// Strict shapes refuse any undeclared key, envelope and payload
-						// alike; the suffix keeps the key unknown, never a prototype setter.
+						// Strict shapes refuse any undeclared key, envelope and payload alike; the suffix keeps the key
+						// unknown, never a prototype setter.
 						const target = payload !== null && pick % 2 === 0 ? (payload as Record<string, unknown>) : mutant;
 						const key = Object.hasOwn(target, extraKey) || isUnsafeRecordKey(extraKey) ? `${extraKey}Extra` : extraKey;
 						if (target === mutant) {
@@ -319,18 +308,17 @@ describe("extension/dashboard/state webview request schema properties", () => {
 							const record = payload as Record<string, unknown>;
 							const keys = Object.keys(record);
 							const key = keys[pick % keys.length] ?? "label";
-							// setUsageAlertThresholds.values, the schema-keywords list, and
-							// the language filter's languages patch legally hold any bounded
-							// array of their element type, so the array junk is not a wrong
-							// type there; NaN still is.
+							// setUsageAlertThresholds.values, the schema-keywords list, and the language filter's
+							// languages patch legally hold any bounded array of their element type, so the array junk
+							// is not a wrong type there; NaN still is.
 							mutant.payload = {
 								...record,
 								[key]: (key === "values" || key === "languages") && Array.isArray(junk) ? Number.NaN : junk,
 							};
 						}
 					} else {
-						// Every request carries the envelope id; the adopt and hide
-						// payloads carry a second bounded token.
+						// Every request carries the envelope id; the adopt and hide payloads carry a second bounded
+						// token.
 						const record = payload !== null ? (payload as Record<string, unknown>) : {};
 						if (Object.hasOwn(record, "sourceHandle") && pick % 2 === 0) {
 							mutant.payload = { ...record, sourceHandle: "x".repeat(oversize) };
@@ -346,11 +334,7 @@ describe("extension/dashboard/state webview request schema properties", () => {
 	});
 });
 
-/**
- * The schema by hand (the oracle): strict keep/clear with no other key riding
- * along, and set with a location literal and a string value. The property
- * below holds the schema to this oracle in both directions.
- */
+/** The property below holds the schema to this oracle in both directions. */
 function isLegalDirective(candidate: Record<string, unknown>): boolean {
 	const keys = Object.keys(candidate).sort().join(",");
 	if (candidate.action === "keep" || candidate.action === "clear") {

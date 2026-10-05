@@ -1,8 +1,3 @@
-/**
- * The intent feedback layer: success toasts for the server intents (their
- * lifecycle - appear, auto-dismiss, manual dismiss), failure banners with
- * their Dismiss wiring, and the busy spinner inside an in-flight Save.
- */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
@@ -118,7 +113,6 @@ test("the toast stack caps at three, dropping the oldest first", () => {
 	for (const id of ["r1", "r2", "r3", "r4"]) {
 		pushToWebview({ kind: "ack", id: id, method: "saveServerSetting" });
 	}
-	// Four successes, three toasts: the first one was dropped.
 	expect(toastTexts(root)).toEqual(["Server saved", "Server saved", "Server saved"]);
 	expect(root.querySelectorAll(".toast").length).toBe(3);
 });

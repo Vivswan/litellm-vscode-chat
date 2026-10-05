@@ -34,13 +34,9 @@ describe("shared/util/baseUrl", () => {
 	});
 
 	test("apiRootOf appends when the version-looking tail is not a real path segment", () => {
-		// The guard on the character before the match: "/" means an empty segment
-		// (or the scheme's "//") and ":" means a scheme separator.
 		assert.strictEqual(apiRootOf("http://v1"), "http://v1/v1", "a host is not a path segment");
 		assert.strictEqual(apiRootOf("http://host//v1"), "http://host//v1/v1", "empty segment before it");
 		assert.strictEqual(apiRootOf("http:/v1"), "http:/v1/v1", "scheme separator before it");
-		// A port after a version-looking host never matched to begin with (no
-		// trailing /v segment), so the default is appended after the port.
 		assert.strictEqual(apiRootOf("http://v1:8080"), "http://v1:8080/v1");
 	});
 
@@ -78,9 +74,8 @@ describe("shared/util/baseUrl", () => {
 });
 
 describe("shared/util/baseUrl properties", () => {
-	// Well-formed URLs only: hosts that are not bare version tokens and non-empty
-	// path segments, so the preceding-character guard cases never fire and the
-	// segment text alone decides version detection.
+	// Well-formed URLs only: hosts that are not bare version tokens and non-empty path segments, so the
+	// preceding-character guard cases never fire and the segment text alone decides version detection.
 	const hostArb = fc.constantFrom("h", "localhost:4000", "api.example.com", "litellm.internal");
 	const segmentArb = fc.oneof(
 		fc.constantFrom("v1", "v2", "v10", "v1beta", "v1alpha2", "v1beta1", "V1", "v1gamma", "team-v1", "openai", "api"),

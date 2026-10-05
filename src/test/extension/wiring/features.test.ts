@@ -1,8 +1,3 @@
-/**
- * The features' composition point: the probe registry the dashboard's Test
- * buttons derive from, mirrored by the render fixtures, and the participant's
- * readiness and slash-command table.
- */
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -25,8 +20,8 @@ function fakeContext(): vscode.ExtensionContext {
 		},
 		globalState: { keys: () => [], get: () => undefined, update: async () => {} },
 		extensionUri: vscode.Uri.file(REPO_ROOT),
-		// Review comments restore their threads from workspaceState at wiring
-		// time, so a context without one is not a context this seam can run on.
+		// Review comments restore their threads from workspaceState at wiring time, so a context without one is not a
+		// context this seam can run on.
 		workspaceState: {
 			get: (key: string) => workspaceStore.get(key),
 			update: (key: string, value: unknown) => {
@@ -43,10 +38,9 @@ function quietLogger(): Logger {
 }
 
 /**
- * Run `fn` with command registration stubbed instead of real: the shared host
- * already runs the activated extension, so a real registration of the same ids
- * would collide across tests. The participant registration is stubbed for the
- * same reason - two live participants sharing one id is a host-level conflict.
+ * Run `fn` with command registration stubbed instead of real: the shared host already runs the activated extension, so
+ * a real registration of the same ids would collide across tests. The participant registration is stubbed for the same
+ * reason - two live participants sharing one id is a host-level conflict.
  */
 async function withCommandSpy<T>(fn: () => T | Promise<T>): Promise<Awaited<T>> {
 	const originalRegisterCommand = vscode.commands.registerCommand;
@@ -57,8 +51,8 @@ async function withCommandSpy<T>(fn: () => T | Promise<T>): Promise<Awaited<T>> 
 	(vscode.workspace as Record<string, unknown>).onDidChangeConfiguration = () => new vscode.Disposable(() => {});
 	(vscode.chat as Record<string, unknown>).createChatParticipant = (id: string) =>
 		({ id, dispose: () => {} }) as unknown as vscode.ChatParticipant;
-	// The MCP provider registers unconditionally, so a real registration here
-	// would linger in the shared host for every later suite.
+	// The MCP provider registers unconditionally, so a real registration here would linger in the shared host for every
+	// later suite.
 	(vscode.lm as Record<string, unknown>).registerMcpServerDefinitionProvider = () => new vscode.Disposable(() => {});
 	try {
 		return await fn();
@@ -79,12 +73,11 @@ suite("extension/wiring features", () => {
 				outputChannel,
 				getSnapshots: () => [],
 			});
-			// The render fixtures carry their OWN probe list, and a page rendered
-			// from a stale one under-represents the shipped state - visual review
-			// then judges a page users never see. Pinned to the production set so
-			// the next feature cannot drift it silently.
-			// Read as TEXT because the host tsconfig's rootDir is src/: the fixture
-			// lives under scripts/ and cannot be imported from here.
+			// The render fixtures carry their OWN probe list, and a page rendered from a stale one under-represents the
+			// shipped state - visual review then judges a page users never see. Read as TEXT because the host
+			// tsconfig's rootDir is src/: the fixture lives under scripts/ and cannot be imported from here.
+			//
+			//   Pinned to the production set -> the next feature cannot drift it silently
 			const fixtureSource = fs.readFileSync(
 				path.join(REPO_ROOT, "scripts", "dev", "renderFixtures", "shared.ts"),
 				"utf8"
@@ -97,10 +90,9 @@ suite("extension/wiring features", () => {
 	});
 
 	test("participant readiness reaches the quick fixes through the seam, refusal included", async () => {
-		// The whole chat path hangs off this predicate, and every quickFix test
-		// injects its own - so without this the producer and the wiring that
-		// carries it are unpinned, and a predicate that merely read the enable
-		// setting would ship green.
+		// The whole chat path hangs off this predicate, and every quickFix test injects its own - so without this the
+		// producer and the wiring that carries it are unpinned, and a predicate that merely read the enable setting
+		// would ship green.
 		await withCommandSpy(async () => {
 			const outputChannel = { appendLine() {} } as unknown as vscode.OutputChannel;
 			const live = wireFeatures(fakeContext(), quietLogger(), {
@@ -112,8 +104,8 @@ suite("extension/wiring features", () => {
 		});
 
 		await withCommandSpy(async () => {
-			// Inside the spy, which installs its own working stub on entry and
-			// restores the real API on exit: refusing has to be the LAST word.
+			// Inside the spy, which installs its own working stub on entry and restores the real API on exit: refusing
+			// has to be the LAST word.
 			(vscode.chat as Record<string, unknown>).createChatParticipant = () => {
 				throw new Error("id already registered");
 			};

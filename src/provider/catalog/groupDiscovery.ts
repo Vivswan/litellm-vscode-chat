@@ -272,7 +272,7 @@ export class GroupDiscovery {
 		const includeModes = this.includeModesFor(groupServer.label, server.baseUrl);
 		// The one failure outcome, for a fetch that threw and for a preflight failure alike. `expected` is the entry's
 		// modelListing declaration for a listing failure only: that declaration speaks about the endpoint, so a
-		// credential failure stays unexpected and the declared-models serve cannot read it as connected.
+		// credential failure stays unexpected and the declared set it serves cannot read as connected.
 		const serveFailure = (error: unknown, expected: boolean): LiteLLMModelInfo[] => {
 			if (expected) {
 				// The one boundary log for an expected terminal failure: an info classification instead of an error.
@@ -283,36 +283,32 @@ export class GroupDiscovery {
 				this._options.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
 			}
 			const texts = statusErrorTexts(error);
-			// The window is this session's live state, never the extension layer's persisted status. Only a SILENT
-			// refresh serves the stale set, and only while staleServableModels finds an anchor inside the window;
-			// non-silent failures throw, except an expected one with declared models, which serves the declared set.
+			const outcome: FailureServeShape = { state: "error", ...texts, ...(expected ? { expected: true } : {}) };
+			const decorateFailure = (
+				discovered: Pick<DiscoveredGroupModels, "infos" | "discoveredRawIds">
+			): ServedModelSets => this._options.decorator.decorate(discovered, server, groupServer.label);
+			// The window is this session's live state, never the extension layer's persisted status.
 			const stale = this._options.window.staleServableModels(server.id, groupServer);
-			// Its record must not count the stale set the silent path would serve - and the declared synthesis must run
-			// against the empty discovered set, or a pre-outage discovery could inert-suppress a declared ID out of the
-			// only set this serve hands back.
-			const servesDeclaredOnly = !silent && expected;
-			const failureSets = this._options.decorator.decorate(
-				!servesDeclaredOnly && stale !== undefined
-					? { infos: stale.models, discoveredRawIds: stale.discoveredRawIds }
-					: { infos: [], discoveredRawIds: [] },
-				server,
-				groupServer.label
+			// Declared models register through a credential failure too: chatClient.ts re-resolves the entry's
+			// credentials before it sends anything, so a registered model never rides a baked key. The non-silent serve
+			// synthesizes them against the EMPTY discovered set, or a pre-outage discovery could inert-suppress a declared
+			// ID out of the only set it hands back; the record is then exactly that set, not the stale set it withholds.
+			const declaredOnly = silent ? undefined : decorateFailure({ infos: [], discoveredRawIds: [] });
+			if (declaredOnly !== undefined && declaredOnly.declared.length > 0) {
+				return recordAndServe(declaredOnly, outcome).declared;
+			}
+			// A throwing serve still records the stale set every silent pass keeps serving.
+			const failureServe = recordAndServe(
+				stale !== undefined
+					? decorateFailure({ infos: stale.models, discoveredRawIds: stale.discoveredRawIds })
+					: (declaredOnly ?? decorateFailure({ infos: [], discoveredRawIds: [] })),
+				outcome
 			);
-			// Recorded is what stays visible under the error: the declared-only serve returns exactly this set, and
-			// the throwing unexpected branch still names the stale set every silent pass keeps serving.
-			const failureServe = recordAndServe(failureSets, {
-				state: "error",
-				...texts,
-				...(expected ? { expected: true } : {}),
-			});
 			if (silent) {
 				// An empty literal, not the attached set, so a decorator surprise cannot serve unmarked models.
 				const staleServed =
 					stale !== undefined ? markStale(failureServe.discovered, new Date(stale.lastSuccessAt).toLocaleString()) : [];
 				return [...staleServed, ...failureServe.declared];
-			}
-			if (expected && failureSets.declared.length > 0) {
-				return failureServe.declared;
 			}
 			// A non-Error throw is rebuilt with the status's log-safe rendering as its mirror: the display text can
 			// embed response body and must never reach the log path.

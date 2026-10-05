@@ -1,11 +1,6 @@
 /**
- * The agent tools' host surface: which tools are registered under which
- * switches, what an invoke refuses before anything reaches the dashboard,
- * what a landed write submits, what the confirmation cards spell out, and
- * what the masked secret prompt does. The planner's rules (routes, refusal
- * reasons, secret directives) live in the bun suites; this one pins what only
- * the host adapter decides: registration, the live-switch re-check, the
- * prompt, the log, and the result envelope.
+ * The planner's rules (routes, refusal reasons, secret directives) live in the bun suites; this one pins what only the
+ * host adapter decides: registration, the live-switch re-check, the prompt, the log, and the result envelope.
  */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
@@ -40,7 +35,6 @@ const WRITE_TOGGLES = Object.keys(AGENT_TOOL_TOGGLE_KEYS) as AgentWriteToolId[];
 
 const FEATURE_ON = { "agentTools.enabled": true };
 
-/** The given write toggles on; every other agentTools key stays at its (off) default. */
 function toggles(...ids: readonly AgentWriteToolId[]): Record<string, boolean> {
 	return Object.fromEntries(ids.map((id) => [AGENT_TOOL_TOGGLE_KEYS[id], true]));
 }
@@ -66,9 +60,7 @@ function asFramed(raw: unknown): FramedRequest {
 
 interface Harness {
 	readonly context: vscode.ExtensionContext;
-	/** Every frame the dashboard fake received, in order. */
 	readonly submitted: FramedRequest[];
-	/** Every masked prompt the wiring asked for, in order, with the token it was handed. */
 	readonly prompts: {
 		readonly prompt: SecretPrompt;
 		readonly label: string;
@@ -79,15 +71,16 @@ interface Harness {
 }
 
 interface HarnessOptions {
-	/** The dashboard fake's verdict per frame; everything lands quietly by default. */
 	readonly respond?: (request: FramedRequest) => DashboardSubmission;
 	/** What the user types into the masked box; undefined is a cancel. */
 	readonly answerSecret?: () => string | undefined;
-	/** The settings the confirmation cards read current values from. */
 	readonly settings?: Record<string, unknown>;
 }
 
-/** Wire the feature under `config` against fakes; the state is the bun fixture every agent-tools suite plans against. */
+/**
+ * Wire the feature under `config` against fakes; the state is the bun fixture every agent-tools suite plans
+ * against.
+ */
 async function wireUnderTest(config: Record<string, unknown>, options: HarnessOptions = {}): Promise<Harness> {
 	const context = fakeContext();
 	const submitted: FramedRequest[] = [];
@@ -122,7 +115,6 @@ async function wireUnderTest(config: Record<string, unknown>, options: HarnessOp
 	return { context, submitted, prompts, lines };
 }
 
-/** The names registered and not yet disposed, in registration order. */
 function liveNames(spies: WiringSpies): string[] {
 	return spies.registrations.filter((record) => !record.disposed).map((record) => record.name);
 }
@@ -133,7 +125,9 @@ function liveTool(spies: WiringSpies, id: AgentToolId): vscode.LanguageModelTool
 	return record.tool;
 }
 
-/** Invoke the recorded tool the way the host does: the live settings at call time decide, so callers wrap in withConfig. */
+/**
+ * Invoke the recorded tool the way the host does: the live settings at call time decide, so callers wrap in withConfig.
+ */
 function invokeLive(
 	spies: WiringSpies,
 	id: AgentToolId,
@@ -155,7 +149,6 @@ function prepareLive(spies: WiringSpies, id: AgentToolId, input: unknown): vscod
 	return prepared;
 }
 
-/** The one text part an agent tool result carries, parsed: every result is JSON for the model. */
 function resultJson(result: vscode.LanguageModelToolResult): unknown {
 	assert.strictEqual(result.content.length, 1, "the tool answers with exactly one part");
 	const part = result.content[0];
@@ -169,7 +162,6 @@ function cardText(prepared: vscode.PreparedToolInvocation): string {
 	return message instanceof vscode.MarkdownString ? message.value : message;
 }
 
-/** Assert `promise` rejects with the wiring's classified refusal for `id`. */
 async function assertRefused(
 	promise: Promise<unknown>,
 	id: AgentToolId,
@@ -188,9 +180,8 @@ const NEW_SERVER = { label: "New", baseUrl: "http://new.test" };
 
 suite("extension/features/agentTools wiring", () => {
 	test("the registered set is exactly the feature switch and, per write, its own toggle", async () => {
-		// What drifts without this: a write registered without its toggle, a
-		// read gated on a toggle, or a toggle that registers while the feature
-		// switch is off.
+		// What drifts without this: a write registered without its toggle, a read gated on a toggle, or a toggle that
+		// registers while the feature switch is off.
 		const cases: {
 			readonly title: string;
 			readonly config: Record<string, unknown>;
@@ -215,8 +206,8 @@ suite("extension/features/agentTools wiring", () => {
 			await withWiringSpies(async (spies) => {
 				await wireUnderTest(config);
 				assert.deepStrictEqual(liveNames(spies), expected.map(name), title);
-				// The agent tools gate on plain settings, so the manifest's when
-				// clauses need no context key and the wiring publishes none.
+				// The agent tools gate on plain settings, so the manifest's when clauses need no context key and the
+				// wiring publishes none.
 				assert.strictEqual(spies.contextStates.size, 0, `${title}: no context key`);
 			});
 		}
@@ -226,11 +217,8 @@ suite("extension/features/agentTools wiring", () => {
 		await withWiringSpies(async (spies) => {
 			const harness = await wireUnderTest({ ...FEATURE_ON, ...toggles("setSetting") });
 			const steps: { readonly config: Record<string, unknown>; readonly live: AgentToolId[] }[] = [
-				// setSetting off: its registration goes, the reads stay.
 				{ config: FEATURE_ON, live: [...READ_IDS] },
-				// editModelRecords on: one new registration, nothing re-registered.
 				{ config: { ...FEATURE_ON, ...toggles("editModelRecords") }, live: [...READ_IDS, "editModelRecords"] },
-				// Feature off: everything goes, toggles notwithstanding.
 				{ config: toggles("editModelRecords"), live: [] },
 				{ config: ALL_WRITES, live: [...AGENT_TOOL_IDS] },
 			];
@@ -240,9 +228,8 @@ suite("extension/features/agentTools wiring", () => {
 				});
 				assert.deepStrictEqual(liveNames(spies), live.map(name), `step ${index + 1}`);
 			}
-			// 5 at wiring, +1 for editModelRecords, +9 after the feature came back: a
-			// wiring that re-registered the untouched reads on every change would
-			// count higher.
+			// 5 at wiring, +1 for editModelRecords, +9 after the feature came back: a wiring that re-registered the
+			// untouched reads on every change would count higher.
 			assert.strictEqual(spies.registrations.length, 15, "untouched registrations are left alone");
 			for (const subscription of harness.context.subscriptions) {
 				subscription.dispose();
@@ -252,8 +239,8 @@ suite("extension/features/agentTools wiring", () => {
 	});
 
 	test("a switch flipped under a registered tool is refused by the invoke itself", async () => {
-		// The configuration event races an in-flight agent turn: the registration
-		// still stands, so the tool must answer the live settings.
+		// The configuration event races an in-flight agent turn: the registration still stands, so the tool must answer
+		// the live settings.
 		await withWiringSpies(async (spies) => {
 			const harness = await wireUnderTest(ALL_WRITES);
 			await withConfig({ ...ALL_WRITES, [AGENT_TOOL_TOGGLE_KEYS.setSetting]: false }, () =>
@@ -413,8 +400,8 @@ suite("extension/features/agentTools wiring", () => {
 			assert.strictEqual(frame.method, "saveServerSetting");
 			const payload = frame.payload as { server: { label: string; baseUrl: string }; secrets: unknown };
 			assert.strictEqual(payload.server.label, "New");
-			// The typed value is spliced into the directive; the fields the agent
-			// did not name are cleared, because the entry is new.
+			// The typed value is spliced into the directive; the fields the agent did not name are cleared, because the
+			// entry is new.
 			assert.deepStrictEqual(payload.secrets, {
 				apiKey: { action: "set", location: "secure", value: "sk-typed" },
 				oauthClientSecret: { action: "clear" },
@@ -425,8 +412,7 @@ suite("extension/features/agentTools wiring", () => {
 			}
 		});
 
-		// A dismissed box and an empty answer both cancel: an empty string must
-		// never be stored as the key.
+		// A dismissed box and an empty answer both cancel: an empty string must never be stored as the key.
 		for (const answer of [undefined, ""]) {
 			await withWiringSpies(async (spies) => {
 				const harness = await wireUnderTest(ALL_WRITES, { answerSecret: () => answer });
@@ -509,9 +495,8 @@ suite("extension/features/agentTools wiring", () => {
 	});
 
 	test("a cancelled agent turn stops before its next submit: before the first request and between two", async () => {
-		// The token is the host's: a cancel that arrives already-set must never
-		// reach the dashboard, and one that lands mid-plan must stop the plan
-		// before its next request.
+		// The token is the host's: a cancel that arrives already-set must never reach the dashboard, and one that lands
+		// mid-plan must stop the plan before its next request.
 		await withWiringSpies(async (spies) => {
 			const harness = await wireUnderTest(ALL_WRITES);
 			const cancelled = new vscode.CancellationTokenSource();
@@ -535,8 +520,8 @@ suite("extension/features/agentTools wiring", () => {
 					return { outcome: "ok" };
 				},
 			});
-			// The model inspection is the plan that travels as TWO requests (the
-			// capabilities read, then the parameters read).
+			// The model inspection is the plan that travels as TWO requests (the capabilities read, then the parameters
+			// read).
 			await assert.rejects(
 				withConfig(ALL_WRITES, () =>
 					invokeLive(spies, "inspectModel", { server: "Prod", model: "gpt-test" }, source.token)
@@ -553,8 +538,8 @@ suite("extension/features/agentTools wiring", () => {
 	});
 
 	test("a refusal names the agent's identifier to the agent and only the classification to the log", async () => {
-		// The setting key is agent-controlled text: the agent needs it back to
-		// fix the call, but the log feeds the public issue report.
+		// The setting key is agent-controlled text: the agent needs it back to fix the call, but the log feeds the
+		// public issue report.
 		const marker = "SYNTHETIC_INPUT_MARKER";
 		await withWiringSpies(async (spies) => {
 			const harness = await wireUnderTest(ALL_WRITES);
@@ -605,8 +590,8 @@ suite("extension/features/agentTools wiring", () => {
 				assert.match(card, /apiKey: copied to settings storage/);
 				// The fields the agent did not place take the secure default.
 				assert.match(card, /oauthClientSecret: copied to secure storage/);
-				// A stored URL with credentials: the agent only saw the credential-free
-				// form, so the card resolves the stored group and says what it carries.
+				// A stored URL with credentials: the agent only saw the credential-free form, so the card resolves the
+				// stored group and says what it carries.
 				const credentialed = cardText(
 					prepareLive(spies, "saveServer", {
 						label: "Imported2",
@@ -615,8 +600,8 @@ suite("extension/features/agentTools wiring", () => {
 				);
 				assert.match(credentialed, /the stored URL carries credentials the card does not show/);
 				assert.doesNotMatch(credentialed, /old-pass/);
-				// A source the planner cannot find gets no card: the refusal reaches
-				// the agent without asking the user to approve nothing.
+				// A source the planner cannot find gets no card: the refusal reaches the agent without asking the user
+				// to approve nothing.
 				const missing = prepareLive(spies, "saveServer", {
 					label: "Imported",
 					adoptFrom: { label: "Missing", baseUrl: "http://missing.test" },
@@ -626,22 +611,13 @@ suite("extension/features/agentTools wiring", () => {
 		});
 	});
 
-	/**
-	 * The production wiring against the real host: with only the feature switch
-	 * written for real, lm.invokeTool resolves a read tool to the extension's
-	 * own registration and no write tool at all. The write toggles stay at
-	 * their off default, so nothing this suite does can reach a real setting
-	 * write.
-	 */
 	suite("live host registration", () => {
 		const config = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
 
 		/**
-		 * Write `key` to the user scope and wait for the configuration event
-		 * itself: the production listener registers inside it, and a listener
-		 * attached later runs after. A bounded fallback keeps a coalesced event
-		 * from hanging the suite; a registration that still did not happen fails
-		 * the invoke with the host's own tool-not-found.
+		 * Write `key` to the user scope and wait for the configuration event itself: the production listener registers
+		 * inside it, and a listener attached later runs after. A bounded fallback keeps a coalesced event from hanging
+		 * the suite; a registration that still did not happen fails the invoke with the host's own tool-not-found.
 		 */
 		const writeGlobal = async (key: string, value: unknown): Promise<void> => {
 			const settled = new Promise<void>((resolve) => {
@@ -682,13 +658,12 @@ suite("extension/features/agentTools wiring", () => {
 		});
 
 		test("a write whose toggle is off has no registration: the host refuses the call before the tool could", async () => {
-			// vscode.lm.tools lists every CONTRIBUTION whatever its when clause says
-			// (the consult suite found the same), so the picker proves nothing
-			// here. What is provable: an unregistered name fails inside the host
-			// with its missing-implementation text, while a tool registered without
-			// its toggle would answer with its own "switched off" refusal.
-			// Inputs each schema accepts, so a host-side schema rejection cannot be
-			// what fails the call.
+			// vscode.lm.tools lists every CONTRIBUTION whatever its when clause says (the consult suite found the
+			// same), so the picker proves nothing here. Inputs each schema accepts, so a host-side schema rejection
+			// cannot be what fails the call.
+			//
+			//   an unregistered name                  -> fails inside the host with its missing-implementation text
+			//   a tool registered without its toggle  -> would answer with its own "switched off" refusal
 			const validInputs: Record<AgentToolId, object> = {
 				diagnostics: {},
 				configuration: {},
@@ -710,8 +685,8 @@ suite("extension/features/agentTools wiring", () => {
 						)
 					),
 					(error: unknown) => {
-						// The host's own missing-tool text, not merely "not our refusal":
-						// a dropped RPC connection must not read as an unregistered tool.
+						// The host's own missing-tool text, not merely "not our refusal": a dropped RPC connection must
+						// not read as an unregistered tool.
 						assert.match(
 							String((error as Error).message),
 							/does not have an implementation registered/,
@@ -724,10 +699,9 @@ suite("extension/features/agentTools wiring", () => {
 		});
 
 		test("a write round-trips through the real controller into the user scope and back out", async () => {
-			// The fake-controller tests cannot see a break in the real submit path
-			// (the frame, the serialized channel, the settings access's scope
-			// pick) because the webview never exercises it for an external
-			// caller; only a real write does.
+			// The fake-controller tests cannot see a break in the real submit path (the frame, the serialized channel,
+			// the settings access's scope pick) because the webview never exercises it for an external caller; only a
+			// real write does.
 			const key = "live-agent-test-model";
 			const setting = "models.capabilities";
 			const globalValue = () =>

@@ -229,19 +229,16 @@ class Store implements OpenRouterCatalogStore {
 
 	async initialize(): Promise<void> {
 		const cached = await this.readSnapshotFile(this.cacheUri());
-		if (cached.kind === "ok") {
-			this.install(cached.snapshot);
-		} else {
-			if (cached.kind === "unusable") {
-				this.options.logger.log("OpenRouter catalog cache unreadable; falling back to the bundled snapshot");
-			}
-			const bundled = await this.readSnapshotFile(
-				vscode.Uri.joinPath(this.options.extensionUri, "dist", CATALOG_FILE_NAME)
-			);
-			if (bundled.kind === "ok") {
-				this.install(bundled.snapshot);
-			}
+		if (cached.kind === "unusable") {
+			this.options.logger.log("OpenRouter catalog cache unreadable; falling back to the bundled snapshot");
 		}
+		const source =
+			cached.kind === "ok"
+				? cached
+				: await this.readSnapshotFile(vscode.Uri.joinPath(this.options.extensionUri, "dist", CATALOG_FILE_NAME));
+		// Unconditional: openRouterCatalogTestSeam.ts re-runs initialize after deleting the cache file, and the snapshot
+		// that file held must stop serving with it.
+		this.install(source.kind === "ok" ? source.snapshot : EMPTY_CATALOG_SNAPSHOT);
 		this.scheduleFromMetadata();
 	}
 

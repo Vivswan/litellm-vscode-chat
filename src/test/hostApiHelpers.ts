@@ -1,7 +1,6 @@
 /**
- * Helpers for suites that drive the extension through the real VS Code LM API
- * (vscode.lm.selectChatModels / model.sendRequest): the host-fidelity suite
- * and the docker-stack suites.
+ * Helpers for suites that drive the extension through the real VS Code LM API (vscode.lm.selectChatModels /
+ * model.sendRequest): the host-fidelity suite and the docker-stack suites.
  */
 
 import * as assert from "node:assert";
@@ -12,9 +11,8 @@ import { type BooleanSettingId, CONFIG_SECTION } from "../shared/config/settingS
 export const OPENROUTER_CATALOG_SETTING_ID = "models.openRouterCatalog" satisfies BooleanSettingId;
 
 /**
- * Wait for the host to reflect the current model topology. The host ingests
- * refreshed model lists asynchronously and offers no completion signal, so
- * polling vscode.lm.selectChatModels is the only way to observe propagation.
+ * The host ingests refreshed model lists asynchronously and offers no completion signal, so polling
+ * vscode.lm.selectChatModels is the only way to observe propagation.
  */
 export async function waitForHostModels(
 	timeoutMs: number,
@@ -50,7 +48,6 @@ export function getThinkingPartClass(): (new (...args: never[]) => object) | und
 	}
 }
 
-/** Extract thinking parts from collected stream parts (empty when the host lacks the class). */
 export function extractThinkingParts(parts: unknown[]): Array<{ value?: string }> {
 	const thinkingPartClass = getThinkingPartClass();
 	if (!thinkingPartClass) {
@@ -59,7 +56,6 @@ export function extractThinkingParts(parts: unknown[]): Array<{ value?: string }
 	return parts.filter((p) => p instanceof thinkingPartClass) as Array<{ value?: string }>;
 }
 
-/** Collect all parts from a streaming response. */
 export async function collectStream(response: vscode.LanguageModelChatResponse): Promise<unknown[]> {
 	const parts: unknown[] = [];
 	for await (const part of response.stream) {
@@ -68,7 +64,6 @@ export async function collectStream(response: vscode.LanguageModelChatResponse):
 	return parts;
 }
 
-/** Extract concatenated text from collected stream parts. */
 export function extractText(parts: unknown[]): string {
 	return parts
 		.filter((p) => p instanceof vscode.LanguageModelTextPart)
@@ -76,12 +71,10 @@ export function extractText(parts: unknown[]): string {
 		.join("");
 }
 
-/** Extract tool call parts from collected stream parts. */
 export function extractToolCalls(parts: unknown[]): vscode.LanguageModelToolCallPart[] {
 	return parts.filter((p) => p instanceof vscode.LanguageModelToolCallPart) as vscode.LanguageModelToolCallPart[];
 }
 
-/** Ensure the extension is activated. */
 export async function ensureActivated(): Promise<void> {
 	const ext = vscode.extensions.getExtension("vivswan.litellm-vscode-chat");
 	assert.ok(ext, "Extension not found; check publisher.name in package.json");
@@ -91,12 +84,10 @@ export async function ensureActivated(): Promise<void> {
 }
 
 /**
- * Pin this host to catalog-OFF for hermeticity. The docker and host-fidelity
- * suites assert what the SERVER declares, but the fake stack's realistic model
- * names suffix-match real OpenRouter catalog entries whenever a catalog artifact
- * is present, and that artifact legitimately differs between checkouts, CI, and
- * the packaged VSIX. Call this from suiteSetup beside ensureActivated; a suite
- * that wants catalog behavior must opt back in and seed its own snapshot.
+ * The docker and host-fidelity suites assert what the SERVER declares, but the fake stack's realistic model names
+ * suffix-match real OpenRouter catalog entries whenever a catalog artifact is present, and that artifact legitimately
+ * differs between checkouts, CI, and the packaged VSIX. Call this from suiteSetup beside ensureActivated; a suite that
+ * wants catalog behavior must opt back in and seed its own snapshot.
  */
 export async function catalogOff(): Promise<void> {
 	await vscode.workspace
@@ -105,11 +96,8 @@ export async function catalogOff(): Promise<void> {
 }
 
 /**
- * Block the OpenRouter catalog endpoint for this process and return the restore
- * handle. The catalog store arms a refresh 60 seconds after activation and the
- * extension host shares the runner's fetch, so a slow suite would otherwise race
- * a live snapshot against its controlled catalog state. Everything but that URL
- * passes through.
+ * The catalog store arms a refresh 60 seconds after activation and the extension host shares the runner's fetch, so a
+ * slow suite would otherwise race a live snapshot against its controlled catalog state.
  */
 export function blockCatalogNetwork(): vscode.Disposable {
 	const realFetch = globalThis.fetch;

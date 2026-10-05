@@ -1,27 +1,21 @@
 /**
- * The completeness pin on RECORD_TYPE_DIRECTIVES, the one mint of every
- * type-specific directive name. The sibling wrong-type sets derive from it by
- * construction; this suite closes what a derivation cannot prove: the rows
- * stay disjoint (from each other and the shared engine directives), every
- * registered name is really handled by its own parser rather than sitting
- * stale, and every parser flags exactly the sibling names - nothing more. The
- * parser map is total over RecordType, so minting a third record type fails
- * this file's typecheck until its parser is wired in, and the loops then hold
- * it to the same mutual-flagging contract.
+ * The completeness pin on RECORD_TYPE_DIRECTIVES, the one mint of every type-specific directive name. The parser map
+ * is total over RecordType, so minting a third record type fails this file's typecheck until its parser is wired in,
+ * and the loops then hold it to the same mutual-flagging contract.
  *
- * The literal sweeps below close the remaining hole - a directive a module
- * HANDLES but nobody registered, or a name UI copy still spells after a
- * rename. The source sweep scans CODE, through an AST walk over the string
- * literals and the identifier-spelled property routes of every module in
- * src/shared/config, so comments and doc prose never count (a message string
- * would, but these diagnostics carry kinds and keys, never prose). What it
- * still misses: a name built at runtime, and identifier forms no directive
- * has ever taken (class members, enum members).
- * The copy sweep scans every l10n bundle's and package.nls file's keys and
- * translated values for directive-shaped tokens, so localized copy cannot
- * keep teaching a name the registry dropped. The docs sweep holds every
- * markdown file under docs/ (translations included) and the README files
- * (the Marketplace landing page) to the same token grammar.
+ *   The sibling wrong-type sets derive from it by construction -> this suite closes what a derivation cannot prove
+ *   The literal sweeps below -> close the remaining hole - a directive a module HANDLES but nobody registered, or a
+ *                               name UI copy still spells after a rename
+ *   The source sweep scans CODE, through an AST walk over the string literals and the identifier-spelled property
+ *   routes of every module in src/shared/config
+ *     -> comments and doc prose never count
+ *   What it still misses -> a name built at runtime, and identifier forms no directive has ever taken (class members,
+ *                           enum members)
+ *   The copy sweep scans every l10n bundle's and package.nls file's keys and translated values for directive-shaped
+ *   tokens
+ *     -> localized copy cannot keep teaching a name the registry dropped
+ *   The docs sweep -> holds every markdown file under docs/ (translations included) and the README files (the
+ *                     Marketplace landing page) to the same token grammar
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -50,18 +44,16 @@ const PARSERS: Readonly<Record<RecordType, (record: Readonly<Record<string, unkn
 const RECORD_TYPES = Object.keys(RECORD_TYPE_DIRECTIVES) as readonly RecordType[];
 const SHARED_DIRECTIVES: ReadonlySet<string> = new Set([INHERITABLE_DIRECTIVE, INHERIT_FROM_DIRECTIVE]);
 
-/** The full registered vocabulary: every type-specific row plus the shared engine directives. */
 const REGISTERED_DIRECTIVES: ReadonlySet<string> = new Set([
 	...RECORD_TYPES.flatMap((type) => [...RECORD_TYPE_DIRECTIVES[type]]),
 	...SHARED_DIRECTIVES,
 ]);
 
 /**
- * Every module in shared/config, found by directory listing rather than
- * hand-listed, so a new one joins the sweep by existing. The whole tree is in
- * scope because directive consumers are not only the parsers: the mint site
- * (recordResolution.ts) carries the literals of directives handled through
- * imported constants, and any config module may branch on a directive name.
+ * Every module in shared/config, found by directory listing rather than hand-listed, so a new one joins the sweep by
+ * existing. The whole tree is in scope because directive consumers are not only the parsers: the mint site
+ * (recordResolution.ts) carries the literals of directives handled through imported constants, and any config module
+ * may branch on a directive name.
  */
 const CONFIG_DIR = path.join(REPO_ROOT, "src", "shared", "config");
 const SCANNED_SOURCES: readonly string[] = fs
@@ -88,8 +80,9 @@ const REQUIRED_SOURCES: readonly string[] = [
  * A literal-only walk is blind to the identifier routes (`record._force`, object and type-member keys,
  * destructuring), so they are collected too. The remaining blind spot is a name built at runtime.
  *
- *   "_" alone                       -> the namespace probe, never a name
- *   isUnsafeRecordKey ("__proto__") -> the record grammar rejects it as a key, so it can never be a directive
+ *   "_" alone                               -> the namespace probe, never a name
+ *   isUnsafeRecordKey ("__proto__")         -> it can never be a directive
+ *   the record grammar rejects it as a key  -> it can never be a directive
  */
 function underscoreNames(fileName: string): ReadonlySet<string> {
 	const text = fs.readFileSync(path.join(CONFIG_DIR, fileName), "utf8");
@@ -123,10 +116,11 @@ function underscoreNames(fileName: string): ReadonlySet<string> {
 }
 
 /**
- * One token grammar for every prose sweep (localized copy and docs alike). The
- * boundary class includes "_" so the inner slice of a dunder name never counts
- * ("__proto__" would otherwise yield the phantom token "_proto__"). Callers use
- * String.match, which a global regex's lastIndex cannot skew; test/exec would.
+ * One token grammar for every prose sweep (localized copy and docs alike). Callers use String.match, which a global
+ * regex's lastIndex cannot skew; test/exec would.
+ *
+ *   The boundary class includes "_"                                 -> the inner slice of a dunder name never counts
+ *   "__proto__" would otherwise yield the phantom token "_proto__"  -> The boundary class includes "_"
  */
 const DIRECTIVE_TOKEN_PATTERN = /(?<![A-Za-z0-9_])_[a-z][a-z0-9_]*/g;
 
@@ -151,9 +145,8 @@ describe("shared/config record-type directive registry", () => {
 	test("each registered directive is live in its own parser and wrong-record-type in every sibling", () => {
 		for (const type of RECORD_TYPES) {
 			for (const name of RECORD_TYPE_DIRECTIVES[type]) {
-				// 12345 is a valid value for no known directive, so a handled name
-				// must answer with some diagnostic; an unhandled one would parse
-				// silently (the forward-compat rule) and mean a stale registry row.
+				// 12345 is a valid value for no known directive, so a handled name must answer with some diagnostic; an
+				// unhandled one would parse silently (the forward-compat rule) and mean a stale registry row.
 				const own = PARSERS[type]({ [name]: 12345 });
 				assert.ok(own.diagnostics.length > 0, `${type} parser silently ignores its own ${name}`);
 				assert.ok(
@@ -199,12 +192,10 @@ describe("shared/config record-type directive registry", () => {
 	});
 
 	test("every directive-shaped token in the localized copy is a registered directive", () => {
-		// UI copy necessarily spells directive names inside localized literals
-		// (extraction needs whole sentences), so a registry rename would leave
-		// those messages teaching a gone name. Fail closed over every l10n
-		// bundle's and package.nls file's keys AND translated values -
-		// translations keep directive tokens verbatim - so neither the source
-		// copy nor a locale can drift stale.
+		// UI copy necessarily spells directive names inside localized literals (extraction needs whole sentences), so a
+		// registry rename would leave those messages teaching a gone name. Fail closed over every l10n bundle's and
+		// package.nls file's keys AND translated values - translations keep directive tokens verbatim - so neither the
+		// source copy nor a locale can drift stale.
 		const l10nDir = path.join(REPO_ROOT, "l10n");
 		const copyFiles = [
 			...fs
@@ -234,11 +225,9 @@ describe("shared/config record-type directive registry", () => {
 			}
 		}
 		assert.deepStrictEqual(failures, []);
-		// Positive controls: the source bundle, the settings-UI nls file, and
-		// their translations must all be in the sweep; the modelInspector suite
-		// pins rendered messages that spell _inherit_from, and _inheritable is
-		// spelled only in the nls files, so a sweep that stops seeing either is
-		// a broken or narrowed walk.
+		// Positive controls: the source bundle, the settings-UI nls file, and their translations must all be in the
+		// sweep; the modelInspector suite pins rendered messages that spell _inherit_from, and _inheritable is spelled
+		// only in the nls files, so a sweep that stops seeing either is a broken or narrowed walk.
 		assert.ok(
 			copyFiles.includes(path.join("l10n", "bundle.l10n.json")),
 			"the sweep no longer reaches the source bundle"
@@ -250,9 +239,8 @@ describe("shared/config record-type directive registry", () => {
 	});
 
 	test("every directive-shaped token in the docs and README files is a registered directive", () => {
-		// The docs teach the record grammar in prose and code fences, so
-		// registered spellings are expected and pass; the sweep detects renames,
-		// where a dropped registry name would leave the docs teaching it.
+		// The docs teach the record grammar in prose and code fences, so registered spellings are expected and pass;
+		// the sweep detects renames, where a dropped registry name would leave the docs teaching it.
 		const docsDir = path.join(REPO_ROOT, "docs");
 		// Separators normalized so the reach pins and messages read the same on every OS.
 		const docFiles = fs
@@ -260,22 +248,22 @@ describe("shared/config record-type directive registry", () => {
 			.filter((name) => name.endsWith(".md"))
 			.map((name) => `docs/${name.replaceAll("\\", "/")}`)
 			.sort();
-		// The README files spell directives in Marketplace-facing prose (the
-		// privacy paragraph names _openrouter_model). CHANGELOG.md stays out
-		// deliberately: its historical release notes correctly keep retired names.
+		// The README files spell directives in Marketplace-facing prose (the privacy paragraph names
+		// _openrouter_model). CHANGELOG.md stays out deliberately: its historical release notes correctly keep retired
+		// names.
 		const readmeFiles: ReadonlySet<string> = new Set(
 			fs.readdirSync(REPO_ROOT).filter((name) => name.startsWith("README") && name.endsWith(".md"))
 		);
 		const sweptFiles = [...docFiles, ...readmeFiles].sort();
-		// Non-directive tokens the docs legitimately spell, each pinned below so
-		// a dropped mention retires its entry. DECLARE_DIRECTIVE is the retired
-		// name the migration docs teach, imported from the migration's own
-		// quarantine so retiring the migration breaks this line with it;
-		// _reasoning_effort is the tail of the capability flag
-		// supports_<level>_reasoning_effort, split off by the <level> placeholder.
+		// Non-directive tokens the docs legitimately spell, each pinned below so a dropped mention retires its entry.
+		//
+		//   DECLARE_DIRECTIVE  -> the retired name the migration docs teach, imported from the migration's own
+		//                         quarantine so retiring the migration breaks this line with it
+		//   _reasoning_effort  -> the tail of the capability flag supports_<level>_reasoning_effort, split off by the
+		//                         <level> placeholder
 		const allowedTokens: ReadonlySet<string> = new Set([DECLARE_DIRECTIVE, "_reasoning_effort"]);
-		// Per-leg token sets, so the docs completeness pins below keep their
-		// original claim (documented in docs/, not merely mentioned in a README).
+		// Per-leg token sets, so the docs completeness pins below keep their original claim (documented in docs/, not
+		// merely mentioned in a README).
 		const docsFound = new Set<string>();
 		const readmeFound = new Set<string>();
 		const failures: string[] = [];
@@ -293,10 +281,8 @@ describe("shared/config record-type directive registry", () => {
 			}
 		}
 		assert.deepStrictEqual(failures, []);
-		// Positive controls: the walk must reach the source docs, both
-		// translation trees, and every README, and must still see every
-		// registered directive's spelling - a narrowed walk or dead pattern
-		// fails here, not silently.
+		// Positive controls: the walk must reach the source docs, both translation trees, and every README, and must
+		// still see every registered directive's spelling - a narrowed walk or dead pattern fails here, not silently.
 		assert.ok(docFiles.length >= 24, "the docs sweep no longer reaches the full docs tree");
 		for (const file of ["docs/models.md", "docs/zh-cn/models.md", "docs/zh-tw/models.md"]) {
 			assert.ok(docFiles.includes(file), `the docs sweep no longer reaches ${file}`);
@@ -318,8 +304,8 @@ describe("shared/config record-type directive registry", () => {
 	});
 
 	test("the sweep reaches every config module and sees every registered mint (its positive control)", () => {
-		// Two ways this guard could pass while proving nothing: scanning fewer
-		// files than it claims, or a walk that silently collects nothing.
+		// Two ways this guard could pass while proving nothing: scanning fewer files than it claims, or a walk that
+		// silently collects nothing.
 		for (const file of REQUIRED_SOURCES) {
 			assert.ok(SCANNED_SOURCES.includes(file), `the sweep no longer reaches ${file}`);
 		}

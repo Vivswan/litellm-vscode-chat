@@ -1,10 +1,8 @@
 /**
- * The quick-fix feature's two participant commands. What is worth pinning here
- * is not the prose but the shape: both are prompt-shaping commands, so the
- * user's own words survive, the turn's attachments arrive with them, and the
- * instruction leads - the properties that make "@litellm /fix Cannot find name
- * 'x'" reach the model as a question about the attached code rather than as
- * three words with no code behind them.
+ * What is worth pinning here is not the prose but the shape: both are prompt-shaping commands, so the user's own words
+ * survive, the turn's attachments arrive with them, and the instruction leads - the properties that make "@litellm /fix
+ * Cannot find name 'x'" reach the model as a question about the attached code rather than as three words with no code
+ * behind them.
  */
 import { describe, expect, test } from "bun:test";
 import type { ChatMessage } from "../../../../extension/features/participant/historyConversion";
@@ -17,7 +15,6 @@ import {
 	registerQuickFixSlashCommands,
 } from "../../../../extension/features/quickFixChatCommands";
 
-/** A turn that records what was sent instead of sending it. */
 function fakeTurn(overrides: Partial<SlashCommandTurn> = {}): {
 	turn: SlashCommandTurn;
 	sent: readonly ChatMessage[][];
@@ -61,9 +58,8 @@ describe("extension/features quickFixChatCommands", () => {
 		const content = sent[0]?.[0]?.content ?? "";
 		expect(content.startsWith(FIX_INSTRUCTION)).toBe(true);
 		expect(content).toContain("Cannot find name 'total'.");
-		// Without this the command reaches the model with the diagnostic text and
-		// no code at all, which is the whole failure the attachments seam exists
-		// to prevent.
+		// Without this the command reaches the model with the diagnostic text and no code at all, which is the whole
+		// failure the attachments seam exists to prevent.
 		expect(content).toContain("return total;");
 	});
 

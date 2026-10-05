@@ -1,11 +1,3 @@
-/**
- * The language status row and its toggle: the row's text consumes the same
- * languageAllowed decision as the provider filter, the no-model state reads
- * "no model selected" with a settings-opening action, and the toggle writes
- * the language filter through the shared update-scope rule - one membership
- * flip of the current language in the filter's list, keeping the mode (block
- * mode lists the OFF languages, allow mode the ON ones).
- */
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import {
@@ -29,7 +21,6 @@ interface StatusSpies {
 	setActiveLanguage(languageId: string | undefined): void;
 }
 
-/** Patch the row's VS Code surfaces: the status item, the active editor, and its change event. */
 async function withStatusSpies<T>(fn: (spies: StatusSpies) => T | Promise<T>): Promise<Awaited<T>> {
 	const items: FakeStatusItem[] = [];
 	let activeLanguage: string | undefined = "typescript";
@@ -90,7 +81,6 @@ async function withStatusSpies<T>(fn: (spies: StatusSpies) => T | Promise<T>): P
 	}
 }
 
-/** Silent log-and-advisory sinks for rows whose logging is not under test. */
 function quietSinks(): { log: () => void; advisory: () => void } {
 	return { log: () => {}, advisory: () => {} };
 }
@@ -152,8 +142,8 @@ suite("extension/features/inline languageStatus", () => {
 					},
 				});
 				assert.strictEqual(spies.items[0]?.disposed, true, "the stale holder is disposed");
-				// The slot conflict is a real bug signal, so it goes through log (the
-				// buffer-fed sink), never the channel-only advisory path.
+				// The slot conflict is a real bug signal, so it goes through log (the buffer-fed sink), never the
+				// channel-only advisory path.
 				assert.ok(logs.some((line) => line.includes("slot replaced")));
 				assert.ok(!advisories.some((line) => line.includes("slot replaced")));
 				first.dispose();
@@ -163,12 +153,10 @@ suite("extension/features/inline languageStatus", () => {
 	});
 
 	test("refresh reads malformed settings through the channel-only advisory sink, never the buffer log", async () => {
-		// Refresh runs on every editor switch, so a malformed setting logged
-		// through the buffer-fed sink would write one issue-report line per
-		// switch; this pins the split so the reads cannot quietly revert to log.
-		// Two scenarios, because the malformed-model read returns before the
-		// filter is ever consulted: the filter's own diagnostic needs a valid
-		// model in front of it.
+		// Refresh runs on every editor switch, so a malformed setting logged through the buffer-fed sink would write
+		// one issue-report line per switch; this pins the split so the reads cannot quietly revert to log. Two
+		// scenarios, because the malformed-model read returns before the filter is ever consulted: the filter's own
+		// diagnostic needs a valid model in front of it.
 		const capture = (): { logs: string[]; advisories: string[]; sinks: Pick<Logger, "log" | "advisory"> } => {
 			const logs: string[] = [];
 			const advisories: string[] = [];
@@ -185,11 +173,9 @@ suite("extension/features/inline languageStatus", () => {
 				},
 			};
 		};
-		// Defense in depth, not the fix (wiring.test.ts's harness heals its own
-		// leak at the source): the zero-logs pins below assume a free slot, and a
-		// row leaked live from an earlier suite would make each construction here
-		// log "slot replaced" and fail the refresh assertion for the wrong
-		// reason. Name the polluter instead of miscounting.
+		// Defense in depth, not the fix (wiring.test.ts's harness heals its own leak at the source): the zero-logs pins
+		// below assume a free slot, and a row leaked live from an earlier suite would make each construction here log
+		// "slot replaced" and fail the refresh assertion for the wrong reason.
 		assert.strictEqual(liveInlineLanguageStatusRows(), 0, "precondition: no live row leaked from an earlier suite");
 		await withStatusSpies(async () => {
 			await withConfig({ "inlineCompletions.model": "not-a-ref" }, () => {
@@ -229,9 +215,7 @@ suite("extension/features/inline languageStatus", () => {
 		}
 
 		/**
-		 * withConfig for reads plus a recording update; the toggle reads then
-		 * writes the same section. `workspaceHeld` keys inspect as
-		 * workspace-configured, so updateAuto's scope rule is under test:
+		 * `workspaceHeld` keys inspect as workspace-configured, so updateAuto's scope rule is under test:
 		 * workspace-held lists write to the workspace, everything else Global.
 		 */
 		async function withRecordedToggle(
@@ -316,9 +300,8 @@ suite("extension/features/inline languageStatus", () => {
 		});
 
 		test("a workspace-held filter is written IN the workspace scope, never shadow-written to user", async () => {
-			// The dashboard's own scope rule (updateAuto): a hardcoded Global
-			// write here would leave the workspace value standing and the toggle
-			// looking dead while the user scope silently absorbed the filter.
+			// The dashboard's own scope rule (updateAuto): a hardcoded Global write here would leave the workspace
+			// value standing and the toggle looking dead while the user scope silently absorbed the filter.
 			const writes = await withRecordedToggle(
 				{ "inlineCompletions.languageFilter": { mode: "block", languages: ["python"] } },
 				"python",

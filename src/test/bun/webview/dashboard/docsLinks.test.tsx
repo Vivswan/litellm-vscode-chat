@@ -1,8 +1,4 @@
-/**
- * The dashboard's "learn more" links into the docs: every page and #anchor the webview, the host, or a text carrier
- * ships exists under docs/ as the published site serves it, and each section renders its link. Plain anchors need
- * no plumbing or CSP grant.
- */
+/** Plain anchors need no plumbing or CSP grant. */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -34,10 +30,7 @@ afterEach(() => {
 const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..", "..");
 const DOCS_BASE = `${links.DOCS_SITE_URL}/`;
 
-/**
- * Every host-side link the links module exports: flat string constants plus the values of record exports. Swept
- * from a namespace import, so a future host link cannot escape the checks by not being hand-listed.
- */
+/** Swept from a namespace import, so a future host link cannot escape the checks by not being hand-listed. */
 function hostLinkUrls(): [name: string, url: string][] {
 	return Object.entries(links).flatMap(([name, value]): [string, string][] =>
 		typeof value === "string"
@@ -51,7 +44,7 @@ function hostLinkUrls(): [name: string, url: string][] {
 /**
  * The prose carriers that may spell a docs-site URL outright: the manifest's string bundles (walkthrough titles,
  * markdownDescriptions) in every locale, read as JSON so an escaped solidus still counts, and the walkthrough pages,
- * read as text. A link pasted into any of them is resolved like the code's.
+ * read as text.
  */
 function carrierDocsUrls(): [name: string, url: string][] {
 	const walkthroughDir = path.join(repoRoot, "assets", "walkthrough");
@@ -82,7 +75,6 @@ function carrierDocsUrls(): [name: string, url: string][] {
 	);
 }
 
-/** Every docs URL the extension ships: the webview constants, the host-side links on the site, and the carriers'. */
 function allDocsUrls(): [name: string, url: string][] {
 	const entries = Object.entries(docsLinks).filter(([, value]) => typeof value === "string") as [string, string][];
 	return [...entries, ...hostLinkUrls().filter(([, url]) => url.startsWith(DOCS_BASE)), ...carrierDocsUrls()];
@@ -128,7 +120,6 @@ function fullState() {
 	});
 }
 
-/** The one docs anchor inside the container, with href, name, and glyph asserted. */
 function docsLinkIn(container: ParentNode | null, href: string, label: string): HTMLAnchorElement {
 	if (container === null) {
 		throw new Error("no container to look for a docs link in");
@@ -165,9 +156,9 @@ function headOf(root: ParentNode, title: string): HTMLElement {
 }
 
 /**
- * The section's tabpanel. Every panel stays mounted (the hidden ones are display:none), so
- * title lookups scope to their panel - a document-wide first match would couple the test
- * to the panels' JSX order (the Settings page carries its own "Models" group heading).
+ * Every panel stays mounted (the hidden ones are display:none), so title lookups scope to their panel - a
+ * document-wide first match would couple the test to the panels' JSX order (the Settings page carries its own "Models"
+ * group heading).
  */
 function panelOf(root: ParentNode, section: DashboardSectionId): HTMLElement {
 	const panel = root.querySelector(`#panel-${section}`);
@@ -203,8 +194,6 @@ test("the server form links the entry-fields section of the servers guide", () =
 	expect(heading?.querySelector("a.docs-link")).toBeNull();
 	docsLinkIn(heading?.closest(".section-head") ?? null, DOCS_LINK_SERVER_FORM, "Open the server fields guide");
 
-	// The form's two record sections carry the same docs anchors their
-	// settings-page twins do, on the section header line.
 	const page = document.getElementById("server-edit-page") as HTMLElement;
 	docsLinkIn(headOf(page, "Model parameters"), DOCS_LINK_MODEL_PARAMETERS, "Open the model parameters guide");
 	docsLinkIn(headOf(page, "Model capabilities"), DOCS_LINK_MODEL_CAPABILITIES, "Open the model capabilities guide");
