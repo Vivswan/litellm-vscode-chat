@@ -1,8 +1,10 @@
 # This file is managed by Vivswan/repo-platform.
 # Local edits are replaced on the next sync.
 #
-# The same file in every repository: the legs after the gate are static jobs gated on the plan's module output,
-# so a change to fleet-ci.yml@stable changes this repository's CI with no PR here.
+# Runs the fleet's CI and the legs after its gate, the same file in every repository.
+#
+# The legs after the gate are static jobs gated on the plan's module output, so a change to fleet-ci.yml@stable
+# changes this repository's CI with no PR here.
 
 name: CI
 
@@ -82,9 +84,11 @@ jobs:
           allowed-skips: checks
 
   # Repo-owned: edit post-green.yml, not this file. No job lane here: a caller holding a lane a called job takes deadlocks the call.
+  # !cancelled(): the implicit success() reads the whole needs chain, so a gating job skipped by its condition would skip this job past a green gate.
   post-green:
     needs: [all-green]
     if: >-
+      !cancelled() &&
       needs.all-green.result == 'success' &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main'
@@ -105,11 +109,13 @@ jobs:
   # `ci` sits in each needs list because a job reads outputs only from its direct dependencies.
   #
   #   needs post-green  -> the repository's own green-gated work lands before the tag is minted
+  #   !cancelled()      -> the implicit success() reads the whole needs chain, so each leg names the results it gates on instead
   #   no lane here      -> a shared lane keeps one pending call and cancels the older, so a release commit's call could be cancelled;
   #                        the called job holds its own lane keyed by the judged commit
   release:
     needs: [ci, all-green, post-green]
     if: >-
+      !cancelled() &&
       needs.all-green.result == 'success' &&
       needs.post-green.result == 'success' &&
       github.event_name == 'push' &&
@@ -130,7 +136,10 @@ jobs:
   # and a narrower caller ceiling rejects an existing hook that asks for more (one requesting packages: read failed against a ceiling without it).
   update-release:
     needs: [release]
-    if: needs.release.outputs.release_created == 'true'
+    if: >-
+      !cancelled() &&
+      needs.release.result == 'success' &&
+      needs.release.outputs.release_created == 'true'
     permissions:
       contents: write
       pull-requests: write
@@ -148,7 +157,11 @@ jobs:
 
   publish-release:
     needs: [release, update-release]
-    if: needs.release.outputs.release_created == 'true'
+    if: >-
+      !cancelled() &&
+      needs.release.result == 'success' &&
+      needs.update-release.result == 'success' &&
+      needs.release.outputs.release_created == 'true'
     permissions:
       contents: write
       id-token: write
@@ -160,7 +173,10 @@ jobs:
   # Repo-owned: edit update-release-pr.yml, not this file. The ceiling is update-release's, under the same contract.
   update-release-pr:
     needs: [release]
-    if: needs.release.outputs.prs_created == 'true'
+    if: >-
+      !cancelled() &&
+      needs.release.result == 'success' &&
+      needs.release.outputs.prs_created == 'true'
     permissions:
       contents: write
       pull-requests: write

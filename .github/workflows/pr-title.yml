@@ -1,12 +1,13 @@
 # This file is managed by Vivswan/repo-platform.
 # Local edits are replaced on the next sync.
 #
-# The module's settings layer makes this job's own check run (`pr-title`)
-# a required status check, so the workflow must run on every event that
-# changes what the check judges - the title (opened, edited, reopened) -
-# AND on synchronize: a required check must exist at the PR's NEWEST head
-# commit, so a push without a fresh run would leave the merge box waiting
-# on a check nothing creates.
+# Judges the pull request title, as the `pr-title` check the module's settings layer makes a required status check.
+#
+# A required check must run on every event that changes what it judges, so the workflow runs on the title's events
+# (opened, edited, reopened).
+#
+# It runs on synchronize too, because a required check must exist at the PR's newest head commit, so a push without
+# a fresh run would leave the merge box waiting on a check nothing creates.
 
 name: PR Title
 
