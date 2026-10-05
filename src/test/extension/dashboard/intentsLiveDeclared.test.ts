@@ -7,7 +7,7 @@ import * as assert from "node:assert";
 import type { RequestPayload } from "../../../dashboard/endpoints";
 import type { DashboardServer, DashboardState } from "../../../dashboard/viewModels";
 import { adoptSourceHandle, modelScopeKey } from "../../../extension/dashboard/adoptHandle";
-import { storedSecretHolders } from "../../../extension/dashboard/declaredJoin";
+import { secretValueHolders } from "../../../extension/dashboard/declaredJoin";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
 import { DashboardValidationError, executeDashboardIntent } from "../../../extension/dashboard/intents";
 import { createIntentEnvironment, declaredViewsFromSetting } from "../../../extension/dashboard/panel";
@@ -168,10 +168,10 @@ function makeFixture(): Fixture {
 				declared,
 				entryReports: serverSettingReports(effective()),
 				removedGroups: { tombstones: fixture.removals.tombstones(), origins: [] },
-				secretHolders: storedSecretHolders(
+				secretHolders: secretValueHolders(
 					host.snapshots,
 					(serverId) => host.servers.get(serverId),
-					fixture.engine.getStoredSecrets()
+					fixture.engine.getSecretValues()
 				),
 			});
 		},
@@ -335,6 +335,10 @@ const validation =
  *                                join any group
  *   rejected-carrier-inline-key -> L1's rejected shape still carries its key inline; the unstamped group holding that key
  *                                  is L1's leftover, not the user's
+ *   rejected-carrier-stored-and-inline -> L1's rejected shape carries one key inline while another is stored; the group
+ *                                         holding the stored one is L1's leftover too
+ *   rotated-inline-secret-unstamped -> L1's OAuth token URL changed with its inline client secret kept; the unstamped
+ *                                      old group holding that secret is L1's leftover
  *   rejected-entry-sibling-group -> the rejected L1's own group, label stamped, sits at H beside an external group
  *                                   with its own key; the external one stays adoptable
  *   malformed-after-resolution -> the setting turns into a non-array in the continuation
@@ -576,6 +580,53 @@ const WINDOWS: Record<string, Scenario> = {
 			assert.strictEqual(pushedHandle("native"), undefined, "the group holding L1's inline key is no external row");
 			assert.deepStrictEqual(pushedLegacyRows(), ["L1"]);
 			return { handle: fixture.handleOf("native"), close: async () => {} };
+		},
+	},
+	"rejected-carrier-stored-and-inline": {
+		after: {
+			setting: [{ label: "L1", baseUrl: H, auth: { apiKey: "inline-key", oauth: {} } }],
+			secrets: { L1: keyBlob(H) },
+		},
+		intents: ["adopt", "hide"],
+		adopt: "rejects",
+		refusal: DashboardValidationError,
+		open: async (fixture) => {
+			const { engine, host, pushedHandle, pushedLegacyRows } = fixture;
+			fixture.declare([L1_ENTRY]);
+			fixture.storeSecureKey("L1", SECRET);
+			await host.addProviderGroup({ name: "native", vendor: "litellm", baseUrl: H, apiKey: SECRET });
+			fixture.declare([{ label: "L1", baseUrl: H, auth: { apiKey: "inline-key", oauth: {} } }]);
+			await engine.syncNow();
+			assert.strictEqual(pushedHandle("native"), undefined, "the group holding L1's stored key is no external row");
+			assert.deepStrictEqual(pushedLegacyRows(), ["L1"]);
+			return { handle: fixture.handleOf("native"), close: async () => {} };
+		},
+	},
+	"rotated-inline-secret-unstamped": {
+		after: { setting: [L1_OAUTH_ROTATED], secrets: {} },
+		intents: ["adopt", "hide"],
+		adopt: "rejects",
+		refusal: DashboardValidationError,
+		open: async (fixture) => {
+			const { engine, host, pushedHandle, pushedLegacyRows } = fixture;
+			fixture.declare([L1_OAUTH_ROTATED]);
+			await host.addProviderGroup({
+				name: "legacy",
+				vendor: "litellm",
+				baseUrl: H,
+				oauthTokenUrl: "https://idp.test/token",
+				oauthClientId: "client-1",
+				oauthClientSecret: SECRET,
+			});
+			host.taken.add("L1");
+			await engine.syncNow();
+			assert.strictEqual(
+				pushedHandle("legacy"),
+				undefined,
+				"the unstamped group holding L1's inline secret is no external row"
+			);
+			assert.deepStrictEqual(pushedLegacyRows(), ["L1"]);
+			return { handle: fixture.handleOf("legacy"), close: async () => {} };
 		},
 	},
 	"rejected-entry-sibling-group": {

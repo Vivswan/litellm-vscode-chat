@@ -10,7 +10,7 @@ import { buildState, makeDeclared, makeReader } from "./stateHelpers";
 const live = (identities: readonly DeclaredServerView[] = []): LiveDeclaration => ({
 	identities,
 	carriers: [],
-	storedSecrets: new Map(),
+	secretValues: new Map(),
 });
 
 suite("extension/dashboard/adopt", () => {
@@ -150,7 +150,7 @@ suite("extension/dashboard/adopt", () => {
 				{ credentials: { apiKey: "sk-one" } },
 				"with no stored value under the label, the group is the user's own"
 			);
-			const holding = { ...moved, storedSecrets: new Map([["Prod", { values: { apiKey: "sk-one" }, owners: {} }]]) };
+			const holding = { ...moved, secretValues: new Map([["Prod", ["sk-one"]]]) };
 			assert.strictEqual(resolveAdoptableCredentials(snapshots, holding, "http://ext.test", handle, lookup), undefined);
 			assert.strictEqual(
 				resolveExternalGroupIdentity(snapshots, holding, "http://ext.test", handle, lookup),

@@ -20,7 +20,7 @@ import type { DeclaredIdentities } from "../servers/serverSync";
 import { secretDestination } from "../servers/serverSync/secrets";
 import { acceptedEntry } from "../servers/serverSync/setting";
 import { adoptSourceHandle } from "./adoptHandle";
-import { labeledSnapshots, resolveGroupOwnership, storedSecretHolders } from "./declaredJoin";
+import { labeledSnapshots, resolveGroupOwnership, secretValueHolders } from "./declaredJoin";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
@@ -57,7 +57,7 @@ export interface ExternalGroupResolution {
 	readonly setting: unknown;
 }
 
-export type LiveDeclaration = Pick<DeclaredIdentities, "identities" | "carriers" | "storedSecrets">;
+export type LiveDeclaration = Pick<DeclaredIdentities, "identities" | "carriers" | "secretValues">;
 
 /**
  * The external snapshot a row handle names, bound to the intent's base URL, under the one group ownership
@@ -75,7 +75,7 @@ function resolveExternalSnapshot(
 		labeled: labeledSnapshots(snapshots),
 		declared: live.identities,
 		carriers: live.carriers,
-		secretHolders: storedSecretHolders(snapshots, getGroupServer, live.storedSecrets),
+		secretHolders: secretValueHolders(snapshots, getGroupServer, live.secretValues),
 	});
 	return external.find(
 		(entry) =>

@@ -670,7 +670,7 @@ export interface DashboardStateInputs {
 	readonly declared?: DeclaredServersInput;
 	/** The per-entry acceptance reports (serverSettingReports): the Misconfigured rows and the ownership's carriers. */
 	readonly entryReports?: readonly ServerEntryReport[];
-	/** The declared labels whose stored secret each live group carries, by server ID (storedSecretHolders). */
+	/** The declared labels whose secret value each live group carries, by server ID (secretValueHolders). */
 	readonly secretHolders?: ReadonlyMap<string, readonly string[]>;
 	readonly removedGroups?: RemovedGroupsView;
 	/**

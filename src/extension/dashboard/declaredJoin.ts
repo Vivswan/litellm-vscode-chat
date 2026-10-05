@@ -7,10 +7,8 @@
 
 import type { GroupServer } from "../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
-import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { sameGroupIdentity } from "../servers/groupRemovals";
 import type { DeclaredGroupIdentity } from "../servers/serverSync";
-import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 
 /**
  * Labels are not unique (two provider groups can point at one host with different credentials), so colliding labels get
@@ -58,7 +56,7 @@ export interface GroupOwnershipInputs {
 	readonly declared: readonly DeclaredGroupIdentity[];
 	/** The labels the setting carries outside an accepted entry (rejectedCarrierLabels); join-only readers omit it. */
 	readonly carriers?: readonly string[];
-	/** The declared label whose stored secret value a group carries, by server ID (storedSecretHolders). */
+	/** The declared labels whose secret value a group carries, by server ID (secretValueHolders). */
 	readonly secretHolders?: ReadonlyMap<string, readonly string[]>;
 }
 
@@ -154,32 +152,30 @@ export function resolveGroupOwnership(inputs: GroupOwnershipInputs): GroupOwners
 }
 
 /**
- * The declared labels whose stored secret value a live group carries, by server ID: the evidence that a group nothing
- * else names is a declared entry's leftover. The value alone decides, whatever destination its ownership stamp names
- * and whichever credential field holds it on either side, because copying it out would hand a declared secret to a
- * new entry; values compare extension-side only and never leave.
+ * The declared labels whose secret value a live group carries, by server ID: the evidence that a group nothing else
+ * names is a declared entry's leftover. Any value the label stores or carries inline counts, in whichever credential
+ * field the group holds it, because copying it out would hand a declared secret to a new entry; values compare
+ * extension-side only and never leave.
  */
-export function storedSecretHolders(
+export function secretValueHolders(
 	snapshots: readonly ServerModelsSnapshot[],
 	getGroupServer: (serverId: string) => GroupServer | undefined,
-	storedSecrets: ReadonlyMap<string, StoredSecretsRecord>
+	secretValues: ReadonlyMap<string, readonly string[]>
 ): ReadonlyMap<string, readonly string[]> {
 	const holders = new Map<string, readonly string[]>();
-	const carries = (server: GroupServer, record: StoredSecretsRecord): boolean => {
-		const live = new Set(
-			[server.apiKey, server.oauth?.clientSecret, server.virtualKey?.value].filter((value) => value !== undefined)
-		);
-		return SECRET_FIELD_IDS.some((field) => {
-			const stored = record.values[field];
-			return stored !== undefined && stored.length > 0 && live.has(stored);
-		});
-	};
 	for (const { status } of snapshots) {
 		const server = getGroupServer(status.serverId);
 		if (server === undefined) {
 			continue;
 		}
-		const labels = [...storedSecrets].flatMap(([label, record]) => (carries(server, record) ? [label] : []));
+		const live = new Set(
+			[server.apiKey, server.oauth?.clientSecret, server.virtualKey?.value].filter(
+				(value): value is string => value !== undefined && value.length > 0
+			)
+		);
+		const labels = [...secretValues].flatMap(([label, values]) =>
+			values.some((value) => live.has(value)) ? [label] : []
+		);
 		if (labels.length > 0) {
 			holders.set(status.serverId, labels);
 		}

@@ -84,8 +84,11 @@ export interface DeclaredIdentities {
 	readonly identities: readonly DeclaredGroupIdentity[];
 	/** The labels the setting carries outside an accepted entry (rejectedCarrierLabels). */
 	readonly carriers: readonly string[];
-	/** Every declared label's stored secrets, ownership stamps included; extension-side only, never pushed. */
-	readonly storedSecrets: ReadonlyMap<string, StoredSecretsRecord>;
+	/**
+	 * Every secret value each declared label stores or carries inline, accepted entries and rejected carriers alike;
+	 * extension-side only, never pushed. A live group holding any of them is that label's leftover.
+	 */
+	readonly secretValues: ReadonlyMap<string, readonly string[]>;
 }
 
 /** The non-secret view of a declared server the dashboard renders; secret values stay out. */
@@ -252,12 +255,18 @@ const IDENTITY_READ_ATTEMPTS = 3;
 const SETTING_UNSTABLE_MESSAGE =
 	"The servers setting or its stored secrets changed on every read while identities were being resolved; retry";
 
-/** A carrier's stored record with the values it still carries inline laid over, so a holder of either is its leftover. */
-function withInlineSecrets(
-	record: StoredSecretsRecord,
+/** Every non-empty value a label's stored record and its inline fields carry, each once. */
+function secretValuesOf(
+	record: StoredSecretsRecord | undefined,
 	inline: Readonly<Partial<Record<SecretFieldId, string>>> | undefined
-): StoredSecretsRecord {
-	return inline === undefined ? record : { values: { ...record.values, ...inline }, owners: record.owners };
+): string[] {
+	return [
+		...new Set(
+			[...Object.values(record?.values ?? {}), ...Object.values(inline ?? {})].filter(
+				(value): value is string => typeof value === "string" && value.length > 0
+			)
+		),
+	];
 }
 
 /** The live resolution's refusal of a setting the pass treats as declaring every old label; nothing can join on it. */
@@ -351,8 +360,8 @@ interface RetryState {
  */
 export class ServerSyncEngine implements vscode.Disposable {
 	private views: DeclaredServerView[] = [];
-	/** Each declared label's stored secrets as the last pass read them; published with the views, never pushed. */
-	private storedSecrets: ReadonlyMap<string, StoredSecretsRecord> = new Map();
+	/** Each declared label's secret values as the last pass read them; published with the views, never pushed. */
+	private secretValues: ReadonlyMap<string, readonly string[]> = new Map();
 	/**
 	 * The monkey fuzzer showed why trusting more wedges entries, since an awaited globalState.update can revert
 	 * moments later to a stale whole-key value.
@@ -463,9 +472,9 @@ export class ServerSyncEngine implements vscode.Disposable {
 		return this.views;
 	}
 
-	/** The stored secrets the last pass read, by declared label, for the group ownership (storedSecretHolders). */
-	getStoredSecrets(): ReadonlyMap<string, StoredSecretsRecord> {
-		return this.storedSecrets;
+	/** The secret values the last pass read, by declared label, for the group ownership (secretValueHolders). */
+	getSecretValues(): ReadonlyMap<string, readonly string[]> {
+		return this.secretValues;
 	}
 
 	/**
@@ -512,7 +521,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 						declaredGroupIdentity(entry, buildGroupArgs(entry, stored))
 					),
 					carriers: current.carriers,
-					storedSecrets: current.storedSecrets,
+					secretValues: current.secretValues,
 				};
 			}
 			previous = current;
@@ -525,27 +534,31 @@ export class ServerSyncEngine implements vscode.Disposable {
 		setting: unknown;
 		entries: { entry: DeclaredServer; stored: StoredServerSecrets }[];
 		carriers: string[];
-		storedSecrets: Map<string, StoredSecretsRecord>;
+		secretValues: Map<string, readonly string[]>;
 	}> {
 		const setting: unknown = structuredClone(this.env.readServersSetting());
 		if (!Array.isArray(setting)) {
 			throw new IndeterminateServersSettingError();
 		}
-		const storedSecrets = new Map<string, StoredSecretsRecord>();
+		const records = new Map<string, StoredSecretsRecord>();
+		const secretValues = new Map<string, readonly string[]>();
 		const entries: { entry: DeclaredServer; stored: StoredServerSecrets }[] = [];
 		for (const entry of parseServersSetting(setting).entries) {
 			const record = await this.env.readSecrets(entry.label);
-			storedSecrets.set(entry.label, record);
+			records.set(entry.label, record);
+			secretValues.set(entry.label, secretValuesOf(record, inlineSecretValues(entry)));
 			entries.push({ entry, stored: resolveOwnedSecrets(entry, record).values });
 		}
 		const reports = serverSettingReports(setting);
 		const carriers = rejectedCarrierLabels(reports);
 		const inline = rejectedCarrierInlineSecrets(setting, reports);
 		for (const label of carriers) {
-			const record = storedSecrets.get(label) ?? (await this.env.readSecrets(label));
-			storedSecrets.set(label, withInlineSecrets(record, inline.get(label)));
+			const record = records.get(label) ?? (await this.env.readSecrets(label));
+			secretValues.set(label, [
+				...new Set([...(secretValues.get(label) ?? []), ...secretValuesOf(record, inline.get(label))]),
+			]);
 		}
-		return { setting, entries, carriers, storedSecrets };
+		return { setting, entries, carriers, secretValues };
 	}
 
 	requestSync(): void {
@@ -766,14 +779,15 @@ export class ServerSyncEngine implements vscode.Disposable {
 		const next: Record<string, string> = {};
 		const views: DeclaredServerView[] = [];
 		const printedByLabel = new Map<string, string>();
-		// Stored secrets by declared label, carriers included, for the dashboard's group ownership; published with
-		// the views. A failed read keeps the last pass's record, so a leftover holding the label's key does not turn
-		// into an adoptable external row for the length of the outage.
-		const storedSecrets = new Map<string, StoredSecretsRecord>();
-		const carryStoredSecrets = (label: string) => {
-			const last = this.storedSecrets.get(label);
+		// Secret values by declared label, carriers included, for the dashboard's group ownership; published with the
+		// views. A failed read keeps the last pass's values, so a leftover holding the label's key does not turn into
+		// an adoptable external row for the length of the outage.
+		const records = new Map<string, StoredSecretsRecord>();
+		const secretValues = new Map<string, readonly string[]>();
+		const carrySecretValues = (label: string) => {
+			const last = this.secretValues.get(label);
 			if (last !== undefined) {
-				storedSecrets.set(label, last);
+				secretValues.set(label, last);
 			}
 		};
 		for (const entry of entries) {
@@ -788,7 +802,8 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// The ownership check runs at the read boundary, before any branch (a forced pass included): a stored
 				// value stamped for a different destination must never enter the args this pass could submit.
 				const record = await this.env.readSecrets(entry.label);
-				storedSecrets.set(entry.label, record);
+				records.set(entry.label, record);
+				secretValues.set(entry.label, secretValuesOf(record, inlineSecretValues(entry)));
 				const owned = resolveOwnedSecrets(entry, record);
 				stored = owned.values;
 				refusedFields = owned.refused;
@@ -799,7 +814,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// secret locations to the inline-only reading.
 				secretsUnreadable = true;
 				syncFailure = syncFailureOf("secretsUnreadable");
-				carryStoredSecrets(entry.label);
+				carrySecretValues(entry.label);
 				this.env.log("Reading a server entry's stored secrets failed", {
 					label: entry.label,
 					error: errorLabel(error),
@@ -945,10 +960,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 		const carrierInline = rejectedCarrierInlineSecrets(rawSetting, rawReports);
 		for (const label of rejectedCarrierLabels(rawReports)) {
 			try {
-				const record = storedSecrets.get(label) ?? (await this.env.readSecrets(label));
-				storedSecrets.set(label, withInlineSecrets(record, carrierInline.get(label)));
+				const record = records.get(label) ?? (await this.env.readSecrets(label));
+				secretValues.set(label, [
+					...new Set([...(secretValues.get(label) ?? []), ...secretValuesOf(record, carrierInline.get(label))]),
+				]);
 			} catch (error) {
-				carryStoredSecrets(label);
+				carrySecretValues(label);
 				this.env.log("Reading a rejected entry's stored secrets failed", { label, error: errorLabel(error) });
 			}
 		}
@@ -975,7 +992,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 			this.views = views;
 			// A non-array setting declares every old label and parses no entry, so the pass read no blob; the last
 			// pass's records stay until an array reads them again.
-			this.storedSecrets = Array.isArray(rawSetting) ? storedSecrets : this.storedSecrets;
+			this.secretValues = Array.isArray(rawSetting) ? secretValues : this.secretValues;
 		}
 	}
 

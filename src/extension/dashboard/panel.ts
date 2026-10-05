@@ -75,7 +75,7 @@ import type { SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
-import { storedSecretHolders } from "./declaredJoin";
+import { secretValueHolders } from "./declaredJoin";
 import { buildDashboardHtml } from "./html";
 import type { DashboardParseIssue } from "./intentSchema";
 import { parseDashboardRequest } from "./intentSchema";
@@ -143,7 +143,7 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	createPanel(): DashboardPanel;
 	getSnapshots(): readonly ServerModelsSnapshot[];
 	getDeclaredServers(): DeclaredServersInput;
-	/** The declared labels whose stored secret each live group carries, by server ID (storedSecretHolders). */
+	/** The declared labels whose secret value each live group carries, by server ID (secretValueHolders). */
 	getSecretHolders(): ReadonlyMap<string, readonly string[]>;
 	/** The removal bookkeeping (tombstones and orphan origins) the state builder folds in. */
 	getRemovedGroups(): RemovedGroupsView;
@@ -981,10 +981,10 @@ export function registerDashboardCommand(
 			);
 		},
 		getSecretHolders: () =>
-			storedSecretHolders(
+			secretValueHolders(
 				provider.getServerSnapshots(),
 				(serverId) => provider.getGroupServer(serverId),
-				syncEngine.getStoredSecrets()
+				syncEngine.getSecretValues()
 			),
 		getRemovedGroups: (): RemovedGroupsView => ({
 			tombstones: removals.tombstones(),
