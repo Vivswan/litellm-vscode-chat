@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import type { Classification, DiscoveryLog } from "../../../../provider/catalog/discoveryLog";
-import { discoveryLineWriter, failureKindOf, parseWire } from "../../../../provider/catalog/discoveryLog";
+import { discoveryLineWriter, failureKindOf, logFailure, parseWire } from "../../../../provider/catalog/discoveryLog";
 import { MirroredError } from "../../../../shared/mirroredError";
 
 describe("provider/catalog/discoveryLog", () => {
@@ -157,6 +157,33 @@ describe("provider/catalog/discoveryLog", () => {
 
 	test("an instance's constructor mints nothing without the module's token", () => {
 		expect(() => Reflect.construct(classified().constructor, ["sk-live-abc"])).toThrow(TypeError);
+	});
+
+	// The sink's third argument is the caught value itself, for the recorder; the line never renders it.
+	test.each<[string, unknown, Record<string, unknown>]>([
+		[
+			"a logClassification planted on an arbitrary throw is not a classification",
+			Object.assign(new Error("sk-live-abc"), { logClassification: "sk-live-abc", kind: "http", status: 500 }),
+			{ kind: "unclassified" },
+		],
+		[
+			"the repository's own error carries its kind, status, and terse classification",
+			Object.assign(new MirroredError("sk-live-abc", { logClassification: "RequestError(http, status 500)" }), {
+				kind: "http",
+				status: 500,
+			}),
+			{ kind: "http", status: 500, classification: "RequestError(http, status 500)" },
+		],
+		[
+			"the repository's own error without a transport kind keeps its classification",
+			new MirroredError("sk-live-abc", { logClassification: "RequestRouting(no group identity)" }),
+			{ kind: "unclassified", classification: "RequestRouting(no group identity)" },
+		],
+	])("%s", (_name, error, line) => {
+		const written: { message: string; data: unknown; error: unknown }[] = [];
+		logFailure((message, data, cause) => written.push({ message, data, error: cause }), "Chat request failed", error);
+		expect(written).toEqual([{ message: "Chat request failed", data: line, error }]);
+		expect(JSON.stringify(written.map(({ error: _, ...rest }) => rest))).not.toContain("sk-live");
 	});
 });
 

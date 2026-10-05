@@ -44,6 +44,9 @@ export function wireMcpServers(
 		logError: (message: string, error: unknown): void => {
 			logger.error(message, error);
 		},
+		logFailure: (message: string, data: unknown, error: unknown): void => {
+			logger.failure(message, data, error);
+		},
 	};
 
 	const changed = new vscode.EventEmitter<void>();

@@ -80,6 +80,7 @@ function makeProvider(
 			versions: options.versions ?? new McpVersionCounters(memento()),
 			advisory: (message, data) => options.logged?.push([message, data]),
 			logError: (message, error) => options.logged?.push([message, error]),
+			logFailure: (message, data) => options.logged?.push([message, data]),
 		},
 		new vscode.EventEmitter<void>().event
 	);
@@ -357,7 +358,16 @@ suite("extension/features/mcp", () => {
 				await assert.rejects(() => resolve(provider, definition));
 			});
 			const failures = logged.filter(([message]) => message === "MCP resolve failed");
-			assert.strictEqual(failures.length, 1, `expected one failure line, got ${JSON.stringify(logged)}`);
+			assert.deepStrictEqual(
+				failures,
+				[
+					[
+						"MCP resolve failed",
+						{ kind: "auth", status: 401, classification: "RequestError(auth, status 401, oauth token endpoint)" },
+					],
+				],
+				`expected one failure line, got ${JSON.stringify(logged)}`
+			);
 			assert.ok(!JSON.stringify(logged).includes("shh"), "no log line carries the client secret");
 		});
 
@@ -385,6 +395,7 @@ suite("extension/features/mcp", () => {
 					versions: new McpVersionCounters(memento()),
 					advisory: () => {},
 					logError: () => {},
+					logFailure: () => {},
 				},
 				new vscode.EventEmitter<void>().event
 			);
@@ -431,6 +442,7 @@ suite("extension/features/mcp", () => {
 					versions: new McpVersionCounters(memento()),
 					advisory: () => {},
 					logError: () => {},
+					logFailure: () => {},
 				},
 				new vscode.EventEmitter<void>().event
 			);

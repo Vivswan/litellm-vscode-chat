@@ -1,5 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import { logFailure } from "../../../provider/catalog/discoveryLog";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { CONSULT_TOOL_READY_CONTEXT_KEY, TOOL_NAME } from "../../../shared/config/commandIds";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
@@ -182,10 +183,14 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 				// User cancellation: never logged, and the host owns the surfacing.
 				throw error;
 			}
-			// The feature's single logging boundary; the logger records the English mirror or classification the thrown
-			// error carries, so neither the agent's question nor the server's response text reaches the issue-report
-			// buffer through this line. The classified error itself travels on to the chat view that invoked the tool.
-			this.logger.error("Consult tool consultation failed", error);
+			// The feature's single logging boundary: the line is the thrown error's classification, so neither the agent's
+			// question nor the server's response text reaches the channel or the issue-report buffer through it. The
+			// classified error itself travels on to the chat view that invoked the tool.
+			logFailure(
+				(message, data, cause) => this.logger.failure(message, data, cause),
+				"Consult tool consultation failed",
+				error
+			);
 			throw error;
 		}
 		return new vscode.LanguageModelToolResult([

@@ -13,6 +13,7 @@
 
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import { type FailureSink, logFailure } from "../../../provider/catalog/discoveryLog";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
@@ -41,8 +42,10 @@ export interface McpProviderDeps {
 	readonly versions: McpVersionCounters;
 	/** Channel-only notes that recur per session start; they must not evict the issue report's errors. */
 	readonly advisory: (message: string, data?: unknown) => void;
-	/** Failures, through the shared classifier, so an MCP refusal becomes the issue report's latest error. */
+	/** A refusal of this module's own, whose text names only the configured label; it becomes the report's latest error. */
 	readonly logError: (message: string, error: unknown) => void;
+	/** A failure caught from the token exchange, whose text can quote the identity provider's answer. */
+	readonly logFailure: FailureSink;
 }
 
 type McpEntry = DeclaredServer & { readonly mcp: McpOptIn };
@@ -213,7 +216,7 @@ export function createMcpServerDefinitionProvider(
 				// failure to the user, but without this the output channel and the issue-report buffer stay silent
 				// about it. Cancellation is never logged, and a refusal already logged itself.
 				if (!refused && !(error instanceof vscode.CancellationError)) {
-					deps.logError("MCP resolve failed", error);
+					logFailure(deps.logFailure, "MCP resolve failed", error);
 				}
 				throw error;
 			}

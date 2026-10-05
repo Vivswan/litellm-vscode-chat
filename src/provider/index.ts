@@ -21,6 +21,7 @@ import { localizedError, type MirroredError } from "../shared/mirroredError";
 import type { ExpectedFailureCategory, NonChatMode } from "../shared/serverEntry";
 import type { AggregatedStatus } from "../shared/servers";
 import { DiscoveryCache } from "./catalog/discoveryCache";
+import { logFailure } from "./catalog/discoveryLog";
 import type { DiscoveredGroupModels, SuppressedGroupKey } from "./catalog/groupDiscovery";
 import { GroupDiscovery } from "./catalog/groupDiscovery";
 import type { EntryCredentialsResolver, GroupServer, LiteLLMModelInfo } from "./catalog/groupModels";
@@ -416,9 +417,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			await this._client.send({ metadata, server, messages, options, progress: trackingProgress, token });
 		} catch (err) {
 			// User-initiated cancellation is not an error; logging it would pollute the issue-report buffer and clobber
-			// the latest real error.
+			// the latest real error. A mapped error's English mirror quotes the response body, so the line is the
+			// error's classification and the error itself goes only to the recorder.
 			if (!(err instanceof CancellationError)) {
-				this.logError("Chat request failed", err);
+				logFailure((message, data, error) => this.logger?.failure(message, data, error), "Chat request failed", err);
 			}
 			// Only the throw is wrapped, so the boundary still logs exactly once and keeps the classification.
 			throw toLanguageModelError(err);
