@@ -586,6 +586,25 @@ suite("extension/dashboard/intents", () => {
 			]);
 		});
 
+		test("a setting that changes while the tombstone is recorded is unhidden again and refused", async () => {
+			// The store awaits a secret-storage read before it commits, so another window's write can land between the
+			// resolution's check and the commit: the hide is compensated, never left standing on a stale view.
+			const recorded = makeEnv([]);
+			recorded.externalGroup = { by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test" };
+			recorded.duringHide = () => recorded.setSetting([{ label: "L1", baseUrl: "http://prod.test" }]);
+			await assert.rejects(
+				executeDashboardIntent(
+					{ method: "hideExternalServer", payload: { baseUrl: "http://prod.test", sourceHandle: "handle-1" } },
+					recorded.env
+				),
+				/changed while this action ran/
+			);
+			assert.deepStrictEqual(recorded.hidden, [
+				{ by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test" },
+			]);
+			assert.deepStrictEqual(recorded.unhidden, [{ label: "Prod", baseUrl: "http://prod.test" }]);
+		});
+
 		test("hideExternalServer refuses an unusable base URL before any lookup", async () => {
 			const recorded = makeEnv();
 			await assert.rejects(

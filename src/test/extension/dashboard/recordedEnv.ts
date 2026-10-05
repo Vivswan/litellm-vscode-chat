@@ -161,8 +161,11 @@ export interface RecordedEnv {
 	/** The same, for a non-completion feature: the branch every future shipped feature lands in. */
 	reviewProbes: FeatureModelRef[];
 	reviewProbeResult: string | undefined;
-	/** Every hideGroup call. */
+	/** Every hideGroup call; duringHide runs inside the fake, before it answers, for mutations racing the hide. */
 	hidden: TombstoneIdentity[];
+	duringHide?: () => void;
+	/** Replace the visible servers setting outright: another window's write landing between two reads. */
+	setSetting: (value: unknown) => void;
 	/** Every unhideGroup call; unhideResult is what the fake reports back. */
 	unhidden: { label: string; baseUrl: string }[];
 	unhideResult: boolean;
@@ -205,6 +208,9 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		reviewProbes: [],
 		reviewProbeResult: undefined,
 		hidden: [],
+		setSetting: (value) => {
+			currentSetting = value;
+		},
 		unhidden: [],
 		unhideResult: true,
 		hiddenIdentities: [],
@@ -300,6 +306,7 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			},
 			hideGroup: async (identity) => {
 				recorded.hidden.push({ ...identity });
+				recorded.duringHide?.();
 				return "durable";
 			},
 			unhideGroup: async (identity) => {

@@ -762,6 +762,14 @@ export async function executeDashboardIntent(
 			}
 			requireSettingUnchanged(env, resolved.setting);
 			await env.hideGroup(resolved.identity);
+			// The store awaits a secret-storage read before it commits, so a write from another window can land between
+			// the check above and the commit; a hide resolved against a setting that no longer stands is taken back.
+			try {
+				requireSettingUnchanged(env, resolved.setting);
+			} catch (error) {
+				await env.unhideGroup({ label: resolved.identity.label, baseUrl: resolved.identity.baseUrl });
+				throw error;
+			}
 			return undefined;
 		}
 		case "unhideServer": {
