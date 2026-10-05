@@ -420,8 +420,8 @@ suite("extension/migrations/settingsRedesign: record renames", () => {
 	});
 
 	test("expanding a scoped _fallback: true marks what the parser's true marks, under the record's own key spelling", () => {
-		// The parser trims field keys and list entries alike; the merge compares raw keys, so the mark must be written
-		// under the raw spelling or a padded field would land promoted to override.
+		// The parser trims field keys and list entries alike, so a mark written under the record's own spelling still
+		// names the field.
 		const cases: { scoped: Record<string, unknown>; expected: Record<string, unknown> }[] = [
 			{
 				scoped: { context_length: 1000, max_output_tokens: 0, bogus: 5, _fallback: true },
@@ -569,21 +569,21 @@ suite("extension/migrations/settingsRedesign: _declare directives", () => {
 		// Every entry at the URL read the key under the old runtime, so an accepting sibling must not let the blocked
 		// entry's reading vanish with the moved key.
 		const blocked = { label: "a", baseUrl: "https://gw", discovery: { declared: "junk" } };
+		const scoped = { "https://gw/deepseek-r1": { _declare: true, supports_reasoning: true } };
 		for (const servers of [[blocked], [blocked, { label: "b", baseUrl: "https://gw" }]]) {
 			const before: SettingsSnapshot = {
 				servers: { globalValue: servers },
-				modelCapabilities: {
-					globalValue: { "https://gw/deepseek-r1": { _declare: true, supports_reasoning: true } },
-				},
+				modelCapabilities: { globalValue: scoped },
 			};
 			const { plan, after } = migrate(before);
-			assert.deepStrictEqual(globalValueOf(after, "servers"), servers);
-			assert.deepStrictEqual(globalValueOf(after, "models.capabilities"), before.modelCapabilities?.globalValue);
-			assert.ok(
-				plan.logLines.some((line) => line.includes("Left 1 server-scoped record key(s) in place")),
-				plan.logLines.join(" | ")
-			);
-			assert.ok(!plan.logLines.some((line) => line.includes("_declare directive(s) into")), plan.logLines.join(" | "));
+			assert.deepStrictEqual(after, {
+				servers: { globalValue: servers },
+				"models.capabilities": { globalValue: scoped },
+			});
+			assert.deepStrictEqual(plan.logLines, [
+				"Renamed 1 setting(s) to their new names in user settings",
+				"Left 1 server-scoped record key(s) in place: no declared entry at their URL can receive them, or one cannot (see the dashboard hint)",
+			]);
 		}
 	});
 });
@@ -740,6 +740,8 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 	});
 
 	test("a hand-mixed entry keeps its nested values and still drains the flat leftovers", () => {
+		// Fields, list entries, and directive keys collide by the parser's canonical name: the nested padded
+		// context_length is the flat one's field and wins whole, and the nested padded directive is the one rewritten.
 		const { plan, after } = migrate({
 			servers: {
 				globalValue: [
@@ -749,21 +751,37 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 						apiKey: "sk-old",
 						auth: { apiKey: "sk-new" },
 						modelParameters: { "gpt-5": { temperature: 0 } },
-						models: { parameters: { "gpt-5*": { temperature: 1 } } },
+						modelCapabilities: { m: { context_length: 8000, supports_vision: true, _fallback: [" supports_vision "] } },
+						models: {
+							parameters: { "gpt-5*": { temperature: 1 } },
+							capabilities: { "m*": { " context_length ": 4000, " _fallback ": true } },
+						},
 					},
 				],
 			},
 		});
-		const servers = globalValueOf(after, "servers") as Record<string, unknown>[];
-		const entry = expectDefined(servers[0]);
-		assert.deepStrictEqual(entry.auth, { apiKey: "sk-new" }, "the nested side is the newer intent");
-		assert.deepStrictEqual(entry.models, { parameters: { "gpt-5*": { temperature: 1 } } });
-		assert.strictEqual(Object.hasOwn(entry, "apiKey"), false);
-		assert.strictEqual(Object.hasOwn(entry, "modelParameters"), false);
-		assert.ok(
-			plan.logLines.some((line) => line.includes("Dropped 1 legacy entry field value(s)")),
-			plan.logLines.join(" | ")
-		);
+		assert.deepStrictEqual(globalValueOf(after, "servers"), [
+			{
+				label: "a",
+				baseUrl: "https://gw",
+				auth: { apiKey: "sk-new" },
+				models: {
+					parameters: { "gpt-5*": { temperature: 1 } },
+					capabilities: {
+						"m*": {
+							" context_length ": 4000,
+							" _fallback ": [" context_length ", "supports_vision"],
+							supports_vision: true,
+						},
+					},
+				},
+			},
+		]);
+		assert.deepStrictEqual(plan.logLines, [
+			"Restructured 1 server entry to the redesigned shape",
+			"Dropped 1 legacy entry field value(s) the old readers never honored",
+			"Rewrote 2 record key(s) to explicit matchers",
+		]);
 	});
 
 	test("a hand-mixed entry's existing auth wins WHOLESALE - flat pieces never fabricate a second form", () => {
@@ -780,51 +798,52 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 
 	test("a destination slot holding a non-mergeable value blocks the landing: the source key stays and is counted", () => {
 		const declaring = { "gpt-4": { _declare: true } };
-		const cases: { name: string; entry: Record<string, unknown>; blocked: number; lands?: Record<string, unknown> }[] =
-			[
-				{
-					name: "declared is junk under a declaring record",
-					entry: { modelCapabilities: declaring, discovery: { declared: "junk" } },
-					blocked: 1,
+		const left = (count: number): string =>
+			`Left ${count} legacy entry field(s) in place: the entry's destination slot holds a value that cannot take them`;
+		const cases: {
+			name: string;
+			entry: Record<string, unknown>;
+			logLines: string[];
+			lands?: Record<string, unknown>;
+		}[] = [
+			{
+				name: "declared is junk under a declaring record",
+				entry: { modelCapabilities: declaring, discovery: { declared: "junk" } },
+				logLines: [left(1)],
+			},
+			{
+				name: "the capabilities slot is junk",
+				entry: { modelCapabilities: { "gpt-4": { context_length: 1 } }, models: { capabilities: "junk" } },
+				logLines: [left(1)],
+			},
+			{
+				name: "models is junk",
+				entry: { modelParameters: { m: { seed: 1 } }, modelCapabilities: declaring, models: "junk" },
+				logLines: [left(2)],
+			},
+			{ name: "auth is junk", entry: { apiKey: "sk-1", virtualKeyHeader: "x-vk", auth: "junk" }, logLines: [left(2)] },
+			{ name: "discovery is junk", entry: { expectedFailures: ["modelInfo"], discovery: "junk" }, logLines: [left(1)] },
+			{
+				name: "one slot blocks while its sibling lands",
+				entry: {
+					modelParameters: { m: { seed: 1 } },
+					modelCapabilities: declaring,
+					models: { capabilities: "junk" },
 				},
-				{
-					name: "the capabilities slot is junk",
-					entry: { modelCapabilities: { "gpt-4": { context_length: 1 } }, models: { capabilities: "junk" } },
-					blocked: 1,
-				},
-				{
-					name: "models is junk",
-					entry: { modelParameters: { m: { seed: 1 } }, modelCapabilities: declaring, models: "junk" },
-					blocked: 2,
-				},
-				{ name: "auth is junk", entry: { apiKey: "sk-1", virtualKeyHeader: "x-vk", auth: "junk" }, blocked: 2 },
-				{ name: "discovery is junk", entry: { expectedFailures: ["modelInfo"], discovery: "junk" }, blocked: 1 },
-				{
-					name: "one slot blocks while its sibling lands",
-					entry: {
-						modelParameters: { m: { seed: 1 } },
-						modelCapabilities: declaring,
-						models: { capabilities: "junk" },
-					},
-					blocked: 1,
-					lands: { modelCapabilities: declaring, models: { capabilities: "junk", parameters: { "m*": { seed: 1 } } } },
-				},
-			];
-		for (const { name, entry, blocked, lands } of cases) {
+				logLines: [
+					"Restructured 1 server entry to the redesigned shape",
+					left(1),
+					"Rewrote 1 record key(s) to explicit matchers",
+				],
+				lands: { modelCapabilities: declaring, models: { capabilities: "junk", parameters: { "m*": { seed: 1 } } } },
+			},
+		];
+		for (const { name, entry, logLines, lands } of cases) {
 			const base = { label: "a", baseUrl: "https://gw" };
 			const before: SettingsSnapshot = { servers: { globalValue: [{ ...base, ...entry }] } };
 			const { plan, after } = migrate(before);
-			assert.deepStrictEqual(globalValueOf(after, "servers"), [{ ...base, ...(lands ?? entry) }], name);
-			assert.ok(
-				plan.logLines.some((line) => line.includes(`Left ${blocked} legacy entry field(s) in place`)),
-				`${name}: ${plan.logLines.join(" | ")}`
-			);
-			assert.ok(!plan.logLines.some((line) => line.includes("_declare directive(s) into")), name);
-			assert.strictEqual(
-				plan.logLines.some((line) => line.includes("Restructured")),
-				lands !== undefined,
-				name
-			);
+			assert.deepStrictEqual(after, { servers: { globalValue: [{ ...base, ...(lands ?? entry) }] } }, name);
+			assert.deepStrictEqual(plan.logLines, logLines, name);
 			assert.deepStrictEqual(planSettingsRedesign(after).writes, [], `${name}: the blocked state is stable`);
 		}
 	});
@@ -965,10 +984,9 @@ suite("extension/migrations/settingsRedesign: global headers", () => {
 
 			assert.strictEqual(plan.outcome, "nothing-to-do");
 			assert.deepStrictEqual(after, before);
-			assert.ok(
-				plan.logLines.some((line) => line.includes("Left the global headers setting in place")),
-				plan.logLines.join(" | ")
-			);
+			assert.deepStrictEqual(plan.logLines, [
+				"Left the global headers setting in place: no declared server entry can receive it, or one cannot (see the dashboard hint)",
+			]);
 			assert.deepStrictEqual(
 				collectLegacyHints({
 					globalHeadersValue: globalValueOf(after, "headers"),
@@ -1132,10 +1150,10 @@ suite("extension/migrations/settingsRedesign: default token trio", () => {
 		});
 	});
 
-	test("the expansion of _fallback: true follows the parser: open fields keep their level, the override fill lands unmarked", () => {
-		// The parser trims field keys, so a padded spelling of the override field names the same field and must leave
-		// the list with it.
-		const cases: { catchAll: Record<string, unknown>; expected: Record<string, unknown> }[] = [
+	test("the expansion of _fallback: true follows the parser, and a padded spelling is the user's own field", () => {
+		// The parser trims field keys and directive keys and keeps the last spelling, so a padded max_input_tokens is
+		// the user's value (nothing fills, nothing is demoted) and an emptied padded list takes its shadowed twin along.
+		const cases: { catchAll: Record<string, unknown>; expected: Record<string, unknown>; logLines: string[] }[] = [
 			{
 				catchAll: { _fallback: true, input_cost_per_token: 0.001, context_length: 8000 },
 				expected: {
@@ -1145,19 +1163,33 @@ suite("extension/migrations/settingsRedesign: default token trio", () => {
 					max_input_tokens: 1000,
 					_inheritable: ["max_input_tokens"],
 				},
+				logLines: ['Moved 1 default token setting value(s) into the models.capabilities "*" record in user settings'],
 			},
 			{
 				catchAll: { _fallback: true, " max_input_tokens ": 8000 },
-				expected: { " max_input_tokens ": 8000, max_input_tokens: 1000, _inheritable: ["max_input_tokens"] },
+				expected: { _fallback: true, " max_input_tokens ": 8000 },
+				logLines: [
+					'Removed 1 default token setting key(s) from user settings; the models.capabilities "*" record already covered them',
+				],
+			},
+			{
+				catchAll: { supports_vision: true, _fallback: true, " _fallback ": [" max_input_tokens "] },
+				expected: { supports_vision: true, max_input_tokens: 1000, _inheritable: ["max_input_tokens"] },
+				logLines: ['Moved 1 default token setting value(s) into the models.capabilities "*" record in user settings'],
 			},
 		];
-		for (const { catchAll, expected } of cases) {
+		for (const { catchAll, expected, logLines } of cases) {
 			const before: SettingsSnapshot = {
 				defaultMaxInputTokens: { globalValue: 1000 },
 				"models.capabilities": { globalValue: { "*": catchAll } },
 			};
-			const { after } = migrate(before);
-			assert.deepStrictEqual(globalValueOf(after, "models.capabilities"), { "*": expected }, JSON.stringify(catchAll));
+			const { plan, after } = migrate(before);
+			assert.deepStrictEqual(
+				after,
+				{ "models.capabilities": { globalValue: { "*": expected } } },
+				JSON.stringify(catchAll)
+			);
+			assert.deepStrictEqual(plan.logLines, logLines, JSON.stringify(catchAll));
 		}
 	});
 

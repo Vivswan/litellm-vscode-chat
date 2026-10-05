@@ -306,12 +306,32 @@ export function restructureServers(raw: unknown): { value: unknown; counts: Entr
 }
 
 /**
- * The record's own keys a `_fallback: true` marks, as the live parser reads it: it trims field keys and list entries
- * alike, so a list written under the record's own spelling still names the field.
+ * Field identity inside a record, as the parser that reads the record judges it: parseCapabilityRecord trims field
+ * keys and list entries alike, parseParameterRecord takes keys as written.
  */
+export function canonicalFieldName(kind: RecordKind, key: string): string {
+	return kind === "capabilities" ? key.trim() : key;
+}
+
+export function canonicalFieldNames(kind: RecordKind, keys: readonly unknown[]): Set<string> {
+	return new Set(
+		keys.filter((key): key is string => typeof key === "string").map((key) => canonicalFieldName(kind, key))
+	);
+}
+
+/**
+ * The record's own key for a directive, so a rewrite lands on the user's spelling instead of beside it; the parser
+ * keeps the last spelling, so does this. Absent, the directive's name.
+ */
+export function directiveKey(kind: RecordKind, record: Record<string, unknown>, directive: string): string {
+	const spellings = Object.keys(record).filter((key) => canonicalFieldName(kind, key) === directive);
+	return spellings.length > 0 ? (spellings[spellings.length - 1] as string) : directive;
+}
+
+/** The record's own keys a `_fallback: true` marks, as the live parser reads it, under the record's own spelling. */
 export function fallbackMarksUnderTrue(record: Record<string, unknown>): string[] {
 	const marked = parseCapabilityRecord(record).fallback;
-	return Object.keys(record).filter((key) => marked.has(key.trim()));
+	return Object.keys(record).filter((key) => marked.has(canonicalFieldName("capabilities", key)));
 }
 
 /** Old forceability is settled upstream: records.ts rewrites a migrated `_force` before any merge. */
@@ -326,9 +346,10 @@ const LIST_DIRECTIVES: readonly {
 const LIST_DIRECTIVE_NAMES: readonly string[] = LIST_DIRECTIVES.map((directive) => directive.name);
 
 /**
- * A same-key collision merges field by field with the entry winning, as the old runtime merged entry over scoped; the
- * one accepted loss is a scoped mark on a field the entry overrode, which drops rather than re-pointing at the entry's
- * value. Adding fields changes what a record's own `_force`/`_fallback` cover, so every mark keeps the coverage it had.
+ * A same-key collision merges field by field, fields identified by their canonical name, with the entry winning whole
+ * (its spelling included), as the old runtime merged entry over scoped; the one accepted loss is a scoped mark on a
+ * field the entry overrode, which drops rather than re-pointing at the entry's value. Adding fields changes what a
+ * record's own `_force`/`_fallback` cover, so every mark keeps the coverage it had.
  *
  *   entry-side `true`                          -> expands to what the parser marks under it before scoped fields land
  *   entry-side name that marked nothing        -> dropped once the scoped record supplies the field
@@ -336,29 +357,38 @@ const LIST_DIRECTIVE_NAMES: readonly string[] = LIST_DIRECTIVES.map((directive) 
  */
 function mergeCollidingRecords(
 	existing: Record<string, unknown>,
-	addition: Record<string, unknown>
+	addition: Record<string, unknown>,
+	kind: RecordKind
 ): Record<string, unknown> | undefined {
+	const canonical = (key: string): string => canonicalFieldName(kind, key);
+	const existingNames = canonicalFieldNames(kind, Object.keys(existing));
 	const newPlain = Object.entries(addition).filter(
-		([name]) => !LIST_DIRECTIVE_NAMES.includes(name) && !Object.hasOwn(existing, name)
+		([name]) => !LIST_DIRECTIVE_NAMES.includes(canonical(name)) && !existingNames.has(canonical(name))
 	);
-	const arrivingNames = new Set(newPlain.map(([name]) => name));
+	const arrivingNames = canonicalFieldNames(
+		kind,
+		newPlain.map(([name]) => name)
+	);
 
 	const directiveChanges: (readonly [string, unknown])[] = [];
 	for (const { name: directive, marksUnderTrue } of LIST_DIRECTIVES) {
-		const existingRaw = Object.hasOwn(existing, directive) ? existing[directive] : undefined;
-		const additionRaw = Object.hasOwn(addition, directive) ? addition[directive] : undefined;
+		const existingKey = directiveKey(kind, existing, directive);
+		const existingRaw = Object.hasOwn(existing, existingKey) ? existing[existingKey] : undefined;
+		const additionKey = directiveKey(kind, addition, directive);
+		const additionRaw = Object.hasOwn(addition, additionKey) ? addition[additionKey] : undefined;
+		const additionListed = Array.isArray(additionRaw) ? canonicalFieldNames(kind, additionRaw) : undefined;
 		const additionNames =
 			additionRaw === true
 				? marksUnderTrue(addition)
-				: Array.isArray(additionRaw)
-					? additionRaw.filter((name): name is string => typeof name === "string" && Object.hasOwn(addition, name))
+				: additionListed !== undefined
+					? Object.keys(addition).filter((key) => !canonical(key).startsWith("_") && additionListed.has(canonical(key)))
 					: [];
+		const surviving = additionNames.filter((name) => arrivingNames.has(canonical(name)));
 		if (existingRaw !== undefined && existingRaw !== false && !Array.isArray(existingRaw)) {
 			if (existingRaw === true && arrivingNames.size > 0) {
 				// Expand before the arriving fields widen what `true` covers; the scoped side's marks follow its
 				// surviving fields.
-				const surviving = additionNames.filter((name) => arrivingNames.has(name));
-				directiveChanges.push([directive, [...marksUnderTrue(existing), ...surviving]]);
+				directiveChanges.push([existingKey, [...marksUnderTrue(existing), ...surviving]]);
 				continue;
 			}
 			// A `true` with nothing arriving (or a junk value) stays as written; junk cannot take additions without
@@ -368,11 +398,10 @@ function mergeCollidingRecords(
 		// An entry-side name the entry itself does not set marked nothing; keep it only while the merge leaves it
 		// inert.
 		const base = (Array.isArray(existingRaw) ? existingRaw : []).filter(
-			(name) => typeof name !== "string" || !arrivingNames.has(name)
+			(name) => typeof name !== "string" || !arrivingNames.has(canonical(name))
 		);
-		const surviving = additionNames.filter((name) => !Object.hasOwn(existing, name) && !base.includes(name));
 		if (surviving.length > 0 || (Array.isArray(existingRaw) && base.length !== existingRaw.length)) {
-			directiveChanges.push([directive, [...base, ...surviving]]);
+			directiveChanges.push([existingKey, [...base, ...surviving]]);
 		}
 	}
 	if (newPlain.length === 0 && directiveChanges.length === 0) {
@@ -404,7 +433,7 @@ export function withEntryRecordAdditions(
 		if (!isRecord(value)) {
 			continue;
 		}
-		const collided = mergeCollidingRecords(existingValue, value);
+		const collided = mergeCollidingRecords(existingValue, value, kind);
 		if (collided !== undefined) {
 			merged.set(key, collided);
 			added += 1;
