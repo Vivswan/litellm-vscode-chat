@@ -270,9 +270,9 @@ export class Logger {
 	 * renderings. No stack reaches the channel, since its first line would be the error's message.
 	 */
 	failure(message: string, data: unknown, error: unknown): void {
-		const text = `${message}: ${logDataText(data)}`;
+		const text = `${message}: ${logDataText(data, this.scrub)}`;
 		this.output.error(text);
 		this.recorder?.appendLog(`[${new Date().toISOString()}] ERROR: ${text}`);
-		this.recorder?.recordError(message, error);
+		this.recorder?.recordError(message, recordedError(error));
 	}
 }
