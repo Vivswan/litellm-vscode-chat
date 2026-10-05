@@ -6,8 +6,8 @@
  * label alone and silently drops refused fields, which only the internal test command may tolerate.
  */
 
-import type { GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
-import { logCredentialRejections, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
+import type { CredentialRejection, GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
+import { parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { buildGroupArgs } from "./engine";
 import type { StoredSecretsRecord } from "./secrets";
@@ -19,6 +19,9 @@ import { matchedEntryFor } from "./setting";
  * capabilities, so a leftover group from a base URL edit never receives the entry's credentials; the ownership check
  * is the sync pass's own fail-closed rule (resolveOwnedSecrets). The resolved values are secrets: never log them,
  * never push them into state.
+ *
+ * This is the one place a credential the narrowing dropped becomes a refusal: the chat and serve paths both resolve
+ * through here, so neither sends headerless for an entry that configured a key.
  */
 export async function entryGroupCredentialsFor(
 	readServersSetting: () => unknown,
@@ -45,12 +48,20 @@ export async function entryGroupCredentialsFor(
 	if (owned.refused.length > 0) {
 		return { kind: "unavailable", reason: "secretsMismatched" };
 	}
-	const groupServer = parseGroupConfiguration(
-		buildGroupArgs(entry, owned.values),
-		log === undefined ? undefined : logCredentialRejections(log)
+	const rejections: CredentialRejection[] = [];
+	const groupServer = parseGroupConfiguration(buildGroupArgs(entry, owned.values), (rejection) =>
+		rejections.push(rejection)
 	);
 	if (groupServer === undefined) {
 		return { kind: "unavailable", reason: "unusable" };
+	}
+	const [first, ...rest] = rejections;
+	if (first !== undefined) {
+		return {
+			kind: "unavailable",
+			reason: "credentialsRefused",
+			fields: [first.field, ...rest.map((rejection) => rejection.field)],
+		};
 	}
 	return {
 		kind: "resolved",

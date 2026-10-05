@@ -1229,6 +1229,7 @@
 	"This row no longer matches an adoptable server - it may have just been declared or removed.": "This row no longer matches an adoptable server - it may have just been declared or removed.",
 	"This server does not serve either discovery endpoint at {0} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.": "This server does not serve either discovery endpoint at {0} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.",
 	"This server entry's credentials could not be resolved, so its stored copy in VS Code was not used. Check the server row on the dashboard, then run LiteLLM: Sync Models Now.": "This server entry's credentials could not be resolved, so its stored copy in VS Code was not used. Check the server row on the dashboard, then run LiteLLM: Sync Models Now.",
+	"This server entry's {0} cannot be sent as an HTTP header, so no request was made. Enter the value again from the server row on the dashboard.": "This server entry's {0} cannot be sent as an HTTP header, so no request was made. Enter the value again from the server row on the dashboard.",
 	"This server is gone": "This server is gone",
 	"This setting needs a number and cannot be left empty.": "This setting needs a number and cannot be left empty.",
 	"This value cannot be sent as an HTTP header": "This value cannot be sent as an HTTP header",
@@ -1579,6 +1580,7 @@
 	"unable to connect": "unable to connect",
 	"updated {0}": "updated {0}",
 	"usage access denied": "usage access denied",
+	"virtual key": "virtual key",
 	"vision": "vision",
 	"warning/Trailing label after the lower usage-alert threshold input, unit-style.": {
 		"message": "warning",

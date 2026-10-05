@@ -2,9 +2,16 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { classifyOverall } from "../../../dashboard/presenters";
-import type { GroupCredentialsResolution, LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
+import { entryGroupCredentialsFor } from "../../../extension/servers/serverSync/entryCredentials";
+import { readServerSecretsRecord, updateServerSecret } from "../../../extension/servers/serverSync/secrets";
+import type {
+	GroupCredentialsResolution,
+	LiteLLMModelInfo,
+	RejectedCredentialField,
+} from "../../../provider/catalog/groupModels";
 import { publicErrorText } from "../../../shared/logger";
 import { MirroredError } from "../../../shared/mirroredError";
+import { makeSecretStore } from "../../extension/servers/serverSyncHelpers";
 import {
 	CHAT_COMPLETIONS_URL,
 	emptyErrorResponse,
@@ -344,6 +351,64 @@ suite("provider credential overlay", () => {
 				{ report: () => {} },
 				cancellation()
 			);
+		}
+
+		/**
+		 * The real resolver over an in-memory secret store, so the refusal is the owner's (entryCredentials.ts) and not a
+		 * fixture's answer. The stored value's interior newline survives the edge trim; a keyless resolution here sent
+		 * discovery and chat headerless, and the server's 401 was the first sign of it.
+		 */
+		const refusedCases: { field: RejectedCredentialField; kind: string; setting: unknown; value: string }[] = [
+			{ field: "apiKey", kind: "API key", setting: [{ label: "Default", baseUrl: TEST_BASE_URL }], value: "sk-a\nb" },
+			{
+				field: "virtualKeyValue",
+				kind: "virtual key",
+				setting: [{ label: "Default", baseUrl: TEST_BASE_URL, auth: { virtualKey: { header: "x-vk" } } }],
+				value: "vk-a\nb",
+			},
+		];
+		for (const { field, kind, setting, value } of refusedCases) {
+			test(`a stored ${field} the header rule refuses fails the serve and the request before any transport`, async () => {
+				const secrets = makeSecretStore();
+				await updateServerSecret(secrets, "Default", field, value, TEST_BASE_URL);
+				const provider = makeProvider(undefined, "unused", undefined, {
+					resolveEntryCredentials: (label, baseUrl) =>
+						entryGroupCredentialsFor(
+							() => setting,
+							(entryLabel) => readServerSecretsRecord(secrets, entryLabel),
+							label,
+							baseUrl
+						),
+					getEntryDeclaredModels: () => ["declared-model"],
+				});
+				const discovery = capturingDiscovery();
+				const chat = capturingChat();
+				const classification = "EntryCredentialsUnavailable(credentialsRefused)";
+
+				const served = await provider.provideLanguageModelChatInformation(
+					groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" }),
+					cancellation()
+				);
+				assert.deepStrictEqual(discovery.headers, [], "the serve sends nothing");
+				assert.deepStrictEqual(
+					served.map((info) => info.id),
+					["declared-model"],
+					"only the declared model is served, under the preflight failure"
+				);
+				const status = expectDefined(provider.getServerSnapshots()[0]).status;
+				assert.strictEqual(status.state, "error");
+				assert.strictEqual(status.logSafeError, classification, "the row and the status window carry the refusal");
+				assert.ok(
+					status.error.includes(kind) && !status.error.includes("sk-a") && !status.error.includes("vk-a"),
+					status.error
+				);
+
+				await assert.rejects(
+					sendChat(provider, expectDefined(served[0])),
+					(error: unknown) => error instanceof MirroredError && publicErrorText(error) === classification
+				);
+				assert.deepStrictEqual(chat.headers, [], "the request is refused before transport");
+			});
 		}
 
 		test("a request authenticates with the entry's credentials at request time, not at serve time", async () => {

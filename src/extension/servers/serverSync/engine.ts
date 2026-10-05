@@ -40,13 +40,20 @@ import {
  * Consumers key on the class alone, never on message text. extension/dashboard/state.ts denies only an
  * upsertFailed claimant a shared snapshot's models and marks only a secretsUnreadable view's locations unproven.
  *
- *   upsertFailed      -> this add attempt failed outright, so the entry may have no group at all
- *   blocked           -> a group with the name exists and the host refused the duplicate
- *   secretsUnreadable -> the blob read itself failed; the view's locations degraded to the inline-only guess
- *   secretsMismatched -> the read succeeded but a stored value's ownership stamp refused the pairing
- *   saltUnavailable   -> the read succeeded and only the unconfirmed fingerprint salt stopped the pass
+ *   upsertFailed       -> this add attempt failed outright, so the entry may have no group at all
+ *   blocked            -> a group with the name exists and the host refused the duplicate
+ *   secretsUnreadable  -> the blob read itself failed; the view's locations degraded to the inline-only guess
+ *   secretsMismatched  -> the read succeeded but a stored value's ownership stamp refused the pairing
+ *   saltUnavailable    -> the read succeeded and only the unconfirmed fingerprint salt stopped the pass
+ *   credentialsRefused -> the group synced, but a configured key cannot ride its header, so requests are refused
  */
-type SyncErrorClass = "upsertFailed" | "blocked" | "secretsUnreadable" | "secretsMismatched" | "saltUnavailable";
+type SyncErrorClass =
+	| "upsertFailed"
+	| "blocked"
+	| "secretsUnreadable"
+	| "secretsMismatched"
+	| "saltUnavailable"
+	| "credentialsRefused";
 
 /**
  * One entry's sync failure: the class and its classified user-facing message, one value so a class without a message
@@ -98,8 +105,9 @@ export interface DeclaredServerView extends DeclaredGroupIdentity, NonSecretOpti
 	/** The label's last sync failure, cleared by the next success. */
 	readonly syncFailure?: SyncFailure | undefined;
 	/**
-	 * The credential fields the group narrowing dropped (a key the platform's Headers would refuse): the request path
-	 * sends without them, and the dashboard says so beside the entry. Fields only, never values.
+	 * The credential fields the group narrowing dropped (a key the platform's Headers would refuse): the field-level
+	 * detail behind a credentialsRefused failure, which the dashboard's diagnostics point at beside the entry. Fields
+	 * only, never values.
 	 */
 	readonly rejectedCredentials?: readonly CredentialRejection["field"][] | undefined;
 }
@@ -319,6 +327,13 @@ export const SALT_UNAVAILABLE_MESSAGE =
 	"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session.";
 
 /**
+ * The group itself synced; the refusal is the request path's, which sends nothing for this entry until the value is
+ * replaced. The field is named on the dashboard's Diagnostics tab (rejectedCredentials), not here.
+ */
+export const CREDENTIALS_REFUSED_MESSAGE =
+	"A configured API key or virtual key for this entry cannot be sent as an HTTP header, so requests to it are refused. See the Diagnostics tab for the field, then enter the value again.";
+
+/**
  * The one SyncFailure constructor: the message derives from the class, so the pairing is right by construction at
  * every producer site. The total Record makes a new class a compile error until it names its message.
  */
@@ -329,6 +344,7 @@ function syncFailureOf(failureClass: SyncErrorClass): SyncFailure {
 		secretsUnreadable: SECRETS_READ_FAILED_MESSAGE,
 		secretsMismatched: SECRET_OWNERSHIP_MISMATCH_MESSAGE,
 		saltUnavailable: SALT_UNAVAILABLE_MESSAGE,
+		credentialsRefused: CREDENTIALS_REFUSED_MESSAGE,
 	};
 	return { class: failureClass, message: messages[failureClass] };
 }
@@ -974,10 +990,15 @@ export class ServerSyncEngine implements vscode.Disposable {
 				}
 			}
 			// The same narrowing the provider applies, collected rather than logged: the dashboard names the dropped
-			// credential beside the entry (configDiagnostics.ts), where the user can re-enter it.
+			// credential beside the entry (configDiagnostics.ts), where the user can re-enter it. A failure the pass
+			// already decided above outranks the refusal; the field detail rides beside either.
 			const rejections: CredentialRejection[] = [];
+			const identity = declaredGroupIdentity(entry, args, (rejection) => rejections.push(rejection));
+			if (rejections.length > 0) {
+				syncFailure ??= syncFailureOf("credentialsRefused");
+			}
 			views.push({
-				...declaredGroupIdentity(entry, args, (rejection) => rejections.push(rejection)),
+				...identity,
 				...pickNonSecretOptionalFields(entry),
 				...pickEntryViewFields(entry),
 				secrets: secretLocations(entry, stored),

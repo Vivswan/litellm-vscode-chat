@@ -123,8 +123,24 @@ function overlayGroupCredentials(server: GroupServer, credentials: GroupCredenti
 	};
 }
 
-/** The same reasons the sync engine skips an entry for (secretsUnreadable, secretsMismatched); see syncFailureOf. */
-type CredentialsUnavailableReason = "secretsUnreadable" | "secretsMismatched" | "unusable";
+/**
+ * The secret fields that ride an HTTP header, so a value the platform's Headers would refuse is a refusal of the field.
+ * The OAuth client secret rides the token request's body (transport/auth.ts) and has no header rule.
+ */
+export const HEADER_BORNE_SECRET_FIELDS = ["apiKey", "virtualKeyValue"] as const satisfies readonly SecretFieldId[];
+
+export type RejectedCredentialField = (typeof HEADER_BORNE_SECRET_FIELDS)[number];
+
+/**
+ * Why a declared entry's credentials did not resolve. secretsUnreadable and secretsMismatched are the sync engine's own
+ * skip reasons (syncFailureOf); a refusal carries the fields the user-facing text names, never zero of them.
+ */
+type CredentialsUnavailable =
+	| { readonly reason: "secretsUnreadable" | "secretsMismatched" | "unusable" }
+	| {
+			readonly reason: "credentialsRefused";
+			readonly fields: readonly [RejectedCredentialField, ...RejectedCredentialField[]];
+	  };
 
 /**
  * The entry-credentials resolver's answer for a labeled group, overlaid onto the connection handed in: at serve time
@@ -136,17 +152,40 @@ type CredentialsUnavailableReason = "secretsUnreadable" | "secretsMismatched" | 
 export type GroupCredentialsResolution =
 	| { readonly kind: "external" }
 	| { readonly kind: "resolved"; readonly credentials: GroupCredentials }
-	| { readonly kind: "unavailable"; readonly reason: CredentialsUnavailableReason };
+	| ({ readonly kind: "unavailable" } & CredentialsUnavailable);
+
+const REJECTED_FIELD_KIND: Readonly<
+	Record<RejectedCredentialField, { readonly display: () => string; readonly english: string }>
+> = {
+	apiKey: { display: () => l10n.t("API key"), english: "API key" },
+	virtualKeyValue: { display: () => l10n.t("virtual key"), english: "virtual key" },
+};
 
 /** The one failure a serve or request raises for a declared entry whose credentials did not resolve. */
-function credentialsUnavailableError(reason: CredentialsUnavailableReason): MirroredError {
-	return localizedError(
-		l10n.t(
-			"This server entry's credentials could not be resolved, so its stored copy in VS Code was not used. Check the server row on the dashboard, then run LiteLLM: Sync Models Now."
-		),
-		"entry credentials unavailable",
-		`EntryCredentialsUnavailable(${reason})`
-	);
+function credentialsUnavailableError(unavailable: CredentialsUnavailable): MirroredError {
+	switch (unavailable.reason) {
+		case "secretsUnreadable":
+		case "secretsMismatched":
+		case "unusable":
+			return localizedError(
+				l10n.t(
+					"This server entry's credentials could not be resolved, so its stored copy in VS Code was not used. Check the server row on the dashboard, then run LiteLLM: Sync Models Now."
+				),
+				"entry credentials unavailable",
+				`EntryCredentialsUnavailable(${unavailable.reason})`
+			);
+		case "credentialsRefused": {
+			const kinds = unavailable.fields.map((field) => REJECTED_FIELD_KIND[field]);
+			return localizedError(
+				l10n.t(
+					"This server entry's {0} cannot be sent as an HTTP header, so no request was made. Enter the value again from the server row on the dashboard.",
+					kinds.map((kind) => kind.display()).join(", ")
+				),
+				`This server entry's ${kinds.map((kind) => kind.english).join(", ")} cannot be sent as an HTTP header, so no request was made. Enter the value again from the server row on the dashboard.`,
+				"EntryCredentialsUnavailable(credentialsRefused)"
+			);
+		}
+	}
 }
 
 /** The extension layer's resolver of a declared entry's current credentials; see GroupCredentialsResolution. */
@@ -176,7 +215,7 @@ export async function overlayEntryCredentials(
 		case "resolved":
 			return { server: overlayGroupCredentials(server, resolution.credentials) };
 		case "unavailable":
-			return { server: { ...server, entryOwned: true }, failure: credentialsUnavailableError(resolution.reason) };
+			return { server: { ...server, entryOwned: true }, failure: credentialsUnavailableError(resolution) };
 	}
 }
 
@@ -258,17 +297,20 @@ function narrowOAuth(raw: RawOptionalFields): OAuthConfig | undefined {
  * `fingerprint` identifies the configured value for once-only logging and never reveals it.
  */
 export interface CredentialRejection {
-	readonly field: Extract<SecretFieldId, "apiKey" | "virtualKeyValue">;
+	readonly field: RejectedCredentialField;
 	readonly header?: string;
 	readonly fingerprint: string;
 }
 
 export type CredentialRejectionReport = (rejection: CredentialRejection) => void;
 
-/** One log line per distinct rejected value, so per-request re-narrowing does not spam the log. */
+/** One log line per distinct rejected value, so the host's repeated group refreshes do not spam the log. */
 const loggedRejections = new Set<string>();
 
-/** The per-request paths' reporter: the classification, the virtual key's header name for typo hunting, never a value. */
+/**
+ * The serve path's reporter for the host-baked configuration (provider/index.ts): the classification, the virtual key's
+ * header name for typo hunting, never a value. A declared entry's own copy is judged in entryCredentials.ts instead.
+ */
 export function logCredentialRejections(log: (message: string, data?: unknown) => void): CredentialRejectionReport {
 	return (rejection) => {
 		const key = `${rejection.field}:${rejection.fingerprint}`;
@@ -306,9 +348,10 @@ function narrowApiKey(raw: RawOptionalFields, report?: CredentialRejectionReport
 
 /**
  * A rejection names the header so typos are diagnosable; the value never leaves the narrowing. A header with no value
- * at all is a missing secret, not a rejected one, and the secret-location view already shows it: nothing to report.
- * The value is read by the one credential trim rule (sendableHeaderValue), so a pasted newline is repaired and a
- * Latin-1 byte survives, exactly as for the API key.
+ * is a missing secret and a value with no header is a dormant one (a stored blob the entry no longer uses); the
+ * secret-location view already shows both, so neither is a rejection: a rejection is a unit the entry configured and
+ * cannot send. The value is read by the one credential trim rule (sendableHeaderValue), so a pasted newline is
+ * repaired and a Latin-1 byte survives, exactly as for the API key.
  */
 function narrowVirtualKey(raw: RawOptionalFields, report?: CredentialRejectionReport): VirtualKeyConfig | undefined {
 	if (raw.virtualKeyHeader === undefined && raw.virtualKeyValue === undefined) {
@@ -324,10 +367,13 @@ function narrowVirtualKey(raw: RawOptionalFields, report?: CredentialRejectionRe
 	) {
 		return { header: carriers.virtualKeyHeader, value: sendable };
 	}
-	if (raw.virtualKeyValue !== undefined) {
-		const header = carriers?.virtualKeyHeader ?? "(not set)";
+	if (carriers !== undefined && raw.virtualKeyValue !== undefined) {
 		const value = typeof raw.virtualKeyValue === "string" ? raw.virtualKeyValue : "";
-		report?.({ field: "virtualKeyValue", header, fingerprint: fingerprint(`${header}\u0000${value}`) });
+		report?.({
+			field: "virtualKeyValue",
+			header: carriers.virtualKeyHeader,
+			fingerprint: fingerprint(`${carriers.virtualKeyHeader}\u0000${value}`),
+		});
 	}
 	return undefined;
 }

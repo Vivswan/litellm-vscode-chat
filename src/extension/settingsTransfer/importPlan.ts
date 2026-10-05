@@ -1,12 +1,14 @@
 /**
  * Import planning in two pure steps: planSettingsImport reduces a parsed envelope plus the current servers setting to
  * an ImportPlan, and resolveImportPlan folds the user's collision decisions into an ImportApplication. No direct vscode
- * usage; the one impurity is the serverSync setting parser, whose module graph reaches vscode at load time in the
- * host - which is why this core sits in extension/ rather than dashboard/.
+ * usage; the impurities are the serverSync setting parser and the group credential narrowing, whose module graphs
+ * reach vscode at load time in the host - which is why this core sits in extension/ rather than dashboard/.
  *
  *   the split -> keeps every prompt between the two steps fakeable
  */
 
+import type { RejectedCredentialField } from "../../provider/catalog/groupModels";
+import { HEADER_BORNE_SECRET_FIELDS } from "../../provider/catalog/groupModels";
 import {
 	ALL_SETTING_KEYS,
 	acceptsNumberSetting,
@@ -19,7 +21,7 @@ import {
 } from "../../shared/config/settingSpec";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import { trimHttpWhitespace } from "../../shared/util/headers";
+import { sendableHeaderValue, trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { restructureServers } from "../migrations/settingsRedesign/entries";
 import type { StoredSecretOwners, StoredServerSecrets } from "../servers/serverSync/secrets";
@@ -195,6 +197,35 @@ function representativeIndices(incomingServers: readonly IncomingServer[]): Read
 	return new Map([...fallbacks].map(([label, index]) => [label, claimants.get(label) ?? index]));
 }
 
+const REFUSED_SECRET_PROBLEM: Readonly<Record<RejectedCredentialField, string>> = {
+	apiKey: "has an API key that cannot be sent as an HTTP header; it is not imported, so enter it again afterwards",
+	virtualKeyValue:
+		"has a virtual key value that cannot be sent as an HTTP header; it is not imported, so enter it again afterwards",
+};
+
+/**
+ * The import's one reading of an entry's secrets: a header-borne value no repair makes sendable is refused by field
+ * and never stored, the rule the request path narrows by (sendableHeaderValue); the entry still lands without it.
+ */
+function importableSecrets(raw: Readonly<Record<string, unknown>>): {
+	readonly entry: Readonly<Record<string, unknown>>;
+	readonly secrets: StoredServerSecrets;
+	readonly refused: readonly RejectedCredentialField[];
+	readonly unsanitizable: boolean;
+} {
+	const stripped = stripEntrySecrets(raw);
+	const secrets: { -readonly [K in SecretFieldId]?: string } = { ...stripped.secrets };
+	const refused: RejectedCredentialField[] = [];
+	for (const field of HEADER_BORNE_SECRET_FIELDS) {
+		const value = secrets[field];
+		if (value !== undefined && sendableHeaderValue(value) === undefined) {
+			delete secrets[field];
+			refused.push(field);
+		}
+	}
+	return { entry: stripped.entry, secrets, refused, unsanitizable: stripped.unsanitizable };
+}
+
 /**
  * `storedSecrets` is the host's pre-fetched SecretStorage blobs by label; when provided, each collision's
  * connectionChanged compares the current side's effective secret material instead of inline text alone. Pure and
@@ -231,9 +262,10 @@ export function planSettingsImport(
 			const reports = serverSettingReports(incoming);
 			incoming.forEach((raw: unknown, index) => {
 				const report = reports[index] ?? { index, problems: [], accepted: false };
+				const secrets = isRecord(raw) ? importableSecrets(raw) : undefined;
 				// An uncertifiable shape must not land in the settings file (its text is presumed to be a credential);
 				// the entry skips with the reason beside the parser's own problem lines.
-				if (isRecord(raw) && stripEntrySecrets(raw).unsanitizable) {
+				if (secrets?.unsanitizable) {
 					incomingServers.push({
 						raw,
 						report: {
@@ -260,7 +292,11 @@ export function planSettingsImport(
 					});
 					return;
 				}
-				incomingServers.push({ raw, report, skipped: report.label === undefined });
+				const problems = [
+					...report.problems,
+					...(secrets?.refused ?? []).map((field) => REFUSED_SECRET_PROBLEM[field]),
+				];
+				incomingServers.push({ raw, report: { ...report, problems }, skipped: report.label === undefined });
 			});
 			continue;
 		}
@@ -280,7 +316,7 @@ export function planSettingsImport(
 	for (const index of representatives.values()) {
 		const raw = incomingServers[index]?.raw;
 		if (isRecord(raw)) {
-			secretFieldCount += Object.keys(stripEntrySecrets(raw).secrets).length;
+			secretFieldCount += Object.keys(importableSecrets(raw).secrets).length;
 		}
 	}
 	const collisions: ServerCollision[] = [];
@@ -392,7 +428,7 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 	let skipped = 0;
 
 	const land = (label: string, rawEntry: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
-		const stripped = stripEntrySecrets(rawEntry);
+		const stripped = importableSecrets(rawEntry);
 		// The stamp target is the entry as it will be written and parsed back;
 		// see SecretWrite.owners for the fail-closed fallback.
 		const parsed = acceptedEntry([stripped.entry], label)?.entry;

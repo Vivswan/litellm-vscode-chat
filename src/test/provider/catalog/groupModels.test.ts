@@ -159,11 +159,19 @@ suite("provider/catalog/groupModels", () => {
 
 			const noKey = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test" }, log));
 			assert.strictEqual(noKey.virtualKey, undefined);
-			// A header with no value is a missing secret the dashboard already shows as such, not a rejected one.
+			// A header with no value is a missing secret and a value with no header a dormant one (a stored blob the entry
+			// no longer declares, which buildGroupArgs still sends); the dashboard shows both as such, neither is rejected.
 			const noValue = expectDefined(
 				parseGroupConfiguration({ baseUrl: "http://litellm.test", virtualKeyHeader: "x-vk" }, log)
 			);
 			assert.strictEqual(noValue.virtualKey, undefined);
+			const noHeader = expectDefined(
+				parseGroupConfiguration(
+					{ baseUrl: "http://litellm.test", apiKey: "sk-live", virtualKeyValue: "vk-dormant" },
+					log
+				)
+			);
+			assert.deepStrictEqual(noHeader, { baseUrl: "http://litellm.test", apiKey: "sk-live" });
 			assert.strictEqual(lines.length, 0, "an unconfigured virtual key must not be logged as rejected");
 
 			const config = {
