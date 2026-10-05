@@ -936,7 +936,7 @@ suite("provider/request contract", () => {
 		};
 
 		/** Metadata an earlier build minted: no request default stamped, only the provenance word it carried then. */
-		const olderMetadata = (maxOutputTokens: number, outputLimitSource: "provider" | "user" | "defaults") =>
+		const olderMetadata = (maxOutputTokens: number, outputLimitSource: string) =>
 			({
 				...makeModelInfo({ maxOutputTokens }),
 				litellm: {
@@ -1064,6 +1064,7 @@ suite("provider/request contract", () => {
 				wire: 8000,
 			},
 			{ name: "older metadata, a user-set limit", model: olderMetadata(8000, "user"), advertised: 8000, wire: 8000 },
+			{ name: "older metadata, an unknown word", model: olderMetadata(8000, "forged"), advertised: 8000, wire: 4096 },
 		];
 
 		test("the advertised output limit and the wire max_tokens, per limit source", async () => {

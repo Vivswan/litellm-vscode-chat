@@ -552,7 +552,7 @@ test("the max_tokens derivation states the configured branch with its attributio
 	expect(root.querySelector(".absent")).toBeNull();
 });
 
-test("the max_tokens derivation states the declared and capped-default branches", () => {
+test("the max_tokens derivation states the limit and capped branches", () => {
 	// Neither derived branch has a record to point at, so neither wears a badge: they say in words where the number
 	// came from.
 	const declared = mountParamsAnswered({ modelOverrides: { maxOutputTokens: 32000, defaultMaxTokens: 32000 } });
