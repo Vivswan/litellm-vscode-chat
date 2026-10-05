@@ -177,8 +177,9 @@ function logDataText(data: unknown, scrub: (text: string) => string): string {
 }
 
 /**
- * Callers interpolate configured URLs (a baseUrl, an OAuth tokenUrl, an MCP uri) that may carry user:pass@, and the
- * issue report renders the recorder's source unredacted, so the floor wraps the sinks, where no caller can skip it.
+ * Callers interpolate configured URLs (a baseUrl, an OAuth tokenUrl, an MCP uri) that may carry user:pass@, and only
+ * the known values can catch a credential the URL cut cannot read, so the floor wraps the sinks, where no caller can
+ * skip it.
  *   Failed to fetch models for provider group at http://user:pass@host:4000 -> ... at http://host:4000
  *   answered 403 for key sk-live-Q7, the configured key                      -> ... for key [redacted]
  *   a 1 MB stack                                                             -> its first TEXT_BUDGET characters

@@ -124,19 +124,21 @@ export interface MapErrorContext {
 
 /**
  * Both renderings of a failed fetch for the error status, plus the classification when the reason carries one: `error`
- * renders directly in the status bar and toasts, `logSafeError` is what log lines carry.
+ * renders directly in the status bar and toasts, `logSafeError` is what log lines carry. The reason may be anything a
+ * feature or the platform threw, so both renderings leave through the module's one credential exit, as the status
+ * rows, the tooltip, and the feature-failure notifications' only boundary.
  */
 export function statusErrorTexts(reason: unknown): {
 	error: string;
 	logSafeError: LogSafeErrorText;
 	classification?: TransportErrorClassification;
 } {
-	const display = errorMessageText(reason);
-	const logSafe = publicErrorText(reason);
+	const display = credentialFreeText(errorMessageText(reason));
+	const logSafe = credentialFreeText(publicErrorText(reason));
 	const classification = transportClassificationOf(reason);
 	return {
 		error: display.length > 0 ? display : l10n.t("Unknown error"),
-		logSafeError: logSafe.length > 0 ? logSafe : markLogSafe("Unknown error"),
+		logSafeError: logSafe.length > 0 ? markLogSafe(logSafe) : markLogSafe("Unknown error"),
 		...(classification !== undefined ? { classification } : {}),
 	};
 }
@@ -268,12 +270,12 @@ function linkText(link: ChainLink | undefined): string {
 	if (link === undefined) {
 		return "";
 	}
-	return redactUrlCredentials(link.message !== "" ? link.message : (link.code ?? ""));
+	return link.message !== "" ? link.message : (link.code ?? "");
 }
 
 /** Compacted so a multi-line cause cannot break the two-line message shape. */
 function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
-	const fallback = redactUrlCredentials(typeof fallbackMessage === "string" ? fallbackMessage : "");
+	const fallback = typeof fallbackMessage === "string" ? fallbackMessage : "";
 	const first = chain.length > 0 ? linkText(chain[0]) : fallback;
 	const deepest = linkText(chain.at(-1));
 	const head = first.replace(/\.$/, "");
@@ -281,8 +283,26 @@ function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
 	return compactText(joined, 300);
 }
 
+/**
+ * The one credential exit for text this module did not write: response bodies, envelope fields, cause-chain messages,
+ * arbitrary thrown text, and the status renderings all leave through it. A proxy echoes the URL it was asked for. The
+ * parser ignores a tab inside a host ("[::\t1]"), and reads a password split by a line break as one URL, while the
+ * shared cut never crosses a line break: hence the second spelling. It is returned only when it carried a credential
+ * the written one did not, so a status message keeps the "\n" the dashboard splits on.
+ */
+function credentialFreeText(text: string): string {
+	const asWritten = redactUrlCredentials(text);
+	const collapsed = collapseWhitespace(asWritten.replace(/\t/g, ""));
+	const collapsedScrubbed = redactUrlCredentials(collapsed);
+	return collapsedScrubbed === collapsed ? asWritten : collapsedScrubbed;
+}
+
+/**
+ * The scrub runs before the cap: a cut inside the password would leave its head with no "@" for a later pass to
+ * find.
+ */
 function compactText(text: string, cap: number): string {
-	const collapsed = collapseWhitespace(text);
+	const collapsed = collapseWhitespace(credentialFreeText(text));
 	return collapsed.length > cap ? `${collapsed.slice(0, cap)}...` : collapsed;
 }
 
@@ -302,6 +322,11 @@ interface ErrorEnvelope {
 	message: string | undefined;
 	type: string | undefined;
 	code: string | undefined;
+	/**
+	 * The type and code as the server sent them, for classifyEnvelope alone and never rendered: the rendered fields
+	 * above are scrubbed, and a scrub must change the text, never the classification.
+	 */
+	marks: string;
 }
 
 function errorEnvelopeOf(raw: unknown): ErrorEnvelope | undefined {
@@ -313,6 +338,7 @@ function errorEnvelopeOf(raw: unknown): ErrorEnvelope | undefined {
 		message: typeof message === "string" && message.trim() !== "" ? message : undefined,
 		type: meaningfulString(type),
 		code: typeof code === "number" ? String(code) : meaningfulString(code),
+		marks: `${typeof type === "string" ? type : ""} ${typeof code === "string" || typeof code === "number" ? code : ""}`,
 	};
 	// An object body with none of the envelope fields ({}, [], FastAPI's {"detail": ...}) is not LiteLLM's envelope;
 	// headline branches keying on envelope presence (the 403 split) must not treat it as one.
@@ -367,7 +393,7 @@ type HttpErrorClass =
 function classifyEnvelope(envelope: ErrorEnvelope | undefined, status: number): HttpErrorClass;
 function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number): HttpErrorClass | undefined;
 function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number): HttpErrorClass | undefined {
-	const marks = `${envelope?.type ?? ""} ${envelope?.code ?? ""}`;
+	const marks = envelope?.marks ?? "";
 	const message = envelope?.message ?? "";
 	const budget = marks.includes("budget_exceeded") || /budget has been exceeded/i.test(message);
 	const contextWindowMarks = marks.includes("context_window_exceeded") || marks.includes("context_length_exceeded");
@@ -1277,7 +1303,7 @@ export function socketFailureRequestError(
 		const certLink =
 			[...chain].reverse().find((link) => link.message.includes("certificate") || (link.code ?? "").includes("CERT")) ??
 			chain.at(-1);
-		const certMessage = compactText(redactUrlCredentials(certLink?.message ?? ""), 300);
+		const certMessage = compactText(certLink?.message ?? "", 300);
 		const certCode = certLink?.code !== undefined ? compactText(certLink.code, 80) : "";
 		const certText = certMessage !== "" ? `${certMessage}${certCode !== "" ? ` (${certCode})` : ""}` : certCode;
 		const detail = `SSL certificate error for ${displayUrl(ctx.url)}${certText !== "" ? `: ${certText}` : ""}`;
@@ -1461,9 +1487,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		name = typeof err;
 	}
 	const rawText = errorMessageText(err);
-	// Arbitrary error text can quote a credentialed URL verbatim; scrubbed by construction rather than argued
-	// unreachable.
-	const text = compactText(redactUrlCredentials(typeof rawText === "string" ? rawText : ""), 300);
+	const text = compactText(typeof rawText === "string" ? rawText : "", 300);
 	const detail = `Unexpected ${name} during the ${surfaceCopy(ctx.surface).phrase} request to ${displayUrl(ctx.baseUrl)}${text !== "" ? `: ${text}` : ""}`;
 	const tailHeadline: LocalizedText = {
 		display: l10n.t(

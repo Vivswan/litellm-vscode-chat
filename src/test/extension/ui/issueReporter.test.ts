@@ -285,6 +285,81 @@ suite("IssueReporter", () => {
 		assert.ok(!body.includes("- Classification:"), body);
 	});
 
+	test("the latest error's source passes through the report redaction in the title and both bodies", () => {
+		// The Logger names the failing server in the recorder's source ("Failed to fetch models for provider group at
+		// <baseUrl>"), and the title, the Source line, and the clipboard fallback rendered it raw while the message
+		// beside it went through redactSecrets.
+		const reporter = new IssueReporter();
+		const host = "private.example";
+		const latestError = {
+			source: `Failed at http://${host}:4000`,
+			message: "failed",
+			timestamp: "2026-01-01T00:00:00.000Z",
+		};
+		assert.strictEqual(
+			reporter.buildTitle(makeSnapshot({ latestError })),
+			"[Bug] Failed at http://[REDACTED_HOST]/: failed"
+		);
+		const body = reporter.buildBody(makeSnapshot({ latestError }));
+		assertContains(body, "- Source: Failed at http://[REDACTED_HOST]/\n");
+		assertHostRedacted(body, host);
+		const fallback = getIssueBody(
+			reporter.buildIssueUrl(makeSnapshot({ latestError: { ...latestError, message: `failed ${"x".repeat(30000)}` } }))
+		);
+		assertContains(fallback, "Full redacted diagnostics were too large to prefill in GitHub");
+		assertContains(fallback, "- Source: Failed at http://[REDACTED_HOST]/\n");
+		assertHostRedacted(fallback, host);
+	});
+
+	test("home-directory names in stack frames and messages never reach the report", () => {
+		// A logged Error's stack names the extension host's install path under the user's home directory; the shape
+		// rules redacted credentials and hosts and left the account name in place on every platform.
+		const reporter = new IssueReporter();
+		const body = reporter.buildBody(
+			makeSnapshot({
+				latestError: {
+					source: "activation",
+					message: "ENOENT: no such file or directory, open '/Users/alice/.config/litellm.json'",
+					stack: [
+						"Error: ENOENT: no such file or directory, open '/Users/alice/.config/litellm.json'",
+						"    at Object.openSync (node:fs:581:18)",
+						"    at activate (/Users/alice/.vscode/extensions/ext/dist/extension.js:1:2345)",
+						"    at Object.<anonymous> (/home/Bob O'Brien/work/main.js:1:15)",
+						"    at /home/Bob O' Brien/work/main.js:1:10",
+						"    at /Users/Alice (Smith)/work/main.js:1:10",
+						"    at run (c:\\users\\Bob O'Brien, Jr\\AppData\\Roaming\\Code\\x.js:3:4)",
+						"    at load (C:\\\\Users\\\\Bob O'Brien\\\\AppData\\\\x.js:5:6)",
+						"    at mkdir '/Users/alice'",
+						"    at open '/home/Bob O' Brien/work/main.js'",
+						"    at open '/Users/Pat Quux /missing.json'",
+						"    at open '/Users/Alice (Smith)'",
+						"    at scandir 'C:\\Users\\Bob O'Brien'",
+						"    at scandir '\\\\?\\C:\\Users\\Alice (Smith)'",
+						"    GET http://localhost/home/health returned 404",
+					].join("\n"),
+					timestamp: "2026-01-01T00:00:00.000Z",
+				},
+			})
+		);
+		for (const name of ["alice", "Alice", "Smith", "Bob", "Brien", "Jr", "Pat", "Quux"]) {
+			assertOmits(body, name);
+		}
+		assertContains(body, "open '/Users/[REDACTED]/.config/litellm.json'");
+		assertContains(body, "at activate (/Users/[REDACTED]/.vscode/extensions/ext/dist/extension.js:1:2345)");
+		assertContains(body, "at Object.<anonymous> (/home/[REDACTED]/work/main.js:1:15)");
+		assertContains(body, "at /home/[REDACTED]/work/main.js:1:10");
+		assertContains(body, "at /Users/[REDACTED]/work/main.js:1:10");
+		assertContains(body, "at run (c:\\users\\[REDACTED]\\AppData\\Roaming\\Code\\x.js:3:4)");
+		assertContains(body, "at load (C:\\\\Users\\\\[REDACTED]\\\\AppData\\\\x.js:5:6)");
+		assertContains(body, "at mkdir '/Users/[REDACTED]'\n");
+		assertContains(body, "at open '/home/[REDACTED]/work/main.js'\n");
+		assertContains(body, "at open '/Users/[REDACTED]/missing.json'\n");
+		assertContains(body, "at open '/Users/[REDACTED]'\n");
+		assertContains(body, "at scandir 'C:\\Users\\[REDACTED]'\n");
+		assertContains(body, "at scandir '\\\\?\\C:\\Users\\[REDACTED]'\n");
+		assertContains(body, "GET http://localhost/home/[REDACTED] returned 404\n");
+	});
+
 	test("the Classification line survives into the clipboard fallback body", () => {
 		const reporter = new IssueReporter();
 		const url = reporter.buildIssueUrl(
