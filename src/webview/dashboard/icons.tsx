@@ -1,7 +1,7 @@
 /**
- * Inline SVG icons: the packaged file list admits no dist/ assets and the codicon font would
- * need a font-src CSP grant, so the few icons used are drawn here. Always decorative
- * (aria-hidden); the owning control carries the accessible name.
+ * Inline SVG icons: the packaged file list admits no dist/ assets and the codicon font would need a font-src CSP grant,
+ * so the few icons used are drawn here. Always decorative (aria-hidden); the owning control carries the accessible
+ * name.
  */
 
 import type { ReactNode } from "react";
@@ -15,8 +15,8 @@ function Svg({ path }: { path: string }) {
 }
 
 /**
- * Line-art sibling for the rail's five destination icons: they read as a set, and carry
- * navigation alone once the rail collapses, so one stroke weight instead of filled silhouettes.
+ * Line-art sibling for the rail's five destination icons: they read as a set, and carry navigation alone once the rail
+ * collapses, so one stroke weight instead of filled silhouettes.
  */
 function StrokeSvg({ children }: { children: ReactNode }) {
 	return (
@@ -37,7 +37,6 @@ function StrokeSvg({ children }: { children: ReactNode }) {
 	);
 }
 
-/** The Servers destination. */
 export function IconServers() {
 	return (
 		<StrokeSvg>
@@ -48,7 +47,6 @@ export function IconServers() {
 	);
 }
 
-/** The Models catalogue. */
 export function IconModels() {
 	return (
 		<StrokeSvg>
@@ -69,7 +67,6 @@ export function IconSparkle() {
 	);
 }
 
-/** The Diagnostics destination. */
 export function IconPulse() {
 	return (
 		<StrokeSvg>
@@ -78,7 +75,6 @@ export function IconPulse() {
 	);
 }
 
-/** The Settings destination. */
 export function IconGear() {
 	return (
 		<StrokeSvg>
@@ -88,7 +84,6 @@ export function IconGear() {
 	);
 }
 
-/** The rail's Sync models action. */
 export function IconSync() {
 	return (
 		<StrokeSvg>
@@ -116,7 +111,6 @@ export function IconChevronRight() {
 	return <Svg path="M5.7 3.3L10.4 8l-4.7 4.7-.7-.7L9 8 5 4l.7-.7z" />;
 }
 
-/** The trail back out of a destination. */
 export function IconArrowLeft() {
 	return <Svg path="M10.5 3.5L6 8l4.5 4.5-.7.7L4.6 8l5.2-5.2.7.7z" />;
 }
@@ -156,8 +150,8 @@ export function IconTrash() {
 }
 
 /**
- * Codicon warning: the drawer notice's glyph. The notice carries its warn tier as a SHAPE
- * beside the colour, so it survives forced colors, where author colour is not a channel.
+ * Codicon warning: the drawer notice's glyph. The notice carries its warn tier as a SHAPE beside the colour, so it
+ * survives forced colors, where author colour is not a channel.
  */
 export function IconWarning() {
 	return (
@@ -207,7 +201,6 @@ export function IconPlug() {
 	);
 }
 
-/** The Diagnostics tab's Open-output-log action. */
 export function IconOutput() {
 	return <Svg path="M2 3h12v1H2V3zm0 3h12v1H2V6zm0 3h12v1H2V9zm0 3h7v1H2v-1z" />;
 }

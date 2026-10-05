@@ -1,7 +1,6 @@
 /**
- * The class names a spend tone paints with. The tone itself comes from
- * src/dashboard/spendFormat.ts (shared with the status bar); only the CSS
- * embodiment lives webview-side.
+ * The tone itself comes from src/dashboard/spendFormat.ts (shared with the status bar); only the CSS embodiment lives
+ * webview-side.
  */
 
 import type { SpendTone } from "../../dashboard/spendFormat";
@@ -14,10 +13,10 @@ export const TONE_TEXT: Readonly<Record<SpendTone, string>> = {
 };
 
 /**
- * The meter's fill takes the fill tier: a bar is a shape (3:1), a word must clear AA.
- * Both tiers move only on light surfaces, where the raw hues were tuned for a dark
- * editor (healthy green measured 2.0:1 on light). The `-fill` names are explicit on
- * purpose: `bg-ok` still compiles and would paint the meter in the text colour.
+ * The meter's fill takes the fill tier: a bar is a shape (3:1), a word must clear AA. Both tiers move only on light
+ * surfaces, where the raw hues were tuned for a dark editor (healthy green measured 2.0:1 on light).
+ *
+ *   `bg-ok` still compiles and would paint the meter in the text colour -> The `-fill` names are explicit on purpose
  */
 export const TONE_FILL: Readonly<Record<SpendTone, string>> = {
 	ok: "bg-ok-fill",

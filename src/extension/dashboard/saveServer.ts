@@ -1,7 +1,6 @@
 /**
- * The saveServerSetting intent's apply path: how one save lands in the
- * servers setting and the secret store, in a failure-safe order. Split out of
- * intents.ts for its size; executeDashboardIntent is the only caller.
+ * The saveServerSetting intent's apply path: how one save lands in the servers setting and the secret store, in a
+ * failure-safe order. Split out of intents.ts for its size; executeDashboardIntent is the only caller.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -24,9 +23,8 @@ import { appendFree, replaceShown, requireLabelFree, writeServersSettingFrom } f
  * Computed once so the pairing checks, the guarded apply, and the cleanup agree on it. Either rename branch leaves
  * the new label serving only the renamed entry's own secrets.
  *
- *   rename, willCopy (the owned view holds values) -> the copy replaces the new label's blob; a failed write restores it wholesale
- *   rename, !willCopy                              -> the new label's leftover fields are wiped; a failed write restores them one by one
- *   upsert                                         -> the add form onto a taken label, in place, secrets resolving like a create's
+ *   rename, willCopy (the owned view holds values) -> the copy replaces the new label's blob
+ *   rename, !willCopy                              -> the new label's leftover fields are wiped
  */
 type SaveMode =
 	| { kind: "create" }
@@ -52,11 +50,9 @@ export function requireEntryShownByForm(
 		);
 	}
 	const entry = sources.accepted.entry;
-	// The identity the form displayed: the secret destinations, and where each
-	// credential lived. Locations compare against the same derivation the
-	// dashboard's state push used, so an unchanged entry always passes; the
-	// values behind "secure" locations are deliberately not part of the
-	// identity (the webview never sees them).
+	// The identity the form displayed: the secret destinations, and where each credential lived. Locations compare
+	// against the same derivation the dashboard's state push used, so an unchanged entry always passes; the values
+	// behind "secure" locations are deliberately not part of the identity (the webview never sees them).
 	const locations = secretLocations(entry, sources.storedOld);
 	const unchanged =
 		nonSecretIdentityMatches(entry, replace) &&
@@ -70,9 +66,8 @@ export function requireEntryShownByForm(
 }
 
 /**
- * What one secret field does in this save, shared by the pairing checks, the
- * guarded apply, and the cleanup. "cleared" stays distinct from "absent":
- * cleanup deletes the stored value only for cleared fields.
+ * What one secret field does in this save, shared by the pairing checks, the guarded apply, and the cleanup. "cleared"
+ * stays distinct from "absent": cleanup deletes the stored value only for cleared fields.
  */
 export type SecretPlan =
 	| { kind: "set-inline"; value: string }
@@ -126,7 +121,8 @@ export function secretPlans(
  * engine refuses it and the dashboard displayed it as "none".
  *
  *   accepted        -> the entry being replaced, so a rejected same-label sibling cannot shadow it
- *   storedOld       -> the shown label's blob, admitted field by field through the ownership check; keeps read this alone
+ *   storedOld       -> the shown label's blob, admitted field by field through the ownership check;
+ *                      keeps read this alone
  *   storedOldRecord -> that blob as stored, for the save's overwrite and rollback bookkeeping
  *   storedNewRecord -> the blob already under the draft's label (on a rename, a retired label's leftover)
  */
@@ -149,18 +145,16 @@ export async function readKeepSources(
 	const renaming = targetLabel !== label;
 	const storedOldRecord = await readServerSecrets(targetLabel);
 	const storedNewRecord = renaming ? await readServerSecrets(label) : storedOldRecord;
-	// With no accepted entry there is nothing to pair against, so keeps resolve
-	// NOTHING - never the raw values, which would hand back the one fail-open
-	// reading this module exists to prevent.
+	// With no accepted entry there is nothing to pair against, so keeps resolve NOTHING - never the raw values, which
+	// would hand back the one fail-open reading this module exists to prevent.
 	const storedOld = accepted !== undefined ? resolveOwnedSecrets(accepted.entry, storedOldRecord).values : {};
 	const willCopy = renaming && Object.keys(storedOld).length > 0;
 	return { accepted, storedOld, storedOldRecord, storedNewRecord, willCopy };
 }
 
 /**
- * The value one "keep" directive resolves to, and where it lives: inline
- * exactly when the sync engine reads it inline (its own inlineSecretValues
- * rule, never a re-derivation), the shown label's secure blob otherwise.
+ * The value one "keep" directive resolves to, and where it lives: inline exactly when the sync engine reads it inline
+ * (its own inlineSecretValues rule, never a re-derivation), the shown label's secure blob otherwise.
  */
 function resolveKeptSecret(
 	existing: DeclaredServer,
@@ -179,7 +173,8 @@ function resolveKeptSecret(
  * The staged secrets are observable before the settings write lands (the unit's steps await), by design;
  * serverSync.test.ts pins the window.
  *
- *   stage for a changed destination    -> carries the saved entry's stamp, so a sync pass refuses the pairing (resolveOwnedSecrets)
+ *   stage for a changed destination    -> carries the saved entry's stamp,
+ *                                         so a sync pass refuses the pairing (resolveOwnedSecrets)
  *   stage for an unchanged destination -> the user's own credential going where they sent it
  */
 export async function applySaveServerSetting(
@@ -187,42 +182,35 @@ export async function applySaveServerSetting(
 	env: IntentEnvironment
 ): Promise<void> {
 	const label = intent.server.label.trim();
-	// Trimmed like entry matching trims, so the secret-store operations below
-	// hit the same label the entry lookup resolves.
+	// Trimmed like entry matching trims, so the secret-store operations below hit the same label the entry lookup
+	// resolves.
 	const targetLabel = (intent.replace?.label ?? label).trim();
 	const entries = rawServerEntries(env.readServersSetting());
-	// The entry being edited is the one the dashboard row described, never a
-	// rejected same-label sibling sitting earlier in the raw array. The same
-	// helper reads what the sync engine will read for this label after the save
-	// (see KeepSources), so the pairing checks and the draft test share one
-	// "keep" truth.
+	// The entry being edited is the one the dashboard row described, never a rejected same-label sibling sitting
+	// earlier in the raw array. The same helper reads what the sync engine will read for this label after the save (see
+	// KeepSources), so the pairing checks and the draft test share one "keep" truth.
 	const sources = await readKeepSources(entries, label, targetLabel, (secretsLabel) =>
 		env.readServerSecrets(secretsLabel)
 	);
 	const { storedOld, storedOldRecord, storedNewRecord, willCopy } = sources;
-	// The entry this save's form was showing - verified against the identity
-	// the form displayed, refused when it is gone or changed - and the mode
-	// that follows from it: with no entry carrying the label the save appends,
-	// and with one it writes in place - as an edit or rename when the draft
-	// identified it, as an upsert (the add form's documented "saving replaces
-	// it") when it did not.
+	// The entry this save's form was showing - verified against the identity the form displayed, refused when it is
+	// gone or changed - and the mode that follows from it: with no entry carrying the label the save appends, and with
+	// one it writes in place - as an edit or rename when the draft identified it, as an upsert (the add form's
+	// documented "saving replaces it") when it did not.
 	const showing = requireEntryShownByForm(intent.replace, sources);
 	const renaming = targetLabel !== label;
-	// Raw labels count as taken (the webview's own rule): a parser-rejected
-	// entry still occupies its label, and a rename beside it would land two
-	// entries under one label.
+	// Raw labels count as taken (the webview's own rule): a parser-rejected entry still occupies its label, and a
+	// rename beside it would land two entries under one label.
 	if (renaming) {
-		// The "fieldId:" prefix is what sectionFailureText matches against the
-		// internal field names to route the failure onto the right form section,
-		// so it stays an ASCII identifier outside the translation. Same rule for
+		// The "fieldId:" prefix is what sectionFailureText matches against the internal field names to route the
+		// failure onto the right form section, so it stays an ASCII identifier outside the translation. Same rule for
 		// every field-prefixed message below.
 		requireLabelFree(entries, label);
 	}
 
-	// The one rule for WHICH element an in-place save replaces, read again at
-	// write time over the fresh array: the accepted entry under the target
-	// label, or - the fallback that covers the parser-rejected carrier an
-	// acceptedEntry lookup misses - the first raw carrier of the draft's label.
+	// The one rule for WHICH element an in-place save replaces, read again at write time over the fresh array: the
+	// accepted entry under the target label, or - the fallback that covers the parser-rejected carrier an acceptedEntry
+	// lookup misses - the first raw carrier of the draft's label.
 	const indexOfTarget = (list: readonly unknown[]): number =>
 		acceptedEntry(list, targetLabel)?.index ?? list.findIndex((item) => declaredEntryLabel(item) === label);
 	const writeIndex = indexOfTarget(entries);
@@ -243,22 +231,18 @@ export async function applySaveServerSetting(
 
 	const plans = secretPlans(intent.secrets, showing, storedOld);
 
-	// The final entry, needed for the pairing checks below. This rebuild is
-	// the whole entry: any payload field not copied here is silently DELETED
-	// by the save. The settings shape is nested (auth/headers/models/discovery/
-	// budget); the form still edits the flat credential fields, so this is
-	// where they assemble into the entry's auth object.
+	// The final entry, needed for the pairing checks below. This rebuild is the whole entry: any payload field not
+	// copied here is silently DELETED by the save.
 	const newEntry: Record<string, unknown> = {
 		label,
 		baseUrl: intent.server.baseUrl.trim(),
 	};
-	// "" is a real apiVersion (append nothing), so it is written; only absent
-	// (auto) omits the key. Trimmed like the setting parser reads it.
+	// "" is a real apiVersion (append nothing), so it is written; only absent (auto) omits the key. Trimmed like the
+	// setting parser reads it.
 	if (intent.server.apiVersion !== undefined) {
 		newEntry.apiVersion = intent.server.apiVersion.trim();
 	}
-	// An empty record reads as absent everywhere (the parser omits it), so it
-	// is not written either.
+	// An empty record reads as absent everywhere (the parser omits it), so it is not written either.
 	const models: Record<string, unknown> = {};
 	if (intent.server.modelParameters !== undefined && Object.keys(intent.server.modelParameters).length > 0) {
 		models.parameters = intent.server.modelParameters;
@@ -298,11 +282,10 @@ export async function applySaveServerSetting(
 		newEntry.mcp = intent.server.mcp;
 	}
 
-	// The entry's auth object, assembled once by the shared assembler: pairing
-	// (OAuth as one unit, the virtual key pair both-or-neither) is enforced
-	// against the resolved secrets - a value resting in SecretStorage counts as
-	// present - while only the inline plan values enter the written shape, so
-	// secure values stay out of the setting and resolve at sync time.
+	// The entry's auth object, assembled once by the shared assembler: pairing (OAuth as one unit, the virtual key pair
+	// both-or-neither) is enforced against the resolved secrets - a value resting in SecretStorage counts as present -
+	// while only the inline plan values enter the written shape, so secure values stay out of the setting and resolve
+	// at sync time.
 	const inlineValues: { -readonly [K in SecretFieldId]?: string } = {};
 	for (const field of SECRET_FIELD_IDS) {
 		const plan = plans[field];
@@ -321,31 +304,28 @@ export async function applySaveServerSetting(
 		newEntry.auth = assembled.auth;
 	}
 
-	// The destination each secure value written by this save is being paired
-	// with: its ownership stamp. Derived from the entry as the parser will read
-	// it back (the assembler emits only parser-accepted shapes); the raw-field
-	// fallback covers the unreachable parse failure without ever stamping a
-	// wrong destination.
+	// The destination each secure value written by this save is being paired with: its ownership stamp. Derived from
+	// the entry as the parser will read it back (the assembler emits only parser-accepted shapes); the raw-field
+	// fallback covers the unreachable parse failure without ever stamping a wrong destination.
 	const intendedEntry = acceptedEntry([newEntry], label)?.entry;
 	const destinationOf = (field: SecretFieldId): SecretOwner =>
 		secretDestination(intendedEntry ?? { baseUrl: intent.server.baseUrl.trim() }, field);
 
 	// A leftover blob field under the saved label is wiped when no plan can reference it (wiping after a rename's
-	// copy would delete the copied fields, so the two are exclusive). The wipe precedes the settings write and a
-	// throw restores every wiped field, so the gap's failure direction is a briefly missing credential, never a leaked one.
+	// copy would delete the copied fields, so the two are exclusive).
 	const wipesLeftovers = showing === undefined || (mode.kind === "rename" && !mode.willCopy);
 	const overwritten = new Map<SecretFieldId, { value: string | undefined; owner: SecretOwner | undefined }>();
 	try {
 		if (mode.kind === "rename" && mode.willCopy) {
-			// The rename's copy writes the SNAPSHOT the plans resolved from, field
-			// by field, never the source blob as it stands NOW: a concurrent edit
-			// of the old label's blob between the read and this write must not
-			// ride to the new label under a form that never showed it. Each copied
-			// field is stamped for the entry being written - the copy IS this
-			// save's deliberate pairing. Fields the snapshot lacks are deleted when
-			// the target held them, so the new label's whole blob becomes the
-			// snapshot; fields neither side held are skipped - touching them would
-			// be a no-op delete whose failure could abort an otherwise clean save.
+			// The rename's copy writes the SNAPSHOT the plans resolved from, field by field, never the source blob as
+			// it stands NOW: a concurrent edit of the old label's blob between the read and this write must not ride to
+			// the new label under a form that never showed it. Each copied field is stamped for the entry being
+			// written - the copy IS this save's deliberate pairing.
+			//
+			//   Fields the snapshot lacks are deleted when the target held them
+			//     -> the new label's whole blob becomes the snapshot
+			//   touching them would be a no-op delete whose failure could abort an otherwise clean save
+			//     -> fields neither side held are skipped
 			for (const field of SECRET_FIELD_IDS) {
 				if (storedOld[field] !== undefined || storedNewRecord.values[field] !== undefined) {
 					await env.storeServerSecret(
@@ -368,9 +348,8 @@ export async function applySaveServerSetting(
 				mode.kind === "edit" &&
 				(keptOwner === undefined || !sameSecretDestination(keptOwner, destinationOf(field)))
 			) {
-				// A kept stored value under an edit that changed its destination (or
-				// one that predates stamping) is re-stamped: the user saw the field
-				// as "stored in secure storage" and saved the entry around it, which
+				// A kept stored value under an edit that changed its destination (or one that predates stamping) is
+				// re-stamped: the user saw the field as "stored in secure storage" and saved the entry around it, which
 				// is exactly the deliberate pairing a stamp records. Value unchanged.
 				overwritten.set(field, { value: storedOldRecord.values[field], owner: storedOldRecord.owners[field] });
 				await env.storeServerSecret(label, field, storedOld[field], destinationOf(field));
@@ -390,13 +369,13 @@ export async function applySaveServerSetting(
 				: replaceShown(fresh, indexOfTarget(fresh), entries[mode.index], newEntry, renaming ? label : undefined)
 		);
 	} catch (error) {
-		// The setting still resolves what it resolved before, so the secure side
-		// must too. A rename's copy replaced the new label's whole blob, so that
-		// blob is restored to its pre-copy state (deleting fields it never
-		// held), which also undoes any set-secure write on top of the copy;
-		// otherwise only the overwritten fields are touched, values and stamps
-		// alike. Fields no side ever held are skipped: "restoring" one is a
-		// no-op delete whose failure must not report a secret as changed.
+		// The setting still resolves what it resolved before, so the secure side must too. A rename's copy replaced the
+		// new label's whole blob, so that blob is restored to its pre-copy state (deleting fields it never held), which
+		// also undoes any set-secure write on top of the copy; otherwise only the overwritten fields are touched,
+		// values and stamps alike.
+		//
+		//   "restoring" one is a no-op delete whose failure must not report a secret as changed
+		//     -> Fields no side ever held are skipped
 		const restores: [SecretFieldId, { value: string | undefined; owner: SecretOwner | undefined }][] =
 			mode.kind === "rename" && mode.willCopy
 				? SECRET_FIELD_IDS.filter(
@@ -417,17 +396,16 @@ export async function applySaveServerSetting(
 			}
 		}
 		if (restoreFailures.length > 0) {
-			// The durable state DID change: a freshly stored secret survived the
-			// rollback and now resolves for the unchanged entry, so this must not
-			// surface as "nothing landed". The detail line's field ids and label
-			// are webview-legal; neither reaches the log, which stays
-			// classification-only.
+			// The durable state DID change: a freshly stored secret survived the rollback and now resolves for the
+			// unchanged entry, so this must not surface as "nothing landed". The detail line's field ids and label are
+			// webview-legal; neither reaches the log, which stays classification-only.
 			env.log("A failed save left a secure value unrestored", {
 				error: errorLabel(error),
 			});
 			// A failed settings write fires no configuration event, so a sync is requested here, but ONLY while the
 			// standing entry still names every destination the user was saving. A concurrent re-point of the host or
-			// the OAuth token URL must not route the stranded credential there; a create or rename has no standing entry.
+			// the OAuth token URL must not route the stranded credential there; a create or rename has no standing
+			// entry.
 			const intended = acceptedEntry([newEntry], label);
 			const standing = acceptedEntry(env.readServersSetting(), label);
 			if (
@@ -452,8 +430,10 @@ export async function applySaveServerSetting(
 
 	// The destructive cleanup, safe now that the write landed.
 	//
-	//   cleared secret                    -> still effective if the delete fails, so one retry, then the intent fails below
-	//   stale copy behind an inline value -> dormant (it takes over only if the inline value is later removed by hand); log-only
+	//   cleared secret                    -> still effective if the delete fails, so one retry,
+	//                                        then the intent fails below
+	//   stale copy behind an inline value -> dormant (it takes over only if the inline value is later removed by hand);
+	//                                        log-only
 	//   old rename blob                   -> dormant; log-only
 	let clearFailed = false;
 	for (const field of SECRET_FIELD_IDS) {
@@ -478,11 +458,10 @@ export async function applySaveServerSetting(
 		}
 	}
 	if (mode.kind === "rename") {
-		// Presence re-checked at delete time, not assumed from pass start: a
-		// concurrent save may have re-created an entry under the old label, and
-		// this blob is then that entry's live credentials (kept exactly like a
-		// removal keeps blobs). The leftover blob is dormant, so skipping errs
-		// toward keeping a secret, never deleting a live one.
+		// Presence re-checked at delete time, not assumed from pass start: a concurrent save may have re-created an
+		// entry under the old label, and this blob is then that entry's live credentials (kept exactly like a removal
+		// keeps blobs). The leftover blob is dormant, so skipping errs toward keeping a secret, never deleting a live
+		// one.
 		if (stillDeclaredIn(env.readServersSetting())(mode.oldLabel)) {
 			env.log("Post-rename secret cleanup skipped; the old label was re-declared");
 		} else {

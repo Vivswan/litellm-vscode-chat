@@ -1,21 +1,14 @@
 /**
- * Parsing the litellm-vscode-chat.servers setting: the acceptance rules for
- * declared entries live here and nowhere else.
+ * Parsing the litellm-vscode-chat.servers setting: the acceptance rules for declared entries live here and nowhere
+ * else. Shape errors (a second form beside oauth, an oauth missing tokenUrl or clientId, an unknown key inside auth)
+ * make the entry MISCONFIGURED: reported and skipped, never guessed at.
  *
- * The settings shape is nested (auth / headers / models / discovery / budget /
- * mcp); the parsed DeclaredServer keeps the flat credential fields the rest of
- * the extension consumes, so the wire shape of the provider-group args - and
- * with it every stored sync fingerprint - is unchanged by the restructure.
- *
- * Auth grammar: exactly one form per entry, ranked oauth > apiKey >
- * virtualKey. A form may carry companions of strictly lower primacy only:
- * `oauth` nests optional `apiKey` and `virtualKey` companions inside its own
- * object; the string `apiKey` form may carry a sibling `virtualKey`
- * companion; `virtualKey` alone carries none. Shape errors (a second form
- * beside oauth, an oauth missing tokenUrl or clientId, an unknown key inside
- * auth) make the entry MISCONFIGURED: reported and skipped, never guessed
- * at. A form merely missing its secret VALUE is not misconfiguration - the
- * entry works and the server's 401 tells the story.
+ *   Auth grammar                                     -> exactly one form per entry, ranked oauth > apiKey > virtualKey
+ *   A form                                           -> may carry companions of strictly lower primacy only
+ *   missing its secret VALUE is not misconfiguration -> the entry works and the server's 401 tells the story
+ *   the parsed DeclaredServer keeps the flat credential fields -> the wire shape of the provider-group args - and
+ *                                                                 with it every stored sync fingerprint - is unchanged
+ *                                                                 by the restructure
  */
 
 import {
@@ -39,19 +32,15 @@ import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 
-/** An entry's per-entry models.parameters record: model matcher to request parameters, like the global setting. */
 export type EntryModelParameters = EntryViewFieldValues["modelParameters"];
 
-/** An entry's per-entry models.capabilities record: model matcher to capability record, like the global setting. */
 export type EntryModelCapabilities = EntryViewFieldValues["modelCapabilities"];
 
 /**
- * One parsed servers-setting entry: label and baseUrl usable, credential fields
- * flattened from the entry's `auth` object (present only with usable inline
- * text; values resting in SecretStorage stay absent here and resolve at
- * group-args time). The remaining optional fields are the shared registry's
- * EntryViewFields (present only when the raw entry carries usable content);
- * they are read extension-side and never enter the group configuration or its
+ * One parsed servers-setting entry: label and baseUrl usable, credential fields flattened from the entry's `auth`
+ * object (present only with usable inline text; values resting in SecretStorage stay absent here and resolve at
+ * group-args time). The remaining optional fields are the shared registry's EntryViewFields (present only when the raw
+ * entry carries usable content); they are read extension-side and never enter the group configuration or its
  * fingerprint.
  */
 export type DeclaredServer = {
@@ -90,14 +79,13 @@ function usableBudget(value: unknown): number | undefined {
 }
 
 /**
- * An entry's `mcp` opt-in. `true` opts in at the derived endpoint and `false`
- * opts out (an explicit off switch, not a mistake, so it reports nothing); the
- * object form opts in and may name the endpoint URL. Like every other
- * non-auth field, malformed content is reported and ignored rather than
- * rejecting the entry: an unusable `url` still leaves the entry opted in at
- * the derived endpoint, so a typo costs the custom address, never the server.
- * The URL itself is taken as written beyond trimming - the dashboard's write
- * path is where http(s) shape is enforced, exactly as it is for `baseUrl`.
+ * The URL itself is taken as written beyond trimming - the dashboard's write path is where http(s) shape is enforced,
+ * exactly as it is for `baseUrl`.
+ *
+ *   `false` opts out                      -> an explicit off switch, not a mistake
+ *   an explicit off switch, not a mistake -> it reports nothing
+ *   an unusable `url` still leaves the entry opted in at the derived endpoint
+ *     -> a typo costs the custom address, never the server
  */
 function parseMcpOptIn(raw: unknown, report: (what: string) => void): McpOptIn | undefined {
 	if (raw === true) {
@@ -110,8 +98,8 @@ function parseMcpOptIn(raw: unknown, report: (what: string) => void): McpOptIn |
 		report("has an mcp value that is not true, false, or an object, ignored");
 		return undefined;
 	}
-	// Named on purpose, like the unknown auth and discovery keys: a typo silently
-	// reading as "the default endpoint" would be invisible.
+	// Named on purpose, like the unknown auth and discovery keys: a typo silently reading as "the default endpoint"
+	// would be invisible.
 	for (const key of Object.keys(raw)) {
 		if (key !== "url") {
 			report(`has an unknown mcp key "${key}", ignored`);
@@ -125,15 +113,8 @@ function parseMcpOptIn(raw: unknown, report: (what: string) => void): McpOptIn |
 	return url !== undefined ? { url } : true;
 }
 
-/** The flat credential fields an entry's auth object parses to; every value is usable inline text. */
 type FlatAuthFields = { -readonly [K in OptionalEntryFieldId]?: string };
 
-/**
- * Parse one entry's `auth` object into the flat credential fields, or the shape
- * problems that make the entry misconfigured. Key names in the problems are the
- * closed auth vocabulary or the user's own structural keys; entered VALUES
- * never appear.
- */
 function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: string[] } {
 	const fields: FlatAuthFields = {};
 	if (raw === undefined) {
@@ -147,8 +128,7 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 	const known = ["apiKey", "oauth", "virtualKey"];
 	for (const key of keys) {
 		if (!known.includes(key)) {
-			// Named on purpose: a typo silently reading as "no auth" would be the
-			// worst failure mode. Key names only, never values.
+			// Named on purpose: a typo silently reading as "no auth" would be the worst failure mode.
 			problems.push(`has an unknown auth key "${key}"`);
 		}
 	}
@@ -183,9 +163,8 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 		}
 	}
 	if (hasVirtualKey) {
-		// Alone it is the virtualKey form; beside apiKey it is that form's
-		// companion. The flat fields are identical - primacy already decides the
-		// wire semantics.
+		// Alone it is the virtualKey form; beside apiKey it is that form's companion. The flat fields are identical -
+		// primacy already decides the wire semantics.
 		const virtualKey = parseVirtualKeyObject(raw.virtualKey, "auth.virtualKey");
 		if ("problems" in virtualKey) {
 			return virtualKey;
@@ -195,7 +174,6 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 	return { fields };
 }
 
-/** The oauth form: tokenUrl and clientId make the unit; clientSecret, scopes, and the companions are optional. */
 function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
 	if (!isRecord(raw)) {
 		return ["has an auth.oauth value that is not an object"];
@@ -250,9 +228,8 @@ function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
 }
 
 /**
- * A virtualKey object (the form or a companion): the header name is required
- * and must be sendable; the value is the secret-capable half and may rest in
- * SecretStorage, so its absence is legal. Returns the parsed flat fields or the
+ * A virtualKey object (the form or a companion): the header name is required and must be sendable; the value is the
+ * secret-capable half and may rest in SecretStorage, so its absence is legal. Returns the parsed flat fields or the
  * shape problems - never both, so no caller can act on a half-parsed object.
  */
 function parseVirtualKeyObject(raw: unknown, path: string): { fields: FlatAuthFields } | { problems: string[] } {
@@ -285,11 +262,6 @@ function parseVirtualKeyObject(raw: unknown, path: string): { fields: FlatAuthFi
 	return { fields };
 }
 
-/**
- * Parse the raw setting value. Entries without a usable label or baseUrl, with
- * a reserved label, with a label an earlier entry already used, or with a
- * misconfigured auth object are skipped and reported.
- */
 export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; problems: string[] } {
 	if (raw === undefined || raw === null) {
 		return { entries: [], problems: [] };
@@ -302,13 +274,12 @@ export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; 
 }
 
 /**
- * One raw servers-setting entry's acceptance verdict, for the dashboard's
- * Configuration diagnostics and its Misconfigured rows: the same acceptEntries
- * pass parseServersSetting runs, reported per entry. `label` and `baseUrl` are
- * present when the raw entry carries usable text for them (reserved labels stay
- * absent - callers key map records on labels); `problems` are the parser's
- * structural reports without the "entry N " prefix. `accepted` false with a
- * usable label and baseUrl is the misconfigured-entry row.
+ * One raw servers-setting entry's acceptance verdict, for the dashboard's Configuration diagnostics and its
+ * Misconfigured rows: the same acceptEntries pass parseServersSetting runs, reported per entry. `label` and `baseUrl`
+ * are present when the raw entry carries usable text for them (reserved labels stay absent - callers key map records on
+ * labels); `problems` are the parser's structural reports without the "entry N " prefix.
+ *
+ *   `accepted` false with a usable label and baseUrl -> the misconfigured-entry row
  */
 export interface ServerEntryReport {
 	/** The entry's position in the raw array (0-based). */
@@ -391,11 +362,7 @@ export function serverSettingReports(raw: unknown): ServerEntryReport[] {
 	return reports;
 }
 
-/**
- * One closed-vocabulary list field of the discovery object (expectedFailures,
- * includeModes): the known tokens, deduplicated. Unknown tokens are counted in
- * the report, never echoed - they are user text. A non-array is no list.
- */
+/** Unknown tokens are counted in the report, never echoed - they are user text. */
 function knownTokens<T extends string>(
 	raw: unknown,
 	isKnown: (value: unknown) => value is T,
@@ -413,9 +380,8 @@ function knownTokens<T extends string>(
 }
 
 /**
- * The accepted entries with their raw-array indices: the single place the
- * acceptance rules live, so parseServersSetting and acceptedEntry cannot
- * disagree about which raw entry a label resolves to.
+ * The accepted entries with their raw-array indices: the single place the acceptance rules live, so
+ * parseServersSetting and acceptedEntry cannot disagree about which raw entry a label resolves to.
  */
 function acceptEntries(
 	raw: readonly unknown[],
@@ -425,9 +391,8 @@ function acceptEntries(
 	const accepted: { index: number; entry: DeclaredServer }[] = [];
 	const seen = new Set<string>();
 	raw.forEach((item: unknown, index) => {
-		// One prefix for everything reported about this entry: the problems are
-		// logged, so they reference the entry by index and structural key names
-		// only, never by entered values.
+		// One prefix for everything reported about this entry: the problems are logged, so they reference the entry by
+		// index and structural key names only, never by entered values.
 		const report = (what: string) => {
 			problems?.push(`entry ${index + 1} ${what}`);
 			reportTo?.(index, what);
@@ -453,9 +418,8 @@ function acceptEntries(
 		}
 		seen.add(label);
 
-		// Auth shape errors make the whole entry misconfigured: skipped (never
-		// synced or served) and reported, but still PRESENT - rawDeclaredLabels
-		// keeps its label, so no removal is inferred and its group is not hidden.
+		//   Auth shape errors -> make the whole entry misconfigured
+		//   still PRESENT - rawDeclaredLabels keeps its label -> no removal is inferred and its group is not hidden
 		const auth = parseAuth(record.auth);
 		if ("problems" in auth) {
 			for (const problem of auth.problems) {
@@ -475,9 +439,8 @@ function acceptEntries(
 			...auth.fields,
 		};
 
-		// "" is a real value (append nothing to the base URL), so this cannot
-		// funnel through usableString, which erases it. Like budget, a malformed
-		// value is a diagnostic and is ignored; the entry stays usable.
+		// "" is a real value (append nothing to the base URL), so this cannot funnel through usableString, which erases
+		// it. Like budget, a malformed value is a diagnostic and is ignored; the entry stays usable.
 		if (record.apiVersion !== undefined) {
 			if (typeof record.apiVersion !== "string") {
 				report("has an apiVersion that is not a string, ignored");
@@ -487,8 +450,8 @@ function acceptEntries(
 		}
 
 		if (record.headers !== undefined) {
-			// Header names are structural configuration (the same class the
-			// request-path narrowing logs); values never enter the report.
+			// Header names are structural configuration (the same class the request-path narrowing logs); values never
+			// enter the report.
 			const headers = normalizeCustomHeaders(record.headers, (message, data) => {
 				const name = isRecord(data) && typeof data.name === "string" ? ` ("${data.name}")` : "";
 				report(`headers: ${message}${name}`);
@@ -498,15 +461,14 @@ function acceptEntries(
 			}
 		}
 
-		// The models records are lenient like the global settings' own
-		// normalization: non-record values and malformed sub-entries drop
-		// silently, and an empty result reads as absent. The capability vocabulary
-		// is enforced downstream by parseCapabilityRecord.
+		// The models records are lenient like the global settings' own normalization: non-record values and malformed
+		// sub-entries drop silently, and an empty result reads as absent. The capability vocabulary is enforced
+		// downstream by parseCapabilityRecord.
 		if (record.models !== undefined && !isRecord(record.models)) {
 			report("has a models value that is not an object, ignored");
 		} else if (isRecord(record.models)) {
-			// Named on purpose, like the unknown auth keys: a typo silently reading
-			// as "no per-entry records" would be invisible.
+			// Named on purpose, like the unknown auth keys: a typo silently reading as "no per-entry records" would be
+			// invisible.
 			for (const key of Object.keys(record.models)) {
 				if (key !== "parameters" && key !== "capabilities") {
 					report(`has an unknown models key "${key}", ignored`);
@@ -526,8 +488,8 @@ function acceptEntries(
 			report("has a discovery value that is not an object, ignored");
 		} else if (isRecord(record.discovery)) {
 			const discovery = record.discovery;
-			// Named on purpose: a typo silently reading as "no expected failures",
-			// "nothing declared", or "nothing included" would be invisible.
+			// Named on purpose: a typo silently reading as "no expected failures", "nothing declared", or "nothing
+			// included" would be invisible.
 			for (const key of Object.keys(discovery)) {
 				if (key !== "expectedFailures" && key !== "declared" && key !== "includeModes") {
 					report(`has an unknown discovery key "${key}", ignored`);
@@ -559,8 +521,6 @@ function acceptEntries(
 			}
 		}
 
-		// An invalid budget is a diagnostic and is ignored; the entry itself stays
-		// usable (it is not auth).
 		if (record.budget !== undefined) {
 			const budget = usableBudget(record.budget);
 			if (budget === undefined) {
@@ -582,12 +542,9 @@ function acceptEntries(
 }
 
 /**
- * The entry parseServersSetting accepts for `label`, with its raw-array index,
- * or undefined when it accepts none. The dashboard's per-entry reads and writes
- * resolve through this so they act on exactly the entry the dashboard row
- * describes: a rejected same-label sibling earlier in the array cannot shadow
- * the accepted entry, and a label the parser rejects outright resolves to
- * nothing. The returned entry is the parsed view - usable fields only, trimmed.
+ * The dashboard's per-entry reads and writes resolve through this so they act on exactly the entry the dashboard row
+ * describes: a rejected same-label sibling earlier in the array cannot shadow the accepted entry, and a label the
+ * parser rejects outright resolves to nothing.
  */
 export function acceptedEntry(raw: unknown, label: string): { index: number; entry: DeclaredServer } | undefined {
 	if (!Array.isArray(raw)) {
@@ -598,13 +555,10 @@ export function acceptedEntry(raw: unknown, label: string): { index: number; ent
 }
 
 /**
- * Every label the raw setting still CARRIES, acceptance aside: any object entry
- * with a usable label string counts, even one the parser would reject. The
- * removal detector reads this because "the user removed the entry" and "the
- * entry is present but momentarily malformed" must never be confused - a
- * tombstone written for the latter would suppress a group the user did not
- * remove. Reserved labels stay out: the parser rejects them permanently, and
- * the caller carries map records under these labels.
+ * The removal detector reads this because "the user removed the entry" and "the entry is present but momentarily
+ * malformed" must never be confused - a tombstone written for the latter would suppress a group the user did not
+ * remove. Reserved labels stay out: the parser rejects them permanently, and the caller carries map records under these
+ * labels.
  */
 export function rawDeclaredLabels(raw: unknown): Set<string> {
 	if (!Array.isArray(raw)) {
@@ -622,7 +576,6 @@ export function rawDeclaredLabels(raw: unknown): Set<string> {
 	return labels;
 }
 
-/** The label the sync side would keep for one raw entry (rawDeclaredLabels' rule, per element), or undefined. */
 export function declaredEntryLabel(rawEntry: unknown): string | undefined {
 	const [label] = rawDeclaredLabels([rawEntry]);
 	return label;
@@ -632,8 +585,10 @@ export function declaredEntryLabel(rawEntry: unknown): string | undefined {
  * Presence rather than acceptance, so a mid-edit malformed entry stays declared and "the user removed it" is
  * never confused with "this pass could not accept it".
  *
- *   []                            -> a real "remove everything"; the setting declares an array schema with a [] default
- *   undefined, null, or non-array -> a mid-edit or partial state that proves nothing, so every label reads as present
+ *   []                            -> a real "remove everything"
+ *   the setting declares an array schema with a [] default -> a real "remove everything"
+ *   undefined, null, or non-array -> a mid-edit or partial state that proves nothing
+ *   a mid-edit or partial state that proves nothing -> every label reads as present
  */
 export function stillDeclaredIn(raw: unknown): (label: string) => boolean {
 	if (!Array.isArray(raw)) {
@@ -676,13 +631,11 @@ export function supersedingBaseUrl(
 	return declaredUrl === normalizeBaseUrl(baseUrl) ? undefined : declaredUrl;
 }
 
-/** supersedingBaseUrl over the raw setting's accepted entry for `label`. */
 export function entrySupersedingBaseUrl(raw: unknown, label: string, baseUrl: string): string | undefined {
 	const match = acceptedEntry(raw, label);
 	return match === undefined ? undefined : supersedingBaseUrl([match.entry], label, baseUrl);
 }
 
-/** The request path's resolution of one declared entry's per-entry models.parameters; see matchedEntryFor. */
 export function entryModelParametersFor(
 	raw: unknown,
 	label: string,
@@ -691,7 +644,6 @@ export function entryModelParametersFor(
 	return matchedEntryFor(raw, label, baseUrl)?.modelParameters;
 }
 
-/** The registration path's resolution of one declared entry's per-entry models.capabilities; see matchedEntryFor. */
 export function entryModelCapabilitiesFor(
 	raw: unknown,
 	label: string,
@@ -700,7 +652,6 @@ export function entryModelCapabilitiesFor(
 	return matchedEntryFor(raw, label, baseUrl)?.modelCapabilities;
 }
 
-/** The discovery path's resolution of one declared entry's expectedFailures; see matchedEntryFor. */
 export function entryExpectedFailuresFor(
 	raw: unknown,
 	label: string,
@@ -709,12 +660,10 @@ export function entryExpectedFailuresFor(
 	return matchedEntryFor(raw, label, baseUrl)?.expectedFailures;
 }
 
-/** The discovery path's resolution of one declared entry's discovery.includeModes; see matchedEntryFor. */
 export function entryIncludeModesFor(raw: unknown, label: string, baseUrl: string): readonly NonChatMode[] | undefined {
 	return matchedEntryFor(raw, label, baseUrl)?.includeModes;
 }
 
-/** The request and discovery paths' resolution of one declared entry's custom headers; see matchedEntryFor. */
 export function entryHeadersFor(
 	raw: unknown,
 	label: string,
@@ -724,15 +673,12 @@ export function entryHeadersFor(
 }
 
 /**
- * The request and discovery paths' resolution of one declared entry's
- * apiVersion override; see matchedEntryFor. Returns "" when the entry sets
- * the empty override (append nothing), undefined only when absent.
+ *   the entry sets the empty override (append nothing) -> returns ""
  */
 export function entryApiVersionFor(raw: unknown, label: string, baseUrl: string): string | undefined {
 	return matchedEntryFor(raw, label, baseUrl)?.apiVersion;
 }
 
-/** The registration path's resolution of one declared entry's discovery.declared list; see matchedEntryFor. */
 export function entryDeclaredModelsFor(raw: unknown, label: string, baseUrl: string): readonly string[] | undefined {
 	return matchedEntryFor(raw, label, baseUrl)?.declaredModels;
 }

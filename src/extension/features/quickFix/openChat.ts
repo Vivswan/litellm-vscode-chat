@@ -15,13 +15,8 @@ import type { QuickFixChatArgs } from "./actionsProvider";
 import type { QuickFixMode } from "./query";
 import { buildChatQuery, buildFallbackPrompt, selectDiagnostics } from "./query";
 
-/**
- * The fallback exists because chat.open is another extension's command and Copilot Chat can be absent,
- * disabled, or refusing, so the quickFix.model setting serves that path alone, as a deliberately lesser
- * experience for a case that should be rare. This module is the quick-fix feature's SINGLE logging boundary.
- */
+/** This module is the quick-fix feature's SINGLE logging boundary. */
 
-/** The full setting IDs the dual-reason advice names, derived by the shared gate; sentences stay this feature's own. */
 const MODEL_SETTING_ID = featureModelSettingId("quickFix");
 const PARTICIPANT_SETTING_ID = featureEnableSettingId("chatParticipant");
 
@@ -30,29 +25,18 @@ export interface QuickFixChatDeps {
 	readonly logger: Logger;
 	readonly outputChannel: vscode.OutputChannel;
 	/**
-	 * Whether the @litellm participant can actually answer a turn right now.
-	 * The chat path submits a turn addressed to it, so this is the difference
-	 * between asking our participant and shouting our prefix at whoever is
-	 * listening; the participant's wiring owns the answer (setting AND accepted
-	 * registration), and this reads it per invocation.
+	 * Whether the @litellm participant can actually answer a turn right now. The chat path submits a turn addressed to
+	 * it, so this is the difference between asking our participant and shouting our prefix at whoever is listening;
+	 * the participant's wiring owns the answer (setting AND accepted registration), and this reads it per invocation.
 	 */
 	readonly isParticipantAvailable: () => boolean;
-	/**
-	 * Opens the chat view and submits the query. Injected so the tests can drive
-	 * the failure the fallback exists for; defaults to the host command, which
-	 * is contributed by whichever chat extension is installed.
-	 */
 	readonly openChat?: (query: string, uri: vscode.Uri, range: vscode.Range) => Thenable<unknown>;
 }
 
 /**
- * The host command the primary path runs, with the claimed lines riding as an
- * attachment. The payload shape is the host's `IChatViewOpenOptions`:
- * `attachFiles` takes `URI | { uri, range }`, and the extension-host command
- * bridge converts the `vscode.Range` to the internal 1-based shape on the way
- * across - so a `vscode.Location` or a bare Uri here would NOT be equivalent.
- * The command is another extension's and experimental; every failure mode it
- * has is what the fallback below exists for.
+ * The payload shape is the host's `IChatViewOpenOptions`: `attachFiles` takes `URI | { uri, range }`, and the
+ * extension-host command bridge converts the `vscode.Range` to the internal 1-based shape on the way across - so a
+ * `vscode.Location` or a bare Uri here would NOT be equivalent.
  */
 function openChatView(query: string, uri: vscode.Uri, range: vscode.Range): Thenable<unknown> {
 	return vscode.commands.executeCommand("workbench.action.chat.open", {
@@ -66,14 +50,8 @@ function isMode(value: unknown): value is QuickFixMode {
 }
 
 /**
- * One diagnostic, structurally: every field the query and prompt builders read,
- * `source` and `code` included. Checked element by element rather than trusted
- * as an array, so a forged `{ diagnostics: [null] }` - or a plausible-looking
- * one carrying `source: 5` - is refused at the boundary instead of throwing
- * inside a builder. The builders take a typed precondition; this is what keeps
- * it. Shape-gating, not just crash-prevention: a value outside the host's own
- * vocabulary came from something other than a lightbulb, and refusing it costs
- * a real diagnostic nothing.
+ * Checked element by element rather than trusted as an array, so a forged `{ diagnostics: [null] }` - or a
+ * plausible-looking one carrying `source: 5` - is refused at the boundary instead of throwing inside a builder.
  */
 function isDiagnosticLike(value: unknown): value is vscode.Diagnostic {
 	if (typeof value !== "object" || value === null) {
@@ -102,10 +80,9 @@ function isDiagnosticCode(code: unknown): boolean {
 }
 
 /**
- * The command's payload, validated rather than trusted: the lightbulb is the
- * only surface that builds one, but executeCommand is callable by anything and
- * a malformed payload must be a no-op with a log line, never a crash inside a
- * command handler.
+ * The command's payload, validated rather than trusted: the lightbulb is the only surface that builds one, but
+ * executeCommand is callable by anything and a malformed payload must be a no-op with a log line, never a crash inside
+ * a command handler.
  */
 function parseArgs(raw: unknown): QuickFixChatArgs | undefined {
 	if (typeof raw !== "object" || raw === null) {
@@ -118,19 +95,15 @@ function parseArgs(raw: unknown): QuickFixChatArgs | undefined {
 	if (!Array.isArray(diagnostics) || !diagnostics.every(isDiagnosticLike)) {
 		return undefined;
 	}
-	// An invocation claiming nothing usable has no question to ask: the chat
-	// path would submit a bare "@litellm /fix", and the fallback would spend the
-	// user's budget on an empty one. Selection is the same decision the
-	// lightbulb made, so this is unreachable from an action.
+	// An invocation claiming nothing usable has no question to ask: the chat path would submit a bare "@litellm /fix",
+	// and the fallback would spend the user's budget on an empty one. Selection is the same decision the lightbulb
+	// made, so this is unreachable from an action.
 	return selectDiagnostics(diagnostics).length === 0 ? undefined : { uri, range, diagnostics, mode };
 }
 
 /**
- * Send the prompt as one non-streaming request through the features' shared
- * send composition (featureChatSend: connection resolution, the quickFix error
- * surface, the chat timeout). Exported because the dashboard's test probe
- * sends through it too, so the probe proves exactly what the fallback would do
- * - connection, credentials, surface, and bound included.
+ * Exported because the dashboard's test probe sends through it too, so the probe proves exactly what the fallback
+ * would do - connection, credentials, surface, and bound included.
  */
 export async function sendFallbackPrompt(
 	oneShot: OneShotClient,
@@ -144,18 +117,16 @@ export async function sendFallbackPrompt(
 }
 
 /**
- * The fallback prompt for one invocation: the claimed lines read from the
- * document (the workspace read serves the dirty buffer, so the model sees what
- * the user is looking at rather than what is on disk) around the diagnostics
- * the action claimed.
+ * The fallback prompt for one invocation: the claimed lines read from the document (the workspace read serves the
+ * dirty buffer, so the model sees what the user is looking at rather than what is on disk) around the diagnostics the
+ * action claimed.
  */
 async function fallbackPromptFor(args: QuickFixChatArgs): Promise<string> {
 	const document = await vscode.workspace.openTextDocument(args.uri);
 	return buildFallbackPrompt({
 		mode: args.mode,
-		// The shared label pipeline (gitAccess.documentLabel): the raw host API
-		// would ship the absolute path - home directory and user name - for any
-		// file outside the workspace.
+		// The shared label pipeline (gitAccess.documentLabel): the raw host API would ship the absolute path - home
+		// directory and user name - for any file outside the workspace.
 		path: documentLabel(args.uri),
 		languageId: document.languageId,
 		excerpt: document.getText(args.range),
@@ -170,20 +141,15 @@ async function showAnswer(answer: string): Promise<void> {
 }
 
 /**
- * Why the fallback is running. It decides only the no-model advice, but that
- * advice is the difference between sending the user to a setting that is
- * already fine and telling them the thing they turned off is the thing that
- * would have answered.
+ * It decides only the no-model advice, but that advice is the difference between sending the user to a setting that
+ * is already fine and telling them the thing they turned off is the thing that would have answered.
  */
 type FallbackReason = "participant-unavailable" | "chat-open-failed";
 
 /**
- * The no-model message and its actions, per reason. The participant branch does
- * not claim WHICH half is missing: the readiness predicate answers one
- * question - can @litellm answer - and a message asserting the setting is off
- * would be wrong for the user whose registration was refused with the setting
- * on. It names both places instead, and buttons to both, in the order they are
- * worth trying.
+ * The participant branch does not claim WHICH half is missing: the readiness predicate answers one question - can
+ * @litellm answer - and a message asserting the setting is off would be wrong for the user whose registration was
+ * refused with the setting on. It names both places instead, and buttons to both, in the order they are worth trying.
  */
 function noModelAdvice(reason: FallbackReason): { message: string; actions: MessageAction[] } {
 	if (reason === "participant-unavailable") {
@@ -209,11 +175,9 @@ function noModelAdvice(reason: FallbackReason): { message: string; actions: Mess
 }
 
 /**
- * The fallback path. Both gates are re-read here rather than assumed from the
- * lightbulb: this runs after an await on another extension's command, and a
- * user who turned the feature off while that command was failing has said what
- * they want. Answering nothing is right in that case - they just disabled the
- * thing that would have answered.
+ * The fallback path.
+ *
+ *   Both gates -> are re-read here rather than assumed from the lightbulb
  */
 async function runFallback(
 	oneShot: OneShotClient,
@@ -252,10 +216,10 @@ async function runFallback(
 }
 
 /**
- * The command handler behind every Fix and Explain action. Registered
- * unconditionally - the lightbulb hides behind the enable setting, but
- * executeCommand and keybindings do not - so a disabled invocation answers
- * with the enable hint instead of doing nothing.
+ * The command handler behind every Fix and Explain action.
+ *
+ *   the lightbulb hides behind the enable setting, but executeCommand and keybindings do not -> Registered
+ *     unconditionally
  */
 export async function runQuickFixChat(oneShot: OneShotClient, deps: QuickFixChatDeps, rawArgs: unknown): Promise<void> {
 	const log = (message: string, data?: unknown): void => {
@@ -272,21 +236,16 @@ export async function runQuickFixChat(oneShot: OneShotClient, deps: QuickFixChat
 		]);
 		return;
 	}
-	// The chat path is only worth taking while @litellm can actually answer.
-	// chat.open SUBMITS the query rather than typing it, so with no live
-	// participant behind the name the turn - diagnostics and attached code -
-	// goes out addressed to something that is not there, and the command
-	// RESOLVES either way, which is why no try/catch could notice. The
-	// participant's own wiring is the one place that knows both halves (the
-	// setting said yes AND the host accepted the registration).
+	// The chat path is only worth taking while @litellm can actually answer. chat.open SUBMITS the query rather than
+	// typing it, so with no live participant behind the name the turn - diagnostics and attached code - goes out
+	// addressed to something that is not there, and the command RESOLVES either way, which is why no try/catch could
+	// notice.
 	let reason: FallbackReason = "chat-open-failed";
 	if (deps.isParticipantAvailable()) {
 		try {
 			await (deps.openChat ?? openChatView)(buildChatQuery(args.mode, args.diagnostics), args.uri, args.range);
 			return;
 		} catch (error) {
-			// Classification only: the failure comes from another extension's command
-			// and its message is not ours to quote onto a public log surface.
 			log(`quick fix could not open the chat view, falling back to the configured model: ${errorLabel(error)}`);
 		}
 	} else {

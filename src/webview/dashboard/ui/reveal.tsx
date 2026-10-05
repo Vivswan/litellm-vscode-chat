@@ -1,21 +1,21 @@
 /**
- * The dashboard's ONE hover-reveal idiom, extracted so it cannot fork again. Opacity,
- * never visibility: the button stays in the tab order so its OWN focus can reveal it;
- * the wrapper carries the opacity because Button's disabled:opacity-60 would outrank a
- * bare opacity-0 on the same element. The @max-[560px]/pane clause keeps the action
- * painted where hover does not exist; the transition stands down under reduced motion.
- * The bordered modes refuse the quietness trade outright (every control's box draws at
- * rest, so a resting-invisible action is bare boxes flickering): those clauses live in
- * theme.css against the data-slot below, because opacity-0 is a utility and only an
- * unlayered rule reliably beats one.
+ * The dashboard's ONE hover-reveal idiom, extracted so it cannot fork again. The bordered modes refuse the quietness
+ * trade outright (every control's box draws at rest, so a resting-invisible action is bare boxes flickering): those
+ * clauses live in theme.css against the data-slot below, because opacity-0 is a utility and only an unlayered rule
+ * reliably beats one.
+ *
+ *   the button stays in the tab order so its OWN focus can reveal it                 -> Opacity, never visibility
+ *   Button's disabled:opacity-60 would outrank a bare opacity-0 on the same element  -> the wrapper carries the opacity
+ *   The @max-[560px]/pane clause                                                     -> keeps the action painted where
+ *                                                                                       hover does not exist
  */
 
 import type { ReactNode } from "react";
 import { cn } from "./cn";
 
 /**
- * The group scopes a reveal can join, spelled as whole literals because Tailwind
- * compiles only variants it can read whole in the source.
+ * The group scopes a reveal can join, spelled as whole literals because Tailwind compiles only variants it can read
+ * whole in the source.
  */
 const REVEAL_WITHIN = {
 	/** A settings row (`group/setting` on the row wrapper). */

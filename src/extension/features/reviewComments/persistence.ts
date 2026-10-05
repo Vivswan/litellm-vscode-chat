@@ -1,31 +1,18 @@
 /**
- * The review-comment store codec: schema v1, the shape saved to and
- * rehydrated from workspaceState. `{ version: 1, threads: { <uriString>:
- * [{ id, startLine, endLine, resolved, comments: [{ author, body,
- * createdAt }] }] } }`. Encoding is total by construction; decoding is total
- * over `unknown` and version-gated - a version stamp this build does not know
- * reads as an empty store with a typed advisory, never a throw, so a
- * downgraded build starts clean instead of crashing rehydrate.
+ * The review-comment store codec: schema v1, the shape saved to and rehydrated from workspaceState.
  *
- * Within a known version the decoder is lenient per entry: a malformed thread
- * or comment is dropped and counted while its valid siblings survive, because
- * losing one corrupt record beats losing the whole store. Guards are
- * hand-rolled, not zod: this codec is the schema's source of truth and zod
- * stays at the webview trust boundary.
- *
- * Line numbers are stored exactly as the comment controller hands them
- * (VS Code ranges, 0-based); the codec only requires non-negative integers
- * with start <= end and never converts bases.
- *
- * Pure and vscode-free.
+ *   { version: 1,
+ *     threads: { <uriString>: [{ id, startLine, endLine, resolved, comments: [{ author, body, createdAt }] }] } }
+ *   a version stamp this build does not know reads as an empty store -> a downgraded build starts clean
+ *   losing one corrupt record beats losing the whole store -> a malformed thread or comment is dropped and counted
+ *   this codec is the schema's source of truth -> Guards are hand-rolled, not zod
+ *   Line numbers -> are stored exactly as the comment controller hands them (VS Code ranges, 0-based)
  */
 
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 
-/** The store version this build writes and the only one it can read. */
 export const REVIEW_STORE_VERSION = 1;
 
-/** Who wrote a comment: the reviewing model or the user replying to it. */
 export type ReviewCommentAuthor = "user" | "model";
 
 /** One comment inside a review thread; `createdAt` is epoch milliseconds. */
@@ -35,7 +22,6 @@ export interface StoredReviewComment {
 	readonly createdAt: number;
 }
 
-/** One review thread anchored to a line range of the document it is keyed under. */
 export interface StoredReviewThread {
 	readonly id: string;
 	readonly startLine: number;
@@ -44,37 +30,29 @@ export interface StoredReviewThread {
 	readonly comments: readonly StoredReviewComment[];
 }
 
-/** All persisted threads, keyed by the document's URI string. */
 export type ReviewThreadsByUri = Readonly<Record<string, readonly StoredReviewThread[]>>;
 
-/** The versioned envelope written to workspaceState. */
 export interface ReviewCommentStore {
 	readonly version: typeof REVIEW_STORE_VERSION;
 	readonly threads: ReviewThreadsByUri;
 }
 
 /**
- * A decoded store, or why the stored value is not one. Every branch carries
- * `threads` (empty on failure), so rehydrate reads `result.threads`
- * unconditionally and treats `ok: false` as an advisory to log, not an error
- * to handle. On ok, `dropped` counts the malformed threads, comments, and
- * record entries the lenient walk discarded.
+ * Every branch carries `threads` (empty on failure), so rehydrate reads `result.threads` unconditionally and treats
+ * `ok: false` as an advisory to log, not an error to handle. On ok, `dropped` counts the malformed threads, comments,
+ * and record entries the lenient walk discarded.
  */
 export type DecodeStoreResult =
 	| { readonly ok: true; readonly threads: ReviewThreadsByUri; readonly dropped: number }
 	| { readonly ok: false; readonly reason: "not-a-store" | "unknown-version"; readonly threads: ReviewThreadsByUri };
 
-/** Wrap the live threads in the versioned envelope for workspaceState. */
 export function encodeStore(threads: ReviewThreadsByUri): ReviewCommentStore {
 	return { version: REVIEW_STORE_VERSION, threads };
 }
 
 /**
- * Decode a workspaceState value; see DecodeStoreResult for the verdicts.
- * `undefined` (nothing stored) reads as an ok empty store. Total over any
- * value: workspaceState hands back JSON-shaped data, but an accessor-bearing
- * object or proxy handed in through a test or a future caller could throw
- * mid-walk, and "total" means that reads as not-a-store, never a throw.
+ * Total over any value: workspaceState hands back JSON-shaped data, but an accessor-bearing object or proxy handed in
+ * through a test or a future caller could throw mid-walk, and "total" means that reads as not-a-store, never a throw.
  */
 export function decodeStore(raw: unknown): DecodeStoreResult {
 	try {
@@ -84,7 +62,6 @@ export function decodeStore(raw: unknown): DecodeStoreResult {
 	}
 }
 
-/** The decode walk proper; decodeStore's catch makes it total over hostile objects. */
 function decodeStoreShape(raw: unknown): DecodeStoreResult {
 	if (raw === undefined || raw === null) {
 		return { ok: true, threads: {}, dropped: 0 };
@@ -125,20 +102,15 @@ function decodeStoreShape(raw: unknown): DecodeStoreResult {
 	return { ok: true, threads, dropped };
 }
 
-/** The pruned threads and the URI keys removed because their documents no longer exist. */
 export interface PruneResult {
 	readonly threads: ReviewThreadsByUri;
 	readonly removedUris: readonly string[];
 }
 
 /**
- * Drop the thread entries whose documents no longer exist, per an injected
- * async existence predicate (the caller stats; this stays pure). Checks run
- * concurrently. A predicate that throws counts as "exists": pruning is
- * housekeeping, and a transient stat error must never delete review threads.
- * Kept entries assemble via Object.fromEntries, which defines own data
- * properties, so even a hostile "__proto__" key round-trips as data instead
- * of touching the prototype.
+ * A predicate that throws counts as "exists": pruning is housekeeping, and a transient stat error must never delete
+ * review threads. Kept entries assemble via Object.fromEntries, which defines own data properties, so even a hostile
+ * "__proto__" key round-trips as data instead of touching the prototype.
  */
 export async function pruneThreads(
 	threads: ReviewThreadsByUri,
@@ -160,7 +132,6 @@ export async function pruneThreads(
 	};
 }
 
-/** Validate one stored thread; undefined means drop it. Malformed comments drop individually, counted. */
 function decodeThread(raw: unknown): { thread: StoredReviewThread; droppedComments: number } | undefined {
 	if (!isRecord(raw)) {
 		return undefined;
@@ -188,7 +159,6 @@ function decodeThread(raw: unknown): { thread: StoredReviewThread; droppedCommen
 	return { thread: { id, startLine, endLine, resolved, comments: kept }, droppedComments };
 }
 
-/** Validate one stored comment; undefined means drop it. */
 function decodeComment(raw: unknown): StoredReviewComment | undefined {
 	if (!isRecord(raw)) {
 		return undefined;

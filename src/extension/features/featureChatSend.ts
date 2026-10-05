@@ -7,10 +7,9 @@ import { entryConnectionFor } from "../servers/entryConnection";
 import { noEntryForConfiguredServer } from "./modelSettingError";
 
 /**
- * The features on this pipeline, derived by exclusion: inline completions are
- * the one model-picking feature NOT here - they send /completions (FIM)
- * through their own wiring - and the type makes that unrepresentable rather
- * than commented.
+ * The features on this pipeline, derived by exclusion: inline completions are the one model-picking feature NOT here
+ * - they send /completions (FIM) through their own wiring - and the type makes that unrepresentable rather than
+ * commented.
  */
 export type OneShotChatFeature = Exclude<FeatureModelId, "inlineCompletions">;
 
@@ -36,8 +35,8 @@ export async function featureChatSend(
 		{ model: ref.model, messages },
 		FEATURE_ERROR_SURFACE[feature],
 		{
-			// Minted where the number is read: this whole-call bound is the chat
-			// request timeout, so timeout advice names chat.timeout.
+			// Minted where the number is read: this whole-call bound is the chat request timeout, so timeout advice
+			// names chat.timeout.
 			timeout: { ms: getRequestTimeout(log), setting: "chat.timeout" },
 			token,
 		}

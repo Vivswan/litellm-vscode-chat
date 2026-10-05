@@ -2,10 +2,9 @@ import type { ComponentProps } from "react";
 import { cn } from "./cn";
 
 /**
- * A native select on the VS Code dropdown tokens: the options popup stays the
- * platform widget, which is how the host's own dropdowns behave. The explicit
- * background also keeps the closed control from falling back to the native
- * light widget inside a dark theme.
+ * A native select on the VS Code dropdown tokens: the options popup stays the platform widget, which is how the host's
+ * own dropdowns behave. The explicit background also keeps the closed control from falling back to the native light
+ * widget inside a dark theme.
  */
 export function Select({ className, ...props }: ComponentProps<"select">) {
 	return (

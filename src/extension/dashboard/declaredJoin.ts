@@ -13,10 +13,8 @@ import type { DeclaredGroupIdentity } from "../servers/serverSync";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 
 /**
- * Snapshots joined with the display label their server renders under. Labels
- * are not unique (two provider groups can point at one host with different
- * credentials), so colliding labels get a positional suffix; the opaque server
- * IDs stay out of the state because they embed a credential fingerprint.
+ * Labels are not unique (two provider groups can point at one host with different credentials), so colliding labels get
+ * a positional suffix; the opaque server IDs stay out of the state because they embed a credential fingerprint.
  */
 export interface LabeledSnapshot {
 	readonly snapshot: ServerModelsSnapshot;
@@ -24,9 +22,8 @@ export interface LabeledSnapshot {
 }
 
 export function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): LabeledSnapshot[] {
-	// The serverId tiebreak keeps the sort total: the status window re-inserts
-	// refreshed entries at the end, so without it two groups on one host would
-	// swap ordinals whenever their insertion order churned.
+	// The serverId tiebreak keeps the sort total: the status window re-inserts refreshed entries at the end, so without
+	// it two groups on one host would swap ordinals whenever their insertion order churned.
 	const sorted = [...snapshots].sort(
 		(a, b) =>
 			a.status.label.localeCompare(b.status.label) ||
@@ -50,10 +47,8 @@ export function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): La
 }
 
 /**
- * Which pairing pass joined a declared entry to its snapshot. Only the
- * identity pass proves the serving group carries the entry's label, which is
- * what buildServers flags entries on: any other pass means the entry's own
- * modelParameters may not apply.
+ * Only the identity pass proves the serving group carries the entry's label, which is what buildServers flags entries
+ * on: any other pass means the entry's own modelParameters may not apply.
  */
 type JoinPass = "identity" | "connection" | "label-url";
 
@@ -102,7 +97,7 @@ export function resolveGroupOwnership(inputs: GroupOwnershipInputs): GroupOwners
 	const passes: readonly {
 		pass: JoinPass;
 		match: (snapshot: ServerModelsSnapshot, view: DeclaredGroupIdentity) => boolean;
-		/** A shared pass lets several entries claim one snapshot; only equal join keys can collide (see the doc above). */
+		/** A shared pass lets several entries claim one snapshot; only equal join keys can collide (see the doc). */
 		shared?: boolean;
 	}[] = [
 		{

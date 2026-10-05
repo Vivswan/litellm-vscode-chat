@@ -1,25 +1,9 @@
 /**
- * The composed settings-redesign pipeline as one PURE transformation: an
- * old-world snapshot in, an ordered write plan out. The steps compose in
- * memory - entry restructure first (so scoped keys, declares, and the global
- * headers have their new-shaped destinations), then the record renames with
- * their key rewrites and scoped moves, the global headers copy, the default*
- * trio merge, and the scalar renames last.
- *
- * Idempotency is state detection throughout: every step keys on its own legacy
- * state and the plan deletes that state after writing the new one, so a rerun
- * finds nothing to do. Every value write precedes every deletion, and the
- * sync-race rule (a new name already holding a value keeps it and the old key
- * just drops) doubles as crash recovery for the window in between.
- *
- * The plan rewrites the User (Global) layer only. Old names at workspace scope
- * are counted in the log and left untouched; the `servers` setting is
- * machine-scoped, so its restructure has no workspace side. Secrets and sync
- * state are untouched: SecretStorage keys and blob field ids stay as they are,
- * and provider-group fingerprints stay valid because the group args of a
- * migrated entry are byte-identical - with one exception: wire-inert auth
- * fragments (lone oauth pieces, unsendable virtual-key halves) drop, so THOSE
- * entries' fingerprints change once.
+ *   every step keys on its own legacy state                -> Idempotency is state detection throughout
+ *   entry restructure first                                -> scoped keys, declares, and the global headers have
+ *                                                             their new-shaped destinations
+ *   the `servers` setting is machine-scoped                -> its restructure has no workspace side
+ *   SecretStorage keys and blob field ids stay as they are -> Secrets and sync state are untouched
  */
 
 import { isDeepStrictEqual } from "node:util";
@@ -64,13 +48,11 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 	let movedScoped = 0;
 	let inertScoped = 0;
 
-	// --- Restructure the entries.
 	const rawServers = globalOf(SERVERS_ID);
 	const restructured = restructureServers(rawServers);
 	let serversValue = restructured.value;
 	const counts = restructured.counts;
-	// Acceptance over the restructured value; indices are stable (the
-	// restructure maps in place), so targets stay valid while additions land.
+	//   Acceptance over the restructured value; indices are stable -> targets stay valid while additions land
 	const targets = scopedMoveTargets(serversValue);
 
 	const entryAt = (index: number): unknown => (Array.isArray(serversValue) ? serversValue[index] : undefined);
@@ -90,7 +72,6 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 		}
 	};
 
-	// --- The record renames.
 	const processRecord = (oldId: string, newId: string, kind: RecordKind): { value: unknown } => {
 		const oldValue = globalOf(oldId);
 		const newValue = globalOf(newId);
@@ -98,13 +79,11 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 			return { value: newValue };
 		}
 		if (newValue !== undefined) {
-			// The sync-race rule, which is also the crash-recovery rule: the new
-			// name already holds a value (Settings Sync delivered it, or an
-			// earlier run wrote it and crashed before the deletion) - keep it,
-			// drop the old key. Under the Settings Sync reading this is knowingly
-			// lossy for THIS machine's entries: the legacy record's URL-scoped
-			// keys were consumed into the OTHER machine's machine-scoped entries
-			// and drop here unplaced, because newer intent wins.
+			// The sync-race rule, which is also the crash-recovery rule: the new name already holds a value (Settings
+			// Sync delivered it, or an earlier run wrote it and crashed before the deletion) - keep it, drop the old
+			// key.
+			//
+			//   Under the Settings Sync reading -> knowingly lossy for THIS machine's entries
 			deletions.push(oldId);
 			keptNewNames += 1;
 			return { value: newValue };
@@ -133,16 +112,13 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 	processRecord(LEGACY_MODEL_PARAMETERS_ID, NEW_MODEL_PARAMETERS_ID, "parameters");
 	const capabilitiesState = processRecord(LEGACY_MODEL_CAPABILITIES_ID, NEW_MODEL_CAPABILITIES_ID, "capabilities");
 
-	// --- The global headers move into the entries. The copies are the whole
-	// migration: every receiving entry gets the headers verbatim, so the deleted
-	// setting survives as plaintext in the user's own settings.json. A value no
-	// entry can receive is left in place instead (the inert-global-headers hint
-	// points at it), so nothing is ever lost.
+	//   The copies are the whole migration -> the deleted setting survives as plaintext in the user's own settings.json
+	//   A value no entry can receive is left in place instead -> the inert-global-headers hint points at it
 	const rawHeaders = globalOf(LEGACY_HEADERS_ID);
 	if (rawHeaders !== undefined) {
 		if (!isRecord(rawHeaders) || Object.keys(rawHeaders).length === 0) {
-			// Nothing any entry could receive: the old readers sent nothing for
-			// this value, so it drains without a copy.
+			// Nothing any entry could receive: the old readers sent nothing for this value, so it drains without a
+			// copy.
 			deletions.push(LEGACY_HEADERS_ID);
 			logLines.push("Removed the global headers setting from user settings; it carried no usable headers");
 		} else {
@@ -163,7 +139,6 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 		}
 	}
 
-	// --- The default* token trio merges into the models.capabilities "*" record.
 	const trio = mergeTokenDefaults(capabilitiesState.value, snapshot);
 	if (trio.capabilitiesValue !== undefined) {
 		const existing = valueWrites.findIndex((write) => write.section === NEW_MODEL_CAPABILITIES_ID);
@@ -191,7 +166,6 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 		);
 	}
 
-	// --- The scalar renames, values carried verbatim.
 	for (const { oldId, newId } of LEGACY_SCALAR_RENAMES) {
 		const oldValue = globalOf(oldId);
 		if (oldValue === undefined) {
@@ -207,7 +181,6 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 		renamedSettings += 1;
 	}
 
-	// --- Assemble the plan: servers first, then the other value writes, deletions last.
 	const writes: SettingWrite[] = [];
 	if (!isDeepStrictEqual(serversValue, rawServers)) {
 		writes.push({ section: SERVERS_ID, value: serversValue });

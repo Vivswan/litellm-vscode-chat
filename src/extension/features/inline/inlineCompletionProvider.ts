@@ -1,10 +1,7 @@
 /**
- * The inline-completions provider core: debounce, language filter, model
- * gate, cache, one item. The transport is INJECTED (InlineCompletionSend) so
- * this core carries no connection resolution or wire code; the wiring
- * composes it with the real send and registers it only while the feature is
- * enabled. Failures degrade silently to "no suggestion" - ghost text has no
- * error surface - and cancellation is never logged.
+ * The transport is INJECTED (InlineCompletionSend) so this core carries no connection resolution or wire code; the
+ * wiring composes it with the real send and registers it only while the feature is enabled. Failures degrade silently
+ * to "no suggestion" - ghost text has no error surface - and cancellation is never logged.
  */
 
 import * as vscode from "vscode";
@@ -33,10 +30,9 @@ export interface InlineCompletionRequest {
 }
 
 /**
- * The transport seam: resolves the entry connection, applies the resolved
- * record's `_fim_template`, and performs the one non-streaming /completions
- * call. Returns the completion text, or undefined when the response carried
- * none; throws its transport errors (vscode.CancellationError on abort).
+ * The transport seam: resolves the entry connection, applies the resolved record's `_fim_template`, and performs the
+ * one non-streaming /completions call. Returns the completion text, or undefined when the response carried none;
+ * throws its transport errors (vscode.CancellationError on abort).
  */
 export type InlineCompletionSend = (request: InlineCompletionRequest) => Promise<string | undefined>;
 
@@ -45,10 +41,9 @@ export interface InlineCompletionProviderDeps {
 	/** Owned by the wiring, which invalidates it on model or configuration changes. */
 	readonly cache: CompletionCache;
 	/**
-	 * The extension's output-channel logger; English-only lines. The provider
-	 * runs on every keystroke, so it deduplicates its own lines once per
-	 * session per class - an unbounded per-invocation line would evict the
-	 * real errors from the issue-report buffer.
+	 * The extension's output-channel logger; English-only lines. The provider runs on every keystroke, so it
+	 * deduplicates its own lines once per session per class - an unbounded per-invocation line would evict the real
+	 * errors from the issue-report buffer.
 	 */
 	readonly log: (message: string, data?: unknown) => void;
 }
@@ -68,12 +63,10 @@ function isCancellation(error: unknown): boolean {
 
 class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
 	/**
-	 * Advisory classes already logged; every line below goes through adviseOnce,
-	 * so none can recur per keystroke. Deliberately a once-latch rather than
-	 * Logger.advisory: advisory() only protects the issue-report buffer, and a
-	 * provider running on every keystroke would still flood the CHANNEL with one
-	 * line per keystroke - while a send failure is a real once-per-session error
-	 * that belongs in the buffer exactly once per failure class.
+	 * Advisory classes already logged; every line below goes through adviseOnce, so none can recur per keystroke.
+	 * Deliberately a once-latch rather than Logger.advisory: advisory() only protects the issue-report buffer, and a
+	 * provider running on every keystroke would still flood the CHANNEL with one line per keystroke - while a send
+	 * failure is a real once-per-session error that belongs in the buffer exactly once per failure class.
 	 */
 	private readonly advised = new Set<string>();
 
@@ -88,9 +81,8 @@ class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
 	}
 
 	/**
-	 * A settings getter's advisory sink, deduplicated per setting scope AND
-	 * message: one setting's malformed value must not silence another's
-	 * advisory (the line itself stays the getter's own wording).
+	 * A settings getter's advisory sink, deduplicated per setting scope AND message: one setting's malformed value must
+	 * not silence another's advisory (the line itself stays the getter's own wording).
 	 */
 	private settingsLog(scope: string): (message: string, data?: unknown) => void {
 		return (message, data) => {
@@ -123,10 +115,9 @@ class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
 			return undefined;
 		}
 
-		// Bounded reads through the shared truncation pipeline: one unit past
-		// each budget so a cut landing inside a surrogate pair is visible and
-		// repaired here, exactly as the transport's own truncation would - the
-		// cache key and the wire prefix stay one string by construction.
+		// Bounded reads through the shared truncation pipeline: one unit past each budget so a cut landing inside a
+		// surrogate pair is visible and repaired here, exactly as the transport's own truncation would - the cache key
+		// and the wire prefix stay one string by construction.
 		const offset = document.offsetAt(position);
 		const prefix = truncateFimPrefix(
 			document.getText(new vscode.Range(document.positionAt(Math.max(0, offset - (FIM_PREFIX_BUDGET + 1))), position))
@@ -146,16 +137,16 @@ class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
 			text = await this.deps.send({ modelRef, prefix, suffix, token });
 		} catch (error) {
 			if (!isCancellation(error)) {
-				// Once per failure class: a server that stays down must not write a
-				// line per keystroke while distinct failure kinds stay visible.
+				// Once per failure class: a server that stays down must not write a line per keystroke while distinct
+				// failure kinds stay visible.
 				const label = errorLabel(error);
 				this.adviseOnce(`send-failed:${label}`, "Inline completion request failed", { error: label });
 			}
 			return undefined;
 		}
 		if (text === undefined) {
-			// A response without usable text is transient (malformed body); leave
-			// the cache alone so the next keystroke may try again.
+			// A response without usable text is transient (malformed body); leave the cache alone so the next keystroke
+			// may try again.
 			return undefined;
 		}
 		this.deps.cache.set(key, text);

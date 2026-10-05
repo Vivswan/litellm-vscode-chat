@@ -33,10 +33,8 @@ import {
 type LogFn = (message: string, data?: unknown) => void;
 
 /**
- * One consultation, from the caller's input to the consulted model's reply
- * text. The tool and the dashboard's probe both go through this, so the probe
- * proves exactly what an agent's call would do - connection resolution, prompt
- * assembly, the outgoing bound, and the wire body included.
+ * The tool and the dashboard's probe both go through this, so the probe proves exactly what an agent's call would do
+ * - connection resolution, prompt assembly, the outgoing bound, and the wire body included.
  */
 export type ConsultSend = (request: {
 	readonly modelRef: FeatureModelRef;
@@ -45,19 +43,18 @@ export type ConsultSend = (request: {
 }) => Promise<string>;
 
 /**
- * The outgoing prompt's own bound, in UTF-16 code units, fixed in code like
- * the sibling one-shot features' input limits (commit generation's
- * DIFF_CHAR_LIMIT, inline completions' context window). It exists so a runaway
- * agent cannot POST an unbounded body; it is deliberately NOT the host's
- * `tokenBudget`, which governs what the tool RETURNS - see fitConsultReply.
- * Generous enough that a real question with its code context passes untouched.
+ * The outgoing prompt's own bound, in UTF-16 code units, fixed in code like the sibling one-shot features' input
+ * limits (commit generation's DIFF_CHAR_LIMIT, inline completions' context window). It exists so a runaway agent
+ * cannot POST an unbounded body; it is deliberately NOT the host's `tokenBudget`, which governs what the tool RETURNS
+ * - see fitConsultReply.
+ *
+ *   Generous enough -> a real question with its code context passes untouched
  */
 export const CONSULT_PROMPT_CHAR_LIMIT = 60_000;
 
 /**
- * The prompt bound as the core's fitting machinery consumes it: one "token"
- * per code unit, so the same measured bisection that fits a token budget fits
- * this character budget, with no second truncation pipeline.
+ * The prompt bound as the core's fitting machinery consumes it: one "token" per code unit, so the same measured
+ * bisection that fits a token budget fits this character budget, with no second truncation pipeline.
  */
 const PROMPT_BUDGET: ConsultTokenizationOptions = {
 	tokenBudget: CONSULT_PROMPT_CHAR_LIMIT,
@@ -65,12 +62,10 @@ const PROMPT_BUDGET: ConsultTokenizationOptions = {
 };
 
 /**
- * The host's tokenization options as the core consumes them, with the call's
- * cancellation token bound into the counter: the core awaits one count at a
- * time, so cancelling mid-fit rejects out of the counter instead of running
- * the whole bisection first. Undefined when the caller advertised no budget -
- * an unknown budget must not become a guessed one, so the reply then travels
- * whole.
+ * The host's tokenization options as the core consumes them, with the call's cancellation token bound into the
+ * counter: the core awaits one count at a time, so cancelling mid-fit rejects out of the counter instead of running
+ * the whole bisection first. Undefined when the caller advertised no budget - an unknown budget must not become a
+ * guessed one, so the reply then travels whole.
  */
 function boundTokenization(
 	options: vscode.LanguageModelToolTokenizationOptions | undefined,
@@ -82,9 +77,8 @@ function boundTokenization(
 }
 
 /**
- * The one consultation pipeline: the core's prompt assembly under the fixed
- * outgoing bound, then the features' shared send composition (featureChatSend:
- * connection resolution, the consultTool error surface, the chat timeout).
+ * The one consultation pipeline: the core's prompt assembly under the fixed outgoing bound, then the features' shared
+ * send composition (featureChatSend: connection resolution, the consultTool error surface, the chat timeout).
  */
 function createConsultSend(secrets: vscode.SecretStorage, oneShot: OneShotClient, log: LogFn): ConsultSend {
 	return async ({ modelRef, input, token }) => {
@@ -105,18 +99,13 @@ function createConsultSend(secrets: vscode.SecretStorage, oneShot: OneShotClient
 }
 
 /**
- * The dashboard's test-model probe question. Model-facing text, so it stays
- * English by policy, and it carries nothing of the user's - no file, no
- * selection, no chat history.
+ * Model-facing text, so it stays English by policy, and it carries nothing of the user's - no file, no selection, no
+ * chat history.
  */
 export const PROBE_QUESTION = "Reply with one short sentence confirming that you received this question.";
 
 /**
- * The probe: the shared send over that fixed question, so it proves exactly
- * what an agent's consultation would do. Unbudgeted, like any caller that
- * supplies no tokenization options, and it applies the tool's own emptiness
- * rule so the dashboard's "answered with no text" copy fires on exactly the
- * replies the tool would call empty.
+ * The probe: the shared send over that fixed question, so it proves exactly what an agent's consultation would do.
  */
 export function createConsultProbe(send: ConsultSend): (model: FeatureModelRef) => Promise<string | undefined> {
 	return (model) =>
@@ -127,10 +116,9 @@ export function createConsultProbe(send: ConsultSend): (model: FeatureModelRef) 
 }
 
 /**
- * The tool itself. Read-only by contract - it asks a model a question and
- * returns text - so prepareInvocation contributes a progress message and NO
- * confirmationMessages: confirmation is for tools with side effects, and one
- * here would interrupt every agent turn for nothing.
+ * Read-only by contract - it asks a model a question and returns text - so prepareInvocation contributes a progress
+ * message and NO confirmationMessages: confirmation is for tools with side effects, and one here would interrupt
+ * every agent turn for nothing.
  */
 class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 	constructor(
@@ -143,10 +131,9 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 	};
 
 	/**
-	 * Free of side effects and not necessarily followed by an invoke: it only
-	 * reads the configured model to name it. The model ID is user
-	 * configuration, safe to render; the caller's question is not, since a
-	 * progress line is no place for an agent-written prompt.
+	 * Free of side effects and not necessarily followed by an invoke: it only reads the configured model to name it.
+	 * The model ID is user configuration, safe to render; the caller's question is not, since a progress line is no
+	 * place for an agent-written prompt.
 	 */
 	prepareInvocation(): vscode.PreparedToolInvocation {
 		const ref = getFeatureModelRef("consultTool");
@@ -160,9 +147,8 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 		options: vscode.LanguageModelToolInvocationOptions<ConsultToolInput>,
 		token: vscode.CancellationToken
 	): Promise<vscode.LanguageModelToolResult> {
-		// Registration already gates on both halves, but a configuration change
-		// races an in-flight agent turn: the tool answers the live settings, not
-		// the ones it happened to be registered under.
+		// Registration already gates on both halves, but a configuration change races an in-flight agent turn:
+		// the tool answers the live settings, not the ones it happened to be registered under.
 		if (!isFeatureEnabled("consultTool")) {
 			throw localizedError(
 				featureDisabledMessage("consultTool"),
@@ -178,11 +164,8 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 				"ConsultTool(no model configured)"
 			);
 		}
-		// The contributed schema does not bind the host: an input missing the
-		// required question arrives here as-is, so the parse is what stops a
-		// literal "undefined" from reaching the consulted model. The refusal goes
-		// back to the CALLING model, which can fix the call and retry, so it says
-		// what was wrong rather than just failing.
+		// The refusal goes back to the CALLING model, which can fix the call and retry, so it says what was wrong
+		// rather than just failing.
 		const input = readConsultInput(options.input);
 		if (input === undefined) {
 			throw localizedError(
@@ -199,11 +182,9 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 				// User cancellation: never logged, and the host owns the surfacing.
 				throw error;
 			}
-			// The feature's single logging boundary; the logger records the
-			// English mirror or classification the thrown error carries, so
-			// neither the agent's question nor the server's response text reaches
-			// the issue-report buffer through this line. The classified error
-			// itself travels on to the chat view that invoked the tool.
+			// The feature's single logging boundary; the logger records the English mirror or classification the thrown
+			// error carries, so neither the agent's question nor the server's response text reaches the issue-report
+			// buffer through this line. The classified error itself travels on to the chat view that invoked the tool.
 			this.logger.error("Consult tool consultation failed", error);
 			throw error;
 		}
@@ -245,8 +226,8 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 }
 
 /**
- * Wire the feature. Returns the send so the dashboard's test-model probe runs
- * the exact pipeline an agent's consultation runs (one pipeline, one truth).
+ * Returns the send so the dashboard's test-model probe runs the exact pipeline an agent's consultation runs (one
+ * pipeline, one truth).
  */
 export function wireConsultTool(
 	context: vscode.ExtensionContext,
@@ -259,11 +240,9 @@ export function wireConsultTool(
 	const consultSend = createConsultSend(context.secrets, deps.oneShot, log);
 	const tool = new ConsultTool(consultSend, logger);
 
-	// The enablement decision reruns on every configuration change, so its
-	// malformed-setting advisory goes to the channel only (Logger.advisory) - a
-	// recurring informational line must not evict real errors from the
-	// issue-report buffer. A real invocation still reads the setting with the
-	// buffer-logging sink attached (ConsultTool.invoke).
+	// The enablement decision reruns on every configuration change, so its malformed-setting advisory goes to the
+	// channel only (Logger.advisory) - a recurring informational line must not evict real errors from the issue-report
+	// buffer. A real invocation still reads the setting with the buffer-logging sink attached (ConsultTool.invoke).
 	const advisory: LogFn = (message, data) => {
 		logger.advisory(message, data);
 	};
@@ -276,11 +255,9 @@ export function wireConsultTool(
 			registration.dispose();
 			registration = undefined;
 		}
-		// The manifest's when-clause reads this key, so the entry in the agent's
-		// tool picker appears exactly when the tool is REGISTERED. Gating the
-		// contribution on the enable boolean alone would advertise the tool
-		// through the half-configured state (enabled, no model yet), where every
-		// call could only fail.
+		// The manifest's when-clause reads this key, so the entry in the agent's tool picker appears exactly when the
+		// tool is REGISTERED. Gating the contribution on the enable boolean alone would advertise the tool through the
+		// half-configured state (enabled, no model yet), where every call could only fail.
 		void vscode.commands.executeCommand("setContext", CONSULT_TOOL_READY_CONTEXT_KEY, active);
 	};
 	applyEnablement();

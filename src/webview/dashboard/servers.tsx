@@ -29,20 +29,19 @@ import { Section } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
 
 /**
- * A row's stable identity: origin plus opaque handle or setting-unique label.
- * The list key AND every per-row armed/pending state compare by this, never by
- * the label alone - a declared entry and an external group can wear the same
- * label (labels join only together with the URL), and a label-keyed armed
- * Remove would arm both rows at once.
+ * The list key AND every per-row armed/pending state compare by this, never by the label alone - a declared entry and
+ * an external group can wear the same label (labels join only together with the URL), and a label-keyed armed Remove
+ * would arm both rows at once.
  */
 function serverRowKey(server: DashboardServer): string {
 	return `${server.origin}:${server.origin === "legacy" ? server.groupHandle : (server.adoptHandle ?? server.label)}`;
 }
 
 /**
- * The dot's tone, derived from the row's WORST diagnostic - one classifier, never a second
- * computed beside it. An advisory-only row stays plain "ok": an advisory means nothing is
- * wrong, and tinting the dot for one would be the false alarm the tier itself refuses.
+ * The dot's tone, derived from the row's WORST diagnostic - one classifier, never a second computed beside it.
+ *
+ *   An advisory-only row                                                        -> stays plain "ok"
+ *   tinting the dot for one would be the false alarm the tier itself refuses -> stays plain "ok"
  */
 function pillTone(
 	verdict: ServerHealthVerdict,
@@ -63,14 +62,11 @@ function pillTone(
 }
 
 /**
- * Every English word the status pill can say: serverHealth's seven verdicts
- * collapse onto these six ("Connected" covers both the clean and the
- * expected-serving states). The literals repeat in pillVerdict below because
- * l10n extraction only sees a bare string literal inside l10n.t, so this union
- * is the vocabulary's declared shape rather than its derivation: the bun
- * statusVocabulary suite compile-pins the cross-surface table's word list to it
- * and asserts the rendered pill words equal the table's, verdict by covered
- * verdict.
+ * Every English word the status pill can say: serverHealth's seven verdicts collapse onto these six ("Connected" covers
+ * both the clean and the expected-serving states). The literals repeat in pillVerdict below because l10n extraction
+ * only sees a bare string literal inside l10n.t, so this union is the vocabulary's declared shape rather than its
+ * derivation: the bun statusVocabulary suite compile-pins the cross-surface table's word list to it and asserts the
+ * rendered pill words equal the table's, verdict by covered verdict.
  */
 export type ServerPillWord =
 	| "Connected"
@@ -81,8 +77,8 @@ export type ServerPillWord =
 	| "Misconfigured";
 
 /**
- * The verdict said in words. Words only, no hover tips: the pill sits inside the
- * disclosure button, and a focusable tip wrapper inside a button is a nesting fault.
+ * Words only, no hover tips: the pill sits inside the disclosure button, and a focusable tip wrapper inside a button is
+ * a nesting fault.
  */
 function pillVerdict(verdict: ServerHealthVerdict): string {
 	switch (verdict) {
@@ -93,14 +89,14 @@ function pillVerdict(verdict: ServerHealthVerdict): string {
 		case "serving":
 			return l10n.t("Connected");
 		case "degraded":
-			// Serving through a failed sync, whichever state carries it - the same
-			// degraded rank the row's diagnostic holds, so word and dot agree.
+			// Serving through a failed sync, whichever state carries it - the same degraded rank the row's diagnostic
+			// holds, so word and dot agree.
 			return l10n.t("Sync issue");
 		case "blocking":
 			return l10n.t("Error");
 		case "expected":
-			// One state, one name across tabs: still-serving reads Connected here exactly as
-			// the Diagnostics grid reads it OK.
+			// One state, one name across tabs: still-serving reads Connected here exactly as the Diagnostics grid reads
+			// it OK.
 			return l10n.t("Connected");
 		case "expected-blocking":
 			return l10n.t("Expected failure");
@@ -108,8 +104,7 @@ function pillVerdict(verdict: ServerHealthVerdict): string {
 }
 
 /**
- * The row's status pill: tone dot, verdict, and discovery age. Word and tone read the same
- * classifiers the row's diagnostics rank by, so the pill can never drift from the lines.
+ * Word and tone read the same classifiers the row's diagnostics rank by, so the pill can never drift from the lines.
  */
 function StatusPill({
 	server,
@@ -117,7 +112,6 @@ function StatusPill({
 	now,
 }: {
 	server: DashboardServer;
-	/** The row's worst diagnostic severity; absent when the row has no problems. */
 	worst: DiagnosticSeverity | undefined;
 	now: number;
 }) {
@@ -155,7 +149,6 @@ function ServerRow({
 	server: DashboardServer;
 	/** The server's usage card, denied cards included; absent when the proxy serves no usage data. */
 	usage: UsageServerCardView | undefined;
-	/** The snapshot-wide spend inputs (thresholds, currency, polling, timeout). */
 	spend: SpendContext;
 	now: number;
 	armed: boolean;
@@ -164,7 +157,9 @@ function ServerRow({
 	/** Posts the hideExternalServer intent for this row; the section owns the requestId and the follow-up notice. */
 	onHideExternal: (server: ExternalDashboardServer) => void;
 	onShowModels: ((label: string) => void) | undefined;
-	/** A sync this row asked for is in flight; the section clears it on the next push. */
+	/**
+	 *   A sync this row asked for -> is in flight
+	 */
 	retrying: boolean;
 	/** A sync is in flight for some row; the command is fleet-wide, so none may start another. */
 	syncBusy: boolean;
@@ -182,17 +177,17 @@ function ServerRow({
 		sendRequest("removeServerSetting", { label: server.label, baseUrl: server.baseUrl });
 		onArmRemove(false);
 	};
-	// The declare control's confirm step, per row (row identity is keyed, so a push cannot
-	// re-associate the armed state). The pair survives the post - that is where
-	// "Declaring..." renders - and disarms when the round trip ends, either answer.
+	// The declare control's confirm step, per row (row identity is keyed, so a push cannot re-associate the armed
+	// state). The pair survives the post - that is where "Declaring..." renders - and disarms when the round trip ends,
+	// either answer.
 	const [armedDeclare, setArmedDeclare] = useState<ExpectedFailureCategory | undefined>(undefined);
 	useEffect(() => {
 		if (!declaring) {
 			setArmedDeclare(undefined);
 		}
 	}, [declaring]);
-	// Local state on purpose: a push that reorders rows keeps each drawer with its keyed
-	// row, and a closed dashboard forgets, exactly like the model rows.
+	// Local state on purpose: a push that reorders rows keeps each drawer with its keyed row, and a closed dashboard
+	// forgets, exactly like the model rows.
 	const [open, setOpen] = useState(false);
 	const drawerId = useId();
 	const { lines: diagnostics, usageDetailsCarried } = serverDiagnostics(server, usage, spend, {
@@ -207,24 +202,26 @@ function ServerRow({
 			? { onDeclareExpected, armedDeclare, onArmDeclare: setArmedDeclare, declaring }
 			: {}),
 	});
-	// The pill and the attention count read the FULL ranked list; only the lines split by
-	// placement, so a drawer-deferred warning still signals.
+	// The pill and the attention count read the FULL ranked list; only the lines split by placement, so a
+	// drawer-deferred warning still signals.
 	const rowDiagnostics = diagnostics.filter((diagnostic) => diagnostic.placement !== "drawer");
 	const drawerDiagnostics = diagnostics.filter((diagnostic) => diagnostic.placement === "drawer");
 	const url = urlParts(server.baseUrl);
 	const usageNumbers = usage?.kind === "usage" ? usage : undefined;
 	return (
-		// The actions are revealed by hover AND focus-within: hover alone would put Remove out
-		// of the keyboard's reach entirely.
+		// The actions are revealed by hover AND focus-within: hover alone would put Remove out of the keyboard's reach
+		// entirely.
 		<li className="server-item">
 			<div className="server-row">
 				{/* One disclosure button for the whole readable block, actions as its sibling
 				    (a button cannot contain a button); the chevron is decoration, aria-expanded
-				    announces. border-control-outline: transparent in ordinary themes (no
-				    preflight, so a bare button wears the UA's box), the contrast border under
-				    high contrast. The hover/open wash lives on the WRAPPER row (:has rules):
+				    announces. The hover/open wash lives on the WRAPPER row (:has rules):
 				    the button stops short of the actions column, and a wash that stopped with
-				    it cut the row into two boxes. */}
+				    it cut the row into two boxes.
+
+				      border-control-outline -> transparent in ordinary themes
+				      no preflight           -> a bare button wears the UA's box
+				      border-control-outline -> the contrast border under high contrast */}
 				<button
 					type="button"
 					className="server-line rounded-sm border border-control-outline text-left focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset-inset) focus-visible:outline-ring focus-visible:outline-solid"
@@ -246,8 +243,7 @@ function ServerRow({
 					    shapes; the stylesheet names the columns, not this order. */}
 					<span className="server-meta">
 						<span className="server-url">
-							{/* The scheme is its own element so the stylesheet can hide it from the
-							    paint alone. */}
+							{/* The scheme is its own element so the stylesheet can hide it from the paint alone. */}
 							{url.scheme.length > 0 ? (
 								<span className={url.quiet ? "url-scheme visually-hidden" : "url-scheme"}>{url.scheme}</span>
 							) : null}
@@ -264,15 +260,14 @@ function ServerRow({
 							<SpendUnit usage={usageNumbers} thresholds={spend.thresholds} currencySymbol={spend.currencySymbol} />
 						</span>
 						<span className="server-badges">
-							{/* The credential kind is the information, so it is the visible text.
-							    Badges assert presence only: both "absent" and the pre-proof
-							    "unknown" stay blank here, and the drawer's Authentication fact
-							    tells the two apart. */}
+							{/* The credential kind is the information, so it is the visible text. Badges assert
+							    presence only: both "absent" and the pre-proof "unknown" stay blank here, and the
+							    drawer's Authentication fact tells the two apart. */}
 							{server.hasOAuth || server.credentials === "present" ? (
 								<Badge>{server.hasOAuth ? "OAuth" : l10n.t("API key")}</Badge>
 							) : null}
-							{/* Provenance is the drawer's Origin fact; a hover tip here would be a
-							    focusable wrapper inside this button. */}
+							{/* Provenance is the drawer's Origin fact; a hover tip here would be a focusable wrapper
+							    inside this button. */}
 							{server.origin === "external" ? <Badge>{l10n.t("external")}</Badge> : null}
 							{server.origin === "legacy" ? <Badge>{l10n.t("legacy")}</Badge> : null}
 						</span>
@@ -283,19 +278,16 @@ function ServerRow({
 				<span className={armed ? "server-actions armed" : "server-actions"}>
 					{server.origin === "legacy" ? null : armed ? (
 						<>
-							{/* At the narrowest tier the armed pair covers ALL of the row, so the name
-							    the reader is checking against goes inside the cover there, ellipsized;
-							    the stylesheet hides it above, where the row's own name still stands.
-							    The buttons carry the label in their accessible names at every tier,
-							    LEADING with their visible words (Label in Name). */}
+							{/* At the narrowest tier the armed pair covers ALL of the row, so the name the reader
+							    is checking against goes inside the cover there, ellipsized; the stylesheet hides it
+							    above, where the row's own name still stands. The buttons carry the label in their
+							    accessible names at every tier, LEADING with their visible words (Label in Name). */}
 							<span className="armed-subject">{server.label}</span>
 							<Button
 								variant="danger"
 								size="compact"
 								aria-label={l10n.t("Confirm remove? {0}", server.label)}
 								onClick={() => {
-									// The same two-step confirm for every origin; only the intent differs
-									// (setting removal by label vs. hiding by tombstone).
 									if (server.origin === "external") {
 										onHideExternal(server);
 										onArmRemove(false);
@@ -357,14 +349,12 @@ function ServerRow({
 					/>
 				</div>
 			) : null}
-			{/* OUTSIDE the disclosure: an action behind a fold is one most readers never
-			    find. */}
+			{/* OUTSIDE the disclosure: an action behind a fold is one most readers never find. */}
 			{rowDiagnostics.map((diagnostic) => (
 				<ServerDiagnosticLine key={diagnostic.key} diagnostic={diagnostic} />
 			))}
-			{/* A closed drawer keeps its notices in the ACCESSIBLE tree: the meter's tone is
-			    colour, which a screen reader never gets. The open drawer renders the visible
-			    line, so the twin stands down with it. */}
+			{/* A closed drawer keeps its notices in the ACCESSIBLE tree: the meter's tone is colour, which a screen
+			    reader never gets. The open drawer renders the visible line, so the twin stands down with it. */}
 			{!open
 				? drawerDiagnostics.map((diagnostic) => (
 						<div key={diagnostic.key} className="visually-hidden">
@@ -377,9 +367,8 @@ function ServerRow({
 }
 
 /**
- * One acked intent's standing failure, framed by the action that failed and dismissed through
- * the hook's reset. The adopt and save banners stay hand-built: a committed write's failure
- * drops the frame, since the message then reports what landed.
+ * The adopt and save banners stay hand-built: a committed write's failure drops the frame, since the message then
+ * reports what landed.
  */
 function IntentFailureBanner({
 	message,
@@ -403,12 +392,11 @@ function IntentFailureBanner({
 }
 
 /**
- * The collapsed hidden-groups line. A removed group offers Unhide, which clears the removal
- * tombstone extension-side (the group's models return on the host's next re-resolution, which
- * the extension triggers), and the routes to a real deletion: the models file always, and
- * Manage Language Models searched for the synced name when the sync created the group. A
- * superseded leftover offers nothing: it stays hidden while its entry points at another URL,
- * and the declared row carries the fix.
+ * A removed group offers Unhide, which clears the removal tombstone extension-side (the group's models return on the
+ * host's next re-resolution, which the extension triggers), and the routes to a real deletion: the models file
+ * always, and Manage Language Models searched for the synced name when the sync created the group. A superseded
+ * leftover offers nothing: it stays hidden while its entry points at another URL, and the declared row carries the
+ * fix.
  */
 function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 	const [expanded, setExpanded] = useState(false);
@@ -416,8 +404,7 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 	if (hidden.length === 0) {
 		return null;
 	}
-	// One control that states the whole thing. Open drops the count: it is the reason to
-	// open the list and says nothing once it is open.
+	// Open drops the count: it is the reason to open the list and says nothing once it is open.
 	const label = expanded
 		? l10n.t("Hide")
 		: hidden.length === 1
@@ -507,11 +494,11 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 }
 
 /**
- * The worst FRESH server's spend against its budget - deliberately not a total: two entries
- * sharing a key would count its spend twice. It reads the pushed spentFraction (the host's
- * resolveBudget computed it, never re-divided here) and reduces through the same
- * worstSpendTone as the status bar (docs/usage.md), so the two cannot disagree. A
- * budget-less server contributes nothing.
+ * The worst FRESH server's spend against its budget - deliberately not a total: two entries sharing a key would count
+ * its spend twice.
+ *
+ *   the pushed spentFraction       -> the host's resolveBudget computed it, never re-divided here
+ *   the status bar (docs/usage.md) -> reduces through the same worstSpendTone
  */
 function worstFreshBudgetFraction(usage: DashboardUsage | undefined): number | undefined {
 	const fractions = (usage?.servers ?? []).flatMap((server) =>
@@ -521,8 +508,7 @@ function worstFreshBudgetFraction(usage: DashboardUsage | undefined): number | u
 }
 
 /**
- * The header's state summary, every clause a whole sentence fragment so extraction sees
- * literals, not concatenation.
+ * The header's state summary, every clause a whole sentence fragment so extraction sees literals, not concatenation.
  */
 function serversMeta(
 	serverCount: number,
@@ -537,9 +523,8 @@ function serversMeta(
 	}
 	const worst = worstFreshBudgetFraction(usage);
 	if (worst !== undefined) {
-		// "use", because a bare "budget 87%" reads as budget REMAINING. The freshness gloss
-		// appears only when it bites: with no stale spend on the page, it would gloss an
-		// exclusion the reader cannot see.
+		// "use", because a bare "budget 87%" reads as budget REMAINING. The freshness gloss appears only when it bites:
+		// with no stale spend on the page, it would gloss an exclusion the reader cannot see.
 		clauses.push(
 			staleSpendVisible
 				? l10n.t("worst budget use {0} (stale rows excluded)", formatPercent(worst))
@@ -564,9 +549,7 @@ export function ServersSection({
 	onAddServer,
 }: {
 	servers: readonly DashboardServer[];
-	/** Groups the user's configuration hides (removed, or superseded); rendered as the collapsed hidden-groups line. */
 	hidden?: readonly HiddenGroup[];
-	/** The pushed usage snapshot; the rows' spend units, drawers, and diagnostics all read it. */
 	usage?: DashboardUsage | undefined;
 	/** The configured spend prefix (usage.currencySymbol); display only, never a conversion. */
 	currencySymbol: string;
@@ -574,15 +557,13 @@ export function ServersSection({
 	now: number;
 	/** Scope the models section to one server; absent, the drawers' model counts stay plain text. */
 	onShowModels?: ((label: string) => void) | undefined;
-	/** A declared row's Edit; the shell opens the edit destination on it. */
 	onEditServer: (label: string) => void;
 	/** An external row's Edit, which adopts rather than edits; addressed by its opaque handle. */
 	onAdoptServer: (handle: string) => void;
 	onAddServer: () => void;
 }) {
-	// One outcome hook per acked method: the failure banners render each hook's latest fail
-	// (a later ok retires it), and Dismiss is the hook's reset. Separate hook instances from
-	// the open form's own - both see the same envelopes.
+	// One outcome hook per acked method: the failure banners render each hook's latest fail (a later ok retires it),
+	// and Dismiss is the hook's reset. Separate hook instances from the open form's own - both see the same envelopes.
 	const saveIntent = useIntentOutcome("saveServerSetting");
 	const removeIntent = useIntentOutcome("removeServerSetting");
 	const adoptIntent = useIntentOutcome("adoptServer");
@@ -590,25 +571,24 @@ export function ServersSection({
 	const unhideIntent = useIntentOutcome("unhideServer");
 	const manageIntent = useIntentOutcome("manageHiddenGroup");
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
-	// The row whose Retry is in flight, and the request that will answer it. The id is held,
-	// not just the row: useIntentOutcome reports the METHOD's latest envelope whoever
-	// posted it, and the rail's Sync button posts the same method. Keyed by row identity
-	// (label rides along only for the aria-live text), like the armed Remove.
+	// The id is held, not just the row: useIntentOutcome reports the METHOD's latest envelope whoever posted it, and
+	// the rail's Sync button posts the same method. Keyed by row identity (label rides along only for the aria-live
+	// text), like the armed Remove.
 	const [retrying, setRetrying] = useState<
 		{ readonly rowKey: string; readonly label: string; readonly requestId: string } | undefined
 	>(undefined);
-	// Whether the fleet has ever been checked at all: the live region below needs it so a
-	// first-run page does not announce a clean bill of health it never took.
+	// Whether the fleet has ever been checked at all: the live region below needs it so a first-run page does not
+	// announce a clean bill of health it never took.
 	const newestCheck = latestCheckedMs(servers) ?? 0;
 	const syncIntent = useIntentOutcome("syncModels");
 	const syncOutcome = syncIntent.outcome;
-	// Clear on either answer to THIS row's request; the failure is deliberately not rendered
-	// here, because runModelSync already reports every outcome as a VS Code toast.
+	// Clear on either answer to THIS row's request; the failure is deliberately not rendered here, because runModelSync
+	// already reports every outcome as a VS Code toast.
 	useEffect(() => {
 		setRetrying((current) => (current !== undefined && syncOutcome?.id === current.requestId ? undefined : current));
 	}, [syncOutcome]);
-	// The row whose declare-expected intent is unanswered, keyed like the retry state: only
-	// the answer to THIS request may clear it - either answer, a failed declare is finished.
+	// The row whose declare-expected intent is unanswered, keyed like the retry state: only the answer to THIS request
+	// may clear it - either answer, a failed declare is finished.
 	const declareIntent = useIntentOutcome("declareExpectedFailure");
 	const [pendingDeclare, setPendingDeclare] = useState<
 		{ readonly rowKey: string; readonly label: string; readonly requestId: string } | undefined
@@ -619,17 +599,16 @@ export function ServersSection({
 			current !== undefined && declareOutcome?.id === current.requestId ? undefined : current
 		);
 	}, [declareOutcome]);
-	// The one-time post-adoption notice: the old host-owned group survives (no removal API),
-	// so the user is told plainly why models now appear twice.
+	// The one-time post-adoption notice: the old host-owned group survives (no removal API), so the user is told
+	// plainly why models now appear twice.
 	const [adoptNotice, setAdoptNotice] = useState<string | undefined>(undefined);
-	// The hide round trip: requestId plus the row's label, so the guidance notice can name
-	// the exact group to delete once the ack lands. Only the ack crosses the boundary.
+	// The hide round trip: requestId plus the row's label, so the guidance notice can name the exact group to delete
+	// once the ack lands. Only the ack crosses the boundary.
 	const [pendingHide, setPendingHide] = useState<{ requestId: string; label: string; baseUrl: string } | undefined>(
 		undefined
 	);
-	// The hidden row's label AND base URL: the notice must name the URL, since
-	// an unlabeled group's display label is only its URL host, not the name the
-	// host's editor or its models file carries.
+	// The hidden row's label AND base URL: the notice must name the URL, since an unlabeled group's display label is
+	// only its URL host, not the name the host's editor or its models file carries.
 	const [removedNotice, setRemovedNotice] = useState<{ label: string; baseUrl: string } | undefined>(undefined);
 	const pendingHideRequestId = pendingHide?.requestId;
 	const pendingHideLabel = pendingHide?.label;
@@ -659,41 +638,39 @@ export function ServersSection({
 	const manageFailure = manageIntent.outcome?.result === "fail" ? manageIntent.outcome : undefined;
 	const declareFailure = declareIntent.outcome?.result === "fail" ? declareIntent.outcome : undefined;
 	const noServers = servers.length === 0;
-	// The snapshot's spend inputs once, read by rows, diagnostics, and header meta alike, so
-	// a threshold can never rank a row differently from the line under it.
+	// The snapshot's spend inputs once, read by rows, diagnostics, and header meta alike, so a threshold can never
+	// rank a row differently from the line under it.
 	const spend: SpendContext = {
 		thresholds: usage?.thresholds ?? [],
 		currencySymbol,
 		pollingOff: usage?.pollIntervalMs === 0,
 		discoveryTimeoutMs: usage?.discoveryTimeoutMs ?? 0,
 	};
-	// Usage is keyed by label (the usage store's documented join key), so only declared rows
-	// look it up; a URL spelling difference must not break the join. Denied cards join too -
-	// they carry the row's usage-denied diagnostic.
+	// Usage is keyed by label (the usage store's documented join key), so only declared rows look it up; a URL spelling
+	// difference must not break the join. Denied cards join too - they carry the row's usage-denied diagnostic.
 	const usageByLabel = new Map((usage?.servers ?? []).map((view) => [view.label, view] as const));
 	const usageFor = (server: DashboardServer) =>
 		server.origin === "declared" ? usageByLabel.get(server.label) : undefined;
-	// Rows carrying something worth acting on, read through the same classifier the rows
-	// render - a second predicate would drift. Advisories excluded on purpose; a denied
-	// usage key counts, per the tier contract's user-ruled carve-out.
+	// Rows carrying something worth acting on, read through the same classifier the rows render - a second predicate
+	// would drift. Advisories excluded on purpose; a denied usage key counts, per the tier contract's user-ruled
+	// carve-out.
 	const attentionCount = servers.filter((server) =>
 		serverDiagnostics(server, usageFor(server), spend, { onEdit: () => {}, onRetry: () => {} }).lines.some(
 			(diagnostic) => diagnostic.severity !== "advisory"
 		)
 	).length;
-	// Whether any rendered row shows a stale spend number - the same join the rows use, so
-	// the header's staleness gloss appears exactly when a "stale"-marked figure is on page.
+	//   Whether any rendered row shows a stale spend number -> the same join the rows use
 	const staleSpendVisible = servers.some((server) => {
 		const card = usageFor(server);
 		return card?.kind === "usage" && !card.fresh && card.spend !== undefined;
 	});
 
-	// The edit page owns the adopt round trip and leaves on its own ack; this hook sees the
-	// same envelope, which is what lets the notice belong to the list, not the page that left.
+	// The edit page owns the adopt round trip and leaves on its own ack; this hook sees the same envelope, which is
+	// what lets the notice belong to the list, not the page that left.
 	const adoptOutcome = adoptIntent.outcome;
 	const adoptedId = adoptOutcome?.result === "ok" ? adoptOutcome.id : undefined;
 	const adoptedCaveat = adoptOutcome?.result === "ok" ? adoptOutcome.message : undefined;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the acked id so one ack raises one notice; the caveat is read at fire time
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the acked id so one ack raises one notice
 	useEffect(() => {
 		if (adoptedId === undefined) {
 			return;
@@ -720,11 +697,10 @@ export function ServersSection({
 						<Button onClick={onAddServer}>
 							<IconAdd /> {l10n.t("Add server")}
 						</Button>
-						{/* Fleet-wide usage re-fetch. Disabled during ANY pass (one serialized
-						    engine); the busy label only for an EXPLICIT one - a spinner on every
-						    scheduled poll read as the app acting unasked. Both labels stay mounted
-						    in one grid cell, the hidden one holding the width, so the swap cannot
-						    resize the button; check-geometry's servers-refresh-busy pair holds that. */}
+						{/* Disabled during ANY pass (one serialized engine); the busy label only for an EXPLICIT one -
+						    a spinner on every scheduled poll read as the app acting unasked. Both labels stay mounted
+						    in one grid cell, the hidden one holding the width, so the swap cannot resize the button;
+						    check-geometry's servers-refresh-busy pair holds that. */}
 						<Button
 							variant="secondary"
 							className="refresh-usage"
@@ -892,10 +868,10 @@ export function ServersSection({
 									// health the page has never taken.
 									l10n.t("No servers have been checked yet")}
 					</p>
-					{/* The list's ONE in-flight announcement: a changed accessible name is
-					    announced only on the FOCUSED element, and a mouse user's focus never sits
-					    on the button they pressed. One region, not per cluster - status regions
-					    are atomic, and a fleet-wide flag flips every label at once. */}
+					{/* The list's ONE in-flight announcement: a changed accessible name is announced only on the
+					    FOCUSED element, and a mouse user's focus never sits on the button they pressed. One region,
+					    not per cluster - status regions are atomic, and a fleet-wide flag flips every label at
+					    once. */}
 					<p className="visually-hidden" role="status" aria-live="polite">
 						{[
 							retrying !== undefined ? l10n.t("Checking {0}", retrying.label) : undefined,

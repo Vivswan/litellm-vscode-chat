@@ -1,9 +1,6 @@
 /**
- * The Configuration diagnostics builder: every settings problem the extension
- * can spot, reduced to the serializable ConfigDiagnosticView list the
- * Diagnostics tab renders. Pure over its inputs. Free text stays structural
- * (setting ids, record keys, header names) - never entered values - because
- * the entry problems also ride the copyable diagnostics block.
+ * Free text stays structural (setting ids, record keys, header names) - never entered values - because the entry
+ * problems also ride the copyable diagnostics block.
  */
 
 import type { ConfigDiagnosticView, HiddenGroup } from "../../dashboard/viewModels";
@@ -28,30 +25,30 @@ import type { SettingsReader } from "./state";
 import { rejectsWithOwnRow } from "./state";
 
 export interface ConfigDiagnosticsInput {
-	/** The litellm-vscode-chat configuration section; the builder reads the record settings and leftovers itself. */
 	readonly reader: SettingsReader;
 	/** The per-entry acceptance reports (serverSettingReports over the raw setting). */
 	readonly entryReports: readonly ServerEntryReport[];
-	/** The declared entries' own records, for the entry-layer record lints. */
 	readonly declared: readonly Pick<DeclaredServerView, "label" | "modelParameters" | "modelCapabilities">[];
-	/** The groups the user's configuration hides (removed, or superseded), as the state builder renders them (visibleHiddenGroups). */
+	/**
+	 * The groups the user's configuration hides (removed, or superseded), as the state builder renders them
+	 * (visibleHiddenGroups).
+	 */
 	readonly hiddenGroups: readonly HiddenGroup[];
 	/**
-	 * Each entry's observed /model/info key set, by entry label: the evidence
-	 * the entry-layer advisory hints filter against. An absent entry has no
-	 * set, so its unrecognized-key hints drop (no false hints on declared-only
-	 * entries, expected modelInfo failures, the /models fallback, or
-	 * pre-discovery). Server-derived strings: never logged, membership through
-	 * the Map only.
+	 * Each entry's observed /model/info key set, by entry label: the evidence the entry-layer advisory hints filter
+	 * against. Server-derived strings: never logged, membership through the Map only.
+	 *
+	 * An absent entry has no set -> its unrecognized-key hints drop (no false hints on declared-only entries, expected
+	 *   modelInfo failures, the /models fallback, or pre-discovery)
 	 */
 	readonly observedKeysByEntry?: ReadonlyMap<string, readonly string[]> | undefined;
 	/**
-	 * The observed-key union across servers that reported a set: the global
-	 * records' evidence - a global record applies to every server, so a key any
-	 * server observed is real. Undefined when no server reported a set; then
-	 * every global hint drops. Known residual: with mixed evidence, a key only
-	 * an evidence-less server knows still hints, which is why the hint stays
-	 * advisory-severity.
+	 * The observed-key union across servers that reported a set: the global records' evidence - a global record applies
+	 * to every server, so a key any server observed is real. Undefined when no server reported a set; then every global
+	 * hint drops.
+	 *
+	 * Known residual: with mixed evidence, a key only an evidence-less server knows still hints -> the hint stays
+	 *   advisory-severity
 	 */
 	readonly observedKeysUnion?: readonly string[] | undefined;
 }
@@ -66,13 +63,12 @@ function recordDiagnostics(
 		setting,
 		...(entryLabel !== undefined ? { entryLabel } : {}),
 		diagnostic,
-		// A surviving unrecognized-key is advisory by construction: the filter
-		// already dropped everything without evidence. Every other kind warns.
+		// A surviving unrecognized-key is advisory by construction: the filter already dropped everything without
+		// evidence. Every other kind warns.
 		severity: diagnostic.kind === "unrecognized-key" ? ("advisory" as const) : ("warning" as const),
 	}));
 }
 
-/** The capabilities-record lint with the advisory filter applied; see filterUnrecognizedKeyDiagnostics. */
 function capabilityLint(
 	records: ModelCapabilitiesRecord,
 	observedKeys: readonly string[] | undefined
@@ -85,9 +81,7 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 	const modelParametersValue = input.reader.get(NEW_MODEL_PARAMETERS_ID);
 	const modelCapabilitiesValue = input.reader.get(NEW_MODEL_CAPABILITIES_ID);
 
-	// The two global records, linted record-level so keys no model matches
-	// still report. Capability unrecognized-key hints filter against the
-	// cross-server observed union: a global record applies everywhere.
+	// The two global records, linted record-level so keys no model matches still report.
 	diagnostics.push(
 		...recordDiagnostics(
 			"models.parameters",
@@ -101,8 +95,6 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		)
 	);
 
-	// Every entry's own records, attributed to the entry; the entry's
-	// capability hints filter against its own server's observed set.
 	for (const view of input.declared) {
 		if (view.modelParameters !== undefined) {
 			diagnostics.push(
@@ -120,12 +112,9 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		}
 	}
 
-	// The servers-setting parser's per-entry reports. Each carries whether a
-	// server row was drawn for it, read from the same rejectsWithOwnRow rule
-	// buildServers draws by, so the Diagnostics destination can drop exactly
-	// the problems a row already states.
-	// Keyed by the report's own index, never by object identity: the rule
-	// returns narrowed copies, and a Set of those would match nothing here.
+	// Each carries whether a server row was drawn for it, read from the same rejectsWithOwnRow rule buildServers draws
+	// by, so the Diagnostics destination can drop exactly the problems a row already states. Keyed by the report's own
+	// index, never by object identity: the rule returns narrowed copies, and a Set of those would match nothing here.
 	const drawnRows = new Set(rejectsWithOwnRow(input.entryReports, input.declared).map((report) => report.index));
 	for (const report of input.entryReports) {
 		if (report.problems.length > 0) {
@@ -141,7 +130,6 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		}
 	}
 
-	// Legacy leftovers the redesign migration deliberately left in place.
 	for (const hint of collectLegacyHints({
 		globalHeadersValue: input.reader.get(LEGACY_HEADERS_ID),
 		modelParametersValue,
@@ -156,9 +144,8 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		});
 	}
 
-	// Hidden groups (removed, or superseded) serve no models; the Diagnostics
-	// tab must say so (a hidden-only setup otherwise reads as a healthy
-	// configuration with zero models and no visible cause).
+	// Hidden groups (removed, or superseded) serve no models; the Diagnostics tab must say so (a hidden-only setup
+	// otherwise reads as a healthy configuration with zero models and no visible cause).
 	if (input.hiddenGroups.length > 0) {
 		diagnostics.push({
 			kind: "hidden-groups",
@@ -167,8 +154,8 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		});
 	}
 
-	// Out-of-range usage.alertThresholds values are dropped, not clamped, and
-	// the drop is a diagnostic rather than silent.
+	// Out-of-range usage.alertThresholds values are dropped, not clamped, and the drop is a diagnostic rather than
+	// silent.
 	const rawThresholds = input.reader.get(USAGE_ALERT_THRESHOLDS_SETTING_KEY);
 	if (Array.isArray(rawThresholds)) {
 		const kept = normalizeUsageAlertThresholds(rawThresholds).length;

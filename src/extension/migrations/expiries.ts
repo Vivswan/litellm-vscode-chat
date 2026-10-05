@@ -1,21 +1,17 @@
 /**
- * The dead-man switch that keeps migrations from accumulating: every member of
- * MIGRATIONS (plus any out-of-runner migration module, today the bareArrayBlobs
- * read-time view) declares the date its legacy state stops being worth
- * carrying - its introduction date plus three months - and a fail-closed test
- * turns the build red once today is past it. The dates are deliberate expiry
- * decisions, free to push out - what is not free is silence.
+ * The dead-man switch that keeps migrations from accumulating: every member of MIGRATIONS (plus any out-of-runner
+ * migration module, today the bareArrayBlobs read-time view) declares the date its legacy state stops being worth
+ * carrying - its introduction date plus three months - and a fail-closed test turns the build red once today is past
+ * it. ZERO imports on purpose: scripts/ci/migration-expiry-table.ts static-imports this module, and the release-PR
+ * workflow runs that script with bare bun and --no-install (no node_modules), so this leaf must stay dependency-free -
+ * the bun smoke test enforces it.
  *
- * The table is also the vocabulary of migration states: MigrationStateId is read off it, every ExtensionMigration's
- * `state` is typed against it, and index.ts accounts for every id as registered or out-of-runner, so a migration
- * without a row, or a row without a migration, fails to compile.
- *
- * ZERO imports on purpose: scripts/ci/migration-expiry-table.ts static-imports
- * this module, and the release-PR workflow runs that script with bare bun and
- * --no-install (no node_modules), so this leaf must stay dependency-free -
- * the bun smoke test enforces it. An import of the extension's vscode-typed
- * graph would also break the scripts tsconfig program, which lacks the
- * extension program's ambient vscode augmentations.
+ *   The dates are deliberate expiry decisions, free to push out -> what is not free is silence
+ *   MigrationStateId is read off it, every ExtensionMigration's `state` is typed against it, and index.ts accounts
+ *   for every id as registered or out-of-runner
+ *     -> a migration without a row, or a row without a migration, fails to compile
+ *   An import of the extension's vscode-typed graph -> would also break the scripts tsconfig program, which lacks the
+ *                                                      extension program's ambient vscode augmentations
  */
 
 export interface MigrationExpiry {

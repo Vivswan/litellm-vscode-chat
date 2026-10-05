@@ -5,40 +5,33 @@ import { modelsMarkdown, type ProviderSnapshot } from "./modelsMarkdown";
 import { type ResolvedReference, withReferences } from "./references";
 
 /**
- * The participant's slash commands: the built-in table plus the registration
- * seam other features extend (quick fixes add /fix and /explain through it).
- * A command sees one turn's worth of injected capability - the prompt, the
- * converted history, the provider snapshots, and the two output channels -
- * so commands stay pure and the handler owns transport and error handling.
+ * The participant's slash commands: the built-in table plus the registration seam other features extend (quick fixes
+ * add /fix and /explain through it). A command sees one turn's worth of injected capability - the prompt, the converted
+ * history, the provider snapshots, and the two output channels - so commands stay pure and the handler owns transport
+ * and error handling.
  */
 
-/** What one slash command may do with the current turn. */
 export interface SlashCommandTurn {
 	/** The free text after the command, verbatim - the user's words only, with nothing attached. */
 	readonly prompt: string;
 	/**
-	 * The turn's attachments (the selection, the open file, every `#file:`),
-	 * read on demand. A thunk for the same reason snapshots is one: reading
-	 * them costs document opens, and a command that answers without the user's
-	 * code - /models, for one - should not pay for context it discards.
+	 * The turn's attachments (the selection, the open file, every `#file:`), read on demand. A thunk for the same
+	 * reason snapshots is one: reading them costs document opens, and a command that answers without the user's code -
+	 * /models, for one - should not pay for context it discards.
 	 */
 	attachments(): Promise<readonly ResolvedReference[]>;
 	/** The prior turns, already converted; a command sending a request decides whether they ride along. */
 	readonly history: readonly ChatMessage[];
 	/**
-	 * The provider groups' last known models, for zero-network answers. A
-	 * function, not an array: only the commands that answer FROM the snapshots
-	 * should pay for reading them, so a snapshot read that fails cannot take
-	 * down /tests or /docs, which never look.
+	 * A function, not an array: only the commands that answer FROM the snapshots should pay for reading them, so a
+	 * snapshot read that fails cannot take down /tests or /docs, which never look.
 	 */
 	snapshots(): readonly ProviderSnapshot[];
-	/** Write markdown to the response stream. */
 	report(markdown: string): void;
 	/**
-	 * Send messages to the request's model and stream its reply; rejects ride
-	 * to the handler's catch. The array is normalized to wire shape first,
-	 * which can empty it, not just reshape it: answers before the first user
-	 * message drop, so forward history alone only with a user message behind it.
+	 * Send messages to the request's model and stream its reply; rejects ride to the handler's catch. The array is
+	 * normalized to wire shape first, which can empty it, not just reshape it: answers before the first user message
+	 * drop, so forward history alone only with a user message behind it.
 	 */
 	send(messages: readonly ChatMessage[]): Promise<void>;
 }
@@ -51,20 +44,17 @@ export interface SlashCommand<Name extends string = string> {
 	/** The name the host routes on: the contribution's command name, without the slash. */
 	readonly name: Name;
 	/**
-	 * Shown in the participant's help listing, resolved through the RUNTIME
-	 * l10n bundle. The manifest carries its own package.nls copy of the same
-	 * prose for the host's `/` picker, because the host reads the manifest long
-	 * before this process exists and the two runtimes cannot share one string.
-	 * What IS shared is the name vocabulary: the manifest's command list is generated from the tables.
+	 * The manifest carries its own package.nls copy of the same prose for the host's `/` picker, because the host reads
+	 * the manifest long before this process exists and the two runtimes cannot share one string. What IS shared is the
+	 * name vocabulary: the manifest's command list is generated from the tables.
+	 *
+	 *   Shown in the participant's help listing -> resolved through the RUNTIME l10n bundle
 	 */
 	readonly description: string;
 	run(turn: SlashCommandTurn): Promise<void>;
 }
 
-/**
- * The model-facing instructions the prompt-shaping commands prepend.
- * Model-facing text stays English by policy.
- */
+/** Model-facing text stays English by policy. */
 export const TESTS_INSTRUCTION = [
 	"Write tests for the code or request below.",
 	"Reply with runnable test code in fenced code blocks, following the conventions visible in the conversation.",
@@ -76,15 +66,14 @@ export const DOCS_INSTRUCTION = [
 	"Reply in markdown, concise and example-led: what it is for, how to use it, and the edge cases worth knowing.",
 ].join("\n");
 
-/** The instruction with the user's text below it; an empty prompt sends the instruction alone. */
 function instructed(instruction: string, prompt: string): string {
 	return prompt.trim() === "" ? instruction : `${instruction}\n\n${prompt}`;
 }
 
 /**
  * The commands whose sample requests say "the selected function", so they must not arrive without the turn's
- * attachments. Exported because the quick-fix /fix and /explain in quickFixChatCommands.ts are the same shape,
- * and a second copy would be a second answer to what a prompt-shaping command does with attachments.
+ * attachments. Exported because the quick-fix /fix and /explain in quickFixChatCommands.ts are the same shape, and a
+ * second copy would be a second answer to what a prompt-shaping command does with attachments.
  */
 export function promptCommand<Name extends string>(
 	name: Name,
@@ -119,17 +108,15 @@ export function builtinSlashCommands(): [SlashCommand<"tests">, SlashCommand<"do
 
 /**
  * Every name the participant answers: the built-in table's and the quick-fix bridge's (quickFixChatCommands.ts), read
- * off the tables rather than listed, so a routing site - a followup, for one - naming a command no table registers
- * does not compile. The manifest's command list is generated from the same tables (scripts/dev/manifest).
+ * off the tables rather than listed, so a routing site - a followup, for one - naming a command no table registers does
+ * not compile. The manifest's command list is generated from the same tables (scripts/dev/manifest).
  */
 export type SlashCommandName = ReturnType<typeof builtinSlashCommands>[number]["name"] | QuickFixSlashCommandName;
 
-/** The registration seam: lookup for the handler, register for the features that extend the table. */
 export interface SlashCommandRegistry {
 	/** Add a command; a name collision throws, because a silently shadowed command is a routing bug. */
 	register(command: SlashCommand): void;
 	find(name: string): SlashCommand | undefined;
-	/** Every command in registration order. */
 	list(): readonly SlashCommand[];
 }
 

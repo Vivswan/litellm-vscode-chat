@@ -1,7 +1,6 @@
 /**
- * Pure presentation logic shared by the extension host and the webview: no
- * vscode, DOM, or Node. Localized strings resolve at call time, never as
- * module-level constants - modules load before the bundle is configured.
+ * Pure presentation logic shared by the extension host and the webview: no vscode, DOM, or Node. Localized strings
+ * resolve at call time, never as module-level constants - modules load before the bundle is configured.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -23,11 +22,9 @@ export function classifyOverall(
 	})[],
 	context: { readonly hiddenGroupCount?: number } = {}
 ): OverallVerdict {
-	// Hidden groups leave the server list, but the status window carries each
-	// one as an ok status serving zero models. Synthesizing the same members
-	// here makes the two classifier inputs equal BY CONSTRUCTION, so the rows
-	// verdict cannot diverge from the bar's on any mix of hidden groups with
-	// unchecked, failed, or misconfigured rows.
+	// Hidden groups leave the server list, but the status window carries each one as an ok status serving zero models.
+	// Synthesizing the same members here makes the two classifier inputs equal BY CONSTRUCTION, so the rows verdict
+	// cannot diverge from the bar's on any mix of hidden groups with unchecked, failed, or misconfigured rows.
 	const hiddenAsRows = Array.from(
 		{ length: context.hiddenGroupCount ?? 0 },
 		() => ({ state: "ok", servedModelCount: 0, origin: undefined }) as const
@@ -40,9 +37,8 @@ export function classifyOverall(
 	if (transport.length === 0) {
 		return "error";
 	}
-	// The serving test precedes the all-failed verdict: servedModelCount answers
-	// "does this server serve right now" on every state, so a failure still
-	// serving stale or declared models can never read as dead.
+	// The serving test precedes the all-failed verdict: servedModelCount answers "does this server serve right now" on
+	// every state, so a failure still serving stale or declared models can never read as dead.
 	const serving = transport.some((server) => server.state === "ok" || server.servedModelCount > 0);
 	const errors = transport.filter((server) => server.state === "error" && server.expected !== true).length;
 	if (errors === transport.length && !serving) {
@@ -54,8 +50,8 @@ export function classifyOverall(
 	if (serving) {
 		return "connected";
 	}
-	// Nothing serves and nothing failed unexpectedly: expected failures with no
-	// declared models are the actionable case, plain unchecked entries wait.
+	// Nothing serves and nothing failed unexpectedly: expected failures with no declared models are the actionable
+	// case, plain unchecked entries wait.
 	if (transport.some((server) => server.state === "error")) {
 		return "needs-declare";
 	}
@@ -63,10 +59,10 @@ export function classifyOverall(
 }
 
 /**
- * The verdict as one sentence, pinned by tests. English by policy: users paste
- * these lines into public issue reports, so localization sweeps must skip this
- * function. Hidden groups claim the connected verdict (through classifyOverall),
- * since their groups still answer.
+ * The verdict as one sentence, pinned by tests. English by policy: users paste these lines into public issue reports,
+ * so localization sweeps must skip this function.
+ *
+ *   their groups still answer -> Hidden groups claim the connected verdict (through classifyOverall)
  */
 export function overallStatusText(
 	servers: readonly DashboardServer[],
@@ -78,9 +74,8 @@ export function overallStatusText(
 		case "not-configured":
 			return "Not configured";
 		case "error": {
-			// The fallback only satisfies the type checker (the verdict guarantees an
-			// error row). A transport failure outranks a misconfigured row's fixed
-			// text: the real outage is the line worth pasting.
+			// The fallback only satisfies the type checker (the verdict guarantees an error row). A transport failure
+			// outranks a misconfigured row's fixed text: the real outage is the line worth pasting.
 			const errorRows = servers.filter((server) => server.state === "error");
 			const firstError =
 				(errorRows.find((server) => server.origin !== "misconfigured") ?? errorRows[0])?.error ?? "Unknown error";
@@ -96,10 +91,9 @@ export function overallStatusText(
 			if (modelCount !== 0) {
 				return `Connected (${modelCount} models)`;
 			}
-			// The zero-model reading is the same warning every other surface gives
-			// this state (see zeroModelJudgment): connected, nothing failed, and
-			// still nothing to serve. One English detail names the causes, shared
-			// with the log rendering (zeroModelEnglishDetail).
+			// One English detail names the causes, shared with the log rendering (zeroModelEnglishDetail).
+			//
+			//   The zero-model reading -> the same warning every other surface gives this state (see zeroModelJudgment)
 			return `Connected, but 0 models are served (${zeroModelEnglishDetail(
 				hiddenGroupCount,
 				servers.filter((server) => server.state === "ok").length
@@ -109,9 +103,8 @@ export function overallStatusText(
 }
 
 /**
- * The zero-model verdict's one explanation, shared by the status bar tooltip,
- * the notifier and Test Connection toasts, and the edit form's draft probe so
- * the surfaces cannot phrase the same fact differently. Localized;
+ * The zero-model verdict's one explanation, shared by the status bar tooltip, the notifier and Test Connection toasts,
+ * and the edit form's draft probe so the surfaces cannot phrase the same fact differently. Localized;
  * zeroModelEnglishDetail is the English mirror for logs and pasted reports.
  */
 export function zeroModelExplanation(hiddenCount: number, answeredCount: number): string {
@@ -141,9 +134,8 @@ export function zeroModelExplanation(hiddenCount: number, answeredCount: number)
 }
 
 /**
- * The zero-model causes as the English parenthetical logs and pasted reports
- * carry (classifications and counts only, never server text); the localized
- * twin is zeroModelExplanation. English by the issue-report policy.
+ * The zero-model causes as the English parenthetical logs and pasted reports carry (classifications and counts only,
+ * never server text); the localized twin is zeroModelExplanation. English by the issue-report policy.
  */
 export function zeroModelEnglishDetail(hiddenCount: number, answeredCount: number): string {
 	return hiddenCount > 0
@@ -152,10 +144,9 @@ export function zeroModelEnglishDetail(hiddenCount: number, answeredCount: numbe
 }
 
 /**
- * The entry-*-inactive classifications as diagnostics prose: each notice names
- * its affected fields, and one composer appends the shared cause-and-remedy
- * clause so the four texts cannot drift apart. English by policy - these lines
- * land in public issue reports.
+ * The entry-*-inactive classifications as diagnostics prose: each notice names its affected fields, and one composer
+ * appends the shared cause-and-remedy clause so the four texts cannot drift apart. English by policy - these lines land
+ * in public issue reports.
  */
 function entryInactiveText(subject: string): string {
 	return (
@@ -185,7 +176,6 @@ const EXPECTED_FAILURES_NOTHING_DECLARED_TEXT =
 const NON_CHAT_MODES_SKIPPED_TEXT =
 	"no models registered, and discovery skipped models by mode; add the modes to the entry's discovery.includeModes list to register them";
 
-/** One notice classification's fixed diagnostics prose; see the constants above. */
 function noticeText(notice: DeclaredServerNotice): string {
 	switch (notice) {
 		case "entry-params-inactive":
@@ -204,14 +194,9 @@ function noticeText(notice: DeclaredServerNotice): string {
 }
 
 /**
- * What an expected-failure row still serves, classified once: the declared set
- * IS the whole served list, the two counts differ (stale-window models beside
- * declared ones), or nothing is declared and only the stale window serves. The
- * English outcome line below and the Servers row's localized headline both
- * render from this, so the row can never contradict its own served count.
- * Discovery registers declared models into the served set, so "mixed" means
- * served > declared >= 1: both surfaces' mixed wording is plural on purpose,
- * with no singular form to drift.
+ * The English outcome line below and the Servers row's localized headline both render from this, so the row can never
+ * contradict its own served count. Discovery registers declared models into the served set, so "mixed" means
+ * served > declared >= 1: both surfaces' mixed wording is plural on purpose, with no singular form to drift.
  */
 export type ServedModelsBreakdown =
 	| { readonly kind: "declared"; readonly declared: number }
@@ -226,21 +211,15 @@ export function servedModelsBreakdown(served: number, declared: number): ServedM
 }
 
 /**
- * serverOutcomeText decomposed. serverOutcomeText composes exactly these
- * parts, flattening a two-part error's newline to " - " (the presenters suite
- * pins the equality), so the pieces and the copied line cannot drift apart in
- * wording.
+ * serverOutcomeText composes exactly these parts, flattening a two-part error's newline to " - " (the presenters suite
+ * pins the equality), so the pieces and the copied line cannot drift apart in wording.
  */
 export interface ServerOutcomeParts {
-	/** The verdict as a Status cell shows it. */
 	readonly status: "OK" | "Error" | "Misconfigured" | "Not checked yet";
-	/** The model-count clause the line parenthesizes ("3 models", "2 models still served"); absent when nothing serves. */
 	readonly models?: string | undefined;
 	/**
-	 * The row's error: an "error" state's message, with the English
-	 * "(expected)" annotation when the entry expects the category. A sync
-	 * failure is an error row (declaredOutcome), so an "ok" row never carries
-	 * one.
+	 * The row's error: an "error" state's message, with the English "(expected)" annotation when the entry expects the
+	 * category. A sync failure is an error row (declaredOutcome), so an "ok" row never carries one.
 	 */
 	readonly error?: string | undefined;
 	/** The row's warning notices, fixed classification text, one line each. */
@@ -250,8 +229,8 @@ export interface ServerOutcomeParts {
 export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts {
 	const notice = (server.notices ?? []).map(noticeText);
 	if (server.origin === "misconfigured") {
-		// The parser's structural reports (configuration key names, never entered
-		// values); English like the notices - these lines land in issue reports.
+		// The parser's structural reports (configuration key names, never entered values); English like the notices -
+		// these lines land in issue reports.
 		return { status: "Misconfigured", error: server.problems.join("; "), notice };
 	}
 	switch (server.state) {
@@ -259,18 +238,16 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 			return { status: "OK", models: `${server.servedModelCount} models`, notice };
 		case "error": {
 			if (server.expected === true) {
-				// Truthful error, expected presentation: the "(expected)" annotation
-				// stays English (it lands in issue reports). A row still serving -
-				// declared models, or the stale window's last known list - reads as
+				// Truthful error, expected presentation: the "(expected)" annotation stays English (it lands in issue
+				// reports). A row still serving - declared models, or the stale window's last known list - reads as
 				// OK-with-note, the same quiet verdict the row pill gives it.
 				const detail = statusErrorDetail(server.error);
 				const headline = `${statusErrorHeadline(server.error)} (expected)`;
 				const error = detail === undefined ? headline : `${headline}\n${detail}`;
 				const served = server.servedModelCount;
 				if (served > 0) {
-					// The models part always states the served total (the count the
-					// row and the merged surfaces show); the declared subset rides as
-					// a qualifier, owning the wording only when it IS the whole set.
+					// The models part always states the served total (the count the row and the merged surfaces show);
+					// the declared subset rides as a qualifier, owning the wording only when it IS the whole set.
 					const breakdown = servedModelsBreakdown(served, server.declaredModelCount ?? 0);
 					const models =
 						breakdown.kind === "declared"
@@ -286,9 +263,8 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 				}
 				return { status: "Error", error, notice };
 			}
-			// An unexpected failure that still serves (stale-window or declared
-			// models) says so beside the truthful error, so the paste line agrees
-			// with the row pill that the server is degraded, not dead.
+			// An unexpected failure that still serves (stale-window or declared models) says so beside the truthful
+			// error, so the paste line agrees with the row pill that the server is degraded, not dead.
 			if (server.servedModelCount > 0) {
 				const models =
 					server.servedModelCount === 1 ? "1 model still served" : `${server.servedModelCount} models still served`;
@@ -302,39 +278,32 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 }
 
 /**
- * One server's diagnostics outcome line, pinned by tests like
- * overallStatusText. English by policy: users paste these lines into public
- * issue reports.
+ * One server's diagnostics outcome line, pinned by tests like overallStatusText. English by policy: users paste these
+ * lines into public issue reports.
  */
 export function serverOutcomeText(server: DashboardServer): string {
 	const parts = serverOutcomeParts(server);
-	// "OK (2 declared models) - <error (expected)>" vs "Error: <error>": the
-	// error joins an OK line as an aside and an Error line as its object.
+	// "OK (2 declared models) - <error (expected)>" vs "Error: <error>": the error joins an OK line as an aside and an
+	// Error line as its object.
 	const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
-	// A two-part error (headline "\n" detail) flattens to one physical line:
-	// this is the copy-paste issue-report form.
+	// A two-part error (headline "\n" detail) flattens to one physical line: this is the copy-paste issue-report form.
 	const flatError = parts.error
 		?.split("\n")
 		.map((line) => line.trim())
 		.filter((line) => line.length > 0)
 		.join(" - ");
 	const error = flatError === undefined ? "" : parts.status === "OK" ? ` - ${flatError}` : `: ${flatError}`;
-	// Notices ride alongside whatever the state line says: a noticed row is
-	// usually healthy ("ok"), which is exactly why it needs calling out.
+	// Notices ride alongside whatever the state line says: a noticed row is usually healthy ("ok"), which is exactly
+	// why it needs calling out.
 	const notice = parts.notice.map((text) => ` - ${text}`).join("");
 	return `${status}${error}${notice}`;
 }
 
-/** The most recent lastChecked across the servers, as epoch milliseconds; undefined while nothing was checked. */
 export function latestCheckedMs(servers: readonly Pick<DashboardServer, "lastChecked">[]): number | undefined {
 	const times = servers.map((server) => server.lastChecked).filter((time) => time !== undefined);
 	return times.length > 0 ? Math.max(...times) : undefined;
 }
 
-/**
- * What each number setting counts. Value logic keys off these codes through
- * NUMBER_UNIT_BEHAVIOR; consumers read a setting's unit through unitBehavior().
- */
 const NUMBER_SETTING_UNITS = {
 	"chat.timeout": "ms",
 	"chat.maxToolsPerRequest": "count",
@@ -348,25 +317,24 @@ const NUMBER_SETTING_UNITS = {
 } as const satisfies Record<NumberSettingId, NumberSettingUnit>;
 
 /**
- * One unit's value behavior: everything the display and validation paths key
- * off a setting's unit, so adding a unit is one NUMBER_UNIT_BEHAVIOR row.
+ * One unit's value behavior: everything the display and validation paths key off a setting's unit, so adding a unit is
+ * one NUMBER_UNIT_BEHAVIOR row.
  */
 export interface NumberUnitBehavior {
-	/** A draft's numeric reading under the unit's grammar; undefined when the text has no reading. */
 	readonly parseDraft: (text: string) => number | undefined;
-	/** The localized problem to render when parseDraft has no reading. */
 	readonly parseProblem: () => string;
 	/** An exact human rendering of a value ("5 min"), or undefined to show the raw number. */
 	readonly exactDisplay: (value: number) => string | undefined;
 	/** The muted "= ..." equivalence beside the input, or undefined when the unit offers none. */
 	readonly equivalence: (value: number, zeroMeaning: string | undefined) => string | undefined;
-	/** The minimum bound as failure-detail text, unit-suffixed; stays English (it rides intent-failure detail lines). */
+	/**
+	 * The minimum bound as failure-detail text, unit-suffixed; stays English (it rides intent-failure detail lines).
+	 */
 	readonly minimumText: (minimum: number) => string;
 	/** Whether the grammar needs a free-text input (a number input would swallow suffix letters). */
 	readonly freeTextInput: boolean;
 }
 
-/** Millisecond multipliers for the duration grammar's unit suffixes. */
 const DURATION_SUFFIX_MS: Readonly<Record<string, number>> = {
 	ms: 1,
 	s: 1000,
@@ -375,17 +343,15 @@ const DURATION_SUFFIX_MS: Readonly<Record<string, number>> = {
 };
 
 /**
- * A duration draft as milliseconds: "1500ms", "90s", "5m", "1h" (suffixes
- * case-insensitive), or a bare number meaning milliseconds; undefined for
- * everything else, so the form renders one grammar error. Module-private:
- * every consumer reads durations through parseNumberDraft's single verdict.
+ * A duration draft as milliseconds: "1500ms", "90s", "5m", "1h" (suffixes case-insensitive), or a bare number meaning
+ * milliseconds; undefined for everything else, so the form renders one grammar error.
  */
 function parseDurationDraftMs(text: string): number | undefined {
 	const trimmed = text.trim();
 	const match = /^(.*?)(ms|s|m|h)$/i.exec(trimmed);
 	if (match === null) {
-		// No suffix: the bare-number-is-ms reading. Number("") is 0, so the empty
-		// draft must never reach this helper unguarded.
+		// No suffix: the bare-number-is-ms reading. Number("") is 0, so the empty draft must never reach this helper
+		// unguarded.
 		const bare = trimmed.length === 0 ? Number.NaN : Number(trimmed);
 		return Number.isFinite(bare) ? bare : undefined;
 	}
@@ -399,15 +365,14 @@ function parseDurationDraftMs(text: string): number | undefined {
 		return undefined;
 	}
 	const scaled = value * (DURATION_SUFFIX_MS[suffix] ?? Number.NaN);
-	// The scaling can overflow ("9e307h"): a non-finite product must not read as
-	// a valid draft. Finite products round to whole milliseconds.
+	// The scaling can overflow ("9e307h"): a non-finite product must not read as a valid draft. Finite products round
+	// to whole milliseconds.
 	return Number.isFinite(scaled) ? Math.round(scaled) : undefined;
 }
 
 /**
- * A millisecond count as humans read clocks: "5 min", "1 h 30 min". At most
- * two units; a truncated remainder gets a "~" instead of false precision, with
- * `exact` saying which happened. Sub-second values return undefined.
+ * A millisecond count as humans read clocks: "5 min", "1 h 30 min". At most two units; a truncated remainder gets a
+ * "~" instead of false precision, with `exact` saying which happened.
  */
 function formatDuration(ms: number): { label: string; exact: boolean } | undefined {
 	if (!Number.isInteger(ms) || ms < 1000) {
@@ -460,8 +425,7 @@ const NUMBER_UNIT_BEHAVIOR = {
 				return undefined;
 			}
 			const value = Number(trimmed);
-			// Counts are whole by definition; a fractional draft has no reading
-			// (the host-side getter floors hand-written fractions the same way).
+			//   Counts are whole by definition -> a fractional draft has no reading
 			return Number.isInteger(value) ? value : undefined;
 		},
 		parseProblem: () => l10n.t("Not a whole number"),
@@ -473,15 +437,12 @@ const NUMBER_UNIT_BEHAVIOR = {
 	},
 } as const satisfies Record<string, NumberUnitBehavior>;
 
-/** The closed unit vocabulary; adding a unit means adding its NUMBER_UNIT_BEHAVIOR row. */
 type NumberSettingUnit = keyof typeof NUMBER_UNIT_BEHAVIOR;
 
-/** The unit behavior of one number setting: the single lookup every unit-dependent path goes through. */
 export function unitBehavior(id: NumberSettingId): NumberUnitBehavior {
 	return NUMBER_UNIT_BEHAVIOR[NUMBER_SETTING_UNITS[id]];
 }
 
-/** One number setting's presentation strings, resolved per call so the l10n bundle is honored. */
 export interface NumberSettingPresentation {
 	readonly label: string;
 	readonly description: string;
@@ -492,9 +453,8 @@ export interface NumberSettingPresentation {
 }
 
 /**
- * The presentation of one number setting the dashboard edits. A function, not
- * a module-level catalog: these strings localize, and module-level constants
- * would freeze the English text before l10n.config runs.
+ * A function, not a module-level catalog: these strings localize, and module-level constants would freeze the English
+ * text before l10n.config runs.
  */
 export function numberSettingPresentation(id: NumberSettingId): NumberSettingPresentation {
 	switch (id) {
@@ -510,8 +470,8 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 			return {
 				label: l10n.t("Max tools per request"),
 				description: l10n.t("The most tools one request may carry."),
-				// A key of its own, apart from the capability chip's "tools": a
-				// count suffix may need a measure word where a chip label does not.
+				// A key of its own, apart from the capability chip's "tools": a count suffix may need a measure word
+				// where a chip label does not.
 				unit: l10n.t({ message: "tools", comment: ["Unit suffix after the max-tools count input."] }),
 			};
 		case "discovery.timeout":
@@ -564,10 +524,8 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 }
 
 /**
- * One draft's numeric reading under the field's grammar (the unit's
- * parseDraft); undefined when the text has no reading, empty included. The
- * single value extraction behind parseNumberDraft AND isBoundViolation, so the
- * two can never disagree about what a draft is worth.
+ * The single value extraction behind parseNumberDraft AND isBoundViolation, so the two can never disagree about what a
+ * draft is worth.
  */
 function draftValue(id: NumberSettingId, text: string): number | undefined {
 	const trimmed = text.trim();
@@ -578,9 +536,8 @@ function draftValue(id: NumberSettingId, text: string): number | undefined {
 }
 
 /**
- * What a modified number row shows as the setting's built-in default: the
- * unit's exact human rendering when it has one, the raw number otherwise. A
- * "~" approximation would misstate what the default actually is.
+ * What a modified number row shows as the setting's built-in default: the unit's exact human rendering when it has
+ * one, the raw number otherwise. A "~" approximation would misstate what the default actually is.
  */
 export function defaultDisplay(id: NumberSettingId): string {
 	const spec = NUMBER_SETTING_SPECS[id];
@@ -588,25 +545,22 @@ export function defaultDisplay(id: NumberSettingId): string {
 }
 
 /**
- * Whether a rejected draft failed only the minimum bound. The form keeps these
- * quiet until the field blurs (typing the 5 of 5000 passes through honest
- * below-minimum values), while true parse failures stay live. Reads the draft
- * through the same draftValue extraction parseNumberDraft uses.
+ * The form keeps these quiet until the field blurs (typing the 5 of 5000 passes through honest below-minimum values),
+ * while true parse failures stay live.
  */
 export function isBoundViolation(id: NumberSettingId, text: string): boolean {
 	const value = draftValue(id, text);
 	return value !== undefined && value < NUMBER_SETTING_SPECS[id].minimum;
 }
 
-/** One boolean setting's presentation strings, resolved per call so the l10n bundle is honored. */
 export interface BooleanSettingPresentation {
 	readonly label: string;
 	readonly description: string;
 }
 
 /**
- * The presentation of one boolean setting the dashboard edits; a function for
- * the same lazy-localization reason as numberSettingPresentation.
+ * The presentation of one boolean setting the dashboard edits; a function for the same lazy-localization reason as
+ * numberSettingPresentation.
  */
 export function booleanSettingPresentation(id: BooleanSettingId): BooleanSettingPresentation {
 	switch (id) {
@@ -623,8 +577,8 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 		case "models.openRouterCatalog":
 			return {
 				label: l10n.t("OpenRouter catalog"),
-				// Not rendered (the row shows the live status cluster instead) and so
-				// not filtered: this key and the tip's translate independently.
+				// Not rendered (the row shows the live status cluster instead) and so not filtered: this key and the
+				// tip's translate independently.
 				description: l10n.t("Fill missing model capabilities from the OpenRouter catalog, refreshed weekly."),
 			};
 		case "inlineCompletions.enabled":
@@ -723,9 +677,8 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 }
 
 /**
- * One number-setting draft parsed once: the error display, the commit, and the
- * equivalence hint all read this one parse, so a keystroke is judged exactly
- * once. ms-unit settings read drafts through the duration grammar.
+ *   One number-setting draft -> parsed once
+ *   parsed once              -> the error display, the commit, and the equivalence hint all read this one parse
  */
 export type NumberDraftParse =
 	| { readonly kind: "invalid"; readonly problem: string }
@@ -749,25 +702,22 @@ export function parseNumberDraft(id: NumberSettingId, text: string): NumberDraft
 }
 
 /**
- * The muted equivalence rendered next to a number input. Takes the value
- * parseNumberDraft committed to, so it cannot re-read the raw text by other
- * rules; the rendering itself is the unit's.
+ * Takes the value parseNumberDraft committed to, so it cannot re-read the raw text by other rules; the rendering itself
+ * is the unit's.
  */
 export function equivalence(id: NumberSettingId, value: number): string | undefined {
 	return unitBehavior(id).equivalence(value, numberSettingPresentation(id).zeroMeaning);
 }
 
 /**
- * The identity of a scalar setting's external state, which the settings form's
- * draft-resync effect keys on. Both halves are load-bearing: a reset can
- * change the configured scope while leaving the effective value untouched, and
+ * The identity of a scalar setting's external state, which the settings form's draft-resync effect keys on. Both
+ * halves are load-bearing: a reset can change the configured scope while leaving the effective value untouched, and
  * the draft must resync on that push too.
  */
 export function draftSyncKey(value: number | null, configuredScope: SettingScope | null): string {
 	return `${value === null ? "" : String(value)}@${configuredScope ?? "default"}`;
 }
 
-/** The human-readable name of a configuration scope, resolved per call so the l10n bundle is honored. */
 export function settingScopeLabel(scope: SettingScope): string {
 	switch (scope) {
 		case "global":
@@ -783,11 +733,7 @@ export type ParsedJsonValue =
 	| { readonly ok: true; readonly value: unknown }
 	| { readonly ok: false; readonly error: string };
 
-/**
- * Parse a model-parameter value typed into the dashboard: strict JSON, so
- * every type round-trips unambiguously. Invalid input is a validation error,
- * never a silent guess.
- */
+/** Invalid input is a validation error, never a silent guess. */
 export function parseJsonValue(text: string): ParsedJsonValue {
 	const trimmed = text.trim();
 	if (trimmed.length === 0) {
@@ -801,10 +747,8 @@ export function parseJsonValue(text: string): ParsedJsonValue {
 }
 
 /**
- * Parse a header value typed into the dashboard. Header values are scalars, so
- * this is lenient where parseJsonValue is strict: finite JSON scalars are
- * taken as typed values ("true" is a boolean, "42" a number, "\"42\"" a
- * string) and anything else is the literal string.
+ * Header values are scalars, so this is lenient where parseJsonValue is strict: finite JSON scalars are taken as typed
+ * values ("true" is a boolean, "42" a number, "\"42\"" a string) and anything else is the literal string.
  */
 export function parseHeaderValue(text: string): HeaderScalar {
 	const trimmed = text.trim();
@@ -813,9 +757,8 @@ export function parseHeaderValue(text: string): HeaderScalar {
 		if (typeof parsed === "string" || typeof parsed === "boolean") {
 			return parsed;
 		}
-		// Non-finite numbers (JSON.parse("1e999") is Infinity) fall through to the
-		// literal string: isHeaderScalar refuses them at the header-record parse
-		// boundary, so parsing them as numbers would make Apply a silent no-op.
+		// Non-finite numbers (JSON.parse("1e999") is Infinity) fall through to the literal string: isHeaderScalar
+		// refuses them at the header-record parse boundary, so parsing them as numbers would make Apply a silent no-op.
 		if (typeof parsed === "number" && Number.isFinite(parsed)) {
 			return parsed;
 		}
@@ -825,15 +768,13 @@ export function parseHeaderValue(text: string): HeaderScalar {
 	return trimmed;
 }
 
-/** Render a configured value back into the editable text the parse functions accept. */
 export function formatJsonValue(value: unknown): string {
 	return JSON.stringify(value) ?? "";
 }
 
 /**
- * Render a header value as parseHeaderValue-compatible text. Non-strings print
- * bare ("true", "42"); a string that would re-parse as a JSON scalar is quoted
- * so its type survives the round trip.
+ * Non-strings print bare ("true", "42"); a string that would re-parse as a JSON scalar is quoted so its type survives
+ * the round trip.
  */
 export function formatHeaderValue(value: HeaderScalar): string {
 	if (typeof value !== "string") {

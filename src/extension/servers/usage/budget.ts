@@ -1,19 +1,15 @@
 /**
- * Budget resolution and threshold-crossing state, pure so the unit and
- * property suites drive them without a server or a clock.
+ * Budget resolution and threshold-crossing state, pure so the unit and property suites drive them without a server or
+ * a clock.
  *
- * The precedence rule: the key-reported max_budget is the truth when present, a
- * declared entry's manual `budget` covers keys without one, and when BOTH exist
- * the entry value wins for alerting and bars while the key-reported number
- * stays in the status so the UI can show it beside the effective one.
+ *   when BOTH exist the entry value wins for alerting and bars while the key-reported number stays in the status
+ *     -> the UI can show it beside the effective one
  */
 
 import { usableThresholds } from "../../../shared/config/settingSpec";
 
-/** Which source provided the effective budget. */
 type BudgetSource = "entry" | "key" | "none";
 
-/** One server's resolved budget position, numbers only. */
 export interface BudgetStatus {
 	/** The declared entry's manual budget (USD), when set. */
 	readonly entryBudget: number | undefined;
@@ -22,13 +18,10 @@ export interface BudgetStatus {
 	/** The budget alerting and bars run against: entry over key. */
 	readonly effectiveBudget: number | undefined;
 	readonly budgetSource: BudgetSource;
-	/** The key-reported spend the fraction is computed from. */
 	readonly spend: number | undefined;
-	/** spend / effectiveBudget, when both are known and the budget is positive. */
 	readonly spentFraction: number | undefined;
 	/** The key-reported reset instant (epoch ms), when the key carries one. */
 	readonly budgetResetAt: number | undefined;
-	/** The configured alert fractions the spend currently sits at or above, ascending. */
 	readonly crossedThresholds: readonly number[];
 }
 
@@ -40,15 +33,13 @@ export interface ResolveBudgetInput {
 	readonly thresholds: readonly number[];
 }
 
-/** A usable budget or spend number: finite and non-negative (budgets additionally positive to divide by). */
 function usableAmount(value: number | undefined): number | undefined {
 	return value !== undefined && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 /**
- * A usable budget: positive only. LiteLLM's zero-means-unlimited convention
- * makes max_budget 0 "no budget", never a fully-spent one; entry budgets are
- * parsed as > 0 already, so this guards the key-reported side.
+ * A usable budget: positive only. LiteLLM's zero-means-unlimited convention makes max_budget 0 "no budget", never a
+ * fully-spent one; entry budgets are parsed as > 0 already, so this guards the key-reported side.
  */
 function usableBudget(value: number | undefined): number | undefined {
 	const amount = usableAmount(value);
@@ -76,10 +67,8 @@ export function resolveBudget(input: ResolveBudgetInput): BudgetStatus {
 }
 
 /**
- * The configured alert fractions the spend fraction sits at or above,
- * deduplicated and ascending. An unknown fraction crosses nothing. Which
- * fractions participate is the shared usableThresholds rule, so a raw
- * threshold list cannot smuggle a NaN or a zero that every spend would "cross".
+ * Which fractions participate is the shared usableThresholds rule, so a raw threshold list cannot smuggle a NaN or a
+ * zero that every spend would "cross".
  */
 export function crossedThresholds(spentFraction: number | undefined, thresholds: readonly number[]): number[] {
 	if (spentFraction === undefined || !Number.isFinite(spentFraction)) {
@@ -89,10 +78,8 @@ export function crossedThresholds(spentFraction: number | undefined, thresholds:
 }
 
 /**
- * The thresholds crossed NOW that were not crossed before: the store's
- * once-per-crossing dedup. Staying above a threshold yields nothing new;
- * dropping below it (a budget reset, a raised budget) re-arms it. A threshold
- * removed from the configuration simply stops appearing on either side.
+ * The thresholds crossed NOW that were not crossed before: the store's once-per-crossing dedup. Staying above a
+ * threshold yields nothing new; dropping below it (a budget reset, a raised budget) re-arms it.
  */
 export function newlyCrossedThresholds(previous: readonly number[], current: readonly number[]): readonly number[] {
 	const before = new Set(previous);

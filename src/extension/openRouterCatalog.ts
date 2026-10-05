@@ -1,22 +1,12 @@
 /**
- * The runtime home of the OpenRouter capability catalog: serves a
- * CapabilityCatalogLookup for the provider injection seam and keeps the
- * snapshot fresh on a weekly cadence.
+ * The runtime home of the OpenRouter capability catalog: serves a CapabilityCatalogLookup for the provider injection
+ * seam and keeps the snapshot fresh on a weekly cadence.
  *
- * Data flows through a fallback chain in which the FILE is the truth: the
- * cached refresh under globalStorageUri wins, the packaged
- * dist/openrouter-models.json backs it, and an empty snapshot backstops both -
- * a missing or malformed catalog degrades lookups to not-found, never
- * activation. The globalState key holds only advisory scheduling metadata
- * (globalState is not transactional; a lost timestamp costs one early refresh).
- * Cache writes go temp-then-rename so a crash mid-write cannot leave a torn
- * file as the truth.
- *
- * The opt-out setting (read through the injected isEnabled) stops exactly two
- * things: the periodic refresh and the implicit byRawModelId lookup. Explicit
- * `_openrouter_model` directives keep answering byExactId from the existing
- * snapshot - user intent, no network. Refresh failures log fixed
- * classifications only, never response-derived text.
+ *   Data flows through a fallback chain in which the FILE is the truth
+ *     -> the cached refresh under globalStorageUri wins, the packaged dist/openrouter-models.json backs it
+ *   The globalState key holds only advisory scheduling metadata -> a lost timestamp costs one early refresh
+ *   Cache writes go temp-then-rename -> a crash mid-write cannot leave a torn file as the truth
+ *   user intent, no network -> Explicit `_openrouter_model` directives keep answering byExactId
  */
 
 import * as vscode from "vscode";
@@ -47,16 +37,13 @@ const REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const FAILURE_RETRY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The soonest any refresh may run after scheduling: activation never pays for
- * catalog network, and a lost metadata timestamp (which schedules "soon") still
- * keeps the fetch off the startup path. The backoff sleeps stay well under it.
+ * The backoff sleeps stay well under it.
+ *
+ *   activation -> never pays for catalog network
+ *   a lost metadata timestamp (which schedules "soon") -> still keeps the fetch off the startup path
  */
 const MIN_SCHEDULE_DELAY_MS = 60_000;
 
-/**
- * Per-attempt bound; the whole refresh stays hard-bounded at
- * (1 + DISCOVERY_MAX_RETRIES) attempts of this plus the fixed backoffs.
- */
 const REFRESH_FETCH_TIMEOUT_MS = 30_000;
 
 export interface OpenRouterCatalogStoreOptions {
@@ -75,11 +62,11 @@ export interface OpenRouterCatalogStoreOptions {
 export interface OpenRouterCatalogStore extends vscode.Disposable {
 	/** The provider-injected view; stable identity, always answering from the current snapshot. */
 	readonly lookup: CapabilityCatalogLookup;
-	/** Fires after a successful refresh swaps in new data (wire to notifyModelInformationChanged + dashboard re-push). */
+	/**
+	 * Fires after a successful refresh swaps in new data (wire to notifyModelInformationChanged + dashboard re-push).
+	 */
 	readonly onDidUpdate: vscode.Event<void>;
-	/** The current snapshot, for consumers that list entries (the dashboard's catalog picker). */
 	snapshot(): OpenRouterCatalogSnapshot;
-	/** The dashboard row's status facts: size, last successful refresh, and the last failure when one stands. */
 	status(): OpenRouterCatalogStatus;
 	/** Load cache -> bundled -> empty and schedule the periodic refresh. Never throws. */
 	initialize(): Promise<void>;
@@ -90,9 +77,8 @@ export interface OpenRouterCatalogStore extends vscode.Disposable {
 }
 
 /**
- * The catalog facts the dashboard's models.openRouterCatalog row states. The
- * failure classification is the same fixed vocabulary the log line carries -
- * never response-derived text - and it stands until the next success.
+ * The catalog facts the dashboard's models.openRouterCatalog row states. The failure classification is the same fixed
+ * vocabulary the log line carries - never response-derived text - and it stands until the next success.
  */
 export interface OpenRouterCatalogStatus {
 	readonly modelCount: number;
@@ -104,10 +90,9 @@ export interface OpenRouterCatalogStatus {
 }
 
 /**
- * A refresh attempt failure the default fetch classified itself, carrying the
- * reason both fetchers share (src/shared/config/openRouterCatalog.ts); the
- * log word and the retry verdict both derive from that reason, and anything
- * else a fetch throws reads as a network failure (refreshFailureReason).
+ * A refresh attempt failure the default fetch classified itself, carrying the reason both fetchers share
+ * (src/shared/config/openRouterCatalog.ts); the log word and the retry verdict both derive from that reason, and
+ * anything else a fetch throws reads as a network failure (refreshFailureReason).
  */
 class RefreshFailure extends Error {
 	constructor(readonly reason: OpenRouterFetchFailure) {
@@ -115,15 +100,13 @@ class RefreshFailure extends Error {
 	}
 }
 
-/** The shared failure reason behind one failed attempt; an unclassified error is a network failure. */
 function refreshFailureReason(error: unknown): OpenRouterFetchFailure {
 	return error instanceof RefreshFailure ? error.reason : { kind: "network" };
 }
 
 /**
- * The fixed vocabulary the log line and the dashboard row carry: one word per
- * reason kind plus the status number - response-derived text never reaches
- * either, and the phase of a timeout is the script's evidence, not ours.
+ * The fixed vocabulary the log line and the dashboard row carry: one word per reason kind plus the status number -
+ * response-derived text never reaches either, and the phase of a timeout is the script's evidence, not ours.
  */
 function renderRefreshFailure(reason: OpenRouterFetchFailure): CatalogRefreshFailure {
 	switch (reason.kind) {
@@ -139,10 +122,8 @@ function renderRefreshFailure(reason: OpenRouterFetchFailure): CatalogRefreshFai
 }
 
 /**
- * Await the body under the signal that bounds the whole attempt. A
- * fetch-created body already tears down on abort; racing the signal explicitly
- * keeps the budget honest for any Response, and settles the read the moment
- * either abort fires rather than when the stream notices.
+ * A fetch-created body already tears down on abort; racing the signal explicitly keeps the budget honest for any
+ * Response, and settles the read the moment either abort fires rather than when the stream notices.
  */
 function readBody(response: Response, signal: AbortSignal): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
@@ -160,12 +141,8 @@ function readBody(response: Response, signal: AbortSignal): Promise<string> {
 }
 
 /**
- * The default network seam. Every phase - headers, body, parse - throws its
- * own classification: the caller's abort re-throws its reason untouched (the
- * store settles it silently as cancellation), our own budget expiring throws
- * `timeout` whichever phase it interrupts, a non-2xx status throws its number,
- * a whole body that is not JSON throws `unparseable response`, and any other
- * failure propagates for the store to read as `network error`.
+ *   our own budget expiring -> throws `timeout` whichever phase it interrupts
+ *   any other failure -> propagates for the store to read as `network error`
  */
 async function fetchOpenRouterCatalog(signal: AbortSignal): Promise<unknown> {
 	const budget = AbortSignal.timeout(REFRESH_FETCH_TIMEOUT_MS);
@@ -264,8 +241,6 @@ class Store implements OpenRouterCatalogStore {
 			if (bundled.kind === "ok") {
 				this.install(bundled.snapshot);
 			}
-			// Both missing (a dev build without the artifact): the empty snapshot
-			// stays in place and every lookup answers not-found.
 		}
 		this.scheduleFromMetadata();
 	}
@@ -337,12 +312,7 @@ class Store implements OpenRouterCatalogStore {
 		this.schedule(delay);
 	}
 
-	/**
-	 * Re-establish the scheduling invariant - enabled implies a pending timer or
-	 * a refresh in flight - by arming the metadata-based schedule when neither
-	 * exists. A refresh that bails early arms no follow-up itself, so its
-	 * completion funnels through here.
-	 */
+	/** A refresh that bails early arms no follow-up itself, so its completion funnels through here. */
 	private ensureScheduled(): void {
 		if (!this.scheduled.pending && this.inFlight === undefined) {
 			this.scheduleFromMetadata();
@@ -390,8 +360,7 @@ class Store implements OpenRouterCatalogStore {
 		}
 		const slim = slimCatalogPayload(payload);
 		const snapshot = parseCatalogSnapshot(slim);
-		// The build script's floor, applied at runtime too: a truncated or
-		// drifted live response must never replace a full cached catalog.
+		//   The build script's floor -> applied at runtime too
 		if (snapshot.models.length < CATALOG_MODEL_COUNT_FLOOR) {
 			this.lastFailure = {
 				classification: `payload below the ${CATALOG_MODEL_COUNT_FLOOR}-model floor`,
@@ -410,30 +379,28 @@ class Store implements OpenRouterCatalogStore {
 			try {
 				await this.options.globalState.update(OPENROUTER_CATALOG_METADATA_KEY, { lastSuccessAt: this.clock.now() });
 			} catch {
-				// Advisory only: the file above is the truth, and a lost timestamp
-				// just schedules the next refresh early.
+				// Advisory only: the file above is the truth, and a lost timestamp just schedules the next refresh
+				// early.
 			}
 		}
 		this.updateEmitter.fire();
-		// An unpersisted refresh serves from memory this session only, so the
-		// retry cadence applies: a restart would fall back to stale data.
+		// An unpersisted refresh serves from memory this session only, so the retry cadence applies: a restart would
+		// fall back to stale data.
 		this.schedule(persisted ? REFRESH_INTERVAL_MS : FAILURE_RETRY_MS);
 	}
 
 	/**
-	 * Idempotent GET, so it retries like discovery's model-listing calls (chat
-	 * completions never do), under the retry rule the fetch script shares
-	 * (isRetryableOpenRouterFailure): a settled answer - a 200 with a non-JSON
-	 * body, a non-transient 4xx - gets one attempt, exactly as discovery's body
-	 * parse sits outside the SDK's retry loop.
+	 * Idempotent GET, so it retries like discovery's model-listing calls (chat completions never do), under the retry
+	 * rule the fetch script shares (isRetryableOpenRouterFailure): a settled answer - a 200 with a non-JSON body, a
+	 * non-transient 4xx - gets one attempt, exactly as discovery's body parse sits outside the SDK's retry loop.
 	 */
 	private async fetchWithRetries(): Promise<unknown> {
 		for (let attempt = 0; ; attempt += 1) {
 			try {
 				return await this.fetchCatalog(this.abort.signal);
 			} catch (error) {
-				// Opting out mid-refresh stops the remaining attempts, and dispose()
-				// resolves a pending backoff, so both are re-checked before every retry.
+				// Opting out mid-refresh stops the remaining attempts, and dispose() resolves a pending backoff, so
+				// both are re-checked before every retry.
 				if (
 					this.disposed ||
 					!this.options.isEnabled() ||
@@ -462,8 +429,8 @@ class Store implements OpenRouterCatalogStore {
 
 	private async persist(text: string): Promise<boolean> {
 		const target = this.cacheUri();
-		// globalStorage is shared across windows, so the temp name is per-write
-		// unique: concurrent refreshes each rename their own complete file.
+		// globalStorage is shared across windows, so the temp name is per-write unique: concurrent refreshes each
+		// rename their own complete file.
 		const temp = vscode.Uri.joinPath(
 			this.options.globalStorageUri,
 			`${CATALOG_FILE_NAME}.${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}.tmp`

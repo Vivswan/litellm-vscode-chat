@@ -1,10 +1,8 @@
 /**
- * Budget alert toasts (docs/usage.md#alerts): one warning per server entry and
- * newly crossed threshold set, evaluated on every fetch. The store's
- * newlyCrossedThresholds IS the dedup, so this module keeps no state; when one
- * poll jumps several thresholds only the highest fires, and every budget
- * notification uses the one warning severity - the escalating color story lives
- * in the status bar item.
+ * Budget alert toasts (docs/usage.md#alerts): one warning per server entry and newly crossed threshold set, evaluated
+ * on every fetch. The store's newlyCrossedThresholds IS the dedup, so this module keeps no state; when one poll jumps
+ * several thresholds only the highest fires, and every budget notification uses the one warning severity - the
+ * escalating color story lives in the status bar item.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -15,7 +13,6 @@ import type { UsageStore } from "../servers/usage/store";
 import type { MessageAction } from "./notifier";
 import { dismissAction, showActionableMessage } from "./notifier";
 
-/** The toast's deep link to the dashboard's Servers page, where spend lives. */
 function openUsageAction(): MessageAction {
 	return {
 		label: l10n.t("Open Usage"),
@@ -35,9 +32,7 @@ export class UsageAlerts implements vscode.Disposable {
 				return;
 			}
 			const highest = Math.max(...event.newlyCrossedThresholds);
-			// Spend floors, so "at least" is what makes 85% beside a crossed 85.5%
-			// true rather than contradictory; the threshold renders exactly, even
-			// standing in for a fraction the store did not carry.
+			//   Spend floors -> "at least" is what makes 85% beside a crossed 85.5% true rather than contradictory
 			const spentFraction = event.state.budget.spentFraction;
 			const spentText = spentFraction === undefined ? formatPercentExact(highest) : formatPercent(spentFraction);
 			void this.show(

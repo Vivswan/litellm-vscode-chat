@@ -1,11 +1,8 @@
 /**
- * Minimal hand-typed subset of the vscode.git extension's exported API,
- * mirrored from the upstream declaration file
+ * Minimal hand-typed subset of the vscode.git extension's exported API, mirrored from the upstream declaration file
  * (extensions/git/src/api/git.d.ts in the microsoft/vscode repository).
- * Only the members the commit-message and PR-description flows touch are
- * declared; member shapes match upstream so a fuller vendored copy would merge
- * as identical declarations. Acquired at runtime via
- * vscode.extensions.getExtension<GitExtension>("vscode.git").
+ *
+ *   Only the members the commit-message and PR-description flows touch -> are declared
  */
 import type { Uri } from "vscode";
 

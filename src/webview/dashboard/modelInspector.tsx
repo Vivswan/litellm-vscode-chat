@@ -1,14 +1,16 @@
 /**
- * The model inspector: ONE read-only slide-over per model row, sectioned Parameters /
- * Capabilities / Pricing, request/response-fed (readModelParameters and
- * readModelCapabilities, re-posted per state push) - the extension resolves both through
- * the SAME machinery the request path and registration read, so nothing can drift from
- * the wire; no resolver logic or catalog data live in the webview. Every resolved field
- * renders as a RESOLUTION CHAIN: the winner at full strength, beaten values struck out
- * beneath it (a loser must not read - or announce - as a peer), each line carrying one
- * neutral badge (provenance is not severity; the two must never share a color).
- * Sections never collapse; the supported-parameters list stays a CAPABILITY on the wire
- * but renders in Parameters - what the model accepts belongs next to what we send.
+ *   The model inspector -> ONE read-only slide-over per model row, sectioned Parameters / Capabilities / Pricing
+ *   request/response-fed -> readModelParameters and readModelCapabilities, re-posted per state push
+ *   the extension -> resolves both through the SAME machinery the request path and registration read
+ *   no resolver logic or catalog data -> live in the webview
+ *
+ *   the winner       -> at full strength
+ *   beaten values    -> struck out beneath it
+ *   a loser must not read - or announce - as a peer
+ *                    -> struck out beneath it
+ *   provenance is not severity; the two must never share a color
+ *                    -> one neutral badge
+ *   Sections         -> never collapse
  */
 
 import * as l10n from "@vscode/l10n";
@@ -69,22 +71,18 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Section, sectionId } from "./ui/section";
 
-/** The readModelParameters answer; the inspector's own useRpc instance correlates it. */
 export type ModelParametersResponse = ResponseFor<"readModelParameters">;
 
-/** The readModelCapabilities answer; the inspector's own useRpc instance correlates it. */
 export type ModelCapabilitiesResponse = ResponseFor<"readModelCapabilities">;
 
 /** The panel's addressable sections; the Diagnostics table's jump links land on one. */
 export type InspectorSection = "params" | "caps";
 
-/** The id each addressable Section is rendered under; `sectionId` turns it into the element the anchors land on. */
 const SECTION_ID: Record<InspectorSection, string> = {
 	params: "inspector-params",
 	caps: "inspector-caps",
 };
 
-/** The not-sent annotations, resolved at call time (no module-level localized constants). */
 function skipReasonText(reason: "underscore" | "provider-owned"): string {
 	return reason === "underscore"
 		? l10n.t("Keys starting with _ are directives - instructions to the extension, never sent.")
@@ -92,8 +90,8 @@ function skipReasonText(reason: "underscore" | "provider-owned"): string {
 }
 
 /**
- * One parameter-record problem as prose, the capability side's diagnostics
- * idiom: classifications and the offending keys, never values.
+ * One parameter-record problem as prose, the capability side's diagnostics idiom: classifications and the offending
+ * keys, never values.
  */
 function parameterDiagnosticText(diagnostic: ParameterDiagnostic): string {
 	const where =
@@ -122,8 +120,8 @@ function parameterDiagnosticText(diagnostic: ParameterDiagnostic): string {
 				where
 			);
 		default:
-			// Deliberately "offending entries", not "ignored": the resolver
-			// salvages the valid names of a partly bad list, so those stay applied.
+			// Deliberately "offending entries", not "ignored": the resolver salvages the valid names of a partly bad
+			// list, so those stay applied.
 			return l10n.t(
 				'"{0}" must be true or a list of fields the record sets, e.g. ["temperature"]; offending entries are ignored ({1})',
 				diagnostic.key,
@@ -135,19 +133,14 @@ function parameterDiagnosticText(diagnostic: ParameterDiagnostic): string {
 /** The request fields the extension itself owns; rendered as code, never prose. */
 const ALWAYS_SENT_FIELDS = ["model", "messages", "stream", "stream_options", "max_tokens"] as const;
 
-/**
- * The max_tokens derivation: a configured value carries a badge like every other; the
- * two derived branches have no record to point at and say so in words.
- */
 function maxTokensParts(maxTokens: ProjectedMaxTokens): {
 	value: number;
 	source?: ProvenanceView;
 	mark?: MarkView;
 	reason?: string;
 } {
-	// No source, no badge: the projection can report a configured value whose
-	// layer it could not name, and minting a settings badge for it would put the
-	// wrong layer on a value the server entry may well have set.
+	// No source, no badge: the projection can report a configured value whose layer it could not name, and minting a
+	// settings badge for it would put the wrong layer on a value the server entry may well have set.
 	const source = maxTokens.configuredSource === undefined ? undefined : parameterProvenance(maxTokens.configuredSource);
 	const unattributed = l10n.t("set in configuration");
 	switch (maxTokens.source) {
@@ -165,9 +158,8 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens): {
 				? { value: maxTokens.value, reason: unattributed }
 				: { value: maxTokens.value, source };
 		case "declared":
-			// "the model's", not "the server's": a user record and a _fallback fill both count as
-			// declared here, so naming the server is a claim the panel cannot back up. Reaching
-			// this branch already means nothing configured set it.
+			// "the model's", not "the server's": a user record and a _fallback fill both count as declared here, so
+			// naming the server is a claim the panel cannot back up.
 			return { value: maxTokens.value, reason: l10n.t("the model's declared output limit") };
 		case "capped-default":
 			return {
@@ -177,11 +169,6 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens): {
 	}
 }
 
-/**
- * The capability fields in display order; pricing and the params list get sections of
- * their own, and every other field (the vocabulary is open) renders under "Other
- * fields", sorted by key.
- */
 const FIELD_ORDER: readonly string[] = [
 	"context_length",
 	"max_input_tokens",
@@ -192,35 +179,27 @@ const FIELD_ORDER: readonly string[] = [
 	"supports_audio_input",
 ];
 
-/** The consumed boolean flags beyond the core, in display order after it. */
 const CONSUMED_BOOLEAN_ORDER: readonly string[] = [
 	"supports_prompt_caching",
 	"supports_pdf_input",
 	"supports_response_schema",
 ];
 
-/** The consumed list fields that close the capabilities section; the params list has a section of its own. */
 const CONSUMED_LIST_ORDER: readonly string[] = ["reasoning_effort_levels"];
 
 /**
- * Where the stylesheet's ellipsis can start clipping a value cell. PAIRED WITH the
- * .res-col-value share in dashboard.css: move one and this moves too, or values clip
- * with no keyboard-reachable text. The threshold sits at the practical floor (~9ch at a
- * 360px window), so any value the ellipsis could touch carries the focusable HoverTip;
- * short values stay plain text outside the Tab order.
+ * PAIRED WITH the .res-col-value share in dashboard.css: move one and this moves too, or values clip with no
+ * keyboard-reachable text. The threshold sits at the practical floor (~9ch at a 360px window), so any value the
+ * ellipsis could touch carries the focusable HoverTip; short values stay plain text outside the Tab order.
  */
 const VALUE_CLIP_CH = 8;
 
-/**
- * One value cell: plain text while it surely fits, the focusable full-text tip once the
- * ellipsis could clip it. `numeric` earns right alignment - right-aligning a word only
- * pushes it away from the name it belongs to.
- */
+/** `numeric` earns right alignment - right-aligning a word only pushes it away from the name it belongs to. */
 function ValueCell({ text, numeric = false, struck = false }: { text: string; numeric?: boolean; struck?: boolean }) {
 	const body = struck ? <del>{text}</del> : text;
 	return (
-		// `num` is the stylesheet's existing name for a right-aligned numeric
-		// cell; a second name for one concept is how a vocabulary rots.
+		// `num` is the stylesheet's existing name for a right-aligned numeric cell; a second name for one concept is
+		// how a vocabulary rots.
 		<td className={numeric ? "res-value num" : "res-value"}>
 			{approxWidthCh(text) > VALUE_CLIP_CH ? (
 				<HoverTip tip={text}>
@@ -234,10 +213,10 @@ function ValueCell({ text, numeric = false, struck = false }: { text: string; nu
 }
 
 /**
- * One capability name cell: consumed fields render localized labels with the wire key
- * one focusable tip away (the label hides the identifier a models.capabilities record
- * needs). An open field renders its raw wire key in monospace, breakable only at its
- * underscores via <wbr>.
+ * One capability name cell: consumed fields render localized labels with the wire key one focusable tip away (the label
+ * hides the identifier a models.capabilities record needs).
+ *
+ *   An open field -> renders its raw wire key in monospace
  */
 function FieldName({ name }: { name: string }) {
 	const label = capabilityDisplayLabel(name);
@@ -255,7 +234,7 @@ function FieldName({ name }: { name: string }) {
 				index === 0 ? (
 					part
 				) : (
-					// biome-ignore lint/suspicious/noArrayIndexKey: underscore positions are stable within one render; the index is the identity
+					// biome-ignore lint/suspicious/noArrayIndexKey: underscore positions are stable within one render
 					<Fragment key={index}>
 						<wbr />
 						{part}
@@ -267,8 +246,8 @@ function FieldName({ name }: { name: string }) {
 }
 
 /**
- * One capability value as the table shows it; everything outside the known kinds
- * renders as compact JSON, truncated by the stylesheet rather than chopped here.
+ * One capability value as the table shows it; everything outside the known kinds renders as compact JSON, truncated by
+ * the stylesheet rather than chopped here.
  */
 function formatValue(name: string, value: CapabilityJsonValue, currencySymbol: string): string {
 	if (typeof value === "boolean") {
@@ -281,10 +260,9 @@ function formatValue(name: string, value: CapabilityJsonValue, currencySymbol: s
 		return isTokenCapabilityField(name) ? formatTokens(value) : String(value);
 	}
 	if (name === "supported_openai_params" && Array.isArray(value) && value.every((item) => typeof item === "string")) {
-		// The count alone: the winning list renders in full in its own block
-		// (SupportedParamsBlock), one element per name so boundaries survive
-		// without JSON quoting; shadowed lists stay count-only (their record
-		// holds the value).
+		// The count alone: the winning list renders in full in its own block (SupportedParamsBlock), one element per
+		// name so boundaries survive without JSON quoting; shadowed lists stay count-only (their record holds the
+		// value).
 		return parameterCountText(value.length);
 	}
 	if (
@@ -293,18 +271,13 @@ function formatValue(name: string, value: CapabilityJsonValue, currencySymbol: s
 		value.length > 0 &&
 		value.every((item) => typeof item === "string")
 	) {
-		// Short enough to render whole: the menu's levels, comma-joined in menu
-		// order, without JSON quoting. A user-written empty list (no levels)
-		// falls through to its JSON form rather than a blank cell.
+		// A user-written empty list (no levels) falls through to its JSON form rather than a blank cell.
 		return value.join(", ");
 	}
 	return JSON.stringify(value) ?? "";
 }
 
-/**
- * A beaten value: struck out, dimmed, and announced as what it is. <del> alone carries
- * the semantics unevenly across screen readers, so the row opens with a clipped word.
- */
+/** <del> alone carries the semantics unevenly across screen readers, so the row opens with a clipped word. */
 function ShadowedRow({
 	value,
 	numeric,
@@ -313,8 +286,8 @@ function ShadowedRow({
 }: {
 	value: string;
 	/**
-	 * Right-aligned by the SHADOW's own type, not the winner's: pass-through values are
-	 * unvalidated, so a string can lose to a number and should sit where its own kind sits.
+	 * Right-aligned by the SHADOW's own type, not the winner's: pass-through values are unvalidated, so a string can
+	 * lose to a number and should sit where its own kind sits.
 	 */
 	numeric?: boolean;
 	source: ProvenanceView;
@@ -344,8 +317,7 @@ function ParamShadowedLine({ shadow }: { shadow: ShadowedParameterValue }) {
 }
 
 /**
- * A capability row's edit label names the LAYER: every visible layer word sits inside a
- * badge, so for a screen reader this label is the only place the layer is stated.
+ *   every visible layer word sits inside a badge -> A capability row's edit label names the LAYER
  */
 function capabilityEditLabel(level: CapabilityLevel, key: string, serverLabel: string): string {
 	return level === "entry" || level === "entry-fallback"
@@ -353,7 +325,6 @@ function capabilityEditLabel(level: CapabilityLevel, key: string, serverLabel: s
 		: l10n.t('Edit record "{0}" in settings', key);
 }
 
-/** The per-row jump to the record that owns a value, in the source cell's trailing slot. */
 function RowEdit({ label, onClick }: { label: string; onClick: () => void }) {
 	return (
 		<Button
@@ -373,7 +344,6 @@ function ParameterRow({
 	onEditSource,
 }: {
 	row: EffectiveParameterRow;
-	/** The per-row jump to the record that owns the value; absent, no affordance renders. */
 	onEditSource?: ((source: ParameterSourceRef) => void) | undefined;
 }) {
 	const { source, marks } = parameterCellProvenance({
@@ -415,7 +385,6 @@ function ParameterRow({
 	);
 }
 
-/** The capability Source column's naming: the precedence level that set the value plus its winning key. */
 function CapShadowedLine({
 	name,
 	shadow,
@@ -425,8 +394,8 @@ function CapShadowedLine({
 	shadow: ShadowedCapabilityValue;
 	currencySymbol: string;
 }) {
-	// A beaten value keeps its directive too: a fallback fill or a catalog match
-	// that lost still has to say WHY it was in the running at all.
+	// A beaten value keeps its directive too: a fallback fill or a catalog match that lost still has to say WHY it was
+	// in the running at all.
 	const { source, mark } = capabilityProvenance(shadow.level, shadow.key);
 	return (
 		<ShadowedRow
@@ -451,7 +420,6 @@ function FieldRow({
 	serverLabel: string;
 	/** The configured cost prefix (usage.currencySymbol); the cost rows' values read it. */
 	currencySymbol: string;
-	/** The per-row jump to the record that owns the value; renders only on record-sourced rows. */
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
 	const { source, marks } = capabilityCellProvenance({
@@ -503,10 +471,9 @@ function capabilityDiagnosticText(diagnostic: CapabilityDiagnostic): string {
 			: l10n.t("settings key {0}", diagnostic.recordKey);
 	switch (diagnostic.kind) {
 		case "unrecognized-key":
-			// Informational, not a problem: the field APPLIES as-is (open
-			// vocabulary); the extension-side advisory filter already dropped
-			// hints with no evidence behind them, so a surviving one only says
-			// the key may be a typo.
+			// Informational, not a problem: the field APPLIES as-is (open vocabulary); the extension-side advisory
+			// filter already dropped hints with no evidence behind them, so a surviving one only says the key may be a
+			// typo.
 			return l10n.t(
 				'"{0}" is not a field this extension knows; it is applied as an override as-is ({1})',
 				diagnostic.key,
@@ -530,9 +497,8 @@ function capabilityDiagnosticText(diagnostic: CapabilityDiagnostic): string {
 			);
 		case "unforceable-key":
 		case "invalid-directive":
-			// `_fallback` gets its own copy: the same diagnostic covers a malformed
-			// value and bad list entries (the valid ones still apply), so the
-			// sentence names the rules without overclaiming.
+			//   the same diagnostic covers a malformed value and bad list entries -> `_fallback` gets its own copy
+			//   bad list entries                                                   -> the valid ones still apply
 			if (diagnostic.key === FALLBACK_DIRECTIVE) {
 				return l10n.t(
 					'"{0}" must be true or a list of fields the record sets, e.g. ["context_length"]; offending marks are ignored ({1})',
@@ -545,9 +511,9 @@ function capabilityDiagnosticText(diagnostic: CapabilityDiagnostic): string {
 }
 
 /**
- * The output limit as a labelled fact, and nothing else: what the REQUEST does about it
- * is conditional and belongs on the max_tokens derivation line - stating it here too
- * produced "capped at 4,096" directly under a max_tokens line reading 10,000.
+ * The output limit as a labelled fact, and nothing else: what the REQUEST does about it is conditional and belongs on
+ * the max_tokens derivation line - stating it here too produced "capped at 4,096" directly under a max_tokens line
+ * reading 10,000.
  */
 function outputLimitNote(capabilities: EffectiveCapabilities): string {
 	switch (capabilities.outputLimitSource) {
@@ -561,10 +527,9 @@ function outputLimitNote(capabilities: EffectiveCapabilities): string {
 }
 
 /**
- * One resolution table: name, value, provenance. The column tracks are fixed shares
- * carried by a colgroup, so every table aligns down the page and a long value clips
- * into its tip instead of shoving the badge column off the edge. The head names the
- * columns once - a badge column that never says "source" reads as decoration.
+ * The column tracks are fixed shares carried by a colgroup, so every table aligns down the page and a long value clips
+ * into its tip instead of shoving the badge column off the edge. The head names the columns once - a badge column
+ * that never says "source" reads as decoration.
  */
 function ResolutionTable({
 	nameHead,
@@ -597,7 +562,6 @@ function ResolutionTable({
 	);
 }
 
-/** A section's sub-heading line: the sentence-case title, its summary, and its one action. */
 function Subhead({ title, meta, action }: { title: string; meta?: ReactNode; action?: ReactNode }) {
 	return (
 		<div className="inspector-subhead">
@@ -609,9 +573,9 @@ function Subhead({ title, meta, action }: { title: string; meta?: ReactNode; act
 }
 
 /**
- * The Supported parameters block, in the PARAMETERS section (what the model accepts
- * beside what we send) while staying a capability on the wire. The list is nothing but
- * quiet monospace names in columns: thirty pills are a wall, thirty words are a list.
+ * The Supported parameters block, in the PARAMETERS section (what the model accepts beside what we send) while staying
+ * a capability on the wire. The list is nothing but quiet monospace names in columns: thirty pills are a wall, thirty
+ * words are a list.
  */
 function SupportedParamsBlock({
 	fields,
@@ -630,9 +594,8 @@ function SupportedParamsBlock({
 	if (field === undefined) {
 		return null;
 	}
-	// Sorted for scanning: the wire order of supported_openai_params carries
-	// no meaning (it is a set), and 30 names are findable only alphabetically.
-	// Code-unit sort - these are wire identifiers, not display text.
+	// Sorted for scanning: the wire order of supported_openai_params carries no meaning (it is a set), and 30 names are
+	// findable only alphabetically. Code-unit sort - these are wire identifiers, not display text.
 	const items = (
 		Array.isArray(field.value) ? field.value.filter((item): item is string => typeof item === "string") : []
 	).sort();
@@ -685,7 +648,6 @@ function SupportedParamsBlock({
 	);
 }
 
-/** A field the panel has nothing to show for: the Absent primitive in this panel's own register, the reason visible in place. */
 function AbsentNote({ reason }: { reason: string }) {
 	return (
 		<AbsentDatum className="absent">
@@ -707,11 +669,17 @@ export function ModelInspector({
 	model: DashboardModel;
 	/** The configured cost prefix (usage.currencySymbol); every price on the panel renders through it. */
 	currencySymbol: string;
-	/** Bumped on every state push; the inspector re-requests both feeds so an open panel follows configuration edits. */
+	/**
+	 * Bumped on every state push; the inspector re-requests both feeds so an open panel follows configuration
+	 * edits.
+	 */
 	stateSeq: number;
 	/** Which section the panel scrolls to on open (the Diagnostics jump links); absent, it opens at the top. */
 	anchor?: InspectorSection | undefined;
-	/** Where focus lands on close when the opener is gone; the overlay's owner names a visible element (the active tab). */
+	/**
+	 * Where focus lands on close when the opener is gone; the overlay's owner names a visible element (the active
+	 * tab).
+	 */
 	fallbackFocusId?: string;
 	onClose: () => void;
 	/** Jump into a global record editor: focus record `key` of `kind`, or create an exact-ID draft when `create`. */
@@ -719,20 +687,18 @@ export function ModelInspector({
 	/** Jump into a server entry's edit form (the owner of entry-layer values). */
 	onEditEntry?: ((label: string) => void) | undefined;
 }) {
-	// The two feeds are two independent hook instances: each holds its own
-	// in-flight id, so a slow capabilities answer never orphans a fast
-	// parameters one.
+	// The two feeds are two independent hook instances: each holds its own in-flight id, so a slow capabilities answer
+	// never orphans a fast parameters one.
 	const paramsRpc = useRpc("readModelParameters");
 	const capsRpc = useRpc("readModelCapabilities");
 
-	// One request pair per inspected model AND per state push: the push means
-	// the stores may have moved (a settings edit, a discovery pass), and an
-	// open inspector must follow instead of showing the pre-edit values. A
-	// re-send orphans the stale answer (latest wins inside the hook).
+	// One request pair per inspected model AND per state push: the push means the stores may have moved (a settings
+	// edit, a discovery pass), and an open inspector must follow instead of showing the pre-edit values. A re-send
+	// orphans the stale answer (latest wins inside the hook).
 	const { scopeKey, rawId } = model;
 	const sendParams = paramsRpc.send;
 	const sendCaps = capsRpc.send;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: stateSeq is the deliberate re-request key (see above), not a read
+	// biome-ignore lint/correctness/useExhaustiveDependencies: stateSeq is the deliberate re-request key (see above)
 	useEffect(() => {
 		sendParams({ scopeKey, rawId });
 		sendCaps({ scopeKey, rawId });
@@ -743,12 +709,10 @@ export function ModelInspector({
 	const projection = answeredParams?.projection;
 	const caps = answeredCaps?.capabilities;
 
-	// The Diagnostics jump's landing: move focus once (the slide-over's first-field focus
-	// must not win, later re-runs must not yank), then re-scroll as each answer lands -
-	// content filling in above the target moves it. Re-scrolls stop FOR GOOD once both
-	// feeds answered once: readiness flips false on every push, and a reader who scrolled
-	// away must not be yanked back by a configuration change minutes later.
-	// minutes later.
+	// The Diagnostics jump's landing: move focus once (the slide-over's first-field focus must not win, later re-runs
+	// must not yank), then re-scroll as each answer lands - content filling in above the target moves it. Re-scrolls
+	// stop FOR GOOD once both feeds answered once: readiness flips false on every push, and a reader who scrolled away
+	// must not be yanked back by a configuration change minutes later.
 	const paramsReady = answeredParams !== undefined;
 	const capsReady = answeredCaps !== undefined;
 	const anchorFocused = useRef(false);
@@ -771,9 +735,6 @@ export function ModelInspector({
 		}
 	}, [anchor, paramsReady, capsReady]);
 
-	// The per-row jump: an entry-layer value is owned by the server entry's own
-	// record (edited in its form, addressed by the ref's own label), everything
-	// else by a global settings record of the row's kind.
 	const editParamSource =
 		onEditRecord === undefined
 			? undefined
@@ -784,9 +745,8 @@ export function ModelInspector({
 						onEditRecord("parameters", source.key, false);
 					}
 				};
-	// The capability twin: entry-level values are owned by the entry's record
-	// (entry records apply only when labels align, so the group's label
-	// addresses the entry), the rest by the named global capabilities record.
+	// The capability twin: entry-level values are owned by the entry's record (entry records apply only when labels
+	// align, so the group's label addresses the entry), the rest by the named global capabilities record.
 	const editCapField =
 		onEditRecord === undefined
 			? undefined
@@ -797,19 +757,15 @@ export function ModelInspector({
 						onEditRecord("capabilities", key, false);
 					}
 				};
-	// A configured max_tokens is real configuration even though it renders on
-	// the derivation line instead of as a row, so it defeats the empty state.
+	//   A configured max_tokens -> is real configuration even though it renders on the derivation line
 	const paramsEmpty =
 		projection !== undefined && projection.rows.length === 0 && projection.maxTokens.source !== "configured";
 	const sentCount = projection === undefined ? 0 : projection.rows.filter((row) => row.sent).length;
-	// The derivation line's parts, resolved once: the value always goes out, so
-	// the line renders whenever a projection has landed.
 	const maxTokens = projection === undefined ? undefined : maxTokensParts(projection.maxTokens);
 
-	// The capability section partition over the resolved bag (open extras in code-unit
-	// order - wire identifiers). Object.keys reads own properties only, and per-name reads
-	// go through capabilityField: a field named "toString" must read from the bag, never
-	// Object.prototype.
+	// The capability section partition over the resolved bag (open extras in code-unit order - wire identifiers).
+	// Object.keys reads own properties only, and per-name reads go through capabilityField: a field named "toString"
+	// must read from the bag, never Object.prototype.
 	const present = new Set(caps === undefined ? [] : Object.keys(caps.fields));
 	const capabilityNames = [...FIELD_ORDER, ...CONSUMED_BOOLEAN_ORDER, ...CONSUMED_LIST_ORDER].filter((name) =>
 		present.has(name)
@@ -833,8 +789,8 @@ export function ModelInspector({
 						comment: ["{0} is a model ID, {1} is the server it is served from"],
 					})}
 				</p>
-				{/* The token limits deliberately do NOT repeat here - the
-				    capabilities table below carries them with provenance. */}
+				{/* The token limits deliberately do NOT repeat here - the capabilities table below carries them with
+				    provenance. */}
 				<dl className="inspector-orientation">
 					<dt>{l10n.t("Family")}</dt>
 					<dd>
@@ -868,8 +824,8 @@ export function ModelInspector({
 								className="section-action"
 								disabled={answeredParams === undefined}
 								onClick={() => {
-									// Reuse the most specific matching global record when one
-									// exists; otherwise a fresh draft keyed by the exact model ID.
+									// Reuse the most specific matching global record when one exists; otherwise a fresh
+									// draft keyed by the exact model ID.
 									const key = answeredParams?.globalRecordKey;
 									if (key !== undefined) {
 										onEditRecord("parameters", key, false);
@@ -914,9 +870,8 @@ export function ModelInspector({
 							</ul>
 						</div>
 					) : null}
-					{/* What the model accepts, right beside what we send. Still a
-					    capability on the wire, so it rides the capability feed and
-					    renders as soon as THAT answer lands. */}
+					{/* What the model accepts, right beside what we send. Still a capability on the wire, so it rides
+					    the capability feed and renders as soon as THAT answer lands. */}
 					{caps !== undefined ? (
 						<SupportedParamsBlock
 							fields={caps.fields}
@@ -928,24 +883,23 @@ export function ModelInspector({
 					{maxTokens !== undefined ? (
 						<p className="max-tokens">
 							<code className="max-tokens-name">max_tokens</code>{" "}
-							{/* Formatted like every other token count on the panel: the same
-							    number in two renderings on one screen reads as two numbers. */}
+							{/* Formatted like every other token count on the panel: the same number in two
+							    renderings on one screen reads as two numbers. */}
 							<span className="max-tokens-value">{formatTokens(maxTokens.value)}</span>{" "}
 							{maxTokens.source !== undefined ? <Provenance source={maxTokens.source} /> : null}{" "}
 							{maxTokens.mark !== undefined ? <Mark mark={maxTokens.mark} /> : null}
 							{maxTokens.reason !== undefined ? <span className="hint">{maxTokens.reason}</span> : null}
 						</p>
 					) : null}
-					{/* Fixed truth about the extension, not about this answer: the grid
-					    renders while the projection is still in flight, because
-					    "Resolving parameters..." followed by nothing at all reads as a
-					    section that failed to load. */}
+					{/* Fixed truth about the extension, not about this answer: the grid renders while the
+					    projection is still in flight, because "Resolving parameters..." followed by nothing at all
+					    reads as a section that failed to load. */}
 					<dl className="inspector-notes">
 						<div>
 							<dt>{l10n.t("Always sent")}</dt>
 							<dd>
-								{/* Separated by real whitespace, not by the margin alone: without
-								    it a screen reader reads one run-together token. */}
+								{/* Separated by real whitespace, not by the margin alone: without it a screen reader
+								    reads one run-together token. */}
 								{ALWAYS_SENT_FIELDS.map((field, index) => (
 									<Fragment key={field}>
 										{index > 0 ? " " : null}
@@ -954,9 +908,8 @@ export function ModelInspector({
 								))}
 							</dd>
 						</div>
-						{/* Its own row rather than a qualifier trailing the always-sent
-						    line: "tools" appeared twice on that line, three words apart and
-						    in two registers, leaving the reader to work out which one
+						{/* Its own row rather than a qualifier trailing the always-sent line: "tools" appeared twice on
+						    that line, three words apart and in two registers, leaving the reader to work out which one
 						    qualified which. */}
 						<div>
 							<dt>{l10n.t("Sent with tools")}</dt>
@@ -967,10 +920,9 @@ export function ModelInspector({
 						<div>
 							<dt>{l10n.t("Runtime options")}</dt>
 							<dd className="hint">
-								{/* max_tokens is forced from the derivation line, not from a
-								    row, and runtime options lose to it just the same - so the
-								    exception has to count it or this line contradicts the
-								    forced value rendered directly above it. */}
+								{/* max_tokens is forced from the derivation line, not from a row, and runtime options
+								    lose to it just the same - so the exception has to count it or this line contradicts
+								    the forced value rendered directly above it. */}
 								{projection !== undefined &&
 								(projection.rows.some((row) => row.forced === true) || projection.maxTokens.source === "forced")
 									? l10n.t("Overrides every table row above except forced rows.")
@@ -979,8 +931,8 @@ export function ModelInspector({
 						</div>
 						{model.reasoning ? (
 							<div>
-								{/* The label names the command that owns the pick, which is the
-								    only pointer to where the value actually lives. */}
+								{/* The label names the command that owns the pick, which is the only pointer to where
+								    the value actually lives. */}
 								<dt>{l10n.t("Configure Model pick")}</dt>
 								<dd className="hint">{l10n.t("Overrides reasoning_effort here.")}</dd>
 							</div>
@@ -1007,8 +959,8 @@ export function ModelInspector({
 								className="section-action"
 								disabled={answeredCaps === undefined}
 								onClick={() => {
-									// Reuse the most specific matching global record when one
-									// exists; otherwise a fresh draft keyed by the exact model ID.
+									// Reuse the most specific matching global record when one exists; otherwise a fresh
+									// draft keyed by the exact model ID.
 									const key = answeredCaps?.globalRecordKey;
 									if (key !== undefined) {
 										onEditRecord("capabilities", key, false);
@@ -1032,8 +984,7 @@ export function ModelInspector({
 						</p>
 					) : (
 						<>
-							{/* The declared/directive notes gate how the table reads, so
-							    they stay ahead of it. */}
+							{/* The declared/directive notes gate how the table reads, so they stay ahead of it. */}
 							{model.declared === true ? (
 								<p className="hint">
 									{l10n.t("Declared model: created by the entry's declared list, not discovered on the server.")}
@@ -1126,9 +1077,8 @@ export function ModelInspector({
 						onEditEntry={onEditEntry}
 					/>
 				</Section>
-				{/* The section stands whether or not the answer has landed: a pricing
-				    section that simply is not there while capabilities resolve is the
-				    same vanishing act the absence state exists to prevent. */}
+				{/* The section stands whether or not the answer has landed: a pricing section that simply is not there
+				    while capabilities resolve is the same vanishing act the absence state exists to prevent. */}
 				<Section id="inspector-pricing" level={4} title={l10n.t("Pricing")} meta={costUnitLabel(currencySymbol)}>
 					{answeredCaps === undefined ? (
 						<p className="hint" role="status">
@@ -1157,9 +1107,8 @@ export function ModelInspector({
 							</tbody>
 						</ResolutionTable>
 					) : (
-						// Absence is a state, not a missing section: a server that
-						// reports no prices (or the 0/0 pair that means the same
-						// thing) says so, and no number is invented to fill the gap.
+						// Absence is a state, not a missing section: a server that reports no prices (or the 0/0 pair
+						// that means the same thing) says so, and no number is invented to fill the gap.
 						<AbsentNote reason={l10n.t("No prices declared for this model, so spend cannot be estimated.")} />
 					)}
 				</Section>

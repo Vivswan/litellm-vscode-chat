@@ -1,22 +1,16 @@
 /**
- * The spend client: authenticated GETs to a LiteLLM server's usage endpoints.
- * Unlike discovery these sit at the server ROOT, not under the /v1 API root, so
- * the SDK client cannot serve them and the transport is a plain fetch reusing
- * the provider's header precedence (buildDefaultHeaders) plus the OAuth and
- * virtual-key overlays the chat path applies per request.
+ * The spend client: authenticated GETs to a LiteLLM server's usage endpoints. Unlike discovery these sit at the server
+ * ROOT, not under the /v1 API root, so the SDK client cannot serve them and the transport is a plain fetch reusing the
+ * provider's header precedence (buildDefaultHeaders) plus the OAuth and virtual-key overlays the chat path applies per
+ * request.
  *
- * Transport conventions match discovery: idempotent GETs retry up to
- * DISCOVERY_MAX_RETRIES on network failures and 5xx, the discovery timeout is a
- * hard whole-call bound, and errors are constructed specific and thrown WITHOUT
- * logging (the poller boundary logs one classification). Usage responses embed
- * hashed key material, aliases, and user IDs, so no error message or log line
- * ever carries response-derived text - not even the truncated snippets
- * discovery allows itself.
- *
- * Parsing is lenient field-by-field: every retained value is a number, an epoch
- * timestamp, a YYYY-MM-DD day key, or a pattern-validated token, so nothing
- * response-derived can ride into the store (whose contents later reach the
- * dashboard webview).
+ *   idempotent GETs       -> retry up to DISCOVERY_MAX_RETRIES on network failures and 5xx
+ *   the discovery timeout -> is a hard whole-call bound
+ *   errors                -> are constructed specific and thrown WITHOUT logging (the poller boundary logs one
+ *                            classification)
+ *   Usage responses embed hashed key material, aliases, and user IDs
+ *     -> no error message or log line ever carries response-derived text - not even the truncated snippets discovery
+ *        allows itself
  */
 
 import * as l10n from "@vscode/l10n";
@@ -40,9 +34,8 @@ import type { StoredServerSecrets } from "../serverSync/secrets";
 import { inlineSecretValues } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 
-// The URL builders over the shared USAGE_ENDPOINT_PATHS table: each takes the
-// entry's apiVersion so serverRootOf can undo a version segment the user wrote
-// into the base URL.
+// The URL builders over the shared USAGE_ENDPOINT_PATHS table: each takes the entry's apiVersion so serverRootOf can
+// undo a version segment the user wrote into the base URL.
 
 /** The absolute own-key info endpoint (no `key` param: the caller's own key). */
 export function keyInfoUrl(baseUrl: string, apiVersion: string | undefined): string {
@@ -60,8 +53,8 @@ export function dailyActivityUrl(baseUrl: string, apiVersion: string | undefined
 }
 
 /**
- * One server's connection material for usage calls, fully resolved. Values
- * exist extension-side only; this shape is never logged.
+ * One server's connection material for usage calls, fully resolved. Values exist extension-side only; this shape is
+ * never logged.
  */
 export interface UsageConnection {
 	readonly label: string;
@@ -154,7 +147,10 @@ export interface KeyUsage {
 	readonly spend: number | undefined;
 	readonly maxBudget: number | undefined;
 	readonly softBudget: number | undefined;
-	/** Epoch milliseconds; the reset cadence surfaces through this, so the raw budget_duration token (response-derived text) is never retained. */
+	/**
+	 * Epoch milliseconds; the reset cadence surfaces through this, so the raw budget_duration token (response-derived
+	 * text) is never retained.
+	 */
 	readonly budgetResetAt: number | undefined;
 	/** Whether the key carries a user (gates the /user/info rollup call); the ID itself is never retained. */
 	readonly hasUser: boolean;
@@ -199,8 +195,8 @@ export interface ActivityWindow {
 }
 
 /**
- * The window ending today (UTC) and reaching back `days - 1` days, so a
- * 30-day window covers 30 calendar day buckets including today.
+ * The window ending today (UTC) and reaching back `days - 1` days, so a 30-day window covers 30 calendar day buckets
+ * including today.
  */
 export function activityWindow(nowMs: number, days: number): ActivityWindow {
 	const dayMs = 24 * 60 * 60 * 1000;
@@ -221,9 +217,8 @@ export function usageUnavailabilityOf(error: unknown): UsageUnavailableReason | 
 	if (!(error instanceof RequestError) || error.status === undefined) {
 		return undefined;
 	}
-	// An OAuth token-endpoint rejection (auth.ts) fails BEFORE the usage endpoint
-	// is called, so it proves nothing about the endpoint itself: it stays
-	// transient rather than misattributing a "forbidden" standing.
+	// An OAuth token-endpoint rejection (auth.ts) fails BEFORE the usage endpoint is called, so it proves nothing about
+	// the endpoint itself: it stays transient rather than misattributing a "forbidden" standing.
 	if (error.oauthTokenEndpoint === true) {
 		return undefined;
 	}
@@ -304,9 +299,8 @@ function parseUsageDay(entry: unknown): UsageDay | undefined {
 }
 
 /**
- * Element-wise like discovery's narrowing: a malformed day drops itself, not
- * the window. Totals are summed here rather than trusted from the response
- * metadata, so the numbers always agree with the days shown.
+ * Element-wise like discovery's narrowing: a malformed day drops itself, not the window. Totals are summed here rather
+ * than trusted from the response metadata, so the numbers always agree with the days shown.
  */
 function parseDailyUsage(payload: unknown): DailyUsage {
 	const results = isRecord(payload) && Array.isArray(payload.results) ? payload.results : [];
@@ -349,9 +343,8 @@ function timeoutError(url: string, timeoutMs: number, cause?: unknown): RequestE
 }
 
 /**
- * A non-OK usage response as a classified error. The body is NEVER read into
- * the message (usage bodies embed hashed keys), so unlike discovery's mapped
- * errors these are template-only and need no logClassification.
+ * A non-OK usage response as a classified error. The body is NEVER read into the message (usage bodies embed hashed
+ * keys), so unlike discovery's mapped errors these are template-only and need no logClassification.
  */
 function usageHttpError(url: string, status: number): RequestError {
 	const displayed = displayUrl(url);
@@ -388,11 +381,9 @@ export interface UsageClientOptions {
 }
 
 /**
- * Owns the HTTP side of usage polling: header composition (the provider's
- * precedence rule over the connection's per-entry headers, plus the
- * OAuth/virtual-key overlays), the whole-call timeout, and the idempotent-GET
- * retry budget. One instance per poller so OAuth tokens cache across polls and
- * invalidate on 401 exactly like the chat path.
+ * Owns the HTTP side of usage polling: header composition (the provider's precedence rule over the connection's
+ * per-entry headers, plus the OAuth/virtual-key overlays), the whole-call timeout, and the idempotent-GET retry budget.
+ * One instance per poller so OAuth tokens cache across polls and invalidate on 401 exactly like the chat path.
  */
 export class UsageClient {
 	private readonly oauthTokens = new OAuthTokenSource();
@@ -425,12 +416,10 @@ export class UsageClient {
 	}
 
 	/**
-	 * The request headers for one call: the provider's static precedence over the
-	 * connection's per-entry headers plus the per-request credentials the chat
-	 * path resolves the same way - the OAuth bearer token (skipped when the
-	 * virtual key owns the Authorization header) and the virtual-key header,
-	 * both applied by the shared overlay (authOverlay.ts). Returns the overlay
-	 * scope alongside, so a 401 routes through it and invalidates exactly the
+	 * The request headers for one call: the provider's static precedence over the connection's per-entry headers plus
+	 * the per-request credentials the chat path resolves the same way - the OAuth bearer token (skipped when the
+	 * virtual key owns the Authorization header) and the virtual-key header, both applied by the shared overlay
+	 * (authOverlay.ts). Returns the overlay scope alongside, so a 401 routes through it and invalidates exactly the
 	 * token that went out.
 	 */
 	private async resolveHeaders(
@@ -460,9 +449,8 @@ export class UsageClient {
 	 * as-is so the caller attributes it truthfully.
 	 */
 	private async getJson(connection: UsageConnection, url: string, outerSignal?: AbortSignal): Promise<unknown> {
-		// Minted at the one read of the clock: this whole-call bound is the
-		// discovery timeout (the class doc's transport convention), so the
-		// exchange-timeout advice names discovery.timeout.
+		// Minted at the one read of the clock: this whole-call bound is the discovery timeout (the class doc's
+		// transport convention), so the exchange-timeout advice names discovery.timeout.
 		const timeout: TimeoutBudget = { ms: this.getTimeoutMs(), setting: "discovery.timeout" };
 		const timeoutMs = timeout.ms;
 		const timeoutSignal = AbortSignal.timeout(timeoutMs);
@@ -473,8 +461,8 @@ export class UsageClient {
 		for (let attempt = 0; attempt <= DISCOVERY_MAX_RETRIES; attempt += 1) {
 			if (attempt > 0) {
 				await sleepUnlessAborted(RETRY_DELAY_MS * attempt, signal);
-				// The outer signal wins the classification when both have fired: an
-				// abort the caller asked for must not be relabeled a timeout.
+				// The outer signal wins the classification when both have fired: an abort the caller asked for must not
+				// be relabeled a timeout.
 				if (outerSignal?.aborted) {
 					throw outerSignal.reason ?? new Error("The operation was aborted");
 				}
@@ -503,8 +491,8 @@ export class UsageClient {
 				try {
 					return JSON.parse(payload) as unknown;
 				} catch {
-					// The SyntaxError quotes a payload snippet (response-derived), so it
-					// does not ride along - not even as the cause.
+					// The SyntaxError quotes a payload snippet (response-derived), so it does not ride along - not even
+					// as the cause.
 					throw new RequestError(
 						l10n.t("Failed to parse the LiteLLM usage response from {0}.", displayUrl(url)),
 						"http",
@@ -519,8 +507,8 @@ export class UsageClient {
 				lastFailure = failure;
 				continue;
 			}
-			// The server no longer accepts the token this call sent; the next poll
-			// performs a fresh exchange. This call itself never retries.
+			// The server no longer accepts the token this call sent; the next poll performs a fresh exchange. This call
+			// itself never retries.
 			auth.fail(failure);
 			throw failure;
 		}

@@ -1,15 +1,13 @@
 import type { UiAccent, UiTheme } from "../../shared/config/settingSpec";
 
 /**
- * The dashboard webview's HTML shell: a strict CSP, one nonce'd script tag,
- * one stylesheet link. Pure string building so the CSP and script wiring are
- * unit-testable; panel.ts supplies the nonce and the webview-translated URIs.
+ * Pure string building so the CSP and script wiring are unit-testable; panel.ts supplies the nonce and the
+ * webview-translated URIs.
  */
 
 export interface DashboardHtmlOptions {
 	/** The webview's CSP source (webview.cspSource). */
 	readonly cspSource: string;
-	/** Nonce authorizing exactly this document's script tags. */
 	readonly nonce: string;
 	readonly scriptUri: string;
 	readonly styleUri: string;
@@ -17,13 +15,7 @@ export interface DashboardHtmlOptions {
 	readonly language: string;
 	/** The host-resolved l10n bundle (vscode.l10n.bundle) for @vscode/l10n; undefined under English. */
 	readonly l10nBundle: Readonly<Record<string, string>> | undefined;
-	/**
-	 * "auto" leaves every semantic token mapped onto the host's --vscode-*
-	 * variables, so the dashboard follows any editor theme, high contrast
-	 * included; "light" and "dark" pin our own palette instead.
-	 */
 	readonly theme: UiTheme;
-	/** The accent hue, deployed on primary actions, selection, focus and links. */
 	readonly accent: UiAccent;
 }
 
@@ -35,7 +27,6 @@ const HTML_ENTITIES: Readonly<Record<string, string>> = {
 	"'": "&#39;",
 };
 
-/** Entity-escapes the interpolated values for text nodes and attributes of either quote style. */
 function escapeHtml(value: string): string {
 	return value.replace(/[&<>"']/g, (character) => HTML_ENTITIES[character] ?? character);
 }
@@ -60,8 +51,8 @@ export function buildDashboardHtml(options: DashboardHtmlOptions): string {
 		options.l10nBundle !== undefined
 			? `<script nonce="${nonce}">window.__l10nBundle = ${inlineScriptJson(options.l10nBundle)};</script>\n\t`
 			: "";
-	// Stamped on the root so the stylesheet keys its palettes off them before
-	// the bundle runs: a reader who pinned light never sees a dark frame.
+	// Stamped on the root so the stylesheet keys its palettes off them before the bundle runs: a reader who pinned
+	// light never sees a dark frame.
 	const theme = escapeHtml(options.theme);
 	const accent = escapeHtml(options.accent);
 	return `<!DOCTYPE html>

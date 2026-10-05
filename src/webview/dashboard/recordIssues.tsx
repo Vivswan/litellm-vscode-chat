@@ -1,7 +1,3 @@
-/**
- * The record editors' shared issue vocabulary: the editor kind, the row and
- * group issue views, and the labels they render with.
- */
 import * as l10n from "@vscode/l10n";
 import type {
 	CapabilityGroupIssues,
@@ -11,14 +7,8 @@ import type {
 	PrefixGroup,
 } from "../../dashboard/recordDraft";
 
-/** Which record editor a shared table serves; picks the flag set, value controls, and key suggestions. */
 export type RecordEditorKind = "params" | "caps";
 
-/**
- * One row's issue view - the two parsers' problem/hint shapes normalized so
- * the shared matcher table renders either editor's verdicts. Field-level
- * problems keep their input alignment ("name" or "value") for the popover.
- */
 export interface RowIssueView {
 	readonly problem?: { readonly field: "name" | "value"; readonly message: string } | undefined;
 	readonly hint?: string | undefined;
@@ -30,7 +20,6 @@ export interface GroupIssueView {
 	readonly rows: readonly RowIssueView[];
 }
 
-/** parseGroups' problems and hints folded into the table's issue views. */
 export function paramIssueViews(
 	groups: readonly PrefixGroup[],
 	problems: readonly GroupProblems[],
@@ -45,7 +34,6 @@ export function paramIssueViews(
 	}));
 }
 
-/** parseCapabilityGroups' issues folded into the table's issue views. */
 export function capabilityIssueViews(
 	groups: readonly PrefixGroup[],
 	issues: readonly CapabilityGroupIssues[]
@@ -59,12 +47,13 @@ export function capabilityIssueViews(
 	}));
 }
 
-/** The row list's accessible name; the rows carry no header row to name them any more. */
+/**
+ *   the rows carry no header row to name them -> The row list's accessible name
+ */
 export function recordListLabel(kind: RecordEditorKind): string {
 	return kind === "params" ? l10n.t("Model parameter matchers") : l10n.t("Model capability matchers");
 }
 
-/** The matcher kind annotation beside each row's key, resolved at render time. */
 export function matcherKindLabel(kind: MatcherKind): string {
 	switch (kind) {
 		case "catch-all":

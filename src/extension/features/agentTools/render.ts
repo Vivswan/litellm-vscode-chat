@@ -1,11 +1,3 @@
-/**
- * What the agent tools hand back and what the confirmation cards say. Pure
- * text shaping over already-safe data: dashboard state (secret LOCATIONS by
- * construction), dashboard replies, and the diagnostics snapshot with its log
- * lines passed through the issue reporter's redaction. Every string here is
- * model-facing, so it stays English by policy.
- */
-
 import type { DashboardState } from "../../../dashboard/viewModels";
 import type { DashboardSubmission } from "../../../extension/dashboard/panel";
 import type { ServerStatus } from "../../../shared/servers";
@@ -15,15 +7,12 @@ import type { ConfigurationSection } from "./inputSchema";
 import type { AgentRequest, RefusalReason, SecretPrompt } from "./planner";
 
 /**
- * The reply bound, in UTF-16 code units, fixed in code like the consult tool's
- * outgoing bound: a configuration with hundreds of models must not flood the
- * agent's context. The cut is marked so the agent knows to ask for a section.
+ * The reply bound, in UTF-16 code units, fixed in code like the consult tool's outgoing bound: a configuration with
+ * hundreds of models must not flood the agent's context. The cut is marked so the agent knows to ask for a section.
  */
 const AGENT_RESULT_CHAR_LIMIT = 60_000;
 
 /**
- * Every URL-shaped string anywhere in a value, rebuilt without userinfo
- * (displayUrl); other strings, and strings without a scheme, pass through.
  * Deep on purpose: a server's config nests its token URL and MCP URL.
  */
 function scrubUrls<T>(value: T): T {
@@ -42,10 +31,8 @@ function scrubUrls<T>(value: T): T {
 const TRUNCATION_MARKER = '\n... [truncated: ask for fewer "sections", or inspect one model at a time]';
 
 /**
- * JSON for the model, cut at the bound with a visible marker. A base URL is
- * user configuration and may carry `user:password@`, so every URL-shaped
- * string in the value tree is rebuilt without userinfo first (scrubUrls).
- * Per string, never over the serialized text: a text-level pass would run
+ * A base URL is user configuration and may carry `user:password@`, so every URL-shaped string in the value tree is
+ * rebuilt without userinfo first (scrubUrls). Per string, never over the serialized text: a text-level pass would run
  * from one field's "//" to the next field's "@" and eat the JSON between.
  */
 export function renderJson(value: unknown): string {
@@ -104,10 +91,8 @@ export function shapeDiagnostics(
 }
 
 /**
- * The configuration read: the dashboard state's sections the agent asked for
- * (all by default). A server row's error text is the transport's display
- * rendering and can embed a response body, so it passes through the issue
- * report's redaction like a log line.
+ *   A server row's error text  -> can embed a response body
+ *   can embed a response body  -> passes through the issue report's redaction like a log line
  */
 export function shapeConfiguration(
 	state: DashboardState,
@@ -137,9 +122,7 @@ export function shapeConfiguration(
 }
 
 /**
- * One submitted request's outcome as the agent reads it: the reply's payload,
- * or the failure's reason. A failure message can carry a probe's transport
- * error, so it is redacted like the configuration rows.
+ * A failure message can carry a probe's transport error, so it is redacted like the configuration rows.
  */
 export function shapeSubmission(
 	request: AgentRequest,
@@ -173,9 +156,9 @@ export function shapeSubmission(
 }
 
 /**
- * The refusal texts, addressed to the calling model: each says what was wrong
- * and what to call instead, because the model can fix the call and retry.
  * Identifiers from `detail` only, never a secret value.
+ *
+ *   The refusal texts -> addressed to the calling model
  */
 export function refusalText(reason: RefusalReason, detail: Readonly<Record<string, string>>): string {
 	switch (reason) {
@@ -240,11 +223,6 @@ function json(value: unknown): string {
 
 const HIDDEN_TEXT_NOTE = " (carries text the card does not show, such as URL credentials)";
 
-/**
- * A card value with its note when the rendering hides part of it: a URL's
- * credentials are written as given but never displayed, so the user is told
- * the value holds more than the card shows.
- */
 function shown(value: unknown): string {
 	const rendered = json(value);
 	return rendered === (JSON.stringify(value) ?? "undefined") ? rendered : `${rendered}${HIDDEN_TEXT_NOTE}`;
@@ -275,8 +253,8 @@ export function describeRecordChange(
 }
 
 /**
- * A server save: field names that change, never their values for secrets. A
- * moved base URL is spelled out because it decides where credentials go.
+ * A server save: field names that change, never their values for secrets. A moved base URL is spelled out because it
+ * decides where credentials go.
  */
 export function describeServerChange(
 	label: string,
@@ -290,14 +268,13 @@ export function describeServerChange(
 	for (const key of [...keys].sort()) {
 		const previous = before?.[key];
 		const next = after[key];
-		// Compared raw, rendered through shown(): dropping or replacing a URL's
-		// credentials is a change the card must list, and the side that carries
-		// them says so.
+		// Compared raw, rendered through shown(): dropping or replacing a URL's credentials is a change the card must
+		// list, and the side that carries them says so.
 		if (JSON.stringify(previous) !== JSON.stringify(next)) {
 			const shownPrevious = previous === undefined ? "(absent)" : shown(previous);
 			const shownNext = next === undefined ? "(absent)" : shown(next);
-			// Both sides can render alike when only the hidden text changed (one
-			// password replaced by another), so that case is named too.
+			// Both sides can render alike when only the hidden text changed (one password replaced by another), so that
+			// case is named too.
 			const hiddenChanged = shownPrevious === shownNext ? " (the hidden text changed)" : "";
 			lines.push(`${key}: ${shownPrevious} -> ${shownNext}${hiddenChanged}`);
 		}

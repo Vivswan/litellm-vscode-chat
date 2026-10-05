@@ -17,13 +17,6 @@ import type { API } from "../gitApi";
 import type { CommitModelRef } from "./commitMessage";
 import { generateCommitMessage } from "./commitMessage";
 
-/**
- * The generate-commit-message command surface: git repo selection, progress,
- * connection resolution, and the mapping of the core flow's typed outcomes to
- * localized notifications. The pure flow itself lives in commitMessage.ts; the
- * one-shot transport in provider/transport/oneShotClient.ts.
- */
-
 export interface GenerateCommitDeps {
 	readonly secrets: vscode.SecretStorage;
 	readonly logger: Logger;
@@ -31,12 +24,8 @@ export interface GenerateCommitDeps {
 }
 
 /**
- * Send the prompt as one non-streaming request through the features' shared
- * send composition (featureChatSend: connection resolution, the
- * commitGeneration error surface, the chat timeout). Exported because the
- * dashboard's test probe sends through it too, so the probe proves exactly
- * what a generation would do - connection, credentials, surface, and bound
- * included.
+ * Exported because the dashboard's test probe sends through it too, so the probe proves exactly what a generation
+ * would do - connection, credentials, surface, and bound included.
  */
 export async function sendCommitPrompt(
 	oneShot: OneShotClient,
@@ -57,10 +46,8 @@ export async function sendCommitPrompt(
 }
 
 /**
- * The command handler. Registered unconditionally (the menus hide behind the
- * enable when-clause, but keybindings and executeCommand do not), so a
- * disabled invocation answers with the enable hint instead of doing nothing.
- * `resolveGit` defaults to the live vscode.git extension; tests inject a fake.
+ * Registered unconditionally (the menus hide behind the enable when-clause, but keybindings and executeCommand do
+ * not), so a disabled invocation answers with the enable hint instead of doing nothing.
  */
 export async function runGenerateCommitMessage(
 	oneShot: OneShotClient,

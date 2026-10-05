@@ -1,9 +1,3 @@
-/**
- * The last-mile vscode wiring: the real ServerSyncEnv over workspace
- * configuration, SecretStorage, globalState, and the host command, plus the
- * Set Server Secret palette command.
- */
-
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
@@ -46,11 +40,9 @@ const openGroupsFileAction = () => ({
 });
 
 /**
- * The Manage Language Models button, when the host registers the editor's
- * command: opens the editor searched for `search` (one group label, or nothing
- * when a notice names several), where the group's menu holds the Delete
- * action. Undefined on a host without the command, so the notice keeps the
- * models file alone.
+ * The Manage Language Models button, when the host registers the editor's command: opens the editor searched for
+ * `search` (one group label, or nothing when a notice names several), where the group's menu holds the Delete action.
+ * Undefined on a host without the command, so the notice keeps the models file alone.
  */
 async function manageLanguageModelsAction(search: string | undefined): Promise<MessageAction | undefined> {
 	if (!(await manageLanguageModelsAvailable())) {
@@ -62,7 +54,6 @@ async function manageLanguageModelsAction(search: string | undefined): Promise<M
 	};
 }
 
-/** The actions a notice about surviving groups offers: the editor first when the host has it, the models file always. */
 async function leftoverGroupActions(labels: readonly string[]): Promise<MessageAction[]> {
 	const manage = await manageLanguageModelsAction(labels.length === 1 ? labels[0] : undefined);
 	return manage !== undefined ? [manage, openGroupsFileAction()] : [openGroupsFileAction()];
@@ -71,11 +62,9 @@ async function leftoverGroupActions(labels: readonly string[]): Promise<MessageA
 const quoted = (labels: readonly string[]) => labels.map((label) => `"${label}"`).join(", ");
 
 /**
- * The removal notices, one per event class so each says only what is true.
- * Every variant names the exact group label(s) to delete and where: the group
- * survives (VS Code offers extensions no removal), so the notice leads with the
- * Manage Language Models editor (its Delete action) and keeps the models file
- * as the fallback.
+ * The removal notices, one per event class so each says only what is true. Every variant names the exact group label(s)
+ * to delete and where: the group survives (VS Code offers extensions no removal), so the notice leads with the Manage
+ * Language Models editor (its Delete action) and keeps the models file as the fallback.
  */
 async function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): Promise<void> {
 	const hidden: string[] = [];
@@ -131,13 +120,11 @@ async function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): Promis
 	}
 }
 
-/** The real environment: workspace configuration, SecretStorage, globalState, and the host command. */
 export function createServerSyncEnv(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	fingerprintSalt: FingerprintSaltSession,
 	removals: GroupRemovalStore,
-	/** The provider's observation of which base URLs labeled groups were served at; see ServerSyncEnv.observedGroupBaseUrls. */
 	observedGroupBaseUrls: (label: string) => readonly string[]
 ): ServerSyncEnv {
 	if (fingerprintSalt.state() !== "durable") {
@@ -151,29 +138,25 @@ export function createServerSyncEnv(
 		addProviderGroup: (args) => vscode.commands.executeCommand(HOST_CMD.addProviderGroup, args),
 		confirmFingerprintsDurable: async () => (await fingerprintSalt.confirmDurable()) === "durable",
 		getFingerprints: () => {
-			// Validated at the trust boundary: the key is engine-owned and only ever
-			// written with string values under parser-accepted labels, so a
-			// non-string value or a reserved (prototype-mutating) key is corruption
-			// and must not ride into the session map behind an unchecked cast - the
-			// engine assigns these keys into plain records unguarded.
+			// Validated at the trust boundary: the key is engine-owned and only ever written with string values under
+			// parser-accepted labels, so a non-string value or a reserved (prototype-mutating) key is corruption and
+			// must not ride into the session map behind an unchecked cast - the engine assigns these keys into plain
+			// records unguarded.
 			return validatedStringRecord(context.globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY));
 		},
 		setFingerprints: async (map) => {
-			// Re-confirmed at write time, per batch, not once per pass: a store
-			// mutation detected mid-pass must stop this write too. A map built under
-			// an unconfirmed salt holds renderings no later session can recognize,
-			// and persisting it would overwrite the durable records that let a
-			// healthy group read as in-sync once the real salt is back.
+			// Re-confirmed at write time, per batch, not once per pass: a store mutation detected mid-pass must stop
+			// this write too. A map built under an unconfirmed salt holds renderings no later session can recognize,
+			// and persisting it would overwrite the durable records that let a healthy group read as in-sync once the
+			// real salt is back.
 			if ((await fingerprintSalt.confirmDurable()) !== "durable") {
 				return;
 			}
-			// Format dominance: a current-format ("i1:") store record is never
-			// overwritten by a carried legacy-format one. Only pre-projection
-			// records lack the prefix, and the engine carries them purely as
-			// last-known-good, so a store record another window already projected
-			// is strictly newer knowledge; keeping it costs nothing here (the
-			// engine's next duplicate response confirms against the store and
-			// adopts it into the session map).
+			// Format dominance: a current-format ("i1:") store record is never overwritten by a carried legacy-format
+			// one. Only pre-projection records lack the prefix, and the engine carries them purely as last-known-good,
+			// so a store record another window already projected is strictly newer knowledge; keeping it costs nothing
+			// here (the engine's next duplicate response confirms against the store and adopts it into the session
+			// map).
 			const stored = validatedStringRecord(context.globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY));
 			const next: Record<string, string> = { ...map };
 			for (const [label, record] of Object.entries(map)) {
@@ -185,8 +168,6 @@ export function createServerSyncEnv(
 			await context.globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, next);
 		},
 		getEntryBaseUrls: () => {
-			// Validated like the fingerprints: the key is engine-owned, but a
-			// corrupt value or reserved key must not ride behind a cast.
 			return validatedStringRecord(context.globalState.get<unknown>(SYNCED_ENTRY_BASE_URLS_KEY));
 		},
 		setEntryBaseUrls: async (map) => {
@@ -194,24 +175,20 @@ export function createServerSyncEnv(
 		},
 		observedGroupBaseUrls,
 		reconcileEntryIdentities: async (declared, events) => {
-			// Clear first: a removal and a re-add of the same identity in one pass
-			// must end unsuppressed.
 			try {
 				await removals.clearTombstonesFor(declared);
 			} catch (error) {
 				logger.error("Clearing removed-group tombstones failed", error);
 			}
-			// The notice claims "hidden" once the store accepted the tombstone (its
-			// in-memory list now hides the group; persistence is the store's own
-			// best-effort concern). A throw here degrades the event to the untracked
-			// wording rather than promising a hiding that may not have reached the
-			// provider.
+			// The notice claims "hidden" once the store accepted the tombstone (its in-memory list now hides the group;
+			// persistence is the store's own best-effort concern). A throw here degrades the event to the untracked
+			// wording rather than promising a hiding that may not have reached the provider.
 			const noticeEvents: RemovedEntryEvent[] = [];
 			for (const event of events) {
 				try {
 					if (event.kind === "renamed") {
-						// A rename orphans the old group but is not an explicit
-						// removal: provenance only, no tombstone, models stay visible.
+						// A rename orphans the old group but is not an explicit removal: provenance only, no tombstone,
+						// models stay visible.
 						await removals.recordOrigin({
 							label: event.oldLabel,
 							baseUrl: event.baseUrl,
@@ -227,9 +204,8 @@ export function createServerSyncEnv(
 						await removals.addTombstone({ label: event.label, baseUrl: event.baseUrl });
 						noticeEvents.push(event);
 					} else {
-						// The ledger predates this label, so no group identity can be
-						// resolved: no tombstone, no provenance, only the notice -
-						// never suppress on a guess.
+						// The ledger predates this label, so no group identity can be resolved: no tombstone, no
+						// provenance, only the notice - never suppress on a guess.
 						noticeEvents.push(event);
 					}
 				} catch (error) {
@@ -252,15 +228,13 @@ export function createServerSyncEnv(
 	};
 }
 
-/** The raw servers setting from the same live channel the sync engine reads. */
 function readRawServersSetting(): unknown {
 	return vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
 }
 
 /**
- * The accepted entries of the servers setting as it reads right now: the truth
- * for "is anything declared" before the first sync pass has run and while the
- * provider's group statuses are transiently empty.
+ * The accepted entries of the servers setting as it reads right now: the truth for "is anything declared" before the
+ * first sync pass has run and while the provider's group statuses are transiently empty.
  */
 export function currentDeclaredServers(): DeclaredServer[] {
 	return parseServersSetting(readRawServersSetting()).entries;
@@ -292,30 +266,19 @@ export async function readEntryCredentials(
 }
 
 /**
- * The request path's read of one declared entry's per-entry modelParameters:
- * the same live settings channel the sync engine reads, resolved through
- * entryModelParametersFor so it lands only on an entry whose label AND base URL
- * both match the server the request is routed to. Injected into the provider at
- * activation (the provider layer cannot import this module).
+ * The request path's read of one declared entry's per-entry modelParameters: the same live settings channel the sync
+ * engine reads, resolved through entryModelParametersFor so it lands only on an entry whose label AND base URL both
+ * match the server the request is routed to. Injected into the provider at activation (the provider layer cannot import
+ * this module).
  */
 export function readEntryModelParameters(label: string, baseUrl: string): EntryModelParameters | undefined {
 	return entryModelParametersFor(readRawServersSetting(), label, baseUrl);
 }
 
-/**
- * The registration path's read of one declared entry's per-entry
- * modelCapabilities; the same live read and label-plus-URL match as
- * readEntryModelParameters, injected the same way.
- */
 export function readEntryModelCapabilities(label: string, baseUrl: string): EntryModelCapabilities | undefined {
 	return entryModelCapabilitiesFor(readRawServersSetting(), label, baseUrl);
 }
 
-/**
- * The discovery path's read of one declared entry's expectedFailures; the
- * same live read and label-plus-URL match as readEntryModelParameters,
- * injected the same way.
- */
 export function readEntryExpectedFailures(
 	label: string,
 	baseUrl: string
@@ -323,57 +286,27 @@ export function readEntryExpectedFailures(
 	return entryExpectedFailuresFor(readRawServersSetting(), label, baseUrl);
 }
 
-/**
- * The discovery path's read of one declared entry's includeModes; the same
- * live read and label-plus-URL match as readEntryModelParameters, injected
- * the same way.
- */
 export function readEntryIncludeModes(label: string, baseUrl: string): readonly NonChatMode[] | undefined {
 	return entryIncludeModesFor(readRawServersSetting(), label, baseUrl);
 }
 
-/**
- * The request and discovery paths' read of one declared entry's custom
- * headers; the same live read and label-plus-URL match as
- * readEntryModelParameters, injected the same way.
- */
 export function readEntryHeaders(label: string, baseUrl: string): Readonly<Record<string, string>> | undefined {
 	return entryHeadersFor(readRawServersSetting(), label, baseUrl);
 }
 
-/**
- * The request and discovery paths' read of one declared entry's apiVersion
- * override; the same live read and label-plus-URL match as
- * readEntryModelParameters, injected the same way. "" is a real value
- * (append nothing), returned as-is; undefined means the entry sets none.
- */
 export function readEntryApiVersion(label: string, baseUrl: string): string | undefined {
 	return entryApiVersionFor(readRawServersSetting(), label, baseUrl);
 }
 
-/**
- * The suppression predicate's read of whether a live group is a superseded
- * leftover (see entrySupersedingBaseUrl), over the same live settings channel;
- * injected into the provider beside the removal tombstones.
- */
 export function readEntrySupersedingBaseUrl(label: string, baseUrl: string): string | undefined {
 	return entrySupersedingBaseUrl(readRawServersSetting(), label, baseUrl);
 }
 
-/**
- * The registration path's read of one declared entry's discovery.declared
- * model IDs; the same live read and label-plus-URL match as
- * readEntryModelParameters, injected the same way.
- */
 export function readEntryDeclaredModels(label: string, baseUrl: string): readonly string[] | undefined {
 	return entryDeclaredModelsFor(readRawServersSetting(), label, baseUrl);
 }
 
-/**
- * Palette display copy per secret field; UI strings stay out of the shared
- * descriptor. Resolved per call so the labels localize after l10n.config; the
- * Record keeps a missing label a compile error.
- */
+/** Palette display copy per secret field; UI strings stay out of the shared descriptor. */
 function secretPaletteLabel(field: SecretFieldId): string {
 	const labels: Readonly<Record<SecretFieldId, string>> = {
 		apiKey: l10n.t("API key"),
@@ -383,11 +316,6 @@ function secretPaletteLabel(field: SecretFieldId): string {
 	return labels[field];
 }
 
-/**
- * The palette path for keeping secrets out of settings.json without the
- * dashboard: pick a declared server, pick the secret field, enter the value
- * masked. An empty value removes the stored secret.
- */
 export function registerSetServerSecretCommand(
 	context: vscode.ExtensionContext,
 	engine: ServerSyncEngine,
@@ -413,8 +341,7 @@ export function registerSetServerSecretCommand(
 				return;
 			}
 			const fieldPick = await vscode.window.showQuickPick(
-				// Ids come from the descriptor so a new secret field cannot be
-				// silently unreachable here.
+				// Ids come from the descriptor so a new secret field cannot be silently unreachable here.
 				SECRET_FIELD_IDS.map((field) => ({ label: secretPaletteLabel(field), field })),
 				{ title: l10n.t("LiteLLM: Set Server Secret"), placeHolder: l10n.t("Which secret?") }
 			);
@@ -426,20 +353,16 @@ export function registerSetServerSecretCommand(
 				prompt: l10n.t(
 					"Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value."
 				),
-				// The one host-side secret prompt left; it honors the same
-				// ui.maskSecretInputs setting the dashboard's secret inputs read.
 				password: getMaskSecretInputs(),
 			});
 			if (value === undefined) {
 				return;
 			}
-			// The label is re-resolved AFTER the prompts and must still name the
-			// entry the quick pick displayed: the prompts stay open indefinitely,
-			// and an entry swapped in under the label meanwhile (another window, a
-			// hand edit of settings.json) would receive a secret the user entered
-			// for a different host. The same identity comparison the dashboard's
-			// save path refuses through; nothing durable happened, so re-running
-			// the command shows fresh truth.
+			// The label is re-resolved AFTER the prompts and must still name the entry the quick pick displayed: the
+			// prompts stay open indefinitely, and an entry swapped in under the label meanwhile (another window, a hand
+			// edit of settings.json) would receive a secret the user entered for a different host. The same identity
+			// comparison the dashboard's save path refuses through; nothing durable happened, so re-running the command
+			// shows fresh truth.
 			const fresh = acceptedEntry(readRawServersSetting(), entryPick.label);
 			if (fresh === undefined || !nonSecretIdentityMatches(fresh.entry, entryPick.entry)) {
 				logger.log("Set Server Secret refused: the entry changed while the prompts were open", {
@@ -458,8 +381,8 @@ export function registerSetServerSecretCommand(
 				entryPick.label,
 				fieldPick.field,
 				value.length > 0 ? value : undefined,
-				// The stamp records the deliberate pairing: this value belongs to
-				// the destination the just-verified entry names.
+				// The stamp records the deliberate pairing: this value belongs to the destination the just-verified
+				// entry names.
 				secretDestination(fresh.entry, fieldPick.field)
 			);
 			logger.log("Server secret updated from the palette", {
@@ -468,9 +391,6 @@ export function registerSetServerSecretCommand(
 				cleared: value.length === 0,
 			});
 			if (value.length > 0 && inlineSecretValues(fresh.entry)[fieldPick.field] !== undefined) {
-				// Inline settings values outrank the stored blob (the inlineSecretValues
-				// rule buildGroupArgs resolves through), so the just-stored secret
-				// stays dormant until the inline one is removed.
 				void vscode.window.showWarningMessage(
 					l10n.t(
 						'"{0}" also sets {1} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.',

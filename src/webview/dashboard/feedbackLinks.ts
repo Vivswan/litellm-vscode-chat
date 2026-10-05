@@ -1,9 +1,8 @@
 /**
- * Every external destination the Diagnostics feedback rows link to. The repository and the feature-request
- * issue come from shared/util/links.ts, the one owner the extension host reads too; the marketplace listing is
- * whatever package.json publishes - its `publisher` and `name`, read at bundle time - so a renamed publisher
- * re-points the row instead of leaving a dead link behind. Manifest fields are the only interpolation: nothing
- * here reads server data.
+ * The repository and the feature-request issue come from shared/util/links.ts, the one owner the extension host reads
+ * too; the marketplace listing is whatever package.json publishes - its `publisher` and `name`, read at bundle time -
+ * so a renamed publisher re-points the row instead of leaving a dead link behind. Manifest fields are the only
+ * interpolation: nothing here reads server data.
  */
 
 import { name, publisher } from "../../../package.json";

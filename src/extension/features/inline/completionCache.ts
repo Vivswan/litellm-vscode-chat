@@ -1,8 +1,6 @@
 /**
- * A small bounded LRU for inline completion results, consulted before any
- * request so a backspace-and-retype never pays a second round trip. Pure and
- * clock-free: recency is the map's insertion order, refreshed on every hit,
- * which is monotonic by construction - no timers, no Date.now.
+ * Pure and clock-free: recency is the map's insertion order, refreshed on every hit, which is monotonic by
+ * construction - no timers, no Date.now.
  */
 
 export interface CompletionCacheKey {
@@ -24,9 +22,8 @@ function encode(key: CompletionCacheKey): string {
 }
 
 /**
- * Completion texts keyed by (model, prefix tail, suffix head). Empty strings
- * are cached like any other result: "the model had nothing to add here" is
- * an answer worth not re-requesting.
+ * Empty strings are cached like any other result: "the model had nothing to add here" is an answer worth not
+ * re-requesting.
  */
 export class CompletionCache {
 	private readonly entries = new Map<string, string>();
@@ -39,7 +36,6 @@ export class CompletionCache {
 		this.capacity = capacity;
 	}
 
-	/** The cached completion for this context, refreshing its recency; undefined is a miss. */
 	get(key: CompletionCacheKey): string | undefined {
 		const encoded = encode(key);
 		const value = this.entries.get(encoded);
@@ -51,7 +47,6 @@ export class CompletionCache {
 		return value;
 	}
 
-	/** Store one completion, evicting the least recently used entry beyond capacity. */
 	set(key: CompletionCacheKey, completion: string): void {
 		const encoded = encode(key);
 		this.entries.delete(encoded);
@@ -64,12 +59,10 @@ export class CompletionCache {
 		}
 	}
 
-	/** Drop everything; the wiring calls this on model or configuration changes. */
 	invalidate(): void {
 		this.entries.clear();
 	}
 
-	/** Current entry count, for tests and diagnostics. */
 	get size(): number {
 		return this.entries.size;
 	}

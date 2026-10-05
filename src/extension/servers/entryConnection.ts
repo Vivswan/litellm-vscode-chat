@@ -7,7 +7,6 @@ import { acceptedEntry } from "./serverSync/setting";
 import type { UsageConnection } from "./usage/spendClient";
 import { usageConnectionFor } from "./usage/spendClient";
 
-/** What one label resolves to: the parsed entry, its connection, and the ownership verdict on its stored secrets. */
 export interface EntryConnection {
 	readonly entry: DeclaredServer;
 	readonly connection: UsageConnection;
@@ -16,21 +15,20 @@ export interface EntryConnection {
 	 * server, usually a base URL edited after the secret was stored. The verdict rides beside the connection
 	 * instead of gating it because the callers disagree on purpose.
 	 *
-	 *   MCP publisher (features/mcp/provider.ts) -> refuses; the editor talks to the server itself, so no request of ours sees a 401
-	 *   one-shot feature sends                   -> send anyway and let the server's own 401 tell the story
+	 *   the editor talks to the server itself -> MCP publisher (features/mcp/provider.ts) refuses
+	 *   one-shot feature sends                -> send anyway and let the server's own 401 tell the story
 	 */
 	readonly refusedSecrets: readonly SecretFieldId[];
 }
 
 /**
- * The one label-to-connection resolution for extension-side features that
- * address a declared servers entry by its label (the entry identity the sync
- * engine and usage resolution use): the shared featureChatSend (the five chat
- * features), the inline-completions FIM send, and the MCP publisher all
- * resolve through this. Secrets resolve like the usage path - inline settings
- * values outrank the label's SecretStorage blob. Undefined when no servers
- * entry carries the label; each caller shapes its own advice for that, since
- * the fix lives in a different setting per feature.
+ * The one label-to-connection resolution for extension-side features that address a declared servers entry by its
+ * label (the entry identity the sync engine and usage resolution use): the shared featureChatSend (the five chat
+ * features), the inline-completions FIM send, and the MCP publisher all resolve through this. Undefined when no
+ * servers entry carries the label; each caller shapes its own advice for that, since the fix lives in a different
+ * setting per feature.
+ *
+ *   Secrets resolve like the usage path -> inline settings values outrank the label's SecretStorage blob
  */
 export async function entryConnectionFor(
 	secrets: vscode.SecretStorage,

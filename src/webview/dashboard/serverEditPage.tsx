@@ -1,7 +1,6 @@
 /**
- * The server edit surface, the add/edit form and its field machinery. The boundary outward is four
- * callbacks (onDirtyChange, onRequestClose, onTargetGone, onSaved), and the module knows nothing about what
- * is mounted around it.
+ * The server edit surface, the add/edit form and its field machinery. The boundary outward is four callbacks
+ * (onDirtyChange, onRequestClose, onTargetGone, onSaved), and the module knows nothing about what is mounted around it.
  */
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
@@ -115,9 +114,10 @@ const SERVERS_SETTING_ID = `${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`;
 
 /**
  * What the open form is for, decided once where it opens so no component re-derives it.
- * An edit target is an EditableDashboardServer BY TYPE: a row whose secret locations are
- * still unproven (the pre-first-pass fallback) cannot construct one, so no form can
- * freeze a wrong identity from it.
+ *
+ *   An edit target                      -> is an EditableDashboardServer BY TYPE
+ *   secret locations are still unproven -> cannot construct one
+ *   cannot construct one                -> no form can freeze a wrong identity from it
  */
 export type FormTarget =
 	| { readonly kind: "add" }
@@ -128,9 +128,9 @@ export type FormTarget =
 type ServerFormTarget = Extract<FormTarget, { kind: "add" | "edit" }>;
 
 /**
- * The edit form's live evidence row: the CURRENT declared row, looked up per render
- * rather than from the form's frozen open-time snapshot - a discovery pass finishing
- * under an open form must update the unknown-key hints and the skipped-mode checkboxes.
+ * The edit form's live evidence row: the CURRENT declared row, looked up per render rather than from the form's frozen
+ * open-time snapshot - a discovery pass finishing under an open form must update the unknown-key hints and the
+ * skipped-mode checkboxes.
  */
 function liveRowForForm(servers: readonly DashboardServer[], target: ServerFormTarget): DashboardServer | undefined {
 	if (target.kind !== "edit") {
@@ -140,8 +140,8 @@ function liveRowForForm(servers: readonly DashboardServer[], target: ServerFormT
 }
 
 /**
- * What the shell asked this page to be, by IDENTITY rather than by object: resolved against
- * the live state on every render, so a changed entry is followed and a vanished one says so.
+ *   What the shell asked this page to be -> by IDENTITY rather than by object
+ *   by IDENTITY rather than by object    -> resolved against the live state on every render
  */
 export type ServerEditRequest =
 	| { readonly kind: "add" }
@@ -149,8 +149,10 @@ export type ServerEditRequest =
 	| { readonly kind: "adopt"; readonly handle: string };
 
 /**
- * Where the form is in its life. Prefill and save each run their own correlation, but the
- * form is only ever in one; fields stay editable throughout, only Save gates on "editing".
+ * Where the form is in its life.
+ *
+ *   Prefill and save -> each run their own correlation
+ *   the form         -> is only ever in one
  */
 type FormPhase =
 	| { readonly phase: "prefill" }
@@ -158,9 +160,9 @@ type FormPhase =
 	| { readonly phase: "saving"; readonly requestId: string };
 
 /**
- * The draft test's own lifecycle, independent of FormPhase: a test in flight must not gate
- * editing, saving, or cancelling. Leaving "testing" abandons the in-flight requestId, so a
- * late outcome is ignored - exactly what clearing on an edit needs.
+ * The draft test's own lifecycle, independent of FormPhase: a test in flight must not gate editing, saving, or
+ * cancelling. Leaving "testing" abandons the in-flight requestId, so a late outcome is ignored - exactly what clearing
+ * on an edit needs.
  */
 type TestState =
 	| { readonly kind: "idle" }
@@ -220,22 +222,22 @@ function expectedFailureLabel(category: ExpectedFailureCategory): string {
 	}
 }
 
-/** One included-mode checkbox label: the mode token (a protocol term, untranslated) plus what the last listing dropped. */
+/**
+ * One included-mode checkbox label: the mode token (a protocol term, untranslated) plus what the last listing dropped.
+ */
 function includeModeLabel(mode: NonChatMode, skipped: number | undefined): string {
 	return skipped !== undefined && skipped > 0 ? l10n.t("{0} ({1} skipped)", mode, skipped) : mode;
 }
 
 /**
- * What an empty MCP endpoint publishes, said concretely. The entry's own base
- * URL is right there in the draft, so the hint names the exact address rather
- * than describing the rule and leaving the reader to apply it. A base URL that
- * is empty or not yet a usable URL has no derivable answer, so that case falls
- * back to naming the shape instead of interpolating half a URL.
+ * The entry's own base URL is right there in the draft, so the hint names the exact address rather than describing the
+ * rule and leaving the reader to apply it. A base URL that is empty or not yet a usable URL has no derivable answer, so
+ * that case falls back to naming the shape instead of interpolating half a URL.
  */
 function derivedMcpHint(baseUrl: string): string {
 	const trimmed = baseUrl.trim();
-	// mcpEndpointOf is the publisher's own derivation, so the address named here
-	// is the address that gets published - not a second rendering of the rule.
+	// mcpEndpointOf is the publisher's own derivation, so the address named here is the address that gets published -
+	// not a second rendering of the rule.
 	return isUsableHttpUrl(trimmed)
 		? l10n.t("Leave empty to use {0}", mcpEndpointOf(trimmed))
 		: l10n.t("Leave empty to use this server's own /mcp.");
@@ -271,9 +273,9 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 }
 
 /**
- * The Authentication selector's option labels; OAuth stays English (protocol term).
- * Deliberately distinct from the field labels: two identical label texts would leave
- * label-based lookup - screen readers' and the test harness's - ambiguous.
+ * The Authentication selector's option labels; OAuth stays English (protocol term). Deliberately distinct from the
+ * field labels: two identical label texts would leave label-based lookup - screen readers' and the test harness's -
+ * ambiguous.
  */
 function authFormName(form: AuthFormId): string {
 	switch (form) {
@@ -292,10 +294,9 @@ function authFormName(form: AuthFormId): string {
 const AUTH_FORM_IDS: readonly AuthFormId[] = ["none", "apiKey", "virtualKey", "oauth"];
 
 /**
- * The edit destination, mounted in the shell's pane. The boundary outward is two facts and
- * two events: the draft is dirty, the reader asked to leave, the save committed - pane
- * choice, rail clicks, and focus on the way out belong to the shell. The target resolves
- * from live state every render: refreshed evidence, and a deleted entry says so.
+ * The edit destination, mounted in the shell's pane. The boundary outward is two facts and two events: the draft is
+ * dirty, the reader asked to leave, the save committed - pane choice, rail clicks, and focus on the way out belong to
+ * the shell.
  */
 export function ServerEditPage({
 	request,
@@ -313,18 +314,18 @@ export function ServerEditPage({
 	onRequestClose: () => void;
 	onSaved: () => void;
 }) {
-	// The page's own adopt round trip: the outcome decides the page's fate (ok leaves, a
-	// validation failure stays). The list keeps its own hook for notice and banner - both
-	// see the same envelope, the documented shape of these outcomes.
+	// The page's own adopt round trip: the outcome decides the page's fate (ok leaves, a validation failure stays). The
+	// list keeps its own hook for notice and banner - both see the same envelope, the documented shape of these
+	// outcomes.
 	const adoptIntent = useIntentOutcome("adoptServer");
 	const saveIntent = useIntentOutcome("saveServerSetting");
 	const [adopting, setAdopting] = useState<string | undefined>(undefined);
 	const [savingId, setSavingId] = useState<string | undefined>(undefined);
 	const adoptOutcome = adoptIntent.outcome;
 	const saveOutcome = saveIntent.outcome;
-	// A validation failure keeps the reader here, so the message must be here too. An
-	// operation failure committed its write; it leaves like a success and the list's
-	// banner takes it.
+	// A validation failure keeps the reader here, so the message must be here too.
+	//
+	//   An operation failure -> it leaves like a success and the list's banner takes it
 	const [failure, setFailure] = useState<{ message: string; frame: "save" | "adopt" } | undefined>(undefined);
 	useEffect(() => {
 		if (adopting === undefined || adoptOutcome?.id !== adopting) {
@@ -349,41 +350,37 @@ export function ServerEditPage({
 		setFailure({ message: saveOutcome.message, frame: "save" });
 	}, [saveOutcome, savingId, onSaved]);
 
-	// Arriving here is a navigation, so focus travels with it: to the first field, or the
-	// page itself. A destination must do this deliberately, or Tab carries on from a pane
-	// that is no longer showing.
+	// Arriving here is a navigation, so focus travels with it: to the first field, or the page itself. A destination
+	// must do this deliberately, or Tab carries on from a pane that is no longer showing.
 
-	// Misconfigured entries count as taken: they occupy their label in the
-	// setting, so a rename onto one must be refused like any sibling.
+	// Misconfigured entries count as taken: they occupy their label in the setting, so a rename onto one must be
+	// refused like any sibling.
 	const declaredLabels = servers
 		.filter((server) => server.origin === "declared" || server.origin === "misconfigured")
 		.map((server) => server.label);
 
-	// Memoized so the resolved target is one object for as long as its rows are: a fresh
-	// object per render turned the prefill effect into a render loop.
+	// Memoized so the resolved target is one object for as long as its rows are: a fresh object per render turned the
+	// prefill effect into a render loop.
 	const resolved = useMemo(() => resolveEditTarget(request, servers), [request, servers]);
 	const lastResolved = useRef<FormTarget | undefined>(undefined);
-	// A commit in flight freezes the WHOLE target: the save's write comes back as a state
-	// push, so a rename resolves the old label to nothing (a save that worked reads as a
-	// deleted entry) and a secret moving storage resolves a DIFFERENT object that restarts
-	// the prefill - both read the result of a commit still in flight.
+	//   A commit in flight                           -> freezes the WHOLE target
+	//   the save's write comes back as a state push -> a rename resolves the old label to nothing
+	//   a save that worked                          -> reads as a deleted entry
 	const committing = savingId !== undefined || adopting !== undefined;
 	if (resolved !== undefined && resolved !== "locations-unproven" && !committing) {
 		lastResolved.current = resolved;
 	}
-	// A row turning unproven UNDER an open form must not tear the form down
-	// (the draft dies with it): the form keeps its last proven target - the
-	// frozen identity still guards the save extension-side. Only a page that
-	// never had a proven target waits.
+	// A row turning unproven UNDER an open form must not tear the form down (the draft dies with it): the form keeps
+	// its last proven target - the frozen identity still guards the save extension-side. Only a page that never had a
+	// proven target waits.
 	const settled =
 		resolved === "locations-unproven" && lastResolved.current !== undefined ? lastResolved.current : resolved;
 	const target = committing ? lastResolved.current : settled;
-	// The row exists but the fallback push could not prove its secret locations
-	// yet: not an edit target, so the page waits for the first pass's push.
+	// The row exists but the fallback push could not prove its secret locations yet: not an edit target, so the page
+	// waits for the first pass's push.
 	const waitingForProof = target === "locations-unproven";
-	// The entry went away, taking the draft: nothing left to save, nothing to ask about.
-	// Reported on its own channel so the shell can dismiss a standing discard question -
-	// a signal the dirty report must never carry.
+	// The entry went away, taking the draft: nothing left to save, nothing to ask about. Reported on its own channel so
+	// the shell can dismiss a standing discard question - a signal the dirty report must never carry.
 	const targetGone = target === undefined;
 	useEffect(() => {
 		if (targetGone) {
@@ -403,11 +400,10 @@ export function ServerEditPage({
 		const field = page?.querySelector<HTMLElement>("input, select, textarea");
 		(field ?? page)?.focus();
 	}, [targetGone, waitingForProof]);
-	// tabIndex -1: the page takes focus itself when it holds no field, never in the tab order.
-	// The id is where the discard-confirm modal returns focus on "keep editing".
+	// tabIndex -1: the page takes focus itself when it holds no field, never in the tab order. The id is where the
+	// discard-confirm modal returns focus on "keep editing".
 	const page = (children: ReactNode) => (
-		// A section, not a dialog: it is where the reader IS; the heading labels it because a
-		// section takes a name.
+		// A section, not a dialog: it is where the reader IS; the heading labels it because a section takes a name.
 		<section
 			className="server-edit-page max-w-[860px]"
 			id="server-edit-page"
@@ -432,10 +428,9 @@ export function ServerEditPage({
 		);
 	}
 	if (target === "locations-unproven") {
-		// The pre-first-pass fallback cannot prove where this entry's secrets live
-		// (an API key may sit in secret storage it has not read), so no form opens
-		// on it: a form frozen over guessed locations would only earn a refusal on
-		// save. The first pass's push resolves this card into the form by itself.
+		// The pre-first-pass fallback cannot prove where this entry's secrets live (an API key may sit in secret
+		// storage it has not read), so no form opens on it: a form frozen over guessed locations would only earn a
+		// refusal on save.
 		return page(
 			<div className="form-card server-form">
 				<h3 id="server-form-title">{l10n.t("Checking where this server's secrets are stored")}</h3>
@@ -498,8 +493,7 @@ export function ServerEditPage({
 				skippedModeCounts={liveRowForForm(servers, target)?.skippedModeCounts}
 				onDirtyChange={onDirtyChange}
 				onSavePosted={(requestId) => {
-					// A retry starts clean: the banner belongs to the round trip
-					// that produced it, not to the form.
+					// A retry starts clean: the banner belongs to the round trip that produced it, not to the form.
 					setFailure(undefined);
 					setSavingId(requestId);
 				}}
@@ -510,11 +504,11 @@ export function ServerEditPage({
 }
 
 /**
- * The request read against the live rows: absent when the row is gone or cannot
- * round-trip the form (a misconfigured entry, which the list offers no edit for).
- * "locations-unproven" is a declared row the pre-first-pass fallback served: its
- * secret locations are not proven yet, so it is not an edit target - the page
- * waits, and the first pass's push resolves it into one.
+ * The request read against the live rows: absent when the row is gone or cannot round-trip the form (a misconfigured
+ * entry, which the list offers no edit for).
+ *
+ *   "locations-unproven"                    -> it is not an edit target - the page waits
+ *   its secret locations are not proven yet -> it is not an edit target
  */
 function resolveEditTarget(
 	request: ServerEditRequest,
@@ -562,14 +556,14 @@ function ServerForm({
 	onRequestClose: () => void;
 }) {
 	const [draft, setDraft] = useState<ServerFormDraft>(() => draftFor(target));
-	// What the form opened with, for the save bar's unsaved count; re-based when the prefill
-	// lands, so a value the form filled in never reads as a user edit.
+	// What the form opened with, for the save bar's unsaved count; re-based when the prefill lands, so a value the form
+	// filled in never reads as a user edit.
 	const [baseline, setBaseline] = useState<ServerFormDraft>(() => draftFor(target));
-	// The identity of the entry this form DISPLAYS, frozen when the form opened like the
-	// draft itself - the target prop follows live state, and a frozen identity is the point:
-	// it rides the save, test, and prefill intents as `replace`, so an entry swapped in
-	// under the same label while the form is open makes the extension REFUSE instead of
-	// resolving credentials this form never showed. Locations only, never values.
+	// Locations only, never values.
+	//
+	//   The identity of the entry this form DISPLAYS -> frozen when the form opened like the draft itself
+	//   the target prop                              -> follows live state
+	//   a frozen identity is the point               -> it rides the save, test, and prefill intents as `replace`
 	const [original] = useState<ReplacedEntryIdentity | undefined>(() =>
 		target.kind === "edit"
 			? {
@@ -584,19 +578,16 @@ function ServerForm({
 	const [touched, setTouched] = useState<ReadonlySet<ServerFormField>>(new Set());
 	const [phase, setPhase] = useState<FormPhase>({ phase: "editing" });
 	const [testState, setTestState] = useState<TestState>({ kind: "idle" });
-	// The stale-key question a Save raised (staleKeyFieldsOnSave): the save re-points
-	// the base URL while keeping a secure-stored secret stamped for the old one, so
-	// nothing posts until the reader answers. Locations decided it; no stamp or value
-	// ever reaches this page.
+	// The stale-key question a Save raised (staleKeyFieldsOnSave): the save re-points the base URL while keeping a
+	// secure-stored secret stamped for the old one, so nothing posts until the reader answers.
+	//
+	//   Locations -> decided it
 	const [staleKeyFields, setStaleKeyFields] = useState<readonly SecretFieldId[] | undefined>(undefined);
-	// The form's own round trips. Inline-secret values live only in this hook's state and the
-	// draft, both dying with the form instance - a closed form leaves no secret in memory.
 	const saveIntent = useIntentOutcome("saveServerSetting");
 	const testIntent = useIntentOutcome("testServerDraft");
 	const inlineSecrets = useRpc("readInlineSecrets");
-	// The full matcher editor overlay, by record kind and DRAFT index (the tables' sorted
-	// order is a view; the draft array is the identity space). Index identity is safe HERE:
-	// the draft is local state no store push rewrites. Closes itself when its group leaves.
+	// The full matcher editor overlay, by record kind and DRAFT index (the tables' sorted order is a view; the draft
+	// array is the identity space). Index identity is safe HERE: the draft is local state no store push rewrites.
 	const [matcherEditor, setMatcherEditor] = useState<{ kind: RecordEditorKind; index: number } | undefined>(undefined);
 	const draftModelParameters = draft.modelParameters;
 	const draftModelCapabilities = draft.modelCapabilities;
@@ -610,15 +601,16 @@ function ServerForm({
 		});
 	}, [draftModelParameters, draftModelCapabilities]);
 	const saving = phase.phase === "saving";
-	// Save holds until the prefill lands: saving before would assemble empty fields as
-	// "keep", silently dropping a just-picked relocation. Fields stay editable meanwhile;
-	// the gate is one round trip and imperceptible.
+	// Save holds until the prefill lands: saving before would assemble empty fields as "keep", silently dropping a
+	// just-picked relocation.
+	//
+	//   Fields -> stay editable meanwhile
 	const saveOutcome = saveIntent.outcome;
 
-	// Ask for inline-stored values once per form instance (the key remounts a fresh form);
-	// secure-side and absent fields are never requested. The request carries the FROZEN
-	// identity, so a same-label replacement racing the prefill gets an empty answer instead
-	// of prefilling its values into a form showing another entry.
+	// Ask for inline-stored values once per form instance (the key remounts a fresh form); secure-side and absent
+	// fields are never requested.
+	//
+	//   The request -> carries the FROZEN identity
 	const requestInlineSecrets = inlineSecrets.send;
 	const hasInlineSecret =
 		original !== undefined && SECRET_FIELD_IDS.some((field) => original.secrets[field] === "settings");
@@ -630,8 +622,8 @@ function ServerForm({
 		setPhase({ phase: "prefill" });
 	}, [original, hasInlineSecret, requestInlineSecrets]);
 
-	// This form's own response prefills the untouched inline fields; the hook
-	// answers only the request this form instance posted.
+	// This form's own response prefills the untouched inline fields; the hook answers only the request this form
+	// instance posted.
 	const inlineValues = inlineSecrets.data?.values;
 	useEffect(() => {
 		if (phase.phase !== "prefill" || inlineValues === undefined) {
@@ -642,8 +634,7 @@ function ServerForm({
 		setBaseline((current) => applyInlinePrefill(current, inlineValues));
 	}, [inlineValues, phase]);
 
-	// The page owns what a save's outcome means for the destination; the form
-	// only needs to stop calling itself busy.
+	// The page owns what a save's outcome means for the destination; the form only needs to stop calling itself busy.
 	useEffect(() => {
 		if (phase.phase === "saving" && saveOutcome?.id === phase.requestId) {
 			setPhase({ phase: "editing" });
@@ -660,8 +651,8 @@ function ServerForm({
 			setTestState({
 				kind: "pass",
 				text: testOutcome.message ?? l10n.t("Connected"),
-				// The zero-model probe passes with a warning tone (the shared
-				// zero-model vocabulary); a quiet success carries none.
+				// The zero-model probe passes with a warning tone (the shared zero-model vocabulary); a quiet success
+				// carries none.
 				...(testOutcome.tone !== undefined ? { tone: testOutcome.tone } : {}),
 			});
 		} else {
@@ -685,8 +676,8 @@ function ServerForm({
 	const renaming = target.kind === "edit" && label !== target.original.label;
 	const collides = target.kind === "add" && declaredLabels.includes(label);
 
-	// A problem is visible once its field was touched or holds content; computed once so the
-	// fields and the save summary always show the same problems.
+	// A problem is visible once its field was touched or holds content; computed once so the fields and the save
+	// summary always show the same problems.
 	const visibleProblems: ServerFormProblems = {};
 	if (!parse.ok) {
 		for (const field of SERVER_FORM_FIELD_ORDER) {
@@ -704,15 +695,12 @@ function ServerForm({
 	const modelCapabilityIssues = parse.modelCapabilityIssues;
 	const entryParamIssueViews = paramIssueViews(draft.modelParameters, modelParameterProblems, modelParameterHints);
 	const entryCapIssueViews = capabilityIssueViews(draft.modelCapabilities, modelCapabilityIssues);
-	// The capability-key autocomplete over THIS entry's own observed vocabulary (live, like
-	// the hint evidence): entry-scoped records apply to this server only, so other servers'
-	// vocabularies never leak in.
+	// The capability-key autocomplete over THIS entry's own observed vocabulary (live, like the hint evidence):
+	// entry-scoped records apply to this server only, so other servers' vocabularies never leak in.
 	const entryCapabilityKeySuggestions = capabilityKeySuggestions(observedModelInfoKeys);
-	// Evidence-gated, so nobody is asked about a mode that never applied to
-	// their server. The SAVED entry's modes stay offered while the form is
-	// open, not the draft's: gating on the draft made unchecking a retained
-	// mode with no current skips remove its checkbox, so the edit could not
-	// be reversed without discarding the form.
+	// The SAVED entry's modes stay offered while the form is open, not the draft's: gating on the draft made unchecking
+	// a retained mode with no current skips remove its checkbox, so the edit could not be reversed without discarding
+	// the form.
 	const savedModes = target.kind === "edit" ? (target.original.config.includeModes ?? []) : [];
 	const offeredModes = NON_CHAT_MODES.filter(
 		(mode) => (skippedModeCounts?.[mode] ?? 0) > 0 || savedModes.includes(mode)
@@ -722,8 +710,8 @@ function ServerForm({
 	// Every field is in the same scroll, so a problem is always reachable before Save.
 	const changedFields = changedServerFormFields(draft, baseline);
 	const unsavedCount = changedFields.length;
-	// The models-file caveat is about a connection the host already resolved,
-	// so it belongs to an edit that actually moves one - not to every open.
+	// The models-file caveat is about a connection the host already resolved, so it belongs to an edit that actually
+	// moves one - not to every open.
 	const connectionEdited = changedFields.some((field) => (CONNECTION_FIELDS as readonly string[]).includes(field));
 
 	const postSave = (intent: Parameters<typeof saveIntent.send>[0]) => {
@@ -733,9 +721,10 @@ function ServerForm({
 	};
 
 	// The stale-key dialog's detail line.
-	//   destinations deduplicated -> the keys share the base URL
-	//   no token URL              -> nothing to name; the sentence without a destination
-	//   resolved per render       -> l10n stays call-time
+	//
+	//   the keys share the base URL -> destinations deduplicated
+	//   no token URL                -> nothing to name; the sentence without a destination
+	//   resolved per render         -> l10n stays call-time
 	const describeDestination = (field: SecretFieldId): string => {
 		if (original === undefined) {
 			return "";
@@ -783,11 +772,9 @@ function ServerForm({
 		postSave(parse.intent);
 	};
 
-	// The question's three ways out. "Use same key" posts the parse as it stands
-	// (the host re-stamps the kept value for the new URL). "Clear key" marks the
-	// stale fields' Remove checkboxes and posts the re-parse when it is clean;
-	// a clear that breaks a pairing rule (a virtual key's header left naming a
-	// removed value) returns to editing with the problem visible instead.
+	// "Use same key" posts the parse as it stands (the host re-stamps the kept value for the new URL). "Clear key"
+	// marks the stale fields' Remove checkboxes and posts the re-parse when it is clean; a clear that breaks a pairing
+	// rule (a virtual key's header left naming a removed value) returns to editing with the problem visible instead.
 	const answerStaleKeyKeep = () => {
 		setStaleKeyFields(undefined);
 		if (parse.ok) {
@@ -816,8 +803,8 @@ function ServerForm({
 		}
 	};
 
-	// The draft as typed goes out for one extension-side probe; label and model-parameter
-	// rows never gate it, but a connection-relevant problem surfaces like Save's.
+	// The draft as typed goes out for one extension-side probe; label and model-parameter rows never gate it, but a
+	// connection-relevant problem surfaces like Save's.
 	const testConnection = () => {
 		if (testState.kind === "testing" || saving) {
 			return;
@@ -845,10 +832,11 @@ function ServerForm({
 		disabled: saving,
 		patch: (patch) => {
 			onDirtyChange(true);
-			// Any field a probe's outcome depends on makes a standing result describe a config that
-			// no longer exists; a stale PASS is worse than none. The label counts (it selects which
-			// stored secret "keep" resolves); modelCapabilities/expectedFailures stay out of
-			// CONNECTION_FIELDS but still clear a result - they shape its OUTCOME.
+			// Any field a probe's outcome depends on makes a standing result describe a config that no longer exists; a
+			// stale PASS is worse than none.
+			//
+			//   modelCapabilities/expectedFailures -> stay out of CONNECTION_FIELDS but still clear a result
+			//   they shape its OUTCOME             -> still clear a result
 			if (
 				testState.kind !== "idle" &&
 				Object.keys(patch).some(
@@ -875,10 +863,10 @@ function ServerForm({
 		},
 	};
 
-	// Kept stored secrets whose form is not selected still change the save's shape (the
-	// shape-and-storage rule, docs/servers.md#secrets-and-secret-storage), so each renders a
-	// visible hint plus its Remove checkbox instead of silently riding along. The parse's
-	// blocking rules read the same derivation, so the way out of a block always renders.
+	// Kept stored secrets whose form is not selected still change the save's shape (the shape-and-storage rule,
+	// docs/servers.md#secrets-and-secret-storage), so each renders a visible hint plus its Remove checkbox instead of
+	// silently riding along. The parse's blocking rules read the same derivation, so the way out of a block always
+	// renders.
 	const storedOrphans = storedInactiveSecrets(draft);
 	const storedApiKeyOrphan = storedOrphans.apiKey;
 	const storedVkOrphan = storedOrphans.virtualKeyValue;
@@ -891,9 +879,8 @@ function ServerForm({
 		</>
 	);
 
-	// Closing the overlay sweeps up a still-pristine new matcher; both the sweep and the add
-	// write through setDraft, NOT props.patch - a structural add-then-cancel is a no-op and
-	// must not arm the shell's discard confirm.
+	// Closing the overlay sweeps up a still-pristine new matcher; both the sweep and the add write through setDraft,
+	// NOT props.patch - a structural add-then-cancel is a no-op and must not arm the shell's discard confirm.
 	const closeMatcherEditor = () => {
 		if (matcherEditor !== undefined) {
 			const list = matcherEditor.kind === "params" ? draft.modelParameters : draft.modelCapabilities;
@@ -1044,8 +1031,9 @@ function ServerForm({
 								<>
 									{" "}
 									<span className="test-hint">
-										{/* The accessible name leads with the visible verb (Label in Name); the helper's sentence
-										    label buries "Troubleshoot" where speech input cannot match it. */}
+										{/* The accessible name leads with the visible verb (Label in Name); the
+										    helper's sentence label buries "Troubleshoot" where speech input cannot
+										    match it. */}
 										<DocsLink
 											href={troubleshootingLink(testState.classification.setupHint).href}
 											label={l10n.t("Troubleshoot: {0}", troubleshootingLink(testState.classification.setupHint).topic)}
@@ -1063,7 +1051,9 @@ function ServerForm({
 						{/* A connection edit raises no toast (a rename does), so this line must name every step.
 						    Mounted on every edit form, holding its box invisibly until it speaks (the
 						    spacing-twin idiom): inserting it on the first keystroke pushed rows down 36px
-						    mid-edit. While a rename stands, the rename note carries the remediation instead. */}
+						    mid-edit.
+
+						      While a rename stands -> the rename note carries the remediation instead */}
 						<p className={cn("hint state-warn m-0 text-[11.5px]", (renaming || !connectionEdited) && "invisible")}>
 							{l10n.t(
 								"VS Code keeps the old connection until you remove this server from the models file, reload, and run Sync Models Now."
@@ -1230,8 +1220,8 @@ function ServerForm({
 							id="server-params-add"
 							disabled={saving}
 							onClick={() => {
-								// setDraft, not patch: appending the empty group is structural,
-								// and the pristine sweep undoes it without arming the confirm.
+								// setDraft, not patch: appending the empty group is structural, and the pristine sweep
+								// undoes it without arming the confirm.
 								setDraft((current) => ({
 									...current,
 									modelParameters: [...current.modelParameters, { prefix: "", params: [] }],
@@ -1428,8 +1418,8 @@ function ServerForm({
 						help={<Help text={helpMcpEndpoint()} name={l10n.t("Help: {0}", l10n.t("MCP endpoint"))} />}
 						problem={visibleProblems.mcp}
 						errorId="server-mcp-url-error"
-						// The DERIVED default, not an abstract restatement: the form knows the
-						// base URL, so it can show the exact address an empty field publishes.
+						// The DERIVED default, not an abstract restatement: the form knows the base URL, so it can show
+						// the exact address an empty field publishes.
 						hint={derivedMcpHint(draft.baseUrl)}
 					>
 						<Input
@@ -1472,10 +1462,9 @@ function ServerForm({
 				) : null}
 				{/* The bar's trailing facts on ONE wrap-proof line (dashboard.css .commit-status, the
 				    record footer's .editor-status discipline): zero flex basis, so the count speaking
-				    never changes the bar's wrap points or its height. The count is the line's
-				    non-shrinking region - only the standing saved-to fact clips, with an ellipsis -
-				    while the DOM keeps the whole text (screen readers read it unclipped) and the
-				    title carries it for pointers. */}
+				    never changes the bar's wrap points or its height.
+
+				      the DOM keeps the whole text -> screen readers read it unclipped */}
 				<span
 					className="commit-status text-right text-[11.5px] text-muted-foreground"
 					title={

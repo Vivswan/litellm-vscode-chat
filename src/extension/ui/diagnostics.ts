@@ -1,8 +1,3 @@
-/**
- * The environment-and-connection snapshot the issue reporter attaches to GitHub
- * issue bodies. The interactive surface is the dashboard's Diagnostics tab.
- */
-
 import { isGroupClientId } from "../../provider/catalog/groupModels";
 import { FEATURE_IDS, isFeatureModelId } from "../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../shared/config/settings";
@@ -19,13 +14,11 @@ import type { ConnectionStatus } from "./status";
 import { statusServerStatuses, statusTotalModels } from "./status";
 
 /**
- * Whether an API key or OAuth credentials are configured, from what a
- * synchronous read can see: an inline key or a declared OAuth unit, or a
- * group's report (statusReporting.ts counts OAuth as a key too; a virtual key
- * alone counts in neither). A key resting in SecretStorage
- * is invisible here, so only the groups' reports may deny one, and the deny
- * needs EVERY declared entry's own report: the groups publish one report at a
- * time, so an observed window can be a partial one.
+ * Whether an API key or OAuth credentials are configured, from what a synchronous read can see: an inline key or a
+ * declared OAuth unit, or a group's report (statusReporting.ts counts OAuth as a key too; a virtual key alone counts in
+ * neither). A key resting in SecretStorage is invisible here, so only the groups' reports may deny one, and the deny
+ * needs EVERY declared entry's own report: the groups publish one report at a time, so an observed window can be a
+ * partial one.
  */
 function keyPresence(declared: readonly DeclaredServer[], groupStatuses: readonly ServerStatus[]): boolean | "unknown" {
 	if (
@@ -52,11 +45,9 @@ export function buildDiagnosticsSnapshot(
 	vscodeVersion: string,
 	issueReporter: IssueReporter
 ): DiagnosticsSnapshot {
-	// Configuration presence reads the declared setting beside the observed
-	// group statuses: the statuses empty out while a Test Connection pass
-	// re-resolves the groups, and a report built in that window denied a
-	// configured server (#389). isGroupClientId classifies the serverId because
-	// OLD persisted entries predate the group-entry kind.
+	// Configuration presence reads the declared setting beside the observed group statuses: the statuses empty out
+	// while a Test Connection pass re-resolves the groups, and a report built in that window denied a configured server
+	// (#389). isGroupClientId classifies the serverId because OLD persisted entries predate the group-entry kind.
 	const declared = currentDeclaredServers();
 	const groupStatuses = statusServerStatuses(connectionStatus).filter((s) => isGroupClientId(s.serverId));
 
@@ -68,15 +59,13 @@ export function buildDiagnosticsSnapshot(
 		modelCount: statusTotalModels(connectionStatus),
 		apiKeyConfigured: keyPresence(declared, groupStatuses),
 		baseUrlConfigured: declared.length > 0 || groupStatuses.length > 0,
-		// Feature flags only: whether each feature is on and whether a model
-		// ref is set - never which model or label. One loop over FEATURE_IDS, so
-		// a new feature joins the report by joining the vocabulary.
+		// Feature flags only: whether each feature is on and whether a model ref is set - never which model or label.
 		featureFlags: recordFromKeys(FEATURE_IDS, (feature) => ({
 			enabled: isFeatureEnabled(feature),
 			...(isFeatureModelId(feature) ? { modelConfigured: getFeatureModelRef(feature) !== undefined } : {}),
 		})),
-		// A count of opted-in entries, never their labels or endpoints: the MCP
-		// opt-in is a per-entry field, so it has no FeatureId row to ride.
+		// A count of opted-in entries, never their labels or endpoints: the MCP opt-in is a per-entry field, so it has
+		// no FeatureId row to ride.
 		mcpEntryCount: mcpEnabledEntryCount(),
 		latestError: issueReporter.getLatestError(),
 		recentLogs: issueReporter.getRecentLogs(),

@@ -1,12 +1,13 @@
 # This file is managed by Vivswan/repo-platform.
 # Local edits are replaced on the next sync.
 #
-# A human's `repo-platform:sync` label on a pull request syncs its branch here, inside the repository, with the
-# repository token alone (docs/platform/sync/operator.md, "Syncing a branch by label"). The label is a trigger, not a state: the
-# delivery step takes it off first, so adding it again is always a new run.
+# Syncs a pull request's branch when a human adds the `repo-platform:sync` label, inside the repository, with the
+# repository token alone (docs/platform/sync/operator.md, "Syncing a branch by label").
 #
-# GitHub holds the pull_request run a repository-token push creates for approval, so the pushed head's checks
-# stay unreported until a human approves the run from the merge box or pushes a commit; the comment says so.
+# The label is a trigger, not a state. The delivery step takes it off first, so adding it again is always a new run.
+#
+# GitHub holds the pull_request run a repository-token push creates for approval, so the pushed head's checks stay
+# unreported until a human approves the run from the merge box or pushes a commit. The comment says so.
 
 name: Sync Branch
 

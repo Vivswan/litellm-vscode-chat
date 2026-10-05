@@ -1,7 +1,6 @@
 /**
- * The rendering seam for the two-part error messages (headline, "\n", detail):
- * nothing in the webview styles newlines, so this splits with the same shared
- * extraction the host notifier uses and renders the detail as its own dimmed line.
+ * The rendering seam for the two-part error messages (headline, "\n", detail): nothing in the webview styles newlines,
+ * so this splits with the same shared extraction the host notifier uses and renders the detail as its own dimmed line.
  */
 
 import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";

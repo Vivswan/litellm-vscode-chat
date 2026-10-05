@@ -14,8 +14,7 @@ import type { DeclaredServerView } from "../servers/serverSync";
 import { applySyncFailures } from "../servers/syncFailureOverlay";
 import { zeroModelJudgment } from "./status";
 
-// The headline extraction lives in shared/util/errorText so the dashboard
-// webview splits messages the same way.
+// The headline extraction lives in shared/util/errorText so the dashboard webview splits messages the same way.
 export { statusErrorHeadline };
 
 export interface MessageAction {
@@ -24,11 +23,7 @@ export interface MessageAction {
 }
 
 /**
- * The label every button that promises configuration shares; such a button
- * must route to reconfigureAction (or CMD.openDashboard directly), landing on
- * the dashboard's Servers & Models view - never on the hub menu or a native
- * editor. A function, not a constant: module-level localized constants would
- * evaluate before l10n.config and freeze English.
+ * A function, not a constant: module-level localized constants would evaluate before l10n.config and freeze English.
  */
 export function configureNowLabel(): string {
 	return l10n.t("Configure Now");
@@ -73,11 +68,9 @@ export function troubleshootingDocsAction(url: string, label = l10n.t("Troublesh
 }
 
 /**
- * The error-toast actions for surfaces without an output channel: a
- * hint-carrying classification earns the Troubleshooting Docs button,
- * deep-linked to that cause's docs section. The message itself never changes -
- * the transport messages already carry their own advice, so the hint's whole
- * value on a toast is the docs link.
+ * The error-toast actions for surfaces without an output channel: a hint-carrying classification earns the
+ * Troubleshooting Docs button, deep-linked to that cause's docs section. The message itself never changes - the
+ * transport messages already carry their own advice, so the hint's whole value on a toast is the docs link.
  */
 function notifierErrorActions(classification: TransportErrorClassification | undefined): MessageAction[] {
 	const setupHint = classification?.setupHint;
@@ -87,8 +80,8 @@ function notifierErrorActions(classification: TransportErrorClassification | und
 }
 
 /**
- * The command surfaces' error-toast actions: the same set with View Output
- * first, so a hint never displaces access to the logs.
+ * The command surfaces' error-toast actions: the same set with View Output first, so a hint never displaces access to
+ * the logs.
  */
 export function commandErrorActions(
 	classification: TransportErrorClassification | undefined,
@@ -116,50 +109,35 @@ interface NotifiableCondition {
 	actions: MessageAction[];
 }
 
-/**
- * What one aggregated report means for notification, discriminated by tag so
- * consumers dispatch on the condition instead of re-deriving it from the dedup
- * signature string.
- */
 type NotifierOutcome =
 	| ({ tag: "no-servers" | "all-failed" | "no-models" } & NotifiableCondition)
 	| { tag: "recovered" }
 	| { tag: "suppressed" };
 
 /**
- * How long an empty status window may claim "no servers configured" before the
- * claim is believed. At cold start the host runs the groupless refresh (which
- * reports an empty window) before the per-group refreshes that prove groups
- * exist, so the claim needs evidence of absence: the gate is checked again
- * once the host has had time to hand over any groups it manages. If a host is
- * slower still, the mistake self-heals: the first per-group report evaluates
- * as recovered and clears the dedup signature.
+ * At cold start the host runs the groupless refresh (which reports an empty window) before the per-group refreshes that
+ * prove groups exist, so the claim needs evidence of absence: the gate is checked again once the host has had time to
+ * hand over any groups it manages.
+ *
+ *   If a host is slower still -> the mistake self-heals
  */
 const NO_SERVERS_GRACE_MS = 15000;
 
 /**
- * Owns all toasts for provider refresh outcomes. Silent (background) refreshes
- * notify with once-per-condition dedup; non-silent refreshes never toast here
- * because the caller surfaces the outcome directly. `hasConfiguredServers` is
- * the shared configured gate: an empty status window on a configured install
- * must not claim "no servers". Because the gate's group latch flips only after
- * the groupless refresh already reported empty, the no-servers claim is never
- * toasted immediately: it is deferred by NO_SERVERS_GRACE_MS and re-gated when
- * the deferral expires.
+ * Silent (background) refreshes notify with once-per-condition dedup; non-silent refreshes never toast here because the
+ * caller surfaces the outcome directly. `hasConfiguredServers` is the shared configured gate: an empty status window on
+ * a configured install must not claim "no servers".
  */
 export class Notifier implements vscode.Disposable {
 	private _lastNotifiedSignature: string | undefined;
-	/** The armed no-servers claim; not pending when none is armed. */
 	private readonly pendingClaim: PendingCall;
-	/** The last provider report, pre-overlay; see refreshFromSync. */
 	private lastStatus: AggregatedStatus | undefined;
 
 	constructor(
 		private readonly hasConfiguredServers: () => boolean,
 		/**
-		 * The declared entries as of the last sync pass, for the sync-failure
-		 * overlay (applySyncFailures) - the same input the status bar judges, so
-		 * the toast can never contradict the bar it points at.
+		 * The declared entries as of the last sync pass, for the sync-failure overlay (applySyncFailures) - the same
+		 * input the status bar judges, so the toast can never contradict the bar it points at.
 		 */
 		private readonly getDeclared: () => readonly DeclaredServerView[],
 		private readonly graceMs: number = NO_SERVERS_GRACE_MS,
@@ -169,9 +147,8 @@ export class Notifier implements vscode.Disposable {
 	}
 
 	/**
-	 * Withdraws an armed claim so it cannot fire after deactivation: a toast
-	 * from a deactivated extension would offer an action whose command
-	 * registration is already disposed.
+	 * Withdraws an armed claim so it cannot fire after deactivation: a toast from a deactivated extension would offer
+	 * an action whose command registration is already disposed.
 	 */
 	dispose(): void {
 		this.cancelPendingClaim();
@@ -181,31 +158,29 @@ export class Notifier implements vscode.Disposable {
 		this.lastStatus = status;
 		const outcome = this.evaluate(status);
 		if (outcome.tag === "recovered") {
-			// A healthy refresh resets dedup so a recovered-then-broken setup
-			// notifies again; a pending no-servers claim is obviously stale.
+			// A healthy refresh resets dedup so a recovered-then-broken setup notifies again; a pending no-servers
+			// claim is obviously stale.
 			this.cancelPendingClaim();
 			this._lastNotifiedSignature = undefined;
 			return;
 		}
 		if (outcome.tag === "suppressed") {
-			// An empty status window on a configured install: the world is not
-			// fully known, so no claim is made AND the dedup signature is left
-			// intact, or a prior error toast would read as recovered and re-fire
-			// on the next real failure.
+			// An empty status window on a configured install: the world is not fully known, so no claim is made AND the
+			// dedup signature is left intact, or a prior error toast would read as recovered and re-fire on the next
+			// real failure.
 			this.cancelPendingClaim();
 			return;
 		}
 		if (outcome.tag === "no-servers") {
-			// The claim needs evidence of absence, not absence of evidence; see
-			// the class comment. Non-silent refreshes do not arm it either: their
-			// caller surfaces the outcome directly.
+			// The claim needs evidence of absence, not absence of evidence; see the class comment. Non-silent refreshes
+			// do not arm it either: their caller surfaces the outcome directly.
 			if (status.silent) {
 				this.armNoServersClaim(outcome);
 			}
 			return;
 		}
-		// A real condition over a non-empty window: servers exist, so any pending
-		// no-servers claim was a cold-start artifact.
+		// A real condition over a non-empty window: servers exist, so any pending no-servers claim was a cold-start
+		// artifact.
 		this.cancelPendingClaim();
 		if (!status.silent) {
 			return;
@@ -218,10 +193,9 @@ export class Notifier implements vscode.Disposable {
 	}
 
 	/**
-	 * Re-judge the last provider report after a sync pass: a sync-only change
-	 * moves the overlay without any provider report firing the status callback.
-	 * The signature dedup makes re-judging the same world a no-op, and before
-	 * any report only a non-empty overlay carries news worth judging.
+	 * Re-judge the last provider report after a sync pass: a sync-only change moves the overlay without any provider
+	 * report firing the status callback. The signature dedup makes re-judging the same world a no-op, and before any
+	 * report only a non-empty overlay carries news worth judging.
 	 */
 	refreshFromSync(): void {
 		const base = this.lastStatus ?? { serverStatuses: [], totalModels: 0, silent: true };
@@ -236,8 +210,8 @@ export class Notifier implements vscode.Disposable {
 			return;
 		}
 		this.pendingClaim.arm(() => {
-			// Re-gated at expiry: by now the host has handed over any groups it
-			// manages, so a still-false gate is evidence of absence.
+			// Re-gated at expiry: by now the host has handed over any groups it manages, so a still-false gate is
+			// evidence of absence.
 			if (this.hasConfiguredServers() || condition.signature === this._lastNotifiedSignature) {
 				return;
 			}
@@ -251,13 +225,11 @@ export class Notifier implements vscode.Disposable {
 	}
 
 	private evaluate(status: AggregatedStatus): NotifierOutcome {
-		// The same overlaid window the status bar judges (see applySyncFailures):
-		// sync failures never enter the provider report itself.
+		// The same overlaid window the status bar judges (see applySyncFailures): sync failures never enter the
+		// provider report itself.
 		const serverStatuses = applySyncFailures(status.serverStatuses, this.getDeclared());
-		// The one verdict pipeline: classifyOverall owns the branch rules (shared
-		// with the status bar and the dashboard headline, so the toast can never
-		// contradict the surfaces it points at); this method only maps verdicts
-		// onto toasts.
+		//   The one verdict pipeline -> classifyOverall owns the branch rules (shared with the status bar and the
+		//       dashboard headline)
 		const verdict = classifyOverall(serverStatuses);
 		if (verdict === "not-configured") {
 			if (this.hasConfiguredServers()) {
@@ -274,20 +246,17 @@ export class Notifier implements vscode.Disposable {
 		if (verdict === "error") {
 			const firstFailure = unexpectedServerFailures(serverStatuses)[0];
 			if (firstFailure === undefined) {
-				// Unreachable: a status window carries no misconfigured rows, so the
-				// error verdict guarantees an unexpected failure.
+				// Unreachable: a status window carries no misconfigured rows, so the error verdict guarantees an
+				// unexpected failure.
 				return { tag: "recovered" };
 			}
 			return {
 				tag: "all-failed",
-				// The dedup signature is an internal English key, never displayed.
-				// It keys on the HEADLINE plus the setup hint, matching what the
-				// toast shows: the detail line's server-derived churn is not new
-				// information, while distinct causes can share a headline
-				// (ENOTFOUND and ECONNREFUSED render the same connection headline
-				// over different cause details, but only the latter carries
-				// proxy-not-running), so a failure whose hint changes must re-fire
-				// the toast carrying the docs action.
+				// The dedup signature is an internal English key, never displayed. It keys on the HEADLINE plus the
+				// setup hint, matching what the toast shows: the detail line's server-derived churn is not new
+				// information, while distinct causes can share a headline (ENOTFOUND and ECONNREFUSED render the same
+				// connection headline over different cause details, but only the latter carries proxy-not-running), so
+				// a failure whose hint changes must re-fire the toast carrying the docs action.
 				signature: `all-failed:${statusErrorHeadline(firstFailure.error)}:${firstFailure.classification?.setupHint ?? ""}`,
 				kind: "error",
 				message: l10n.t("LiteLLM: {0}", statusErrorHeadline(firstFailure.error)),
@@ -295,9 +264,8 @@ export class Notifier implements vscode.Disposable {
 			};
 		}
 		if (verdict === "needs-declare") {
-			// Everything failed expectedly with nothing declared: discovery never
-			// returned a list, so "returned no models" would misdescribe it. The
-			// toast points at the fix the dashboard and status bar name too.
+			// Everything failed expectedly with nothing declared: discovery never returned a list, so "returned no
+			// models" would misdescribe it. The toast points at the fix the dashboard and status bar name too.
 			return {
 				tag: "no-models",
 				signature: "needs-declare",
@@ -308,21 +276,18 @@ export class Notifier implements vscode.Disposable {
 				actions: [reconfigureAction(), reportIssueAction()],
 			};
 		}
-		// The shared zero-model judgment (zeroModelJudgment owns the gating
-		// rule): it stands down on any verdict that already explains itself, so
-		// a degraded window keeps the failure story the other surfaces tell.
+		// The shared zero-model judgment (zeroModelJudgment owns the gating rule): it stands down on any verdict that
+		// already explains itself, so a degraded window keeps the failure story the other surfaces tell.
 		const zero = zeroModelJudgment(serverStatuses, status.totalModels);
 		if (zero !== undefined) {
 			if (zero.hiddenCount > 0) {
-				// Hidden groups explain the zero models: the toast names the removal
-				// and the recovery, sharing its wording with the status tooltip. The
-				// connected verdict proves nothing failed unexpectedly, so no genuine
-				// failure is being papered over with restore advice.
+				// Hidden groups explain the zero models: the toast names the removal and the recovery, sharing its
+				// wording with the status tooltip. The connected verdict proves nothing failed unexpectedly, so no
+				// genuine failure is being papered over with restore advice.
 				return {
 					tag: "no-models",
-					// Distinct from "no-models" ON PURPOSE, mirroring the all-failed
-					// signature's hint rule: a cause change is new information. The
-					// count stays out of the key - hiding a second group is the same
+					// Distinct from "no-models" ON PURPOSE, mirroring the all-failed signature's hint rule: a cause
+					// change is new information. The count stays out of the key - hiding a second group is the same
 					// cause, not a new one.
 					signature: "no-models-hidden",
 					kind: "warning",

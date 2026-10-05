@@ -10,12 +10,10 @@ import { buildCommitPrompt } from "./commitMessage";
 import { runGenerateCommitMessage, sendCommitPrompt } from "./generateCommitCommand";
 
 /**
- * Commit-generation wiring: the handler is registered unconditionally (the
- * SCM-title and palette surfaces hide behind the enable when-clause, but
- * executeCommand and keybindings do not), and the run function answers a
- * disabled invocation with the enable hint. `oneShot` is the activation-shared
- * client, so OAuth tokens cache across invocations and across features and
- * invalidate on 401 like the chat and usage paths.
+ * Commit-generation wiring: the handler is registered unconditionally (the SCM-title and palette surfaces hide behind
+ * the enable when-clause, but executeCommand and keybindings do not), and the run function answers a disabled
+ * invocation with the enable hint. `oneShot` is the activation-shared client, so OAuth tokens cache across invocations
+ * and across features and invalidate on 401 like the chat and usage paths.
  */
 export function wireCommitGeneration(
 	context: vscode.ExtensionContext,
@@ -34,9 +32,8 @@ export function wireCommitGeneration(
 }
 
 /**
- * The probe's canned change: one small patch hunk any model can describe.
- * Nothing here is read from the user's repository - a probe must never send a
- * real diff - and the canned subjects stand in for the style examples a real
+ * The probe's canned change: one small patch hunk any model can describe. Nothing here is read from the user's
+ * repository - a probe must never send a real diff - and the canned subjects stand in for the style examples a real
  * generation reads from the log.
  */
 const PROBE_DIFF = [
@@ -52,16 +49,9 @@ const PROBE_DIFF = [
 	" }",
 ].join("\n");
 
-/** The canned style examples riding the probe prompt, like a real repository's recent subjects would. */
 const PROBE_SUBJECTS = ["feat: add the upload path", "test: cover the upload path"] as const;
 
-/**
- * The dashboard's test-model probe for this feature: the real prompt assembly
- * (the user's custom instruction setting included) over the fixed sample
- * above, the shared send the command runs, and the same fence-stripped
- * emptiness rule - so an all-fence reply surfaces as the empty-answer warning
- * instead of a false success. One pipeline, one truth.
- */
+/** One pipeline, one truth. */
 export function createCommitProbe(
 	secrets: vscode.SecretStorage,
 	oneShot: OneShotClient,

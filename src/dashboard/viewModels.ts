@@ -1,7 +1,6 @@
 /**
- * The dashboard's view models: the state the extension pushes into the
- * webview. Imported by both sides, so it must stay pure (no vscode, DOM, or
- * Node). Everything here is derived on demand; nothing is persisted.
+ * Imported by both sides, so it must stay pure (no vscode, DOM, or Node). Everything here is derived on demand;
+ * nothing is persisted.
  */
 
 import type { CapabilityLevel } from "../shared/config/capabilityResolution";
@@ -38,43 +37,36 @@ import type {
 export type EntryModelParametersPayload = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
 /**
- * Where a declared row's secrets live, discriminated on whether the push could
- * PROVE it: proving "none" requires reading the entry's SecretStorage blob,
- * which the pre-first-pass settings fallback cannot do synchronously. The
- * unproven variant carries no locations at all, so a view cannot claim
- * proven-empty when it means unproven - nothing downstream can read a location
- * it does not have. Values never ride either variant.
+ * Where a declared row's secrets live, discriminated on whether the push could PROVE it: proving "none" requires
+ * reading the entry's SecretStorage blob, which the pre-first-pass settings fallback cannot do synchronously. The
+ * unproven variant carries no locations at all, so a view cannot claim proven-empty when it means unproven - nothing
+ * downstream can read a location it does not have.
+ *
+ *   Values -> never ride either variant
  */
 export type ServerSecretsView =
 	| { readonly kind: "proven"; readonly locations: Readonly<Record<SecretFieldId, SecretLocation>> }
 	| { readonly kind: "unproven"; readonly locations?: undefined };
 
-/** The proven variant alone: what the edit form's prefill and frozen identity are built from. */
 type ProvenServerSecrets = Extract<ServerSecretsView, { kind: "proven" }>;
 
 /**
- * A row's credential verdict, "unknown" reserved for the window where no
- * verdict exists yet: a declared entry before its secret locations are proven
- * (ServerSecretsView "unproven") with no other evidence of a key. Derived
- * host-side from that same union - the one proof classifier - never recomputed
- * in the webview.
+ * A row's credential verdict, "unknown" reserved for the window where no verdict exists yet: a declared entry before
+ * its secret locations are proven (ServerSecretsView "unproven") with no other evidence of a key. Derived host-side
+ * from that same union - the one proof classifier - never recomputed in the webview.
  */
 type CredentialPresence = "present" | "absent" | "unknown";
 
 /** A per-entry modelCapabilities record: model-ID prefix to capability fields and directives. Non-secret. */
 export type EntryModelCapabilitiesPayload = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
-/** The non-secret configuration of a declared server, for the edit form's prefill. */
 interface DashboardServerConfig extends NonSecretOptionalFields {
 	/** Where each secret currently lives, when proven; the values themselves never reach the webview. */
 	readonly secrets: ServerSecretsView;
 	/** The entry's apiVersion override ("" is a real value: append nothing); the edit form's prefill. */
 	readonly apiVersion?: string | undefined;
-	/** The entry's own modelParameters, when it has any; the edit form's prefill. */
 	readonly modelParameters?: EntryModelParametersPayload | undefined;
-	/** The entry's own modelCapabilities, when it has any; the edit form's prefill. */
 	readonly modelCapabilities?: EntryModelCapabilitiesPayload | undefined;
-	/** The entry's expected discovery-failure categories, when it declares any. */
 	readonly expectedFailures?: readonly ExpectedFailureCategory[] | undefined;
 	/** The entry's custom HTTP headers (plain settings text, not secrets); the edit form's prefill. */
 	readonly headers?: Readonly<Record<string, string>> | undefined;
@@ -84,17 +76,15 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
 	readonly includeModes?: readonly NonChatMode[] | undefined;
 	/** The entry's manual usage budget in USD, when set. */
 	readonly budget?: number | undefined;
-	/** The entry's MCP opt-in, when it carries one; the edit form's prefill. */
 	readonly mcp?: McpOptIn | undefined;
 }
 
 /**
- * Row-level warning classifications for declared entries; only the
- * classification crosses the boundary, copy renders webview-side. The
- * InactiveEntryNotice family means the live group did not join by the entry's
- * exact labeled identity, so its entry-only fields may not apply until the
- * group is recreated. The webview derives every badge from this union, so a
- * new member fails compilation until its presentation exists.
+ * Row-level warning classifications for declared entries; only the classification crosses the boundary, copy renders
+ * webview-side. The InactiveEntryNotice family means the live group did not join by the entry's exact labeled
+ * identity, so its entry-only fields may not apply until the group is recreated.
+ *
+ *   The webview derives every badge from this union -> a new member fails compilation until its presentation exists
  */
 export type InactiveEntryNotice =
 	| "entry-params-inactive"
@@ -107,24 +97,19 @@ export type DeclaredServerNotice =
 	| "expected-failures-nothing-declared"
 	| "non-chat-modes-skipped";
 
-/**
- * Why an external group exists, when removal bookkeeping knows; absent for
- * groups added outside this extension. Classifications and labels only, never
- * free text.
- */
+/** Classifications and labels only, never free text. */
 export type ExternalServerProvenance =
 	| { readonly kind: "removed-entry-leftover"; readonly removedLabel: string }
 	| { readonly kind: "rename-leftover"; readonly oldLabel: string; readonly newLabel: string };
 
 /**
- * One hidden provider group: serves no models, rendered only on the
- * hidden-groups line. "removed" is a tombstone (the user removed the entry or
- * the external row), and its identity is what the unhideServer intent echoes;
- * "superseded" is a live group whose entry now declares `declaredBaseUrl`, the
- * leftover an add-only host kept under the old connection - hidden for as long
- * as the entry points elsewhere, so there is nothing to unhide. Deleting a
- * group is the host's job (Manage Language Models, or the models file), and
- * `syncedName` is the name the sync gave a group it created (its entry label).
+ * "removed" is a tombstone (the user removed the entry or the external row), and its identity is what the unhideServer
+ * intent echoes; "superseded" is a live group whose entry now declares `declaredBaseUrl`, the leftover an add-only
+ * host kept under the old connection - hidden for as long as the entry points elsewhere, so there is nothing to
+ * unhide. Deleting a group is the host's job (Manage Language Models, or the models file), and `syncedName` is the
+ * name the sync gave a group it created (its entry label).
+ *
+ *   One hidden provider group -> serves no models, rendered only on the hidden-groups line
  */
 export type HiddenGroup =
 	| { readonly label: string; readonly baseUrl: string; readonly reason: "removed"; readonly syncedName?: string }
@@ -139,70 +124,60 @@ interface DashboardServerBase {
 	readonly label: string;
 	readonly baseUrl: string;
 	/**
-	 * How many models this server serves RIGHT NOW, regardless of state: the
-	 * same field the merged counts and every serving verdict read. An error row
-	 * still serving stale-window or declared models carries their count here.
+	 * How many models this server serves RIGHT NOW, regardless of state: the same field the merged counts and every
+	 * serving verdict read. An error row still serving stale-window or declared models carries their count here.
 	 */
 	readonly servedModelCount: number;
 	/**
-	 * The last discovery attempt as epoch milliseconds, the push's one
-	 * timestamp vocabulary; absent while unchecked (the host maps its ""
-	 * never-checked sentinel and any unparseable stored value to absent).
+	 * The last discovery attempt as epoch milliseconds, the push's one timestamp vocabulary; absent while unchecked
+	 * (the host maps its "" never-checked sentinel and any unparseable stored value to absent).
 	 */
 	readonly lastChecked?: number | undefined;
 	/**
-	 * Whether the server has credentials configured anywhere; never the
-	 * credentials themselves. Three-valued because a declared row's "none" is a
-	 * claim only a secret-blob read can back: while `config.secrets` is
-	 * unproven and nothing else vouches for a key, the row says "unknown"
-	 * instead of denying a secure key nobody read.
+	 * Three-valued because a declared row's "none" is a claim only a secret-blob read can back: while `config.secrets`
+	 * is unproven and nothing else vouches for a key, the row says "unknown" instead of denying a secure key nobody
+	 * read.
 	 */
 	readonly credentials: CredentialPresence;
 	/**
-	 * The credential kind beside that presence: OAuth client credentials rather
-	 * than a static key. Declared rows derive it from the entry's OAuth fields,
-	 * external rows from the group's own report.
+	 * The credential kind beside that presence: OAuth client credentials rather than a static key. Declared rows derive
+	 * it from the entry's OAuth fields, external rows from the group's own report.
 	 */
 	readonly hasOAuth: boolean;
 	/**
-	 * The server's last successful /model/info key set, for the record editors'
-	 * key suggestions. Absence and the empty array differ: absent = no set
-	 * available, empty = a real answer. Server-derived strings: render-only,
-	 * never logged, and membership tests go through Set/Map ("__proto__" is a
-	 * legal member).
+	 * The server's last successful /model/info key set, for the record editors' key suggestions.
+	 *
+	 *   absent                       -> no set available
+	 *   empty                        -> a real answer
+	 *   "__proto__" is a legal member -> membership tests go through Set/Map
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
 	/**
-	 * How many usable /model/info entries the last successful listing dropped
-	 * per non-chat mode: the edit form offers includeModes on this evidence, and
-	 * an all-dropped row explains its empty picker with it. Absent = nothing
+	 * How many usable /model/info entries the last successful listing dropped per non-chat mode: the edit form offers
+	 * includeModes on this evidence, and an all-dropped row explains its empty picker with it. Absent = nothing
 	 * observed, like observedModelInfoKeys.
 	 */
 	readonly skippedModeCounts?: SkippedModeCounts | undefined;
 }
 
 /**
- * One server row: a declared entry, a live provider group, or both merged
- * (joined by label and base URL). Secrets never reach the webview; only their
- * locations do. A declared entry whose group sync failed is an "error" row
- * even over a live group that keeps serving: the sync error outranks the live
- * state while `servedModelCount` keeps the live truth. `errorEnglish` is the
- * log-safe English rendering the copyable diagnostics block substitutes, so
- * pasted reports stay English.
+ * One server row: a declared entry, a live provider group, or both merged (joined by label and base URL). A declared
+ * entry whose group sync failed is an "error" row even over a live group that keeps serving: the sync error outranks
+ * the live state while `servedModelCount` keeps the live truth.
+ *
+ *   `errorEnglish` is the log-safe English rendering the copyable diagnostics block substitutes
+ *     -> pasted reports stay English
  */
 export type DashboardServer = DashboardServerBase &
 	(
 		| {
-				/** In the servers setting (editable here); `config` is the edit form's prefill. */
 				readonly origin: "declared";
 				readonly config: DashboardServerConfig;
 				readonly adoptHandle?: undefined;
-				/** Warning classifications for the row, when any apply; see DeclaredServerNotice. */
 				readonly notices?: readonly DeclaredServerNotice[] | undefined;
 				/**
-				 * The live group did not join by this entry's exact labeled identity,
-				 * so entry-only fields written NOW may not reach it either. Guards on
-				 * entry-only WRITES must key on this flag, not the notices: an entry
+				 * The live group did not join by this entry's exact labeled identity, so entry-only fields written NOW
+				 * may not reach it either. Guards on entry-only WRITES must key on this flag, not the notices: an entry
 				 * configuring no such field has the same problem and no notice.
 				 */
 				readonly entryFieldsInactive?: true | undefined;
@@ -211,12 +186,13 @@ export type DashboardServer = DashboardServerBase &
 		  }
 		| {
 				/**
-				 * A servers-setting entry the parser REFUSED: present in the setting,
-				 * never synced or served until fixed. `problems` carries the parser's
-				 * English structural reports (configuration key names only, never
-				 * entered values). No `config`: the broken shape cannot round-trip
-				 * through the edit form, so the row's Fix action reveals it in
-				 * settings.json instead.
+				 * A servers-setting entry the parser REFUSED: present in the setting, never synced or served until
+				 * fixed. `problems` carries the parser's English structural reports (configuration key names only,
+				 * never entered values).
+				 *
+				 *   No `config`: the broken shape cannot round-trip through the edit form -> the row's Fix action
+				 *                                                                          reveals it in settings.json
+				 *                                                                          instead
 				 */
 				readonly origin: "misconfigured";
 				readonly problems: readonly string[];
@@ -259,7 +235,6 @@ export type DashboardServer = DashboardServerBase &
 				readonly config?: undefined;
 				readonly notices?: undefined;
 				readonly entryFieldsInactive?: undefined;
-				/** Why the group exists, when a removal or rename explains it; see ExternalServerProvenance. */
 				readonly provenance?: ExternalServerProvenance | undefined;
 				readonly problems?: undefined;
 		  }
@@ -273,8 +248,8 @@ export type DashboardServer = DashboardServerBase &
 				readonly expected?: undefined;
 				readonly declaredModelCount?: undefined;
 				/**
-				 * ServerStatusOk.modelInfoUnsupported, on declared rows only (the fix
-				 * lives on an entry). Classification only; copy renders webview-side.
+				 * ServerStatusOk.modelInfoUnsupported, on declared rows only (the fix lives on an entry).
+				 * Classification only; copy renders webview-side.
 				 */
 				readonly modelInfoUnsupported?: UnservedEndpointEvidence | undefined;
 		  }
@@ -283,15 +258,13 @@ export type DashboardServer = DashboardServerBase &
 				readonly error: string;
 				readonly errorEnglish?: string | undefined;
 				/**
-				 * The transport classification behind the row's error (enum ids and a
-				 * status number, never message text, so it may cross the webview
-				 * boundary); present only when `error` IS the transport error.
+				 * The transport classification behind the row's error (enum ids and a status number, never message
+				 * text, so it may cross the webview boundary); present only when `error` IS the transport error.
 				 */
 				readonly classification?: TransportErrorClassification | undefined;
 				/**
-				 * True when the failure hit a category the entry's expectedFailures
-				 * declares: the outcome stays a truthful error (the stale anchor and
-				 * counts depend on it), but presentation treats it as expected.
+				 * True when the failure hit a category the entry's expectedFailures declares: the outcome stays a
+				 * truthful error (the stale anchor and counts depend on it), but presentation treats it as expected.
 				 */
 				readonly expected?: boolean | undefined;
 				/** The declared subset of servedModelCount; drives the "N declared models" wording. */
@@ -310,17 +283,16 @@ export type DashboardServer = DashboardServerBase &
 	);
 
 /**
- * DashboardServer narrowed by origin; declared here because two webview
- * modules need them and neither should import a type from the other.
+ * DashboardServer narrowed by origin; declared here because two webview modules need them and neither should import a
+ * type from the other.
  */
 export type DeclaredDashboardServer = Extract<DashboardServer, { origin: "declared" }>;
 export type ExternalDashboardServer = Extract<DashboardServer, { origin: "external" }>;
 
 /**
- * A declared row whose secret locations are proven: the only rows the edit
- * form may open on, since its prefill and frozen replace identity both read
- * the locations. Narrowing to this type is how "unproven rows are not edit
- * targets" holds by construction rather than by a check someone remembers.
+ * A declared row whose secret locations are proven: the only rows the edit form may open on, since its prefill and
+ * frozen replace identity both read the locations. Narrowing to this type is how "unproven rows are not edit targets"
+ * holds by construction rather than by a check someone remembers.
  */
 export type EditableDashboardServer = DeclaredDashboardServer & {
 	readonly config: { readonly secrets: ProvenServerSecrets };
@@ -331,20 +303,18 @@ export function isEditableServer(server: DashboardServer): server is EditableDas
 	return server.origin === "declared" && server.config.secrets.kind === "proven";
 }
 
-/** One registered model, reduced to display facts. Costs are USD per million tokens, as registration converted them. */
+/** Costs are USD per million tokens, as registration converted them. */
 export interface DashboardModel {
 	readonly id: string;
 	/**
-	 * The model ID as the server knows it: what a request's `model` field and a
-	 * modelParameters prefix match against. Differs from `id` on registrations
-	 * that mint exposed IDs of their own (aggregate `:cheapest`/`:fastest`
+	 * The model ID as the server knows it: what a request's `model` field and a modelParameters prefix match against.
+	 * Differs from `id` on registrations that mint exposed IDs of their own (aggregate `:cheapest`/`:fastest`
 	 * variants).
 	 */
 	readonly rawId: string;
 	/**
-	 * Opaque per-session handle for the serving server (a salted hash of the
-	 * server ID): a stale key de-resolves instead of hitting another server.
-	 * Never persisted.
+	 * Opaque per-session handle for the serving server (a salted hash of the server ID): a stale key de-resolves
+	 * instead of hitting another server. Never persisted.
 	 */
 	readonly scopeKey: string;
 	readonly name: string;
@@ -377,10 +347,7 @@ export const NUMBER_SETTING_IDS = Object.keys(NUMBER_SETTING_SPECS) as readonly 
 export const BOOLEAN_SETTING_IDS = Object.keys(BOOLEAN_SETTING_SPECS) as readonly BooleanSettingId[];
 
 /**
- * The settings the revealSetting intent may name: exactly what the Settings
- * and Features tabs render rows or editors for. A classification list, not
- * free text. The feature model keys derive from FEATURE_MODEL_SETTING_KEYS,
- * so a new feature's row joins without a hand edit here.
+ * The feature model keys derive from FEATURE_MODEL_SETTING_KEYS, so a new feature's row joins without a hand edit here.
  */
 export type RevealableSettingId =
 	| NumberSettingId
@@ -400,9 +367,8 @@ export type RevealableSettingId =
 	| "commitGeneration.prompt";
 
 /**
- * A readonly list typechecked as naming every member of T: an omitted union
- * member makes the argument unsatisfiable, so extending a setting-id union
- * fails compilation here.
+ * A readonly list typechecked as naming every member of T: an omitted union member makes the argument unsatisfiable, so
+ * extending a setting-id union fails compilation here.
  */
 const everyId =
 	<T extends string>() =>
@@ -427,7 +393,6 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<Re
 	"commitGeneration.prompt",
 ]);
 
-/** The settings the resetSetting intent may name: the scalar rows plus the non-scalar chat, usage, and appearance rows. */
 export type ResettableSettingId =
 	| NumberSettingId
 	| BooleanSettingId
@@ -458,9 +423,7 @@ export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<Re
 ]);
 
 /**
- * The settings the Settings tab renders a row for: exactly the overlap of the
- * two gestures every row offers, so a merely revealable setting cannot reach a
- * row by mistake.
+ *   the overlap of the two gestures every row offers -> a merely revealable setting cannot reach a row by mistake
  */
 export type SettingRowId = ResettableSettingId & RevealableSettingId;
 
@@ -468,10 +431,9 @@ export type SettingRowId = ResettableSettingId & RevealableSettingId;
 export type SettingScope = "global" | "workspace" | "workspaceFolder";
 
 /**
- * An object setting split by configuration scope. VS Code shallow-merges
- * object settings across scopes, so an editor over the merged value would copy
- * user-scope entries into workspace files and could never delete an entry from
- * the other scope; the dashboard edits exactly one scope's own record.
+ * VS Code shallow-merges object settings across scopes, so an editor over the merged value would copy user-scope
+ * entries into workspace files and could never delete an entry from the other scope; the dashboard edits exactly one
+ * scope's own record.
  */
 export interface ScopedRecordSetting<V> {
 	readonly editScope: SettingScope;
@@ -480,36 +442,31 @@ export interface ScopedRecordSetting<V> {
 	/** Non-empty records held by other scopes, read-only in the dashboard. */
 	readonly otherScopes: readonly { readonly scope: SettingScope; readonly value: Readonly<Record<string, V>> }[];
 	/**
-	 * The scope-merged record exactly as the request path reads it: read-only
-	 * display truth for the effective-values inspector, while the editors above
-	 * keep editing single scopes.
+	 * The scope-merged record exactly as the request path reads it: read-only display truth for the effective-values
+	 * inspector, while the editors above keep editing single scopes.
 	 */
 	readonly effective: Readonly<Record<string, V>>;
 }
 
-/** The settings snapshot the dashboard renders. Scalars are the effective values; records are per-scope. */
+/** Scalars are the effective values; records are per-scope. */
 export interface DashboardSettings {
 	readonly numbers: Readonly<Record<NumberSettingId, number | null>>;
 	readonly booleans: Readonly<Record<BooleanSettingId, boolean>>;
 	/**
-	 * The highest-precedence scope each scalar is explicitly configured in, or
-	 * null when only the default applies. "Modified" means the key is set
-	 * somewhere, matching the native Settings editor, and the named scope is the
-	 * one a reset removes first.
+	 * The highest-precedence scope each scalar is explicitly configured in, or null when only the default applies.
+	 * "Modified" means the key is set somewhere, matching the native Settings editor, and the named scope is the one a
+	 * reset removes first.
 	 */
 	readonly configuredScopes: {
 		readonly numbers: Readonly<Record<NumberSettingId, SettingScope | null>>;
 		readonly booleans: Readonly<Record<BooleanSettingId, SettingScope | null>>;
 	};
 	readonly modelParameters: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
-	/** The models.capabilities twin of modelParameters; the Settings tab's second record editor. */
 	readonly modelCapabilities: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
-	/** The OpenRouter catalog row's status line; see CatalogStatusView. */
 	readonly catalog: CatalogStatusView;
 	/**
-	 * The dashboard's own theme and accent, plus where each is configured. On
-	 * every state push because the webview restamps the root element from it -
-	 * what makes a change land on an open dashboard.
+	 * The dashboard's own theme and accent, plus where each is configured. On every state push because the webview
+	 * restamps the root element from it - what makes a change land on an open dashboard.
 	 */
 	readonly appearance: {
 		readonly theme: UiTheme;
@@ -517,14 +474,11 @@ export interface DashboardSettings {
 		readonly accent: UiAccent;
 		readonly accentScope: SettingScope | null;
 	};
-	/** The Chat group's non-scalar tail: the chat.tokenEstimation enum row and the schema-keywords list row. */
 	readonly chat: {
 		readonly tokenEstimation: TokenEstimationMode;
 		readonly tokenEstimationScope: SettingScope | null;
-		/** The configured chat.additionalToolSchemaKeywords list; see StringListSetting. */
 		readonly additionalToolSchemaKeywords: StringListSetting;
 	};
-	/** The non-scalar usage settings' rows (the enum, the fraction list, and the currency symbol). */
 	readonly usage: {
 		readonly statusBarMode: UsageStatusBarMode;
 		readonly statusBarScope: SettingScope | null;
@@ -532,30 +486,28 @@ export interface DashboardSettings {
 		readonly alertThresholds: readonly number[];
 		readonly thresholdsScope: SettingScope | null;
 		/**
-		 * The prefix every spend and cost figure renders with (display only,
-		 * never a conversion); the empty string renders the bare number.
+		 * The prefix every spend and cost figure renders with (display only, never a conversion); the empty string
+		 * renders the bare number.
 		 */
 		readonly currencySymbol: string;
 		readonly currencySymbolScope: SettingScope | null;
 	};
 	/**
-	 * Each feature's configured model ref, null while unset or malformed. User
-	 * configuration only - an entry label and a raw model ID, never a secret.
+	 * Each feature's configured model ref, null while unset or malformed. User configuration only - an entry label
+	 * and a raw model ID, never a secret.
 	 */
 	readonly featureModels: Readonly<Record<FeatureModelId, FeatureModelRef | null>>;
 	readonly featureModelScopes: Readonly<Record<FeatureModelId, SettingScope | null>>;
 	/** The commitGeneration.prompt row's value; "" means the built-in instruction applies. */
 	readonly commitPrompt: string;
 	readonly commitPromptScope: SettingScope | null;
-	/** The inline-completions language filter's two rows: the mode select and its language list. */
 	readonly languageFilter: LanguageFilterSetting;
 }
 
 /**
- * The inlineCompletions.languageFilter setting as its two rows render it: the
- * mode plus the languages list riding the shared StringListSetting shape (the
- * list's lossy flag and scope speak for the whole setting - one key holds
- * both halves).
+ * The inlineCompletions.languageFilter setting as its two rows render it: the mode plus the languages list riding the
+ * shared StringListSetting shape (the list's lossy flag and scope speak for the whole setting - one key holds both
+ * halves).
  */
 export interface LanguageFilterSetting {
 	readonly mode: LanguageFilterMode;
@@ -563,11 +515,9 @@ export interface LanguageFilterSetting {
 }
 
 /**
- * One normalized string-list setting as its comma-list row renders it (the
- * schema keywords and the language filter's list): the
- * normalized values, plus the lossy flag that forces the row's read-only
- * fallback when normalization dropped or rewrote raw entries a comma-box edit
- * would silently destroy.
+ * One normalized string-list setting as its comma-list row renders it (the schema keywords and the language filter's
+ * list): the normalized values, plus the lossy flag that forces the row's read-only fallback when normalization
+ * dropped or rewrote raw entries a comma-box edit would silently destroy.
  */
 export interface StringListSetting {
 	readonly values: readonly string[];
@@ -576,14 +526,11 @@ export interface StringListSetting {
 }
 
 /**
- * The OpenRouter catalog refresh failure vocabulary, English by policy: the
- * store's log line (which feeds the public issue-report buffer) and the
- * dashboard row show it verbatim like a header name, so it is fixed words and
- * numbers only, never response-derived text. Each word names the phase that
- * failed: `HTTP <status>` a non-2xx answer, `timeout` the store's own
- * per-attempt budget expiring (headers or body), `unparseable response` a body
- * that arrived whole but is not JSON, the floor a payload too small to trust,
- * `network error` everything else.
+ * The OpenRouter catalog refresh failure vocabulary, English by policy: the store's log line (which feeds the public
+ * issue-report buffer) and the dashboard row show it verbatim like a header name, so it is fixed words and numbers
+ * only, never response-derived text. Each word names the phase that failed: `HTTP <status>` a non-2xx answer,
+ * `timeout` the store's own per-attempt budget expiring (headers or body), `unparseable response` a body that arrived
+ * whole but is not JSON, the floor a payload too small to trust, `network error` everything else.
  */
 export type CatalogRefreshFailure =
 	| "network error"
@@ -607,10 +554,10 @@ export interface CatalogModelSummary {
 }
 
 /**
- * One usage endpoint's standing (closed enums and status numbers only - usage
- * response bodies embed hashed key material, so nothing body-derived may ride
- * here). "unavailable" is permanent until an explicit refresh re-probes;
- * "error" keeps retrying on scheduled polls.
+ * One usage endpoint's standing (closed enums and status numbers only - usage response bodies embed hashed key
+ * material, so nothing body-derived may ride here).
+ *
+ *   "error" -> keeps retrying on scheduled polls
  */
 export type UsageEndpointStandingView =
 	| { readonly kind: "unknown" }
@@ -623,25 +570,25 @@ export type UsageEndpointStandingView =
 	  };
 
 /**
- * One server's usage facts: numbers, epoch timestamps, user-configured
- * identity, and closed endpoint-standing enums only. Servers whose proxy
- * serves no usage endpoints never appear here.
+ * One server's usage facts: numbers, epoch timestamps, user-configured identity, and closed endpoint-standing enums
+ * only. Servers whose proxy serves no usage endpoints never appear here.
  */
 export interface UsageServerView {
 	readonly kind: "usage";
 	readonly label: string;
 	readonly baseUrl: string;
 	/**
-	 * Fresh under the polling rule: last fetch OK and younger than two poll
-	 * intervals (with polling off, than usage.pollingOffFreshnessWindow). Stale
-	 * data still renders, labeled with its age.
+	 * Fresh under the polling rule: last fetch OK and younger than two poll intervals (with polling off, than
+	 * usage.pollingOffFreshnessWindow). Stale data still renders, labeled with its age.
 	 */
 	readonly fresh: boolean;
 	/** The /key/info standing: why spend numbers are missing or not updating. */
 	readonly keyInfo: UsageEndpointStandingView;
 	/** The /user/daily/activity standing: why request statistics are missing. */
 	readonly dailyActivity: UsageEndpointStandingView;
-	/** Epoch ms of the last successful fetch; the "last updated" label. */
+	/**
+	 *   Epoch ms -> the "last updated" label
+	 */
 	readonly lastUpdatedAt?: number | undefined;
 	/** The key's server-side spend in USD, when /key/info reports one. */
 	readonly spend?: number | undefined;
@@ -649,7 +596,6 @@ export interface UsageServerView {
 	readonly effectiveBudget?: number | undefined;
 	/** The key-reported max_budget, retained even when the entry's budget wins. */
 	readonly keyBudget?: number | undefined;
-	/** The entry's manual budget, when set. */
 	readonly entryBudget?: number | undefined;
 	readonly budgetSource: "entry" | "key" | "none";
 	/** spend / effectiveBudget; can exceed 1 (the label shows the literal percentage). */
@@ -669,9 +615,8 @@ export interface UsageServerView {
 }
 
 /**
- * A server left with no readable usage by a forbidden standing (401/403):
- * actionable, so it gets a reduced card with no spend numbers to fake.
- * Merely-unsupported servers (a DB-less proxy) stay hidden instead.
+ * A server left with no readable usage by a forbidden standing (401/403): actionable, so it gets a reduced card with no
+ * spend numbers to fake. Merely-unsupported servers (a DB-less proxy) stay hidden instead.
  */
 export interface UsageForbiddenServerView {
 	readonly kind: "forbidden";
@@ -683,10 +628,8 @@ export interface UsageForbiddenServerView {
 	readonly dailyActivity: UsageEndpointStandingView;
 }
 
-/** One server's usage card: full usage facts, or the reduced forbidden card. */
 export type UsageServerCardView = UsageServerView | UsageForbiddenServerView;
 
-/** The usage snapshot the Servers page joins onto its rows; pushed with every state like the rest. */
 export interface DashboardUsage {
 	readonly servers: readonly UsageServerCardView[];
 	/** The normalized alert thresholds, ascending; empty = alerts off. */
@@ -697,32 +640,27 @@ export interface DashboardUsage {
 	readonly discoveryTimeoutMs: number;
 	/** Whether a usage refresh pass is in flight (one serialized engine); disables Refresh now. */
 	readonly refreshing: boolean;
-	/**
-	 * Whether that pass was explicitly requested (Refresh now, the palette
-	 * command). Only an explicit pass wears the busy label; scheduled polls
-	 * update the numbers silently.
-	 */
+	/** Only an explicit pass wears the busy label; scheduled polls update the numbers silently. */
 	readonly refreshingExplicitly: boolean;
-	/** When this snapshot was computed (epoch ms); ages render against it. */
+	/**
+	 *   When this snapshot was computed -> epoch ms
+	 */
 	readonly generatedAt: number;
 }
 
-/** The legacy leftovers worth a dashboard hint; mirrors the migration's LegacyHintKind (never imported: that module is host-only). */
+/**
+ * The legacy leftovers worth a dashboard hint; mirrors the migration's LegacyHintKind (never imported: that module is
+ * host-only).
+ */
 type LegacyHintViewKind = "inert-url-scoped-key" | "inert-global-headers";
 
 /**
- * How a diagnostic row renders: "warning" is a problem to fix, "advisory" an
- * informational hint (the configuration still applies as written). The same
- * vocabulary as Logger.advisory in shared/logger.ts.
+ * How a diagnostic row renders: "warning" is a problem to fix, "advisory" an informational hint (the configuration
+ * still applies as written). The same vocabulary as Logger.advisory in shared/logger.ts.
  */
 export type ConfigDiagnosticSeverity = "warning" | "advisory";
 
-/**
- * One configuration problem for the Diagnostics tab, each also rendered
- * beside the row or editor it concerns. Free text here is structural
- * configuration only (setting ids, record keys, header names) - never
- * entered values.
- */
+/** Free text here is structural configuration only (setting ids, record keys, header names) - never entered values. */
 export type ConfigDiagnosticView =
 	| {
 			readonly kind: "record";
@@ -732,13 +670,16 @@ export type ConfigDiagnosticView =
 			readonly entryLabel?: string | undefined;
 			readonly diagnostic: RecordDiagnostic;
 			/**
-			 * "advisory" exactly on the surviving unrecognized-key diagnostics (the
-			 * field still APPLIES as-is); every other record diagnostic warns.
+			 * "advisory" exactly on the surviving unrecognized-key diagnostics (the field still APPLIES as-is); every
+			 * other record diagnostic warns.
 			 */
 			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
-			/** One rejected or partially-ignored servers-setting entry; `misconfigured` when the entry is skipped whole. */
+			/**
+			 * One rejected or partially-ignored servers-setting entry; `misconfigured` when the entry is skipped
+			 * whole.
+			 */
 			readonly kind: "entry";
 			readonly label?: string | undefined;
 			/** The entry's 1-based position in the raw array, for label-less entries. */
@@ -746,9 +687,8 @@ export type ConfigDiagnosticView =
 			readonly problems: readonly string[];
 			readonly misconfigured: boolean;
 			/**
-			 * Whether a server row was drawn for this entry: a reject with a row has
-			 * its problems there, so Diagnostics does not repeat them; a reject
-			 * without one has no row, and this list is its only report.
+			 * Whether a server row was drawn for this entry: a reject with a row has its problems there, so Diagnostics
+			 * does not repeat them; a reject without one has no row, and this list is its only report.
 			 */
 			readonly rowOwned: boolean;
 			readonly severity: ConfigDiagnosticSeverity;
@@ -769,19 +709,15 @@ export type ConfigDiagnosticView =
 			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
-			/**
-			 * Provider groups hidden by an explicit user removal. Labels only,
-			 * never URLs beyond what the hidden-groups line already shows.
-			 */
+			/** Labels only, never URLs beyond what the hidden-groups line already shows. */
 			readonly kind: "hidden-groups";
 			readonly labels: readonly string[];
 			readonly severity: ConfigDiagnosticSeverity;
 	  };
 
 /**
- * The Diagnostics tab's Resolved-models view. Serialized on demand (the
- * readResolvedModels request), never in state pushes: it scales with models x
- * fields. Local to the dashboard by design - never part of issue reports.
+ * Serialized on demand (the readResolvedModels request), never in state pushes: it scales with models x fields. Local
+ * to the dashboard by design - never part of issue reports.
  */
 export interface ResolvedModelsView {
 	/** One tree per record map that holds records, in render order. */
@@ -805,9 +741,7 @@ export interface RecordTreeView {
 }
 
 /**
- * One record as a tree node: nested under its next-broader match, computed
- * against the live model set (a key under different parents for different
- * models renders once under each).
+ *   One record as a tree node -> nested under its next-broader match, computed against the live model set
  */
 export interface RecordTreeNode {
 	readonly key: string;
@@ -827,7 +761,6 @@ export interface RecordTreeNode {
 	readonly models: readonly { readonly id: string; readonly resolvedText: string }[];
 }
 
-/** One record in a model's per-map matching chain; see RecordChainView. */
 export interface RecordChainLink {
 	readonly key: string;
 	/** True when `_inherit_from` is false or the empty list: nothing flows past this record. */
@@ -837,16 +770,14 @@ export interface RecordChainLink {
 }
 
 /**
- * One record map's matching chain for an inspected model, broadest to most
- * specific (the winner last). Computed extension-side from the same matchChain
- * the resolvers run; an entry-layer chain carries the entry's label so the
+ * One record map's matching chain for an inspected model, broadest to most specific (the winner last). Computed
+ * extension-side from the same matchChain the resolvers run; an entry-layer chain carries the entry's label so the
  * edit jump never guesses.
  */
 export type RecordChainView =
 	| { readonly layer: "global"; readonly links: readonly RecordChainLink[] }
 	| { readonly layer: "entry"; readonly entryLabel: string; readonly links: readonly RecordChainLink[] };
 
-/** One flat-table cell: a resolved parameter with its provenance. */
 export interface ResolvedParamCell {
 	readonly name: string;
 	readonly valueText: string;
@@ -858,7 +789,6 @@ export interface ResolvedParamCell {
 	readonly forced?: true | undefined;
 }
 
-/** One flat-table cell: a resolved capability with its provenance level. */
 export interface ResolvedCapCell {
 	readonly name: string;
 	readonly valueText: string;
@@ -881,48 +811,34 @@ export interface ResolvedModelRow {
 
 export interface DashboardState {
 	readonly servers: readonly DashboardServer[];
-	/**
-	 * Groups the user explicitly removed, out of the servers table by design:
-	 * rendered on the hidden-groups line, contributing nothing to the overall
-	 * verdict or the model counts.
-	 */
 	readonly hiddenGroups: readonly HiddenGroup[];
 	readonly models: readonly DashboardModel[];
 	/**
-	 * The merged served-model count: the sum of every snapshot's
-	 * servedModelCount, the same reduce behind the status bar's totalModels.
-	 * The hero and the diagnostics paste line read this, never models.length -
-	 * the models table lists a multi-claimant snapshot once per claimant, so
-	 * the row count can overcount what the window actually serves.
+	 * The hero and the diagnostics paste line read this, never models.length - the models table lists a
+	 * multi-claimant snapshot once per claimant, so the row count can overcount what the window actually serves.
 	 */
 	readonly servedModelCount: number;
 	/**
-	 * The union of the servers' observedModelInfoKeys, across exactly the
-	 * servers that reported a set. Absent = unknown, empty = known and empty;
-	 * same handling rules as the per-server field.
+	 * The union of the servers' observedModelInfoKeys, across exactly the servers that reported a set. Absent =
+	 * unknown, empty = known and empty; same handling rules as the per-server field.
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
 	readonly settings: DashboardSettings;
 	/**
-	 * The features whose model row offers a host-side test probe (the exact
-	 * pipeline the feature itself runs). Derived from the probes activation
-	 * registered, so the button exists exactly where a probe does.
+	 * The features whose model row offers a host-side test probe (the exact pipeline the feature itself runs). Derived
+	 * from the probes activation registered, so the button exists exactly where a probe does.
 	 */
 	readonly featureProbes: readonly FeatureModelId[];
-	/** The Servers page's usage snapshot (spend units, drawers, diagnostics); see DashboardUsage. */
 	readonly usage: DashboardUsage;
-	/** Configuration problems found in the settings; see ConfigDiagnosticView. */
 	readonly diagnostics: readonly ConfigDiagnosticView[];
 }
 
 /**
- * The dashboard's top-level sections, one tab each, in the rail's order: what
- * the fleet IS (servers, then the models they serve), then what it DOES
- * (features and the settings behind them), then what is wrong with it.
- * Declared here because deep links cross the boundary: the extension's
- * focusSection message names a tab by ID. The retired "usage" id can still
- * arrive in stale deep links; the shell's unknown-section guard drops those,
- * which a test pins.
+ * The dashboard's top-level sections, one tab each, in the rail's order: what the fleet IS (servers, then the models
+ * they serve), then what it DOES (features and the settings behind them), then what is wrong with it. Declared here
+ * because deep links cross the boundary: the extension's focusSection message names a tab by ID.
+ *
+ *   The retired "usage" id can still arrive in stale deep links -> the shell's unknown-section guard drops those
  */
 export const DASHBOARD_SECTION_IDS = ["overview", "models", "features", "settings", "diagnostics"] as const;
 
@@ -932,11 +848,10 @@ export type DashboardSectionId = (typeof DASHBOARD_SECTION_IDS)[number];
 export type SettingRowPageId = Extract<DashboardSectionId, "features" | "settings">;
 
 /**
- * Which page owns each settings row: the Features page carries the per-feature
- * rows, the Settings page everything else. TOTAL over SettingRowId by mapped
- * type, so a new row id fails compilation until it names its page - and the
- * consumers' lookups fail OPEN (an id missing at runtime renders visible on
- * the Settings page rather than crashing), which settingRowPage encodes.
+ * Which page owns each settings row: the Features page carries the per-feature rows, the Settings page everything
+ * else. TOTAL over SettingRowId by mapped type, so a new row id fails compilation until it names its page - and the
+ * consumers' lookups fail OPEN (an id missing at runtime renders visible on the Settings page rather than crashing),
+ * which settingRowPage encodes.
  */
 const SETTING_ROW_PAGES: { readonly [K in SettingRowId]: SettingRowPageId } = {
 	"chat.timeout": "settings",
@@ -983,9 +898,8 @@ const SETTING_ROW_PAGES: { readonly [K in SettingRowId]: SettingRowPageId } = {
 };
 
 /**
- * The page a row lives on, total over any string: an id the map does not know
- * reads as the Settings page instead of crashing a lookup - the fail-open half
- * of the owner-map contract (a misrouted notice beats a dead page).
+ * The page a row lives on, total over any string: an id the map does not know reads as the Settings page instead of
+ * crashing a lookup - the fail-open half of the owner-map contract (a misrouted notice beats a dead page).
  */
 export function settingRowPage(row: string): SettingRowPageId {
 	return Object.hasOwn(SETTING_ROW_PAGES, row) ? SETTING_ROW_PAGES[row as SettingRowId] : "settings";

@@ -1,10 +1,10 @@
 /**
- * Ambient augmentation of "vscode" with Language Model provider API that exists at runtime for published
- * extensions but is missing from the installed @types/vscode, an exact pin the guard keeps at or below the
- * engines.vscode floor (scripts/ci/check-vscode-types.ts gates the ceiling, and the newest such release is the
- * convention). Declarations mirror vscode.proposed.chatProvider.d.ts and vscode.proposed.languageModelPricing.d.ts
- * character for character, so a future @types/vscode release merges as identical declarations instead of diverging
- * silently under skipLibCheck, and each is deleted (this file eventually) once the pin declares it.
+ * Ambient augmentation of "vscode" with Language Model provider API that exists at runtime for published extensions
+ * but is missing from the installed @types/vscode, an exact pin the guard keeps at or below the engines.vscode floor
+ * (scripts/ci/check-vscode-types.ts gates the ceiling, and the newest such release is the convention). Declarations
+ * mirror vscode.proposed.chatProvider.d.ts and vscode.proposed.languageModelPricing.d.ts character for character, so a
+ * future @types/vscode release merges as identical declarations instead of diverging silently under skipLibCheck, and
+ * each is deleted (this file eventually) once the pin declares it.
  *
  *   every member below                     -> verified ungated in microsoft/vscode's extHostLanguageModels.ts
  *   priceCategory, statusIcon, warningText -> copied ungated by $provideLanguageModelChatInfo and rendered
@@ -15,7 +15,7 @@
  *   capabilities.editTools                 -> never add; the host throws for an extension setting it without the
  *                                             chatProvider proposal, a permanent exclusion for a Marketplace build
  *
- * Watched, out of reach until their gates move:
+ *   Watched, out of reach until their gates move:
  *   chatInputNotification, chatStatusItem     -> proposal-gated
  *   third-party prompt-cache breakpoints      -> the host hardcodes the vendor set (microsoft/vscode#313920)
  *   stateful_marker, context_management parts -> consumed ungated, but they carry Responses/Messages-style server

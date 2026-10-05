@@ -1,8 +1,7 @@
 /**
- * Relative-time rendering, rounded to the coarsest unit that still reads as current:
- * the dashboard answers "is this fresh?", not "when exactly?" - Diagnostics carries
- * the precise timestamp. Takes epoch milliseconds, the push's one timestamp
- * vocabulary; absence is the caller's branch, so the render is total.
+ * Relative-time rendering, rounded to the coarsest unit that still reads as current: the dashboard answers "is this
+ * fresh?", not "when exactly?" - Diagnostics carries the precise timestamp. Takes epoch milliseconds, the push's one
+ * timestamp vocabulary; absence is the caller's branch, so the render is total.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -28,11 +27,7 @@ export function relativeTime(thenMs: number, nowMs: number): string {
 	return days === 1 ? l10n.t("1 day ago") : l10n.t("{0} days ago", days);
 }
 
-/**
- * The current time, refreshed on an interval so "2 min ago" does not freeze
- * at whatever the last state push saw. 30 s matches the coarsest step the
- * relative format can actually show moving.
- */
+/** The current time, refreshed on an interval so "2 min ago" does not freeze at whatever the last state push saw. */
 export function useNow(intervalMs = 30000): number {
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {

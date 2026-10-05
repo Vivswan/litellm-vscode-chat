@@ -1,13 +1,8 @@
 /**
- * The agent tools' planner: tool input in, dashboard requests out. Pure and
- * vscode-free, so every rule here is provable in a bun test.
+ * Each plan is a list of `{ method, payload }` pairs the wiring submits to the dashboard controller, where
+ * parseDashboardRequest and executeDashboardIntent judge the payload exactly as they judge the webview's.
  *
- * Nothing is validated here beyond the tool's own grammar. Each plan is a list
- * of `{ method, payload }` pairs the wiring submits to the dashboard
- * controller, where parseDashboardRequest and executeDashboardIntent judge the
- * payload exactly as they judge the webview's. The method union is the
- * type-level fence: readInlineSecrets (secret values), executeCommand (export,
- * import, report), and the handshake are not constructible here.
+ *   Pure and vscode-free -> every rule here is provable in a bun test
  */
 
 import type {
@@ -64,9 +59,8 @@ export interface AgentRequest {
 }
 
 /**
- * Why a plan refused before anything was submitted. Classifications, rendered
- * into words at the wiring boundary; `detail` carries the identifiers the
- * words need (setting keys, labels, field names), never a secret value.
+ * Classifications, rendered into words at the wiring boundary; `detail` carries the identifiers the words need
+ * (setting keys, labels, field names), never a secret value.
  */
 export type RefusalReason =
 	| "unknown-setting"
@@ -110,7 +104,10 @@ function refused(reason: RefusalReason, detail: Record<string, string> = {}): To
 
 type SettingRoute = (value: unknown) => readonly AgentRequest[];
 
-/** The settings set_setting may address: everything but the three structured families other tools own and this feature's own switches. */
+/**
+ * The settings set_setting may address: everything but the three structured families other tools own and this
+ * feature's own switches.
+ */
 type PlainSettingId = Exclude<
 	SettingId,
 	| typeof SERVERS_SETTING_KEY
@@ -135,16 +132,14 @@ const featureModelRoute =
 	(value) => [{ method: "setFeatureModel", payload: { feature, value } }];
 
 /**
- * One half per call, exactly the dashboard's grammar: each row sends only its
- * own half, and the intent reads the stored filter and merges. Two halves in
- * one call are refused rather than split into two requests, because the
- * second request's merge would read a filter the first one just moved between
- * scopes. A value that is not an object goes through as-is so the schema, not
- * this table, refuses it.
+ * One half per call, exactly the dashboard's grammar: each row sends only its own half, and the intent reads the stored
+ * filter and merges. Two halves in one call are refused rather than split into two requests, because the second
+ * request's merge would read a filter the first one just moved between scopes.
+ *
+ *   A value that is not an object goes through as-is -> the schema, not this table, refuses it
  */
 const languageFilterRoute: SettingRoute = (value) => [{ method: "setLanguageFilter", payload: value }];
 
-/** Total over the structured plain settings by type: a new one fails compilation until it names its intent. */
 const STRUCTURED_SETTING_ROUTES = {
 	"chat.additionalToolSchemaKeywords": valuesRoute("setAdditionalToolSchemaKeywords"),
 	"chat.tokenEstimation": valueRoute("setTokenEstimation"),
@@ -238,15 +233,17 @@ function isPlan(value: EditableDashboardServer | ToolPlan): value is ToolPlan {
 }
 
 /**
- * Two base URLs name the same host once trailing slashes and userinfo are
- * dropped. The agent only ever sees URLs with their credentials removed
- * (render.ts), so the URL it hands back must match the stored one this way.
+ * The agent only ever sees URLs with their credentials removed (render.ts), so the URL it hands back must match the
+ * stored one this way.
  */
 function sameHost(a: string, b: string): boolean {
 	return displayUrl(normalizeBaseUrl(a)) === displayUrl(normalizeBaseUrl(b));
 }
 
-/** The external group at exactly this label and base URL; two groups can share a URL, so the label is part of the identity. */
+/**
+ * The external group at exactly this label and base URL; two groups can share a URL, so the label is part of the
+ * identity.
+ */
 export function externalRow(state: DashboardState, label: string, baseUrl: string): ExternalRow | undefined {
 	return state.servers.find(
 		(server): server is ExternalRow =>
@@ -292,9 +289,8 @@ const KEEP_ALL: Readonly<Record<SecretFieldId, SecretDirective>> = recordFromKey
 const PENDING_VALUE = "";
 
 /**
- * Splice prompted secret values into a save (or draft-test) request's
- * directives: the one place a typed value meets the payload, after the user
- * typed it, so nothing before this point ever holds it.
+ *   Splice prompted secret values into a save (or draft-test) request's directives -> the one place a typed value
+ *     meets the payload, after the user typed it
  */
 export function withSecretValues(
 	request: AgentRequest,
@@ -321,10 +317,9 @@ interface SecretsPlan {
 }
 
 /**
- * The agent's directives as the dashboard's, with the two rules of this
- * feature applied: a value in tool input needs the secretValues switch, and a
- * valueless `set` becomes a prompt to the user. Fields the agent did not name
- * take `fallback` (keep on an edit, clear on a new entry).
+ * The agent's directives as the dashboard's, with the two rules of this feature applied: a value in tool input needs
+ * the secretValues switch, and a valueless `set` becomes a prompt to the user. Fields the agent did not name take
+ * `fallback` (keep on an edit, clear on a new entry).
  */
 function planSecrets(
 	directives: { readonly [K in SecretFieldId]?: AgentSecretDirective | undefined } | undefined,
@@ -371,9 +366,8 @@ function editedOauthField(current: string | undefined, next: string | null | und
 }
 
 /**
- * The secret fields a save would send to a NEW destination while keeping the
- * stored value: a kept key must never follow a changed destination, so these refuse
- * (the agent sets the secret again, which prompts the user).
+ *   The secret fields a save would send to a NEW destination while keeping the stored value -> a kept key must never
+ *     follow a changed destination, so these refuse
  */
 function keptSecretsChangingDestination(
 	before: EditableDashboardServer,
@@ -407,7 +401,10 @@ interface ComposedServer {
 	readonly [field: string]: unknown;
 }
 
-/** A value the agent gave, else the stored one, else the empty default; spread-shaped so an absent optional stays absent. */
+/**
+ * A value the agent gave, else the stored one, else the empty default; spread-shaped so an absent optional stays
+ * absent.
+ */
 function fieldOf(name: string, given: unknown, stored: unknown, empty?: unknown): Record<string, unknown> {
 	const value = given !== undefined ? given : stored !== undefined ? stored : empty;
 	return value === undefined ? {} : { [name]: value };
@@ -497,8 +494,7 @@ export function planSaveServer(
 export function planRemoveServer(input: AgentToolInput<"removeServer">, state: DashboardState): ToolPlan {
 	switch (input.action) {
 		case "unhide": {
-			// Only a removal tombstone can be cleared; a superseded group has none
-			// to clear, so it is refused here instead of failing at the dashboard.
+			// Only a removal tombstone can be cleared -> refused here instead of failing at the dashboard
 			const hidden = state.hiddenGroups.find(
 				(group) => group.reason === "removed" && group.label === input.label && sameHost(group.baseUrl, input.baseUrl)
 			);
@@ -556,9 +552,8 @@ export function applyRecordPatch(map: RecordMap, patch: RecordPatch): RecordMap 
 	for (const name of patch.unset ?? []) {
 		delete fields[name];
 	}
-	// A patch that would only mint an empty record for a missing key is no
-	// edit: an empty, more specific record would still win the walk and hide
-	// broader records' fields.
+	//   an empty, more specific record would still win the walk -> A patch that would only mint an empty record for a
+	//     missing key is no edit
 	if (!(patch.key in map) && Object.keys(fields).length === 0) {
 		return map;
 	}
@@ -615,8 +610,8 @@ export function planRunAction(input: AgentToolInput<"runAction">, state: Dashboa
 			if (isPlan(row)) {
 				return row;
 			}
-			// The STORED entry only: a probe of an agent-supplied draft would send
-			// the kept credentials wherever the draft points.
+			// The STORED entry only: a probe of an agent-supplied draft would send the kept credentials wherever the
+			// draft points.
 			return requests({
 				method: "testServerDraft",
 				payload: { server: savePayloadFromRow(row), secrets: KEEP_ALL, replace: replaceIdentityOf(row) },
@@ -644,9 +639,8 @@ export function planInspectModel(input: AgentToolInput<"inspectModel">, state: D
 	if (model === undefined) {
 		return refused("model-not-found", { server: input.server, model: input.model });
 	}
-	// A declared entry and its external leftover share a label and serve the
-	// same IDs; picking the first row would inspect whichever the state listed
-	// first, so the agent must say which with the scopeKey it read.
+	// A declared entry and its external leftover share a label and serve the same IDs; picking the first row would
+	// inspect whichever the state listed first, so the agent must say which with the scopeKey it read.
 	if (matches.length > 1) {
 		return refused("model-ambiguous", {
 			server: input.server,

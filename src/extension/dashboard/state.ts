@@ -1,9 +1,6 @@
 /**
- * The dashboard's state bridge: pure builders that reduce the stores (the
- * provider's status window, workspace configuration) to the serializable
- * DashboardState, plus the settings readers they share. Inputs are plain
- * values or injected adapters, never live vscode objects; panel.ts owns the
- * vscode wiring, intents.ts the intent validation and execution.
+ * Inputs are plain values or injected adapters, never live vscode objects; panel.ts owns the vscode wiring, intents.ts
+ * the intent validation and execution.
  */
 
 import type {
@@ -91,11 +88,6 @@ import { adoptSourceHandle, locateModel, modelScopeKey } from "./adoptHandle";
 import type { GroupOwnership, LabeledSnapshot, LegacySnapshot } from "./declaredJoin";
 import { labeledSnapshots, resolveGroupOwnership } from "./declaredJoin";
 
-/**
- * The removal bookkeeping the state builder folds in: the identities the user
- * explicitly removed (tombstones; base URLs normalized) and the recorded
- * origins of orphaned groups. panel.ts reads both from the GroupRemovalStore.
- */
 export interface RemovedGroupsView {
 	readonly tombstones: readonly { readonly label: string; readonly baseUrl: string }[];
 	readonly origins: readonly {
@@ -119,12 +111,10 @@ export interface SettingsReader {
 }
 
 /**
- * The push's one timestamp conversion: ServerStatus.lastChecked (an ISO
- * string internally and in persisted status) becomes epoch milliseconds on
- * the wire, the same vocabulary every other pushed timestamp uses. The ""
- * never-checked sentinel (syncFailureOverlay's synthetic statuses,
- * restoreServerStatus) maps to a DELIBERATE absent value, as does anything
- * unparseable, so no consumer ever NaN-guards a timestamp again.
+ * The push's one timestamp conversion: ServerStatus.lastChecked (an ISO string internally and in persisted status)
+ * becomes epoch milliseconds on the wire, the same vocabulary every other pushed timestamp uses. The "" never-checked
+ * sentinel (syncFailureOverlay's synthetic statuses, restoreServerStatus) maps to a DELIBERATE absent value, as does
+ * anything unparseable, so no consumer ever NaN-guards a timestamp again.
  */
 function checkedAtMs(lastChecked: string | undefined): number | undefined {
 	if (lastChecked === undefined || lastChecked === "") {
@@ -167,8 +157,6 @@ function buildServer(
 		: {
 				...base,
 				state: "error",
-				// The served count is truthful on every state: a failed group still
-				// serving its stale-window models says so.
 				servedModelCount: status.servedModelCount,
 				error: status.error,
 				errorEnglish: status.logSafeError,
@@ -207,15 +195,14 @@ function declaredOutcome(
 	if (presentation.kind === "sync-failed") {
 		return {
 			state: "error",
-			// An upsertFailed claimant of a SHARED snapshot renders no model rows
-			// (snapshotLabels drops its label), so the live count would claim
-			// models the tables do not show; the count follows the rendered rows.
+			// An upsertFailed claimant of a SHARED snapshot renders no model rows (snapshotLabels drops its label), so
+			// the live count would claim models the tables do not show; the count follows the rendered rows.
 			servedModelCount: labelServes ? presentation.servedModelCount : 0,
 			error: presentation.failure.message,
 		};
 	}
-	// The second test is what narrows `status` below: "unchecked" already means
-	// an absent status, but the kind alone tells the compiler nothing.
+	// The second test is what narrows `status` below: "unchecked" already means an absent status, but the kind alone
+	// tells the compiler nothing.
 	if (presentation.kind === "unchecked" || status === undefined) {
 		return { state: "unchecked", servedModelCount: 0 };
 	}
@@ -228,9 +215,8 @@ function declaredOutcome(
 	}
 	return {
 		state: "error",
-		// Stale-window and declared models serve through ANY discovery
-		// failure, so the row's count must match the picker whether or not
-		// the failure was expected.
+		// Stale-window and declared models serve through ANY discovery failure, so the row's count must match the
+		// picker whether or not the failure was expected.
 		servedModelCount: status.servedModelCount,
 		error: status.error,
 		errorEnglish: status.logSafeError,
@@ -241,28 +227,21 @@ function declaredOutcome(
 }
 
 /**
- * The declared views with the one fact the views themselves cannot carry:
- * whether their secret locations come from a real blob read. The sync engine
- * reads the secret blobs; the pre-first-pass settings fallback cannot check
- * SecretStorage synchronously, so a field it reports "none" may really be
- * "secure". The tag is producer-owned - declaredViewsFromSetting returns its
- * views already marked "settings-fallback" - and proof is still judged per
- * view (secretsView): an engine view whose own blob read failed is as blind
- * as the fallback.
+ * The sync engine reads the secret blobs; the pre-first-pass settings fallback cannot check SecretStorage
+ * synchronously, so a field it reports "none" may really be "secure". The tag is producer-owned -
+ * declaredViewsFromSetting returns its views already marked "settings-fallback" - and proof is still judged per view
+ * (secretsView): an engine view whose own blob read failed is as blind as the fallback.
  */
 export type DeclaredServersInput =
 	| { readonly source: "engine"; readonly views: readonly DeclaredServerView[] }
 	| { readonly source: "settings-fallback"; readonly views: readonly DeclaredServerView[] };
 
 /**
- * One declared view's secrets as the push may claim them. An engine view is
- * proven by its blob read - except under the "secretsUnreadable" class, the
- * one skip whose locations are a guess (the blob read failed and the view
- * degraded to the inline-only reading); the other skip classes keep their
- * successful read. Without a blob read, a view is proven only when every
- * secret field reads "settings": inline wins over any blob, so the setting
- * alone proves those - while a "none" is just "no inline value", and the row
- * must say unproven instead of denying a secure blob nobody read.
+ * An engine view is proven by its blob read - except under the "secretsUnreadable" class, the one skip whose locations
+ * are a guess (the blob read failed and the view degraded to the inline-only reading); the other skip classes keep
+ * their successful read. Without a blob read, a view is proven only when every secret field reads "settings": inline
+ * wins over any blob, so the setting alone proves those - while a "none" is just "no inline value", and the row must
+ * say unproven instead of denying a secure blob nobody read.
  */
 function secretsView(view: DeclaredServerView, source: DeclaredServersInput["source"]): ServerSecretsView {
 	const locationsGuessed = view.syncFailure?.class === "secretsUnreadable";
@@ -298,10 +277,9 @@ function buildServers(
 ): { servers: DashboardServer[]; snapshotLabels: string[][] } {
 	const declared = declaredInput.views;
 	const { matchedByDeclared, external, legacy } = ownership;
-	// The removal bookkeeping is keyed by the snapshot's own status label (never
-	// the display label, which can carry a collision ordinal) plus the
-	// normalized base URL. Only external and legacy rows are ever suppressed:
-	// a declared entry matching a tombstone clears it engine-side.
+	// The removal bookkeeping is keyed by the snapshot's own status label (never the display label, which can carry a
+	// collision ordinal) plus the normalized base URL. Only external and legacy rows are ever suppressed: a declared
+	// entry matching a tombstone clears it engine-side.
 	const isTombstoned = (snapshot: ServerModelsSnapshot) =>
 		removedGroups.tombstones.some(
 			(identity) =>
@@ -314,9 +292,8 @@ function buildServers(
 				record.label === snapshot.status.label &&
 				normalizeBaseUrl(record.baseUrl) === normalizeBaseUrl(snapshot.status.baseUrl)
 		)?.origin;
-	// Countable claimant labels per snapshot, in declared order, with the
-	// first claimant of any state as the render-at-least-once fallback. Built
-	// whole before any row, because a shared snapshot's rows need the full
+	// Countable claimant labels per snapshot, in declared order, with the first claimant of any state as the
+	// render-at-least-once fallback. Built whole before any row, because a shared snapshot's rows need the full
 	// claimant picture to report their own served counts.
 	const claimants = new Map<LabeledSnapshot, { labels: string[]; fallback: string }>();
 	declared.forEach((view, declaredIndex) => {
@@ -329,8 +306,8 @@ function buildServers(
 			claimants.set(matched, claimed);
 		}
 	});
-	// The labels a snapshot's models render under; snapshotLabels and the rows'
-	// served counts read the same rule, so they cannot diverge.
+	// The labels a snapshot's models render under; snapshotLabels and the rows' served counts read the same rule, so
+	// they cannot diverge.
 	const labelsRenderedFor = (entry: LabeledSnapshot): string[] => {
 		const claimed = claimants.get(entry);
 		if (claimed === undefined) {
@@ -339,21 +316,18 @@ function buildServers(
 		return claimed.labels.length > 0 ? claimed.labels : [claimed.fallback];
 	};
 	const servers: DashboardServer[] = [];
-	// Hidden groups leave the table AND the models list; for tombstones this
-	// only bridges the window between the write and the host's re-resolution,
-	// for superseded leftovers it is the rule itself.
+	// Hidden groups leave the table AND the models list; for tombstones this only bridges the window between the
+	// write and the host's re-resolution, for superseded leftovers it is the rule itself.
 	const hidden = new Set<LabeledSnapshot>(
 		legacy.flatMap((leftover) => (supersededBy(leftover, declared) === undefined ? [] : [leftover.labeled]))
 	);
 	declared.forEach((view, declaredIndex) => {
 		const match = matchedByDeclared.get(declaredIndex);
 		const matched = match?.entry;
-		// Only the exact labeled-identity join proves the live group carries this
-		// entry's label, which is what the request path's label-and-URL resolution
-		// keys on. Any other pass means the entry's entry-only fields may silently
-		// not apply, and the row must say so instead of rendering healthy;
-		// modelParameters and the capability/expected-failure pair get separate
-		// classifications so a row names exactly what is inactive.
+		// Only the exact labeled-identity join proves the live group carries this entry's label, which is what the
+		// request path's label-and-URL resolution keys on. Any other pass means the entry's entry-only fields may
+		// silently not apply, and the row must say so instead of rendering healthy; modelParameters and the
+		// capability/expected-failure pair get separate classifications so a row names exactly what is inactive.
 		const entryFieldsInactive = match !== undefined && match.pass !== "identity";
 		const notices: DeclaredServerNotice[] = [];
 		if (entryFieldsInactive && view.modelParameters !== undefined) {
@@ -371,8 +345,7 @@ function buildServers(
 		if (entryFieldsInactive && view.headers !== undefined) {
 			notices.push("entry-headers-inactive");
 		}
-		// "" is a real override (append nothing), so !== undefined is the right
-		// activity check here too.
+		// "" is a real override (append nothing), so !== undefined is the right activity check here too.
 		if (entryFieldsInactive && view.apiVersion !== undefined) {
 			notices.push("entry-api-version-inactive");
 		}
@@ -382,10 +355,9 @@ function buildServers(
 			matched === undefined || labelsRenderedFor(matched).includes(view.label)
 		);
 		if (outcome.state === "error" && outcome.expected === true && outcome.servedModelCount === 0) {
-			// An expected failure serving NOTHING - no declared models, and the
-			// stale window holds nothing; only a declared-models list can fix
-			// that, so the row says so. A serving row stays quiet, whatever mix
-			// of declared and stale models it serves.
+			// An expected failure serving NOTHING - no declared models, and the stale window holds nothing; only a
+			// declared-models list can fix that, so the row says so. A serving row stays quiet, whatever mix of
+			// declared and stale models it serves.
 			notices.push("expected-failures-nothing-declared");
 		}
 		if (
@@ -393,26 +365,23 @@ function buildServers(
 			outcome.servedModelCount === 0 &&
 			Object.values(matched?.snapshot.skippedModeCounts ?? {}).some((count) => count > 0)
 		) {
-			// Every usable model the server lists has a mode discovery drops by
-			// default; only the entry's includeModes can admit them, so the row
-			// says so instead of reading as a healthy empty server.
+			// Every usable model the server lists has a mode discovery drops by default; only the entry's includeModes
+			// can admit them, so the row says so instead of reading as a healthy empty server.
 			notices.push("non-chat-modes-skipped");
 		}
 		const secrets = secretsView(view, declaredInput.source);
-		// The presence verdict reads the SAME union the edit form gates on. Only
-		// the deny needs proof: an unproven view's non-"none" location can only
-		// be "settings" (both blind readings are inline-only, and inline wins
-		// over any blob), and the live group's report is the host's own truth -
-		// but an unproven "none" is a guess, and the row says "unknown" instead
-		// of denying a secure key nobody read.
+		// The presence verdict reads the SAME union the edit form gates on. Only the deny needs proof: an unproven
+		// view's non-"none" location can only be "settings" (both blind readings are inline-only, and inline wins over
+		// any blob), and the live group's report is the host's own truth - but an unproven "none" is a guess, and the
+		// row says "unknown" instead of denying a secure key nobody read.
 		const knownPresent = matched?.snapshot.status.hasApiKey === true || view.secrets.apiKey !== "none";
 		servers.push({
 			label: view.label,
 			baseUrl: view.baseUrl,
 			lastChecked: checkedAtMs(matched?.snapshot.status.lastChecked),
 			credentials: knownPresent ? "present" : secrets.kind === "proven" ? "absent" : "unknown",
-			// The badge reads the same wire rule the secret machinery judges by:
-			// an active OAuth unit is entryUsesSecretField's oauthClientSecret arm.
+			// The badge reads the same wire rule the secret machinery judges by: an active OAuth unit is
+			// entryUsesSecretField's oauthClientSecret arm.
 			hasOAuth: entryUsesSecretField(view, "oauthClientSecret"),
 			origin: "declared",
 			...(matched?.snapshot.observedModelInfoKeys !== undefined
@@ -422,17 +391,15 @@ function buildServers(
 				? { skippedModeCounts: matched.snapshot.skippedModeCounts }
 				: {}),
 			config: {
-				// Both registries ride whole: the parser only ever emits present,
-				// non-empty fields, so no per-field emptiness re-checks here - a
-				// field registered in ENTRY_VIEW_FIELD_SET reaches the edit form's
-				// prefill by construction.
+				//   Both registries ride whole -> no per-field emptiness re-checks here - a field registered in
+				//     ENTRY_VIEW_FIELD_SET reaches the edit form's prefill by construction
 				...pickNonSecretOptionalFields(view),
 				...pickEntryViewFields(view),
 				secrets,
 			},
 			...(notices.length > 0 ? { notices } : {}),
-			// The webview's declare offers key on the classification itself, since
-			// the notices exist only for the field families the entry configures.
+			// The webview's declare offers key on the classification itself, since the notices exist only for the field
+			// families the entry configures.
 			...(entryFieldsInactive ? { entryFieldsInactive: true as const } : {}),
 			...outcome,
 		});
@@ -458,10 +425,6 @@ function buildServers(
 		}
 		servers.push(buildServer(labeled.snapshot, labeled.label, { origin: "legacy", entryLabel }));
 	}
-	// Entries the parser refused whole still render as rows: they sit in the
-	// setting, and a silently missing row would read as a removal.
-	// rejectsWithOwnRow is the one place that rule lives; Configuration
-	// diagnostics read it to know which problems a row already states.
 	for (const report of rejectsWithOwnRow(entryReports, declared)) {
 		servers.push({
 			label: report.label,
@@ -472,8 +435,8 @@ function buildServers(
 			origin: "misconfigured",
 			problems: report.problems,
 			state: "error",
-			// English by the issue-report policy, like the parser problems the row
-			// carries; the webview renders its own localized copy.
+			// English by the issue-report policy, like the parser problems the row carries; the webview renders its own
+			// localized copy.
 			error: "misconfigured entry; not used until its configuration is fixed",
 			errorEnglish: "misconfigured entry; not used until its configuration is fixed",
 		});
@@ -488,8 +451,8 @@ function buildServers(
 function buildModel(info: PreAttachModelInfo, serverLabel: string, scopeKey: string): DashboardModel {
 	return {
 		id: info.id,
-		// The request's `model` field: the raw ID the mint stamped onto the
-		// model's litellm metadata, never re-derived from the exposed ID.
+		// The request's `model` field: the raw ID the mint stamped onto the model's litellm metadata, never re-derived
+		// from the exposed ID.
 		rawId: info.litellm.rawModelId,
 		scopeKey,
 		name: info.name,
@@ -515,10 +478,9 @@ function buildModel(info: PreAttachModelInfo, serverLabel: string, scopeKey: str
 }
 
 /**
- * The value shown for a number setting: a configured finite number (or null
- * where null is legal) passes through even when out of range, because the
- * dashboard shows what is configured; anything unusable falls back to the
- * package.json default so the form still renders a real value.
+ * The value shown for a number setting: a configured finite number (or null where null is legal) passes through even
+ * when out of range, because the dashboard shows what is configured; anything unusable falls back to the package.json
+ * default so the form still renders a real value.
  */
 function readNumberSetting(reader: SettingsReader, id: NumberSettingId): number | null {
 	const spec = NUMBER_SETTING_SPECS[id];
@@ -540,11 +502,6 @@ function readBooleanSetting(reader: SettingsReader, id: BooleanSettingId): boole
 	return readBooleanDefault(reader, id);
 }
 
-/**
- * The package.json default of a number setting, the display fallback when the
- * configured value is unusable (readNumberSetting). Falls back further to the
- * spec's own floor when even the inspected default is unusable.
- */
 function readNumberDefault(reader: SettingsReader, id: NumberSettingId): number | null {
 	const spec = NUMBER_SETTING_SPECS[id];
 	const fallback = reader.inspect(id)?.defaultValue;
@@ -562,11 +519,8 @@ function readBooleanDefault(reader: SettingsReader, id: BooleanSettingId): boole
 const ALL_SCOPES: readonly SettingScope[] = ["global", "workspace", "workspaceFolder"];
 
 /**
- * Split an object setting by scope: the record the edit scope holds (writes
- * replace it whole) and, read-only, the records other scopes hold. Built from
- * inspection, never from the merged effective value; see ScopedRecordSetting
- * for why. `effectiveRaw` is the one merged read, sanitized the same way, for
- * the inspector's request-path view.
+ * Built from inspection, never from the merged effective value; see ScopedRecordSetting for why. `effectiveRaw` is the
+ * one merged read, sanitized the same way, for the inspector's request-path view.
  */
 function buildScopedRecord<V>(
 	effectiveRaw: unknown,
@@ -586,12 +540,9 @@ function buildScopedRecord<V>(
 }
 
 /**
- * Whether a normalized list DROPPED or rewrote anything from the raw
- * configured value. The state push carries only the normalized list, so
- * without this flag a list row cannot tell a clean list from one hiding
- * entries a comma-box edit would silently destroy; the flag forces the row's
- * read-only fallback instead. One rule for every normalized list setting (the
- * schema keywords, the language filter's list).
+ * The state push carries only the normalized list, so without this flag a list row cannot tell a clean list from one
+ * hiding entries a comma-box edit would silently destroy; the flag forces the row's read-only fallback instead. One
+ * rule for every normalized list setting (the schema keywords, the language filter's list).
  */
 function normalizedListLossy(raw: unknown, normalized: readonly string[]): boolean {
 	if (raw === undefined) {
@@ -602,14 +553,12 @@ function normalizedListLossy(raw: unknown, normalized: readonly string[]): boole
 	);
 }
 
-/** The catalog status a headless or test build renders when no store rides the inputs. */
 export const EMPTY_CATALOG_STATUS: CatalogStatusView = {
 	modelCount: 0,
 	lastSuccessAt: undefined,
 	refreshing: false,
 };
 
-/** The usage snapshot a headless or test build renders when no poller rides the inputs. */
 export const EMPTY_USAGE_VIEW: DashboardUsage = {
 	servers: [],
 	thresholds: [],
@@ -621,8 +570,7 @@ export const EMPTY_USAGE_VIEW: DashboardUsage = {
 };
 
 export function readDashboardSettings(reader: SettingsReader, catalog: CatalogStatusView): DashboardSettings {
-	// Read once, normalize once: the lossy verdict compares the same raw value
-	// the normalized list came from.
+	// Read once, normalize once: the lossy verdict compares the same raw value the normalized list came from.
 	const rawKeywords = reader.get(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY);
 	const keywords = normalizeAdditionalToolSchemaKeywords(rawKeywords);
 	return {
@@ -673,11 +621,9 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 		featureModelScopes: recordFromKeys(FEATURE_MODEL_IDS, (feature) =>
 			resolveConfiguredScope(reader.inspect(FEATURE_MODEL_SETTING_KEYS[feature]))
 		),
-		// CR-normalized at this boundary alone: the webview's textarea drafts in
-		// \n, so a settings.json prompt written with \r\n would never compare
-		// equal to its own round trip (a phantom "modified" draft on every push).
-		// The request path (getCommitGenerationPrompt) keeps the stored text
-		// verbatim - the prompt is model-facing.
+		// CR-normalized at this boundary alone: the webview's textarea drafts in \n, so a settings.json prompt written
+		// with \r\n would never compare equal to its own round trip (a phantom "modified" draft on every push). The
+		// request path (getCommitGenerationPrompt) keeps the stored text verbatim - the prompt is model-facing.
 		commitPrompt: normalizeCommitGenerationPrompt(reader.get(COMMIT_GENERATION_PROMPT_SETTING_KEY)).replace(
 			/\r\n?/g,
 			"\n"
@@ -699,11 +645,9 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 }
 
 /**
- * Whether a filter row edit would rewrite raw configured state the push
- * cannot carry: a value normalization rewrote (unrecognized mode, dropped or
- * trimmed language entries) or keys a { mode, languages } write would drop.
- * The whole-object twin of normalizedListLossy, and the same read-only
- * fallback consumes it.
+ * Whether a filter row edit would rewrite raw configured state the push cannot carry: a value normalization rewrote
+ * (unrecognized mode, dropped or trimmed language entries) or keys a { mode, languages } write would drop. The
+ * whole-object twin of normalizedListLossy, and the same read-only fallback consumes it.
  */
 function languageFilterLossy(raw: unknown, filter: InlineLanguageFilter): boolean {
 	if (raw === undefined) {
@@ -727,27 +671,18 @@ function languageFilterLossy(raw: unknown, filter: InlineLanguageFilter): boolea
 }
 
 /**
- * What the request path would resolve for one server's requests, as panel.ts
- * resolves it: the group's label paired with the declared entry's own
- * modelParameters, through the SAME resolver chat requests use. Undefined for
- * unlabeled groups and labels no declared entry matches at that URL - exactly
- * the requests that get only the global setting.
+ * What the request path would resolve for one server's requests, as panel.ts resolves it: the group's label paired with
+ * the declared entry's own modelParameters, through the SAME resolver chat requests use. Undefined for unlabeled groups
+ * and labels no declared entry matches at that URL - exactly the requests that get only the global setting.
  */
 export type EntryParametersResolution = {
 	readonly entryLabel: string;
 	readonly entryParameters: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 };
 
-/**
- * Everything buildDashboardState reduces, as one options object. Only
- * `snapshots` and `reader` are required; every optional input defaults to the
- * value that is right where the corresponding store cannot contribute (tests,
- * headless callers).
- */
 export interface DashboardStateInputs {
 	readonly snapshots: readonly ServerModelsSnapshot[];
 	readonly reader: SettingsReader;
-	/** The declared views with their proof source; see DeclaredServersInput. Defaults to the engine's empty list. */
 	readonly declared?: DeclaredServersInput;
 	/** The per-entry acceptance reports (serverSettingReports): the Misconfigured rows and the ownership's carriers. */
 	readonly entryReports?: readonly ServerEntryReport[];
@@ -755,25 +690,19 @@ export interface DashboardStateInputs {
 	readonly secretHolders?: ReadonlyMap<string, readonly string[]>;
 	readonly removedGroups?: RemovedGroupsView;
 	/**
-	 * Whether a tombstoned identity's group was observed alive at some point
-	 * this session (suppressed groups still report, deleted groups never do).
-	 * Gates the hidden-groups line only: offering Unhide for a tombstone whose
-	 * group the host no longer holds would reference nothing. The default shows
-	 * everything.
+	 * Whether a tombstoned identity's group was observed alive at some point this session (suppressed groups still
+	 * report, deleted groups never do). Gates the hidden-groups line only: offering Unhide for a tombstone whose group
+	 * the host no longer holds would reference nothing.
 	 */
 	readonly wasGroupObserved?: (label: string, baseUrl: string) => boolean;
 	/**
-	 * Like wasGroupObserved, but only for observations of a LABELED group at
-	 * the identity (its configuration carried the entry label): what lets a
-	 * tombstone be classified superseded once its entry declares another URL.
-	 * The default observes nothing, so tombstones read as removed.
+	 * Like wasGroupObserved, but only for observations of a LABELED group at the identity (its configuration carried
+	 * the entry label): what lets a tombstone be classified superseded once its entry declares another URL. The default
+	 * observes nothing, so tombstones read as removed.
 	 */
 	readonly wasLabeledGroupObserved?: (label: string, baseUrl: string) => boolean;
-	/** The OpenRouter catalog row's status; defaults to the empty snapshot. */
 	readonly catalog?: CatalogStatusView;
-	/** The Servers page's usage snapshot; defaults to the empty view. */
 	readonly usage?: DashboardUsage;
-	/** The Configuration diagnostics list; defaults to none. */
 	readonly diagnostics?: readonly ConfigDiagnosticView[];
 	/** The features whose model row offers a host-side probe; defaults to none (no Test buttons). */
 	readonly featureProbes?: readonly FeatureModelId[];
@@ -803,7 +732,6 @@ function supersededLeftovers(ownership: GroupOwnership, declared: readonly Decla
 	});
 }
 
-/** The inputs of the hidden-groups view; see visibleHiddenGroups. */
 interface HiddenGroupsInputs {
 	readonly removedGroups: RemovedGroupsView;
 	readonly declared: readonly DeclaredServerView[];
@@ -834,8 +762,6 @@ function visibleHiddenGroups(inputs: HiddenGroupsInputs): HiddenGroup[] {
 				!superseded.some((group) => sameIdentity(group, identity.label, identity.baseUrl))
 		)
 		.map((identity): HiddenGroup => {
-			// A labeled observation means the sync created the group under its
-			// label (see HiddenGroup.syncedName).
 			const labeled = wasLabeledGroupObserved(identity.label, identity.baseUrl);
 			const declaredBaseUrl = labeled ? supersedingBaseUrl(declared, identity.label, identity.baseUrl) : undefined;
 			if (declaredBaseUrl !== undefined) {
@@ -854,12 +780,9 @@ function visibleHiddenGroups(inputs: HiddenGroupsInputs): HiddenGroup[] {
 }
 
 /**
- * The union of the snapshots' observed /model/info keys, across the snapshots
- * that carry a set (sorted for a stable push). Undefined when none does: "no
- * server has reported keys" must stay distinguishable from "the servers
- * reported none", because the advisory-hint filter drops every hint on the
- * former. Observed keys are server-derived strings: Set-built, never raw
- * object keys ("__proto__" is a legal member), and never logged.
+ * Undefined when none does: "no server has reported keys" must stay distinguishable from "the servers reported none",
+ * because the advisory-hint filter drops every hint on the former. Observed keys are server-derived strings: Set-built,
+ * never raw object keys ("__proto__" is a legal member), and never logged.
  */
 export function observedModelInfoKeysUnion(
 	snapshots: readonly Pick<ServerModelsSnapshot, "observedModelInfoKeys">[]
@@ -874,8 +797,8 @@ export function observedModelInfoKeysUnion(
 			union.add(key);
 		}
 	}
-	// Code-unit order, matching discovery's own per-server sort: these are
-	// wire identifiers, and locale collation would make the push host-dependent.
+	// Code-unit order, matching discovery's own per-server sort: these are wire identifiers, and locale collation would
+	// make the push host-dependent.
 	return [...union].sort();
 }
 
@@ -913,11 +836,9 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 	return {
 		servers,
 		hiddenGroups,
-		// The served-count truth for the hero and the paste line, reduced like
-		// reportMerged's totalModels but over the VISIBLE snapshots only: a
-		// tombstoned snapshot's models leave the tables (snapshotLabels drops
-		// them), so its count must leave the headline too. Immune to the models
-		// array's per-claimant copies either way.
+		// The served-count truth for the hero and the paste line, reduced like reportMerged's totalModels but over the
+		// VISIBLE snapshots only: a tombstoned snapshot's models leave the tables (snapshotLabels drops them), so its
+		// count must leave the headline too. Immune to the models array's per-claimant copies either way.
 		servedModelCount: labeled.reduce(
 			(sum, entry, index) =>
 				(snapshotLabels[index] ?? []).length > 0 ? sum + entry.snapshot.status.servedModelCount : sum,
@@ -938,39 +859,34 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 	};
 }
 
-/** A per-entry modelCapabilities record as the request-scope resolution hands it over. */
 export type EntryCapabilitiesRecord = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
-/** What the readModelCapabilities responder resolves against; panel.ts supplies the live stores. */
 export interface ModelCapabilitiesQuery {
 	readonly snapshots: readonly ServerModelsSnapshot[];
 	readonly reader: SettingsReader;
-	/** The declared entry's own modelCapabilities for a snapshot's server, resolved like entry modelParameters. */
 	readonly resolveEntryCapabilities: (serverId: string) => EntryCapabilitiesRecord | undefined;
 	/** The OpenRouter catalog as in-memory lookup; EMPTY_CATALOG_LOOKUP when no snapshot exists. */
 	readonly catalog: CapabilityCatalogLookup;
 	/**
-	 * The provider's shared flat resolution table, so the inspector reads the
-	 * SAME cache requests and registration use. Absent, the responder runs the
-	 * same pure walk uncached (tests, headless callers).
+	 * The provider's shared flat resolution table, so the inspector reads the SAME cache requests and registration use.
+	 * Absent, the responder runs the same pure walk uncached (tests, headless callers).
 	 */
 	readonly resolution?: ModelResolutionTable | undefined;
 }
 
 /**
- * Answer one readModelCapabilities request: locate the model behind the scope
- * key and raw ID, then run the SAME resolveModelCapabilities walk registration
- * runs, through the provider's shared resolution table when the query carries
- * one. A store change between the push and the request can de-resolve the key;
- * undefined tells the inspector the state moved on instead of inventing values.
+ * Answer one readModelCapabilities request: locate the model behind the scope key and raw ID, then run the SAME
+ * resolveModelCapabilities walk registration runs, through the provider's shared resolution table when the query
+ * carries one. A store change between the push and the request can de-resolve the key; undefined tells the inspector
+ * the state moved on instead of inventing values.
  */
 export function resolveDashboardModelCapabilities(
 	query: ModelCapabilitiesQuery,
 	scopeKey: string,
 	rawId: string
 ): EffectiveCapabilities | undefined {
-	// locateModel owns the de-resolution: scope keys hash the server ID, so a
-	// stale key resolves to nothing rather than to another server.
+	// locateModel owns the de-resolution: scope keys hash the server ID, so a stale key resolves to nothing rather than
+	// to another server.
 	const located = locateModel(query.snapshots, scopeKey, rawId);
 	if (located === undefined) {
 		return undefined;
@@ -982,21 +898,19 @@ export function resolveDashboardModelCapabilities(
 		globalCapabilities: normalizeModelCapabilities(query.reader.get(MODEL_CAPABILITIES_SETTING_KEY)),
 		entryCapabilities: query.resolveEntryCapabilities(serverId),
 		catalog: query.catalog,
-		// Registration's post-aggregation baseline, riding every pre-attach model:
-		// the inspector resolves over the same walk registration serves.
+		// Registration's post-aggregation baseline, riding every pre-attach model: the inspector resolves over the same
+		// walk registration serves.
 		serverDeclared: info.litellm.serverDeclared,
 	};
 	const resolved =
 		query.resolution !== undefined
 			? query.resolution.resolveCapabilities(serverId, rawId, inputs)
 			: resolveModelCapabilities({ rawModelId: rawId, ...inputs });
-	// The advisory filter judges each hint by its layer's own evidence, the SAME
-	// evidence Configuration diagnostics and the settings editor use: entry
-	// records apply to this server only, so its own listing judges them; a global
-	// record applies to every server, so a key ANY server observed is real (the
-	// cross-server union). The non-global branch falls back to the stricter
-	// per-server evidence deliberately, so a future RecordLayer member fails safe
-	// (fewer hints) instead of borrowing the union's broader proof.
+	// The advisory filter judges each hint by its layer's own evidence, the SAME evidence Configuration diagnostics and
+	// the settings editor use: entry records apply to this server only, so its own listing judges them; a global record
+	// applies to every server, so a key ANY server observed is real (the cross-server union). The non-global branch
+	// falls back to the stricter per-server evidence deliberately, so a future RecordLayer member fails safe (fewer
+	// hints) instead of borrowing the union's broader proof.
 	if (!resolved.diagnostics.some((diagnostic) => diagnostic.kind === "unrecognized-key")) {
 		return resolved;
 	}
@@ -1008,23 +922,15 @@ export function resolveDashboardModelCapabilities(
 	return diagnostics.length === resolved.diagnostics.length ? resolved : { ...resolved, diagnostics };
 }
 
-/** What the readModelParameters responder resolves against; panel.ts supplies the live stores. */
 export interface ModelParametersQuery {
 	readonly snapshots: readonly ServerModelsSnapshot[];
 	readonly reader: SettingsReader;
-	/** The request path's per-entry modelParameters resolution for a snapshot's server. */
 	readonly resolveEntryParameters: (serverId: string) => EntryParametersResolution | undefined;
 	/** The provider's shared flat resolution table; absent, the responder runs the same pure walk uncached. */
 	readonly resolution?: ModelResolutionTable | undefined;
 }
 
-/**
- * Answer one readModelParameters request: locate the model behind the scope
- * key and raw ID, resolve the configured merge through the provider's shared
- * flat table when the query carries one, and project it into the inspector's
- * rows (entry-layer refs carry the declared entry's label). Undefined when the
- * key or model no longer resolves, like resolveDashboardModelCapabilities.
- */
+/** Undefined when the key or model no longer resolves, like resolveDashboardModelCapabilities. */
 export function resolveDashboardModelParameters(
 	query: ModelParametersQuery,
 	scopeKey: string,
@@ -1056,9 +962,8 @@ export function resolveDashboardModelParameters(
 }
 
 /**
- * The most specific GLOBAL record key matching a model, for the inspectors'
- * configure-jump: the webview holds no resolver logic, so the extension names
- * the record to focus - or none, and the editor creates a fresh exact-ID draft.
+ * The most specific GLOBAL record key matching a model, for the inspectors' configure-jump: the webview holds no
+ * resolver logic, so the extension names the record to focus - or none, and the editor creates a fresh exact-ID draft.
  */
 export function mostSpecificGlobalRecordKey(
 	reader: SettingsReader,

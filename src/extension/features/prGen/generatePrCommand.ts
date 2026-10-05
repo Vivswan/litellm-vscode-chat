@@ -27,35 +27,30 @@ export interface GeneratePrDeps {
 	readonly logger: Logger;
 	readonly outputChannel: vscode.OutputChannel;
 	/**
-	 * Where the draft is delivered. Defaults to the system clipboard; injected
-	 * because vscode.env.clipboard is read-only and a test cannot replace it.
+	 * Defaults to the system clipboard; injected because vscode.env.clipboard is read-only and a test cannot replace
+	 * it.
 	 */
 	readonly copy?: (text: string) => Thenable<void>;
 }
 
 /**
- * How much of a title the notification renders. The clipboard always receives
- * the whole thing; this only stops a model that ignored the one-line
- * instruction from filling the screen with a toast.
+ * The clipboard always receives the whole thing; this only stops a model that ignored the one-line instruction from
+ * filling the screen with a toast.
  */
 const NOTIFIED_TITLE_LIMIT = 120;
 
-/** The title as a notification renders it: one line, bounded, with the cut marked. */
 function notifiedTitle(title: string): string {
 	const line = title.split("\n", 1)[0] ?? "";
 	return line.length > NOTIFIED_TITLE_LIMIT ? `${truncateKeepingHead(line, NOTIFIED_TITLE_LIMIT)}...` : line;
 }
 
-/** What the clipboard receives: the title, then the description under a blank line when there is one. */
 export function clipboardText(title: string, description: string | undefined): string {
 	return description === undefined ? title : `${title}\n\n${description}`;
 }
 
 /**
- * The command handler. Registered unconditionally (the palette hides behind
- * the enable when-clause, but keybindings and executeCommand do not), so a
- * disabled invocation answers with the enable hint instead of doing nothing.
- * `resolveGit` defaults to the live vscode.git extension; tests inject a fake.
+ * Registered unconditionally (the palette hides behind the enable when-clause, but keybindings and executeCommand do
+ * not), so a disabled invocation answers with the enable hint instead of doing nothing.
  */
 export async function runGeneratePrDescription(
 	send: (model: FeatureModelRef, prompt: string, token: vscode.CancellationToken) => Promise<string>,
@@ -73,8 +68,8 @@ export async function runGeneratePrDescription(
 		deps.logger.log(message, data);
 	};
 	try {
-		// Inside the boundary: activating another extension can reject, and that
-		// failure belongs in this command's one logging boundary like any other.
+		// Inside the boundary: activating another extension can reject, and that failure belongs in this command's one
+		// logging boundary like any other.
 		const git = await resolveGit();
 		if (git === undefined) {
 			await showActionableMessage(
@@ -117,8 +112,8 @@ export async function runGeneratePrDescription(
 				if (collected.kind !== "collected") {
 					return collected;
 				}
-				// The same provider the GitHub extension calls, so both entry
-				// points share one prompt, one send, and one parse.
+				// The same provider the GitHub extension calls, so both entry points share one prompt, one send, and
+				// one parse.
 				const provider = createTitleAndDescriptionProvider((prompt, cancellation) =>
 					send(modelRef, prompt, cancellation)
 				);
@@ -172,8 +167,7 @@ export async function runGeneratePrDescription(
 				);
 				return;
 			case "cancelled":
-				// The walk stopped on the user's cancel; nothing was sent and
-				// nothing is worth saying.
+				// The walk stopped on the user's cancel; nothing was sent and nothing is worth saying.
 				return;
 			case "noAnswer":
 				await showActionableMessage(
@@ -183,11 +177,10 @@ export async function runGeneratePrDescription(
 				);
 				return;
 			default: {
-				// Exhaustive by construction: a new outcome must bring its advice
-				// here rather than silently showing the user nothing. Only the
-				// DISCRIMINANT is named - this throw lands in the catch below, which
-				// logs, and an outcome's payload carries branch names, commit
-				// messages and patches that must never reach a public issue report.
+				// Exhaustive by construction: a new outcome must bring its advice here rather than silently showing
+				// the user nothing. Only the DISCRIMINANT is named - this throw lands in the catch below, which logs,
+				// and an outcome's payload carries branch names, commit messages and patches that must never reach a
+				// public issue report.
 				const unhandled: never = outcome;
 				throw new Error(`unhandled PR generation outcome: ${(unhandled as { kind: string }).kind}`);
 			}

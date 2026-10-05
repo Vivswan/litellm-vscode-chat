@@ -1,8 +1,6 @@
 /**
- * The Servers page's usage projection: the poller's ServerUsageState reduced
- * to the serializable DashboardUsage the state push carries. Pure; the
- * freshness predicate is injected so this module and the status bar item
- * share one rule without importing each other.
+ * Pure; the freshness predicate is injected so this module and the status bar item share one rule without importing
+ * each other.
  */
 
 import type {
@@ -38,8 +36,8 @@ export interface UsageViewInput {
 }
 
 /**
- * The store's endpoint standing as the protocol carries it: the same closed
- * enums and status number, restated so the webview type stays self-contained.
+ * The store's endpoint standing as the protocol carries it: the same closed enums and status number, restated so the
+ * webview type stays self-contained.
  */
 function endpointStandingView(state: UsageEndpointState): UsageEndpointStandingView {
 	switch (state.kind) {
@@ -62,21 +60,13 @@ function endpointStandingView(state: UsageEndpointState): UsageEndpointStandingV
 }
 
 /**
- * Whether a standing blocks usage in a way the USER can fix: a key the server
- * refuses (401/403). Unsupported endpoints are deliberately not "blocked" - no
- * key change unhides them.
+ * Whether a standing blocks usage in a way the USER can fix: a key the server refuses (401/403). Unsupported endpoints
+ * are deliberately not "blocked" - no key change unhides them.
  */
 function forbiddenStanding(state: UsageEndpointState): boolean {
 	return state.kind === "unavailable" && state.reason === "forbidden";
 }
 
-/**
- * One store state as the Servers page's usage card, or undefined for servers
- * that do not surface. Full card while availability stands "available", a
- * reduced card when a forbidden standing blocks it. Unsupported-only and
- * still-probing servers stay hidden: hidden states are only ones the user
- * cannot act on (docs/usage.md#requirements).
- */
 function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageServerCardView | undefined {
 	if (state.availability !== "available") {
 		return forbiddenStanding(state.endpoints.keyInfo) || forbiddenStanding(state.endpoints.dailyActivity)
@@ -113,7 +103,6 @@ function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageS
 	return view;
 }
 
-/** The reduced card for a server a forbidden standing leaves without usage: identity plus endpoint standings. */
 function forbiddenServerView(state: ServerUsageState): UsageForbiddenServerView {
 	return {
 		kind: "forbidden",

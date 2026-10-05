@@ -1,11 +1,7 @@
 /**
- * Chat-history conversion for the participant: prior turns from the host's
- * ChatContext become the plain message array the current request rides on.
- * The input types are minimal structural mirrors of vscode.ChatRequestTurn and
- * vscode.ChatResponseTurn - the wiring passes context.history straight in -
- * so the module needs no vscode import and stays pure for the bun tree. The
- * output is equally neutral: the wiring maps each ChatMessage onto the host's
- * LanguageModelChatMessage constructors.
+ * The input types are minimal structural mirrors of vscode.ChatRequestTurn and vscode.ChatResponseTurn - the wiring
+ * passes context.history straight in - so the module needs no vscode import and stays pure for the bun tree. The output
+ * is equally neutral: the wiring maps each ChatMessage onto the host's LanguageModelChatMessage constructors.
  */
 
 type ChatMessageRole = "user" | "assistant";
@@ -23,10 +19,8 @@ export interface HistoryRequestTurn {
 }
 
 /**
- * Structural mirror of vscode.ChatResponseTurn. The response parts stay
- * unknown because the host's part vocabulary is open (markdown, anchors,
- * file trees, tool invocations); conversion keeps the markdown text and
- * skips the rest.
+ * Structural mirror of vscode.ChatResponseTurn. The response parts stay unknown because the host's part vocabulary is
+ * open (markdown, anchors, file trees, tool invocations); conversion keeps the markdown text and skips the rest.
  */
 export interface HistoryResponseTurn {
 	readonly response: readonly unknown[];
@@ -35,11 +29,10 @@ export interface HistoryResponseTurn {
 export type HistoryTurn = HistoryRequestTurn | HistoryResponseTurn;
 
 /**
- * Head-drop bound for the converted history's total content length: a chat
- * that accumulated huge turns (a /models table on a large install, pasted
- * logs) keeps its newest messages and sheds the oldest whole ones, so every
- * request stays bounded without truncating any message mid-text. History may
- * drop to nothing; the current prompt never rides through here.
+ * Head-drop bound for the converted history's total content length: a chat that accumulated huge turns (a /models table
+ * on a large install, pasted logs) keeps its newest messages and sheds the oldest whole ones, so every request stays
+ * bounded without truncating any message mid-text. History may drop to nothing; the current prompt never rides through
+ * here.
  */
 export const HISTORY_CHAR_LIMIT = 80_000;
 
@@ -49,12 +42,9 @@ function isRequestTurn(turn: HistoryTurn): turn is HistoryRequestTurn {
 }
 
 /**
- * The text of one response part, or undefined for parts that carry none. A
- * markdown part's value is a MarkdownString ({ value: string }); every other
- * part kind - tool invocations, anchors, file trees, progress - contributes
- * nothing. Parts whose value is a plain string are deliberately excluded:
- * no markdown part is shaped that way, and the parts that are carry progress
- * chatter, not response text.
+ * A markdown part's value is a MarkdownString ({ value: string }); every other part kind - tool invocations, anchors,
+ * file trees, progress - contributes nothing. Parts whose value is a plain string are deliberately excluded: no
+ * markdown part is shaped that way, and the parts that are carry progress chatter, not response text.
  */
 function partText(part: unknown): string | undefined {
 	if (typeof part !== "object" || part === null || !("value" in part)) {
@@ -71,9 +61,8 @@ function partText(part: unknown): string | undefined {
 }
 
 /**
- * A request as the model should see it: the slash command rides along in its
- * typed form, so the model knows what the user asked for, not just the free
- * text beside it.
+ * A request as the model should see it: the slash command rides along in its typed form, so the model knows what the
+ * user asked for, not just the free text beside it.
  */
 export function requestContent(turn: HistoryRequestTurn): string {
 	if (turn.command === undefined || turn.command === "") {
@@ -83,13 +72,11 @@ export function requestContent(turn: HistoryRequestTurn): string {
 }
 
 /**
- * Normalize a message array to wire shape: drop answers leading without any
- * question before them (some providers reject a conversation opening with
- * the assistant), then merge consecutive same-role messages into one, joined
- * by a blank line (dropped turns make same-role runs reachable - a canceled
- * response leaves two user questions adjacent - and some providers reject
- * such a sequence outright). Every outgoing message array passes through
- * here, so the rules hold whatever a command built.
+ * Normalize a message array to wire shape: drop answers leading without any question before them (some providers reject
+ * a conversation opening with the assistant), then merge consecutive same-role messages into one, joined by a blank
+ * line (dropped turns make same-role runs reachable - a canceled response leaves two user questions adjacent - and some
+ * providers reject such a sequence outright). Every outgoing message array passes through here, so the rules hold
+ * whatever a command built.
  */
 export function normalizeForWire(messages: readonly ChatMessage[]): ChatMessage[] {
 	const firstUser = messages.findIndex((message) => message.role === "user");
@@ -106,9 +93,8 @@ export function normalizeForWire(messages: readonly ChatMessage[]): ChatMessage[
 }
 
 /**
- * A prior turn's ATTACHMENTS are deliberately not re-read from its `references`, or a thread about one file
- * would ship that file once per turn. The host re-attaches the live editor context every turn, so what is lost
- * is only a file attached once, edited away from, and referred back to, which the user can re-attach.
+ * A prior turn's ATTACHMENTS are deliberately not re-read from its `references`, or a thread about one file would ship
+ * that file once per turn.
  */
 export function historyMessages(turns: readonly HistoryTurn[]): ChatMessage[] {
 	const messages: ChatMessage[] = [];

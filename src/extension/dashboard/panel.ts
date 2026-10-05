@@ -1,12 +1,9 @@
 /**
- * The dashboard WebviewPanel wiring. DashboardController holds the panel
- * lifecycle and message dispatch against injected seams (panel factory,
- * snapshot source, settings access), so everything but the last-mile vscode
- * calls is unit-testable. registerDashboardCommand supplies the real ones.
+ * DashboardController holds the panel lifecycle and message dispatch against injected seams (panel factory, snapshot
+ * source, settings access), so everything but the last-mile vscode calls is unit-testable.
  *
- * The panel does not retain context when hidden: the webview is a stateless
- * view, so a fresh page asking for state (the "ready" handshake) rebuilds it
- * from the stores, and every store change re-pushes the full state.
+ * The panel does not retain context when hidden: the webview is a stateless view, so a fresh page asking for state (the
+ * "ready" handshake) rebuilds it from the stores, and every store change re-pushes the full state.
  */
 
 import { randomBytes } from "node:crypto";
@@ -114,7 +111,6 @@ interface DashboardWebview {
 	onDidReceiveMessage: vscode.Event<unknown>;
 }
 
-/** The slice of vscode.WebviewPanel the controller uses. */
 export interface DashboardPanel {
 	readonly webview: DashboardWebview;
 	readonly visible: boolean;
@@ -125,12 +121,9 @@ export interface DashboardPanel {
 }
 
 /**
- * The per-server resolver seams, grouped: how the dashboard answers questions
- * about one snapshot server's identity and configuration. Every member
- * resolves through the provider's own machinery (the group lookup, the request
- * path's entry resolvers, the shared flat table), so the dashboard
- * structurally cannot diverge from registration and requests; the next
- * per-server resolver belongs here, not as another loose env member.
+ * Every member resolves through the provider's own machinery (the group lookup, the request path's entry resolvers, the
+ * shared flat table), so the dashboard structurally cannot diverge from registration and requests; the next per-server
+ * resolver belongs here, not as another loose env member.
  */
 export interface ServerResolution {
 	/** The request path's per-entry modelParameters resolution; see entryParametersResolver. */
@@ -138,9 +131,8 @@ export interface ServerResolution {
 	/** The declared entry's own modelCapabilities: the readModelCapabilities responder's entry layer. */
 	resolveEntryCapabilities(serverId: string): EntryCapabilitiesRecord | undefined;
 	/**
-	 * The provider's shared flat resolution table, so the capability inspector
-	 * reads the SAME cache requests and registration use. Optional: without it
-	 * the responder resolves through the same pure walk, uncached.
+	 * The provider's shared flat resolution table, so the capability inspector reads the SAME cache requests and
+	 * registration use. Optional: without it the responder resolves through the same pure walk, uncached.
 	 */
 	getResolutionTable?(): ModelResolutionTable;
 }
@@ -150,24 +142,20 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	/** Create the panel with its HTML already set. */
 	createPanel(): DashboardPanel;
 	getSnapshots(): readonly ServerModelsSnapshot[];
-	/** The declared views with their proof source (engine pass vs pre-first-pass settings fallback). */
 	getDeclaredServers(): DeclaredServersInput;
 	/** The declared labels whose stored secret each live group carries, by server ID (storedSecretHolders). */
 	getSecretHolders(): ReadonlyMap<string, readonly string[]>;
 	/** The removal bookkeeping (tombstones and orphan origins) the state builder folds in. */
 	getRemovedGroups(): RemovedGroupsView;
-	/** The per-server resolver seams, grouped; see ServerResolution. */
 	readonly serverResolution: ServerResolution;
 	/** The OpenRouter catalog as in-memory lookup data; EMPTY_CATALOG_LOOKUP while no snapshot exists. */
 	getCatalogLookup(): CapabilityCatalogLookup;
-	/** The catalog row's status facts (size, last refresh, standing failure, in-flight). */
 	getCatalogStatus(): CatalogStatusView;
 	/** The Servers page's usage snapshot, assembled from the poller's store at push time. */
 	getUsage(): DashboardUsage;
 	/**
-	 * One usage pass only when the stored numbers are stale (the poller's
-	 * refreshIfStale); open() fires it, so revealing the panel serves the
-	 * stored numbers instead of re-probing the fleet on every focus.
+	 * One usage pass only when the stored numbers are stale (the poller's refreshIfStale); open() fires it, so
+	 * revealing the panel serves the stored numbers instead of re-probing the fleet on every focus.
 	 */
 	refreshUsageIfStale(): void;
 	/** Search the catalog snapshot; the panel bounds the result list before it crosses. */
@@ -178,18 +166,18 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 }
 
 /**
- * How the message boundary classified one raw webview message. The classes
- * exist for the test-only injection seam (the monkey fuzzer branches on
- * them): "ignored-malformed" is a schema rejection before anything acted,
- * "validation-error" is any intent the handler refused or failed to apply,
- * and "ok" is an intent that ran to completion.
+ * The classes exist for the test-only injection seam (the monkey fuzzer branches on them): "ignored-malformed" is a
+ * schema rejection before anything acted, "validation-error" is any intent the handler refused or failed to apply, and
+ * "ok" is an intent that ran to completion.
  */
 export type DashboardMessageOutcome = "ok" | "validation-error" | "ignored-malformed";
 
-/** A request's correlated answer as the webview receives it: a read's response, an acked intent's ack, or a failure notice. */
 type DashboardReply = Extract<ExtensionToWebviewMessage, { kind: "response" | "ack" | "fail" }>;
 
-/** What one submitted message produced; the programmatic client (the agent tools) reads it, the webview reads only the posted messages. */
+/**
+ * What one submitted message produced; the programmatic client (the agent tools) reads it, the webview reads only the
+ * posted messages.
+ */
 export type DashboardSubmission =
 	| { readonly outcome: "ok"; readonly reply?: Extract<DashboardReply, { kind: "response" | "ack" }> }
 	| {
@@ -200,8 +188,8 @@ export type DashboardSubmission =
 	| { readonly outcome: "ignored-malformed"; readonly issues: readonly DashboardParseIssue[] };
 
 /**
- * Who submitted a message. An external submission's correlation id is unknown
- * to the page, so its answer returns by value and is never posted.
+ * An external submission's correlation id is unknown to the page, so its answer returns by value and is never
+ * posted.
  */
 type MessageSource = "webview" | "external";
 
@@ -213,13 +201,10 @@ function observedIdentityKey(label: string, baseUrl: string): string {
 /** How many catalog search results one response may carry; the picker shows a short list. */
 const CATALOG_RESULT_LIMIT = 20;
 
-/** A request whose method the table classifies as a read. */
 type ReadRequest = Extract<RpcRequestType, { method: ReadMethod }>;
 
-/** Everything else: the handshake plus the acked and fire-and-forget intents. */
 type NotifyingRequest = Exclude<RpcRequestType, ReadRequest>;
 
-/** Table-driven outcome routing: the request's method row decides how its answer travels. */
 function isReadRequest(request: RpcRequestType): request is ReadRequest {
 	return DASHBOARD_ENDPOINTS[request.method].outcome === "read";
 }
@@ -228,7 +213,6 @@ function isAckedRequest(request: NotifyingRequest): request is Extract<Notifying
 	return DASHBOARD_ENDPOINTS[request.method].outcome === "acked";
 }
 
-/** Whether a method's failures notify (everything but the reads); the refusal path keys on it. */
 function isNotifyingMethod(method: DashboardMethod): method is NotifyingMethod {
 	return DASHBOARD_ENDPOINTS[method].outcome !== "read";
 }
@@ -239,11 +223,9 @@ interface RequestContext {
 }
 
 /**
- * The panel's handler maps, mapped over the endpoint table so a table method
- * without a handler fails compilation. Read responders build their own full
- * response envelope (concrete per entry, so the method-payload correlation
- * needs no cast); intent runners resolve to the ack's optional caveat
- * message, which fire-and-forget methods never surface.
+ * The panel's handler maps, mapped over the endpoint table so a table method without a handler fails compilation. Read
+ * responders build their own full response envelope (concrete per entry, so the method-payload correlation needs no
+ * cast); intent runners resolve to the ack's optional caveat message, which fire-and-forget methods never surface.
  */
 type ReadResponders = {
 	readonly [K in ReadMethod]: (request: RpcRequest<K>) => RpcResponseType;
@@ -260,48 +242,42 @@ export class DashboardController implements vscode.Disposable {
 	private _panel: DashboardPanel | undefined;
 	private readonly _panelSubscriptions: vscode.Disposable[] = [];
 	/**
-	 * Mutating intents run one at a time: two concurrent saves would
-	 * read-modify-write the same servers array and lose one of the updates, so
-	 * every mutating message joins this chain (concurrent-channel reads run off
-	 * it, and a malformed message is rejected before reaching it).
+	 * Mutating intents run one at a time: two concurrent saves would read-modify-write the same servers array and lose
+	 * one of the updates, so every mutating message joins this chain (concurrent-channel reads run off it, and a
+	 * malformed message is rejected before reaching it).
 	 */
 	private _messageChain: Promise<unknown> = Promise.resolve();
 	/**
-	 * The deep-link target of the latest open call, held until the page proves
-	 * it can receive messages: a loading or reloading page silently drops
-	 * posts, so the ready handshake flushes it. Consumed once, so a later
-	 * reload cannot replay a stale jump.
+	 * The deep-link target of the latest open call, held until the page proves it can receive messages: a loading or
+	 * reloading page silently drops posts, so the ready handshake flushes it. Consumed once, so a later reload cannot
+	 * replay a stale jump.
 	 */
 	private _pendingFocusSection: DashboardSectionId | undefined;
 	/**
-	 * Group identities (label + normalized base URL) observed alive at some
-	 * point this session. Session-sticky on purpose: snapshots age out of the
-	 * status window after minutes, but a suppressed group the host still holds
-	 * must keep its hidden-groups row all session, while a group deleted from
-	 * the models file before this session must not show a ghost row.
+	 * Session-sticky on purpose: snapshots age out of the status window after minutes, but a suppressed group the host
+	 * still holds must keep its hidden-groups row all session, while a group deleted from the models file before this
+	 * session must not show a ghost row.
 	 */
-	/** Identity key -> whether a LABELED group was ever seen at it; see DashboardStateInputs.wasLabeledGroupObserved. */
+	/**
+	 * Identity key -> whether a LABELED group was ever seen at it; see DashboardStateInputs.wasLabeledGroupObserved.
+	 */
 	private readonly _observedGroupIdentities = new Map<string, boolean>();
 	/**
-	 * The current page's generation, bumped whenever the page is torn down or
-	 * replaced (the panel hides - without retainContextWhenHidden the page dies
-	 * hidden and reloads on reveal - or is disposed). _readyGeneration records
-	 * the generation whose ready handshake completed, judged against the
-	 * generation current when it ARRIVED, so a handshake handled late cannot
-	 * vouch for the next page. The page is provably listening only while the
-	 * two match.
+	 * The current page's generation, bumped whenever the page is torn down or replaced (the panel hides - without
+	 * retainContextWhenHidden the page dies hidden and reloads on reveal - or is disposed). _readyGeneration records
+	 * the generation whose ready handshake completed, judged against the generation current when it ARRIVED, so a
+	 * handshake handled late cannot vouch for the next page.
+	 *
+	 * The page -> is provably listening only while the two match
 	 */
 	private _pageGeneration = 0;
 	private _readyGeneration: number | undefined;
 
 	constructor(private readonly env: DashboardControllerEnv) {}
 
-	/** Open the dashboard, or bring the existing panel to the front, optionally landing on a section. */
 	open(section?: DashboardSectionId): void {
 		this._pendingFocusSection = section;
-		// Opening serves the stored numbers and re-fetches only when they are
-		// stale: re-focusing an open panel must not re-probe the fleet. The
-		// poller's completion re-push lands the numbers when a pass does run.
+		// The poller's completion re-push lands the numbers when a pass does run.
 		this.env.refreshUsageIfStale();
 		if (this._panel !== undefined) {
 			this._panel.reveal();
@@ -316,9 +292,8 @@ export class DashboardController implements vscode.Disposable {
 				void this.enqueueMessage(message, "webview");
 			}),
 			panel.onDidChangeViewState(() => {
-				// Context is not retained while hidden, so a re-shown webview needs
-				// the current state again (its own "ready" also covers the reload;
-				// this push covers hosts that restore the page without reloading).
+				// Context is not retained while hidden, so a re-shown webview needs the current state again (its own
+				// "ready" also covers the reload; this push covers hosts that restore the page without reloading).
 				if (panel.visible) {
 					this.pushState();
 				} else {
@@ -332,7 +307,6 @@ export class DashboardController implements vscode.Disposable {
 		this.pushState();
 	}
 
-	/** Re-push state after a store change (configuration or provider status); no-op without a visible panel. */
 	refresh(): void {
 		if (this._panel?.visible === true) {
 			this.pushState();
@@ -340,22 +314,19 @@ export class DashboardController implements vscode.Disposable {
 	}
 
 	/**
-	 * Test-only injection seam: run one raw message through the exact same
-	 * path a webview post takes - both callers share enqueueMessage, so an
-	 * injected message gets the same parse, routing, and ordering, and cannot
-	 * drift from the real handling. Registered behind the non-production
-	 * litellm._test.dashboardMessage command.
+	 * Test-only injection seam: run one raw message through the exact same path a webview post takes - both callers
+	 * share enqueueMessage, so an injected message gets the same parse, routing, and ordering, and cannot drift from
+	 * the real handling. Registered behind the non-production litellm._test.dashboardMessage command.
 	 */
 	async injectMessageForTest(raw: unknown): Promise<DashboardMessageOutcome> {
 		return (await this.enqueueMessage(raw, "webview")).outcome;
 	}
 
 	/**
-	 * The programmatic client entry (the agent tools): one raw request through
-	 * the exact path a webview post takes, answered by return value instead of
-	 * a post. Mutating requests join the same serialized chain as the page's,
-	 * so a tool and an open dashboard cannot lose each other's servers-array
-	 * update, and a landed intent still pushes state to an open panel.
+	 * The programmatic client entry (the agent tools): one raw request through the exact path a webview post takes,
+	 * answered by return value instead of a post. Mutating requests join the same serialized chain as the page's, so a
+	 * tool and an open dashboard cannot lose each other's servers-array update, and a landed intent still pushes state
+	 * to an open panel.
 	 */
 	submit(raw: unknown): Promise<DashboardSubmission> {
 		return this.enqueueMessage(raw, "external");
@@ -370,18 +341,16 @@ export class DashboardController implements vscode.Disposable {
 		const arrivalGeneration = this._pageGeneration;
 		const parsed = parseDashboardRequest(raw);
 		if (!parsed.success) {
-			// Codes and a count only: an issue path names the keys the sender
-			// wrote (a record's model key, a header name), and the buffer feeds
-			// public issue reports.
+			// Codes and a count only: an issue path names the keys the sender wrote (a record's model key, a header
+			// name), and the buffer feeds public issue reports.
 			this.env.log("Ignoring malformed dashboard message", {
 				issueCount: parsed.issues.length,
 				codes: [...new Set(parsed.issues.map((issue) => issue.code))],
 			});
 			const issues = parsed.issues;
-			// A parse whose envelope frame survived still identifies the caller:
-			// answer a notifying method with a correlated refusal, or an editor
-			// waiting on this id would stay pending forever. Reads stay silent -
-			// their fail path does not exist on the wire.
+			// A parse whose envelope frame survived still identifies the caller: answer a notifying method with a
+			// correlated refusal, or an editor waiting on this id would stay pending forever. Reads stay silent - their
+			// fail path does not exist on the wire.
 			const frame = parsed.frame;
 			if (frame !== undefined && isNotifyingMethod(frame.method)) {
 				const reply = {
@@ -455,8 +424,7 @@ export class DashboardController implements vscode.Disposable {
 			this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl));
 		const wasLabeledGroupObserved = (label: string, baseUrl: string) =>
 			this._observedGroupIdentities.get(observedIdentityKey(label, baseUrl)) === true;
-		// In FEATURE_MODEL_IDS order for a stable push, whatever object the env
-		// built its probes record from.
+		// In FEATURE_MODEL_IDS order for a stable push, whatever object the env built its probes record from.
 		const featureProbes = FEATURE_MODEL_IDS.filter((feature) => this.env.featureProbes[feature] !== undefined);
 		const state = buildDashboardState({
 			snapshots,
@@ -479,9 +447,8 @@ export class DashboardController implements vscode.Disposable {
 				declared: declared.views,
 				// The same list the servers section's hidden-groups line renders.
 				hiddenGroups: state.hiddenGroups,
-				// The advisory-hint evidence: per entry its own server's observed
-				// set (the declared row carries its joined snapshot's), global
-				// records the cross-server union.
+				// The advisory-hint evidence: per entry its own server's observed set (the declared row carries its
+				// joined snapshot's), global records the cross-server union.
 				observedKeysByEntry: new Map(
 					state.servers.flatMap((server) =>
 						server.origin === "declared" && server.observedModelInfoKeys !== undefined
@@ -494,7 +461,6 @@ export class DashboardController implements vscode.Disposable {
 		};
 	}
 
-	/** Deliver the pending deep-link focus, once, and only to a page that has proven it is listening. */
 	private flushPendingFocus(): void {
 		if (this._pendingFocusSection === undefined || this._readyGeneration !== this._pageGeneration) {
 			return;
@@ -505,25 +471,20 @@ export class DashboardController implements vscode.Disposable {
 	}
 
 	/**
-	 * The read responders: each answers with its own correlated response
-	 * envelope - no state push, no outcome notice, and no logging (the
-	 * readInlineSecrets answer is secret material, so the read arm stays
-	 * log-free). Concrete per entry so the method-payload correlation the
-	 * request union erases is rebuilt without a cast.
+	 * The read responders: each answers with its own correlated response envelope - no state push, no outcome notice,
+	 * and no logging (the readInlineSecrets answer is secret material, so the read arm stays log-free). Concrete per
+	 * entry so the method-payload correlation the request union erases is rebuilt without a cast.
 	 */
 	private readonly readResponders: ReadResponders = {
 		readInlineSecrets: (request) => ({
-			// The edit form's on-demand prefill: values only for fields stored
-			// inline in the servers setting (already plaintext there), and only
-			// while the entry still matches the identity the form displayed.
+			// The edit form's on-demand prefill: values only for fields stored inline in the servers setting (already
+			// plaintext there), and only while the entry still matches the identity the form displayed.
 			kind: "response",
 			id: request.id,
 			method: "readInlineSecrets",
 			payload: { values: readInlineSecretValues(this.env.readServersSetting(), request.payload.replace) },
 		}),
 		readModelCapabilities: (request) => {
-			// The capability inspector's read: resolved extension-side by the
-			// same walk registration runs.
 			const { scopeKey, rawId } = request.payload;
 			const capabilitiesReader = this.env.settingsReader();
 			const capsGlobalKey = mostSpecificGlobalRecordKey(capabilitiesReader, "capabilities", rawId);
@@ -560,8 +521,6 @@ export class DashboardController implements vscode.Disposable {
 			};
 		},
 		readModelParameters: (request) => {
-			// The params inspector's read: resolved through the provider's shared
-			// flat table and projected extension-side.
 			const { scopeKey, rawId } = request.payload;
 			const parametersReader = this.env.settingsReader();
 			const answer = resolveDashboardModelParameters(
@@ -598,8 +557,8 @@ export class DashboardController implements vscode.Disposable {
 			};
 		},
 		readResolvedModels: (request) => ({
-			// The Diagnostics tab's Resolved-models view, computed on demand: it
-			// scales with models x fields, so it stays out of state pushes.
+			// The Diagnostics tab's Resolved-models view, computed on demand: it scales with models x fields, so it
+			// stays out of state pushes.
 			kind: "response",
 			id: request.id,
 			method: "readResolvedModels",
@@ -616,8 +575,6 @@ export class DashboardController implements vscode.Disposable {
 			},
 		}),
 		searchCatalog: (request) => ({
-			// The catalog picker's search; the bound keeps a broad query from
-			// pushing the whole catalog across the webview boundary.
 			kind: "response",
 			id: request.id,
 			method: "searchCatalog",
@@ -625,15 +582,8 @@ export class DashboardController implements vscode.Disposable {
 		}),
 	};
 
-	/**
-	 * The intent runners: the ready handshake's generation bookkeeping, plus
-	 * one executor call per intent method (concrete per entry, like the read
-	 * responders, so the executor's discriminated union needs no cast).
-	 */
 	private readonly intentRunners: IntentRunners = {
 		ready: (_payload, context) => {
-			// Judged against the generation current when the handshake ARRIVED:
-			// one handled late cannot vouch for the next page.
 			if (context.arrivalGeneration === this._pageGeneration) {
 				this._readyGeneration = context.arrivalGeneration;
 			}
@@ -687,13 +637,11 @@ export class DashboardController implements vscode.Disposable {
 	}
 
 	/**
-	 * The single dispatch behind every parsed request, routed by the request
-	 * method's outcome column. Reads answer and stop. Intents run, then post
-	 * their ack (acked outcomes only) and push state - the push doubles as the
-	 * fire-and-forget intents' success signal, since some applied intents (a
-	 * secure-only secret change, a no-op settings write) fire no configuration
-	 * event of their own; the focus flush after it is the ready handshake's
-	 * second half and a guarded no-op for every other method.
+	 * The single dispatch behind every parsed request, routed by the request method's outcome column. Intents run, then
+	 * post their ack (acked outcomes only) and push state - the push doubles as the fire-and-forget intents' success
+	 * signal, since some applied intents (a secure-only secret change, a no-op settings write) fire no configuration
+	 * event of their own; the focus flush after it is the ready handshake's second half and a guarded no-op for every
+	 * other method.
 	 */
 	private async handleRequest(
 		request: RpcRequestType,
@@ -704,9 +652,8 @@ export class DashboardController implements vscode.Disposable {
 			if (source === "webview") {
 				this.postToPanel(reply);
 			}
-			// One class for every refused-or-failed intent: the outcome consumer
-			// only needs "did not act as asked", and the validation/operation
-			// split already travels via the fail notice's failureKind.
+			// One class for every refused-or-failed intent: the outcome consumer only needs "did not act as asked", and
+			// the validation/operation split already travels via the fail notice's failureKind.
 			return reply.kind === "fail" ? { outcome: "validation-error", reply } : { outcome: "ok", reply };
 		};
 		if (isReadRequest(request)) {
@@ -716,8 +663,6 @@ export class DashboardController implements vscode.Disposable {
 			const notice = await this.runIntent(request, { arrivalGeneration });
 			let submission: DashboardSubmission = { outcome: "ok" };
 			if (isAckedRequest(request)) {
-				// The notice's plain-string form is the quiet success; the object
-				// form rides its warning tone onto the ack (see IntentAckNotice).
 				const note: { readonly message: string; readonly tone?: IntentAckTone } | undefined =
 					typeof notice === "string" ? { message: notice } : notice;
 				submission = answer({
@@ -732,19 +677,17 @@ export class DashboardController implements vscode.Disposable {
 			this.flushPendingFocus();
 			return submission;
 		} catch (error) {
-			// The write did not land (or only partially landed), so the failure
-			// notice is the webview's signal to surface the message and return the
-			// affected editor to a retryable draft. Validation and operation
-			// messages travel to the webview only: validation text can quote an
-			// entered key, and the log buffer feeds public issue reports, so the
-			// log gets classifications for every failure kind.
+			// The write did not land (or only partially landed), so the failure notice is the webview's signal to
+			// surface the message and return the affected editor to a retryable draft. Validation and operation
+			// messages travel to the webview only: validation text can quote an entered key, and the log buffer feeds
+			// public issue reports, so the log gets classifications for every failure kind.
 			let message: string;
 			let failureKind: "validation" | "operation" = "validation";
 			let classification: TransportErrorClassification | undefined;
 			if (error instanceof DashboardValidationError) {
 				message = error.message;
-				// Classification only (enum ids and a status) - protocol-legal and
-				// log-legal, so it also rides the log line for issue-report triage.
+				// Classification only (enum ids and a status) - protocol-legal and log-legal, so it also rides the log
+				// line for issue-report triage.
 				classification = error.classification;
 				this.env.log("Dashboard intent rejected", {
 					method: request.method,
@@ -762,9 +705,8 @@ export class DashboardController implements vscode.Disposable {
 					error: errorLabel(error),
 				});
 			}
-			// A refused scalar write names its owning settings row, derived from the
-			// validated payload, so the page can place the notice without a
-			// correlation map of its own.
+			// A refused scalar write names its owning settings row, derived from the validated payload, so the page can
+			// place the notice without a correlation map of its own.
 			const row = settingWriteRow(request);
 			return answer({
 				kind: "fail",
@@ -808,14 +750,13 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
 			accent: getUiAccent(),
 		});
 	panel.webview.html = renderShell();
-	// The shell's whole job is the first paint: it stamps the appearance so a
-	// reader who pinned light never sees a dark frame while the bundle boots.
-	// The panel does not retain context, so a reveal reloads this stored HTML -
-	// which means a theme changed since it was written would hand back exactly
-	// the frame the stamp exists to prevent. Rewriting it while the panel is
-	// hidden costs nothing: the page is already gone, so there is no reload to
-	// pay for and nothing on screen to flash. A visible panel needs none of
-	// this; the state push restamps its live DOM.
+	// The shell's whole job is the first paint: it stamps the appearance so a reader who pinned light never sees a dark
+	// frame while the bundle boots. The panel does not retain context, so a reveal reloads this stored HTML - which
+	// means a theme changed since it was written would hand back exactly the frame the stamp exists to prevent.
+	//
+	//   the page is already gone, so there is no reload to pay for and nothing on screen to flash -> Rewriting it while
+	//     the panel is hidden costs nothing
+	//   the state push restamps its live DOM -> A visible panel needs none of this
 	const resyncShellWhileHidden = (): void => {
 		if (!panel.visible) {
 			panel.webview.html = renderShell();
@@ -843,8 +784,8 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
  * so requests through it still receive the entry's parameters and the inspector must say so.
  */
 export function entryParametersResolver(
-	// Structurally GroupServer's label and baseUrl; unbranded because the
-	// resolver (entryModelParametersFor) normalizes the URL itself.
+	// Structurally GroupServer's label and baseUrl; unbranded because the resolver (entryModelParametersFor) normalizes
+	// the URL itself.
 	getGroupServer: (serverId: string) => { readonly label?: string | undefined; readonly baseUrl: string } | undefined,
 	getEntryModelParameters: (label: string, baseUrl: string) => EntryParametersResolution["entryParameters"] | undefined
 ): (serverId: string) => EntryParametersResolution | undefined {
@@ -868,10 +809,9 @@ export function declaredViewsFromSetting(raw: unknown): DeclaredServersInput {
 		return {
 			label: entry.label,
 			baseUrl: entry.baseUrl,
-			// The same two registry picks the engine's views ride, so an entry
-			// field cannot exist that the fallback window silently drops (a
-			// dropped field would prefill the edit form empty and a save would
-			// then DELETE it from the setting; mcp was lost exactly this way).
+			// The same two registry picks the engine's views ride, so an entry field cannot exist that the fallback
+			// window silently drops (a dropped field would prefill the edit form empty and a save would then DELETE it
+			// from the setting; mcp was lost exactly this way).
 			...pickNonSecretOptionalFields(entry),
 			...pickEntryViewFields(entry),
 			secrets,
@@ -880,27 +820,20 @@ export function declaredViewsFromSetting(raw: unknown): DeclaredServersInput {
 	return { source: "settings-fallback", views };
 }
 
-/** Everything registerDashboardCommand wires beyond the extension context, as one named-options object. */
 export interface RegisterDashboardOptions {
 	readonly provider: LiteLLMChatModelProvider;
 	readonly logger: Logger;
 	readonly syncEngine: ServerSyncEngine;
 	readonly removals: GroupRemovalStore;
-	/**
-	 * Structurally the OpenRouter catalog store: the snapshot feeds the
-	 * picker's search, the lookup feeds the capability inspector, the status
-	 * feeds the settings row, and refreshNow backs the row's Refresh button.
-	 */
 	readonly catalog: Pick<OpenRouterCatalogStore, "lookup" | "snapshot" | "status" | "refreshNow">;
 	readonly usagePoller: UsagePoller;
 	/**
-	 * The same composed entry-capabilities resolver activation wires into the
-	 * provider, so the inspector cannot diverge from registration and requests.
+	 * The same composed entry-capabilities resolver activation wires into the provider, so the inspector cannot diverge
+	 * from registration and requests.
 	 */
 	readonly getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined;
 	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
 	readonly ua: string;
-	/** The per-feature model probes the feature wirings registered; see IntentEnvironment.featureProbes. */
 	readonly featureProbes: FeatureProbes;
 }
 
@@ -996,11 +929,10 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 }
 
 /**
- * Register litellm.openDashboard and litellm.showDiagnostics (the deep link
- * to the Diagnostics tab) and keep the panel in sync with the stores:
- * configuration changes re-push directly; provider status changes arrive via
- * the returned controller's refresh(), called from the status fan-out in
- * wiring/ui.ts, and server sync passes via the engine's onDidSync hook.
+ * Register litellm.openDashboard and litellm.showDiagnostics (the deep link to the Diagnostics tab) and keep the panel
+ * in sync with the stores: configuration changes re-push directly; provider status changes arrive via the returned
+ * controller's refresh(), called from the status fan-out in wiring/ui.ts, and server sync passes via the engine's
+ * onDidSync hook.
  */
 export function registerDashboardCommand(
 	context: vscode.ExtensionContext,
@@ -1008,14 +940,12 @@ export function registerDashboardCommand(
 ): DashboardController {
 	const { provider, logger, syncEngine, removals, catalog, usagePoller, getEntryModelCapabilities, ua } = options;
 	const serverResolution: ServerResolution = {
-		// The exact resolver chat requests use (activation wires the provider's
-		// getEntryModelParameters to the same readEntryModelParameters).
+		// The exact resolver chat requests use (activation wires the provider's getEntryModelParameters to the same
+		// readEntryModelParameters).
 		resolveEntryParameters: entryParametersResolver(
 			(serverId) => provider.getGroupServer(serverId),
 			readEntryModelParameters
 		),
-		// The entry layer resolves through the provider's own identity source
-		// (the group's label and base URL).
 		resolveEntryCapabilities: (serverId) => {
 			const identity = provider.capabilityEntryIdentity(serverId);
 			return identity !== undefined ? getEntryModelCapabilities(identity.label, identity.baseUrl) : undefined;
@@ -1048,14 +978,10 @@ export function registerDashboardCommand(
 			},
 		}),
 		createPanel: () => createRealPanel(context.extensionUri),
-		// The window records exactly what each serve handed out (declared models
-		// included), so the dashboard lists the same model set as the picker by
-		// construction - same IDs, pre-attach infos without the serve decorations.
 		getSnapshots: () => provider.getServerSnapshots(),
 		getDeclaredServers: () => {
-			// The engine's declared view is authoritative once a pass has run;
-			// right after activation it is still empty, so the setting fills in,
-			// already tagged "settings-fallback" by its producer.
+			// The engine's declared view is authoritative once a pass has run; right after activation it is still
+			// empty, so the setting fills in, already tagged "settings-fallback" by its producer.
 			const declared = syncEngine.getDeclared();
 			if (declared.length > 0) {
 				return { source: "engine", views: declared };
@@ -1093,15 +1019,14 @@ export function registerDashboardCommand(
 				now: Date.now(),
 				isFresh: isUsageFresh,
 			}),
-		// The open-triggered pass: staleness-gated, and never toasted - the
-		// total-failure acknowledgment belongs to the EXPLICIT refresh. The
-		// poller's own notifications already re-push the dashboard.
+		// The open-triggered pass: staleness-gated, and never toasted - the total-failure acknowledgment belongs to the
+		// EXPLICIT refresh. The poller's own notifications already re-push the dashboard.
 		refreshUsageIfStale: () => {
 			void usagePoller.refreshIfStale();
 		},
 		searchCatalog: (query) => searchCatalogModels(catalog.snapshot(), query),
-		// One snapshot per reader: a dashboard build makes many reads and must
-		// not mix configuration versions mid-build.
+		// One snapshot per reader: a dashboard build makes many reads and must not mix configuration versions
+		// mid-build.
 		settingsReader: () => settingsAccess.snapshotReader(),
 		logError: (message, error) => logger.error(message, error),
 	});

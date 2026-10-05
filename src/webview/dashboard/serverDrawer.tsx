@@ -1,6 +1,6 @@
 /**
- * A server row's drawer: the spend, request, and budget facts, the entry's
- * read-only records, the external-group tip, and the URL breaks.
+ * A server row's drawer: the spend, request, and budget facts, the entry's read-only records, the external-group tip,
+ * and the URL breaks.
  */
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
@@ -34,9 +34,9 @@ import { Button } from "./ui/button";
 import { cn } from "./ui/cn";
 
 /**
- * The external row's provenance, the drawer's Origin fact; the copy lives here because
- * classifications cross the boundary, words do not. Deletion instructions name the models
- * file: VS Code offers extensions no group removal, so the file is where deleting lives.
+ * The external row's provenance, the drawer's Origin fact; the copy lives here because classifications cross the
+ * boundary, words do not. Deletion instructions name the models file: VS Code offers extensions no group removal, so
+ * the file is where deleting lives.
  */
 function externalTip(server: ExternalDashboardServer): string {
 	const provenance = server.provenance;
@@ -59,9 +59,9 @@ function externalTip(server: ExternalDashboardServer): string {
 }
 
 /**
- * The row's spend-at-a-glance: the budget percentage over the meter, the plain amount when
- * no budget gives a percentage meaning, nothing for a server without usage data (an empty
- * cell, not an "unknown" marker). The glance is the fraction; the drawer is the figures.
+ * The row's spend-at-a-glance: the budget percentage over the meter, the plain amount when no budget gives a percentage
+ * meaning, nothing for a server without usage data (an empty cell, not an "unknown" marker). The glance is the
+ * fraction; the drawer is the figures.
  */
 export function SpendUnit({
 	usage,
@@ -75,15 +75,15 @@ export function SpendUnit({
 	if (usage?.spend === undefined) {
 		return null;
 	}
-	// EVERY non-fresh number wears the qualifier, whatever the cause (the header's "worst
-	// budget use" excludes stale rows, so an unmarked 112% would contradict it). It leads the
-	// figure ON ITS LINE, never a line of its own: the mark lands asynchronously, and a third
-	// line moved every row below it (the .server-usage floor absorbs the word's width).
+	// EVERY non-fresh number wears the qualifier, whatever the cause (the header's "worst budget use" excludes stale
+	// rows, so an unmarked 112% would contradict it). It leads the figure ON ITS LINE, never a line of its own: the
+	// mark lands asynchronously, and a third line moved every row below it (the .server-usage floor absorbs the word's
+	// width).
 	const note = usage.fresh ? null : (
 		<span className="spend-note font-sans text-[0.92em] text-warn">{l10n.t("stale")} </span>
 	);
-	// The hidden noun says what the number is to a screen reader; hidden text rather than an
-	// aria-label because a plain span has no role that supports one.
+	// The hidden noun says what the number is to a screen reader; hidden text rather than an aria-label because a plain
+	// span has no role that supports one.
 	if (usage.spentFraction !== undefined) {
 		const bar = barPresentation(usage.spentFraction, thresholds);
 		return (
@@ -93,13 +93,13 @@ export function SpendUnit({
 					{note}
 					{formatPercent(usage.spentFraction)}
 				</span>
-				{/* A baseline, not a track: a track colour cannot clear 3:1 against both page and
-				    fill at once (measured on Light Modern), so the extent is a 1px axis and the
-				    fill keeps its saturated tones. Content-box sizing (no preflight): h-[3px]
-				    plus the border is a 4px meter. The fill names its forced-colors colour at
-				    the call site - backgrounds flatten to Canvas while the axis border forces to
-				    CanvasText, and an unhandled fill would read as a measured zero, the exact
-				    reading the axis-less no-budget branch exists to avoid. */}
+				{/* A baseline, not a track: a track colour cannot clear 3:1 against both page and fill at once
+				    (measured on Light Modern), so the extent is a 1px axis and the fill keeps its saturated tones.
+
+				      Content-box sizing (no preflight) -> h-[3px] plus the border is a 4px meter
+				      backgrounds flatten to Canvas while the axis border forces to CanvasText, and an unhandled fill
+				      would read as a measured zero, the exact reading the axis-less no-budget branch exists to avoid
+				                              -> The fill names its forced-colors colour at the call site */}
 				<span className="spend-meter h-[3px] overflow-hidden rounded-xs border-axis border-b" aria-hidden="true">
 					<span
 						className={cn("block h-full forced-colors:bg-[Highlight]", TONE_FILL[bar.tone])}
@@ -131,8 +131,8 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * A number this server did not report (ui/absent.tsx owns the dash-plus-words contract); a
- * fact with a reason of its own says it visibly, as a Why in place.
+ * A number this server did not report (ui/absent.tsx owns the dash-plus-words contract); a fact with a reason of its
+ * own says it visibly, as a Why in place.
  */
 function Absent({ reason }: { reason?: string | undefined }) {
 	return (
@@ -178,13 +178,13 @@ function BudgetFact({ server, currencySymbol }: { server: UsageServerView; curre
 }
 
 /**
- * The request-statistics facts. A missing window has exactly ONE cause, stated once on the
- * Requests fact; the computed rates show bare dashes (visually-hidden "not reported" intact). The
- * present-window branch keeps per-dash reasons - there the denominators miss independently.
+ * A missing window has exactly ONE cause, stated once on the Requests fact; the computed rates show bare dashes
+ * (visually-hidden "not reported" intact). The present-window branch keeps per-dash reasons - there the denominators
+ * miss independently.
  */
 function RequestFacts({ server }: { server: UsageServerView }) {
-	// Retained statistics from a failing endpoint must not read as current: spend freshness
-	// says nothing about the activity window. "unknown" stays unmarked - nothing failed yet.
+	// Retained statistics from a failing endpoint must not read as current: spend freshness says nothing about the
+	// activity window. "unknown" stays unmarked - nothing failed yet.
 	const outdated = server.dailyActivity.kind === "error" || server.dailyActivity.kind === "unavailable";
 	const requests = server.requests;
 	if (requests === undefined) {
@@ -226,7 +226,6 @@ function RequestFacts({ server }: { server: UsageServerView }) {
 	);
 }
 
-/** The usage half of the drawer's inventory: every spend fact, present or stated missing. */
 function UsageFacts({
 	server,
 	pollingOff,
@@ -240,8 +239,8 @@ function UsageFacts({
 }) {
 	const staleness = stalenessText(server.fresh, server.keyInfo);
 	const spendReason = server.spend === undefined ? spendMissingReason(server.keyInfo, pollingOff) : undefined;
-	// On a never-fetched server both facts would answer with the same sentence; the second
-	// drops its reason rather than repeating the first word for word.
+	// On a never-fetched server both facts would answer with the same sentence; the second drops its reason rather than
+	// repeating the first word for word.
 	const neverUpdated = neverUpdatedText(server.keyInfo);
 	return (
 		<>
@@ -272,10 +271,9 @@ function UsageFacts({
 }
 
 /**
- * The usage facts a denied key left without numbers: the SAME rows as a reporting server's,
- * dashed, so a denied drawer does not look like a shorter kind of server. Reasons come from
- * the same per-fact maps the reporting drawer reads, one per refused endpoint, on the fact
- * that owns it; the remedy lives in the row's diagnostic.
+ * The usage facts a denied key left without numbers: the SAME rows as a reporting server's, dashed, so a denied drawer
+ * does not look like a shorter kind of server. Reasons come from the same per-fact maps the reporting drawer reads,
+ * one per refused endpoint, on the fact that owns it; the remedy lives in the row's diagnostic.
  */
 function DeniedUsageFacts({ card, pollingOff }: { card: UsageForbiddenServerView; pollingOff: boolean }) {
 	return (
@@ -306,10 +304,9 @@ function DeniedUsageFacts({ card, pollingOff }: { card: UsageForbiddenServerView
 }
 
 /**
- * The row's detail drawer, one labelled inventory in the Fact/Absent vocabulary. Usage is
- * per SERVER, never per model, and every field can be missing (a normal shape, not a
- * failure), so absence is designed and a missing number is never a zero; only a server the
- * snapshot does not cover gets the entry facts alone (seven identical dashes would be noise).
+ * Usage is per SERVER, never per model, and every field can be missing (a normal shape, not a failure), so absence is
+ * designed and a missing number is never a zero; only a server the snapshot does not cover gets the entry facts alone
+ * (seven identical dashes would be noise).
  */
 export function ServerDrawer({
 	server,
@@ -323,9 +320,7 @@ export function ServerDrawer({
 	onShowModels,
 }: {
 	server: DashboardServer;
-	/** The row's usage card, denied cards included; absent for servers the snapshot does not cover. */
 	usage: UsageServerCardView | undefined;
-	/** The row's drawer-placed diagnostics (the warn-tier budget line); rendered as the inventory's leading rows. */
 	notices: readonly DrawerNotice[];
 	/** The endpoint details the row's diagnostics already carry; the inventory prints only the remainder. */
 	carriedDetails: ReadonlySet<UsageEndpoint>;
@@ -336,8 +331,6 @@ export function ServerDrawer({
 	onShowModels: ((label: string) => void) | undefined;
 }) {
 	const numbers = usage?.kind === "usage" ? usage : undefined;
-	// The endpoint standings' English lines, minus the ones a diagnostic under this row
-	// already carries: the drawer is the inventory, not a second copy of the row's problems.
 	const details =
 		numbers === undefined
 			? []
@@ -347,21 +340,18 @@ export function ServerDrawer({
 				);
 	return (
 		<>
-			{/* The drawer-placed diagnostics LEAD the inventory (user-ruled): the sentence is
-			    what the row's tinted meter sent the reader in here for, and the trailing seat
-			    left dead padding under the facts. */}
+			{/* The drawer-placed diagnostics LEAD the inventory (user-ruled): the sentence is what the row's tinted
+			    meter sent the reader in here for, and the trailing seat left dead padding under the facts. */}
 			{notices.map((notice) => (
 				<DrawerNoticeLine key={notice.key} diagnostic={notice} />
 			))}
-			{/* Two columns until the pane cannot hold both: the 11rem label column plus an
-			    unshrinkable longest word overflows under about 560px of pane, which the floor
-			    promises never scrolls sideways. Stacked, the dd's own bottom margin keeps the
-			    next label from joining the value above it. */}
+			{/* Two columns until the pane cannot hold both: the 11rem label column plus an unshrinkable longest word
+			    overflows under about 560px of pane, which the floor promises never scrolls sideways. Stacked, the dd's
+			    own bottom margin keeps the next label from joining the value above it. */}
 			<dl className="server-facts m-0 grid max-w-[46rem] grid-cols-[11rem_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[0.95em] @max-[560px]/pane:grid-cols-[minmax(0,1fr)] @max-[560px]/pane:gap-y-0">
-				{/* The row's collapsed header may ellipsize the label, so the inventory leads with
-				    it whole (wrapping, never clipped). These two facts take their names from the
-				    server form's own vocabulary (serverFormFieldLabel), so the drawer and the form
-				    cannot drift apart. */}
+				{/* The row's collapsed header may ellipsize the label, so the inventory leads with it whole (wrapping,
+				    never clipped). These two facts take their names from the server form's own vocabulary
+				    (serverFormFieldLabel), so the drawer and the form cannot drift apart. */}
 				<Fact label={serverFormFieldLabel("label")}>
 					<span className="fact-name">{server.label}</span>
 				</Fact>
@@ -371,9 +361,9 @@ export function ServerDrawer({
 					</span>
 				</Fact>
 				<Fact label={l10n.t("Authentication")}>
-					{/* The credential KIND, never a value; OAuth stays English by policy.
-					    "unknown" is the pre-proof window: denying a key nobody read would
-					    be a guess, so the fact goes absent with the reason instead. */}
+					{/* The credential KIND, never a value; OAuth stays English by policy. "unknown" is the
+					    pre-proof window: denying a key nobody read would be a guess, so the fact goes absent with
+					    the reason instead. */}
 					{server.hasOAuth ? (
 						"OAuth"
 					) : server.credentials === "present" ? (
@@ -385,10 +375,11 @@ export function ServerDrawer({
 					)}
 				</Fact>
 				<Fact label={l10n.t("Models")}>
-					{/* The whole phrase is the link: a bare "models" fragment cannot be translated
-					    (measure words and word order move). It lives here, not on the row - the row
-					    is one disclosure button, and a button cannot contain a button. A zero stays
-					    plain text, since an empty scoped list has nothing to show. */}
+					{/* The whole phrase is the link: a bare "models" fragment cannot be translated (measure words
+					    and word order move). It lives here, not on the row - the row is one disclosure button, and
+					    a button cannot contain a button.
+
+					      an empty scoped list has nothing to show -> A zero stays plain text */}
 					{onShowModels !== undefined && server.servedModelCount > 0 ? (
 						<Button
 							variant="secondary"
@@ -451,9 +442,8 @@ export function ServerDrawer({
 }
 
 /**
- * The entry's model records in the drawer, in the settings editors' vocabulary. Read-only on
- * purpose: the setting and the edit page are the two write surfaces. An entry without
- * records renders nothing - per-push static state, not a transient, so no reservation.
+ * Read-only on purpose: the setting and the edit page are the two write surfaces. An entry without records renders
+ * nothing - per-push static state, not a transient, so no reservation.
  */
 function DrawerRecords({
 	kind,
@@ -468,9 +458,9 @@ function DrawerRecords({
 		return null;
 	}
 	const groups = toGroups(value);
-	// Judged with the same parses the editors use, so an invalid stored FIELD wears the same
-	// chip mark as in the edit page (matcher-level problems stay the edit page's job); the
-	// capability hints read this entry's own observed /model/info vocabulary, like the form.
+	// Judged with the same parses the editors use, so an invalid stored FIELD wears the same chip mark as in the edit
+	// page (matcher-level problems stay the edit page's job); the capability hints read this entry's own observed
+	// /model/info vocabulary, like the form.
 	let issues: GroupIssueView[];
 	if (kind === "params") {
 		const parse = parseGroups(groups);
@@ -505,27 +495,26 @@ function DrawerRecords({
 }
 
 /**
- * The row's URL, split so the https:// scheme can go visually-hidden rather than away: the
- * text stays in the DOM, so the accessible name, a copy, and find-in-page still carry the
- * exact URL. An http:// URL keeps its scheme visible - plaintext to a proxy holding an API
- * key is worth a reader's attention.
+ * The row's URL, split so the https:// scheme can go visually-hidden rather than away: the text stays in the DOM, so
+ * the accessible name, a copy, and find-in-page still carry the exact URL. An http:// URL keeps its scheme visible -
+ * plaintext to a proxy holding an API key is worth a reader's attention.
  */
 export function urlParts(baseUrl: string): { readonly scheme: string; readonly rest: string; readonly quiet: boolean } {
 	const secure = "https://";
 	// Case-insensitive: "HTTPS://host" is the same address.
 	const marked = baseUrl.slice(0, secure.length).toLowerCase() === secure;
 	const rest = marked ? baseUrl.slice(secure.length) : baseUrl;
-	// A scheme with nothing after it stays visible: "https://" alone is a value someone has
-	// to fix, and hiding it would render the row's URL as an empty space.
+	// A scheme with nothing after it stays visible: "https://" alone is a value someone has to fix, and hiding it would
+	// render the row's URL as an empty space.
 	return marked && rest.length > 0
 		? { scheme: baseUrl.slice(0, secure.length), rest, quiet: true }
 		: { scheme: marked ? baseUrl : "", rest: marked ? "" : baseUrl, quiet: false };
 }
 
 /**
- * A URL with a break opportunity BEFORE each dot, slash, or colon, so a wrapping host divides
- * at its labels. <wbr> adds nothing to the text (copy, find-in-page, and screen readers get
- * the exact string); overflow-wrap's anywhere stays beneath it as the backstop.
+ * A URL with a break opportunity BEFORE each dot, slash, or colon, so a wrapping host divides at its labels. <wbr>
+ * adds nothing to the text (copy, find-in-page, and screen readers get the exact string); overflow-wrap's anywhere
+ * stays beneath it as the backstop.
  */
 export function UrlBreaks({ text }: { text: string }) {
 	return (
@@ -534,7 +523,7 @@ export function UrlBreaks({ text }: { text: string }) {
 				index === 0 ? (
 					part
 				) : (
-					// biome-ignore lint/suspicious/noArrayIndexKey: the segments are not reorderable items - the whole run re-renders with its string
+					// biome-ignore lint/suspicious/noArrayIndexKey: the segments are not reorderable items
 					<Fragment key={index}>
 						<wbr />
 						{part}

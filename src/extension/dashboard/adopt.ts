@@ -1,8 +1,7 @@
 /**
- * The adoptServer intent: resolving an external group's live credentials by
- * the opaque handle its dashboard row carried, and writing them as a new
- * declared entry. Values exist extension-side only; the webview names the
- * group and the storage locations, never the values.
+ * The adoptServer intent: resolving an external group's live credentials by the opaque handle its dashboard row
+ * carried, and writing them as a new declared entry. Values exist extension-side only; the webview names the group and
+ * the storage locations, never the values.
  */
 
 import { isDeepStrictEqual } from "node:util";
@@ -27,9 +26,8 @@ import { DashboardOperationError, DashboardValidationError, rawServerEntries } f
 import { appendFree, requireLabelFree, requireSettingUnchanged, writeServersSettingFrom } from "./rowBoundWrite";
 
 /**
- * A live group's connection material flattened to servers-setting field names,
- * for the adopt action. Values exist extension-side only: this shape is never
- * logged and never enters DashboardState.
+ * A live group's connection material flattened to servers-setting field names, for the adopt action. Values exist
+ * extension-side only: this shape is never logged and never enters DashboardState.
  */
 export type AdoptableGroupCredentials = OptionalEntryFields;
 
@@ -143,8 +141,8 @@ export async function applyAdoptServer(
 ): Promise<string | undefined> {
 	const label = intent.label.trim();
 	if (label.length === 0) {
-		// The "fieldId:" prefix stays an ASCII identifier outside the translation:
-		// sectionFailureText routes the failure onto the right form section by it.
+		// The "fieldId:" prefix stays an ASCII identifier outside the translation: sectionFailureText routes the
+		// failure onto the right form section by it.
 		throw new DashboardValidationError(`label: ${l10n.t("enter a label")}`);
 	}
 	if (isUnsafeRecordKey(label)) {
@@ -157,11 +155,10 @@ export async function applyAdoptServer(
 	requireLabelFree(rawServerEntries(env.readServersSetting()), label);
 
 	const { credentials } = await env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
-	// The adopted entry assembles through the shared assembler into the NESTED
-	// auth object the sync engine parses: secrets the user routed to settings
-	// join the inline fields; secure-routed values stay out of the entry and
-	// land in SecretStorage below. Writing any flat credential field here would
-	// sync credential-less and escape the no-secrets export's auth-subtree strip.
+	// The adopted entry assembles through the shared assembler into the NESTED auth object the sync engine parses:
+	// secrets the user routed to settings join the inline fields; secure-routed values stay out of the entry and land
+	// in SecretStorage below. Writing any flat credential field here would sync credential-less and escape the
+	// no-secrets export's auth-subtree strip.
 	const inlineFields: { -readonly [K in OptionalEntryFieldId]?: string | undefined } = {
 		...pickNonSecretOptionalFields(credentials ?? {}),
 	};
@@ -182,9 +179,8 @@ export async function applyAdoptServer(
 		recordFromKeys(SECRET_FIELD_IDS, (field) => credentials?.[field] !== undefined)
 	);
 	if (assembled.failure !== undefined) {
-		// Unreachable for a live group's credentials (its OAuth and virtual-key
-		// units are complete by construction); fail closed rather than adopt a
-		// partial form the parser would reject.
+		// Unreachable for a live group's credentials (its OAuth and virtual-key units are complete by construction);
+		// fail closed rather than adopt a partial form the parser would reject.
 		throw new DashboardValidationError(pairingFailureMessage(assembled.failure));
 	}
 	const newEntry: Record<string, unknown> = {
@@ -193,8 +189,8 @@ export async function applyAdoptServer(
 		...(assembled.auth !== undefined ? { auth: assembled.auth } : {}),
 	};
 
-	// The ownership stamp for each secure copy: the adopted entry's own
-	// destinations, derived from the entry as the parser reads it back.
+	// The ownership stamp for each secure copy: the adopted entry's own destinations, derived from the entry as the
+	// parser reads it back.
 	const adoptedEntry = acceptedEntry([newEntry], label)?.entry;
 	const destinationOf = (field: SecretFieldId): SecretOwner => secretDestination(adoptedEntry ?? { baseUrl }, field);
 
@@ -239,16 +235,15 @@ export async function applyAdoptServer(
 			}
 		}
 		if (restoreFailed) {
-			// A secure value under this label may no longer match its
-			// pre-adoption state, so this must not read as "nothing landed".
+			// A secure value under this label may no longer match its pre-adoption state, so this must not read as
+			// "nothing landed".
 			env.log("A failed adoption left a secure value unrestored", {
 				error: errorLabel(error),
 			});
 			env.requestServerSync();
 			throw new DashboardOperationError(
-				// Not "Set Server Secret": that command lists declared entries
-				// only, and this label's entry never landed. Re-adding the label
-				// makes the entry editable, and its secret fields fix the leftover.
+				// Not "Set Server Secret": that command lists declared entries only, and this label's entry never
+				// landed. Re-adding the label makes the entry editable, and its secret fields fix the leftover.
 				`${l10n.t("The adoption failed, and this label's stored secrets could not be restored.")}\n${l10n.t(
 					"Re-add a server under this label with the dashboard form, then edit the entry to set or remove the affected secrets."
 				)}`

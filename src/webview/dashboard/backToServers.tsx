@@ -3,8 +3,8 @@ import { IconArrowLeft } from "./icons";
 import { Button } from "./ui/button";
 
 /**
- * The way back at the top of the add, edit, and adopt forms. It routes through the same request the rail
- * and Esc do, so a dirty draft gets the same discard-confirm question from all three.
+ * It routes through the same request the rail and Esc do, so a dirty draft gets the same discard-confirm question from
+ * all three.
  */
 export function BackToServers({ onRequestClose }: { onRequestClose: () => void }) {
 	return (

@@ -1,21 +1,17 @@
 /**
- * The page's confirm modal, for a question an ACTION interrupts: the navigation
- * guard's discard question and the save flow's stale-key question - an
- * interrupt has no in-place anywhere, so it takes the center (unlike the
- * row-level "Confirm remove?" idiom). The trap machinery is slideOver.tsx's
- * Radix recipe (no Overlay, no Portal, Radix's Esc and outside dismissal
- * declined); the Esc handling is tip.tsx's window-capture idiom, because this
- * dialog is the page's top layer NO MATTER WHAT - a hover tip under the scrim
- * holds a capture listener of its own, and a bubble handler here would let it
- * eat the first press. Capture consumes the key for every surface below while
- * a lingering tip's same-node listener still runs, so the tip closes WITH the
- * answering press, never instead of it. The safe verb holds default focus
- * (Enter and Esc agree); the scrim dismisses nothing - an alertdialog wants an
- * explicit answer. On cancel, focus returns to the raising control if it
- * belongs to the surface the question is about, else to the surface itself; on
- * confirm (or the alternate verb) the raiser decides what happens to the
- * surface - the discard question unmounts it, the stale-key question may
- * return to it.
+ * The page's confirm modal, for a question an ACTION interrupts: the navigation guard's discard question and the save
+ * flow's stale-key question - an interrupt has no in-place anywhere, so it takes the center (unlike the row-level
+ * "Confirm remove?" idiom). The trap machinery is slideOver.tsx's Radix recipe (no Overlay, no Portal, Radix's Esc and
+ * outside dismissal declined); the Esc handling is tip.tsx's window-capture idiom, because this dialog is the page's
+ * top layer NO MATTER WHAT - a hover tip under the scrim holds a capture listener of its own, and a bubble handler
+ * here would let it eat the first press.
+ *
+ *   Capture consumes the key for every surface below while a lingering tip's same-node listener still runs
+ *                                                   -> the tip closes WITH the answering press, never instead of it
+ *   an alertdialog wants an explicit answer         -> the scrim dismisses nothing
+ *   on confirm (or the alternate verb) the raiser decides what happens to the surface
+ *                                                   -> the discard question unmounts it, the stale-key question may
+ *                                                      return to it
  */
 
 import * as Dialog from "@radix-ui/react-dialog";
@@ -52,9 +48,8 @@ export function ConfirmDialog({
 	const detailId = useId();
 	const cancelRef = useRef<HTMLButtonElement>(null);
 
-	// Capture-then-focus, in that order: the opener is whatever held focus
-	// BEFORE the dialog took it. Radix's own open/close autofocus is declined
-	// below so this stays the one focus policy (the slideOver.tsx pattern).
+	// Capture-then-focus, in that order: the opener is whatever held focus BEFORE the dialog took it. Radix's own
+	// open/close autofocus is declined below so this stays the one focus policy (the slideOver.tsx pattern).
 	useEffect(() => {
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
 		cancelRef.current?.focus();
@@ -73,9 +68,8 @@ export function ConfirmDialog({
 		};
 	}, [surfaceId]);
 
-	// Esc anywhere answers "keep editing" while the question stands; window
-	// capture, for the reasons the module note gives. Keyed on the callback so
-	// the handler never closes over a stale one.
+	// Esc anywhere answers "keep editing" while the question stands; window capture, for the reasons the module note
+	// gives. Keyed on the callback so the handler never closes over a stale one.
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === "Escape") {
@@ -101,9 +95,8 @@ export function ConfirmDialog({
 				aria-describedby={detail !== undefined ? detailId : undefined}
 				onOpenAutoFocus={(event) => event.preventDefault()}
 				onCloseAutoFocus={(event) => event.preventDefault()}
-				// Belt and braces behind the window-capture listener above: if the
-				// key somehow reached Radix's own document-capture Esc, its close
-				// would bypass onCancel; declined, so the one close path holds.
+				// Belt and braces behind the window-capture listener above: if the key somehow reached Radix's own
+				// document-capture Esc, its close would bypass onCancel; declined, so the one close path holds.
 				onEscapeKeyDown={(event) => event.preventDefault()}
 				onInteractOutside={(event) => event.preventDefault()}
 			>

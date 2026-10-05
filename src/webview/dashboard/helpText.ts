@@ -1,10 +1,10 @@
 /**
- * Every dashboard help string, as zero-argument functions returning one l10n.t literal:
- * lazy so strings resolve after the webview's l10n bootstrap, and provably static so
- * help text can never carry server data. The claims are sourced from the setting
- * descriptions and the transport/auth modules; when behavior changes there, THIS file
- * is the one to update.
- * Style: one or two short sentences, example-first; say the one thing that would surprise.
+ * The claims are sourced from the setting descriptions and the transport/auth modules; when behavior changes there,
+ * THIS file is the one to update. Style: one or two short sentences, example-first; say the one thing that would
+ * surprise.
+ *
+ *   lazy             -> strings resolve after the webview's l10n bootstrap
+ *   provably static  -> help text can never carry server data
  */
 
 import * as l10n from "@vscode/l10n";
@@ -63,7 +63,6 @@ export function helpMcpSection(): string {
 	);
 }
 
-/** The endpoint row's own help: the empty-means-derived rule, which the hint states concretely per entry. */
 export function helpMcpEndpoint(): string {
 	return l10n.t(
 		"Where this server serves MCP, for a proxy that does not serve it at the default path. Leave it empty unless yours moved it."
@@ -82,7 +81,6 @@ export function helpModelParametersSection(): string {
 	);
 }
 
-/** The Add/Edit server form's help, one entry per field, keyed like serverFormFieldLabel. */
 export function serverFieldHelp(field: ServerFormField): string {
 	switch (field) {
 		case "label":
@@ -94,8 +92,8 @@ export function serverFieldHelp(field: ServerFormField): string {
 				"The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, so no model-specific path. Trailing slashes are normalized."
 			);
 		case "apiVersion":
-			// The "/v1" here is DEFAULT_API_VERSION spelled out (this module bans
-			// interpolation); a webview drift guard fails when the constant moves.
+			// The "/v1" here is DEFAULT_API_VERSION spelled out (this module bans interpolation); a webview drift guard
+			// fails when the constant moves.
 			return l10n.t(
 				"What to append to the base URL; leave on Auto unless your proxy pins a version. Auto adds /v1 or keeps a /v1 or /v2 already there; No version uses the URL as-is; Custom appends your segment, e.g. v2."
 			);
@@ -291,7 +289,6 @@ export function helpUsageThresholds(): string {
 	return l10n.t("Enter a percentage or a fraction, e.g. 80% or 0.8; clear both fields to turn alerts off.");
 }
 
-/** The shared model-picker row's help; the same claim for both features. */
 export function helpFeatureModel(): string {
 	return l10n.t(
 		"Names a servers entry and one of its model IDs, e.g. Team proxy and gpt-4o-mini. Only declared entries qualify - externally managed groups have no servers entry."
@@ -304,14 +301,12 @@ export function helpCommitPrompt(): string {
 	);
 }
 
-/** The language filter's mode row help: what each mode does with the list below. */
 export function helpLanguageFilterMode(): string {
 	return l10n.t(
 		"Block runs inline completions everywhere except the listed languages; Allow only runs them in the listed ones."
 	);
 }
 
-/** The language filter's list row help, keyed by mode; both quote example IDs (short-example-led). */
 export function helpLanguageFilterList(mode: LanguageFilterMode): string {
 	return mode === "allow"
 		? l10n.t("Exact VS Code language IDs, e.g. typescript, python. While the list is empty, completions run nowhere.")
@@ -343,8 +338,8 @@ export function helpDiagnosticsTools(): string {
 }
 
 /**
- * The settings rows that carry a "?", in row order; sparse on purpose - only where a longer
- * explanation earns it. Static ids (nothing localized), so the list may live at module level.
+ * The settings rows that carry a "?", in row order; sparse on purpose - only where a longer explanation earns it.
+ * Static ids (nothing localized), so the list may live at module level.
  */
 export const SETTING_ROW_HELP_IDS = [
 	"chat.timeout",
@@ -368,10 +363,6 @@ export const SETTING_ROW_HELP_IDS = [
 
 type SettingRowHelpId = (typeof SETTING_ROW_HELP_IDS)[number];
 
-/**
- * The help text per id as a thunk, so the text resolves at call time. Total over SETTING_ROW_HELP_IDS and closed to
- * anything else, so the id list and the texts cannot drift.
- */
 const SETTING_ROW_HELP: Readonly<Record<SettingRowHelpId, () => string>> = {
 	"chat.timeout": () =>
 		l10n.t({
@@ -409,8 +400,8 @@ const SETTING_ROW_HELP: Readonly<Record<SettingRowHelpId, () => string>> = {
 		l10n.t(
 			"Applies only on models that advertise support, currently Anthropic Claude models (supports_prompt_caching); the reused prefix bills at the cache rate instead of full price."
 		),
-	// The filter reads THIS tip and the live status, never the row's displaced static
-	// description; the two keys translate independently, so never rely on identity.
+	// The filter reads THIS tip and the live status, never the row's displaced static description; the two keys
+	// translate independently, so never rely on identity.
 	"models.openRouterCatalog": () =>
 		l10n.t(
 			"Fill missing model capabilities from the OpenRouter catalog, refreshed weekly. Off, only explicit _openrouter_model directives read the cached snapshot."
@@ -422,31 +413,20 @@ const SETTING_ROW_HELP: Readonly<Record<SettingRowHelpId, () => string>> = {
 		l10n.t(
 			"Generating sends the diff, untracked file names, and your last five commit subjects to your LiteLLM server."
 		),
-	// Same shape as the commit tip: the description states both gates, the
-	// tip says what leaves the machine.
 	"prGeneration.enabled": () =>
 		l10n.t(
 			"Generating sends the branch's commits and a patch per changed file to your LiteLLM server; from the GitHub Pull Requests view, your PR template and referenced issues go too, private ones included."
 		),
-	// The description states both gates; the tip carries the fact the
-	// description no longer spells out - WHO decides, and what leaves.
 	"consultTool.enabled": () =>
 		l10n.t("The agent decides when to consult, sending the question and background it writes to your LiteLLM server."),
-	// The row's own description names both paths; the tip carries what the
-	// model picker below it does NOT decide, which is where the code goes
-	// on the path most people will take.
 	"quickFix.enabled": () =>
 		l10n.t(
 			"Picking Fix or Explain sends the diagnostic and its lines to @litellm, on whichever model the chat picker names."
 		),
-	// Two commands, two scopes; the tip carries what each one sends, since
-	// that is the choice the user makes at invocation time.
 	"reviewComments.enabled": () =>
 		l10n.t(
 			"Reviewing sends the diff of each changed file - or, for one file, its whole content - to your LiteLLM server."
 		),
-	// Its own row has no model picker, so the tip carries the one fact that
-	// explains both the cost and the privacy story: it is a chat turn.
 	"chatParticipant.enabled": () =>
 		l10n.t("Type @litellm in chat; it answers with the model the picker has selected, and bills like chat."),
 	"agentTools.enabled": () =>
@@ -459,7 +439,6 @@ const SETTING_ROW_HELP: Readonly<Record<SettingRowHelpId, () => string>> = {
 		),
 };
 
-/** Per-setting help for the ids in SETTING_ROW_HELP_IDS; undefined for rows whose description is enough. */
 export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string | undefined {
 	return Object.hasOwn(SETTING_ROW_HELP, id) ? SETTING_ROW_HELP[id as SettingRowHelpId]() : undefined;
 }

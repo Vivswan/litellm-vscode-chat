@@ -1,27 +1,16 @@
 /**
- * The removed-group bookkeeping VS Code cannot do for us: the host's provider
- * group command is add-only, so removing a declared entry (or an external row
- * in the dashboard) leaves the group alive host-side. This module owns the
- * two Memento regions that make removal visibly work anyway:
+ * The removed-group bookkeeping VS Code cannot do for us: the host's provider group command is add-only, so removing a
+ * declared entry (or an external row in the dashboard) leaves the group alive host-side. Everything persisted is
+ * validated on read: the keys are extension-owned, but storage can hand back stale or corrupt shapes and those must
+ * not ride behind a cast.
  *
- * - Tombstones: identities of groups the user EXPLICITLY removed. The
- *   provider answers a tombstoned group with an empty model list (injected as
- *   a predicate at activation; the provider layer cannot import this module),
- *   and the dashboard folds the row into its "hidden groups" line. Never
- *   written for a group the user did not remove; cleared when a declared entry
- *   matching the identity (re)appears or the user unhides the group.
- * - Provenance: identity -> origin classification for groups a removal or
- *   rename orphaned, so external rows can say where they came from.
- *   Classifications and labels only, never free text.
+ *   Tombstones -> identities of groups the user EXPLICITLY removed
+ *   Provenance: identity -> origin classification for groups a removal or rename orphaned
  *
- * Group identity here is the sync engine's own: the group's label (the status
- * label the provider reports) plus the normalized base URL. Host-side group
- * names are unique per vendor, so the one accepted collision is two UNLABELED
- * groups on one host (both report the URL-host status label), where removing
- * one hides both - visibly, in the hidden-groups line, and reversibly through
- * Unhide. Everything persisted is validated on read: the keys are
- * extension-owned, but storage can hand back stale or corrupt shapes and those
- * must not ride behind a cast.
+ *   a tombstoned group                           -> an empty model list
+ *   the provider layer cannot import this module -> injected as a predicate at activation
+ *   Host-side group names are unique per vendor  -> the one accepted collision is two UNLABELED groups on one host
+ *   removing one hides both                      -> visibly, in the hidden-groups line, and reversibly through Unhide
  */
 
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../shared/config/storageKeys";
@@ -35,15 +24,14 @@ export interface GroupIdentity {
 }
 
 /**
- * Why an external group exists, when a removal or rename explains it. The same
- * shape crosses into DashboardState (protocol.ts re-declares it as
- * ExternalServerProvenance): classification plus labels, no free text.
+ * Why an external group exists, when a removal or rename explains it.
+ *
+ *   The same shape -> crosses into DashboardState
  */
 export type OrphanedGroupOrigin =
 	| { readonly kind: "removed-entry-leftover"; readonly removedLabel: string }
 	| { readonly kind: "rename-leftover"; readonly oldLabel: string; readonly newLabel: string };
 
-/** One persisted provenance record: the orphaned group's identity and its origin. */
 export interface OrphanedGroupRecord extends GroupIdentity {
 	readonly origin: OrphanedGroupOrigin;
 }
@@ -107,11 +95,9 @@ interface VersionedRecords {
 }
 
 /**
- * Versions persist as decimal strings of any length and compare as BigInt, so
- * every accepted version's successor is itself accepted - no overflow boundary
- * a hand-edited high value could park the protocol at. Nonnegative safe
- * integers are also accepted; anything else re-enters versioning at 0, keeping
- * the records.
+ * Versions persist as decimal strings of any length and compare as BigInt, so every accepted version's successor is
+ * itself accepted - no overflow boundary a hand-edited high value could park the protocol at. Nonnegative safe integers
+ * are also accepted; anything else re-enters versioning at 0, keeping the records.
  */
 function parseVersion(raw: unknown): bigint {
 	if (typeof raw === "number" && Number.isSafeInteger(raw) && raw >= 0) {
@@ -124,10 +110,9 @@ function parseVersion(raw: unknown): bigint {
 }
 
 /**
- * Blobs written before versioning were bare record arrays; those read as this
- * shape through the wrapping view the store is constructed over
- * (migrations/bareArrayBlobs.ts).
- * Anything else corrupt re-enters the protocol at version 0 with no records.
+ * Blobs written before versioning were bare record arrays; those read as this shape through the wrapping view the store
+ * is constructed over (migrations/bareArrayBlobs.ts). Anything else corrupt re-enters the protocol at version 0 with no
+ * records.
  */
 function parseVersionedRecords(raw: unknown): VersionedRecords {
 	if (isRecord(raw) && Array.isArray(raw.records)) {
@@ -137,14 +122,14 @@ function parseVersionedRecords(raw: unknown): VersionedRecords {
 }
 
 /**
- * Closes the #220 globalState hazard, an awaited update reverting moments later to a stale value.
+ * Closes the #220 globalState hazard, an awaited update reverting moments later to a stale value. A persist failure is
+ * reported, never thrown, since a throwing persist would make callers report the opposite of the effective state; with
+ * no later successful persist the loss lands on the NEXT session, never this one.
  *
  *   stale revert of our own write     -> older-or-equal version, ignored
- *   another window's genuine mutation -> it synced before mutating, so strictly newer and adopted
+ *   another window's genuine mutation -> it synced before mutating
+ *   it synced before mutating         -> strictly newer and adopted
  *   two windows mutating at once      -> last-write-wins
- *
- * A persist failure is reported, never thrown, since a throwing persist would make callers report the
- * opposite of the effective state; with no later successful persist the loss lands on the NEXT session, never this one.
  */
 class VersionedRegion<T> {
 	private records: readonly T[];
@@ -152,10 +137,9 @@ class VersionedRegion<T> {
 	private persisting = false;
 	private lastWrittenBlob: unknown;
 	/**
-	 * Commit/persist generations, compared to decide whether memory is ahead of
-	 * storage: a write persists the records as of the generation it read, and
-	 * serialized writes read the latest records, so an earlier success can cover
-	 * a later failure's content.
+	 * Commit/persist generations, compared to decide whether memory is ahead of storage: a write persists the records
+	 * as of the generation it read, and serialized writes read the latest records, so an earlier success can cover a
+	 * later failure's content.
 	 */
 	private commitGeneration = 0;
 	private persistedGeneration = 0;
@@ -176,9 +160,8 @@ class VersionedRegion<T> {
 	}
 
 	private syncFromStorage(): void {
-		// No adoption while our own write is in flight or failed (memory is ahead
-		// of storage), and never from the blob we wrote ourselves: Memento caches
-		// updates optimistically, so a failed persist can leave our rejected
+		// No adoption while our own write is in flight or failed (memory is ahead of storage), and never from the blob
+		// we wrote ourselves: Memento caches updates optimistically, so a failed persist can leave our rejected
 		// snapshot in the cache.
 		if (this.persisting || this.unpersisted()) {
 			return;
@@ -209,8 +192,7 @@ class VersionedRegion<T> {
 	private persistQueue: Promise<void> = Promise.resolve();
 
 	persistCommitted(): Promise<void> {
-		// Two-handler then: a rejection (a throwing onPersistError listener) must
-		// not strand every later write.
+		// Two-handler then: a rejection (a throwing onPersistError listener) must not strand every later write.
 		const write = () => this.writeCommitted();
 		const run = this.persistQueue.then(write, write);
 		this.persistQueue = run;
@@ -218,9 +200,8 @@ class VersionedRegion<T> {
 	}
 
 	private async writeCommitted(): Promise<void> {
-		// The max guards the suspended-adoption case: storage may hold a newer
-		// foreign version this window skipped, and the healing write must outrank
-		// it (last-write-wins).
+		// The max guards the suspended-adoption case: storage may hold a newer foreign version this window skipped, and
+		// the healing write must outrank it (last-write-wins).
 		const generation = this.commitGeneration;
 		const stored = parseVersionedRecords(this.memento.get(this.key));
 		const next = (stored.version > this.version ? stored.version : this.version) + 1n;
@@ -239,24 +220,17 @@ class VersionedRegion<T> {
 	}
 }
 
-/**
- * The store over the two Memento regions, each a VersionedRegion (see above for
- * the cross-window protocol). `onDidChange` fires after any effective tombstone
- * change (never for provenance alone) so the wiring can make the host re-resolve
- * groups - that is what makes a hidden group's models leave the picker, and an
- * unhidden group's models return.
- */
 export class GroupRemovalStore {
 	private didChangeListener: (() => void) | undefined;
 	private persistErrorListener: ((error: unknown) => void) | undefined;
 
 	/**
-	 * Fired after every effective tombstone mutation, synchronously between
-	 * commit and persist. A single set-once slot rather than a listener set: the
-	 * store has no logger, so it could not isolate multiple listeners' failures
-	 * the way the activation wiring (the one consumer) already does. The setter
-	 * throws on a second assignment because a silent replacement would detach the
-	 * host re-resolve wiring - hidden groups' models would never leave the picker.
+	 * A single set-once slot rather than a listener set: the store has no logger, so it could not isolate multiple
+	 * listeners' failures the way the activation wiring (the one consumer) already does. The setter throws on a second
+	 * assignment because a silent replacement would detach the host re-resolve wiring - hidden groups' models would
+	 * never leave the picker.
+	 *
+	 *   Fired after every effective tombstone mutation -> synchronously between commit and persist
 	 */
 	set onDidChange(listener: () => void) {
 		if (this.didChangeListener !== undefined) {
@@ -266,9 +240,8 @@ export class GroupRemovalStore {
 	}
 
 	/**
-	 * Reports a failed best-effort persist (log-only). Set-once like onDidChange:
-	 * a silent replacement would swallow the only signal that storage is behind
-	 * memory.
+	 * Reports a failed best-effort persist (log-only). Set-once like onDidChange: a silent replacement would swallow
+	 * the only signal that storage is behind memory.
 	 */
 	set onPersistError(listener: (error: unknown) => void) {
 		if (this.persistErrorListener !== undefined) {
@@ -295,7 +268,6 @@ export class GroupRemovalStore {
 		return this.tombstoneRegion.list().some((identity) => sameIdentity(identity, label, baseUrl));
 	}
 
-	/** Record one explicit removal. Idempotent; the identity is stored normalized. */
 	async addTombstone(identity: GroupIdentity): Promise<void> {
 		const normalized: GroupIdentity = { label: identity.label, baseUrl: normalizeBaseUrl(identity.baseUrl) };
 		const current = this.tombstoneRegion.list();
@@ -308,13 +280,12 @@ export class GroupRemovalStore {
 		try {
 			this.didChangeListener?.();
 		} finally {
-			// A throwing listener must not skip the persist: the committed state
-			// is the effective one and has to reach storage.
+			// A throwing listener must not skip the persist: the committed state is the effective one and has to reach
+			// storage.
 			await this.tombstoneRegion.persistCommitted();
 		}
 	}
 
-	/** The explicit un-hide. Resolves true when a tombstone matched and was removed. */
 	async removeTombstone(identity: GroupIdentity): Promise<boolean> {
 		const current = this.tombstoneRegion.list();
 		const next = current.filter((existing) => !sameIdentity(existing, identity.label, identity.baseUrl));
@@ -331,9 +302,8 @@ export class GroupRemovalStore {
 	}
 
 	/**
-	 * The automatic clear: a declared entry matching a tombstoned identity
-	 * (re)appeared, so the group is wanted again and must never stay suppressed.
-	 * The sync engine's pass calls this with every current declared identity.
+	 * The automatic clear: a declared entry matching a tombstoned identity (re)appeared, so the group is wanted again
+	 * and must never stay suppressed. The sync engine's pass calls this with every current declared identity.
 	 */
 	async clearTombstonesFor(declared: readonly GroupIdentity[]): Promise<boolean> {
 		const current = this.tombstoneRegion.list();
@@ -356,15 +326,11 @@ export class GroupRemovalStore {
 		return [...this.provenanceRegion.list()];
 	}
 
-	/** The origin recorded for one group identity, if a removal or rename explains it. */
 	originFor(label: string, baseUrl: string): OrphanedGroupOrigin | undefined {
 		return this.provenanceRegion.list().find((record) => sameIdentity(record, label, baseUrl))?.origin;
 	}
 
-	/**
-	 * Record why a group became orphaned. One record per identity: a newer event
-	 * replaces an older one, since keeping both would make the badge lie.
-	 */
+	/** One record per identity: a newer event replaces an older one, since keeping both would make the badge lie. */
 	async recordOrigin(record: OrphanedGroupRecord): Promise<void> {
 		const normalized: OrphanedGroupRecord = {
 			label: record.label,
