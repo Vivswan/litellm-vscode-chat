@@ -13,12 +13,12 @@ import { createSettingsAccess } from "../../settingsAccess";
 import { languageAllowed } from "./languageFilter";
 
 /**
- * The inline-completions language status row: one entry in the editor's {}
- * language status menu stating whether LiteLLM inline suggestions run for the
- * current file's language, with a toggle action writing the language filter.
- * It consumes the same languageAllowed decision as the provider's invoke-time
- * filter, so the row and the filter can never disagree. Created only while
- * the feature is enabled; the wiring disposes it on disable.
+ * The inline-completions language status row: one entry in the editor's {} language status menu stating whether
+ * LiteLLM inline suggestions run for the current file's language, with a toggle action writing the language filter.
+ * It consumes the same languageAllowed decision as the provider's invoke-time filter, so the row and the filter can
+ * never disagree.
+ *
+ *   Created only while the feature is enabled -> the wiring disposes it on disable
  */
 
 /** The one language-status slot this extension owns; see the slot rule below. */
@@ -30,14 +30,11 @@ export function liveInlineLanguageStatusRows(): number {
 }
 
 /**
- * Toggle rule: flip the language's membership in the filter's list, keeping
- * the mode. In block mode the list holds the OFF languages (disable adds,
- * enable removes); in allow mode it holds the ON languages (enable adds,
- * disable removes) - one membership flip covers both, and no edit can flip
- * unrelated languages. Writes go through the shared SettingsAccess scope rule
- * (the dashboard's own): the workspace scope when it already holds the value,
- * else Global - a hardcoded Global write against a workspace-held filter
- * would silently change nothing while rewriting the user scope.
+ * In block mode the list holds the OFF languages (disable adds, enable removes); in allow mode it holds the ON
+ * languages (enable adds, disable removes) - one membership flip covers both, and no edit can flip unrelated
+ * languages. Writes go through the shared SettingsAccess scope rule (the dashboard's own): the workspace scope when it
+ * already holds the value, else Global - a hardcoded Global write against a workspace-held filter would silently
+ * change nothing while rewriting the user scope.
  */
 async function toggleLanguage(languageId: string, log: (message: string, data?: unknown) => void): Promise<void> {
 	const filter = getInlineLanguageFilter(log);
@@ -49,14 +46,12 @@ async function toggleLanguage(languageId: string, log: (message: string, data?: 
 }
 
 /**
- * THE ONE CREATION POINT for this extension's language status row: at most
- * one live row per host, self-healing like the status bar's slot registry (a
- * double construction disposes the stale holder and logs the replacement
- * through `logger.log` - a slot conflict is a real once-per-session bug
- * signal, so it keeps the issue-report buffer like the status bar's twin).
- * The refresh path instead reads settings through `logger.advisory`: refresh
- * runs on every editor switch, so a malformed setting would otherwise write a
- * buffer line per switch and evict real errors from the issue-report ring.
+ * THE ONE CREATION POINT for this extension's language status row: at most one live row per host, self-healing like
+ * the status bar's slot registry (a double construction disposes the stale holder and logs the replacement through
+ * `logger.log` - a slot conflict is a real once-per-session bug signal, so it keeps the issue-report buffer like the
+ * status bar's twin). The refresh path instead reads settings through `logger.advisory`: refresh runs on every editor
+ * switch, so a malformed setting would otherwise write a buffer line per switch and evict real errors from the
+ * issue-report ring.
  */
 export class InlineLanguageStatusRow implements vscode.Disposable {
 	private readonly item: vscode.LanguageStatusItem;
@@ -87,15 +82,14 @@ export class InlineLanguageStatusRow implements vscode.Disposable {
 		this.refresh();
 	}
 
-	/** Re-render for the active editor's language and the current settings. */
 	refresh(): void {
 		if (this.disposed) {
 			return;
 		}
 		const modelConfigured = getFeatureModelRef("inlineCompletions", this.advisory) !== undefined;
 		if (!modelConfigured) {
-			// Enabled without a model is fail-closed inert; the row says so and
-			// its action opens the model setting instead of toggling.
+			// Enabled without a model is fail-closed inert; the row says so and its action opens the model setting
+			// instead of toggling.
 			this.item.severity = vscode.LanguageStatusSeverity.Warning;
 			this.item.text = l10n.t("LiteLLM inline suggestions: no model selected");
 			this.item.command = {
@@ -142,10 +136,8 @@ export class InlineLanguageStatusRow implements vscode.Disposable {
 }
 
 /**
- * The toggle command behind the row's action. Registered for the extension's
- * lifetime (command registration cannot follow the enable flag without
- * re-registration races); without the row there is nothing that invokes it,
- * and a manual invocation still just edits the filter.
+ * Registered for the extension's lifetime (command registration cannot follow the enable flag without re-registration
+ * races); without the row there is nothing that invokes it, and a manual invocation still just edits the filter.
  */
 export function registerToggleInlineLanguageCommand(
 	context: vscode.ExtensionContext,
@@ -162,8 +154,8 @@ export function registerToggleInlineLanguageCommand(
 			try {
 				await toggleLanguage(target, log);
 			} catch (error) {
-				// A settings write can fail (readonly settings file); classification
-				// only, the toggle simply does not happen.
+				// A settings write can fail (readonly settings file); classification only, the toggle simply does not
+				// happen.
 				log("Inline completions language toggle failed", { error: errorLabel(error) });
 			}
 		})

@@ -1,8 +1,7 @@
 /**
- * The adoptServer intent: resolving an external group's live credentials by
- * the opaque handle its dashboard row carried, and writing them as a new
- * declared entry. Values exist extension-side only; the webview names the
- * group and the storage locations, never the values.
+ * The adoptServer intent: resolving an external group's live credentials by the opaque handle its dashboard row
+ * carried, and writing them as a new declared entry. Values exist extension-side only; the webview names the group and
+ * the storage locations, never the values.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -25,18 +24,16 @@ import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
 
 /**
- * A live group's connection material flattened to servers-setting field names,
- * for the adopt action. Values exist extension-side only: this shape is never
- * logged and never enters DashboardState.
+ * A live group's connection material flattened to servers-setting field names, for the adopt action. Values exist
+ * extension-side only: this shape is never logged and never enters DashboardState.
  */
 export type AdoptableGroupCredentials = OptionalEntryFields;
 
 /**
- * Resolve the still-external snapshot a row handle names, bound to the
- * intent's base URL. Shared by the adopt intent's credential resolution and
- * the hide intent's identity resolution: both re-derive the external set at
- * intent time, so a forged or stale handle can only land on a group that is
- * genuinely external right now, and cannot re-point at another host.
+ * Resolve the still-external snapshot a row handle names, bound to the intent's base URL. Shared by the adopt intent's
+ * credential resolution and the hide intent's identity resolution: both re-derive the external set at intent time, so a
+ * forged or stale handle can only land on a group that is genuinely external right now, and cannot re-point at another
+ * host.
  */
 function resolveExternalSnapshot(
 	snapshots: readonly ServerModelsSnapshot[],
@@ -54,9 +51,8 @@ function resolveExternalSnapshot(
 }
 
 /**
- * The identity of the external group a hide intent names: the status label
- * and base URL the removal tombstone is keyed by. Same resolution rules as
- * resolveExternalSnapshot.
+ * The identity of the external group a hide intent names: the status label and base URL the removal tombstone is keyed
+ * by. Same resolution rules as resolveExternalSnapshot.
  */
 export function resolveExternalGroupIdentity(
 	snapshots: readonly ServerModelsSnapshot[],
@@ -72,13 +68,12 @@ export function resolveExternalGroupIdentity(
 }
 
 /**
- * Resolve the group an adopt intent names back to its credentials, by the
- * opaque handle its external row carried. Resolution re-derives the external
- * set at intent time and binds the handle to the intent's base URL, so a
- * forged or stale intent cannot copy a DECLARED group's secure credential into
- * a settings entry, and cannot re-point a copied credential at another host.
- * Undefined when nothing still-external matches; the caller then adopts the
- * plain entry with a caveat.
+ * Resolve the group an adopt intent names back to its credentials, by the opaque handle its external row carried.
+ * Resolution re-derives the external set at intent time and binds the handle to the intent's base URL, so a forged or
+ * stale intent cannot copy a DECLARED group's secure credential into a settings entry, and cannot re-point a copied
+ * credential at another host.
+ *
+ *   Undefined when nothing still-external matches -> the caller then adopts the plain entry with a caveat
  */
 export function resolveAdoptableCredentials(
 	snapshots: readonly ServerModelsSnapshot[],
@@ -122,8 +117,8 @@ export async function applyAdoptServer(
 ): Promise<string | undefined> {
 	const label = intent.label.trim();
 	if (label.length === 0) {
-		// The "fieldId:" prefix stays an ASCII identifier outside the translation:
-		// sectionFailureText routes the failure onto the right form section by it.
+		// The "fieldId:" prefix stays an ASCII identifier outside the translation: sectionFailureText routes the
+		// failure onto the right form section by it.
 		throw new DashboardValidationError(`label: ${l10n.t("enter a label")}`);
 	}
 	if (isUnsafeRecordKey(label)) {
@@ -134,19 +129,17 @@ export async function applyAdoptServer(
 		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
 	}
 	const entries = rawServerEntries(env.readServersSetting());
-	// Raw labels count as taken (the webview's own rule): adoption always
-	// creates a new entry, and a parser-rejected sibling still occupies its
-	// label, so appending beside it would land two entries under one label.
+	// Raw labels count as taken (the webview's own rule): adoption always creates a new entry, and a parser-rejected
+	// sibling still occupies its label, so appending beside it would land two entries under one label.
 	if (rawDeclaredLabels(entries).has(label)) {
 		throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
 	}
 
 	const credentials = env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
-	// The adopted entry assembles through the shared assembler into the NESTED
-	// auth object the sync engine parses: secrets the user routed to settings
-	// join the inline fields; secure-routed values stay out of the entry and
-	// land in SecretStorage below. Writing any flat credential field here would
-	// sync credential-less and escape the no-secrets export's auth-subtree strip.
+	// The adopted entry assembles through the shared assembler into the NESTED auth object the sync engine parses:
+	// secrets the user routed to settings join the inline fields; secure-routed values stay out of the entry and land
+	// in SecretStorage below. Writing any flat credential field here would sync credential-less and escape the
+	// no-secrets export's auth-subtree strip.
 	const inlineFields: { -readonly [K in OptionalEntryFieldId]?: string | undefined } = {
 		...pickNonSecretOptionalFields(credentials ?? {}),
 	};
@@ -167,9 +160,8 @@ export async function applyAdoptServer(
 		recordFromKeys(SECRET_FIELD_IDS, (field) => credentials?.[field] !== undefined)
 	);
 	if (assembled.failure !== undefined) {
-		// Unreachable for a live group's credentials (its OAuth and virtual-key
-		// units are complete by construction); fail closed rather than adopt a
-		// partial form the parser would reject.
+		// Unreachable for a live group's credentials (its OAuth and virtual-key units are complete by construction);
+		// fail closed rather than adopt a partial form the parser would reject.
 		throw new DashboardValidationError(pairingFailureMessage(assembled.failure));
 	}
 	const newEntry: Record<string, unknown> = {
@@ -178,8 +170,8 @@ export async function applyAdoptServer(
 		...(assembled.auth !== undefined ? { auth: assembled.auth } : {}),
 	};
 
-	// The ownership stamp for each secure copy: the adopted entry's own
-	// destinations, derived from the entry as the parser reads it back.
+	// The ownership stamp for each secure copy: the adopted entry's own destinations, derived from the entry as the
+	// parser reads it back.
 	const adoptedEntry = acceptedEntry([newEntry], label)?.entry;
 	const destinationOf = (field: SecretFieldId): SecretOwner => secretDestination(adoptedEntry ?? { baseUrl }, field);
 
@@ -211,16 +203,15 @@ export async function applyAdoptServer(
 			}
 		}
 		if (restoreFailed) {
-			// A secure value under this label may no longer match its
-			// pre-adoption state, so this must not read as "nothing landed".
+			// A secure value under this label may no longer match its pre-adoption state, so this must not read as
+			// "nothing landed".
 			env.log("A failed adoption left a secure value unrestored", {
 				error: errorLabel(error),
 			});
 			env.requestServerSync();
 			throw new DashboardOperationError(
-				// Not "Set Server Secret": that command lists declared entries
-				// only, and this label's entry never landed. Re-adding the label
-				// makes the entry editable, and its secret fields fix the leftover.
+				// Not "Set Server Secret": that command lists declared entries only, and this label's entry never
+				// landed. Re-adding the label makes the entry editable, and its secret fields fix the leftover.
 				`${l10n.t("The adoption failed, and this label's stored secrets could not be restored.")}\n${l10n.t(
 					"Re-add a server under this label with the dashboard form, then edit the entry to set or remove the affected secrets."
 				)}`

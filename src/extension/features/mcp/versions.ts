@@ -1,20 +1,15 @@
 /**
- * The per-entry credential-rotation counter the published MCP definitions
- * carry as their version. VS Code treats a changed version as "this server's
- * tools may have changed"; a rotation is exactly that, because the session the
+ * The per-entry credential-rotation counter the published MCP definitions carry as their version. VS Code treats a
+ * changed version as "this server's tools may have changed"; a rotation is exactly that, because the session the
  * editor opens next will authenticate with a different credential.
  *
- * Two rotation signals feed it, and both are OBSERVED rather than reported by
- * their writers: SecretStorage's own change event covers every secure-side
- * write (the palette command, a dashboard save, an import, an adoption, and
- * another window's write alike), and a settings-side edit shows up as a change
- * in the entry's credential digest across servers-setting revisions. No write
- * site has to remember to call anything, which is the point - a hook a caller
- * can forget is not a guard.
- *
- * Secrets discipline: the digests are one-way, live in memory only, and never
- * reach storage, logs, or a view. Only the counters persist, and a count of
- * rotations tells an attacker nothing about what rotated.
+ *   Two rotation signals feed it, and both are OBSERVED rather than reported by their writers
+ *     -> SecretStorage's own change event covers every secure-side write (the palette command, a dashboard save, an
+ *        import, an adoption, and another window's write alike)
+ *     -> a settings-side edit shows up as a change in the entry's credential digest across servers-setting revisions
+ *   a hook a caller can forget is not a guard -> No write site has to remember to call anything
+ *   the digests are one-way, live in memory only -> never reach storage, logs, or a view
+ *   Only the counters persist -> a count of rotations tells an attacker nothing about what rotated
  */
 
 import { MCP_ENTRY_VERSIONS_KEY } from "../../../shared/config/storageKeys";
@@ -49,9 +44,12 @@ function readCounters(store: VersionStore): Record<string, number> {
  * authenticate differently. Field-keyed JSON, so two field sets cannot serialize identically and a value moved
  * between fields counts as the change it is.
  *
- *   non-secret auth text    -> renaming the virtual-key header changes authentication as surely as rotating its value
- *   baseUrl                 -> also AUTHORIZES, as the origin an endpoint must match and the destination a proxy key's stamp names
- *   baseUrl, custom mcp.url -> the endpoint does not move when the base URL does, so nothing else tells the editor to re-resolve
+ *   non-secret auth text                              -> renaming the virtual-key header changes authentication as
+ *                                                        surely as rotating its value
+ *   baseUrl                                           -> also AUTHORIZES, as the origin an endpoint must match and the
+ *                                                        destination a proxy key's stamp names
+ *   baseUrl, custom mcp.url                           -> nothing else tells the editor to re-resolve
+ *   the endpoint does not move when the base URL does -> nothing else tells the editor to re-resolve
  */
 function credentialDigestOf(entry: DeclaredServer): string {
 	const parts: Record<string, unknown> = { baseUrl: entry.baseUrl };
@@ -68,36 +66,31 @@ function credentialDigestOf(entry: DeclaredServer): string {
 }
 
 /**
- * The counters and the inline-secret rotation detector. Detection is
- * synchronous and side-effect-free beyond its own digests; persisting a
- * rotation is the caller's separate `bump`, so seeding the digests at
- * activation cannot accidentally write anything.
+ * Detection is synchronous and side-effect-free beyond its own digests; persisting a rotation is the caller's separate
+ * `bump`, so seeding the digests at activation cannot accidentally write anything.
  */
 export class McpVersionCounters {
 	/** In memory only, and never persisted or logged: these summarize secret material. */
 	private readonly digests = new Map<string, string>();
 
 	/**
-	 * The tail of the persisted writes. Every bump is a read-modify-write of one
-	 * shared record, and the events that trigger them (a secrets change naming
-	 * several entries, a settings import rotating a batch) arrive without being
-	 * awaited, so unserialized writes would interleave and drop increments -
-	 * leaving a counter that can stall or regress.
+	 * Every bump is a read-modify-write of one shared record, and the events that trigger them (a secrets change naming
+	 * several entries, a settings import rotating a batch) arrive without being awaited, so unserialized writes would
+	 * interleave and drop increments - leaving a counter that can stall or regress.
 	 */
 	private writes: Promise<unknown> = Promise.resolve();
 
 	constructor(private readonly store: VersionStore) {}
 
 	/**
-	 * Reads the PERSISTED value, so a bump still queued behind `writes` is not visible yet and a resolve racing
-	 * it can pass the provider's re-check with pre-edit headers. The change event that follows the write is
-	 * what corrects that, by making the editor re-resolve.
+	 * Reads the PERSISTED value, so a bump still queued behind `writes` is not visible yet and a resolve racing it can
+	 * pass the provider's re-check with pre-edit headers. The change event that follows the write is what corrects
+	 * that, by making the editor re-resolve.
 	 */
 	versionOf(label: string): number {
 		return readCounters(this.store)[label] ?? 0;
 	}
 
-	/** Record one observed rotation of `label`'s credentials, queued behind any write still in flight. */
 	async bump(label: string): Promise<void> {
 		const increment = async (): Promise<void> => {
 			const counters = readCounters(this.store);

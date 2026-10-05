@@ -15,21 +15,13 @@ import { createInlineCompletionProvider } from "./inlineCompletionProvider";
 import { InlineLanguageStatusRow, registerToggleInlineLanguageCommand } from "./languageStatus";
 
 /**
- * Inline completions wiring: the provider and the language status row exist
- * ONLY while the feature is enabled (opt-in by construction - disabled means
- * no registration and zero traffic), toggled by a configuration watcher. The
- * send binds the provider core to the one-shot /completions transport with
- * the fixed FIM bounds; the dashboard's test probe reuses the same send, so
- * the probe proves exactly what ghost text would do.
+ * The send binds the provider core to the one-shot /completions transport with the fixed FIM bounds; the dashboard's
+ * test probe reuses the same send, so the probe proves exactly what ghost text would do.
  */
 
 /**
- * The one FIM send pipeline: label-to-connection through the shared
- * entryConnectionFor, the `_fim_template` directive read from the cached
- * resolution table (never re-resolved per request), the prompt built by
- * buildFimPrompt, and the fixed-bounds completeFim call. models.parameters
- * fields deliberately do NOT ride along - the template directive is the one
- * documented exception on this path.
+ * models.parameters fields deliberately do NOT ride along - the template directive is the one documented exception on
+ * this path.
  */
 function createFimSend(
 	secrets: vscode.SecretStorage,
@@ -54,19 +46,17 @@ function createFimSend(
 				...(wire.suffix !== undefined ? { suffix: wire.suffix } : {}),
 				maxTokens: FIM_MAX_TOKENS,
 			},
-			// The FIM bound is fixed in code, so no setting rides the budget:
-			// timeout advice naming one would point at a setting that cannot
-			// raise this bound.
+			// The FIM bound is fixed in code, so no setting rides the budget: timeout advice naming one would point at
+			// a setting that cannot raise this bound.
 			{ timeout: { ms: FIM_TIMEOUT_MS, setting: undefined }, token }
 		);
 	};
 }
 
 /**
- * The dashboard's test-completion probe: the shared send over a fixed sample
- * context, so the probe proves exactly what ghost text would do - connection,
- * template, bounds, and parse included. The sample is a tiny function head
- * whose natural completion any code model can produce.
+ * The dashboard's test-completion probe: the shared send over a fixed sample context, so the probe proves exactly what
+ * ghost text would do - connection, template, bounds, and parse included. The sample is a tiny function head whose
+ * natural completion any code model can produce.
  */
 export function createFimProbe(fimSend: InlineCompletionSend): (model: FeatureModelRef) => Promise<string | undefined> {
 	return (model) =>
@@ -81,10 +71,9 @@ export function createFimProbe(fimSend: InlineCompletionSend): (model: FeatureMo
 }
 
 /**
- * Wire the feature. Returns the send so the dashboard's test-model probe runs
- * the exact pipeline ghost text runs (one pipeline, one truth). `oneShot` is
- * the activation-shared client, so OAuth tokens cache across keystrokes and
- * across features and invalidate on 401 like the chat and usage paths.
+ * Returns the send so the dashboard's test-model probe runs the exact pipeline ghost text runs (one pipeline, one
+ * truth). `oneShot` is the activation-shared client, so OAuth tokens cache across keystrokes and across features and
+ * invalidate on 401 like the chat and usage paths.
  */
 export function wireInlineCompletions(
 	context: vscode.ExtensionContext,
@@ -96,8 +85,7 @@ export function wireInlineCompletions(
 	};
 	registerToggleInlineLanguageCommand(context, log);
 
-	// One resolution table for the feature's lifetime, so the directive read is
-	// memoized, never per-request.
+	//   One resolution table for the feature's lifetime -> the directive read is memoized
 	const table = new ModelResolutionTable();
 	const cache = new CompletionCache();
 	const fimSend = createFimSend(context.secrets, deps.oneShot, table);
@@ -109,13 +97,7 @@ export function wireInlineCompletions(
 	const applyEnablement = (): void => {
 		const enabled = isFeatureEnabled("inlineCompletions");
 		if (enabled && registration === undefined) {
-			// pattern "**": registration cannot express language-ID lists, so the
-			// provider filters per invocation (zero requests for filtered
-			// languages) and the status row explains the decision.
 			registration = vscode.languages.registerInlineCompletionItemProvider({ pattern: "**" }, provider);
-			// The row splits its sinks itself: refresh advisories stay channel-only
-			// (they recur per editor switch), while a slot conflict keeps the
-			// issue-report buffer like the status bar's slot registry.
 			statusRow = new InlineLanguageStatusRow(logger);
 		} else if (!enabled && registration !== undefined) {
 			registration.dispose();
@@ -132,9 +114,6 @@ export function wireInlineCompletions(
 				return;
 			}
 			applyEnablement();
-			// Any extension setting can change what a completion would say (the
-			// model ref, the language lists, a parameters record's template), so
-			// a cached suggestion may no longer be true; recomputing is cheap.
 			cache.invalidate();
 		}),
 		new vscode.Disposable(() => {

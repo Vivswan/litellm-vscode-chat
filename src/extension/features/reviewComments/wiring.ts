@@ -24,8 +24,9 @@ import { buildDiffReviewPrompt } from "./reviewPrompt";
 /**
  * The stored threads outlive a disable on purpose, so re-enabling brings the same review back.
  *
- *   comment controller -> exists ONLY while enabled, so a disabled feature reviews nothing and the threads leave the screen, workspaceState untouched
- *   commands           -> registered unconditionally, so a disabled review or reply command answers with the enable hint
+ *  comment controller -> exists ONLY while enabled, so a disabled feature reviews nothing and the threads leave the
+ *                        screen, workspaceState untouched
+ *  commands           -> registered unconditionally, so a disabled review or reply command answers with the enable hint
  */
 
 /** The canned change the dashboard's Test model button reviews: small, and wrong in a way any model should catch. */
@@ -45,21 +46,17 @@ const PROBE_DIFF = [
 ].join("\n");
 
 /**
- * The probe diff's post-change line count, from its `@@ -1,5 +1,7 @@` header.
- * The parse anchors against it exactly as a real review anchors against the
- * document, so an out-of-range finding clamps here the way it would there.
+ * The probe diff's post-change line count, from its `@@ -1,5 +1,7 @@` header. The parse anchors against it exactly as a
+ * real review anchors against the document, so an out-of-range finding clamps here the way it would there.
  */
 const PROBE_LINE_COUNT = 7;
 
 /**
- * The dashboard's review probe: the feature's own prompt builder over a fixed
- * sample diff, sent down the feature's own transport path and read back through
- * the same parser, so the probe proves what a real review would do - connection,
- * model, surface, and a parseable answer - rather than merely that something
- * replied. Prose the parser rejects surfaces as the empty-answer warning instead
- * of a false success; the no-findings sentinel counts as a pass, because a model
- * that answered in the contract's vocabulary is configured correctly whatever it
- * concluded. It deliberately creates no threads.
+ * The dashboard's review probe: the feature's own prompt builder over a fixed sample diff, sent down the feature's own
+ * transport path and read back through the same parser, so the probe proves what a real review would do - connection,
+ * model, surface, and a parseable answer - rather than merely that something replied. Prose the parser rejects surfaces
+ * as the empty-answer warning instead of a false success; the no-findings sentinel counts as a pass, because a model
+ * that answered in the contract's vocabulary is configured correctly whatever it concluded.
  */
 export function createReviewProbe(
 	send: (ref: FeatureModelRef, prompt: string, token: vscode.CancellationToken) => Promise<string>
@@ -84,8 +81,8 @@ export function wireReviewComments(
 		logger.log(message, data);
 	};
 	const save = (threads: ReviewThreadsByUri): void => {
-		// Fire-and-forget by design: a review must not wait on storage, and a
-		// failed write costs the restored threads, never the visible ones.
+		// Fire-and-forget by design: a review must not wait on storage, and a failed write costs the restored threads,
+		// never the visible ones.
 		Promise.resolve(context.workspaceState.update(REVIEW_COMMENT_THREADS_KEY, encodeStore(threads))).catch(
 			(error: unknown) => {
 				logger.error("Saving review comment threads failed", error);
@@ -149,10 +146,10 @@ export function wireReviewComments(
 }
 
 /**
- * Restore the stored threads into a freshly created controller, then prune the
- * ones whose documents are gone. Rehydration is synchronous (it needs no
- * document open); the prune's stat calls are deliberately off the critical
- * path, so activation never waits on the file system.
+ * Restore the stored threads into a freshly created controller, then prune the ones whose documents are gone.
+ *
+ *   Rehydration -> is synchronous (it needs no document open)
+ *   the prune's stat calls -> are deliberately off the critical path
  */
 function restoreThreads(context: vscode.ExtensionContext, controller: ReviewCommentController, logger: Logger): void {
 	const decoded = decodeStore(context.workspaceState.get(REVIEW_COMMENT_THREADS_KEY));
@@ -174,10 +171,10 @@ function restoreThreads(context: vscode.ExtensionContext, controller: ReviewComm
 }
 
 /**
- * Whether a stored URI still names something on disk. Only a definite
- * FileNotFound counts as gone: any other stat failure (a permission error, an
- * unmounted drive, a scheme with no file system provider) must not delete a
- * user's review threads, so it reads as present.
+ * Whether a stored URI still names something on disk.
+ *
+ *   any other stat failure (a permission error, an unmounted drive, a scheme with no file system provider) must not
+ *     delete a user's review threads -> it reads as present
  */
 async function documentExists(uriString: string): Promise<boolean> {
 	let uri: vscode.Uri;

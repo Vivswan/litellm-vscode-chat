@@ -1,14 +1,9 @@
 /**
- * The settings-export file envelope: the versioned JSON shape
- * `{ "litellm-vscode-chat": 1, "exportedBy": "<ext version>", "settings": {...} }`
- * and its lenient parser. The integer under the config-section key is the
- * FORMAT version and the file discriminant (an unknown higher value reads as
- * "exported by a newer version"); `exportedBy` is informational only, never a
- * compatibility gate. Guards are hand-rolled, not zod: parseServersSetting is
- * the servers grammar's source of truth and a zod mirror would drift, and zod
- * stays at the webview trust boundary.
+ * The integer under the config-section key is the FORMAT version and the file discriminant (an unknown higher value
+ * reads as "exported by a newer version"); `exportedBy` is informational only, never a compatibility gate.
  *
- * Pure and vscode-free.
+ *   parseServersSetting is the servers grammar's source of truth and a zod mirror would drift -> Guards are
+ *       hand-rolled, not zod
  */
 
 import { ALL_SETTING_KEYS, CONFIG_SECTION } from "../../shared/config/settingSpec";
@@ -17,7 +12,6 @@ import { isRecord } from "../../shared/util/json";
 /** The format version this build writes and the highest one it can read. */
 export const SETTINGS_EXPORT_FORMAT_VERSION = 1;
 
-/** The export file's top-level shape; the config-section-named key doubles as the discriminant. */
 export interface SettingsExportEnvelope {
 	readonly [CONFIG_SECTION]: typeof SETTINGS_EXPORT_FORMAT_VERSION;
 	readonly exportedBy: string;
@@ -26,11 +20,8 @@ export interface SettingsExportEnvelope {
 }
 
 /**
- * A parsed export file, or why it is not one: "not-json" (unparseable),
- * "not-an-export" (JSON without the discriminant shape), "newer-version" (a
- * format version above SETTINGS_EXPORT_FORMAT_VERSION). On ok, `settings` holds
- * only ALL_SETTING_KEYS members; file keys outside the vocabulary land in
- * `unknownKeys`, reported in the preview and never written.
+ * On ok, `settings` holds only ALL_SETTING_KEYS members; file keys outside the vocabulary land in `unknownKeys`,
+ * reported in the preview and never written.
  */
 export type ParseEnvelopeResult =
 	| {
@@ -42,7 +33,6 @@ export type ParseEnvelopeResult =
 	| { readonly ok: false; readonly reason: "not-json" | "not-an-export" }
 	| { readonly ok: false; readonly reason: "newer-version"; readonly exportedBy: string | undefined };
 
-/** Wrap already-built settings (see exportBuild.ts) in the versioned envelope. */
 export function buildEnvelope(settings: Readonly<Record<string, unknown>>, exportedBy: string): SettingsExportEnvelope {
 	return {
 		[CONFIG_SECTION]: SETTINGS_EXPORT_FORMAT_VERSION,
@@ -51,7 +41,6 @@ export function buildEnvelope(settings: Readonly<Record<string, unknown>>, expor
 	};
 }
 
-/** Parse a candidate export file's raw text; see ParseEnvelopeResult for the verdicts. */
 export function parseEnvelope(raw: string): ParseEnvelopeResult {
 	let parsed: unknown;
 	try {

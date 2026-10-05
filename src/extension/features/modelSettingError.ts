@@ -5,12 +5,10 @@ import { localizedError, type MirroredError } from "../../shared/mirroredError";
 import { featureModelSettingId } from "./featureGate";
 
 /**
- * The features' ONE "configured server label matches no entry" error, at the
- * features/ root because features may not import each other. Every one-shot
- * feature's entryConnectionFor miss throws through this sentence, with the
- * feature's name read from the shared display-name registry and the setting ID
- * derived by the shared gate, so the advice always names the setting that
- * actually misfired.
+ * The features' ONE "configured server label matches no entry" error, at the features/ root because features may not
+ * import each other. Every one-shot feature's entryConnectionFor miss throws through this sentence, with the feature's
+ * name read from the shared display-name registry and the setting ID derived by the shared gate, so the advice always
+ * names the setting that actually misfired.
  */
 export function noEntryForConfiguredServer(feature: FeatureModelId, serverLabel: string): MirroredError {
 	const settingId = featureModelSettingId(feature);

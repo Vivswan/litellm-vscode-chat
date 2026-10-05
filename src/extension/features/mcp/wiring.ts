@@ -1,15 +1,11 @@
 /**
- * MCP publisher wiring. The provider is registered unconditionally, because
- * the opt-in is not a setting to watch but a field on the entries: with none
- * opted in the eager pass publishes an empty list, which is the correct answer
- * rather than a special case.
+ * The provider is registered unconditionally, because the opt-in is not a setting to watch but a field on the entries:
+ * with none opted in the eager pass publishes an empty list, which is the correct answer rather than a special case.
+ * What the change event announces is derived, not classified: after any signal that could matter, the pass recomputes
+ * the descriptor list and fires only when it actually differs from the one last published.
  *
- * What the change event announces is derived, not classified: after any signal
- * that could matter, the pass recomputes the descriptor list and fires only
- * when it actually differs from the one last published. Since the rotation
- * counter rides each descriptor, a credential rotation moves the list too, so
- * one comparison covers both "the servers changed" and "their credentials
- * did" - there is no second change classifier to drift from the first.
+ *   the rotation counter rides each descriptor -> one comparison covers both "the servers changed" and "their
+ *     credentials did" - there is no second change classifier to drift from the first
  */
 
 import * as vscode from "vscode";
@@ -21,16 +17,11 @@ import type { Logger } from "../../../shared/logger";
 import { createMcpServerDefinitionProvider, currentMcpEntries, mcpDescriptors } from "./provider";
 import { McpVersionCounters } from "./versions";
 
-/**
- * How many entries opt into the publisher, for the diagnostics snapshot. The
- * feature's seam rather than its internals: everything outside
- * features/<feature>/ reaches a feature through its wiring module.
- */
+/** How many entries opt into the publisher, for the diagnostics snapshot. */
 export function mcpEnabledEntryCount(): number {
 	return currentMcpEntries().length;
 }
 
-/** The setting the publisher reads, as a configuration-change target. */
 const SERVERS_SETTING_ID = `${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`;
 
 export function wireMcpServers(
@@ -39,8 +30,8 @@ export function wireMcpServers(
 	deps: { readonly oneShot: OneShotClient }
 ): void {
 	const versions = new McpVersionCounters(context.globalState);
-	// Seeding, by construction: a first sighting is never a rotation, so this
-	// call records today's credential material without announcing anything.
+	// Seeding, by construction: a first sighting is never a rotation, so this call records today's credential material
+	// without announcing anything.
 	versions.observeCredentials(currentMcpEntries());
 
 	const providerDeps = {
@@ -56,10 +47,9 @@ export function wireMcpServers(
 	};
 
 	const changed = new vscode.EventEmitter<void>();
-	// The last list published, as its serialization: descriptors are small,
-	// JSON-safe, and ordered by the setting, so their rendering IS their
-	// identity - no field-by-field walk a new descriptor field could fall out
-	// of. Seeded here so activation itself never counts as a change.
+	// The last list published, as its serialization: descriptors are small, JSON-safe, and ordered by the setting, so
+	// their rendering IS their identity - no field-by-field walk a new descriptor field could fall out of. Seeded here
+	// so activation itself never counts as a change.
 	let published = JSON.stringify(mcpDescriptors(providerDeps));
 
 	const fireIfChanged = (): void => {
@@ -71,14 +61,11 @@ export function wireMcpServers(
 	};
 
 	/**
-	 * Persist the observed rotations, then publish. The listeners below are
-	 * VS Code events, which do not await what a handler returns, so this owns
-	 * the whole async tail: a failed counter write is logged and the comparison
-	 * still runs, because a swallowed rejection would also swallow the change
-	 * event and leave the editor holding a list it should have refreshed. No
-	 * more recovery than the log line: a rotation whose write failed leaves the
-	 * editor serving its previous cached credential until the next rotation
-	 * bumps the counter anyway, so the failure heals on its own next beat.
+	 * The listeners below are VS Code events, which do not await what a handler returns, so this owns the whole async
+	 * tail: a failed counter write is logged and the comparison still runs, because a swallowed rejection would also
+	 * swallow the change event and leave the editor holding a list it should have refreshed. No more recovery than the
+	 * log line: a rotation whose write failed leaves the editor serving its previous cached credential until the next
+	 * rotation bumps the counter anyway, so the failure heals on its own next beat.
 	 */
 	const bumpThenFire = async (rotated: readonly string[]): Promise<void> => {
 		for (const label of rotated) {
@@ -101,13 +88,12 @@ export function wireMcpServers(
 			if (!event.affectsConfiguration(SERVERS_SETTING_ID)) {
 				return;
 			}
-			// A settings-side credential edit rotates what a session would send
-			// while changing no published field, so the counters move before the
-			// comparison reads them.
+			// A settings-side credential edit rotates what a session would send while changing no published field, so
+			// the counters move before the comparison reads them.
 			void bumpThenFire(versions.observeCredentials(currentMcpEntries()));
 		}),
-		// Every secure-side write lands here, whoever made it and in whichever
-		// window - the rotation signal no write site can forget to send.
+		// Every secure-side write lands here, whoever made it and in whichever window - the rotation signal no write
+		// site can forget to send.
 		context.secrets.onDidChange((event) => {
 			const rotated = currentMcpEntries()
 				.filter((entry) => serverSecretsKey(entry.label) === event.key)

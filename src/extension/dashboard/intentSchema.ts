@@ -1,10 +1,8 @@
 /**
- * The zod schemas that guard the webview boundary. Extension-side only: zod
- * must never enter the webview bundle, so the endpoint table and its types
- * live in src/dashboard/endpoints.ts and the schemas here validate against
- * them from outside. One request schema per table method, mapped over
- * DashboardMethod in both directions: a method without a schema, or a schema
- * without a table row, fails compilation.
+ * Extension-side only: zod must never enter the webview bundle, so the endpoint table and its types live in
+ * src/dashboard/endpoints.ts and the schemas here validate against them from outside. One request schema per table
+ * method, mapped over DashboardMethod in both directions: a method without a schema, or a schema without a table row,
+ * fails compilation.
  */
 
 import { z } from "zod";
@@ -41,8 +39,8 @@ import { recordFromKeys } from "../../shared/util/json";
 
 const asEnum = <T extends string>(values: readonly T[]) => z.enum(values as [T, ...T[]]);
 
-// The size bounds live in the endpoint table's WIRE_LIMITS declaration, so
-// both sides of the wire read the same numbers.
+// The size bounds live in the endpoint table's WIRE_LIMITS declaration, so both sides of the wire read the same
+// numbers.
 const labelSchema = z.string().max(WIRE_LIMITS.label);
 
 /** Whether a parsed record serializes within the budget; cycles and pathological depth read as over it. */
@@ -55,7 +53,6 @@ function withinRecordBudget(value: unknown): boolean {
 	}
 }
 
-/** One matcher-keyed record map (models.parameters / models.capabilities shaped) under the WIRE_LIMITS bounds. */
 const recordMapSchema = z
 	.record(
 		z.string().max(WIRE_LIMITS.recordKey),
@@ -78,26 +75,21 @@ export const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminated
 ]);
 
 /**
- * The saveServerSetting payload's server shape. Strict, so unknown fields
- * never ride along into the setting, and the record and list fields are
- * required - the form always sends them (empty means "none"), so a payload
- * that omits one is malformed rather than a signal to carry stored values
- * forward. The value constraints live in validateSaveServerSetting, whose
- * rules the webview form shares through serverForm.ts.
+ * The value constraints live in validateSaveServerSetting, whose rules the webview form shares through serverForm.ts.
+ *
+ *   Strict -> unknown fields never ride along into the setting
  */
 const saveServerSchema = z.strictObject({
 	label: labelSchema,
 	baseUrl: z.string().max(WIRE_LIMITS.url),
-	// Bounded like every other webview-minted token.
 	apiVersion: z.string().max(256).optional(),
 	...recordFromKeys(NON_SECRET_OPTIONAL_FIELD_IDS, () => z.string().max(WIRE_LIMITS.textField).optional()),
 	modelParameters: recordMapSchema.optional(),
 	modelCapabilities: recordMapSchema,
 	// The categories are a closed enum, so any honest list fits in one of each.
 	expectedFailures: z.array(asEnum(EXPECTED_FAILURE_CATEGORIES)).max(EXPECTED_FAILURE_CATEGORIES.length),
-	// Header values are scalars (parseHeaderValue's contract); the charset and
-	// name rules live in validateSaveServerSetting. Sizes bounded like every
-	// other webview-minted list.
+	// Header values are scalars (parseHeaderValue's contract); the charset and name rules live in
+	// validateSaveServerSetting.
 	headers: z
 		.record(z.string().max(256), z.union([z.string().max(4096), z.number(), z.boolean()]))
 		.refine((record) => Object.keys(record).length <= 64),
@@ -105,8 +97,8 @@ const saveServerSchema = z.strictObject({
 	// Closed like expectedFailures: only the modes discovery drops can be included.
 	includeModes: z.array(asEnum(NON_CHAT_MODES)).max(NON_CHAT_MODES.length),
 	budget: z.union([z.number().finite(), z.null()]),
-	// `true` is the derived-endpoint opt-in; the object form may name the URL,
-	// bounded like every other webview-minted string. null clears the opt-in.
+	// `true` is the derived-endpoint opt-in; the object form may name the URL, bounded like every other webview-minted
+	// string. null clears the opt-in.
 	mcp: z.union([z.literal(true), z.strictObject({ url: z.string().max(WIRE_LIMITS.url).optional() }), z.null()]),
 });
 
@@ -115,9 +107,8 @@ const secretDirectivesSchema = z.strictObject(recordFromKeys(SECRET_FIELD_IDS, (
 const secretLocationChoiceSchema = z.union([z.literal("settings"), z.literal("secure")]);
 
 /**
- * The identity of the entry an edit form displayed (ReplacedEntryIdentity):
- * what the save, draft-test, and inline-prefill intents re-check against.
- * Locations only - a location outside the closed vocabulary is a malformed
+ * The identity of the entry an edit form displayed (ReplacedEntryIdentity): what the save, draft-test, and
+ * inline-prefill intents re-check against. Locations only - a location outside the closed vocabulary is a malformed
  * message, never a value.
  */
 const replacedEntrySchema: z.ZodType<ReplacedEntryIdentity> = z.strictObject({
@@ -134,15 +125,13 @@ const replacedEntrySchema: z.ZodType<ReplacedEntryIdentity> = z.strictObject({
 const adoptSecretsSchema = z.strictObject(recordFromKeys(SECRET_FIELD_IDS, () => secretLocationChoiceSchema));
 
 /**
- * Bound on the correlation tokens the webview mints (request IDs and the
- * adopt handle it echoes back): long enough for any honest token, short
- * enough that a hostile page cannot balloon the message.
+ * Bound on the correlation tokens the webview mints (request IDs and the adopt handle it echoes back): long enough for
+ * any honest token, short enough that a hostile page cannot balloon the message.
  */
 const REQUEST_ID_MAX_LENGTH = 128;
 
 const requestIdSchema = z.string().min(1).max(REQUEST_ID_MAX_LENGTH);
 
-/** The save and draft-test intents share one payload shape. */
 const serverDraftPayloadSchema = z.strictObject({
 	server: saveServerSchema,
 	secrets: secretDirectivesSchema,
@@ -150,9 +139,8 @@ const serverDraftPayloadSchema = z.strictObject({
 });
 
 /**
- * One payload schema per table method; the webview is outside the trust
- * boundary, so its payloads are data, not types. Strict objects keep unknown
- * fields from riding along; parameterless methods carry the literal null.
+ * One payload schema per table method; the webview is outside the trust boundary, so its payloads are data, not types.
+ * Strict objects keep unknown fields from riding along; parameterless methods carry the literal null.
  */
 const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayload<K>> } = {
 	ready: z.null(),
@@ -170,21 +158,13 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	setModelCapabilities: z.strictObject({ value: recordMapSchema }),
 	setUsageStatusBar: z.strictObject({ value: asEnum(USAGE_STATUS_BAR_MODES) }),
 	setTokenEstimation: z.strictObject({ value: asEnum(TOKEN_ESTIMATION_MODES) }),
-	// Free text, but webview-minted and display-only: bounded so a hostile
-	// page cannot balloon the setting.
 	setCurrencySymbol: z.strictObject({ value: z.string().max(WIRE_LIMITS.currencySymbol) }),
-	// Bounded like every webview-minted list; the value constraints (non-empty
-	// keyword names) live in executeDashboardIntent.
 	setAdditionalToolSchemaKeywords: z.strictObject({
 		values: z.array(z.string().max(WIRE_LIMITS.schemaKeyword)).max(WIRE_LIMITS.schemaKeywords),
 	}),
 	setUiTheme: z.strictObject({ value: asEnum(UI_THEMES) }),
 	setUiAccent: z.strictObject({ value: asEnum(UI_ACCENTS) }),
-	// Bounded like every webview-minted list; the value constraints
-	// (fractions in (0, 1]) live in executeDashboardIntent.
 	setUsageAlertThresholds: z.strictObject({ values: z.array(z.number().finite()).max(32) }),
-	// An entry label plus a raw model ID, or null to clear the pick; the
-	// trim-non-empty constraint lives in executeDashboardIntent.
 	setFeatureModel: z.strictObject({
 		feature: asEnum(FEATURE_MODEL_IDS),
 		value: z.union([
@@ -195,14 +175,12 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 			z.null(),
 		]),
 	}),
-	// Free text, model-facing user configuration (not a secret; it rides state
-	// pushes like every other setting value); bounded so a hostile page cannot
-	// balloon the setting.
+	// Free text, model-facing user configuration (not a secret; it rides state pushes like every other setting value);
+	// bounded so a hostile page cannot balloon the setting.
 	setCommitPrompt: z.strictObject({ value: z.string().max(WIRE_LIMITS.commitPrompt) }),
-	// Bounded like every webview-minted list. Each dashboard row patches only
-	// its own half, so the wire shape is exactly one field per request - a
-	// payload naming both fields or neither is malformed, not a merge. The
-	// value constraints (non-empty language IDs) live in executeDashboardIntent.
+	// Each dashboard row patches only its own half, so the wire shape is exactly one field per request - a payload
+	// naming both fields or neither is malformed, not a merge. The value constraints (non-empty language IDs) live in
+	// executeDashboardIntent.
 	setLanguageFilter: z.union([
 		z.strictObject({ mode: asEnum(LANGUAGE_FILTER_MODES) }),
 		z.strictObject({
@@ -213,8 +191,8 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	refreshUsage: z.null(),
 	saveServerSetting: serverDraftPayloadSchema,
 	testServerDraft: serverDraftPayloadSchema,
-	// The probe tests exactly one feature's picked pair, bounded like
-	// setFeatureModel's non-null arm; probe existence is judged extension-side.
+	// The probe tests exactly one feature's picked pair, bounded like setFeatureModel's non-null arm; probe existence
+	// is judged extension-side.
 	testFeatureModel: z.strictObject({
 		feature: asEnum(FEATURE_MODEL_IDS),
 		model: z.strictObject({
@@ -223,8 +201,6 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 		}),
 	}),
 	removeServerSetting: z.strictObject({ label: labelSchema }),
-	// Two closed vocabularies: an entry label and a category token; the
-	// entry-existence check lives in executeDashboardIntent.
 	declareExpectedFailure: z.strictObject({ label: labelSchema, category: asEnum(EXPECTED_FAILURE_CATEGORIES) }),
 	adoptServer: z.strictObject({
 		label: labelSchema,
@@ -236,8 +212,6 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	unhideServer: z.strictObject({ label: labelSchema, baseUrl: z.string().max(WIRE_LIMITS.url) }),
 	manageHiddenGroup: z.strictObject({ label: labelSchema, baseUrl: z.string().max(WIRE_LIMITS.url) }),
 	readInlineSecrets: z.strictObject({ replace: replacedEntrySchema }),
-	// The inspector reads: the opaque scope key plus the model's raw ID, both
-	// length-bounded like every webview-minted token.
 	readModelCapabilities: z.strictObject({
 		scopeKey: z.string().min(1).max(REQUEST_ID_MAX_LENGTH),
 		rawId: z.string().min(1).max(WIRE_LIMITS.modelId),
@@ -247,18 +221,14 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 		rawId: z.string().min(1).max(WIRE_LIMITS.modelId),
 	}),
 	readResolvedModels: z.null(),
-	// The catalog picker's search; the query is filter text, bounded so a
-	// hostile page cannot balloon the message.
 	searchCatalog: z.strictObject({ query: z.string().max(200) }),
 	executeCommand: z.strictObject({ command: asEnum(DASHBOARD_COMMAND_IDS) }),
 	syncModels: z.null(),
 };
 
 /**
- * One method's full request-envelope schema: the strict envelope around the
- * method's own payload schema. The return type stays inferred so each map
- * entry below is checked at its concrete method, where zod's object inference
- * matches RpcRequest exactly.
+ * The return type stays inferred so each map entry below is checked at its concrete method, where zod's object
+ * inference matches RpcRequest exactly.
  */
 function requestSchema<K extends DashboardMethod>(method: K) {
 	return z.strictObject({
@@ -270,10 +240,9 @@ function requestSchema<K extends DashboardMethod>(method: K) {
 }
 
 /**
- * The full envelope schema per method. Concrete entries on purpose: indexing
- * this map with a union-typed method yields a union of concrete schemas, so
- * the parse result is the properly discriminated RpcRequestType without a
- * cast (a generic construction cannot re-correlate method and payload).
+ * Concrete entries on purpose: indexing this map with a union-typed method yields a union of concrete schemas, so the
+ * parse result is the properly discriminated RpcRequestType without a cast (a generic construction cannot re-correlate
+ * method and payload).
  */
 const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>> } = {
 	ready: requestSchema("ready"),
@@ -313,7 +282,6 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	syncModels: requestSchema("syncModels"),
 };
 
-/** The envelope's method-bearing frame, parsed first to pick the method's own full schema. */
 const envelopeSchema = z.strictObject({
 	kind: z.literal("request"),
 	id: requestIdSchema,
@@ -342,20 +310,13 @@ export type ParsedDashboardRequest =
 			readonly success: false;
 			readonly issues: readonly DashboardParseIssue[];
 			/**
-			 * Present when the envelope frame itself parsed (kind, bounded id, a
-			 * table method) and only the payload failed its method schema: enough
-			 * identity for the panel to answer with a correlated refusal instead
-			 * of dropping the message - an editor waiting on this id would
-			 * otherwise stay pending forever.
+			 * Present when the envelope frame itself parsed (kind, bounded id, a table method) and only the payload
+			 * failed its method schema: enough identity for the panel to answer with a correlated refusal instead of
+			 * dropping the message - an editor waiting on this id would otherwise stay pending forever.
 			 */
 			readonly frame?: { readonly id: string; readonly method: DashboardMethod } | undefined;
 	  };
 
-/**
- * The parse every message from the webview must pass before anything acts on
- * it: the envelope frame first (kind, bounded id, a table method), then the
- * named method's own full schema.
- */
 export function parseDashboardRequest(raw: unknown): ParsedDashboardRequest {
 	const envelope = envelopeSchema.safeParse(raw);
 	if (!envelope.success) {

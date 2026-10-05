@@ -15,15 +15,13 @@ export interface TokenCountingDeps {
 	readonly logError: (message: string, error: unknown) => void;
 	/** The host UI language (vscode.env.language); a non-English UI preloads o200k_base in auto mode. */
 	readonly uiLanguage: string;
-	/** Test seam; the default dynamic import pulls the encoding's lazy bundle chunk. */
 	readonly loadEncoding?: (encoding: TokenizerEncoding) => Promise<LoadedTokenizer>;
 }
 
 /**
- * Two literal specifiers rather than one template string: the bundler can only
- * split what it can resolve statically, and each encoding must become its own
- * lazy chunk (the rank data is megabytes the activation path never pays for;
- * CI pins the chunk layout).
+ * Two literal specifiers rather than one template string: the bundler can only split what it can resolve statically,
+ * and each encoding must become its own lazy chunk (the rank data is megabytes the activation path never pays for; CI
+ * pins the chunk layout).
  */
 function importEncoding(encoding: TokenizerEncoding): Promise<LoadedTokenizer> {
 	return encoding === "o200k_base"
@@ -31,14 +29,12 @@ function importEncoding(encoding: TokenizerEncoding): Promise<LoadedTokenizer> {
 		: import("gpt-tokenizer/encoding/cl100k_base");
 }
 
-/** "en" and its regional variants; anything else counts as a non-English UI. */
 function isEnglishUiLanguage(language: string): boolean {
 	const lower = language.toLowerCase();
 	return lower === "en" || lower.startsWith("en-");
 }
 
 export interface TokenCountingController {
-	/** Apply a (re-)read chat.tokenEstimation mode; called at activation and on configuration change. */
 	readonly applyMode: (mode: TokenEstimationMode) => void;
 }
 
@@ -52,8 +48,8 @@ export function createTokenCountingController(deps: TokenCountingDeps): TokenCou
 	let generation = 0;
 
 	const install = (tokenizer: LoadedTokenizer): void => {
-		// allowedSpecial "all": special-token text ("<|endoftext|>") is ordinary
-		// user text here and must count, not throw.
+		// allowedSpecial "all": special-token text ("<|endoftext|>") is ordinary user text here and must count, not
+		// throw.
 		setTextTokenCounting({
 			kind: "tokenizer",
 			countTokens: (text) => tokenizer.countTokens(text, { allowedSpecial: "all" }),

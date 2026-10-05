@@ -1,36 +1,21 @@
 /**
- * The two review prompt builders, one per user-chosen review mode: the
- * working-tree diff of a file, or the whole file as it stands - plus the
- * follow-up builder for a reply typed into a review thread. All three carry
- * English instructions (model-facing text stays English by policy); the two
- * review modes ask for line-anchored findings in the `LINE <start>-<end>:
- * <finding>` format placements.ts parses, and the no-findings sentinel is
- * imported from there so the builders and the parser cannot drift apart.
+ * All three carry English instructions (model-facing text stays English by policy); the two review modes ask for
+ * line-anchored findings in the `LINE <start>-<end>: <finding>` format placements.ts parses, and the no-findings
+ * sentinel is imported from there so the builders and the parser cannot drift apart. Each mode has a stated char
+ * budget, head-truncated through the shared truncateHeadWithMarker (the marker rides inside the budget, the same
+ * contract as the commit prompt's DIFF_CHAR_LIMIT): a review of the head of an oversized input still has value, and an
+ * unbounded prompt has a failure mode instead of a budget.
  *
- * One file per prompt, in both modes: the finding format has no file field
- * (user-ruled placement shape), so the command layer splits a multi-file
- * working-tree diff and prompts per file. Whole-file mode prepends 1-based
- * line numbers to every content line - the model anchors against what it can
- * see, not against counting it must do itself - while diff mode anchors on
- * the hunk headers the diff already carries.
- *
- * Each mode has a stated char budget, head-truncated through the shared
- * truncateHeadWithMarker (the marker rides inside the budget, the same
- * contract as the commit prompt's DIFF_CHAR_LIMIT): a review of the head of
- * an oversized input still has value, and an unbounded prompt has a failure
- * mode instead of a budget.
- *
- * Pure and vscode-free.
+ *   the finding format has no file field -> the command layer splits a multi-file working-tree diff
+ *   the model anchors against what it can see -> Whole-file mode prepends 1-based line numbers to every content line
  */
 
 import type { OneShotChatMessage } from "../../../provider/transport/oneShotClient";
 import { truncateHeadWithMarker, truncationMarker } from "../../../shared/util/text";
 import { LINE_BREAK_PATTERN, NO_FINDINGS_REPLY } from "./placements";
 
-/** Head-truncation bound for a file's working-tree diff inside the prompt. */
 export const REVIEW_DIFF_CHAR_LIMIT = 80_000;
 
-/** Head-truncation bound for the line-numbered file content inside the prompt. */
 export const REVIEW_FILE_CHAR_LIMIT = 80_000;
 
 /** The shared model-facing instruction; the LINE format literals here are what placements.ts parses. */
@@ -44,13 +29,11 @@ export const REVIEW_FORMAT_INSTRUCTION = [
 	`If there is nothing worth reporting, reply with exactly: ${NO_FINDINGS_REPLY}`,
 ].join("\n");
 
-/** One file's working-tree diff; `path` is the workspace-relative label shown to the model. */
 export interface DiffReviewPromptArgs {
 	readonly path: string;
 	readonly diff: string;
 }
 
-/** Build the prompt reviewing one file's working-tree diff. */
 export function buildDiffReviewPrompt(args: DiffReviewPromptArgs): string {
 	const diff = truncateHeadWithMarker(args.diff, REVIEW_DIFF_CHAR_LIMIT, truncationMarker("diff"));
 	return [
@@ -60,14 +43,12 @@ export function buildDiffReviewPrompt(args: DiffReviewPromptArgs): string {
 	].join("\n\n");
 }
 
-/** One whole file; `languageId` is advisory context (VS Code's language identifier), omitted from the prompt when absent or blank. */
 export interface FileReviewPromptArgs {
 	readonly path: string;
 	readonly content: string;
 	readonly languageId?: string;
 }
 
-/** Build the prompt reviewing a whole file, its lines numbered for anchoring. */
 export function buildFileReviewPrompt(args: FileReviewPromptArgs): string {
 	const content = numberedHead(args.content);
 	const languageId = args.languageId?.trim() ?? "";
@@ -80,12 +61,9 @@ export function buildFileReviewPrompt(args: FileReviewPromptArgs): string {
 }
 
 /**
- * Number the content's lines up to the char budget, head-truncated with the
- * marker only when actually over. Numbering walks line breaks incrementally
- * and stops once the budget is exceeded (each slice capped at budget + 1), so
- * a newline-heavy or single-line giant never allocates much past the budget -
- * the naive split-map-join would materialize every line of a file the budget
- * is about to throw away.
+ * Numbering walks line breaks incrementally and stops once the budget is exceeded (each slice capped at budget + 1), so
+ * a newline-heavy or single-line giant never allocates much past the budget - the naive split-map-join would
+ * materialize every line of a file the budget is about to throw away.
  */
 function numberedHead(content: string): string {
 	const breaks = new RegExp(LINE_BREAK_PATTERN.source, "g");
@@ -109,21 +87,16 @@ function numberedHead(content: string): string {
 	return truncateHeadWithMarker(numbered, REVIEW_FILE_CHAR_LIMIT, truncationMarker("file"));
 }
 
-/** Head-truncation bound for the code a thread anchors, quoted back as context for a reply. */
 export const REVIEW_SNIPPET_CHAR_LIMIT = 8_000;
 
-/** Head-truncation bound for one comment body inside a reply conversation. */
 export const REVIEW_COMMENT_CHAR_LIMIT = 4_000;
 
 /**
- * How many turns of a thread ride the follow-up request. Bounding the bodies
- * alone leaves the TURN COUNT unbounded, so a long-running thread would grow
- * the request without limit; the newest turns are the ones the reply is about,
- * so the oldest are what a long thread drops.
+ * Bounding the bodies alone leaves the TURN COUNT unbounded, so a long-running thread would grow the request without
+ * limit; the newest turns are the ones the reply is about, so the oldest are what a long thread drops.
  */
 export const REVIEW_REPLY_TURN_LIMIT = 20;
 
-/** A reply's context: where the thread sits, the code it anchors, and the conversation so far. */
 export interface ReplyPromptArgs {
 	readonly path: string;
 	/** The anchored lines, already line-numbered by the caller; empty when the document could not be read. */
@@ -136,10 +109,9 @@ export interface ReplyPromptArgs {
 }
 
 /**
- * A conversation rather than one flattened prompt, because that is what the thread IS, and it keeps the
- * model's retained earlier wording available to it. It deliberately does NOT ask for the LINE format the
- * review prompts use, since the answer goes into an existing thread as prose and parsing it as placements
- * would be a category error.
+ * A conversation rather than one flattened prompt, because that is what the thread IS, and it keeps the model's
+ * retained earlier wording available to it. It deliberately does NOT ask for the LINE format the review prompts use,
+ * since the answer goes into an existing thread as prose and parsing it as placements would be a category error.
  */
 export function buildReplyMessages(args: ReplyPromptArgs): readonly OneShotChatMessage[] {
 	const snippet = truncateHeadWithMarker(args.snippet, REVIEW_SNIPPET_CHAR_LIMIT, truncationMarker("snippet"));

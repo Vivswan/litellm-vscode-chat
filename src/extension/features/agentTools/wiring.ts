@@ -54,17 +54,20 @@ import {
 } from "./render";
 
 /**
- * The agent tools' host adapter and the feature's single logging boundary.
- * Each tool registers under the feature switch plus, for a write, its own
- * toggle; the manifest's `when` clauses read the same two settings, so the
- * agent's tool picker shows exactly the registered set. Every write is a
- * second client of the dashboard controller: the same parse, the same intent
- * executor, the same serialized chain the webview's saves join.
+ * The agent tools' host adapter and the feature's single logging boundary. Each tool registers under the feature
+ * switch plus, for a write, its own toggle; the manifest's `when` clauses read the same two settings, so the agent's
+ * tool picker shows exactly the registered set.
+ *
+ *   Every write is a second client of the dashboard controller
+ *     -> the same parse, the same intent executor, the same serialized chain the webview's saves join
  */
 
 type LogFn = (message: string, data?: unknown) => void;
 
-/** The masked secret prompt, injectable so the host suite can answer it; the token dismisses it when the agent turn is cancelled. */
+/**
+ * The masked secret prompt, injectable so the host suite can answer it; the token dismisses it when the agent turn is
+ * cancelled.
+ */
 type SecretPromptFn = (
 	prompt: SecretPrompt,
 	label: string,
@@ -109,10 +112,9 @@ function frame(request: AgentRequest): unknown {
 }
 
 /**
- * The refusal to the calling model. The display text names what the agent
- * sent (a setting key, a label) so the agent can fix the call; the English
- * mirror is what the output channel and the issue-report buffer record, so it
- * carries the classification alone and never an agent-controlled identifier.
+ * The display text names what the agent sent (a setting key, a label) so the agent can fix the call; the English
+ * mirror is what the output channel and the issue-report buffer record, so it carries the classification alone and
+ * never an agent-controlled identifier.
  */
 function refusalError(tool: AgentToolId, text: string, classification: string): Error {
 	const tag = `AgentTools(${tool}: ${classification})`;
@@ -155,9 +157,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	};
 
 	/**
-	 * Reads get a progress line. Writes get the confirmation card with the
-	 * change spelled out from the CURRENT state; a plan that would refuse gets
-	 * no card, so invoke can hand the refusal straight back to the agent.
+	 * Writes get the confirmation card with the change spelled out from the CURRENT state; a plan that would refuse
+	 * gets no card, so invoke can hand the refusal straight back to the agent.
 	 */
 	prepareInvocation(options: vscode.LanguageModelToolInvocationPrepareOptions<unknown>): vscode.PreparedToolInvocation {
 		if (this.contribution.toggle === undefined) {
@@ -181,9 +182,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					return undefined;
 				}
 				const { setting, value } = parsed.input;
-				// The planner's refusals (servers, the records, this feature's own
-				// switches) get no card: rendering the current value of the servers
-				// setting would show its inline keys.
+				// The planner's refusals (servers, the records, this feature's own switches) get no card: rendering the
+				// current value of the servers setting would show its inline keys.
 				if (planSetSetting(parsed.input).kind === "refused") {
 					return undefined;
 				}
@@ -236,8 +236,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					return undefined;
 				}
 				if ("adoptFrom" in input) {
-					// The card describes the STORED group (the plan accepted, so it
-					// resolves): the agent only ever saw its URL without credentials.
+					// The card describes the STORED group (the plan accepted, so it resolves): the agent only ever saw
+					// its URL without credentials.
 					const source = externalRow(state, input.adoptFrom.label, input.adoptFrom.baseUrl) ?? input.adoptFrom;
 					return {
 						title: l10n.t(
@@ -273,8 +273,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 				if (planRemoveServer(input, state).kind === "refused") {
 					return undefined;
 				}
-				// A hide or unhide is identified by label AND base URL (two groups can
-				// share a label), so the card names both.
+				// A hide or unhide is identified by label AND base URL (two groups can share a label), so the card
+				// names both.
 				const target = input.action === "remove" ? input.label : `${input.label} at ${displayUrl(input.baseUrl)}`;
 				return {
 					title: l10n.t("{0} the LiteLLM server {1}?", input.action, input.label),
@@ -313,8 +313,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 		options: vscode.LanguageModelToolInvocationOptions<unknown>,
 		token: vscode.CancellationToken
 	): Promise<vscode.LanguageModelToolResult> {
-		// Registration already gates on the switches, but a configuration change
-		// races an in-flight agent turn: the tool answers the live settings.
+		// Registration already gates on the switches, but a configuration change races an in-flight agent turn: the
+		// tool answers the live settings.
 		if (!isFeatureEnabled("agentTools")) {
 			throw localizedError(
 				featureDisabledMessage("agentTools"),
@@ -337,8 +337,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 			if (error instanceof vscode.CancellationError) {
 				throw error;
 			}
-			// The logger records the classification the thrown error carries; the
-			// agent's input and the dashboard's messages never reach the buffer.
+			// The logger records the classification the thrown error carries; the agent's input and the dashboard's
+			// messages never reach the buffer.
 			this.logger.error(`Agent tool ${this.id} failed`, error);
 			throw error;
 		}
@@ -386,7 +386,6 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 		}
 	}
 
-	/** The contributed schema documents; this parse binds. A refusal names the offending paths for the agent. */
 	private parse<K extends AgentToolId>(tool: K, raw: unknown): AgentToolInput<K> {
 		const parsed = parseAgentToolInput(tool, raw);
 		if (!parsed.ok) {
@@ -397,10 +396,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	}
 
 	/**
-	 * Run a plan: refusals go back to the agent, prompts go to the user, then
-	 * each request is submitted in order and stops at the first that did not
-	 * land. The dashboard's own failure message rides the result (it may quote
-	 * an entered key, so it is for the agent, never for the log).
+	 * The dashboard's own failure message rides the result (it may quote an entered key, so it is for the agent, never
+	 * for the log).
 	 */
 	private async execute(plan: ToolPlan, token: vscode.CancellationToken, label = ""): Promise<unknown> {
 		if (plan.kind === "refused") {
@@ -409,8 +406,8 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 		const values = await this.promptSecrets(plan.prompts, label, token);
 		const results: unknown[] = [];
 		for (const planned of plan.requests) {
-			// A cancel stops the plan before its next submit; what already landed
-			// stays, since a dashboard write is not undone.
+			// A cancel stops the plan before its next submit; what already landed stays, since a dashboard write is not
+			// undone.
 			if (token.isCancellationRequested) {
 				throw new vscode.CancellationError();
 			}
@@ -455,10 +452,6 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	}
 }
 
-/**
- * Wire the feature: one tool object per table row, registered exactly while
- * its switches are on. Re-evaluated on every configuration change.
- */
 export function wireAgentTools(context: vscode.ExtensionContext, logger: Logger, deps: AgentToolsDeps): void {
 	const tools = new Map<AgentToolId, AgentTool>(AGENT_TOOL_IDS.map((id) => [id, new AgentTool(id, deps, logger)]));
 	const registrations = new Map<AgentToolId, vscode.Disposable>();

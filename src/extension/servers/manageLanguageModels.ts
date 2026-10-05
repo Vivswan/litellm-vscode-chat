@@ -1,8 +1,8 @@
 /**
- * The host's Manage Language Models editor, the one place a provider group
- * can really be deleted (extensions can only add groups). Feature-detected
- * because the command is the host's, not the API's: the removal notices and
- * the dashboard's hidden-groups line share this single detection.
+ * Feature-detected because the command is the host's, not the API's: the removal notices and the dashboard's
+ * hidden-groups line share this single detection.
+ *
+ *   extensions -> can only add groups
  */
 
 import * as vscode from "vscode";
@@ -14,8 +14,8 @@ export async function manageLanguageModelsAvailable(): Promise<boolean> {
 }
 
 /**
- * Open the editor, searched for `search` (one group name) when given. Resolves
- * false without opening anything on a host that lacks the command.
+ * Open the editor, searched for `search` (one group name) when given. Resolves false without opening anything on a
+ * host that lacks the command.
  */
 export async function openManageLanguageModels(search?: string): Promise<boolean> {
 	if (!(await manageLanguageModelsAvailable())) {

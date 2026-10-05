@@ -1,19 +1,14 @@
 /**
- * The MCP publisher: every servers entry that opts in with `mcp` is published
- * to the editor as an MCP server, so a LiteLLM proxy's own tools reach chat
- * without a second place to configure the same host and the same credentials.
+ * The MCP publisher: every servers entry that opts in with `mcp` is published to the editor as an MCP server, so a
+ * LiteLLM proxy's own tools reach chat without a second place to configure the same host and the same credentials.
+ * URL discipline: a configured URL may embed credentials (`https://u:p@host`), so every echo of one - the log line
+ * below is the only one this module makes - goes through the shared displayUrl redaction.
  *
- * The provide/resolve split is the whole security design, and the types carry
- * it (definitions.ts): provide runs EAGERLY - the editor calls it before any
- * chat turn, unprompted - so it reads the setting and nothing else, and what
- * it returns cannot hold headers. Credentials enter only in resolve, which the
- * editor calls when it is about to start a session, at which point composing
- * them is exactly as legitimate as composing them for a chat request.
- *
- * URL discipline: a configured URL may embed credentials (`https://u:p@host`),
- * so every echo of one - the log line below is the only one this module makes
- * - goes through the shared displayUrl redaction. The definitions themselves
- * carry the URL as written, because that is what the session must dial.
+ *   The provide/resolve split is the whole security design -> the types carry it (definitions.ts)
+ *   provide runs EAGERLY - the editor calls it before any chat turn, unprompted -> what it returns cannot hold headers
+ *   Credentials enter only in resolve, which the editor calls when it is about to start a session
+ *     -> composing them is exactly as legitimate as composing them for a chat request
+ *   what the session must dial -> The definitions themselves carry the URL as written
  */
 
 import * as l10n from "@vscode/l10n";
@@ -33,10 +28,9 @@ import { mcpDefinitionsOf } from "./definitions";
 import type { McpVersionCounters } from "./versions";
 
 /**
- * The token exchange an MCP resolve may trigger is auth plumbing, not a chat
- * call, so it is bounded by `discovery.timeout` and fails toward the discovery
- * surface - whose timeout advice names exactly that setting. The publisher
- * itself makes no LiteLLM API request, so it owns no error surface of its own.
+ * The token exchange an MCP resolve may trigger is auth plumbing, not a chat call, so it is bounded by
+ * `discovery.timeout` and fails toward the discovery surface - whose timeout advice names exactly that setting. The
+ * publisher itself makes no LiteLLM API request, so it owns no error surface of its own.
  */
 const MCP_AUTH_SURFACE = "discovery" as const;
 
@@ -50,15 +44,12 @@ export interface McpProviderDeps {
 	readonly logError: (message: string, error: unknown) => void;
 }
 
-/** A declared entry that opted in, with `mcp` proven present rather than asserted. */
 type McpEntry = DeclaredServer & { readonly mcp: McpOptIn };
 
-/** The opted-in entries of a raw servers-setting value, in setting order. */
 function mcpEntriesOf(raw: unknown): McpEntry[] {
 	return parseServersSetting(raw).entries.filter((entry): entry is McpEntry => entry.mcp !== undefined);
 }
 
-/** The opted-in entries of the servers setting as it reads right now. */
 export function currentMcpEntries(): McpEntry[] {
 	return mcpEntriesOf(vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY));
 }
@@ -71,18 +62,13 @@ export function currentMcpEntries(): McpEntry[] {
 function sameOrigin(endpoint: string, baseUrl: string): boolean {
 	try {
 		const origin = new URL(endpoint).origin;
-		// Every non-special scheme reports the opaque origin "null", which would
-		// make two unrelated destinations compare equal; it is not an origin.
+		// the opaque origin "null" -> would make two unrelated destinations compare equal; it is not an origin
 		return origin !== "null" && origin === new URL(baseUrl).origin;
 	} catch {
 		return false;
 	}
 }
 
-/**
- * The descriptors a provide pass publishes: identity only, mapped by the pure
- * core from the opted-in entries and their rotation counters.
- */
 export function mcpDescriptors(deps: Pick<McpProviderDeps, "versions">): McpDefinitionDescriptor[] {
 	const views: McpEntryView[] = currentMcpEntries().map((entry) => ({
 		label: entry.label,
@@ -95,8 +81,8 @@ export function mcpDescriptors(deps: Pick<McpProviderDeps, "versions">): McpDefi
 
 /** The published definition of one descriptor, with no headers: the eager pass carries identity alone. */
 function definitionOf(descriptor: McpDefinitionDescriptor): vscode.McpHttpServerDefinition {
-	// The version is a string on the wire and a rotation count here; the
-	// conversion belongs at this boundary, not in the counter or the core.
+	// The version is a string on the wire and a rotation count here; the conversion belongs at this boundary, not in
+	// the counter or the core.
 	return new vscode.McpHttpServerDefinition(
 		descriptor.label,
 		vscode.Uri.parse(descriptor.uri),
@@ -106,19 +92,18 @@ function definitionOf(descriptor: McpDefinitionDescriptor): vscode.McpHttpServer
 }
 
 /**
- * Why a resolve refused. A closed vocabulary rather than free text: each member
- * owns one honest sentence and one log classification. refusalError's switch
- * has no default and returns a non-optional type, so a fourth member does not
- * compile until it has a case, and localizedError will not take that case
- * without its English mirror. The classification is convention, not
- * construction - localizedError takes it optionally - so the tests pin all
- * three by name.
+ * A closed vocabulary rather than free text: each member owns one honest sentence and one log classification. The
+ * classification is convention, not construction - localizedError takes it optionally - so the tests pin all three by
+ * name.
+ *
+ *   refusalError's switch has no default and returns a non-optional type
+ *     -> a fourth member does not compile until it has a case, and localizedError will not take that case without its
+ *        English mirror
  */
 type McpRefusal = "not-published" | "stale-secrets" | "changed-during-resolve";
 
 /**
- * The refusal's user-facing error. English mirrors ride every construction (the
- * message reaches the output channel and public issue reports), and the
+ * English mirrors ride every construction (the message reaches the output channel and public issue reports), and the
  * classification is the enum-only shape those surfaces record.
  */
 function refusalError(reason: McpRefusal, label: string): MirroredError {
@@ -148,9 +133,8 @@ function refusalError(reason: McpRefusal, label: string): MirroredError {
 }
 
 /**
- * The provider VS Code registers. It is registered unconditionally: the opt-in
- * lives on the entries, so with none opted in the eager pass simply publishes
- * an empty list, and an entry gaining `mcp` needs no registration change.
+ * It is registered unconditionally: the opt-in lives on the entries, so with none opted in the eager pass simply
+ * publishes an empty list, and an entry gaining `mcp` needs no registration change.
  */
 export function createMcpServerDefinitionProvider(
 	deps: McpProviderDeps,
@@ -167,19 +151,16 @@ export function createMcpServerDefinitionProvider(
 		 *
 		 *   re-derive from the setting -> read the credentials -> re-derive again -> whole descriptor must match
 		 *
-		 * What holds: same label, same endpoint, same origin, all three re-read from the setting.
+		 *   What holds -> same label, same endpoint, same origin, all three re-read from the setting
 		 */
 		resolveMcpServerDefinition: async (server, token) => {
-			// Set by refuse(), which logs its own throw. The class cannot be the
-			// discriminator: RequestError extends MirroredError, so testing the
-			// base class would swallow every real transport failure instead.
+			// Set by refuse(), which logs its own throw. The class cannot be the discriminator: RequestError extends
+			// MirroredError, so testing the base class would swallow every real transport failure instead.
 			let refused = false;
 			/**
-			 * Refuse without attaching anything. Each reason gets its OWN sentence,
-			 * because they are different facts about the user's setup and only one
-			 * of them is "there is no such server": an entry that moved mid-resolve
-			 * IS published, and telling the user otherwise would send them looking
-			 * for a missing entry.
+			 * Each reason gets its OWN sentence, because they are different facts about the user's setup and only one
+			 * of them is "there is no such server": an entry that moved mid-resolve IS published, and telling the user
+			 * otherwise would send them looking for a missing entry.
 			 */
 			const refuse: (reason: McpRefusal) => never = (reason) => {
 				refused = true;
@@ -187,7 +168,6 @@ export function createMcpServerDefinitionProvider(
 				deps.logError(`MCP resolve refused (${reason})`, error);
 				throw error;
 			};
-			/** The descriptor for this label as the setting reads right now, or undefined. */
 			const publishedNow = (): McpDefinitionDescriptor | undefined =>
 				mcpDescriptors(deps).find((descriptor) => descriptor.label === server.label);
 
@@ -205,11 +185,9 @@ export function createMcpServerDefinitionProvider(
 					refuse("not-published");
 				}
 				if (resolved.refusedSecrets.length > 0) {
-					// The label's stored blob was paired with a different server (a
-					// base URL edited after the secret was stored is the usual
-					// cause). The chat path refuses such a pairing outright; this one
-					// must too, because the credentials leave our process and no 401
-					// of ours would ever come back to correct it.
+					// The label's stored blob was paired with a different server (a base URL edited after the secret
+					// was stored is the usual cause). The chat path refuses such a pairing outright; this one must too,
+					// because the credentials leave our process and no 401 of ours would ever come back to correct it.
 					refuse("stale-secrets");
 				}
 				baseUrl = entry.baseUrl;
@@ -220,26 +198,23 @@ export function createMcpServerDefinitionProvider(
 						})
 					: {};
 			} catch (error) {
-				// This feature is its own logging boundary (the one-shot callers'
-				// convention): the editor renders the failure to the user, but
-				// without this the output channel and the issue-report buffer stay
-				// silent about it. Cancellation is never logged, and a refusal
-				// already logged itself.
+				// This feature is its own logging boundary (the one-shot callers' convention): the editor renders the
+				// failure to the user, but without this the output channel and the issue-report buffer stay silent
+				// about it. Cancellation is never logged, and a refusal already logged itself.
 				if (!refused && !(error instanceof vscode.CancellationError)) {
 					deps.logError("MCP resolve failed", error);
 				}
 				throw error;
 			}
 
-			// The composed headers are only safe to hand over if the setting still
-			// says the same thing: the same endpoint at the same rotation, and the
-			// same base URL - which is what decided whether credentials rode along
-			// at all, and can move while the endpoint URL does not.
+			// The composed headers are only safe to hand over if the setting still says the same thing: the same
+			// endpoint at the same rotation, and the same base URL - which is what decided whether credentials rode
+			// along at all, and can move while the endpoint URL does not.
 			const after = publishedNow();
 			const entryAfter = currentMcpEntries().find((candidate) => candidate.label === server.label);
 			if (after === undefined || entryAfter === undefined) {
-				// Gone rather than moved: "try again" would be false advice, since
-				// the retry lands on the not-published refusal anyway.
+				// Gone rather than moved: "try again" would be false advice, since the retry lands on the not-published
+				// refusal anyway.
 				refuse("not-published");
 			}
 			if (after.uri !== before.uri || after.version !== before.version || entryAfter.baseUrl !== baseUrl) {
@@ -248,8 +223,8 @@ export function createMcpServerDefinitionProvider(
 			server.uri = vscode.Uri.parse(after.uri);
 			server.version = String(after.version);
 			server.headers = headers;
-			// Recurs on every session start, so channel-only: the issue-report ring
-			// is small and informational lines evict the errors it exists to carry.
+			// Recurs on every session start, so channel-only: the issue-report ring is small and informational lines
+			// evict the errors it exists to carry.
 			deps.advisory("MCP server resolved", {
 				label: server.label,
 				uri: displayUrl(after.uri),

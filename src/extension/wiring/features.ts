@@ -18,13 +18,11 @@ import { createReviewProbe, wireReviewComments } from "../features/reviewComment
 import { createSettingsAccess } from "../settingsAccess";
 
 /**
- * The features' composition point: constructs the ONE shared OneShotClient
- * (OAuth tokens cache across features and invalidate on 401 like the chat and
- * usage paths) and calls each feature's own wiring seam. A new feature adds
- * its features/<feature>/wiring.ts call here and nothing else at this level.
- * The agent tools are the one feature wired AFTER the dashboard
- * (wireDashboardClientFeatures): they are a client of its controller, and the
- * controller needs the probes this function returns.
+ * The agent tools are the one feature wired AFTER the dashboard (wireDashboardClientFeatures): they are a client of its
+ * controller, and the controller needs the probes this function returns.
+ *
+ *   The features' composition point -> constructs the ONE shared OneShotClient (OAuth tokens cache across features)
+ *   A new feature adds its features/<feature>/wiring.ts call here -> nothing else at this level
  */
 export function wireFeatures(
 	context: vscode.ExtensionContext,
@@ -32,7 +30,6 @@ export function wireFeatures(
 	deps: {
 		readonly ua: string;
 		readonly outputChannel: vscode.OutputChannel;
-		/** The provider's per-group snapshots, for the participant's zero-network /models answer. */
 		readonly getSnapshots: () => readonly SnapshotSource[];
 	}
 ): { readonly featureProbes: FeatureProbes; readonly chatParticipant: ChatParticipantWiring } {
@@ -50,17 +47,16 @@ export function wireFeatures(
 	wireQuickFix(context, logger, {
 		oneShot,
 		outputChannel: deps.outputChannel,
-		// Read per invocation, never captured: the participant comes and goes with
-		// its setting and with what the host accepted.
+		// Read per invocation, never captured: the participant comes and goes with its setting and with what the host
+		// accepted.
 		isParticipantAvailable: () => chatParticipant.isRegistered(),
 	});
-	// The wave's one declared cross-feature edit: quick fixes teach the
-	// participant /fix and /explain, because the lightbulb's primary path opens
-	// chat with them already submitted. Registration happens here rather than inside
-	// either feature - features may not import each other, and composing them is
-	// exactly this module's job. Once, at activation: registration is not a
-	// runtime toggle, and it deliberately outlives the quickFix enable setting,
-	// which gates the lightbulb rather than what @litellm can be asked.
+	// Registration happens here rather than inside either feature - features may not import each other, and composing
+	// them is exactly this module's job. Once, at activation: registration is not a runtime toggle, and it deliberately
+	// outlives the quickFix enable setting, which gates the lightbulb rather than what @litellm can be asked.
+	//
+	//   quick fixes teach the participant /fix and /explain -> the lightbulb's primary path opens chat with them
+	//                                                          already submitted
 	registerQuickFixSlashCommands(chatParticipant.slashCommands);
 	return {
 		featureProbes: {
@@ -76,9 +72,8 @@ export function wireFeatures(
 }
 
 /**
- * The features that ride the dashboard controller, wired once it exists. The
- * agent tools submit their writes to the controller exactly as the webview
- * does, so they join its serialized chain and its state pushes.
+ * The agent tools submit their writes to the controller exactly as the webview does, so they join its serialized chain
+ * and its state pushes.
  */
 export function wireDashboardClientFeatures(
 	context: vscode.ExtensionContext,

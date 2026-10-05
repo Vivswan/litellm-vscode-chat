@@ -1,8 +1,7 @@
 /**
- * Pure query core for the quick-fix feature: which diagnostics an action
- * claims, the chat query the action opens, and the model-facing fallback
- * prompt (English by policy) when the chat surface is unavailable. Structural
- * shapes only - no vscode import - so the bun tree pins every behavior.
+ * Pure query core for the quick-fix feature: which diagnostics an action claims, the chat query the action opens, and
+ * the model-facing fallback prompt (English by policy) when the chat surface is unavailable. Structural shapes only -
+ * no vscode import - so the bun tree pins every behavior.
  */
 
 import { PARTICIPANT_NAME } from "../../../shared/config/commandIds";
@@ -19,10 +18,9 @@ export interface QuickFixRange {
 }
 
 /**
- * Structural subset of vscode.Diagnostic: severity follows the host's
- * DiagnosticSeverity numbering (0 Error, 1 Warning, 2 Information, 3 Hint),
- * and `code` admits the host's `{ value, target }` object form plus the null
- * that third-party providers ship despite the host typing.
+ * Structural subset of vscode.Diagnostic: severity follows the host's DiagnosticSeverity numbering (0 Error, 1 Warning,
+ * 2 Information, 3 Hint), and `code` admits the host's `{ value, target }` object form plus the null that third-party
+ * providers ship despite the host typing.
  */
 export interface QuickFixDiagnostic {
 	readonly message: string;
@@ -34,26 +32,17 @@ export interface QuickFixDiagnostic {
 
 export type QuickFixMode = "fix" | "explain";
 
-/** How many of the context's diagnostics one action claims, highest severity first. */
 export const MAX_CLAIMED_DIAGNOSTICS = 5;
 
-/** Per-diagnostic message budget inside the chat-open query, truncation marker included. */
 export const MAX_QUERY_DIAGNOSTIC_TEXT = 200;
 
-/** Per-diagnostic message budget inside the fallback prompt, truncation marker included. */
 export const MAX_PROMPT_DIAGNOSTIC_TEXT = 1000;
 
-/** Code-excerpt budget inside the fallback prompt; the overflow marker sits outside the fence. */
 export const MAX_PROMPT_EXCERPT_CHARS = 4000;
 
 /**
- * The diagnostics an action claims: whitespace-only messages dropped,
- * severity-ordered (stable within a level), deduplicated by normalized
- * message + range keeping the highest-severity duplicate, and capped at
- * MAX_CLAIMED_DIAGNOSTICS after the dedupe. Generic and identity-preserving
- * so callers keep their own diagnostic objects (phase 2 attaches them to
- * CodeAction.diagnostics), and idempotent so the builders below can re-apply
- * it without changing an already-selected list.
+ *   Generic and identity-preserving -> callers keep their own diagnostic objects
+ *   idempotent                      -> the builders below can re-apply it without changing an already-selected list
  */
 export function selectDiagnostics<T extends QuickFixDiagnostic>(diagnostics: readonly T[]): T[] {
 	const ordered = diagnostics
@@ -75,13 +64,7 @@ export function selectDiagnostics<T extends QuickFixDiagnostic>(diagnostics: rea
 	return selected;
 }
 
-/**
- * The chat-open query: "@litellm /fix <messages>" (or /explain), each message
- * collapsed to one line, defused of chat syntax, and truncated to
- * MAX_QUERY_DIAGNOSTIC_TEXT, joined with "; ". Routes through selectDiagnostics
- * itself, so the query is bounded by construction whatever list the caller
- * passes.
- */
+/** Routes through selectDiagnostics itself, so the query is bounded by construction whatever list the caller passes. */
 export function buildChatQuery(mode: QuickFixMode, diagnostics: readonly QuickFixDiagnostic[]): string {
 	const command = mode === "fix" ? "/fix" : "/explain";
 	const summary = selectDiagnostics(diagnostics)
@@ -92,26 +75,21 @@ export function buildChatQuery(mode: QuickFixMode, diagnostics: readonly QuickFi
 }
 
 /**
- * Strip the leading `@` or `#` from a word. Diagnostic messages routinely quote
- * workspace-controlled source text ("Cannot find module './x'"), and this query
- * is SUBMITTED to the chat input rather than shown to the user first, where a
- * `#toolname` token would resolve to a real tool reference on the turn. Only
- * the sigil goes - "#include not found" still reads as "include not found" -
- * which keeps the message meaningful while it can no longer name anything.
- * Deliberately not applied to the fallback prompt: that one is a plain request
- * body with no syntax to hijack.
+ * Diagnostic messages routinely quote workspace-controlled source text ("Cannot find module './x'"), and this query is
+ * SUBMITTED to the chat input rather than shown to the user first, where a `#toolname` token would resolve to a real
+ * tool reference on the turn. Only the sigil goes - "#include not found" still reads as "include not found" - which
+ * keeps the message meaningful while it can no longer name anything.
+ *
+ *   that one is a plain request body with no syntax to hijack -> Deliberately not applied to the fallback prompt
  */
 function defuseChatSyntax(text: string): string {
 	return text.replace(/(^|\s)[@#]+(?=[\w-])/g, "$1");
 }
 
 export interface FallbackPromptInput {
-	/** Which question to ask; the fallback keeps Fix and Explain distinct exactly as the chat path does. */
 	readonly mode: QuickFixMode;
-	/** Display path of the file the diagnostics belong to (vscode.Uri.path works). */
 	readonly path: string;
 	readonly languageId: string;
-	/** The code around the claimed range; empty omits the excerpt section. */
 	readonly excerpt: string;
 	readonly diagnostics: readonly QuickFixDiagnostic[];
 }
@@ -127,11 +105,8 @@ function fallbackRequest(mode: QuickFixMode, location: string): string {
 }
 
 /**
- * The model-facing prompt for the fallback path (completeChatOnce into an
- * untitled markdown editor). English by policy. Routes through
- * selectDiagnostics like the query builder, and asks the mode's own question
- * so that picking Explain and getting a rewrite cannot happen just because the
- * chat view was unavailable.
+ * English by policy. Routes through selectDiagnostics like the query builder, and asks the mode's own question so that
+ * picking Explain and getting a rewrite cannot happen just because the chat view was unavailable.
  */
 export function buildFallbackPrompt(input: FallbackPromptInput): string {
 	const lines = selectDiagnostics(input.diagnostics).map((diagnostic) => `- ${describeDiagnostic(diagnostic)}`);
@@ -156,10 +131,9 @@ function singleLine(text: string): string {
 }
 
 /**
- * Cut to `max` units, marker included, through the shared head-truncation - a
- * cut can land mid-surrogate-pair, and a lone UTF-16 unit is exactly what a
- * gateway rejects. Budgets under the marker's own width lose the marker rather
- * than overrun.
+ * Cut to `max` units, marker included, through the shared head-truncation - a cut can land mid-surrogate-pair, and a
+ * lone UTF-16 unit is exactly what a gateway rejects. Budgets under the marker's own width lose the marker rather than
+ * overrun.
  */
 function truncate(text: string, max: number): string {
 	if (text.length <= max) {
@@ -192,7 +166,6 @@ function describeOrigin(diagnostic: QuickFixDiagnostic): string {
 	return origin.length === 0 ? "" : ` ${origin}`;
 }
 
-/** One line, bounded: provider-supplied origin text cannot break the bullet. */
 function boundOriginText(text: string): string {
 	return truncate(singleLine(text), MAX_ORIGIN_TEXT);
 }
@@ -208,7 +181,6 @@ function longestBacktickRun(text: string): number {
 	return Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
 }
 
-/** An inline code span whose delimiter outgrows backticks in the content itself. */
 function codeSpan(text: string): string {
 	const fence = "`".repeat(longestBacktickRun(text) + 1);
 	const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
@@ -220,8 +192,9 @@ function codeSpan(text: string): string {
  * surrogate, since trimming it would claim a truncation that never happened and JSON.stringify escapes lone
  * units on the way to the wire.
  *
- *   excerpt over budget                    -> cut, and the dangling half dropped, because there the half is our artifact
- *   backtick or newline in the language ID -> dropped, both invalidate a fence and no real language ID carries either
+ *   there the half is our artifact                                -> the dangling half dropped
+ *   backtick or newline in the language ID                        -> dropped
+ *   both invalidate a fence and no real language ID carries either -> dropped
  */
 function fencedExcerpt(excerpt: string, languageId: string): string {
 	const info = languageId.replace(/[`\r\n]/g, "").trim();

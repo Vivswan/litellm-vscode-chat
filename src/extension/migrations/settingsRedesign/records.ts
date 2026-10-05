@@ -1,8 +1,7 @@
 /**
- * Record-key rewrites for the redesign: pre-redesign record keys were
- * implicit prefixes (optionally server-URL scoped in the global records);
- * the new grammar is explicit matchers with no server scoping. The transforms
- * here are pure and shared by the global-record and entry-record paths.
+ * Record-key rewrites for the redesign: pre-redesign record keys were implicit prefixes (optionally server-URL scoped
+ * in the global records); the new grammar is explicit matchers with no server scoping. The transforms here are pure
+ * and shared by the global-record and entry-record paths.
  */
 
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
@@ -13,9 +12,10 @@ import { DECLARE_DIRECTIVE, isForceableKey } from "./legacyIds";
  * "*" alias) becomes an escaped anchored regex; both obvious spellings would break or widen it.
  *
  *   append a star -> a second star, which parseMatcherKey rejects as misplaced
- *   ride verbatim -> depending on the star's place, glob or regex semantics over a different match set, or a misplaced-star rejection
+ *   ride verbatim -> glob or regex semantics over a different match set, or a misplaced-star rejection
  *
- * The regex form ranks below globs, so overlapping keys can order differently than under the old longest-prefix rule; accepted.
+ * The regex form ranks below globs, so overlapping keys can order differently than under the old longest-prefix rule;
+ * accepted.
  */
 function explicitMatcherKey(prefix: string): string {
 	if (prefix === "" || prefix === "*") {
@@ -28,12 +28,10 @@ function explicitMatcherKey(prefix: string): string {
 }
 
 /**
- * The migration freezes OLD forceability, where max_tokens was provider-owned
- * and unforceable, while the new grammar deliberately allows forcing it. A
- * migrated record whose `_force` would newly cover max_tokens is minimally
- * rewritten - `true` expands to the old-forceable literal list only when the
- * record sets max_tokens, and an explicit list drops the max_tokens name the
- * old parser diagnosed and ignored. Every other record rides verbatim.
+ * The migration freezes OLD forceability, where max_tokens was provider-owned and unforceable, while the new grammar
+ * deliberately allows forcing it. A migrated record whose `_force` would newly cover max_tokens is minimally
+ * rewritten - `true` expands to the old-forceable literal list only when the record sets max_tokens, and an explicit
+ * list drops the max_tokens name the old parser diagnosed and ignored.
  */
 function normalizeMigratedForce(value: unknown): { value: unknown; rewrote: boolean } {
 	if (!isRecord(value) || !Object.hasOwn(value, "_force")) {
@@ -54,9 +52,8 @@ function normalizeMigratedForce(value: unknown): { value: unknown; rewrote: bool
 }
 
 /**
- * Old base URLs always contain "://" while model IDs never do - the same
- * disambiguation rule the removed scoped-key matching used, so the migration
- * classifies exactly the keys the old readers classified.
+ *   the same disambiguation rule the removed scoped-key matching used -> the migration classifies exactly the keys
+ *       the old readers classified
  */
 export function isUrlScopedKey(key: string): boolean {
 	return key.includes("://");
@@ -78,10 +75,8 @@ interface DeclareStripResult {
 }
 
 /**
- * Remove the retired `_declare` directive from one capability record value.
- * Only a literal `true` on a declarable key ever declared; every other
- * carrier (false, junk values, catch-all or unscoped keys) was inert or
- * diagnosed, so stripping it is behavior-preserving either way.
+ * Only a literal `true` on a declarable key ever declared; every other carrier (false, junk values, catch-all or
+ * unscoped keys) was inert or diagnosed, so stripping it is behavior-preserving either way.
  */
 function stripDeclare(value: unknown, declarable: boolean): DeclareStripResult {
 	if (!isRecord(value) || !Object.hasOwn(value, DECLARE_DIRECTIVE)) {
@@ -100,11 +95,9 @@ interface TransformedKey {
 }
 
 /**
- * Assemble transformed keys into a record, resolving the one possible
- * collision: "" and "*" both map to "*", and the old prefix matching broke
- * that tie toward "*", so the "*" source's value wins and the "" source is
- * dropped. Object.fromEntries defines own properties, so a pathological
- * "__proto__*" key stays inert data.
+ * Assemble transformed keys into a record, resolving the one possible collision: "" and "*" both map to "*", and the
+ * old prefix matching broke that tie toward "*", so the "*" source's value wins and the "" source is dropped.
+ * Object.fromEntries defines own properties, so a pathological "__proto__*" key stays inert data.
  */
 function assembleRecord(transformed: readonly TransformedKey[]): { record: Record<string, unknown>; dropped: number } {
 	let dropped = 0;
@@ -138,10 +131,7 @@ export interface EntryRecordTransform {
 }
 
 /**
- * Transform one per-entry record (no scoping existed there): every key becomes
- * an explicit matcher, and capability records shed their `_declare` directives
- * into the returned `declared` list. A non-record value rides verbatim - it
- * was inert under the old readers and stays inert under the new ones.
+ * A non-record value rides verbatim - it was inert under the old readers and stays inert under the new ones.
  */
 export function transformEntryRecord(raw: unknown, kind: RecordKind): EntryRecordTransform {
 	if (!isRecord(raw)) {
@@ -154,9 +144,8 @@ export function transformEntryRecord(raw: unknown, kind: RecordKind): EntryRecor
 	const transformed: TransformedKey[] = [];
 	for (const [key, value] of Object.entries(raw)) {
 		if (isUnsafeRecordKey(key)) {
-			// The old normalization dropped reserved keys wholesale (inert), so
-			// starring one would ACTIVATE it; verbatim it stays dropped-inert
-			// under the new normalization too.
+			// The old normalization dropped reserved keys wholesale (inert), so starring one would ACTIVATE it;
+			// verbatim it stays dropped-inert under the new normalization too.
 			transformed.push({ sourceKey: key, newKey: key, value });
 			continue;
 		}
@@ -197,7 +186,6 @@ export interface ScopedMoveTarget {
 
 export interface GlobalRecordTransform {
 	readonly value: unknown;
-	/** Per entry index: transformed remainder key -> record value (first source key wins). */
 	readonly entryAdditions: ReadonlyMap<number, ReadonlyMap<string, unknown>>;
 	/** Per entry index: exact IDs its scoped keys declared. */
 	readonly entryDeclares: ReadonlyMap<number, readonly string[]>;
@@ -211,12 +199,13 @@ export interface GlobalRecordTransform {
 }
 
 /**
- * Under the old runtime every server at a URL read its scoped keys, so a URL-scoped key moves into EVERY
- * declared entry at that base URL. What does not move is left exactly as the old readers treated it.
+ *   Under the old runtime every server at a URL -> read its scoped keys
  *
- *   scoped key no declared entry matches -> kept verbatim; IDs never contain "://", so it is inert, and collectLegacyHints reports it
+ *   scoped key no declared entry matches -> kept verbatim
+ *                                        -> collectLegacyHints reports it
  *   unscoped `_declare`                  -> stripped; the old parser diagnosed it as inert
- *   scoped `_declare`                    -> stripped into the owning entries' declared lists; it declared only the key's exact remainder
+ *   scoped `_declare`                    -> stripped into the owning entries' declared lists; it declared only the
+ *                                           key's exact remainder
  */
 export function transformGlobalRecord(
 	raw: unknown,
@@ -247,9 +236,8 @@ export function transformGlobalRecord(
 
 	for (const [key, value] of Object.entries(raw)) {
 		if (isUrlScopedKey(key)) {
-			// A bare "<baseUrl>" key without a remainder separator never
-			// scoped-matched anything under the old rules; only "<baseUrl>/..."
-			// keys are movable readings.
+			// A bare "<baseUrl>" key without a remainder separator never scoped-matched anything under the old rules;
+			// only "<baseUrl>/..." keys are movable readings.
 			const movable = targets.filter((target) => key.startsWith(`${target.normalizedBaseUrl}/`));
 			if (movable.length === 0) {
 				inertScopedKeys += 1;
@@ -257,8 +245,8 @@ export function transformGlobalRecord(
 				continue;
 			}
 			movedScopedKeys += 1;
-			// Declare bookkeeping is per KEY: the directive moved if any target
-			// declared it, and counts as inert at most once otherwise.
+			// Declare bookkeeping is per KEY: the directive moved if any target declared it, and counts as inert at
+			// most once otherwise.
 			let keyDeclared = false;
 			let keyStrippedInert = false;
 			for (const target of movable) {
@@ -286,8 +274,8 @@ export function transformGlobalRecord(
 				}
 				const additions = entryAdditions.get(target.entryIndex) ?? new Map<string, unknown>();
 				const newKey = explicitMatcherKey(remainder);
-				// The one intra-entry collision mirrors assembleRecord: the "*"
-				// remainder beat "" under the old per-scope tie rule.
+				// The one intra-entry collision mirrors assembleRecord: the "*" remainder beat "" under the old
+				// per-scope tie rule.
 				if (!additions.has(newKey) || remainder === "*") {
 					additions.set(newKey, carried);
 				}
@@ -299,15 +287,14 @@ export function transformGlobalRecord(
 			continue;
 		}
 		if (isUnsafeRecordKey(key)) {
-			// Same rule as the entry transform: reserved keys were dropped-inert
-			// and stay verbatim so they cannot become active matchers.
+			// Same rule as the entry transform: reserved keys were dropped-inert and stay verbatim so they cannot
+			// become active matchers.
 			kept.push({ sourceKey: key, newKey: key, value });
 			continue;
 		}
 		let carried = value;
 		if (kind === "capabilities") {
-			// Unscoped `_declare` was the unscoped-declare diagnostic: never a
-			// declaration, so it strips without one.
+			// Unscoped `_declare` was the unscoped-declare diagnostic: never a declaration, so it strips without one.
 			const strip = stripDeclare(value, false);
 			carried = strip.value;
 			if (strip.strippedInert) {

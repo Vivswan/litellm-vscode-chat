@@ -35,20 +35,17 @@ export interface ReviewCommandDeps {
 	readonly outputChannel: vscode.OutputChannel;
 	/** The live controller while the feature is enabled; undefined while it is off. */
 	readonly controller: () => ReviewCommentController | undefined;
-	/** Defaults to the live vscode.git extension; tests inject a fake. */
 	readonly resolveGit?: () => Promise<API | undefined>;
 }
 
 /**
- * One file this layer reviews: the generic unit plus the document version the
- * prompt described. The version is what makes a stale answer detectable - it
- * is a vscode concept, so it lives here rather than in the pure loop.
+ * The version is what makes a stale answer detectable - it is a vscode concept, so it lives here rather than in the
+ * pure loop.
  */
 interface FileReviewUnit extends ReviewUnit<vscode.Uri> {
 	readonly version: number;
 }
 
-/** What every review command needs before it may touch the network or the threads. */
 interface OpenGate {
 	readonly ref: FeatureModelRef;
 	readonly controller: ReviewCommentController;
@@ -56,10 +53,8 @@ interface OpenGate {
 }
 
 /**
- * The feature half of the fail-closed gate: is there a live comment surface at
- * all? A missing controller while the setting reads enabled is the same state
- * from the user's side (nothing is registered), so it gives the same hint
- * rather than a second vocabulary for an unreachable case.
+ * A missing controller while the setting reads enabled is the same state from the user's side (nothing is registered),
+ * so it gives the same hint rather than a second vocabulary for an unreachable case.
  */
 async function openFeatureGate(deps: ReviewCommandDeps): Promise<ReviewCommentController | undefined> {
 	const controller = deps.controller();
@@ -73,10 +68,10 @@ async function openFeatureGate(deps: ReviewCommandDeps): Promise<ReviewCommentCo
 }
 
 /**
- * Split from the feature gate because the reply path must bank the user's typed words BEFORE asking this, since
- * VS Code closes the reply editor either way and a refusal first would throw away what they wrote. The advice
- * comes back as a thunk because the reply path runs inside a thread's queue and a notification settles only
- * when the user dismisses it, so an ignored toast shown in place would block every later reply to that thread.
+ * Split from the feature gate because the reply path must bank the user's typed words BEFORE asking this, since VS Code
+ * closes the reply editor either way and a refusal first would throw away what they wrote. The advice comes back as a
+ * thunk because the reply path runs inside a thread's queue and a notification settles only when the user dismisses it,
+ * so an ignored toast shown in place would block every later reply to that thread.
  */
 function reviewModelGate(deps: ReviewCommandDeps): ModelGate {
 	const ref = getFeatureModelRef("reviewComments", (message, data) => {
@@ -94,7 +89,6 @@ function reviewModelGate(deps: ReviewCommandDeps): ModelGate {
 	};
 }
 
-/** reviewModelGate's verdict: the configured model, or the advice to show instead. */
 type ModelGate = { readonly ref: FeatureModelRef } | { readonly ref: undefined; readonly notice: ReplyNotice };
 
 /** Both halves, for the review commands, which have nothing to bank before asking. */
@@ -117,12 +111,6 @@ async function openGate(deps: ReviewCommandDeps): Promise<OpenGate | undefined> 
 	};
 }
 
-/**
- * Send one non-streaming request through the features' shared send composition
- * (featureChatSend: connection resolution, the reviewComments error surface,
- * the chat timeout, and the shared no-such-label advice naming this feature's
- * model setting).
- */
 export async function sendReviewMessages(
 	deps: Pick<ReviewCommandDeps, "oneShot" | "secrets">,
 	ref: FeatureModelRef,
@@ -178,9 +166,8 @@ export async function runReviewChanges(deps: ReviewCommandDeps, commandArg: unkn
 			async (progress, token): Promise<ReviewReport> => {
 				const enumerated = await diffUnits(repo, token);
 				if (token.isCancellationRequested) {
-					// Cancelled while enumerating: a "no uncommitted changes" notice
-					// here would be both wrong and the very thing cancellation is
-					// meant to suppress.
+					// Cancelled while enumerating: a "no uncommitted changes" notice here would be both wrong and the
+					// very thing cancellation is meant to suppress.
 					return { kind: "cancelled" };
 				}
 				if (enumerated === "unborn") {
@@ -218,9 +205,8 @@ export async function runReviewFile(deps: ReviewCommandDeps): Promise<void> {
 	}
 	const document = editor.document;
 	if (document.uri.scheme !== "file") {
-		// An untitled buffer or a virtual document (a diff pane, a git: URI) has
-		// no stable identity to store threads under: next session the same URI
-		// would belong to a different buffer, and nothing would ever prune it.
+		// An untitled buffer or a virtual document (a diff pane, a git: URI) has no stable identity to store threads
+		// under: next session the same URI would belong to a different buffer, and nothing would ever prune it.
 		await showActionableMessage("info", l10n.t("Save this file before reviewing it."), []);
 		return;
 	}
@@ -234,8 +220,6 @@ export async function runReviewFile(deps: ReviewCommandDeps): Promise<void> {
 				const unit: FileReviewUnit = {
 					target: document.uri,
 					lineCount: document.lineCount,
-					// The version the prompt describes; findings are refused if the
-					// document has moved on by the time the answer lands.
 					version: document.version,
 					prompt: buildFileReviewPrompt({
 						path: documentLabel(document.uri),
@@ -258,11 +242,9 @@ export async function runReviewFile(deps: ReviewCommandDeps): Promise<void> {
 }
 
 /**
- * The run's stop condition: the user cancelled, OR the feature was switched
- * off underneath it. Losing the controller ends the run for the same reason
- * cancellation does - there is nowhere left to put an answer - and the loop
- * reads this between files, including after a file whose answer was unusable
- * and never reached applyFindings.
+ * Losing the controller ends the run for the same reason cancellation does - there is nowhere left to put an answer -
+ * and the loop reads this between files, including after a file whose answer was unusable and never reached
+ * applyFindings.
  */
 function runToken(gate: OpenGate, token: vscode.CancellationToken): { readonly isCancellationRequested: boolean } {
 	return {
@@ -273,11 +255,8 @@ function runToken(gate: OpenGate, token: vscode.CancellationToken): { readonly i
 }
 
 /**
- * The apply seam, refusing a file whose document moved while its review was in
- * flight. The prompt described a specific revision; anchoring its findings onto
- * an edited buffer would put comments on lines the model never saw, and a
- * comment on the wrong line is worse than no comment. The file is counted and
- * the user is told, so a re-run is the obvious next step.
+ * The prompt described a specific revision; anchoring its findings onto an edited buffer would put comments on lines
+ * the model never saw, and a comment on the wrong line is worse than no comment.
  */
 function applyFindings(
 	gate: OpenGate,
@@ -285,9 +264,8 @@ function applyFindings(
 ): (uri: vscode.Uri, placements: readonly ReviewPlacement[]) => boolean {
 	return (uri, placements) => {
 		if (gate.controller.isDisposed) {
-			// The user switched the feature off mid-run: the threads are gone and
-			// nothing may be written. That is a cancelled run, not a finished one,
-			// and the command's boundary swallows cancellation silently.
+			// The user switched the feature off mid-run: the threads are gone and nothing may be written. That is a
+			// cancelled run, not a finished one, and the command's boundary swallows cancellation silently.
 			throw new vscode.CancellationError();
 		}
 		const unit = units.find((candidate) => candidate.target.toString() === uri.toString());
@@ -301,10 +279,8 @@ function applyFindings(
 }
 
 /**
- * A thread the USER started from the gutter reaches us unindexed, since the host created it, and adopting it
- * makes their question the thread's first turn. Replies to one thread run ONE AT A TIME, queued rather than
- * dropped, because a second submission appended while the first request runs would sit above its answer and be
- * REPLAYED to the model out of order.
+ * Replies to one thread run ONE AT A TIME, queued rather than dropped, because a second submission appended while the
+ * first request runs would sit above its answer and be REPLAYED to the model out of order.
  */
 export async function runReviewReply(deps: ReviewCommandDeps, reply: vscode.CommentReply): Promise<void> {
 	const controller = await openFeatureGate(deps);
@@ -318,11 +294,9 @@ export async function runReviewReply(deps: ReviewCommandDeps, reply: vscode.Comm
 	if (!controller.adopt(reply.thread)) {
 		return;
 	}
-	// The per-thread queue. The tail covers the THREAD WORK alone - append,
-	// ask, append - and is released before any notification is shown, because a
-	// notification promise settles only when the user dismisses or answers it:
-	// leaving one in the tail would let an ignored toast block every later
-	// reply to that thread indefinitely.
+	// The tail covers the THREAD WORK alone - append, ask, append - and is released before any notification is shown,
+	// because a notification promise settles only when the user dismisses or answers it: leaving one in the tail would
+	// let an ignored toast block every later reply to that thread indefinitely.
 	const previous = replyQueue.get(reply.thread) ?? Promise.resolve();
 	let release: () => void = () => {};
 	replyQueue.set(
@@ -333,8 +307,8 @@ export async function runReviewReply(deps: ReviewCommandDeps, reply: vscode.Comm
 	);
 	let notice: ReplyNotice | undefined;
 	try {
-		// Every queued tail is one of these manually-settled promises, so it
-		// never rejects and a failed turn cannot wedge the chain.
+		// Every queued tail is one of these manually-settled promises, so it never rejects and a failed turn cannot
+		// wedge the chain.
 		await previous;
 		notice = await answerReply(deps, controller, reply, text);
 	} finally {
@@ -344,31 +318,25 @@ export async function runReviewReply(deps: ReviewCommandDeps, reply: vscode.Comm
 }
 
 /**
- * What a finished turn still owes the user, deferred so that showing it cannot
- * hold the thread's queue: an actionable notification resolves only once it is
- * dismissed or answered.
+ * What a finished turn still owes the user, deferred so that showing it cannot hold the thread's queue: an actionable
+ * notification resolves only once it is dismissed or answered.
  */
 type ReplyNotice = () => Promise<void>;
 
-/** One queued reply: append the user's turn, ask the model, append the answer. */
 async function answerReply(
 	deps: ReviewCommandDeps,
 	controller: ReviewCommentController,
 	reply: vscode.CommentReply,
 	text: string
 ): Promise<ReplyNotice | undefined> {
-	// Banked before the model question: the reply editor is already closed by
-	// the time this runs, so an unanswered turn is better than a lost one.
+	// Banked before the model question: the reply editor is already closed by the time this runs, so an unanswered turn
+	// is better than a lost one.
 	const turns = controller.appendComment(reply.thread, "user", text);
 	if (turns === undefined) {
-		// The controller was disposed between the adopt and the append (the
-		// feature was switched off); there is nothing left to continue.
 		return undefined;
 	}
 	const model = reviewModelGate(deps);
 	if (model.ref === undefined) {
-		// Their words are on screen and in the store; only the answer is missing,
-		// and its advice waits until the queue has been released.
 		return model.notice;
 	}
 	const ref = model.ref;
@@ -387,8 +355,7 @@ async function answerReply(
 					buildReplyMessages({
 						path: documentLabel(reply.thread.uri),
 						snippet,
-						// The prompt speaks the 1-based numbering the model was given;
-						// the host's ranges are 0-based.
+						// The prompt speaks the 1-based numbering the model was given; the host's ranges are 0-based.
 						startLine: (range?.start.line ?? 0) + 1,
 						endLine: (range?.end.line ?? 0) + 1,
 						turns,
@@ -408,23 +375,19 @@ async function answerReply(
 }
 
 /**
- * Each thread's in-flight reply chain: a promise that settles when that turn's
- * THREAD WORK is done, never when its notification is dismissed. See
- * runReviewReply.
+ * Each thread's in-flight reply chain: a promise that settles when that turn's THREAD WORK is done, never when its
+ * notification is dismissed. See runReviewReply.
  */
 const replyQueue = new WeakMap<vscode.CommentThread, Promise<void>>();
 
-/** Mark a thread resolved or unresolved; no network, no gate beyond the controller existing. */
 export function setThreadResolved(deps: ReviewCommandDeps, thread: vscode.CommentThread, resolved: boolean): void {
 	deps.controller()?.setResolved(thread, resolved);
 }
 
-/** Delete one review thread outright. */
 export function deleteReviewThread(deps: ReviewCommandDeps, thread: vscode.CommentThread): void {
 	deps.controller()?.deleteThread(thread);
 }
 
-/** What a finished run has to say; the notification texts live in one place below. */
 type ReviewReport =
 	| { readonly kind: "nothing"; readonly what: "changes" | "file" }
 	| { readonly kind: "cancelled" }
@@ -437,9 +400,7 @@ type ReviewReport =
 	  };
 
 /**
- * Show the completion notice, unless the run was cancelled: a cancelled pass
- * keeps whatever landed - the applied comments are already the user's - and
- * says nothing, like every other cancelled command in this extension.
+ *   a cancelled pass keeps whatever landed - the applied comments are already the user's -> says nothing
  */
 async function announce(report: ReviewReport): Promise<void> {
 	if (report.kind === "cancelled" || (report.kind === "reviewed" && report.outcome.cancelled)) {
@@ -449,9 +410,8 @@ async function announce(report: ReviewReport): Promise<void> {
 }
 
 /**
- * The completion notice: counts only, never a word of what the model wrote.
- * Each case is its own whole sentence rather than assembled fragments, so a
- * translation can order the numbers however its language needs.
+ * The completion notice: counts only, never a word of what the model wrote. Each case is its own whole sentence rather
+ * than assembled fragments, so a translation can order the numbers however its language needs.
  */
 function reportText(report: ReviewReport): string {
 	if (report.kind === "cancelled") {
@@ -469,9 +429,8 @@ function reportText(report: ReviewReport): string {
 	}
 	const { outcome } = report;
 	const landed = outcome.reviewed - outcome.unusable - outcome.stale;
-	// No leading sentence when no file made it through: "Reviewed 0 files -
-	// nothing to report." would be the opposite of what happened, and the
-	// sentences below say what actually did.
+	// No leading sentence when no file made it through: "Reviewed 0 files - nothing to report." would be the opposite
+	// of what happened, and the sentences below say what actually did.
 	const sentences = landed > 0 ? [reviewedSentence(outcome.findings, landed)] : [];
 	if (outcome.unusable === 1) {
 		sentences.push(l10n.t("1 file got no readable review back and kept its earlier comments."));
@@ -491,8 +450,8 @@ function reportText(report: ReviewReport): string {
 		sentences.push(l10n.t("{0} files have unsaved changes; save them and review them on their own.", report.dirty));
 	}
 	if (report.skipped > 0) {
-		// "more" only reads right after another sentence; on its own - a change
-		// set of pure deletions or renames - it would dangle.
+		// "more" only reads right after another sentence; on its own - a change set of pure deletions or renames - it
+		// would dangle.
 		const leading = sentences.length === 0;
 		if (report.skipped === 1) {
 			sentences.push(
@@ -509,7 +468,6 @@ function reportText(report: ReviewReport): string {
 	return sentences.join(" ");
 }
 
-/** The counted outcome as one sentence, with a literal key per plural combination. */
 function reviewedSentence(findings: number, files: number): string {
 	if (findings === 0) {
 		return files === 1
@@ -524,7 +482,6 @@ function reviewedSentence(findings: number, files: number): string {
 		: l10n.t("{0} review comments across {1} files.", findings, files);
 }
 
-/** What one enumeration pass found; see diffUnits. */
 interface DiffUnits {
 	readonly units: readonly FileReviewUnit[];
 	readonly skipped: number;
@@ -532,22 +489,18 @@ interface DiffUnits {
 }
 
 /**
- * A file with UNSAVED edits is skipped and counted apart, because its diff describes what is on disk while the
- * comments would anchor into the buffer, so the model would review one revision and the comments land on
- * another. An unborn repository is the ONLY enumeration failure swallowed here, and any other one is a real git
- * failure that belongs to the command's error boundary.
+ * A file with UNSAVED edits is skipped and counted apart, because its diff describes what is on disk while the comments
+ * would anchor into the buffer, so the model would review one revision and the comments land on another.
  */
 async function diffUnits(repo: Repository, token: vscode.CancellationToken): Promise<DiffUnits | "unborn"> {
 	let changes: readonly Change[];
 	try {
 		changes = await repo.diffWith("HEAD");
 	} catch (error) {
-		// HEAD present with no commit is an unborn branch; HEAD ABSENT means the
-		// repository state has not loaded yet, which proves nothing about why the
-		// diff failed - that one belongs to the error boundary.
+		// HEAD present with no commit is an unborn branch; HEAD ABSENT means the repository state has not loaded yet,
+		// which proves nothing about why the diff failed - that one belongs to the error boundary.
 		if (repo.state.HEAD !== undefined && repo.state.HEAD.commit === undefined) {
-			// No commit to diff against. Whatever is staged here is the first
-			// commit's content, which this comparison cannot describe, so the
+			// Whatever is staged here is the first commit's content, which this comparison cannot describe, so the
 			// answer names the reason instead of claiming the tree is clean.
 			return "unborn";
 		}
@@ -559,9 +512,8 @@ async function diffUnits(repo: Repository, token: vscode.CancellationToken): Pro
 		if (token.isCancellationRequested || units.length >= REVIEW_FILE_LIMIT) {
 			break;
 		}
-		// Two different strings on purpose: git is asked about the path relative
-		// to ITS root, while the model is shown the same label every other review
-		// path uses - which never carries an absolute path.
+		// Two different strings on purpose: git is asked about the path relative to ITS root, while the model is shown
+		// the same label every other review path uses - which never carries an absolute path.
 		const gitPath = repositoryRelativePath(repo.rootUri, change.uri);
 		let document: vscode.TextDocument;
 		try {
@@ -576,8 +528,8 @@ async function diffUnits(repo: Repository, token: vscode.CancellationToken): Pro
 		const version = document.version;
 		const diff = await repo.diffWith("HEAD", gitPath);
 		if (document.isDirty || document.version !== version) {
-			// Edited while its diff was being read: the diff describes what is on
-			// disk, which the buffer no longer matches.
+			// Edited while its diff was being read: the diff describes what is on disk, which the buffer no longer
+			// matches.
 			dirty += 1;
 			continue;
 		}
@@ -595,9 +547,8 @@ async function diffUnits(repo: Repository, token: vscode.CancellationToken): Pro
 }
 
 /**
- * The lines a thread anchors, numbered the way the whole-file prompt numbers
- * them so the model reads one numbering everywhere. Empty when the document
- * cannot be read or the thread carries no range - a reply about code we cannot
+ * The lines a thread anchors, numbered the way the whole-file prompt numbers them so the model reads one numbering
+ * everywhere. Empty when the document cannot be read or the thread carries no range - a reply about code we cannot
  * quote is still worth sending, just without the quote.
  */
 async function anchoredSnippet(uri: vscode.Uri, range: vscode.Range | undefined): Promise<string> {

@@ -1,12 +1,6 @@
 /**
- * The agent tools' input envelopes: what an agent may hand each tool. The
- * contributed inputSchema documents the shape for the model; this parse binds
- * it, because the host forwards whatever the model sent. Every value that ends
- * up inside a dashboard intent stays `unknown` here - the intent schema is the
- * one judge of setting values, record fields, and server entries - so this
- * module parses only the tool's own grammar: which argument names what, and
- * the edit semantics the dashboard has no word for (null clears a field, a
- * valueless secret asks the user).
+ * The contributed inputSchema documents the shape for the model; this parse binds it, because the host forwards
+ * whatever the model sent.
  */
 
 import { z } from "zod";
@@ -20,9 +14,8 @@ import { recordFromKeys } from "../../../shared/util/json";
 const QUERY_MAX = 200;
 
 /**
- * Labels are trimmed here because the dashboard's save trims too: an untrimmed
- * " Prod " would miss the stored Prod in the planner (new-entry defaults, no
- * replace identity) and then overwrite Prod on save, deleting its fields.
+ * Labels are trimmed here because the dashboard's save trims too: an untrimmed " Prod " would miss the stored Prod in
+ * the planner (new-entry defaults, no replace identity) and then overwrite Prod on save, deleting its fields.
  */
 const label = z.string().trim().min(1).max(WIRE_LIMITS.label);
 
@@ -32,11 +25,9 @@ const CONFIGURATION_SECTIONS = ["servers", "settings", "models", "hiddenGroups",
 export type ConfigurationSection = (typeof CONFIGURATION_SECTIONS)[number];
 
 /**
- * A save directive as the AGENT writes it: `set` may omit the value, which
- * asks the extension to prompt the user for it in a masked box. The dashboard's
- * own directive always carries the value (the form collected it); this shape
- * exists for the prompt, and the planner turns it into the dashboard's shape
- * before anything is submitted.
+ * A save directive as the AGENT writes it: `set` may omit the value, which asks the extension to prompt the user for it
+ * in a masked box. The dashboard's own directive always carries the value (the form collected it); this shape exists
+ * for the prompt, and the planner turns it into the dashboard's shape before anything is submitted.
  */
 const secretLocation = z.enum(["settings", "secure"]);
 
@@ -76,9 +67,9 @@ const groupBaseUrl = z
 const serverLabel = label.describe("The entry's label (its identity; the model picker groups models under it).");
 
 /**
- * The tools' input envelopes. The `.describe` texts are model-facing English: `bun run manifest:generate` writes
- * them, with the shapes, into package.json's languageModelTools contributions, so this table is the one source of
- * what the model is told and what the parse accepts.
+ * The `.describe` texts are model-facing English: `bun run manifest:generate` writes them, with the shapes, into
+ * package.json's languageModelTools contributions, so this table is the one source of what the model is told and what
+ * the parse accepts.
  */
 export const AGENT_TOOL_INPUT_SCHEMAS = {
 	diagnostics: z.strictObject({
@@ -91,10 +82,9 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 			.optional()
 			.describe("Which sections to return. Default: all."),
 	}),
-	// Model IDs are raw server strings, never trimmed: the server, discovery,
-	// and the dashboard keep them byte for byte.
-	// scopeKey (from the configuration tool's models) disambiguates when a
-	// declared entry and an external group share a label and serve the same ID.
+	// Model IDs are raw server strings, never trimmed: the server, discovery, and the dashboard keep them byte for
+	// byte. scopeKey (from the configuration tool's models) disambiguates when a declared entry and an external group
+	// share a label and serve the same ID.
 	inspectModel: z.strictObject({
 		server: label.describe("The servers entry label, from litellm_configuration."),
 		model: z
@@ -137,10 +127,6 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 			.describe("A servers entry label, to edit that entry's own record instead of the global setting."),
 	}),
 	saveServer: z.union([
-		// Adoption is its own grammar: the source group's identity, the new
-		// label, and where each copied secret goes. No edit field and no secret
-		// value can ride it, so the adopt intent copies exactly what the group
-		// holds.
 		z
 			.strictObject({
 				label: serverLabel,
@@ -162,8 +148,6 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 			.describe(
 				"Adopt an external provider group (one not in the servers setting) into the setting under label. Nothing else can be changed in the same call; edit the entry afterwards."
 			),
-		// The edit grammar: which stored field each argument replaces. The
-		// values the save rebuilds travel as-is; the dashboard schema judges them.
 		z
 			.strictObject({
 				label: serverLabel,
@@ -213,8 +197,8 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 			})
 			.describe("Add or edit a servers entry. On an edit, omitted fields keep their stored values."),
 	]),
-	// Hide and unhide name the base URL: two groups can share a label, and the
-	// dashboard treats label plus base URL as the identity.
+	// Hide and unhide name the base URL: two groups can share a label, and the dashboard treats label plus base URL as
+	// the identity.
 	removeServer: z.discriminatedUnion("action", [
 		z.strictObject({
 			action: z.literal("remove").describe("Remove a servers entry."),
@@ -231,8 +215,8 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 			baseUrl: groupBaseUrl,
 		}),
 	]),
-	// Each action names exactly the argument it needs, so a probe without its
-	// target is a parse refusal, not a planner sentinel.
+	// Each action names exactly the argument it needs, so a probe without its target is a parse refusal, not a planner
+	// sentinel.
 	runAction: z.discriminatedUnion("action", [
 		z.strictObject({
 			action: z.literal("testConnection").describe("Probe a stored servers entry with its stored credentials."),

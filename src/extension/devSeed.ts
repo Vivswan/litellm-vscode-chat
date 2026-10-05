@@ -14,20 +14,15 @@ import { updateServerSecret } from "./servers/serverSync";
 import { createSettingsAccess } from "./settingsAccess";
 
 /**
- * The `bun run dev` launcher writes the seed file (shared/devSeed.ts owns its name and shape) into the
- * extension folder, and extension.ts reads it only outside Production mode. Seed API keys land inline in
- * their entries on purpose, since that is the case the dashboard edit form's prefill exercises.
+ * The `bun run dev` launcher writes the seed file (shared/devSeed.ts owns its name and shape) into the extension
+ * folder, and extension.ts reads it only outside Production mode. Seed API keys land inline in their entries on
+ * purpose, since that is the case the dashboard edit form's prefill exercises.
  */
 
 const DEFAULT_SEED_LABEL = "Fake LiteLLM";
 
-/** The kinds of model-keyed record settings the seed can write. */
 type DevSeedRecordKind = "parameters" | "capabilities";
 
-/**
- * Narrow a raw `models`-shaped value to the record-of-records shape, with the
- * same per-entry leniency the settings readers use; empty reads as absent.
- */
 function parseSeedModels(raw: unknown): DevSeedModels | undefined {
 	if (!isRecord(raw)) {
 		return undefined;
@@ -41,10 +36,6 @@ function parseSeedModels(raw: unknown): DevSeedModels | undefined {
 	return Object.keys(models).length > 0 ? models : undefined;
 }
 
-/**
- * One extra seed entry, or undefined when the item is unusable. Lenient like
- * the rest of the dev-only path: a malformed item drops itself, never the seed.
- */
 function parseSeedEntry(raw: unknown): DevSeedEntry | undefined {
 	if (!isRecord(raw)) {
 		return undefined;
@@ -80,8 +71,8 @@ export function parseDevSeed(raw: string): DevSeed | undefined {
 	if (typeof record.baseUrl !== "string" || record.baseUrl.trim().length === 0) {
 		return undefined;
 	}
-	// Trimmed like parseServersSetting trims: the label keys the SecretStorage
-	// blob and the entry match, so both sides must resolve the same name.
+	// Trimmed like parseServersSetting trims: the label keys the SecretStorage blob and the entry match, so both sides
+	// must resolve the same name.
 	const label = typeof record.label === "string" ? record.label.trim() : "";
 	const models = parseSeedModels(record.models);
 	const entries = Array.isArray(record.entries)
@@ -99,18 +90,14 @@ export function parseDevSeed(raw: string): DevSeed | undefined {
 	};
 }
 
-/** The effects applying a seed needs, injectable for tests; createDevSeedEnv builds the real one. */
 export interface DevSeedEnv {
-	/** The user-scope servers setting value the seed entries are upserted into. */
 	readServersSetting(): unknown;
 	writeServersSetting(value: readonly unknown[]): Thenable<void>;
 	/**
-	 * Clear the label's secure-side key. Deliberately not a write capability:
-	 * every seed key sits inline in its entry, so the dev path can only remove
-	 * a previous run's leftover, never plant a secure-side secret.
+	 * Deliberately not a write capability: every seed key sits inline in its entry, so the dev path can only remove a
+	 * previous run's leftover, never plant a secure-side secret.
 	 */
 	clearApiKey(label: string): Promise<void>;
-	/** The user-scope models.parameters / models.capabilities setting value. */
 	readModelRecords(kind: DevSeedRecordKind): unknown;
 	writeModelRecords(kind: DevSeedRecordKind, value: Readonly<Record<string, unknown>>): Thenable<void>;
 }
@@ -123,22 +110,19 @@ const RECORD_SETTING_KEYS: Record<DevSeedRecordKind, string> = {
 export function createDevSeedEnv(secrets: vscode.SecretStorage): DevSeedEnv {
 	const settings = createSettingsAccess();
 	return {
-		// The effective value, matching what the sync engine reads: the setting is
-		// machine-scoped, so no workspace value can enter the merge. upsertSeedEntry
-		// replaces by label, so writing the merged array back to global is safe.
+		// The effective value, matching what the sync engine reads: the setting is machine-scoped, so no workspace
+		// value can enter the merge. upsertSeedEntry replaces by label, so writing the merged array back to global is
+		// safe.
 		readServersSetting: () => settings.readEffective(SERVERS_SETTING_KEY),
 		writeServersSetting: (value) => settings.writeGlobal(SERVERS_SETTING_KEY, value),
 		clearApiKey: (label) => updateServerSecret(secrets, label, "apiKey", undefined, undefined),
-		// The GLOBAL value, not the effective one: the record settings are
-		// window-scoped and the seed merges what it reads back into the global
-		// scope, so an effective read could copy a workspace value into user
-		// settings.
+		// The GLOBAL value, not the effective one: the record settings are window-scoped and the seed merges what it
+		// reads back into the global scope, so an effective read could copy a workspace value into user settings.
 		readModelRecords: (kind) => settings.readGlobal(RECORD_SETTING_KEYS[kind]),
 		writeModelRecords: (kind, value) => settings.writeGlobal(RECORD_SETTING_KEYS[kind], value),
 	};
 }
 
-/** The settings-shaped object one seed entry lands as (key inline, optional budget and models). */
 function seedEntryValue(entry: DevSeedEntry): unknown {
 	return {
 		label: entry.label,
@@ -149,7 +133,6 @@ function seedEntryValue(entry: DevSeedEntry): unknown {
 	};
 }
 
-/** The seed's main entry viewed as a DevSeedEntry, so one upsert path serves it and the extras. */
 function mainEntryOf(seed: DevSeed): DevSeedEntry {
 	return {
 		label: seed.label,
@@ -160,9 +143,8 @@ function mainEntryOf(seed: DevSeed): DevSeedEntry {
 }
 
 /**
- * The setting array with one seed entry in place. Entries under other labels
- * survive verbatim (junk included); the seed's own entry is replaced wholesale,
- * so a changed port, key, or budget from a previous run does not linger.
+ * Entries under other labels survive verbatim (junk included); the seed's own entry is replaced wholesale, so a changed
+ * port, key, or budget from a previous run does not linger.
  */
 function upsertSeedEntry(raw: unknown, entry: DevSeedEntry): unknown[] {
 	const entries: unknown[] = Array.isArray(raw) ? [...raw] : [];
@@ -178,11 +160,6 @@ function upsertSeedEntry(raw: unknown, entry: DevSeedEntry): unknown[] {
 	return entries;
 }
 
-/**
- * The global demo records, merged over the current setting: the seed owns
- * exactly the matcher keys it names and every other key survives verbatim.
- * No-op when the merge changes nothing, so an unchanged rerun writes nothing.
- */
 async function applySeedRecords(records: DevSeedModels | undefined, env: DevSeedEnv): Promise<void> {
 	for (const kind of ["parameters", "capabilities"] as const) {
 		const seeded = records?.[kind];
@@ -199,9 +176,8 @@ async function applySeedRecords(records: DevSeedModels | undefined, env: DevSeed
 }
 
 /**
- * Settings writes land first, previous runs' secure-side keys are cleared last:
- * the inline keys outrank the blobs, so a failed clear leaves only dormant
- * leftovers behind working entries, and cleanup never gates content.
+ *   the inline keys outrank the blobs -> Settings writes land first, previous runs' secure-side keys are cleared last
+ *   cleanup -> never gates content
  */
 async function applySeed(seed: DevSeed, env: DevSeedEnv): Promise<void> {
 	const entries = [mainEntryOf(seed), ...(seed.entries ?? [])];
@@ -211,8 +187,6 @@ async function applySeed(seed: DevSeed, env: DevSeedEnv): Promise<void> {
 	}
 	await env.writeServersSetting(setting as readonly unknown[]);
 	await applySeedRecords(seed.records, env);
-	// Every label gets its clear attempted even when an earlier one throws;
-	// the first failure still surfaces to the caller's single log site.
 	let clearFailure: unknown;
 	for (const entry of entries) {
 		try {
@@ -227,9 +201,8 @@ async function applySeed(seed: DevSeed, env: DevSeedEnv): Promise<void> {
 }
 
 /**
- * Consume the seed file if present. The delete is the one-shot guarantee, so it
- * happens before anything acts on the contents, and a failed delete aborts the
- * seed rather than risking a reseed on every activation.
+ * The delete is the one-shot guarantee, so it happens before anything acts on the contents, and a failed delete aborts
+ * the seed rather than risking a reseed on every activation.
  */
 export async function consumeDevSeed(
 	extensionUri: vscode.Uri,
@@ -262,8 +235,8 @@ export async function consumeDevSeed(
 			extraEntries: seed.entries?.length ?? 0,
 		});
 	} catch (error) {
-		// Error severity, classification-only payload: this catch spans the
-		// SecretStorage write, and the log buffer feeds public issue reports.
+		// Error severity, classification-only payload: this catch spans the SecretStorage write, and the log buffer
+		// feeds public issue reports.
 		logger.error("Dev seed could not write the server configuration; configure the server by hand", errorLabel(error));
 	}
 	return seed;

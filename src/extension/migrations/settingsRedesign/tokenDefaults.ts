@@ -1,12 +1,17 @@
 /**
- * The removed default* token settings move into the models.capabilities "*" record, each at the level its
- * removed reader had. The record is marked `_inheritable` because the old defaults applied to every model, and
- * without the mark any model with a more specific record of its own would lose them under most-specific-wins.
+ * The removed default* token settings move into the models.capabilities "*" record, each at the level its removed
+ * reader had. The record is marked `_inheritable` because the old defaults applied to every model, and without the
+ * mark any model with a more specific record of its own would lose them under most-specific-wins.
  *
- *   context_length, max_output_tokens       -> ride `_fallback`; max_output_tokens now reads as user-declared and escapes the min(4096, limit) clamp
- *   max_input_tokens                        -> plain override, it beat the server's value; now also beats an `_openrouter_model` directive
- *   existing "*" record                     -> only added fields join its `_inheritable` list (a user's `true` stays); no old field is newly marked
- *   `_fallback: true` as an override lands  -> expands to the pre-existing valid fields so the fill lands unmarked; later fields lose auto-marking
+ *   context_length, max_output_tokens      -> ride `_fallback`; max_output_tokens now reads as user-declared and
+ *                                             escapes the min(4096, limit) clamp
+ *   max_input_tokens                       -> plain override
+ *   it beat the server's value             -> plain override
+ *   plain override                         -> now also beats an `_openrouter_model` directive
+ *   existing "*" record                    -> only added fields join its `_inheritable` list (a user's `true` stays);
+ *                                             no old field is newly marked
+ *   `_fallback: true` as an override lands -> expands to the pre-existing valid fields so the fill lands unmarked;
+ *                                             later fields lose auto-marking
  */
 
 import { isRecord } from "../../../shared/util/json";
@@ -19,10 +24,9 @@ const FALLBACK_DIRECTIVE = "_fallback";
 const INHERITABLE_DIRECTIVE = "_inheritable";
 
 /**
- * A `_fallback` or `_inheritable` value read as a mergeable list base: `false`
- * marks nothing, which is the no-directive state, so it reads as absent rather
- * than blocking the move forever. Anything that is not boolean-or-array cannot
- * take additions without overwriting what the user wrote, so it blocks.
+ * A `_fallback` or `_inheritable` value read as a mergeable list base: `false` marks nothing, which is the no-directive
+ * state, so it reads as absent rather than blocking the move forever. Anything that is not boolean-or-array cannot take
+ * additions without overwriting what the user wrote, so it blocks.
  */
 function directiveBase(record: Record<string, unknown>, directive: string): { ok: boolean; value?: unknown } {
 	const raw = Object.hasOwn(record, directive) ? record[directive] : undefined;
@@ -48,14 +52,13 @@ export interface TokenDefaultsMerge {
 const UNTOUCHED: TokenDefaultsMerge = { consumedIds: [], movedFields: 0, drainedKeys: 0, blockedValues: 0 };
 
 /**
- * Merge the trio's user-layer values into the (already renamed, in-memory)
- * models.capabilities value. Existing user keys in the catch-all always win: a
- * field the user already set keeps its value and its level, and only missing
- * fields are filled - each at its removed setting's own level. A source value
- * the removed readers did not honor (zero, negative, fractional, non-numeric)
- * had no effect and is consumed without a fill. An unmergeable target blocks
- * the move and keeps the sources, so the pipeline retries every activation
- * until the user repairs the record.
+ * A source value the removed readers did not honor (zero, negative, fractional, non-numeric) had no effect and is
+ * consumed without a fill.
+ *
+ *   Existing user keys in the catch-all always win -> only missing fields are filled - each at its removed setting's
+ *     own level
+ *   An unmergeable target blocks the move and keeps the sources -> the pipeline retries every activation until the
+ *                                                                  user repairs the record
  */
 export function mergeTokenDefaults(capabilitiesValue: unknown, snapshot: SettingsSnapshot): TokenDefaultsMerge {
 	const configured = REMOVED_TOKEN_DEFAULTS.filter((source) => snapshot[source.id]?.globalValue !== undefined);
@@ -92,10 +95,8 @@ export function mergeTokenDefaults(capabilitiesValue: unknown, snapshot: Setting
 		(source.placement === "override" ? overrideAdditions : fallbackAdditions).push(source.field);
 	}
 
-	// The `_fallback` merge. With no override-placed fill, a user's `true` stays
-	// exactly as written. An override-placed fill must land unmarked, so `true`
-	// expands to the pre-existing valid fields and inert names of the filled
-	// field drop from a list. An empty resulting list drops the directive.
+	// An override-placed fill must land unmarked, so `true` expands to the pre-existing valid fields and inert names of
+	// the filled field drop from a list.
 	const writeFallback = (list: readonly string[]): void => {
 		if (list.length === 0) {
 			delete merged[FALLBACK_DIRECTIVE];

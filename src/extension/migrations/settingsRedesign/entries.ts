@@ -1,15 +1,10 @@
 /**
- * The entry restructure: pre-redesign `servers` entries carried flat
- * credential fields plus per-entry records; the redesigned shape groups them
- * under `auth`, `models`, and `discovery`. Pure functions over the raw setting
- * value - acceptance rules and secret semantics are deliberately duplicated
- * from the old parser here (quarantine), so the live parser can be rewritten
- * for the new shape without touching migration behavior.
+ * Pure functions over the raw setting value - acceptance rules and secret semantics are deliberately duplicated from
+ * the old parser here (quarantine), so the live parser can be rewritten for the new shape without touching migration
+ * behavior.
  *
- * Secrets never appear: a field whose value lives only in SecretStorage was
- * absent from the flat entry and stays absent from the restructured one - the
- * stored value keeps working through its unchanged storage key. The migration
- * reads no secrets, writes no secrets, and synthesizes no placeholder fields.
+ * Secrets never appear: a field whose value lives only in SecretStorage was absent from the flat entry and stays
+ * absent from the restructured one - the stored value keeps working through its unchanged storage key.
  */
 
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
@@ -35,10 +30,9 @@ function usableString(value: unknown): string | undefined {
 }
 
 /**
- * The entries scoped keys and the global headers value may move into, under
- * the old acceptance rules (usable label and baseUrl, no reserved label, first
- * entry wins a repeated label): only accepted entries ever became groups, so
- * only they ever read a scoped key.
+ * The entries scoped keys and the global headers value may move into, under the old acceptance rules (usable label and
+ * baseUrl, no reserved label, first entry wins a repeated label): only accepted entries ever became groups, so only
+ * they ever read a scoped key.
  */
 export function scopedMoveTargets(rawServers: unknown): ScopedMoveTarget[] {
 	if (!Array.isArray(rawServers)) {
@@ -66,7 +60,6 @@ function fromPairs(pairs: readonly (readonly [string, unknown])[]): Record<strin
 	return Object.fromEntries(pairs);
 }
 
-/** Merge two records key by key, `preferred`'s keys winning. */
 function mergePreferring(preferred: Record<string, unknown>, filler: Record<string, unknown>): Record<string, unknown> {
 	return fromPairs([...Object.entries(filler), ...Object.entries(preferred)]);
 }
@@ -94,9 +87,8 @@ function emptyCounts(): EntryRestructureCounts {
 }
 
 /**
- * The flat credential fields as the old runtime honored them: usable strings
- * only. A present-but-unusable value (a number, blank text) was invisible to
- * every old reader, so it is consumed and counted instead of carried.
+ * A present-but-unusable value (a number, blank text) was invisible to every old reader, so it is consumed and counted
+ * instead of carried.
  */
 function collectAuthFields(
 	record: Record<string, unknown>,
@@ -122,9 +114,12 @@ function collectAuthFields(
  * header set the old transport sent for each combination. Drops mirror what the old runtime never honored, so
  * nothing carried forward can turn a working entry into a misconfigured one.
  *
- *   tokenUrl or clientId alone (the old hasOAuth gate) -> dropped; the old runtime ignored a partial oauth outright
+ *   tokenUrl or clientId alone (the old hasOAuth gate) -> dropped
+ *   the old runtime ignored a partial oauth outright   -> dropped
  *   virtualKey header without its value                -> kept; the value may rest in SecretStorage
- *   value without a header, or an illegal header name  -> dropped; it never reaches the wire, and the stored blob waits for a re-added header
+ *   value without a header, or an illegal header name  -> dropped
+ *   it never reaches the wire                          -> dropped
+ *   the stored blob                                    -> waits for a re-added header
  */
 function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 	auth: Record<string, unknown> | undefined;
@@ -182,9 +177,7 @@ function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 }
 
 /**
- * Restructure one raw entry record. Entries without any legacy flat field are
- * already new-world and ride verbatim. A hand-mixed entry carrying both shapes
- * merges with the nested side winning: nested values are the newer intent, and
+ * A hand-mixed entry carrying both shapes merges with the nested side winning: nested values are the newer intent, and
  * the flat leftovers still drain so the entry stops being detected as legacy.
  */
 function restructureEntry(record: Record<string, unknown>, counts: EntryRestructureCounts): Record<string, unknown> {
@@ -226,9 +219,8 @@ function restructureEntry(record: Record<string, unknown>, counts: EntryRestruct
 	}
 	const flatDiscovery = discoveryPairs.length > 0 ? fromPairs(discoveryPairs) : undefined;
 
-	// `auth` never merges: exactly one form is legal, and mixing a flat
-	// credential into an existing auth object would fabricate a second form.
-	// The nested object is the newer intent and wins WHOLESALE.
+	// `auth` never merges: exactly one form is legal, and mixing a flat credential into an existing auth object would
+	// fabricate a second form.
 	let mergedAuth: unknown;
 	if (record.auth === undefined) {
 		mergedAuth = flatAuth;
@@ -251,8 +243,8 @@ function restructureEntry(record: Record<string, unknown>, counts: EntryRestruct
 			return flat;
 		}
 		if (!isRecord(existing)) {
-			// An inert non-record nested value loses to real flat configuration
-			// and otherwise stays as the user's own text.
+			// An inert non-record nested value loses to real flat configuration and otherwise stays as the user's own
+			// text.
 			if (flat !== undefined) {
 				counts.droppedJunkFields += 1;
 				return flat;
@@ -265,9 +257,6 @@ function restructureEntry(record: Record<string, unknown>, counts: EntryRestruct
 		return mergePreferring(existing, flat);
 	};
 
-	// `declared` merges additively even when the existing discovery object
-	// wins its other keys: a declaration read from `_declare` must not vanish
-	// because the entry already had a discovery block.
 	const mergedDiscoveryBase = mergeNested(flatDiscovery, record.discovery);
 	const mergedDiscovery =
 		isRecord(mergedDiscoveryBase) && declared.length > 0
@@ -303,7 +292,6 @@ function restructureEntry(record: Record<string, unknown>, counts: EntryRestruct
 	return fromPairs(pairs);
 }
 
-/** Merge exact IDs into a discovery object's `declared` list, existing entries first, deduped. */
 function withDeclaredIds(discovery: Record<string, unknown>, ids: readonly string[]): Record<string, unknown> {
 	const existing = discovery.declared;
 	if (existing !== undefined && !Array.isArray(existing)) {
@@ -318,11 +306,7 @@ function withDeclaredIds(discovery: Record<string, unknown>, ids: readonly strin
 	return { ...discovery, declared: merged };
 }
 
-/**
- * Restructure every entry of the raw servers value. Non-array values and
- * non-record entries ride verbatim: they were inert and remain the user's
- * text to fix.
- */
+/** Non-array values and non-record entries ride verbatim: they were inert and remain the user's text to fix. */
 export function restructureServers(raw: unknown): { value: unknown; counts: EntryRestructureCounts } {
 	const counts = emptyCounts();
 	if (!Array.isArray(raw)) {
@@ -349,11 +333,10 @@ export function entryCanReceiveRecordKeys(entry: unknown, kind: "parameters" | "
 }
 
 /**
- * The two list-shaped directives a colliding-record merge must reconcile;
- * everything else merges entry-wins. Each carries the eligibility rule its own
- * parser applies when expanding a `true` directive, so the merge cannot mint
- * names the old world never marked: `_force` refuses provider-owned and
- * underscore keys, `_fallback` accepts only validly-typed capability fields.
+ * The two list-shaped directives a colliding-record merge must reconcile; everything else merges entry-wins. Each
+ * carries the eligibility rule its own parser applies when expanding a `true` directive, so the merge cannot mint
+ * names the old world never marked: `_force` refuses provider-owned and underscore keys, `_fallback` accepts only
+ * validly-typed capability fields.
  */
 const LIST_DIRECTIVES: readonly {
 	readonly name: string;
@@ -371,7 +354,7 @@ const LIST_DIRECTIVE_NAMES: readonly string[] = LIST_DIRECTIVES.map((directive) 
  * `_force`/`_fallback` cover, so every mark keeps exactly the coverage it had.
  *
  *   entry-side `true`                          -> expands to the entry's literal field list before scoped fields land
- *   entry-side name that marked nothing        -> dropped once the scoped record supplies the field, so it cannot spring to life
+ *   entry-side name that marked nothing        -> dropped once the scoped record supplies the field
  *   scoped name whose field the entry overrode -> dropped, never re-pointed at the entry's value
  */
 function mergeCollidingRecords(
@@ -399,19 +382,18 @@ function mergeCollidingRecords(
 					: [];
 		if (existingRaw !== undefined && existingRaw !== false && !Array.isArray(existingRaw)) {
 			if (existingRaw === true && arrivingNames.size > 0) {
-				// Expand before the arriving fields widen what `true` covers; the
-				// scoped side's marks follow its surviving fields.
+				// Expand before the arriving fields widen what `true` covers; the scoped side's marks follow its
+				// surviving fields.
 				const surviving = additionNames.filter((name) => arrivingNames.has(name));
 				directiveChanges.push([directive, [...eligibleNames(existing, eligible), ...surviving]]);
 				continue;
 			}
-			// A `true` with nothing arriving (or a junk value) stays as written;
-			// junk cannot take additions without overwriting the user's text, so
-			// arriving marks are dropped with it.
+			// A `true` with nothing arriving (or a junk value) stays as written; junk cannot take additions without
+			// overwriting the user's text, so arriving marks are dropped with it.
 			continue;
 		}
-		// An entry-side name the entry itself does not set marked nothing; keep
-		// it only while the merge leaves it inert.
+		// An entry-side name the entry itself does not set marked nothing; keep it only while the merge leaves it
+		// inert.
 		const base = (Array.isArray(existingRaw) ? existingRaw : []).filter(
 			(name) => typeof name !== "string" || !arrivingNames.has(name)
 		);
@@ -427,12 +409,8 @@ function mergeCollidingRecords(
 }
 
 /**
- * Add migrated record keys to one entry's `models.<kind>` record. A key the
- * entry does not have is added outright; a colliding key merges through
- * mergeCollidingRecords, so reruns and user deletions never resurrect or
- * overwrite anything. An entry-side value the old normalization dropped (a
- * non-record) is not user configuration at all - the scoped record was what
- * applied - so the incoming record replaces it.
+ * An entry-side value the old normalization dropped (a non-record) is not user configuration at all - the scoped
+ * record was what applied - so the incoming record replaces it.
  */
 export function withEntryRecordAdditions(
 	entry: Record<string, unknown>,
@@ -444,8 +422,7 @@ export function withEntryRecordAdditions(
 	const merged: Record<string, unknown> = Object.fromEntries(Object.entries(slot));
 	let added = 0;
 	for (const [key, value] of additions) {
-		// Addition keys come out of explicitMatcherKey ("*" or "<literal>*"),
-		// never a reserved name, so direct assignment is safe here.
+		//   Addition keys come out of explicitMatcherKey -> never a reserved name, so direct assignment is safe here
 		if (!Object.hasOwn(merged, key)) {
 			merged[key] = value;
 			added += 1;
@@ -475,7 +452,6 @@ export function withEntryRecordAdditions(
 	};
 }
 
-/** Add scoped-key declarations to one entry's `discovery.declared`, deduped; a non-array slot skips. */
 export function withEntryDeclares(
 	entry: Record<string, unknown>,
 	ids: readonly string[]
@@ -499,14 +475,13 @@ export function withEntryDeclares(
 	};
 }
 
-/** Whether one entry's `headers` slot can take the copied global headers. */
 export function entryCanReceiveHeaders(entry: unknown): boolean {
 	return isRecord(entry) && (entry.headers === undefined || isRecord(entry.headers));
 }
 
 /**
- * Copy global header names into one entry's `headers`; existing entry names
- * win case-insensitively (HTTP header names compare that way).
+ * Copy global header names into one entry's `headers`; existing entry names win case-insensitively (HTTP header
+ * names compare that way).
  */
 export function withEntryHeaders(
 	entry: Record<string, unknown>,

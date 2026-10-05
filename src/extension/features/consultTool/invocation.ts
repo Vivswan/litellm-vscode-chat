@@ -1,8 +1,6 @@
 /**
- * The consult tool's pure core: the input shape, model-facing prompt assembly,
- * token-budget truncation, and result shaping. No vscode imports, no UI, no
- * logging: the tool registration that consumes this adapts the host's
- * tokenization options and owns every host surface.
+ * No vscode imports, no UI, no logging: the tool registration that consumes this adapts the host's tokenization
+ * options and owns every host surface.
  */
 
 import { appendTruncationMarker, truncateKeepingHead } from "../../../shared/util/text";
@@ -30,10 +28,9 @@ export function readConsultInput(raw: unknown): ConsultToolInput | undefined {
 }
 
 /**
- * The host-provided budget and counter, structurally vscode's
- * LanguageModelToolTokenizationOptions - which arrives optional at invoke
- * time, so the registration owns the no-options fallback. countTokens returns
- * a Thenable and every count is awaited, one at a time.
+ * The host-provided budget and counter, structurally vscode's LanguageModelToolTokenizationOptions - which arrives
+ * optional at invoke time, so the registration owns the no-options fallback. countTokens returns a Thenable and every
+ * count is awaited, one at a time.
  */
 export interface ConsultTokenizationOptions {
 	readonly tokenBudget: number;
@@ -54,26 +51,15 @@ export const CONSULT_TOOL_MODEL_DESCRIPTION = [
 	"yourself, and treat it as one opinion rather than as fact.",
 ].join(" ");
 
-/**
- * The built-in instruction framing the consultation. Model-facing text, so it
- * stays English by policy.
- */
 export const CONSULT_INSTRUCTION = [
 	"Another AI assistant is consulting you for a second opinion.",
 	"Answer the question directly and concisely. When you are not sure, say so rather than guessing.",
 ].join("\n");
 
-/** Rides where cut context ends, so the consulted model knows material is missing. */
 export const CONTEXT_TRUNCATION_MARKER = "[context truncated to fit the token budget]";
 
-/** Rides where a cut question ends; the question is only cut once the context is already gone. */
 export const QUESTION_TRUNCATION_MARKER = "[question truncated to fit the token budget]";
 
-/**
- * Bisection step cap per truncated field. 16 steps resolve a field of up to
- * 65,536 UTF-16 code units to the exact boundary; a longer field lands within
- * length/2^16 code units below it, always on the fitting side.
- */
 export const TRUNCATION_BISECTION_STEPS = 16;
 
 /** Blank context reads as absent - one rule, shared by assembly and fitting. */
@@ -81,10 +67,6 @@ function presentContext(context: string | undefined): string | undefined {
 	return context !== undefined && context.trim() !== "" ? context : undefined;
 }
 
-/**
- * Assemble the model prompt: the instruction, the caller's context when there
- * is one, and the question, as labeled sections.
- */
 export function assembleConsultPrompt(question: string, context: string | undefined): string {
 	const sections = [CONSULT_INSTRUCTION];
 	const present = presentContext(context);
@@ -100,14 +82,12 @@ type PrefixSearch =
 	| { readonly fits: false; readonly floorPrompt: string; readonly floorTokens: number };
 
 /**
- * Bisect the field's code-unit count for the largest measured-fitting
- * candidate. A fit is evidence, never assumption - only measured candidates
- * are returned - while the search direction does assume longer prefixes count
- * higher; a locally non-monotone counter can cost prefix length, never a fit.
- * Everything gates on the positive fit test, so a NaN budget fails closed to
- * overflow. Overflow reports the floor candidate (the empty prefix) with its
- * measured count, so the caller can weigh best-effort options without
- * recounting.
+ * A fit is evidence, never assumption - only measured candidates are returned - while the search direction does
+ * assume longer prefixes count higher; a locally non-monotone counter can cost prefix length, never a fit. Everything
+ * gates on the positive fit test, so a NaN budget fails closed to overflow.
+ *
+ *   Overflow reports the floor candidate (the empty prefix) with its measured count
+ *     -> the caller can weigh best-effort options without recounting
  */
 async function largestFittingCandidate(
 	text: string,
@@ -158,8 +138,6 @@ export async function fitConsultPrompt(
 	if (fullTokens <= options.tokenBudget) {
 		return { prompt: full, contextTruncated: false, questionTruncated: false, withinBudget: true };
 	}
-	// The intact-question fallback should nothing below fit: the full prompt,
-	// or the measured dropped-context prompt once context is in play.
 	let intact = { prompt: full, tokens: fullTokens };
 	if (context !== undefined) {
 		const cutContext = await largestFittingCandidate(
@@ -213,13 +191,8 @@ export async function fitConsultPrompt(
 			};
 }
 
-/**
- * What the tool returns when the consulted model answers with no text.
- * It lands in the calling model's context, so it stays English by policy.
- */
 export const EMPTY_REPLY_TEXT = "The consulted model returned an empty reply.";
 
-/** Rides where a cut reply ends, so the CALLING model knows the answer is incomplete. */
 export const REPLY_TRUNCATION_MARKER = "[reply truncated to fit the caller's token budget]";
 
 export interface ConsultReplyFit {
@@ -230,9 +203,7 @@ export interface ConsultReplyFit {
 
 /**
  * `tokenBudget` governs the RESULT, the only thing this tool adds to the calling model's context, so the outgoing
- * prompt is bounded separately by CONSULT_PROMPT_CHAR_LIMIT in wiring.ts. The reply is cut from the END because
- * an answer's substance is in its opening, and the empty string is the one result that cannot break the maximum
- * when not even the bare marker fits.
+ * prompt is bounded separately by CONSULT_PROMPT_CHAR_LIMIT in wiring.ts.
  */
 export async function fitConsultReply(reply: string, options: ConsultTokenizationOptions): Promise<ConsultReplyFit> {
 	const replyTokens = await options.countTokens(reply);
@@ -252,7 +223,6 @@ export interface ConsultTextPart {
 	readonly value: string;
 }
 
-/** The model's reply as the tool's one text part: trimmed, with a stated stand-in for an empty reply. */
 export function shapeConsultResult(reply: string): ConsultTextPart {
 	const text = reply.trim();
 	return { value: text === "" ? EMPTY_REPLY_TEXT : text };

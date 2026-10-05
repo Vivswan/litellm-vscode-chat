@@ -14,9 +14,8 @@ import { createSlashCommandRegistry } from "./slashCommands";
 import type { SnapshotSource } from "./snapshots";
 import { participantSnapshots } from "./snapshots";
 
-// Part of the wiring's declared surface: the composition root passes the
-// provider's snapshot sources through this seam, and everything outside
-// features/<feature>/ reaches a feature only through its wiring module.
+//   the composition root passes the provider's snapshot sources through this seam
+//     -> Part of the wiring's declared surface
 export type { SnapshotSource } from "./snapshots";
 
 /**
@@ -35,20 +34,17 @@ export interface ChatParticipantWiring {
 	 */
 	readonly slashCommands: SlashCommandRegistry;
 	/**
-	 * The setting alone is not this fact, because the host can refuse the registration, and that refusal is
-	 * classified and left unregistered rather than thrown. Read per use, never cached, since both halves change
-	 * at runtime and the quick fixes' lightbulb would otherwise submit a turn addressed to a name with nothing
-	 * behind it.
+	 * The setting alone is not this fact, because the host can refuse the registration, and that refusal is classified
+	 * and left unregistered rather than thrown. Read per use, never cached, since both halves change at runtime and the
+	 * quick fixes' lightbulb would otherwise submit a turn addressed to a name with nothing behind it.
 	 */
 	readonly isRegistered: () => boolean;
 }
 
-/** The participant's avatar in the chat view: the extension's own logo. */
 function participantIcon(context: vscode.ExtensionContext): vscode.Uri {
 	return vscode.Uri.joinPath(context.extensionUri, "assets", "logo.png");
 }
 
-/** One converted history message as the host's message object; the two roles are all the conversion emits. */
 function toChatMessage(message: ChatMessage): vscode.LanguageModelChatMessage {
 	return message.role === "user"
 		? vscode.LanguageModelChatMessage.User(message.content)
@@ -56,10 +52,8 @@ function toChatMessage(message: ChatMessage): vscode.LanguageModelChatMessage {
 }
 
 /**
- * One attachment's display name, with the line range when it has one. The
- * shared label pipeline (documentLabel): workspace-relative where possible,
- * the bare file name outside the workspace - the raw host API would ship the
- * absolute path, home directory included, into the prompt there.
+ * The shared label pipeline (documentLabel): workspace-relative where possible, the bare file name outside the
+ * workspace - the raw host API would ship the absolute path, home directory included, into the prompt there.
  */
 function referenceName(uri: vscode.Uri, range?: vscode.Range): string {
 	const base = documentLabel(uri);
@@ -68,11 +62,9 @@ function referenceName(uri: vscode.Uri, range?: vscode.Range): string {
 }
 
 /**
- * Read one reference's text. Uris and Locations are opened through the
- * workspace (which serves dirty editor buffers, so the model sees what the
- * user is looking at rather than what is on disk); a plain string value is
- * already text. Anything else in the host's open value vocabulary contributes
- * nothing rather than guessing at it.
+ * Uris and Locations are opened through the workspace (which serves dirty editor buffers, so the model sees what the
+ * user is looking at rather than what is on disk); a plain string value is already text. Anything else in the host's
+ * open value vocabulary contributes nothing rather than guessing at it.
  */
 async function readReference(reference: vscode.ChatPromptReference): Promise<ResolvedReference | undefined> {
 	const value: unknown = reference.value;
@@ -90,7 +82,6 @@ async function readReference(reference: vscode.ChatPromptReference): Promise<Res
 	return undefined;
 }
 
-/** The name to show for an attachment that could not be read; the value may be anything. */
 function unreadableName(reference: vscode.ChatPromptReference): string {
 	const value: unknown = reference.value;
 	if (value instanceof vscode.Uri) {
@@ -100,10 +91,10 @@ function unreadableName(reference: vscode.ChatPromptReference): string {
 }
 
 /**
- * The host sorts `references` in REVERSE prompt order, last reference first, so reading them back to front
- * restores the order the user wrote them in. An unreadable attachment, a deleted file, a binary, a scheme with
- * no provider, is carried through as `unreadable` rather than failing the turn, because one stale editor tab
- * must not break chat and the model should know the user pointed at something it did not receive.
+ * The host sorts `references` in REVERSE prompt order, last reference first, so reading them back to front restores the
+ * order the user wrote them in. An unreadable attachment, a deleted file, a binary, a scheme with no provider, is
+ * carried through as `unreadable` rather than failing the turn, because one stale editor tab must not break chat and
+ * the model should know the user pointed at something it did not receive.
  */
 async function resolveReferences(
 	references: readonly vscode.ChatPromptReference[],
@@ -124,10 +115,6 @@ async function resolveReferences(
 	return resolved;
 }
 
-/**
- * Wire the feature. Returns the registration seam; the participant itself is
- * owned here, created and disposed by the enablement watcher.
- */
 export function wireChatParticipant(
 	context: vscode.ExtensionContext,
 	logger: Logger,
@@ -139,16 +126,11 @@ export function wireChatParticipant(
 	const commands = createSlashCommandRegistry();
 
 	const handler: vscode.ChatRequestHandler = async (request, chatContext, response, token) => {
-		// The attachments the turn came with - the editor selection, the open
-		// file, every explicit #file:. request.prompt carries references only AS
-		// AUTHORED, so without this read the model sees "#file:foo.ts" and no
-		// foo.ts, and every "write tests for the selected function" turn arrives
-		// with nothing to write tests for. request.toolReferences is deliberately
-		// NOT read: this participant invokes no tools, a #tool mention carries no
-		// inlinable value, and the mention itself already survives in the prompt.
+		// request.toolReferences is deliberately NOT read: this participant invokes no tools, a #tool mention carries
+		// no inlinable value, and the mention itself already survives in the prompt. Read on demand and at most once:
+		// /models and the empty-prompt command listing answer without the user's code and must not pay to open it.
 		//
-		// Read on demand and at most once: /models and the empty-prompt command
-		// listing answer without the user's code and must not pay to open it.
+		//   request.prompt carries references only AS AUTHORED -> without this read the model sees "#file:foo.ts"
 		let pending: Promise<readonly ResolvedReference[]> | undefined;
 		const attachments = (): Promise<readonly ResolvedReference[]> => {
 			pending ??= resolveReferences(request.references, (message) => {
@@ -159,34 +141,31 @@ export function wireChatParticipant(
 		const turn: ParticipantRequest = {
 			prompt: request.prompt,
 			...(request.command === undefined ? {} : { command: request.command }),
-			// ChatContext.history is exactly the request/response turn union the
-			// conversion mirrors structurally; no copy, no mapping.
+			// ChatContext.history is exactly the request/response turn union the conversion mirrors structurally; no
+			// copy, no mapping.
 			history: chatContext.history as readonly HistoryTurn[],
 			attachments,
 		};
 		const outcome = await handleParticipantTurn(turn, {
 			sendRequest: async (messages) => {
-				// The request's OWN model, never a model this feature picked: the
-				// user's picker choice is the whole model policy here. No options
-				// ride along, so nothing this feature invents reaches the wire.
+				// The request's OWN model, never a model this feature picked: the user's picker choice is the whole
+				// model policy here.
 				const result = await request.model.sendRequest(messages.map(toChatMessage), {}, token);
 				return result.text;
 			},
 			stream: { report: (markdown) => response.markdown(markdown) },
-			// A thunk the whole way down, so only a command that answers FROM the
-			// snapshots reads them, and a read that does throw fails that turn
-			// like any other instead of half-answering.
+			// A thunk the whole way down, so only a command that answers FROM the snapshots reads them, and a read that
+			// does throw fails that turn like any other instead of half-answering.
 			snapshots: () => participantSnapshots(deps.getSnapshots()),
 			commands,
-			// The real instanceof check, plus the structural test the core falls
-			// back to: the host is not the only source of a canceled error on this
-			// path, and a transport that threw its own must not be logged either.
+			// The real instanceof check, plus the structural test the core falls back to: the host is not the only
+			// source of a canceled error on this path, and a transport that threw its own must not be logged either.
 			isCancellation: (error) =>
 				error instanceof vscode.CancellationError || (error instanceof Error && error.name === "Canceled"),
 		});
 		if (outcome.kind === "failed") {
-			// The feature's single logging boundary; the classification is
-			// English by construction and carries no response-derived text.
+			// The feature's single logging boundary; the classification is English by construction and carries no
+			// response-derived text.
 			logger.log(outcome.log);
 		}
 		return {
@@ -202,11 +181,9 @@ export function wireChatParticipant(
 	const applyEnablement = (): void => {
 		const enabled = isFeatureEnabled("chatParticipant");
 		if (enabled && participant === undefined) {
-			// Registration is host-side and can refuse (a manifest/runtime id
-			// mismatch, an id already taken). This runs on the activation path and
-			// inside a configuration listener, so a throw would take down more than
-			// this feature; it is classified and left unregistered instead, and the
-			// next configuration change retries.
+			// Registration is host-side and can refuse (a manifest/runtime id mismatch, an id already taken). This runs
+			// on the activation path and inside a configuration listener, so a throw would take down more than this
+			// feature; it is classified and left unregistered instead, and the next configuration change retries.
 			try {
 				const created = vscode.chat.createChatParticipant(PARTICIPANT_ID, handler);
 				created.iconPath = participantIcon(context);
@@ -221,10 +198,8 @@ export function wireChatParticipant(
 				};
 				participant = created;
 			} catch (error) {
-				// Channel-only (Logger.advisory): applyEnablement reruns on every
-				// configuration change, so a host that keeps refusing would write a
-				// buffer line per change and evict real errors from the issue-report
-				// ring; the channel keeps every occurrence.
+				//   a host that keeps refusing would write a buffer line per change and evict real errors
+				//     -> Channel-only (Logger.advisory)
 				logger.advisory(`chat participant registration failed: ${errorLabel(error)}`);
 			}
 		} else if (!enabled && participant !== undefined) {

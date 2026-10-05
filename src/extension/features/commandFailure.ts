@@ -17,8 +17,6 @@ export async function reportCommandFailure(
 		// User cancellation: never logged, nothing to show.
 		return;
 	}
-	// The feature's single logging boundary; the logger records the English
-	// mirror or classification the thrown error carries.
 	deps.logger.error(logLine, error);
 	const texts = statusErrorTexts(error);
 	await showActionableMessage("error", texts.error, commandErrorActions(texts.classification, deps.outputChannel));

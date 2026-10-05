@@ -18,25 +18,19 @@ import {
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
 /**
- * Keys that can hold PLAINTEXT credential material (auth header values) and
- * reference no per-server secret. Purged before ANY keychain touch - the
- * single-server probe reads included - so a locked keychain (whose get or
- * delete throws and defers the rest of the pass to the next activation) can
- * never keep the plaintext alive with it. The ordering is derived from this
- * list, not from call-site discipline: the purge loop walks it first and the
- * trailing key loop skips it.
+ * Keys that can hold PLAINTEXT credential material (auth header values) and reference no per-server secret. Purged
+ * before ANY keychain touch - the single-server probe reads included - so a locked keychain (whose get or delete throws
+ * and defers the rest of the pass to the next activation) can never keep the plaintext alive with it.
  */
 const PLAINTEXT_FIRST_KEYS: readonly string[] = [PARKED_GLOBAL_HEADERS_KEY];
 
 /**
- * Every globalState key the retired legacy server registry and its migrations
- * (the pre-registry single-server import, the registry-to-provider-groups
- * seeding, and the retired label-scoped modelParameters expansion) ever wrote,
- * plus the settings-redesign migration's retired parked-global-headers record
- * (a verbatim copy of headers the migration had already written into declared
- * entries; its recovery flow is gone, so the copy only kept possible auth
- * values in unencrypted globalState). The parked record holds header values,
- * never per-server secret ids, so referencedSecretIds does not read it.
+ * Every globalState key the retired legacy server registry and its migrations (the pre-registry single-server import,
+ * the registry-to-provider-groups seeding, and the retired label-scoped modelParameters expansion) ever wrote, plus the
+ * settings-redesign migration's retired parked-global-headers record (a verbatim copy of headers the migration had
+ * already written into declared entries; its recovery flow is gone, so the copy only kept possible auth values in
+ * unencrypted globalState). The parked record holds header values, never per-server secret ids, so referencedSecretIds
+ * does not read it.
  */
 const LEGACY_STATE_KEYS: readonly string[] = [
 	...PLAINTEXT_FIRST_KEYS,
@@ -53,13 +47,8 @@ const LEGACY_STATE_KEYS: readonly string[] = [
 ];
 
 /**
- * Every per-server SecretStorage id the legacy blobs reference, read leniently:
- * the registry blob's entries (versioned { servers } or the pre-versioning bare
- * array), the seeded-progress records, the pending-deletion queue, the skip
- * markers, the migrated-ids ledger, the in-flight submission marker, and the
- * single-server cleanup marker's orphan list - each source may be the only
- * survivor of an interrupted pass, so all of them contribute. An unparseable
- * blob yields no ids; its key is still deleted.
+ *   An unparseable blob -> its key is still deleted
+ *   each source may be the only survivor of an interrupted pass -> all of them contribute
  */
 function referencedSecretIds(globalState: vscode.Memento): Set<string> {
 	const ids = new Set<string>();
@@ -101,9 +90,8 @@ async function cleanUpLegacyRegistryState(ctx: MigrationContext): Promise<Migrat
 	if (presentKeys.length === 0 && !hasSingleServerSecrets) {
 		return "nothing-to-do";
 	}
-	// Secrets first, keys second: a failed delete throws, the runner logs the
-	// classification, the keys survive, and this same pass retries next
-	// activation - no bookkeeping needed.
+	//   Secrets first, keys second: a failed delete throws -> the keys survive, and this same pass retries next
+	//     activation - no bookkeeping needed
 	for (const id of referencedSecretIds(ctx.globalState)) {
 		await ctx.secrets.delete(apiKeySecret(id));
 	}
@@ -118,9 +106,9 @@ async function cleanUpLegacyRegistryState(ctx: MigrationContext): Promise<Migrat
 }
 
 /**
- * Deletes only, with no import and no user notice, so an install still carrying legacy servers re-adds them
- * through the dashboard or the servers setting. A successful cleanup logs only the runner's "migrated" line,
- * and no stored value reaches any log line.
+ * Deletes only, with no import and no user notice, so an install still carrying legacy servers re-adds them through
+ * the dashboard or the servers setting. A successful cleanup logs only the runner's "migrated" line, and no stored
+ * value reaches any log line.
  */
 export const legacyRegistryCleanupMigration: ExtensionMigration<"legacy-registry-state"> = {
 	state: "legacy-registry-state",

@@ -30,10 +30,6 @@ const USAGE_POLL_INTERVAL_SETTING_ID = "usage.pollInterval" satisfies NumberSett
 
 const USAGE_POLLING_OFF_WINDOW_SETTING_ID = "usage.pollingOffFreshnessWindow" satisfies NumberSettingId;
 
-/**
- * The dashboard panel controller and its commands. Also registers
- * litellm.showDiagnostics, which deep-links to the Diagnostics tab.
- */
 export function wireDashboard(
 	context: vscode.ExtensionContext,
 	logger: Logger,
@@ -45,7 +41,6 @@ export function wireDashboard(
 		usagePoller: UsagePoller;
 		/** The one User-Agent activation composes, for the panel's draft probe. */
 		ua: string;
-		/** The per-feature model probes (each feature wiring's shared send over a sample). */
 		featureProbes: FeatureProbes;
 	}
 ): DashboardController {
@@ -65,11 +60,8 @@ export function wireDashboard(
 }
 
 /**
- * The usage surfaces over the poller's store: the status bar item beside the
- * connection item, the budget alert toasts, and the deep link both click
- * through to the dashboard's Servers section. Wired after the dashboard because
- * the click target needs it; the item's configuration reaction lives here with
- * the item, while the engines' reactions stay in wireServers.
+ * Wired after the dashboard because the click target needs it; the item's configuration reaction lives here with the
+ * item, while the engines' reactions stay in wireServers.
  */
 export function wireUsageSurfaces(
 	context: vscode.ExtensionContext,
@@ -99,12 +91,10 @@ export function wireUsageSurfaces(
 		usageStatusBar,
 		new UsageAlerts(usagePoller.store),
 		vscode.commands.registerCommand(INTERNAL_CMD.openUsage, () => dashboard.open("overview")),
-		// The coarse "pass done" push: the dashboard's usage section re-renders
-		// after every completed poll pass (the poller isolates its listeners).
+		// The coarse "pass done" push: the dashboard's usage section re-renders after every completed poll pass (the
+		// poller isolates its listeners).
 		usagePoller.onDidRefresh(() => dashboard.refresh()),
-		// And the "pass started" push: an already-open panel must disable Refresh
-		// the moment ANY pass begins, or a scheduled poll would leave an enabled
-		// button it will not honor.
+		//   the "pass started" push -> an already-open panel must disable Refresh the moment ANY pass begins
 		usagePoller.onDidStartRefresh(() => dashboard.refresh()),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			const affects = (id: string) => event.affectsConfiguration(`${CONFIG_SECTION}.${id}`);
@@ -115,8 +105,8 @@ export function wireUsageSurfaces(
 				affects(USAGE_STATUS_BAR_SETTING_KEY) ||
 				affects(CURRENCY_SYMBOL_SETTING_KEY)
 			) {
-				// The item re-reads mode, thresholds, the currency symbol, and the
-				// freshness window at render time; a re-render is the whole reaction.
+				// The item re-reads mode, thresholds, the currency symbol, and the freshness window at render time; a
+				// re-render is the whole reaction.
 				usageStatusBar.applyConfiguration();
 			}
 		})
@@ -124,9 +114,8 @@ export function wireUsageSurfaces(
 }
 
 /**
- * A tombstone change must reach the picker and the dashboard at once: the
- * model-change event makes the host re-resolve every group, and the refresh
- * re-renders the hidden-groups line.
+ * A tombstone change must reach the picker and the dashboard at once: the model-change event makes the host re-resolve
+ * every group, and the refresh re-renders the hidden-groups line.
  */
 export function wireGroupRemovalReactions(
 	logger: Logger,
@@ -138,9 +127,8 @@ export function wireGroupRemovalReactions(
 ): void {
 	const { groupRemovals, provider, dashboard } = deps;
 	groupRemovals.onDidChange = () => {
-		// Isolated like the status callback's consumers: one consumer throwing must
-		// not starve the other, and a throw escaping into the store would make its
-		// callers report a mutation that DID apply as failed.
+		// Isolated like the status callback's consumers: one consumer throwing must not starve the other, and a throw
+		// escaping into the store would make its callers report a mutation that DID apply as failed.
 		try {
 			provider.notifyModelInformationChanged();
 		} catch (error) {
@@ -152,8 +140,8 @@ export function wireGroupRemovalReactions(
 			logger.error("Dashboard refresh failed", error);
 		}
 	};
-	// The store's persists are best-effort (the in-memory view is the truth
-	// and the next mutation rewrites the whole blob); failures are log-only.
+	// The store's persists are best-effort (the in-memory view is the truth and the next mutation rewrites the whole
+	// blob); failures are log-only.
 	groupRemovals.onPersistError = (error) => {
 		logger.error("Persisting group-removal bookkeeping failed", error);
 	};
