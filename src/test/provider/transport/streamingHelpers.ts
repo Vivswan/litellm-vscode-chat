@@ -70,9 +70,8 @@ export function sseStream(chunks: string[], onEnd?: () => void): ReadableStream<
 }
 
 /**
- * Drive chunk objects through the real transport loop, appending [DONE]. The
- * end-of-stream trailers emit only on the loop's final run, so tests asserting
- * on them must go through here rather than calling processDelta.
+ * The trailers emit only at the end of the stream, so a test asserting on them goes through here or calls
+ * endOfStream.
  */
 export async function playChunks(stream: StreamProcessor, chunks: unknown[]): Promise<void> {
 	const lines = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n`);

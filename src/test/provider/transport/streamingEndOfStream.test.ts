@@ -57,8 +57,8 @@ suite("provider/streaming end-of-stream policy", () => {
 	});
 
 	test("an error frame after [DONE] does not turn a completed response into a failure", async () => {
-		// [DONE] already finished the stream; a straggling error frame behind it
-		// must not retroactively fail the request the user just watched succeed.
+		// [DONE] is the server's word that the reply is complete; a straggling error frame behind it must not
+		// retroactively fail the request the user just watched succeed.
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 		const body = sseStream([
@@ -191,7 +191,7 @@ suite("provider/streaming end-of-stream policy", () => {
 		);
 	});
 
-	test("unterminated inline tool call with invalid JSON rejects at [DONE]", async () => {
+	test("unterminated inline tool call with invalid JSON rejects at end of stream", async () => {
 		const { progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 		const body = sseStream([
@@ -233,7 +233,7 @@ suite("provider/streaming end-of-stream policy", () => {
 		}
 	});
 
-	test("an argument-less inline tool call left unterminated emits with empty input at [DONE]", async () => {
+	test("an argument-less inline tool call left unterminated emits with empty input at end of stream", async () => {
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 		const body = sseStream([
@@ -263,22 +263,29 @@ suite("provider/streaming end-of-stream policy", () => {
 		assert.deepStrictEqual(calls[0]?.input, {});
 	});
 
-	test("a non-final flush HOLDS an empty buffer: arguments arriving after finish_reason still land", async () => {
-		// finish_reason and [DONE] can be followed by more chunks; finalizing an
-		// empty buffer there would retire the index and drop the late arguments.
-		const { parts, progress } = collector();
-		const stream = new StreamProcessor(idSource(), () => {}, progress);
-		const body = sseStream([
-			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":""}}]}}]}\n',
-			'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n',
-			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"a\\":1}"}}]}}]}\n',
-			"data: [DONE]\n",
-		]);
+	test("arguments arriving after finish_reason still land: only the end of the stream flushes a buffer", async () => {
+		// finish_reason can be followed by more chunks. A flush there would retire an empty buffer and drop the late
+		// arguments, or reject a truncated one as a broken call.
+		for (const [label, argsBefore, argsAfter] of [
+			["empty before finish_reason", "", '{"a":1}'],
+			["truncated before finish_reason", '{"a":', "1}"],
+		] as const) {
+			const { parts, progress } = collector();
+			const stream = new StreamProcessor(idSource(), () => {}, progress);
+			const toolCall = (fragment: Record<string, unknown>) =>
+				`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, ...fragment }] } }] })}\n`;
+			const body = sseStream([
+				toolCall({ id: "c1", function: { name: "t", arguments: argsBefore } }),
+				'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n',
+				toolCall({ function: { arguments: argsAfter } }),
+				"data: [DONE]\n",
+			]);
 
-		await stream.processStreamingResponse(body, token());
-		const calls = toolCallsOf(parts);
-		assert.strictEqual(calls.length, 1, "one call, not an empty twin plus the real one");
-		assert.deepStrictEqual(calls[0]?.input, { a: 1 }, "the late arguments win over the empty reading");
+			await stream.processStreamingResponse(body, token());
+			const calls = toolCallsOf(parts);
+			assert.strictEqual(calls.length, 1, `${label}: one call, not an empty twin plus the real one`);
+			assert.deepStrictEqual(calls[0]?.input, { a: 1 }, `${label}: the late arguments complete the call`);
+		}
 	});
 
 	test("a name-only call cut by the output limit classifies instead of emitting an empty call", async () => {
@@ -561,8 +568,6 @@ suite("provider/streaming reasoning-only empty responses", () => {
 		await stream.processStreamingResponse(body, token());
 
 		assert.strictEqual(visibleTextOf(parts), "final answer");
-		// finishStream runs three times here (finish_reason, [DONE], EOF); the
-		// drop classification must still appear exactly once.
 		const drops = logs.filter((l) => l.msg === DROP_LOG);
 		assert.strictEqual(drops.length, 1);
 		assert.deepStrictEqual(expectDefined(drops[0]).data, { parts: 1, totalLength: "quietly reasoning".length });
@@ -595,21 +600,6 @@ suite("provider/streaming reasoning-only empty responses", () => {
 
 		assert.strictEqual(parts.length, 0);
 		assert.ok(!logs.some((l) => l.msg === DROP_LOG));
-	});
-
-	test("repeated end-of-stream runs after the throw cannot double-throw", async () => {
-		// processStreamingResponse stops at the first rejection, but processDelta
-		// is a public entry point: a finish_reason replay after the error must
-		// not throw a second time.
-		const { progress } = collector();
-		const stream = new StreamProcessor(idSource(), () => {}, progress, null);
-
-		stream.processDelta({ choices: [{ delta: { reasoning_content: "hidden" } }] });
-		assert.throws(
-			() => stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }),
-			(e: unknown) => e instanceof Error && e.message === REASONING_ONLY_MESSAGE
-		);
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] });
 	});
 
 	test("a host class whose constructor always throws is the same empty response and rejects identically", async () => {
