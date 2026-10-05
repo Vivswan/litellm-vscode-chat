@@ -36,14 +36,22 @@ type DiscoveryEndpoint = typeof MODEL_INFO_PATH | typeof MODELS_PATH;
 type FailureKind = TransportErrorKind | "unclassified";
 
 /**
- * Every discovery log line and the data it carries, because these lines reach the public issue report. A message is a
- * key here and a value is a count, a flag, a constant, or a Classification, so no response value has a type here.
+ * Every discovery and registration log line and the data it carries, because these lines reach the public issue
+ * report. A message is a key here and a value is a count, a flag, a constant, or a Classification, so no response
+ * value has a type here.
  */
 interface DiscoveryLogLines {
 	"Fetching models": { endpoint: DiscoveryEndpoint };
 	"Parsed model/info response": { modelCount: number };
 	"Parsed models listing": { modelCount: number };
 	"Successfully fetched models": { modelCount: number };
+	"Registered models": {
+		modelCount: number;
+		entryCount: number;
+		deploymentModels: number;
+		bareModels: number;
+		groupModels: number;
+	};
 	"Skipping malformed provider entry": { index: number; rejection: Classification };
 	"Skipping malformed model/info entry": { index: number; modelInfo: Classification; listing: Classification };
 	"Skipping malformed models entry": { index: number; rejection: Classification };
@@ -94,6 +102,13 @@ const LINE_SHAPES: {
 	"Parsed model/info response": { modelCount: "number" },
 	"Parsed models listing": { modelCount: "number" },
 	"Successfully fetched models": { modelCount: "number" },
+	"Registered models": {
+		modelCount: "number",
+		entryCount: "number",
+		deploymentModels: "number",
+		bareModels: "number",
+		groupModels: "number",
+	},
 	"Skipping malformed provider entry": { index: "number", rejection: "classification" },
 	"Skipping malformed model/info entry": { index: "number", modelInfo: "classification", listing: "classification" },
 	"Skipping malformed models entry": { index: "number", rejection: "classification" },
