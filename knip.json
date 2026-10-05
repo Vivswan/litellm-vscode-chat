@@ -10,6 +10,8 @@
 		"src/test/util/fingerprintSalt.ts",
 		"src/test/util/buildDefines.ts",
 		"src/test/bun/scripts/ci/outputChannelWritesFixture.ts",
+		"src/test/bun/scripts/ci/modelFacingExitsFixture.ts",
+		"src/test/bun/scripts/ci/modelFacingStreamFixture.ts",
 		"scripts/**/*.ts",
 		"scripts/**/*.mts",
 		".vscode-test.mjs"
