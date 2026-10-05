@@ -9,6 +9,7 @@
 import type { ModelRecordMap } from "./modelMatcher";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
 import {
+	canonicalFieldKey,
 	FALLBACK_DIRECTIVE,
 	INHERITABLE_DIRECTIVE,
 	lintRecordMap,
@@ -166,20 +167,14 @@ export interface ParsedCapabilityRecord extends ParsedRecord {
  *                                    "__proto__" out
  */
 export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>): ParsedCapabilityRecord {
-	// Field keys are TRIMMED at this parse boundary, matching the editor, which judges and saves keys trimmed: a
-	// hand-padded key in settings.json means the same field on every surface instead of a padded open field the editor
-	// would silently rewrite on the next Apply.
-	//
-	// Null-prototyped so a trimmed "__proto__" defines an own key instead of walking the chain.
-	//   the field-naming directives' list entries (`_fallback`, `_inheritable`) trim too
-	//     -> a padded entry still names its trimmed field
-	//   they name MATCHER keys and the matcher grammar trims nothing -> `_inherit_from` entries stay raw
+	// Null-prototyped so a trimmed "__proto__" defines an own key instead of walking the chain. `_inherit_from`
+	// entries stay raw: they name MATCHER keys, and the matcher grammar trims nothing.
 	const normalized: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
 	for (const [rawKey, rawValue] of Object.entries(record)) {
-		const key = rawKey.trim();
+		const key = canonicalFieldKey("capabilities", rawKey);
 		normalized[key] =
 			(key === FALLBACK_DIRECTIVE || key === INHERITABLE_DIRECTIVE) && Array.isArray(rawValue)
-				? rawValue.map((entry) => (typeof entry === "string" ? entry.trim() : entry))
+				? rawValue.map((entry) => (typeof entry === "string" ? canonicalFieldKey("capabilities", entry) : entry))
 				: rawValue;
 	}
 	const fields: Record<string, CapabilityJsonValue> = {};

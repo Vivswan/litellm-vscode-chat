@@ -19,7 +19,6 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import {
-	isValidCapabilityField,
 	LEGACY_SCALAR_RENAMES,
 	LEGACY_SETTING_IDS,
 	NEW_MODEL_CAPABILITIES_ID,
@@ -29,6 +28,7 @@ import {
 import { mergeTokenDefaults } from "../../../extension/migrations/settingsRedesign/tokenDefaults";
 import { planSettingsRedesign } from "../../../extension/migrations/settingsRedesign/transform";
 import type { SettingsSnapshot } from "../../../extension/migrations/settingsRedesign/types";
+import { parseCapabilityRecord } from "../../../shared/config/capabilityResolution";
 import { normalizePositiveNumber } from "../../../shared/util/numbers";
 import { MIGRATION_FUZZ_CORPUS } from "../../fuzzCorpus";
 import { resolveFuzzSeed } from "../../fuzzStream";
@@ -398,9 +398,9 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 						const honored = normalizePositiveNumber(source.value);
 						if (catchAll !== undefined && Object.hasOwn(catchAll, source.field)) {
 							assert.strictEqual(record[source.field], catchAll[source.field], "user fields keep their values");
-							// Level preservation only matters for a field the old parser accepted: an invalidly-typed
-							// field was dropped and never marked.
-							if (isValidCapabilityField(source.field, catchAll[source.field])) {
+							// Level preservation only matters for a field the parser accepts: an invalidly-typed field is
+							// left unset and never marked.
+							if (Object.hasOwn(parseCapabilityRecord(catchAll).fields, source.field)) {
 								const markedBefore =
 									catchAll._fallback === true ||
 									(Array.isArray(catchAll._fallback) && catchAll._fallback.includes(source.field));

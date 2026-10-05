@@ -10,13 +10,15 @@
  *   plain override                         -> now also beats an `_openrouter_model` directive
  *   existing "*" record                    -> only added fields join its `_inheritable` list (a user's `true` stays);
  *                                             no old field is newly marked
- *   `_fallback: true` as an override lands -> expands to the pre-existing valid fields so the fill lands unmarked;
- *                                             later fields lose auto-marking
+ *   `_fallback: true` as an override lands -> expands to the fields the live parser marks under it, so the fill lands
+ *                                             unmarked; later fields lose auto-marking
  */
 
+import { canonicalFieldKey } from "../../../shared/config/recordResolution";
 import { isRecord } from "../../../shared/util/json";
 import { normalizePositiveNumber } from "../../../shared/util/numbers";
-import { isValidCapabilityField, REMOVED_TOKEN_DEFAULTS } from "./legacyIds";
+import { canonicalFieldNames, directiveKey, fallbackMarksUnderTrue } from "./entries";
+import { REMOVED_TOKEN_DEFAULTS } from "./legacyIds";
 import type { SettingsSnapshot } from "./types";
 
 const CATCH_ALL_KEY = "*";
@@ -75,19 +77,25 @@ export function mergeTokenDefaults(capabilitiesValue: unknown, snapshot: Setting
 	if (!isRecord(catchAll)) {
 		return { ...UNTOUCHED, blockedValues: configured.length };
 	}
-	const fallback = directiveBase(catchAll, FALLBACK_DIRECTIVE);
-	const inheritable = directiveBase(catchAll, INHERITABLE_DIRECTIVE);
+	// Fields, list entries, and directive keys are identified the way parseCapabilityRecord identifies them, so a padded
+	// spelling is the user's own value for that field or directive.
+	const names = (keys: readonly unknown[]): Set<string> => canonicalFieldNames("capabilities", keys);
+	const fallbackKey = directiveKey("capabilities", catchAll, FALLBACK_DIRECTIVE);
+	const inheritableKey = directiveKey("capabilities", catchAll, INHERITABLE_DIRECTIVE);
+	const fallback = directiveBase(catchAll, fallbackKey);
+	const inheritable = directiveBase(catchAll, inheritableKey);
 	if (!fallback.ok || !inheritable.ok) {
 		return { ...UNTOUCHED, blockedValues: configured.length };
 	}
 
+	const present = names(Object.keys(catchAll));
 	const merged: Record<string, unknown> = Object.fromEntries(Object.entries(catchAll));
 	const addedFields: string[] = [];
 	const overrideAdditions: string[] = [];
 	const fallbackAdditions: string[] = [];
 	for (const source of configured) {
 		const value = normalizePositiveNumber(snapshot[source.id]?.globalValue);
-		if (value === undefined || Object.hasOwn(catchAll, source.field)) {
+		if (value === undefined || present.has(source.field)) {
 			continue;
 		}
 		merged[source.field] = value;
@@ -95,27 +103,28 @@ export function mergeTokenDefaults(capabilitiesValue: unknown, snapshot: Setting
 		(source.placement === "override" ? overrideAdditions : fallbackAdditions).push(source.field);
 	}
 
-	// An override-placed fill must land unmarked, so `true` expands to the pre-existing valid fields and inert names of
-	// the filled field drop from a list.
+	// An override-placed fill must land unmarked, so `true` expands to what the parser marks under it today and inert
+	// names of the filled field drop from a list. An emptied list takes every spelling with it, or an earlier shadowed
+	// spelling would surface.
 	const writeFallback = (list: readonly string[]): void => {
 		if (list.length === 0) {
-			delete merged[FALLBACK_DIRECTIVE];
+			for (const key of Object.keys(merged).filter((key) => names([key]).has(FALLBACK_DIRECTIVE))) {
+				delete merged[key];
+			}
 		} else {
-			merged[FALLBACK_DIRECTIVE] = [...list];
+			merged[fallbackKey] = [...list];
 		}
 	};
 	if (fallback.value === true) {
 		if (overrideAdditions.length > 0) {
-			const preExisting = Object.keys(catchAll).filter(
-				(name) => !name.startsWith("_") && isValidCapabilityField(name, catchAll[name])
-			);
-			writeFallback([...preExisting, ...fallbackAdditions]);
+			writeFallback([...fallbackMarksUnderTrue(catchAll), ...fallbackAdditions]);
 		}
 	} else {
 		const base = (Array.isArray(fallback.value) ? fallback.value : []).filter(
-			(name) => !overrideAdditions.includes(name as string)
+			(name) => typeof name !== "string" || !overrideAdditions.includes(canonicalFieldKey("capabilities", name))
 		);
-		const additions = fallbackAdditions.filter((field) => !base.includes(field));
+		const baseNames = names(base);
+		const additions = fallbackAdditions.filter((field) => !baseNames.has(field));
 		const list = [...base, ...additions];
 		if (
 			Array.isArray(fallback.value) ? list.length !== fallback.value.length || additions.length > 0 : list.length > 0
@@ -126,12 +135,13 @@ export function mergeTokenDefaults(capabilitiesValue: unknown, snapshot: Setting
 
 	if (addedFields.length > 0 && inheritable.value !== true) {
 		if (freshCatchAll) {
-			merged[INHERITABLE_DIRECTIVE] = true;
+			merged[inheritableKey] = true;
 		} else {
 			const listedInheritable = Array.isArray(inheritable.value) ? inheritable.value : [];
-			const additions = addedFields.filter((field) => !listedInheritable.includes(field));
+			const listedNames = names(listedInheritable);
+			const additions = addedFields.filter((field) => !listedNames.has(field));
 			if (additions.length > 0) {
-				merged[INHERITABLE_DIRECTIVE] = [...listedInheritable, ...additions];
+				merged[inheritableKey] = [...listedInheritable, ...additions];
 			}
 		}
 	}

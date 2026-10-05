@@ -11,6 +11,7 @@
 import type { ModelRecordMap } from "./modelMatcher";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
 import {
+	canonicalFieldKey,
 	FIM_TEMPLATE_DIRECTIVE,
 	FORCE_DIRECTIVE,
 	isFimTemplateValue,
@@ -99,7 +100,7 @@ export function parseParameterRecord(record: Readonly<Record<string, unknown>>):
 		// Underscore keys are directives or reserved, never fields - which also keeps a hostile own "__proto__" key
 		// (JSON.parse can produce one) out of every merge below.
 		if (!key.startsWith("_")) {
-			fields[key] = value;
+			fields[canonicalFieldKey("parameters", key)] = value;
 		}
 	}
 
