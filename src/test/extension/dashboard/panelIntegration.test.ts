@@ -80,7 +80,9 @@ suite("extension/dashboard/panelIntegration", () => {
 		//   Stray host-triggered refreshes of that leftover group  -> absorbed by the baseline localhost:49999 handler
 		//                                                             in mocks/handlers.ts
 		for (const view of await declared()) {
-			await inject(request("removeServerSetting", { label: view.label }, `pi-teardown-${view.label}`));
+			await inject(
+				request("removeServerSetting", { label: view.label, baseUrl: view.baseUrl }, `pi-teardown-${view.label}`)
+			);
 		}
 		const config = vscode.workspace.getConfiguration(CONFIG);
 		for (const key of TOUCHED_KEYS) {
@@ -197,7 +199,12 @@ suite("extension/dashboard/panelIntegration", () => {
 		);
 		assert.ok(!views.some((view) => view.label === "PanelIT"), "the old label must be replaced, not duplicated");
 
-		assert.strictEqual(await inject(request("removeServerSetting", { label: "PanelIT-Renamed" }, "pi-remove-1")), "ok");
+		assert.strictEqual(
+			await inject(
+				request("removeServerSetting", { label: "PanelIT-Renamed", baseUrl: "http://localhost:49999" }, "pi-remove-1")
+			),
+			"ok"
+		);
 		await declaredEventually((v) => v.length === 0, "the removed entry to sync away");
 		const globalValue = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
 		assert.ok(!JSON.stringify(globalValue ?? {}).includes("PanelIT"), "the settings entry must be gone");
@@ -268,7 +275,12 @@ suite("extension/dashboard/panelIntegration", () => {
 			"an edit that no longer includes modes clears the list, like every always-sent field"
 		);
 
-		assert.strictEqual(await inject(request("removeServerSetting", { label: "PanelIT-Caps" }, "pi-caps-rm")), "ok");
+		assert.strictEqual(
+			await inject(
+				request("removeServerSetting", { label: "PanelIT-Caps", baseUrl: "http://localhost:49999" }, "pi-caps-rm")
+			),
+			"ok"
+		);
 	});
 
 	test("an executeCommand intent dispatches through the real vscode.commands bridge", async function () {
@@ -322,7 +334,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		);
 	});
 
-	test("adoptServer with no matching host group still saves the entry instead of failing the intent", async function () {
+	test("adoptServer with no matching host group refuses as a stale row and saves nothing", async function () {
 		this.timeout(20000);
 		const outcome = await inject(
 			request(
@@ -336,12 +348,9 @@ suite("extension/dashboard/panelIntegration", () => {
 				"pi-adopt-1"
 			)
 		);
-		// Degrading instead of throwing is the contract: adoption must stay usable exactly when the group vanished. The
-		// caveat message rides the unobservable webview ack, so this pins the outcome class and the entry.
-		assert.strictEqual(outcome, "ok");
+		assert.strictEqual(outcome, "validation-error");
 		const globalValue = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
-		assert.ok(JSON.stringify(globalValue ?? {}).includes("PanelIT-Adopted"), "the adopted entry must be saved");
-		assert.strictEqual(await inject(request("removeServerSetting", { label: "PanelIT-Adopted" }, "pi-adopt-rm")), "ok");
+		assert.ok(!JSON.stringify(globalValue ?? {}).includes("PanelIT-Adopted"), "no entry may be saved");
 	});
 
 	test("litellm.manage resolves through the legacy path in the test-mode host with the quick pick cancelled", async function () {

@@ -2,7 +2,6 @@ import * as assert from "node:assert";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import {
 	mostSpecificGlobalRecordKey,
-	observedKeysByEntryLabel,
 	observedModelInfoKeysUnion,
 	resolveDashboardModelCapabilities,
 } from "../../../extension/dashboard/state";
@@ -326,28 +325,6 @@ suite("extension/dashboard/state: capabilities", () => {
 				["a", "b", "c"]
 			);
 		});
-
-		test("observedKeysByEntryLabel joins each entry to its serving snapshot's set; setless and unmatched entries stay absent", () => {
-			const byLabel = observedKeysByEntryLabel(
-				[
-					{
-						status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test" }),
-						models: [],
-						observedModelInfoKeys: ["max_input_tokens"],
-					},
-					{
-						status: makeServerStatus({ serverId: "g2", label: "Bare", baseUrl: "http://bare.test" }),
-						models: [],
-					},
-				],
-				[
-					makeDeclared({ label: "Prod", baseUrl: "http://prod.test" }),
-					makeDeclared({ label: "Bare", baseUrl: "http://bare.test" }),
-					makeDeclared({ label: "Unseen", baseUrl: "http://unseen.test" }),
-				]
-			);
-			assert.deepStrictEqual([...byLabel.entries()], [["Prod", ["max_input_tokens"]]]);
-		});
 	});
 
 	suite("mostSpecificGlobalRecordKey", () => {
@@ -433,9 +410,9 @@ suite("extension/dashboard/state: capabilities", () => {
 		});
 
 		test("a claimed snapshot whose entry label differs from the group's still resolves its models", () => {
-			// The population the entry-capabilities-inactive notice exists for: entry "Prod", group label "x.test". The
-			// rows render under the entry label and their scope keys must still answer - the key hashes the server ID,
-			// so no label enters the resolution.
+			// The population the entry-capabilities-inactive notice exists for: entry "Prod", a pre-label group
+			// reporting under the URL host and joined by connection ID. The rows render under the entry label and
+			// their scope keys must still answer - the key hashes the server ID, so no label enters the resolution.
 			const divergent = [
 				{
 					status: makeServerStatus({
@@ -446,7 +423,13 @@ suite("extension/dashboard/state: capabilities", () => {
 					models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
 				},
 			];
-			const state = buildState(divergent, makeReader({}), [makeDeclared({ label: "Prod", baseUrl: "http://x.test" })]);
+			const state = buildState(divergent, makeReader({}), [
+				makeDeclared({
+					label: "Prod",
+					baseUrl: "http://x.test",
+					expectedConnectionId: "group:fp-other:http://x.test",
+				}),
+			]);
 			assert.strictEqual(state.models[0]?.serverLabel, "Prod", "the row renders under the claimant label");
 			const capabilities = resolveDashboardModelCapabilities(
 				{

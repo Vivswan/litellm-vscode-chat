@@ -2,14 +2,15 @@
  * Shared fixtures for the serverSync suites: an in-memory SecretStore and a recording ServerSyncEnv whose group
  * operations and removal events the suites inspect.
  */
+import type { DeclaredGroupClaim } from "../../../extension/servers/groupRemovals";
 import type {
-	DeclaredEntryIdentity,
 	RemovedEntryEvent,
 	SecretStore,
 	ServerSyncEnv,
 	StoredServerSecrets,
 } from "../../../extension/servers/serverSync";
 import type { StoredSecretOwners } from "../../../extension/servers/serverSync/secrets";
+import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 
 export function makeSecretStore(initial: Record<string, string> = {}): SecretStore & { values: Map<string, string> } {
 	const values = new Map(Object.entries(initial));
@@ -31,7 +32,7 @@ export interface Recorded {
 	/** The persisted identity ledger (label -> normalized base URL). */
 	entryBaseUrls: Record<string, string>;
 	/** Every reconcileEntryIdentities call: the declared identities and the removal events. */
-	reconciles: { declared: DeclaredEntryIdentity[]; events: RemovedEntryEvent[] }[];
+	reconciles: { declared: DeclaredGroupClaim[]; events: RemovedEntryEvent[] }[];
 	logged: [string, unknown][];
 	loggedErrors: [string, unknown][];
 	env: ServerSyncEnv;
@@ -49,6 +50,8 @@ export interface Recorded {
 	saltDurable: boolean;
 	/** What observedGroupBaseUrls reports per label: the base URLs the host served that label's group at. */
 	observedGroups: Record<string, readonly string[]>;
+	/** What observedSnapshots reports: the groups the host serves now. */
+	liveSnapshots: ServerModelsSnapshot[];
 }
 
 export function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServerSecrets> = {}): Recorded {
@@ -66,6 +69,7 @@ export function makeSyncEnv(setting: unknown = [], secrets: Record<string, Store
 		duplicateLabels: new Set(),
 		saltDurable: true,
 		observedGroups: {},
+		liveSnapshots: [],
 		env: {
 			readServersSetting: () => recorded.setting,
 			readSecrets: async (label) => ({
@@ -96,6 +100,7 @@ export function makeSyncEnv(setting: unknown = [], secrets: Record<string, Store
 				recorded.entryBaseUrls = { ...map };
 			},
 			observedGroupBaseUrls: (label) => recorded.observedGroups[label] ?? [],
+			observedSnapshots: () => recorded.liveSnapshots,
 			reconcileEntryIdentities: async (declared, events) => {
 				recorded.reconciles.push({ declared: [...declared], events: [...events] });
 			},
@@ -110,7 +115,19 @@ export function makeSyncEnv(setting: unknown = [], secrets: Record<string, Store
 	return recorded;
 }
 
-/** The removal/rename events the recorded env saw, flattened across passes (most passes record none). */
+/**
+ * The removal/rename events the recorded env saw, flattened across passes (most passes record none), without the
+ * removed entries' group IDs: those are fingerprint-derived, so a suite reads them straight from the reconcile it
+ * compares against the captured view.
+ */
 export function recordedEvents(recorded: Recorded): RemovedEntryEvent[] {
-	return recorded.reconciles.flatMap((reconcile) => reconcile.events);
+	return recorded.reconciles.flatMap((reconcile) =>
+		reconcile.events.map((event) => {
+			if (event.kind !== "removed") {
+				return event;
+			}
+			const { groupIds: _groupIds, sharedGroupIds: _sharedGroupIds, ...rest } = event;
+			return rest as RemovedEntryEvent;
+		})
+	);
 }

@@ -258,7 +258,11 @@ function generateDashboardIntent(
 		default:
 			return {
 				kind: "dashboard-intent",
-				intent: dashboardRequest("removeServerSetting", { label: `never-declared-${serial}` }, `monkey-${serial}`),
+				intent: dashboardRequest(
+					"removeServerSetting",
+					{ label: `never-declared-${serial}`, baseUrl: "http://never.test" },
+					`monkey-${serial}`
+				),
 				expect: "validation-error",
 			};
 	}

@@ -63,6 +63,7 @@ import {
 	IconRepo,
 	IconStar,
 } from "./icons";
+import { tupleKey } from "./keys";
 import type { InspectorSection } from "./modelInspector";
 import { ProblemBand } from "./problemBand";
 import {
@@ -340,7 +341,7 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 			// chip - without it, two records failing on the same field render as identical rows.
 			const namesRecord = lint.kind === "invalid-matcher" || lint.kind === "unknown-inherit-key";
 			return {
-				key: `record:${diagnostic.setting}:${diagnostic.entryLabel ?? ""}:${lint.kind}:${subject}`,
+				key: tupleKey("record", diagnostic.setting, diagnostic.entryLabel, lint.kind, lint.recordKey, lint.key),
 				severity: problemSeverity(diagnostic),
 				headline: recordProblemText(lint),
 				where: [
@@ -365,7 +366,7 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 				// The position, not the label: a rejected entry can reuse a label an accepted one already owns, and
 				// that is exactly the case whose two diagnostics must not collapse onto one key - or one button name,
 				// which is why the position rides the subject too.
-				key: `entry:${diagnostic.position}`,
+				key: tupleKey("entry", diagnostic.position),
 				severity: problemSeverity(diagnostic),
 				headline: diagnostic.misconfigured
 					? l10n.t("Server entry {0} is switched off until it is fixed.", name)
@@ -382,7 +383,7 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 			return {
 				// The same leftover key can sit in BOTH record settings, and the two hints differ only in which one;
 				// without `detail` they share a key and React drops one of the blocks.
-				key: `legacy:${diagnostic.hint}:${diagnostic.oldKey}:${diagnostic.detail}`,
+				key: tupleKey("legacy", diagnostic.hint, diagnostic.oldKey, diagnostic.detail),
 				severity: problemSeverity(diagnostic),
 				headline: legacyProblemText(diagnostic),
 				where: diagnostic.hint === "inert-url-scoped-key" ? [diagnostic.detail] : [diagnostic.oldKey],
@@ -664,8 +665,7 @@ function ChipTokens({ text }: { text: string }) {
 	return (
 		<>
 			{text.split(" ").map((token, index) => (
-				// biome-ignore lint/suspicious/noArrayIndexKey: tokens can repeat within one chip
-				<Fragment key={`${index}-${token}`}>
+				<Fragment key={tupleKey(index, token)}>
 					{index > 0 ? " " : null}
 					<span className="whitespace-nowrap">{token}</span>
 				</Fragment>
@@ -938,7 +938,7 @@ function ResolvedModels({
 											</tr>
 										) : null}
 										{rows.map((row) => (
-											<tr key={`${row.scopeKey}/${row.rawId}`}>
+											<tr key={tupleKey(row.scopeKey, row.rawId)}>
 												<td className="resolved-id">
 													{row.rawId}
 													{/* The matcher keys that touched this model, as quiet chips: they

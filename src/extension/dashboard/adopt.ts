@@ -4,6 +4,7 @@
  * the storage locations, never the values.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import * as l10n from "@vscode/l10n";
 import type { RequestPayload } from "../../dashboard/endpoints";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
@@ -15,14 +16,16 @@ import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
-import type { DeclaredServerView } from "../servers/serverSync";
+import type { TombstoneIdentity } from "../servers/groupRemovals";
+import type { DeclaredIdentities } from "../servers/serverSync";
 import { secretDestination } from "../servers/serverSync/secrets";
-import { acceptedEntry, rawDeclaredLabels } from "../servers/serverSync/setting";
+import { acceptedEntry } from "../servers/serverSync/setting";
 import { adoptSourceHandle } from "./adoptHandle";
-import { joinDeclared, labeledSnapshots } from "./declaredJoin";
+import { labeledSnapshots, resolveGroupOwnership, secretValueHolders } from "./declaredJoin";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
+import { appendFree, requireLabelFree, requireSettingUnchanged, writeServersSettingFrom } from "./rowBoundWrite";
 
 /**
  * A live group's connection material flattened to servers-setting field names, for the adopt action. Values exist
@@ -31,67 +34,87 @@ import { DashboardOperationError, DashboardValidationError, rawServerEntries } f
 export type AdoptableGroupCredentials = OptionalEntryFields;
 
 /**
- * Resolve the still-external snapshot a row handle names, bound to the intent's base URL. Shared by the adopt intent's
- * credential resolution and the hide intent's identity resolution: both re-derive the external set at intent time, so a
- * forged or stale handle can only land on a group that is genuinely external right now, and cannot re-point at another
- * host.
+ * What IntentEnvironment.resolveAdoptionCredentials answers: the source's credentials and the setting they were
+ * judged against.
+ */
+export interface AdoptionResolution {
+	readonly source: AdoptionSource | undefined;
+	/** The raw servers setting value the resolution is consistent with (ServerSyncEngine.resolveDeclaredIdentities). */
+	readonly setting: unknown;
+}
+
+/** The external group an adopt intent copies from; `credentials` is undefined when the group is registry-only. */
+export interface AdoptionSource {
+	readonly credentials: AdoptableGroupCredentials | undefined;
+}
+
+/**
+ * What IntentEnvironment.resolveExternalGroup answers: the identity a hide tombstones and the setting it was judged
+ * against.
+ */
+export interface ExternalGroupResolution {
+	/** Undefined when nothing still-external matches the handle. */
+	readonly identity: TombstoneIdentity | undefined;
+	readonly setting: unknown;
+}
+
+export type LiveDeclaration = Pick<DeclaredIdentities, "identities" | "carriers" | "secretValues">;
+
+/**
+ * The external snapshot a row handle names, bound to the intent's base URL, under the one group ownership
+ * (resolveGroupOwnership) over the engine's live declaration: a stale or forged handle cannot land on a group an
+ * entry owns or a declared label left behind, and cannot re-point at another host.
  */
 function resolveExternalSnapshot(
 	snapshots: readonly ServerModelsSnapshot[],
-	declared: readonly DeclaredServerView[],
+	live: LiveDeclaration,
 	baseUrl: string,
-	sourceHandle: string
+	sourceHandle: string,
+	getGroupServer: (serverId: string) => GroupServer | undefined
 ): ServerModelsSnapshot | undefined {
-	const labeled = labeledSnapshots(snapshots);
-	const { unmatched } = joinDeclared(labeled, declared);
-	return [...unmatched].find(
+	const { external } = resolveGroupOwnership({
+		labeled: labeledSnapshots(snapshots),
+		declared: live.identities,
+		carriers: live.carriers,
+		secretHolders: secretValueHolders(snapshots, getGroupServer, live.secretValues),
+	});
+	return external.find(
 		(entry) =>
 			adoptSourceHandle(entry.snapshot.status.serverId) === sourceHandle &&
 			normalizeBaseUrl(entry.snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl)
 	)?.snapshot;
 }
 
-/**
- * The identity of the external group a hide intent names: the status label and base URL the removal tombstone is keyed
- * by. Same resolution rules as resolveExternalSnapshot.
- */
 export function resolveExternalGroupIdentity(
 	snapshots: readonly ServerModelsSnapshot[],
-	declared: readonly DeclaredServerView[],
-	baseUrl: string,
-	sourceHandle: string
-): { label: string; baseUrl: string } | undefined {
-	const source = resolveExternalSnapshot(snapshots, declared, baseUrl, sourceHandle);
-	if (source === undefined) {
-		return undefined;
-	}
-	return { label: source.status.label, baseUrl: source.status.baseUrl };
-}
-
-/**
- * Resolve the group an adopt intent names back to its credentials, by the opaque handle its external row carried.
- * Resolution re-derives the external set at intent time and binds the handle to the intent's base URL, so a forged or
- * stale intent cannot copy a DECLARED group's secure credential into a settings entry, and cannot re-point a copied
- * credential at another host.
- *
- *   Undefined when nothing still-external matches -> the caller then adopts the plain entry with a caveat
- */
-export function resolveAdoptableCredentials(
-	snapshots: readonly ServerModelsSnapshot[],
-	declared: readonly DeclaredServerView[],
+	live: LiveDeclaration,
 	baseUrl: string,
 	sourceHandle: string,
 	getGroupServer: (serverId: string) => GroupServer | undefined
-): AdoptableGroupCredentials | undefined {
-	const source = resolveExternalSnapshot(snapshots, declared, baseUrl, sourceHandle);
+): TombstoneIdentity | undefined {
+	const source = resolveExternalSnapshot(snapshots, live, baseUrl, sourceHandle, getGroupServer);
+	if (source === undefined) {
+		return undefined;
+	}
+	return { by: "group", groupId: source.status.serverId, label: source.status.label, baseUrl: source.status.baseUrl };
+}
+
+export function resolveAdoptableCredentials(
+	snapshots: readonly ServerModelsSnapshot[],
+	live: LiveDeclaration,
+	baseUrl: string,
+	sourceHandle: string,
+	getGroupServer: (serverId: string) => GroupServer | undefined
+): AdoptionSource | undefined {
+	const source = resolveExternalSnapshot(snapshots, live, baseUrl, sourceHandle, getGroupServer);
 	if (source === undefined) {
 		return undefined;
 	}
 	const server = getGroupServer(source.status.serverId);
 	if (server === undefined) {
-		return undefined;
+		return { credentials: undefined };
 	}
-	return {
+	const credentials: AdoptableGroupCredentials = {
 		...(server.apiKey.length > 0 ? { apiKey: server.apiKey } : {}),
 		...(server.oauth !== undefined
 			? {
@@ -105,13 +128,17 @@ export function resolveAdoptableCredentials(
 			? { virtualKeyHeader: server.virtualKey.header, virtualKeyValue: server.virtualKey.value }
 			: {}),
 	};
+	return { credentials };
 }
 
-/**
- * A missing credential lookup still writes the plain entry and reports the caveat, because the user asked for the
- * entry either way. The failure ordering mirrors applySaveServerSetting's guarded unit, and the stale-blob clears
- * are safe before the settings write because no entry exists under the label yet.
- */
+function staleRowRefusal(): DashboardValidationError {
+	return new DashboardValidationError(
+		`${l10n.t("This row no longer matches an adoptable server - it may have just been declared or removed.")}\n${l10n.t(
+			"The row did not resolve to an external VS Code provider group."
+		)}`
+	);
+}
+
 export async function applyAdoptServer(
 	intent: RequestPayload<"adoptServer">,
 	env: IntentEnvironment
@@ -129,14 +156,13 @@ export async function applyAdoptServer(
 	if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
 		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
 	}
-	const entries = rawServerEntries(env.readServersSetting());
-	// Raw labels count as taken (the webview's own rule): adoption always creates a new entry, and a parser-rejected
-	// sibling still occupies its label, so appending beside it would land two entries under one label.
-	if (rawDeclaredLabels(entries).has(label)) {
-		throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
-	}
+	requireLabelFree(rawServerEntries(env.readServersSetting()), label);
 
-	const credentials = env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
+	const { source } = await env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
+	if (source === undefined) {
+		throw staleRowRefusal();
+	}
+	const { credentials } = source;
 	// The adopted entry assembles through the shared assembler into the NESTED auth object the sync engine parses:
 	// secrets the user routed to settings join the inline fields; secure-routed values stay out of the entry and land
 	// in SecretStorage below. Writing any flat credential field here would sync credential-less and escape the
@@ -192,7 +218,23 @@ export async function applyAdoptServer(
 				await env.storeServerSecret(label, field, undefined, undefined);
 			}
 		}
-		await env.writeServersSetting([...entries, newEntry]);
+		// Resolved again after the awaited staging: a source declared meanwhile is not copied, and the array written
+		// is the one this resolution read.
+		const again = await env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
+		if (again.source === undefined) {
+			throw staleRowRefusal();
+		}
+		if (!isDeepStrictEqual(again.source.credentials, credentials)) {
+			throw new DashboardValidationError(
+				l10n.t(
+					"The server this row described was declared in the servers setting while the adoption ran; nothing was copied"
+				)
+			);
+		}
+		await writeServersSettingFrom(env, (fresh) => {
+			requireSettingUnchanged(env, again.setting);
+			return appendFree(fresh, label, newEntry);
+		});
 	} catch (error) {
 		let restoreFailed = false;
 		for (const [field, previous] of overwritten) {

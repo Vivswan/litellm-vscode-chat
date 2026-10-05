@@ -3,6 +3,7 @@ import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../../provider/catalog/groupDiscovery";
+import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { publicErrorText } from "../../../shared/logger";
@@ -497,13 +498,11 @@ suite("provider groups", () => {
 	});
 
 	test("a suppressed group answers empty without a network call and reports a zero-model status", async () => {
-		// The extension injects the removal-tombstone predicate; the provider consults it with the group's status label
-		// and normalized base URL.
-		const seen: [string, string][] = [];
+		const seen: unknown[] = [];
 		let suppressed = true;
 		const provider = makeProvider(undefined, "test-key", undefined, {
-			isGroupSuppressed: (label, baseUrl) => {
-				seen.push([label, baseUrl]);
+			isGroupSuppressed: (group) => {
+				seen.push(group);
 				return suppressed;
 			},
 		});
@@ -521,14 +520,23 @@ suite("provider groups", () => {
 			})
 		);
 
-		const infos = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: `${TEST_BASE_URL}/`, apiKey: "k", label: "Prod" }),
-			cancellation()
-		);
+		const configuration = { baseUrl: `${TEST_BASE_URL}/`, apiKey: "k", label: "Prod" };
+		const infos = await provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
 
 		assert.deepStrictEqual(infos, [], "the suppressed group serves nothing");
 		assert.strictEqual(fetches, 0, "suppression never touches the network");
-		assert.deepStrictEqual(seen, [["Prod", TEST_BASE_URL]], "judged by status label and normalized base URL");
+		assert.deepStrictEqual(
+			seen,
+			[
+				{
+					groupId: groupClientId(expectDefined(parseGroupConfiguration(configuration))),
+					label: "Prod",
+					entryLabel: "Prod",
+					baseUrl: TEST_BASE_URL,
+				},
+			],
+			"judged by the group's client ID, status label, stamp, and normalized base URL"
+		);
 		const serverStatus = expectDefined(expectDefined(statuses[0]).serverStatuses[0]);
 		assert.strictEqual(serverStatus.state, "ok", "a suppressed group is not an error");
 		assert.strictEqual(serverStatus.state === "ok" && serverStatus.servedModelCount, 0);
@@ -552,22 +560,28 @@ suite("provider groups", () => {
 		);
 	});
 
-	test("an unlabeled group is judged by its URL-host status label", async () => {
-		const seen: [string, string][] = [];
+	test("an unlabeled group is judged by its client ID with no stamp, never by its URL-host status label", async () => {
+		const seen: unknown[] = [];
 		const provider = makeProvider(undefined, "test-key", undefined, {
-			isGroupSuppressed: (label, baseUrl) => {
-				seen.push([label, baseUrl]);
+			isGroupSuppressed: (group) => {
+				seen.push(group);
 				return false;
 			},
 		});
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 
-		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k" }),
-			cancellation()
-		);
+		const configuration = { baseUrl: TEST_BASE_URL, apiKey: "k" };
+		const infos = await provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
 
-		assert.deepStrictEqual(seen, [["litellm.test", TEST_BASE_URL]]);
+		assert.strictEqual(infos.length, 1, "an unsuppressed unlabeled group serves its discovery");
+		assert.deepStrictEqual(seen, [
+			{
+				groupId: groupClientId(expectDefined(parseGroupConfiguration(configuration))),
+				label: "litellm.test",
+				entryLabel: undefined,
+				baseUrl: TEST_BASE_URL,
+			},
+		]);
 	});
 
 	test("a silent group refresh returns no models when the server is unreachable and reports the URL host", async () => {

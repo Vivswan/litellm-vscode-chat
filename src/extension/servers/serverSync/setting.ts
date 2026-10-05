@@ -39,6 +39,7 @@ import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { HEADER_NAME_PATTERN, isHeaderScalar, trimHttpWhitespace, usableHttpText } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 import type { CollectableEntry } from "../../../shared/util/knownSecrets";
+import { sameGroupIdentity } from "../groupRemovals";
 
 export type EntryModelParameters = EntryViewFieldValues["modelParameters"];
 
@@ -385,6 +386,79 @@ export interface ServerEntryReport {
 	readonly accepted: boolean;
 }
 
+/** A rejected entry with the identity a row or a join needs: both fields narrowed, so no call site defaults them. */
+export type DrawableReject = ServerEntryReport & { readonly label: string; readonly baseUrl: string };
+
+/**
+ * The labels the setting carries outside an accepted entry (rejected siblings, duplicates of an accepted label): the
+ * group ownership (dashboard/declaredJoin.ts) reads these so a group stamped with, or holding the key of, a label the
+ * setting still carries is never external.
+ */
+export function rejectedCarrierLabels(entryReports: readonly ServerEntryReport[]): string[] {
+	return entryReports.flatMap((report) => (report.accepted || report.label === undefined ? [] : [report.label]));
+}
+
+/**
+ * The secret values a rejected carrier still carries inline, by label: the parser refused the entry whole, but the
+ * values sit in the setting, so a group holding one is the label's leftover like a stored value makes it (the group
+ * ownership's holder evidence). Read at every flat secret field and every nested position of the one table the
+ * parser assigns through (SECRET_FIELD_NESTED_PATHS), like collectableEntries.
+ */
+export function rejectedCarrierInlineSecrets(
+	raw: unknown,
+	entryReports: readonly ServerEntryReport[]
+): ReadonlyMap<string, readonly string[]> {
+	const inline = new Map<string, readonly string[]>();
+	if (!Array.isArray(raw)) {
+		return inline;
+	}
+	for (const report of entryReports) {
+		const record = raw[report.index];
+		if (report.accepted || report.label === undefined || !isRecord(record)) {
+			continue;
+		}
+		const values = SECRET_FIELD_IDS.flatMap((id) =>
+			[record[id], ...SECRET_FIELD_NESTED_PATHS[id].map((path) => valueAt(record, path))]
+				.map(usableHttpText)
+				.filter((value): value is string => value !== undefined)
+		);
+		if (values.length > 0) {
+			inline.set(report.label, [...new Set([...(inline.get(report.label) ?? []), ...values])]);
+		}
+	}
+	return inline;
+}
+
+/**
+ * The rejected entries that stand for a label nothing accepted holds, one per label in setting order. A reject sits
+ * in the setting, so it must show somewhere; without a label and a base URL it has no identity to show under.
+ *
+ *   state.ts rejectsWithOwnRow      -> draws the Misconfigured rows from this, and Configuration diagnostics drop
+ *                                      exactly the problems those rows state
+ *   rowBoundWrite.ts carriersOfRow  -> the row a removal or declare acts for, when no accepted entry holds the label
+ */
+export function drawableRejects(
+	entryReports: readonly ServerEntryReport[],
+	acceptedLabels: ReadonlySet<string>
+): readonly DrawableReject[] {
+	const drawn = new Set<string>();
+	const rows: DrawableReject[] = [];
+	for (const report of entryReports) {
+		if (
+			report.accepted ||
+			report.label === undefined ||
+			report.baseUrl === undefined ||
+			acceptedLabels.has(report.label) ||
+			drawn.has(report.label)
+		) {
+			continue;
+		}
+		drawn.add(report.label);
+		rows.push({ ...report, label: report.label, baseUrl: report.baseUrl });
+	}
+	return rows;
+}
+
 export function serverSettingReports(raw: unknown): ServerEntryReport[] {
 	if (!Array.isArray(raw)) {
 		return [];
@@ -674,7 +748,7 @@ export function stillDeclaredIn(raw: unknown): (label: string) => boolean {
  */
 export function matchedEntryFor(raw: unknown, label: string, baseUrl: string): DeclaredServer | undefined {
 	const match = acceptedEntry(raw, label);
-	if (match === undefined || normalizeBaseUrl(match.entry.baseUrl) !== normalizeBaseUrl(baseUrl)) {
+	if (match === undefined || !sameGroupIdentity(match.entry, { label, baseUrl })) {
 		return undefined;
 	}
 	return match.entry;
@@ -683,7 +757,7 @@ export function matchedEntryFor(raw: unknown, label: string, baseUrl: string): D
 /**
  * A LABELED live group carrying an entry's label at another URL is that entry's superseded leftover, because
  * the add-only host kept the old connection when the entry was re-pointed and one label cannot honestly name
- * two servers. The provider (entrySupersedingBaseUrl, over the live setting) and the dashboard (over the
+ * two servers. The provider (entrySupersedingBaseUrl, over the live setting) and the dashboard (state.ts, over the
  * engine's declared views) hide groups through this one rule; matchedEntryFor is its complement.
  */
 export function supersedingBaseUrl(

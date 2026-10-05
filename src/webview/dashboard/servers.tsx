@@ -16,6 +16,7 @@ import { FailureText } from "./failureText";
 import { helpServersSection } from "./helpText";
 import { useIntentOutcome } from "./hooks";
 import { IconAdd } from "./icons";
+import { tupleKey } from "./keys";
 import type { ServerHealthVerdict, SpendContext } from "./serverDiagnostics";
 import { ServerDiagnosticLine, serverDiagnostics, serverHealth } from "./serverDiagnostics";
 import { ServerDrawer, SpendUnit, UrlBreaks, urlParts } from "./serverDrawer";
@@ -34,7 +35,16 @@ import { sendRequest } from "./vscodeApi";
  * would arm both rows at once.
  */
 function serverRowKey(server: DashboardServer): string {
-	return `${server.origin}:${server.adoptHandle ?? server.label}`;
+	switch (server.origin) {
+		case "legacy":
+			return tupleKey(server.origin, server.groupHandle);
+		case "external":
+			return tupleKey(server.origin, server.adoptHandle);
+		default:
+			// The URL is part of the key so a re-pointed entry is a new row: an armed Remove or declare never follows
+			// the label onto its successor.
+			return tupleKey(server.origin, server.label, server.baseUrl);
+	}
 }
 
 /**
@@ -174,7 +184,7 @@ function ServerRow({
 	refreshingExplicitly: boolean;
 }) {
 	const confirmRemove = () => {
-		sendRequest("removeServerSetting", { label: server.label });
+		sendRequest("removeServerSetting", { label: server.label, baseUrl: server.baseUrl });
 		onArmRemove(false);
 	};
 	// The declare control's confirm step, per row (row identity is keyed, so a push cannot re-associate the armed
@@ -269,11 +279,14 @@ function ServerRow({
 							{/* Provenance is the drawer's Origin fact; a hover tip here would be a focusable wrapper
 							    inside this button. */}
 							{server.origin === "external" ? <Badge>{l10n.t("external")}</Badge> : null}
+							{server.origin === "legacy" ? <Badge>{l10n.t("legacy")}</Badge> : null}
 						</span>
 					</span>
 				</button>
+				{/* A legacy leftover has no action: not in the setting (no Edit, no adopt), not the user's own
+				    (no hide); the drawer's Origin fact names the deletion route. */}
 				<span className={armed ? "server-actions armed" : "server-actions"}>
-					{armed ? (
+					{server.origin === "legacy" ? null : armed ? (
 						<>
 							{/* At the narrowest tier the armed pair covers ALL of the row, so the name the reader
 							    is checking against goes inside the cover there, ellipsized; the stylesheet hides it
@@ -424,8 +437,8 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 			{expanded ? (
 				<ul id={listId}>
 					{hidden.map((group) => (
-						// Keyed by the identity pair the unhideServer intent posts.
-						<li key={`${group.label}:${group.baseUrl}`}>
+						// A removed group and a superseded leftover can share the pair; the reason tells them apart.
+						<li key={tupleKey(group.reason, group.label, group.baseUrl)}>
 							<span className="hidden-label">{group.label}</span> <span className="url">{group.baseUrl}</span>{" "}
 							{group.reason === "superseded" ? (
 								<span className="hidden-reason">
@@ -897,7 +910,7 @@ export function ServersSection({
 										// The one place the destination's purpose is decided: a declared row
 										// edits, an external row adopts; the misconfigured guard (no Edit
 										// renders) keeps the narrowing honest.
-										if (server.origin === "misconfigured") {
+										if (server.origin === "misconfigured" || server.origin === "legacy") {
 											return;
 										}
 										if (server.origin === "declared") {
@@ -918,7 +931,7 @@ export function ServersSection({
 										setPendingDeclare({
 											rowKey,
 											label: server.label,
-											requestId: declareIntent.send({ label: server.label, category }),
+											requestId: declareIntent.send({ label: server.label, baseUrl: server.baseUrl, category }),
 										});
 									}}
 									declaring={pendingDeclare?.rowKey === rowKey}

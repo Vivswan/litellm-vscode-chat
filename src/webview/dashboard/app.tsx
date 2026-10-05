@@ -17,6 +17,7 @@ import { FailureText } from "./failureText";
 import { FeaturesSection } from "./featuresPage";
 import { asExtensionMessage } from "./hooks";
 import { IconClose, IconGear, IconModels, IconPulse, IconServers, IconSparkle } from "./icons";
+import { tupleKey } from "./keys";
 import type { InspectorSection } from "./modelInspector";
 import { ModelInspector } from "./modelInspector";
 import { ModelsSection } from "./models";
@@ -650,7 +651,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					    pane-top methods own no row, and the away-settings line re-mounts on every navigation away from
 					    Settings while its failure stands unchanged. */}
 					{paneTopFailures.map(({ method, failure }) => (
-						<PaneFailureLine key={`${method}:${failure.seq}`} failure={failure} />
+						<PaneFailureLine key={tupleKey(method, failure.seq)} failure={failure} />
 					))}
 					{awaySettingFailure !== undefined ? (
 						<PaneFailureLine key={awaySettingFailure.seq} failure={awaySettingFailure} />

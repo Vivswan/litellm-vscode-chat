@@ -38,13 +38,15 @@ export function buildState(
 	snapshots: DashboardStateInputs["snapshots"],
 	reader: SettingsReader,
 	declared?: readonly DeclaredServerView[],
-	removedGroups?: DashboardStateInputs["removedGroups"]
+	removedGroups?: DashboardStateInputs["removedGroups"],
+	observation?: Pick<DashboardStateInputs, "wasGroupObserved" | "wasLabeledGroupObserved">
 ) {
 	return buildDashboardState({
 		snapshots,
 		reader,
 		...(declared !== undefined ? { declared: { source: "engine", views: declared } } : {}),
 		...(removedGroups !== undefined ? { removedGroups } : {}),
+		...observation,
 	});
 }
 

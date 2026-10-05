@@ -1,12 +1,21 @@
 import * as assert from "node:assert";
+import type { FingerprintSaltState } from "../../../extension/fingerprintSalt";
+import type { GroupKey } from "../../../extension/servers/groupRemovals";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../../shared/config/storageKeys";
 import { expectDefined } from "../../pureHelpers";
-import { makeExtensionStorage } from "../../testUtils";
+import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 
-function makeStore(initial: Record<string, unknown> = {}) {
+const stamped = (label: string, baseUrl: string): GroupKey => ({
+	groupId: `group:${label}`,
+	label,
+	entryLabel: label,
+	baseUrl,
+});
+
+function makeStore(initial: Record<string, unknown> = {}, salt: FingerprintSaltState = "durable") {
 	const storage = makeExtensionStorage(initial);
-	const store = new GroupRemovalStore(storage.memento);
+	const store = new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession(salt));
 	const changes: number[] = [];
 	store.onDidChange = () => changes.push(changes.length + 1);
 	return { store, storage, changes };
@@ -14,15 +23,99 @@ function makeStore(initial: Record<string, unknown> = {}) {
 
 suite("extension/servers/groupRemovals", () => {
 	suite("tombstones", () => {
+		test("a group-keyed tombstone under a session-only salt hides for this session and is never persisted", async () => {
+			// The group ID is keyed by the fingerprint salt; a record minted under a session-only salt matches nothing
+			// after restart, so persisting it would hide nothing later while claiming to. Label-keyed records are
+			// salt-independent and persist as before.
+			const { store, storage, changes } = makeStore({}, "session-only");
+			const group = { groupId: "group:x", label: "h.test", entryLabel: undefined, baseUrl: "http://h.test" };
+			assert.deepStrictEqual(
+				await store.addTombstone({ by: "group", groupId: "group:x", label: "h.test", baseUrl: "http://h.test" }),
+				{ persistence: "session-only", added: true }
+			);
+			assert.deepStrictEqual(
+				await store.addTombstone({ by: "group", groupId: "group:x", label: "h.test", baseUrl: "http://h.test" }),
+				{ persistence: "session-only", added: false },
+				"an identical record is not inserted twice"
+			);
+			assert.strictEqual(store.isTombstoned(group), true, "the hide applies now");
+			assert.deepStrictEqual(changes, [1], "the provider still re-resolves");
+			assert.strictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), undefined, "nothing reached storage");
+			assert.deepStrictEqual(await store.addTombstone({ by: "entry", label: "Prod", baseUrl: "http://prod.test" }), {
+				persistence: "durable",
+				added: true,
+			});
+			assert.deepStrictEqual(
+				(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY) as { records: unknown[] }).records,
+				[{ by: "entry", label: "Prod", baseUrl: "http://prod.test" }],
+				"a later persist carries the durable record only"
+			);
+			assert.strictEqual(store.isTombstoned(group), true, "the session-local hide survives the persist");
+			const next = new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession("session-only"));
+			assert.deepStrictEqual(next.tombstones(), [{ by: "entry", label: "Prod", baseUrl: "http://prod.test" }]);
+		});
+
+		test("retracting one group-keyed record leaves the pair's other tombstones hiding", async () => {
+			// Two groups can share a displayed label and URL (different credentials); a compensated hide of one must
+			// not reach the other's record, which is what the pair-wide Unhide does on purpose.
+			const { store, changes } = makeStore();
+			const a = { by: "group" as const, groupId: "group:a", label: "Prod", baseUrl: "http://prod.test" };
+			const b = { by: "group" as const, groupId: "group:b", label: "Prod", baseUrl: "http://prod.test" };
+			await store.addTombstone(a);
+			await store.addTombstone(b);
+			assert.strictEqual(await store.retractTombstone(b), true);
+			assert.deepStrictEqual(store.tombstones(), [a]);
+			assert.strictEqual(
+				store.isTombstoned({ groupId: "group:a", label: "Prod", entryLabel: undefined, baseUrl: "http://prod.test" }),
+				true
+			);
+			assert.strictEqual(await store.retractTombstone(b), false, "a second retraction finds nothing");
+			assert.deepStrictEqual(changes, [1, 2, 3]);
+		});
+
+		test("a group-keyed tombstone under a durable salt persists as every other record", async () => {
+			const { store, storage } = makeStore();
+			assert.deepStrictEqual(
+				await store.addTombstone({ by: "group", groupId: "group:x", label: "h.test", baseUrl: "http://h.test" }),
+				{ persistence: "durable", added: true }
+			);
+			assert.deepStrictEqual(
+				(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY) as { records: unknown[] }).records,
+				[{ by: "group", groupId: "group:x", label: "h.test", baseUrl: "http://h.test" }]
+			);
+		});
+
 		test("add, match, and explicit removal round-trip; base URLs compare normalized", async () => {
 			const { store, changes } = makeStore();
 			assert.deepStrictEqual(store.tombstones(), []);
-			await store.addTombstone({ label: "Prod", baseUrl: "http://prod.test/" });
-			assert.deepStrictEqual(store.tombstones(), [{ label: "Prod", baseUrl: "http://prod.test" }]);
-			assert.strictEqual(store.isTombstoned("Prod", "http://prod.test"), true);
-			assert.strictEqual(store.isTombstoned("Prod", "http://prod.test///"), true, "trailing slashes are identity-free");
-			assert.strictEqual(store.isTombstoned("Prod", "http://other.test"), false, "the URL is half the identity");
-			assert.strictEqual(store.isTombstoned("Staging", "http://prod.test"), false, "the label is the other half");
+			await store.addTombstone({ by: "entry", label: "Prod", baseUrl: "http://prod.test/" });
+			assert.deepStrictEqual(store.tombstones(), [{ by: "entry", label: "Prod", baseUrl: "http://prod.test" }]);
+			assert.strictEqual(
+				store.isTombstoned({
+					groupId: "group:x",
+					label: "prod.test",
+					entryLabel: undefined,
+					baseUrl: "http://prod.test",
+				}),
+				false,
+				"an entry-stamped tombstone never hides an unstamped group at the URL"
+			);
+			assert.strictEqual(store.isTombstoned(stamped("Prod", "http://prod.test")), true);
+			assert.strictEqual(
+				store.isTombstoned(stamped("Prod", "http://prod.test///")),
+				true,
+				"trailing slashes are identity-free"
+			);
+			assert.strictEqual(
+				store.isTombstoned(stamped("Prod", "http://other.test")),
+				false,
+				"the URL is half the identity"
+			);
+			assert.strictEqual(
+				store.isTombstoned(stamped("Staging", "http://prod.test")),
+				false,
+				"the label is the other half"
+			);
 			assert.strictEqual(changes.length, 1, "the add fires one change");
 
 			assert.strictEqual(await store.removeTombstone({ label: "Prod", baseUrl: "http://prod.test" }), true);
@@ -37,35 +130,112 @@ suite("extension/servers/groupRemovals", () => {
 			assert.strictEqual(changes.length, 2, "a no-op removal fires no change");
 		});
 
+		test("a re-declared entry joined to the group a pre-keyed record hides lifts that record", async () => {
+			// The one identity match: the clear reads the joined group's key exactly as the suppression does.
+			const { store } = makeStore({
+				[REMOVED_GROUP_TOMBSTONES_KEY]: { version: "1", records: [{ label: "h.test", baseUrl: "http://h.test" }] },
+			});
+			const group = { groupId: "group:g", label: "h.test", entryLabel: undefined, baseUrl: "http://h.test" };
+			assert.strictEqual(store.isTombstoned(group), true);
+			assert.strictEqual(await store.clearTombstonesFor([{ label: "L1", baseUrl: "http://h.test", group }]), true);
+			assert.deepStrictEqual(store.tombstones(), []);
+		});
+
+		test("a status record and an entry record under one shown identity are two tombstones, cleared apart", async () => {
+			// A pre-keyed record hides the unstamped group reporting h.test; removing an entry labeled h.test adds the
+			// stamp record. Re-declaring L1 joined to the unstamped group lifts the status record only: the stamped
+			// group the removal hid stays hidden.
+			const { store } = makeStore({
+				[REMOVED_GROUP_TOMBSTONES_KEY]: { version: "1", records: [{ label: "h.test", baseUrl: "http://h.test" }] },
+			});
+			await store.addTombstone({ by: "entry", label: "h.test", baseUrl: "http://h.test" });
+			assert.strictEqual(store.tombstones().length, 2, "different kinds under one identity both stand");
+			const unstamped = { groupId: "group:g", label: "h.test", entryLabel: undefined, baseUrl: "http://h.test" };
+			await store.clearTombstonesFor([{ label: "L1", baseUrl: "http://h.test", group: unstamped }]);
+			assert.deepStrictEqual(store.tombstones(), [{ by: "entry", label: "h.test", baseUrl: "http://h.test" }]);
+			assert.strictEqual(
+				store.isTombstoned({ groupId: "group:s", label: "h.test", entryLabel: "h.test", baseUrl: "http://h.test" }),
+				true,
+				"the stamped group the removal hid stays hidden"
+			);
+		});
+
+		test("a persisted record without a key keeps hiding by the status label and URL it carried", () => {
+			const { store } = makeStore({
+				[REMOVED_GROUP_TOMBSTONES_KEY]: {
+					version: "3",
+					records: [
+						{ label: "old.test", baseUrl: "http://old.test" },
+						{ by: "group", groupId: "group:g", label: "g.test", baseUrl: "http://g.test" },
+						{ by: "group", label: "no-id", baseUrl: "http://no-id.test" },
+					],
+				},
+			});
+			assert.deepStrictEqual(store.tombstones(), [
+				{ by: "status", label: "old.test", baseUrl: "http://old.test" },
+				{ by: "group", groupId: "group:g", label: "g.test", baseUrl: "http://g.test" },
+			]);
+			assert.strictEqual(
+				store.isTombstoned({
+					groupId: "group:any",
+					label: "old.test",
+					entryLabel: undefined,
+					baseUrl: "http://old.test/",
+				}),
+				true,
+				"an unstamped group hidden before the keyed kinds stays hidden"
+			);
+			assert.strictEqual(
+				store.isTombstoned({
+					groupId: "group:g",
+					label: "g.test",
+					entryLabel: undefined,
+					baseUrl: "http://other.test",
+				}),
+				true,
+				"a group record hides by client ID wherever the group reports"
+			);
+		});
+
 		test("adding an existing identity is a no-op and fires no change", async () => {
 			const { store, changes } = makeStore();
-			await store.addTombstone({ label: "Prod", baseUrl: "http://prod.test" });
-			await store.addTombstone({ label: "Prod", baseUrl: "http://prod.test/" });
+			await store.addTombstone({ by: "entry", label: "Prod", baseUrl: "http://prod.test" });
+			await store.addTombstone({ by: "entry", label: "Prod", baseUrl: "http://prod.test/" });
 
 			assert.strictEqual(store.tombstones().length, 1);
 			assert.strictEqual(changes.length, 1);
 		});
 
-		test("clearTombstonesFor removes exactly the identities a declared entry matches", async () => {
+		test("clearTombstonesFor removes exactly the identities a declared entry matches, by the join's own keys", async () => {
 			const { store, changes } = makeStore();
-			await store.addTombstone({ label: "Prod", baseUrl: "http://prod.test" });
-			await store.addTombstone({ label: "Staging", baseUrl: "http://staging.test" });
+			await store.addTombstone({ by: "entry", label: "Prod", baseUrl: "http://prod.test" });
+			await store.addTombstone({ by: "entry", label: "Staging", baseUrl: "http://staging.test" });
+			await store.addTombstone({ by: "group", groupId: "group:conn", label: "c.test", baseUrl: "http://c.test" });
+			await store.addTombstone({ by: "group", groupId: "group:other", label: "c.test", baseUrl: "http://c.test" });
 
 			const cleared = await store.clearTombstonesFor([
-				{ label: "Prod", baseUrl: "http://prod.test/" },
-				{ label: "Unrelated", baseUrl: "http://elsewhere.test" },
+				{ label: "Prod", baseUrl: "http://prod.test/", group: undefined },
+				{ label: "Unrelated", baseUrl: "http://elsewhere.test", group: undefined },
+				{
+					label: "Conn",
+					baseUrl: "http://c.test",
+					group: { groupId: "group:conn", label: "c.test", entryLabel: undefined, baseUrl: "http://c.test" },
+				},
 			]);
 
 			assert.strictEqual(cleared, true);
-			assert.deepStrictEqual(store.tombstones(), [{ label: "Staging", baseUrl: "http://staging.test" }]);
-			assert.strictEqual(changes.length, 3);
+			assert.deepStrictEqual(store.tombstones(), [
+				{ by: "entry", label: "Staging", baseUrl: "http://staging.test" },
+				{ by: "group", groupId: "group:other", label: "c.test", baseUrl: "http://c.test" },
+			]);
+			assert.strictEqual(changes.length, 5);
 
 			assert.strictEqual(
-				await store.clearTombstonesFor([{ label: "Prod", baseUrl: "http://prod.test" }]),
+				await store.clearTombstonesFor([{ label: "Prod", baseUrl: "http://prod.test", group: undefined }]),
 				false,
 				"nothing left to clear reports false"
 			);
-			assert.strictEqual(changes.length, 3, "a no-op clear fires no change");
+			assert.strictEqual(changes.length, 5, "a no-op clear fires no change");
 		});
 
 		test("corrupt stored values are validated at the read boundary", () => {
@@ -80,7 +250,7 @@ suite("extension/servers/groupRemovals", () => {
 					],
 				},
 			});
-			assert.deepStrictEqual(store.tombstones(), [{ label: "Prod", baseUrl: "http://prod.test" }]);
+			assert.deepStrictEqual(store.tombstones(), [{ by: "status", label: "Prod", baseUrl: "http://prod.test" }]);
 
 			const { store: notAList } = makeStore({ [REMOVED_GROUP_TOMBSTONES_KEY]: "junk" });
 			assert.deepStrictEqual(notAList.tombstones(), []);
@@ -95,7 +265,7 @@ suite("extension/servers/groupRemovals", () => {
 			const { store } = makeStore({
 				[REMOVED_GROUP_TOMBSTONES_KEY]: [{ label: "Old", baseUrl: "http://old.test" }],
 			});
-			assert.strictEqual(store.isTombstoned("Old", "http://old.test"), false);
+			assert.strictEqual(store.isTombstoned(stamped("Old", "http://old.test")), false);
 			assert.deepStrictEqual(store.tombstones(), []);
 		});
 
@@ -106,16 +276,20 @@ suite("extension/servers/groupRemovals", () => {
 				const { store, storage } = makeStore({
 					[REMOVED_GROUP_TOMBSTONES_KEY]: { version: broken, records: [{ label: "A", baseUrl: "http://host.test" }] },
 				});
-				assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, `records survive version ${broken}`);
+				assert.strictEqual(
+					store.isTombstoned(stamped("A", "http://host.test")),
+					true,
+					`records survive version ${broken}`
+				);
 
-				await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+				await store.addTombstone({ by: "entry", label: "B", baseUrl: "http://host.test" });
 				assert.deepStrictEqual(
 					storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY),
 					{
 						version: "1",
 						records: [
-							{ label: "A", baseUrl: "http://host.test" },
-							{ label: "B", baseUrl: "http://host.test" },
+							{ by: "status", label: "A", baseUrl: "http://host.test" },
+							{ by: "entry", label: "B", baseUrl: "http://host.test" },
 						],
 					},
 					`version ${broken} re-enters at 0`
@@ -128,27 +302,33 @@ suite("extension/servers/groupRemovals", () => {
 			// tombstone in the next add's read-modify-write. A reverted snapshot carries an older-or-equal version, so
 			// the in-memory list keeps serving reads and the next write rebuilds the store from it.
 			const { store, storage } = makeStore();
-			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			await store.addTombstone({ by: "entry", label: "A", baseUrl: "http://host.test" });
 			// The storage layer reverts the key to its pre-add value.
 			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, []);
 
-			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "the stale snapshot is ignored");
+			assert.strictEqual(store.isTombstoned(stamped("A", "http://host.test")), true, "the stale snapshot is ignored");
 
-			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
-			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "A survives B's read-modify-write");
-			assert.strictEqual(store.isTombstoned("B", "http://host.test"), true);
+			// The next add must build on the in-memory list, not the reverted store: both tombstones survive, and the
+			// persisted write carries both.
+			await store.addTombstone({ by: "entry", label: "B", baseUrl: "http://host.test" });
+			assert.strictEqual(
+				store.isTombstoned(stamped("A", "http://host.test")),
+				true,
+				"A survives B's read-modify-write"
+			);
+			assert.strictEqual(store.isTombstoned(stamped("B", "http://host.test")), true);
 			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), {
 				version: "2",
 				records: [
-					{ label: "A", baseUrl: "http://host.test" },
-					{ label: "B", baseUrl: "http://host.test" },
+					{ by: "entry", label: "A", baseUrl: "http://host.test" },
+					{ by: "entry", label: "B", baseUrl: "http://host.test" },
 				],
 			});
 		});
 
 		test("a stale store cannot resurrect a cleared tombstone (a re-declared group never stays suppressed)", async () => {
 			const { store, storage } = makeStore();
-			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			await store.addTombstone({ by: "entry", label: "A", baseUrl: "http://host.test" });
 			assert.strictEqual(await store.removeTombstone({ label: "A", baseUrl: "http://host.test" }), true);
 
 			// The storage layer reverts to the version that still holds A; the older snapshot must not win over the
@@ -157,14 +337,14 @@ suite("extension/servers/groupRemovals", () => {
 				version: 1,
 				records: [{ label: "A", baseUrl: "http://host.test" }],
 			});
-			assert.strictEqual(store.isTombstoned("A", "http://host.test"), false);
+			assert.strictEqual(store.isTombstoned(stamped("A", "http://host.test")), false);
 		});
 
 		test("another window's tombstone rides through this window's mutations", async () => {
 			// globalState is shared across windows: another window syncs before it mutates, so its write is strictly
 			// newer and is adopted here on the next read.
 			const { store, storage } = makeStore();
-			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			await store.addTombstone({ by: "entry", label: "A", baseUrl: "http://host.test" });
 			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, {
 				version: 2,
 				records: [
@@ -173,14 +353,18 @@ suite("extension/servers/groupRemovals", () => {
 				],
 			});
 
-			assert.strictEqual(store.isTombstoned("W", "http://host.test"), true, "fresh reads see the other window");
-			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			assert.strictEqual(
+				store.isTombstoned(stamped("W", "http://host.test")),
+				true,
+				"fresh reads see the other window"
+			);
+			await store.addTombstone({ by: "entry", label: "B", baseUrl: "http://host.test" });
 			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), {
 				version: "3",
 				records: [
-					{ label: "A", baseUrl: "http://host.test" },
-					{ label: "W", baseUrl: "http://host.test" },
-					{ label: "B", baseUrl: "http://host.test" },
+					{ by: "status", label: "A", baseUrl: "http://host.test" },
+					{ by: "status", label: "W", baseUrl: "http://host.test" },
+					{ by: "entry", label: "B", baseUrl: "http://host.test" },
 				],
 			});
 		});
@@ -189,15 +373,19 @@ suite("extension/servers/groupRemovals", () => {
 			// The version tells a genuine foreign clear apart from the reverted store read of #220: another window's
 			// Unhide is strictly newer and wins, while a revert is older-or-equal and loses.
 			const { store, storage } = makeStore();
-			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			await store.addTombstone({ by: "entry", label: "A", baseUrl: "http://host.test" });
 			// Another window adopted version 1, unhid A, and persisted version 2.
 			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, { version: 2, records: [] });
 
-			assert.strictEqual(store.isTombstoned("A", "http://host.test"), false, "the foreign unhide is honored here");
-			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			assert.strictEqual(
+				store.isTombstoned(stamped("A", "http://host.test")),
+				false,
+				"the foreign unhide is honored here"
+			);
+			await store.addTombstone({ by: "entry", label: "B", baseUrl: "http://host.test" });
 			assert.deepStrictEqual(
 				storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY),
-				{ version: "3", records: [{ label: "B", baseUrl: "http://host.test" }] },
+				{ version: "3", records: [{ by: "entry", label: "B", baseUrl: "http://host.test" }] },
 				"A stays cleared through this window's next write"
 			);
 		});
@@ -218,19 +406,23 @@ suite("extension/servers/groupRemovals", () => {
 
 			// Persistence is best-effort: the in-memory list hides the group and the failure is reported instead of
 			// thrown, since a thrown persist would make callers report the opposite of the effective state.
-			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
-			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "the in-memory list hides the group");
+			await store.addTombstone({ by: "entry", label: "A", baseUrl: "http://host.test" });
+			assert.strictEqual(
+				store.isTombstoned(stamped("A", "http://host.test")),
+				true,
+				"the in-memory list hides the group"
+			);
 			assert.strictEqual(changes.length, 1, "the provider is notified despite the failed persist");
 			assert.strictEqual(persistErrors.length, 1, "the failure is reported, not thrown");
 
-			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			await store.addTombstone({ by: "entry", label: "B", baseUrl: "http://host.test" });
 			assert.deepStrictEqual(
 				storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY),
 				{
 					version: "1",
 					records: [
-						{ label: "A", baseUrl: "http://host.test" },
-						{ label: "B", baseUrl: "http://host.test" },
+						{ by: "entry", label: "A", baseUrl: "http://host.test" },
+						{ by: "entry", label: "B", baseUrl: "http://host.test" },
 					],
 				},
 				"the next write persists the whole in-memory view, healing the store"
@@ -253,16 +445,16 @@ suite("extension/servers/groupRemovals", () => {
 				return update(key, value);
 			};
 
-			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			await store.addTombstone({ by: "entry", label: "A", baseUrl: "http://host.test" });
 			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, { version: 5, records: [] });
 
-			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "A survives while unpersisted");
-			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			assert.strictEqual(store.isTombstoned(stamped("A", "http://host.test")), true, "A survives while unpersisted");
+			await store.addTombstone({ by: "entry", label: "B", baseUrl: "http://host.test" });
 			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), {
 				version: "6",
 				records: [
-					{ label: "A", baseUrl: "http://host.test" },
-					{ label: "B", baseUrl: "http://host.test" },
+					{ by: "entry", label: "A", baseUrl: "http://host.test" },
+					{ by: "entry", label: "B", baseUrl: "http://host.test" },
 				],
 			});
 		});
@@ -271,11 +463,11 @@ suite("extension/servers/groupRemovals", () => {
 			// The activation wiring re-resolves models synchronously from the change event, so the in-memory list must
 			// already answer with the mutation.
 			const storage = makeExtensionStorage({});
-			const store = new GroupRemovalStore(storage.memento);
+			const store = new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession());
 			const seen: boolean[] = [];
-			store.onDidChange = () => seen.push(store.isTombstoned("A", "http://host.test"));
+			store.onDidChange = () => seen.push(store.isTombstoned(stamped("A", "http://host.test")));
 
-			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			await store.addTombstone({ by: "entry", label: "A", baseUrl: "http://host.test" });
 			await store.removeTombstone({ label: "A", baseUrl: "http://host.test" });
 
 			assert.deepStrictEqual(seen, [true, false], "each listener call sees the state its mutation produced");
@@ -291,7 +483,7 @@ suite("extension/servers/groupRemovals", () => {
 				store.onPersistError = () => {};
 			}, /already assigned/);
 
-			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			await store.addTombstone({ by: "entry", label: "A", baseUrl: "http://host.test" });
 			assert.strictEqual(changes.length, 1, "the original listener survives the rejected assignment");
 		});
 
@@ -317,8 +509,8 @@ suite("extension/servers/groupRemovals", () => {
 				return update(key, value);
 			};
 
-			const first = store.addTombstone({ label: "A", baseUrl: "http://host.test" });
-			const second = store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			const first = store.addTombstone({ by: "entry", label: "A", baseUrl: "http://host.test" });
+			const second = store.addTombstone({ by: "entry", label: "B", baseUrl: "http://host.test" });
 			// The queued first write reaches the stalled update on a microtask.
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			expectDefined(firstGate)();
@@ -329,8 +521,8 @@ suite("extension/servers/groupRemovals", () => {
 				{
 					version: "1",
 					records: [
-						{ label: "A", baseUrl: "http://host.test" },
-						{ label: "B", baseUrl: "http://host.test" },
+						{ by: "entry", label: "A", baseUrl: "http://host.test" },
+						{ by: "entry", label: "B", baseUrl: "http://host.test" },
 					],
 				},
 				"the first write persisted both adds"
@@ -338,7 +530,7 @@ suite("extension/servers/groupRemovals", () => {
 
 			// Everything committed is in storage, so a foreign clear is adopted.
 			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, { version: 9, records: [] });
-			assert.strictEqual(store.isTombstoned("B", "http://host.test"), false, "the foreign clear is honored");
+			assert.strictEqual(store.isTombstoned(stamped("B", "http://host.test")), false, "the foreign clear is honored");
 		});
 
 		test("an earlier success cannot mark a later, uncovered failure as persisted", async () => {
@@ -362,16 +554,16 @@ suite("extension/servers/groupRemovals", () => {
 				return update(key, value);
 			};
 
-			const first = store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			const first = store.addTombstone({ by: "entry", label: "A", baseUrl: "http://host.test" });
 			// Let the first write start (and stall) before B is committed.
 			await new Promise((resolve) => setTimeout(resolve, 0));
-			const second = store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			const second = store.addTombstone({ by: "entry", label: "B", baseUrl: "http://host.test" });
 			expectDefined(firstGate)();
 			await Promise.all([first, second]);
 
 			// B never reached storage, so a newer foreign snapshot must be skipped.
 			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, { version: 9, records: [] });
-			assert.strictEqual(store.isTombstoned("B", "http://host.test"), true, "B survives its failed write");
+			assert.strictEqual(store.isTombstoned(stamped("B", "http://host.test")), true, "B survives its failed write");
 		});
 
 		test("the version keeps advancing past every numeric boundary (BigInt, no overflow)", async () => {
@@ -385,24 +577,28 @@ suite("extension/servers/groupRemovals", () => {
 					},
 				});
 
-				await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+				await store.addTombstone({ by: "entry", label: "B", baseUrl: "http://host.test" });
 				assert.deepStrictEqual(
 					storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY),
 					{
 						version: (start + 1n).toString(),
 						records: [
-							{ label: "A", baseUrl: "http://host.test" },
-							{ label: "B", baseUrl: "http://host.test" },
+							{ by: "status", label: "A", baseUrl: "http://host.test" },
+							{ by: "entry", label: "B", baseUrl: "http://host.test" },
 						],
 					},
 					`the successor of ${start} is exact and strictly newer`
 				);
 				// The written string version round-trips: a fresh store adopts it and counts on.
 				const { store: reread, storage: rereadStorage } = makeStore(Object.fromEntries(storage.mementoStore.entries()));
-				await reread.addTombstone({ label: "C", baseUrl: "http://host.test" });
+				await reread.addTombstone({ by: "entry", label: "C", baseUrl: "http://host.test" });
 				const blob = rereadStorage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY) as { version: string };
 				assert.strictEqual(blob.version, (start + 2n).toString());
-				assert.strictEqual(reread.isTombstoned("B", "http://host.test"), true, "the fresh store adopted the records");
+				assert.strictEqual(
+					reread.isTombstoned(stamped("B", "http://host.test")),
+					true,
+					"the fresh store adopted the records"
+				);
 			}
 		});
 	});

@@ -1,10 +1,17 @@
 import * as assert from "node:assert";
+import type { LiveDeclaration } from "../../../extension/dashboard/adopt";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "../../../extension/dashboard/adopt";
 import type { DashboardStateInputs } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { makeServerStatus } from "../../testUtils";
 import { buildState, makeDeclared, makeReader } from "./stateHelpers";
+
+const live = (identities: readonly DeclaredServerView[] = []): LiveDeclaration => ({
+	identities,
+	carriers: [],
+	secretValues: new Map(),
+});
 
 suite("extension/dashboard/adopt", () => {
 	suite("resolveAdoptableCredentials", () => {
@@ -63,13 +70,12 @@ suite("extension/dashboard/adopt", () => {
 			const first = handleOf(snapshots, [], "ext.test (1)");
 			const second = handleOf(snapshots, [], "ext.test (2)");
 			for (const ordering of [snapshots, [...snapshots].reverse()]) {
-				assert.deepStrictEqual(resolveAdoptableCredentials(ordering, [], "http://ext.test", first, lookup), {
-					apiKey: "sk-one",
+				assert.deepStrictEqual(resolveAdoptableCredentials(ordering, live(), "http://ext.test", first, lookup), {
+					credentials: { apiKey: "sk-one" },
 				});
-				assert.deepStrictEqual(
-					resolveAdoptableCredentials(ordering, [], "http://ext.test/", second, lookup),
-					OAUTH_CREDENTIALS
-				);
+				assert.deepStrictEqual(resolveAdoptableCredentials(ordering, live(), "http://ext.test/", second, lookup), {
+					credentials: OAUTH_CREDENTIALS,
+				});
 			}
 		});
 
@@ -87,13 +93,13 @@ suite("extension/dashboard/adopt", () => {
 				}),
 			];
 			assert.strictEqual(
-				resolveAdoptableCredentials(snapshots, declared, "http://ext.test", first, lookup),
+				resolveAdoptableCredentials(snapshots, live(declared), "http://ext.test", first, lookup),
 				undefined,
 				"the declared group's credentials must not resolve for an adopt intent"
 			);
 			assert.deepStrictEqual(
-				resolveAdoptableCredentials(snapshots, declared, "http://ext.test", second, lookup),
-				OAUTH_CREDENTIALS,
+				resolveAdoptableCredentials(snapshots, live(declared), "http://ext.test", second, lookup),
+				{ credentials: OAUTH_CREDENTIALS },
 				"the still-external sibling stays adoptable"
 			);
 		});
@@ -101,13 +107,16 @@ suite("extension/dashboard/adopt", () => {
 		test("binds the handle to the intent's base URL, so copied credentials cannot be re-pointed at another host", () => {
 			const snapshots = [snapshotFor("group:aaa:http://ext.test")];
 			const handle = handleOf(snapshots, [], "ext.test");
-			assert.strictEqual(resolveAdoptableCredentials(snapshots, [], "http://attacker.test", handle, lookup), undefined);
+			assert.strictEqual(
+				resolveAdoptableCredentials(snapshots, live(), "http://attacker.test", handle, lookup),
+				undefined
+			);
 		});
 
-		test("returns undefined for an unknown handle or a snapshot without group credentials", () => {
+		test("resolves nothing for an unknown handle, and a registry-only snapshot as a source without credentials", () => {
 			const snapshots = [snapshotFor("group:aaa:http://ext.test")];
 			assert.strictEqual(
-				resolveAdoptableCredentials(snapshots, [], "http://ext.test", "not-a-minted-handle", lookup),
+				resolveAdoptableCredentials(snapshots, live(), "http://ext.test", "not-a-minted-handle", lookup),
 				undefined,
 				"a handle the extension never minted resolves nothing"
 			);
@@ -117,30 +126,49 @@ suite("extension/dashboard/adopt", () => {
 					models: [],
 				},
 			];
-			assert.strictEqual(
+			assert.deepStrictEqual(
 				resolveAdoptableCredentials(
 					registryOnly,
-					[],
+					live(),
 					"http://ext.test",
 					handleOf(registryOnly, [], "ext.test"),
 					lookup
 				),
-				undefined,
-				"a registry snapshot has no group credentials to adopt"
+				{ credentials: undefined },
+				"a registry snapshot is external with no group credentials to adopt"
 			);
 		});
 
-		test("resolveExternalGroupIdentity yields the raw status identity, under the same trust rules", () => {
+		test("a group holding a declared label's stored secret value is a leftover, never a credential source", () => {
+			// The entry moved to another URL and kept its secure key; the pre-label group at the old URL still carries
+			// that value, so copying it would hand a declared key out under a new label.
+			const snapshots = [snapshotFor("group:aaa:http://ext.test")];
+			const handle = handleOf(snapshots, [], "ext.test");
+			const moved = live([makeDeclared({ label: "Prod", baseUrl: "http://new.test" })]);
+			assert.deepStrictEqual(
+				resolveAdoptableCredentials(snapshots, moved, "http://ext.test", handle, lookup),
+				{ credentials: { apiKey: "sk-one" } },
+				"with no stored value under the label, the group is the user's own"
+			);
+			const holding = { ...moved, secretValues: new Map([["Prod", ["sk-one"]]]) };
+			assert.strictEqual(resolveAdoptableCredentials(snapshots, holding, "http://ext.test", handle, lookup), undefined);
+			assert.strictEqual(
+				resolveExternalGroupIdentity(snapshots, holding, "http://ext.test", handle, lookup),
+				undefined
+			);
+		});
+
+		test("resolveExternalGroupIdentity yields the group's own tombstone identity, under the same trust rules", () => {
 			const snapshots = [snapshotFor("group:aaa:http://ext.test"), snapshotFor("group:bbb:http://ext.test")];
-			// Both ordinal rows resolve to the same raw status identity: the tombstone is keyed by the snapshot's own
-			// label, never the display ordinal.
 			const handle = handleOf(snapshots, [], "ext.test (1)");
-			assert.deepStrictEqual(resolveExternalGroupIdentity(snapshots, [], "http://ext.test", handle), {
+			assert.deepStrictEqual(resolveExternalGroupIdentity(snapshots, live(), "http://ext.test", handle, lookup), {
+				by: "group",
+				groupId: "group:aaa:http://ext.test",
 				label: "ext.test",
 				baseUrl: "http://ext.test",
 			});
 			assert.strictEqual(
-				resolveExternalGroupIdentity(snapshots, [], "http://attacker.test", handle),
+				resolveExternalGroupIdentity(snapshots, live(), "http://attacker.test", handle, lookup),
 				undefined,
 				"bound to the intent's base URL like the adopt path"
 			);
@@ -148,7 +176,7 @@ suite("extension/dashboard/adopt", () => {
 				makeDeclared({ label: "Prod", baseUrl: "http://ext.test", expectedClientId: "group:aaa:http://ext.test" }),
 			];
 			assert.strictEqual(
-				resolveExternalGroupIdentity(snapshots, declared, "http://ext.test", handle),
+				resolveExternalGroupIdentity(snapshots, live(declared), "http://ext.test", handle, lookup),
 				undefined,
 				"a declared group's identity must not resolve for a hide intent"
 			);

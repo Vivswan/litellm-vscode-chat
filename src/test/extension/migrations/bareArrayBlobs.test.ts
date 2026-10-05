@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import { bareArrayWrappingMemento } from "../../../extension/migrations/bareArrayBlobs";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../../shared/config/storageKeys";
-import { makeExtensionStorage } from "../../testUtils";
+import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 
 suite("extension/migrations/bareArrayBlobs", () => {
 	test("the view hands each region's bare array back in its versioned shape, losslessly", () => {
@@ -27,8 +27,16 @@ suite("extension/migrations/bareArrayBlobs", () => {
 		assert.ok(Array.isArray(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY)));
 
 		// The store constructed over the view (the activation wiring) adopts the records like any versioned snapshot.
-		const removals = new GroupRemovalStore(view);
-		assert.strictEqual(removals.isTombstoned("Hidden", "http://hidden.test"), true);
+		const removals = new GroupRemovalStore(view, fakeFingerprintSaltSession());
+		assert.strictEqual(
+			removals.isTombstoned({
+				groupId: "group:hidden",
+				label: "Hidden",
+				entryLabel: undefined,
+				baseUrl: "http://hidden.test",
+			}),
+			true
+		);
 		assert.strictEqual(removals.provenance().length, 1);
 	});
 
@@ -38,15 +46,15 @@ suite("extension/migrations/bareArrayBlobs", () => {
 		const storage = makeExtensionStorage({
 			[REMOVED_GROUP_TOMBSTONES_KEY]: [{ label: "Old", baseUrl: "http://old.test" }],
 		});
-		const removals = new GroupRemovalStore(bareArrayWrappingMemento(storage.memento));
+		const removals = new GroupRemovalStore(bareArrayWrappingMemento(storage.memento), fakeFingerprintSaltSession());
 
-		await removals.addTombstone({ label: "New", baseUrl: "http://new.test" });
+		await removals.addTombstone({ by: "entry", label: "New", baseUrl: "http://new.test" });
 
 		assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), {
 			version: "1",
 			records: [
-				{ label: "Old", baseUrl: "http://old.test" },
-				{ label: "New", baseUrl: "http://new.test" },
+				{ by: "status", label: "Old", baseUrl: "http://old.test" },
+				{ by: "entry", label: "New", baseUrl: "http://new.test" },
 			],
 		});
 	});

@@ -51,6 +51,7 @@ import { DOCS_LINK_CAPS_INSPECTOR, DOCS_LINK_PARAMS_INSPECTOR } from "./docsLink
 import { HoverTip } from "./help";
 import { helpCapsInspector, helpParamsInspector } from "./helpText";
 import { useRpc } from "./hooks";
+import { tupleKey } from "./keys";
 import { formatTokens } from "./models";
 import type { MarkView, ProvenanceView } from "./provenance";
 import {
@@ -379,7 +380,7 @@ function ParameterRow({
 				</td>
 			</tr>
 			{row.shadowed.map((shadow) => (
-				<ParamShadowedLine key={`${shadow.layer}/${shadow.key}`} shadow={shadow} />
+				<ParamShadowedLine key={tupleKey(shadow.layer, shadow.key)} shadow={shadow} />
 			))}
 		</>
 	);
@@ -453,7 +454,7 @@ function FieldRow({
 			</tr>
 			{field.shadowed.map((shadow) => (
 				<CapShadowedLine
-					key={`${shadow.level}/${shadow.key ?? ""}`}
+					key={tupleKey(shadow.level, shadow.key)}
 					name={name}
 					shadow={shadow}
 					currencySymbol={currencySymbol}
@@ -630,7 +631,7 @@ function SupportedParamsBlock({
 				}
 			/>
 			{field.shadowed.map((shadow) => (
-				<p className="params-shadow" key={`${shadow.level}/${shadow.key ?? ""}`}>
+				<p className="params-shadow" key={tupleKey(shadow.level, shadow.key)}>
 					<span className="visually-hidden">{l10n.t("Overridden value")}</span>{" "}
 					<del>{formatValue("supported_openai_params", shadow.value, currencySymbol)}</del>{" "}
 					<Provenance source={capabilityProvenance(shadow.level, shadow.key).source} />
@@ -866,7 +867,7 @@ export function ModelInspector({
 							<h5 className="hint">{l10n.t("Record problems")}</h5>
 							<ul>
 								{projection.diagnostics.map((diagnostic) => (
-									<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.kind}/${diagnostic.key}`}>
+									<li key={tupleKey(diagnostic.layer, diagnostic.recordKey, diagnostic.kind, diagnostic.key)}>
 										{parameterDiagnosticText(diagnostic)}
 									</li>
 								))}
@@ -1053,7 +1054,7 @@ export function ModelInspector({
 									<h5 className="hint">{l10n.t("Record problems")}</h5>
 									<ul>
 										{problems.map((diagnostic) => (
-											<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.key}`}>
+											<li key={tupleKey(diagnostic.layer, diagnostic.recordKey, diagnostic.key)}>
 												{capabilityDiagnosticText(diagnostic)}
 											</li>
 										))}
@@ -1065,7 +1066,7 @@ export function ModelInspector({
 									<h5 className="hint">{l10n.t("Record notes")}</h5>
 									<ul>
 										{advisories.map((diagnostic) => (
-											<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.key}`} className="hint">
+											<li key={tupleKey(diagnostic.layer, diagnostic.recordKey, diagnostic.key)} className="hint">
 												{capabilityDiagnosticText(diagnostic)}
 											</li>
 										))}

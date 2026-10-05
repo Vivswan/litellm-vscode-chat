@@ -5,6 +5,7 @@ import type { DashboardServer } from "../../../../dashboard/viewModels";
 import { SETUP_HINT_DOCS_URLS } from "../../../../shared/util/links";
 import { App } from "../../../../webview/dashboard/app";
 import { helpEntryModelParameterPrefix } from "../../../../webview/dashboard/helpText";
+import { tupleKey } from "../../../../webview/dashboard/keys";
 import type { ServerEditRequest } from "../../../../webview/dashboard/serverEditPage";
 import { ServerEditPage } from "../../../../webview/dashboard/serverEditPage";
 import { ServersSection } from "../../../../webview/dashboard/servers";
@@ -900,6 +901,43 @@ test("an external row's drawer states the provenance classification, or the hone
 	expect(renamedTip).toContain("Leftover");
 	const defaultTip = origins.find((tip) => tip.includes("predates"));
 	expect(defaultTip).toContain("added outside this extension");
+});
+
+test("row keys built from user strings never collide where a joined string would", () => {
+	// "A:https://h.test/" at "https://g.test" and "A" at "https://h.test/:https://g.test" join to one string.
+	expect(tupleKey("removed", "A:https://h.test/", "https://g.test")).not.toBe(
+		tupleKey("removed", "A", "https://h.test/:https://g.test")
+	);
+});
+
+test("a legacy row carries the badge and the Origin fact, and offers neither Edit nor Remove", () => {
+	// A leftover a declared entry no longer matches: not in the setting (no Edit, no adopt), not the user's own
+	// (no hide); the drawer names the entry and the deletion route.
+	const legacyRow: DashboardServer = {
+		origin: "legacy",
+		entryLabel: "Prod",
+		groupHandle: "handle-legacy",
+		label: "Prod",
+		baseUrl: "http://a.test",
+		servedModelCount: 2,
+		credentials: "present",
+		hasOAuth: false,
+		state: "ok",
+	};
+	const root = mountSection([legacyRow, makeExternalServer()]);
+	const [legacy, external] = [...root.querySelectorAll(".server-item")] as HTMLElement[];
+	const badgeTexts = (item: Element) =>
+		[...item.querySelectorAll(".server-badges span[data-slot='badge']")].map((el) => el.textContent?.trim());
+	expect(badgeTexts(legacy as Element)).toEqual(["API key", "legacy"]);
+	expect(legacy?.querySelectorAll(".server-actions button").length).toBe(0);
+	expect(external?.querySelectorAll(".server-actions button").length).toBe(2);
+	fireClick(legacy?.querySelector("button.server-line") as HTMLElement);
+	const origin = [...root.querySelectorAll(".server-facts dt")]
+		.filter((dt) => (dt.textContent ?? "").trim() === "Origin")
+		.map((dt) => dt.nextElementSibling?.textContent ?? "");
+	expect(origin.length).toBe(1);
+	expect(origin[0]).toContain("legacy");
+	expect(origin[0]).toContain('Left behind by the entry "Prod"');
 });
 
 test("the drawer's Authentication fact keeps the three credential verdicts apart", () => {
@@ -1831,7 +1869,7 @@ test("an unserved model-info probe raises the quiet declare hint; the two-step c
 	expect(postedMessages.length).toBe(1);
 	const posted = postedMessages[0] as RpcRequest<"declareExpectedFailure">;
 	expect(posted.method).toBe("declareExpectedFailure");
-	expect(posted.payload).toEqual({ label: "Ollama", category: "modelInfo" });
+	expect(posted.payload).toEqual({ label: "Ollama", baseUrl: "http://localhost:4000", category: "modelInfo" });
 
 	// In flight the pair stays and states that it is working; Cancel refuses too, because the posted write cannot be
 	// cancelled - it only ever disarms.
@@ -1895,7 +1933,7 @@ test("a models-listing-unserved error offers the declare action writing modelLis
 	fireClick(buttonByText(root, "Confirm declaration?"));
 	expect(postedMessages.length).toBe(1);
 	const posted = postedMessages[0] as RpcRequest<"declareExpectedFailure">;
-	expect(posted.payload).toEqual({ label: "Gateway", category: "modelListing" });
+	expect(posted.payload).toEqual({ label: "Gateway", baseUrl: "http://localhost:4000", category: "modelListing" });
 });
 
 test("a models-listing-unserved error leads bright with the consequence and dims the declaration advice", () => {

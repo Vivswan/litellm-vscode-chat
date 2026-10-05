@@ -27,8 +27,9 @@ export async function wireStorage(context: vscode.ExtensionContext, logger: Logg
 	// migrations/bareArrayBlobs.ts for why there is deliberately no writer).
 	const globalState = bareArrayWrappingMemento(context.globalState);
 	// Groups the user explicitly removed (the host command is add-only, so removal works by tombstoning): the provider
-	// consults the store on every group refresh, and tombstone changes fire the model-change event.
-	const groupRemovals = new GroupRemovalStore(globalState);
+	// consults the store on every group refresh, and tombstone changes fire the model-change event. The salt decides
+	// whether a group-keyed tombstone can outlive the session.
+	const groupRemovals = new GroupRemovalStore(globalState, fingerprintSalt);
 	const migrationContext: MigrationContext = {
 		globalState,
 		secrets: context.secrets,

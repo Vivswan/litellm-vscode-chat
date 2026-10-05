@@ -7,6 +7,7 @@ import { trimHttpWhitespace } from "../../shared/util/headers";
 import { HoverTip } from "./help";
 import { helpModelParameterPrefix } from "./helpText";
 import { IconAdd, IconEdit, IconTrash } from "./icons";
+import { tupleKey } from "./keys";
 import type { ChipPopoverTarget } from "./recordChipPopovers";
 import {
 	AddFieldPopover,
@@ -140,7 +141,7 @@ export function RecordMatcherTable({
 							"record-row group/row -mx-2 rounded-md px-2 py-1",
 							editable && "hover:bg-accent-soft focus-within:bg-accent-soft"
 						)}
-						key={`${groupKey}#${groupOrdinal}`}
+						key={tupleKey(groupKey, groupOrdinal)}
 					>
 						{/* Shrinkable on purpose: the wide tier's grid ignores flex-shrink, and in
 						    the sub-700px flex rows a max-content cell would carry a long regex key
@@ -215,7 +216,7 @@ export function RecordMatcherTable({
 								return (
 									// Chips are keyed by their FIELD KEY so a directive row inserted or removed by a
 									// flag toggle cannot remount an open popover mid-interaction.
-									<span className="chip-anchor" key={`${row.key}#${ordinal}`}>
+									<span className="chip-anchor" key={tupleKey(row.key, ordinal)}>
 										{editable ? (
 											<button
 												type="button"

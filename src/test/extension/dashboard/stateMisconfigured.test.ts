@@ -104,9 +104,9 @@ suite("extension/dashboard/state misconfigured rows", () => {
 	});
 
 	test("a non-identity join raises one inactive notice per configured entry-only field family", () => {
-		// The serving group joined by URL only, so the request path's label-and-URL resolution applies none of this
-		// entry's entry-only fields; the row must name exactly which families went inactive. state.ts derives the
-		// notices from parallel same-shape branches, one per family, so one table drives them all.
+		// The serving group joined by label and URL, not by the entry's labeled identity, so the request path may
+		// apply none of this entry's entry-only fields; the row must name exactly which families went inactive.
+		// state.ts derives the notices from parallel same-shape branches, one per family, so one table drives them all.
 		const cases: readonly {
 			override: Partial<DeclaredServerView>;
 			notices: readonly DeclaredServerNotice[];
@@ -162,7 +162,7 @@ suite("extension/dashboard/state misconfigured rows", () => {
 					{
 						status: makeServerStatus({
 							serverId: "group:fp-other:http://x.test",
-							label: "x.test",
+							label: "Prod",
 							baseUrl: "http://x.test",
 						}),
 						models: [],

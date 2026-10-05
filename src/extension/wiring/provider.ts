@@ -75,12 +75,12 @@ export function wireProvider(
 		getEntryIncludeModes: readEntryIncludeModes,
 		resolveEntryCredentials: (label, baseUrl) => readEntryCredentials(context.secrets, logger, label, baseUrl),
 		getCatalogLookup: () => catalogStore.lookup,
-		// Two suppressions, one predicate: the user removed the group (tombstone, keyed by status label), or the entry
-		// whose label the group carries now declares another URL, so the group is the leftover an add-only host kept
-		// (see entrySupersedingBaseUrl; unlabeled groups cannot be that).
-		isGroupSuppressed: (label, baseUrl, entryLabel) =>
-			deps.groupRemovals.isTombstoned(label, baseUrl) ||
-			(entryLabel !== undefined && readEntrySupersedingBaseUrl(entryLabel, baseUrl) !== undefined),
+		// Two suppressions, one predicate: the user removed the group (a tombstone, by whichever key it carries; see
+		// TombstoneIdentity), or the entry whose label the group carries now declares another URL, so the group is the
+		// leftover an add-only host kept (see entrySupersedingBaseUrl; unlabeled groups cannot be that).
+		isGroupSuppressed: (group) =>
+			deps.groupRemovals.isTombstoned(group) ||
+			(group.entryLabel !== undefined && readEntrySupersedingBaseUrl(group.entryLabel, group.baseUrl) !== undefined),
 	});
 
 	const notifyModelsChanged = debounced(() => {

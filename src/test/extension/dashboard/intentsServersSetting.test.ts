@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
-import type { ReplacedEntryIdentity, RequestPayload } from "../../../dashboard/endpoints";
+import type { DashboardIntent, ReplacedEntryIdentity, RequestPayload } from "../../../dashboard/endpoints";
 import type { ServerFormDraft } from "../../../dashboard/serverForm";
 import { applyInlinePrefill, EMPTY_SERVER_FORM, parseServerForm } from "../../../dashboard/serverForm";
-import type { IntentAckNotice } from "../../../extension/dashboard/intents";
+import type { IntentAckNotice, IntentEnvironment } from "../../../extension/dashboard/intents";
 import {
 	DashboardOperationError,
 	DashboardValidationError,
@@ -10,6 +10,7 @@ import {
 	readInlineSecretValues,
 } from "../../../extension/dashboard/intents";
 import { declaredViewsFromSetting } from "../../../extension/dashboard/panel";
+import { appendFree, entriesOf, writeServersSettingFrom } from "../../../extension/dashboard/rowBoundWrite";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
 import { RequestError } from "../../../provider/transport/errorMapping";
@@ -837,7 +838,10 @@ suite("extension/dashboard/intents: the servers setting", () => {
 			assert.deepStrictEqual(edited.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
 
 			const removed = makeEnv([{ label: " Prod ", baseUrl: "http://old.test" }]);
-			await executeDashboardIntent({ method: "removeServerSetting", payload: { label: "Prod" } }, removed.env);
+			await executeDashboardIntent(
+				{ method: "removeServerSetting", payload: { label: "Prod", baseUrl: "http://old.test" } },
+				removed.env
+			);
 			assert.deepStrictEqual(removed.serverWrites, [[]]);
 		});
 
@@ -1313,7 +1317,10 @@ suite("extension/dashboard/intents: the servers setting", () => {
 				"junk",
 				{ label: "B", baseUrl: "http://b.test" },
 			]);
-			await executeDashboardIntent({ method: "removeServerSetting", payload: { label: "A" } }, recorded.env);
+			await executeDashboardIntent(
+				{ method: "removeServerSetting", payload: { label: "A", baseUrl: "http://a.test" } },
+				recorded.env
+			);
 
 			assert.deepStrictEqual(recorded.serverWrites, [["junk", { label: "B", baseUrl: "http://b.test" }]]);
 			assert.deepStrictEqual(recorded.secretOps, []);
@@ -1324,7 +1331,10 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		test("removing a label the setting does not hold refuses without writing", async () => {
 			const recorded = makeEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			await assert.rejects(
-				executeDashboardIntent({ method: "removeServerSetting", payload: { label: "External" } }, recorded.env)
+				executeDashboardIntent(
+					{ method: "removeServerSetting", payload: { label: "External", baseUrl: "http://ext.test" } },
+					recorded.env
+				)
 			);
 
 			assert.deepStrictEqual(recorded.serverWrites, []);
@@ -1341,7 +1351,10 @@ suite("extension/dashboard/intents: the servers setting", () => {
 				},
 			]);
 			await executeDashboardIntent(
-				{ method: "declareExpectedFailure", payload: { label: "Ollama", category: "modelInfo" } },
+				{
+					method: "declareExpectedFailure",
+					payload: { label: "Ollama", baseUrl: "http://localhost:11434", category: "modelInfo" },
+				},
 				recorded.env
 			);
 
@@ -1362,7 +1375,10 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		test("declareExpectedFailure on an entry without a discovery object creates it", async () => {
 			const recorded = makeEnv([{ label: "Ollama", baseUrl: "http://localhost:11434" }]);
 			await executeDashboardIntent(
-				{ method: "declareExpectedFailure", payload: { label: "Ollama", category: "modelListing" } },
+				{
+					method: "declareExpectedFailure",
+					payload: { label: "Ollama", baseUrl: "http://localhost:11434", category: "modelListing" },
+				},
 				recorded.env
 			);
 
@@ -1383,7 +1399,10 @@ suite("extension/dashboard/intents: the servers setting", () => {
 				{ label: "Ollama", baseUrl: "http://localhost:11434", discovery: { expectedFailures: ["modelInfo"] } },
 			]);
 			await executeDashboardIntent(
-				{ method: "declareExpectedFailure", payload: { label: "Ollama", category: "modelInfo" } },
+				{
+					method: "declareExpectedFailure",
+					payload: { label: "Ollama", baseUrl: "http://localhost:11434", category: "modelInfo" },
+				},
 				recorded.env
 			);
 
@@ -1395,13 +1414,122 @@ suite("extension/dashboard/intents: the servers setting", () => {
 			const recorded = makeEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			await assert.rejects(
 				executeDashboardIntent(
-					{ method: "declareExpectedFailure", payload: { label: "External", category: "modelInfo" } },
+					{
+						method: "declareExpectedFailure",
+						payload: { label: "External", baseUrl: "http://ext.test", category: "modelInfo" },
+					},
 					recorded.env
 				)
 			);
 
 			assert.deepStrictEqual(recorded.serverWrites, []);
 			assert.strictEqual(recorded.syncRequests, 0);
+		});
+
+		// A row is rendered from an older setting; the write binds to the identity it carried.
+		//   accepted entry moved to another base URL  -> refused, nothing written
+		//   parser-rejected carrier, raw base URL      -> still removable by the base URL its Misconfigured row shows
+		const ROW_BOUND: readonly [string, (row: { label: string; baseUrl: string }) => DashboardIntent][] = [
+			["removeServerSetting", (row) => ({ method: "removeServerSetting", payload: row })],
+			[
+				"declareExpectedFailure",
+				(row) => ({ method: "declareExpectedFailure", payload: { ...row, category: "modelInfo" } }),
+			],
+		];
+		for (const [name, intentFor] of ROW_BOUND) {
+			test(`${name} refuses when the entry under the row's label now points at another base URL`, async () => {
+				const recorded = makeEnv([{ label: "L1", baseUrl: "http://new.test" }]);
+				await assert.rejects(
+					() => executeDashboardIntent(intentFor({ label: "L1", baseUrl: "http://old.test" }), recorded.env),
+					DashboardValidationError
+				);
+				assert.deepStrictEqual(recorded.serverWrites, []);
+				assert.deepStrictEqual(recorded.env.readServersSetting(), [{ label: "L1", baseUrl: "http://new.test" }]);
+				assert.deepStrictEqual(recorded.secretOps, []);
+				assert.strictEqual(recorded.syncRequests, 0);
+			});
+		}
+
+		// The brand is the guard: an entries-shaped object is what would compile without it, and these directives then
+		// turn unused and fail the typecheck. An object the module never minted has no entries to resolve either.
+		function rawServersWritesDoNotCompile(env: IntentEnvironment): void {
+			// @ts-expect-error an entries object nobody guarded is not a ValidatedServersWrite
+			void env.writeServersSetting({ entries: [] });
+			// @ts-expect-error the derivation must mint a ValidatedServersWrite
+			void writeServersSettingFrom(env, () => ({ entries: [] }));
+			// @ts-expect-error the servers array is not a keyed setting
+			void env.updateSetting("servers", []);
+			// @ts-expect-error the servers array is not a keyed setting
+			void env.removeSetting("servers");
+		}
+		void rawServersWritesDoNotCompile;
+
+		test("a write the module never minted resolves no entries, whatever shape it carries", () => {
+			assert.throws(() => entriesOf(Object.create(null, { entries: { value: [] } })), TypeError);
+			const seed = appendFree([], "Seed", { label: "Seed", baseUrl: "http://seed.test" });
+			const Token = seed.constructor as new (...args: unknown[]) => unknown;
+			assert.throws(() => Reflect.construct(Token, [[]]), TypeError, "a token's constructor mints nothing");
+			assert.throws(() => Object.assign(Token, { entriesOf: () => [] }), TypeError, "the frozen class takes no patch");
+			assert.deepStrictEqual(entriesOf(seed), [{ label: "Seed", baseUrl: "http://seed.test" }]);
+		});
+
+		test("removeServerSetting still removes a parser-rejected carrier by the raw base URL its row shows", async () => {
+			// An OAuth block without its client id is refused whole; the row shows the raw base URL as written.
+			const rejected = {
+				label: "Bad",
+				baseUrl: " http://bad.test ",
+				auth: { oauth: { tokenUrl: "https://idp.test/token" } },
+			};
+			const recorded = makeEnv([rejected, { label: "B", baseUrl: "http://b.test" }]);
+			assert.strictEqual(acceptedEntry(recorded.env.readServersSetting(), "Bad"), undefined, "the entry is rejected");
+			await executeDashboardIntent(
+				{ method: "removeServerSetting", payload: { label: "Bad", baseUrl: "http://bad.test" } },
+				recorded.env
+			);
+			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "B", baseUrl: "http://b.test" }]]);
+		});
+
+		test("a rejected duplicate at the row's old base URL does not authorize removing the accepted entry", async () => {
+			// The accepted L1 moved to new.test; a rejected duplicate still sits at old.test, where the stale row
+			// points.
+			const recorded = makeEnv([
+				{ label: "L1", baseUrl: "http://new.test" },
+				{ label: "L1", baseUrl: "http://old.test" },
+			]);
+			await assert.rejects(
+				() =>
+					executeDashboardIntent(
+						{ method: "removeServerSetting", payload: { label: "L1", baseUrl: "http://old.test" } },
+						recorded.env
+					),
+				DashboardValidationError
+			);
+			assert.deepStrictEqual(recorded.serverWrites, []);
+		});
+
+		test("with no accepted entry, only the carrier the Misconfigured row is drawn from authorizes the removal", async () => {
+			// Both L1 entries are rejected; the row is drawn from the first (drawableRejects), so a stale row at the
+			// second's URL refuses, and a row at the first's URL removes every carrier.
+			const rejectedPair = [
+				{ label: "L1", baseUrl: "http://new.test", auth: { oauth: { tokenUrl: "https://idp.test/token" } } },
+				{ label: "L1", baseUrl: "http://old.test" },
+			];
+			const stale = makeEnv(rejectedPair);
+			await assert.rejects(
+				() =>
+					executeDashboardIntent(
+						{ method: "removeServerSetting", payload: { label: "L1", baseUrl: "http://old.test" } },
+						stale.env
+					),
+				DashboardValidationError
+			);
+			assert.deepStrictEqual(stale.serverWrites, []);
+			const drawn = makeEnv(rejectedPair);
+			await executeDashboardIntent(
+				{ method: "removeServerSetting", payload: { label: "L1", baseUrl: "http://new.test" } },
+				drawn.env
+			);
+			assert.deepStrictEqual(drawn.serverWrites, [[]]);
 		});
 
 		test("the draft probe carries the draft's trimmed label for discovery's declaration hints, never the synthetic ID", async () => {

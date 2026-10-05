@@ -204,9 +204,31 @@ export type DashboardServer = DashboardServerBase &
 		  }
 		| {
 				/**
-				 * `adoptHandle` is the opaque token the adopt intent names its source group by: a salted one-way hash,
-				 * stable for the session, carrying no credential material, resolvable only while the group stays
-				 * external.
+				 * A live group a declared label left behind and still serves from: its configuration stamp names the
+				 * label, or it holds the label's stored secret, while no entry's current configuration matches it (a
+				 * rotated identity, a moved entry's unstamped group, a label the setting now rejects). Not in the
+				 * setting, not the user's own: no Edit, no adopt, no hide, never a credential source; deleting it is
+				 * the host's job (Manage Language Models, or the models file).
+				 */
+				readonly origin: "legacy";
+				/** The declared label the group belongs to. */
+				readonly entryLabel: string;
+				/** The group's opaque per-session token (the same mint as adoptHandle), the row's key across pushes. */
+				readonly groupHandle: string;
+				readonly config?: undefined;
+				readonly adoptHandle?: undefined;
+				readonly notices?: undefined;
+				readonly entryFieldsInactive?: undefined;
+				readonly provenance?: undefined;
+				readonly problems?: undefined;
+		  }
+		| {
+				/**
+				 * A provider group managed outside the setting; Remove (hide) always
+				 * applies to it, by tombstone. `adoptHandle` is the opaque token the
+				 * adopt intent names its source group by: a salted one-way hash,
+				 * stable for the session, carrying no credential material, resolvable
+				 * only while the group stays external.
 				 */
 				readonly origin: "external";
 				readonly adoptHandle: string;

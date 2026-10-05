@@ -38,6 +38,7 @@ import {
 	settingRowHelp,
 } from "./helpText";
 import { useIntentOutcome } from "./hooks";
+import { tupleKey } from "./keys";
 import type { SettingWriteFailure } from "./settingRows";
 import {
 	CommaListRow,
@@ -159,7 +160,7 @@ function modelRefOptions(
 
 function modelRefIdentity(ref: FeatureModelRef): string {
 	// A JSON tuple, so the encoding is collision-safe whatever characters a label or a discovered model ID contains.
-	return JSON.stringify([ref.server, ref.model]);
+	return tupleKey(ref.server, ref.model);
 }
 
 /**

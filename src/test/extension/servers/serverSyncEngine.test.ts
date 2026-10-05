@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import type * as vscode from "vscode";
+import * as vscode from "vscode";
 import { classifyOverall } from "../../../dashboard/presenters";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import {
@@ -13,15 +13,27 @@ import {
 	ServerSyncEngine,
 } from "../../../extension/servers/serverSync";
 import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
+import { removalOutcome } from "../../../extension/servers/serverSync/vscodeEnv";
 import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
 import { groupClientId } from "../../../provider/catalog/groupModels";
-import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../../shared/config/storageKeys";
+import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
+import {
+	REMOVED_GROUP_TOMBSTONES_KEY,
+	SERVER_SYNC_FINGERPRINTS_KEY,
+	SYNCED_ENTRY_BASE_URLS_KEY,
+} from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
+import { secretDestination } from "../../../shared/serverEntry";
 import { unexpectedFailureCount } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { expectDefined } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } from "../../testUtils";
 import { makeSyncEnv, recordedEvents } from "./serverSyncHelpers";
+
+const liveGroup = (serverId: string) => ({
+	status: makeServerStatus({ serverId, label: "h.test", baseUrl: "http://h.test" }),
+	models: [],
+});
 
 /**
  * Host-call attempts, not landed adds: a duplicate refusal records no upsert, so only this count can show
@@ -181,23 +193,181 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				"the identity ledger records every declared entry"
 			);
 
+			const viewOfB = engine.getDeclared().find((view) => view.label === "B");
+			assert.ok(viewOfB?.expectedConnectionId !== undefined);
+			// The host serves B's pre-label group (its connection ID, no group under B's own client ID), and B's shape
+			// is refused for one pass before it goes: the removal still names the key B's last accepted view joined by.
+			recorded.liveSnapshots = [liveGroup(viewOfB.expectedConnectionId)];
+			recorded.setting = [{ label: "A", baseUrl: "http://a.test" }, { label: "B" }];
+			await engine.syncNow();
 			recorded.setting = [{ label: "A", baseUrl: "http://a.test" }];
 			await engine.syncNow();
 
 			assert.deepStrictEqual(recordedEvents(recorded), [{ kind: "removed", label: "B", baseUrl: "http://b.test" }]);
+			const removal = recorded.reconciles.flatMap((reconcile) => reconcile.events).find((e) => e.kind === "removed");
+			assert.deepStrictEqual(
+				removal?.kind === "removed" ? removal.groupIds : undefined,
+				[viewOfB.expectedConnectionId],
+				"the removal names the pre-label group B joined by connection ID"
+			);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
 			assert.deepStrictEqual(Object.keys(recorded.entryBaseUrls), ["A"], "the ledger prunes with the entry");
+			const declared = recorded.reconciles.at(-1)?.declared ?? [];
 			assert.deepStrictEqual(
-				recorded.reconciles.at(-1)?.declared,
-				[{ label: "A", baseUrl: "http://a.test" }],
-				"every pass reports the declared identities (the tombstone auto-clear input)"
+				declared,
+				[{ label: "A", baseUrl: "http://a.test", group: undefined }],
+				"every pass reports the declared entries; with no live group under A's keys, nothing to clear by"
 			);
 
 			await engine.syncNow();
 			assert.deepStrictEqual(recordedEvents(recorded), [{ kind: "removed", label: "B", baseUrl: "http://b.test" }]);
 			assert.ok(
-				recorded.reconciles.every((reconcile, index) => index === 1 || reconcile.events.length === 0),
+				recorded.reconciles.every((reconcile, index) => index === 2 || reconcile.events.length === 0),
 				"no repeat removal event"
+			);
+		});
+
+		test("a new label at the removed entry's URL is a rename only under the same ownership identity", async () => {
+			// Prod (key A) leaves as Dev (key B) arrives at the same URL: different identities, so Prod is removed and
+			// its live group tombstoned while Dev is a new declaration. The same key is a rename.
+			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://h.test", auth: { apiKey: "A" } }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			const prod = engine.getDeclared().find((view) => view.label === "Prod");
+			assert.ok(prod?.expectedClientId !== undefined);
+			recorded.liveSnapshots = [liveGroup(prod.expectedClientId)];
+
+			recorded.setting = [{ label: "Dev", baseUrl: "http://h.test", auth: { apiKey: "B" } }];
+			await engine.syncNow();
+			assert.deepStrictEqual(recorded.reconciles.at(-1)?.events, [
+				{
+					kind: "removed",
+					label: "Prod",
+					baseUrl: "http://h.test",
+					groupIds: [prod.expectedClientId],
+					sharedGroupIds: [],
+				},
+			]);
+
+			recorded.setting = [{ label: "Ops", baseUrl: "http://h.test", auth: { apiKey: "B" } }];
+			await engine.syncNow();
+			assert.deepStrictEqual(recorded.reconciles.at(-1)?.events, [
+				{ kind: "renamed", oldLabel: "Dev", newLabel: "Ops", baseUrl: "http://h.test" },
+			]);
+		});
+
+		test("a removal names only the identities no other entry still shares, as its last readable pass saw them", async () => {
+			// L1 and L2 mirror one connection (same URL, same inline key): the pre-label group under it stays L2's.
+			const shared = { baseUrl: "http://h.test", auth: { apiKey: "k" } };
+			const recorded = makeSyncEnv([
+				{ label: "L1", ...shared },
+				{ label: "L2", ...shared },
+			]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			const views = engine.getDeclared();
+			const l1 = views.find((view) => view.label === "L1");
+			const l2 = views.find((view) => view.label === "L2");
+			assert.ok(l1?.expectedConnectionId !== undefined && l1.expectedConnectionId === l2?.expectedConnectionId);
+
+			recorded.liveSnapshots = [liveGroup(l1.expectedConnectionId)];
+			recorded.setting = [{ label: "L2" }];
+			await engine.syncNow();
+			assert.deepStrictEqual(
+				recorded.reconciles.flatMap((reconcile) => reconcile.events),
+				[
+					{
+						kind: "removed",
+						label: "L1",
+						baseUrl: "http://h.test",
+						groupIds: [],
+						sharedGroupIds: [l1.expectedConnectionId],
+					},
+				],
+				"the pre-label group under the shared connection stays L2's"
+			);
+
+			// With L1's own labeled group live beside it, the connection ID is not L1's identity at all.
+			recorded.setting = [
+				{ label: "L1", ...shared },
+				{ label: "L2", ...shared },
+			];
+			await engine.syncNow();
+			assert.ok(l1.expectedClientId !== undefined);
+			recorded.liveSnapshots = [liveGroup(l1.expectedClientId), liveGroup(l1.expectedConnectionId)];
+			recorded.setting = [{ label: "L2", ...shared }];
+			await engine.syncNow();
+			assert.deepStrictEqual(
+				recorded.reconciles.at(-1)?.events,
+				[
+					{
+						kind: "removed",
+						label: "L1",
+						baseUrl: "http://h.test",
+						groupIds: [l1.expectedClientId],
+						sharedGroupIds: [],
+					},
+				],
+				"L1's own group only"
+			);
+		});
+
+		test("a pass whose stored key its stamp refuses does not replace the identities a removal will name", async () => {
+			// L1's secure key is stamped for old.test; a hand edit moves L1 to new.test, so the pass refuses the key
+			// and computes credential-less identities. Removing L1 still names the group the readable pass joined.
+			const recorded = makeSyncEnv([{ label: "L1", baseUrl: "http://old.test" }], { L1: { apiKey: "k" } });
+			recorded.secretOwners.L1 = { apiKey: secretDestination({ baseUrl: "http://old.test" }, "apiKey") };
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			const live = engine.getDeclared().find((view) => view.label === "L1");
+			assert.ok(live?.expectedConnectionId !== undefined);
+
+			recorded.setting = [{ label: "L1", baseUrl: "http://new.test" }];
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "secretsMismatched");
+			recorded.liveSnapshots = [liveGroup(live.expectedConnectionId)];
+			recorded.setting = [];
+			await engine.syncNow();
+			assert.deepStrictEqual(recorded.reconciles.at(-1)?.events, [
+				{
+					kind: "removed",
+					label: "L1",
+					baseUrl: "http://old.test",
+					groupIds: [live.expectedConnectionId],
+					sharedGroupIds: [],
+				},
+			]);
+		});
+
+		test("a pass whose blob read failed does not replace the identities a removal will name", async () => {
+			const recorded = makeSyncEnv([{ label: "L1", baseUrl: "http://h.test" }], { L1: { apiKey: "k" } });
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			const live = engine.getDeclared().find((view) => view.label === "L1");
+
+			const readSecrets = recorded.env.readSecrets;
+			recorded.env.readSecrets = async () => {
+				throw new Error("keychain locked");
+			};
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "secretsUnreadable");
+			recorded.env.readSecrets = readSecrets;
+			assert.ok(live?.expectedConnectionId !== undefined);
+			recorded.liveSnapshots = [liveGroup(live.expectedConnectionId)];
+			recorded.setting = [];
+			await engine.syncNow();
+			assert.deepStrictEqual(
+				recorded.reconciles.flatMap((reconcile) => reconcile.events),
+				[
+					{
+						kind: "removed",
+						label: "L1",
+						baseUrl: "http://h.test",
+						groupIds: [live.expectedConnectionId],
+						sharedGroupIds: [],
+					},
+				],
+				"the identity the live group carries, not the credential-less one the failed pass computed"
 			);
 		});
 
@@ -325,8 +495,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			coldRename.entryBaseUrls = { Old: "http://host.test" };
 			const engine2 = new ServerSyncEngine(coldRename.env);
 			await engine2.syncNow();
+			// Nothing this session saw Old accepted, so no identity ties New to it: a removal, never a rename by URL.
 			assert.deepStrictEqual(recordedEvents(coldRename), [
-				{ kind: "renamed", oldLabel: "Old", newLabel: "New", baseUrl: "http://host.test" },
+				{ kind: "removed", label: "Old", baseUrl: "http://host.test" },
 			]);
 		});
 
@@ -620,9 +791,10 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine2.syncNow();
 			renamed.observedGroups = { Old: ["http://host.test"] };
 			await engine2.syncNow();
+			// Old was never accepted this session, so the late observation resolves a removal, not a rename.
 			assert.deepStrictEqual(recordedEvents(renamed), [
 				{ kind: "removed", label: "Old", baseUrl: undefined },
-				{ kind: "renamed", oldLabel: "Old", newLabel: "New", baseUrl: "http://host.test" },
+				{ kind: "removed", label: "Old", baseUrl: "http://host.test" },
 			]);
 
 			// The delta is the labels WITH the URLs they declared then: a new entry re-pointed to the removed label's
@@ -1651,7 +1823,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 });
 
 suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence", () => {
-	function makeEnv(salt: "durable" | "session-only") {
+	function makeEnv(salt: "durable" | "session-only", snapshots: () => ServerModelsSnapshot[] = () => []) {
 		const storage = makeExtensionStorage({ [SERVER_SYNC_FINGERPRINTS_KEY]: { A: "before" } });
 		const lines: string[] = [];
 		const logger = new Logger({
@@ -1662,18 +1834,128 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 			globalState: storage.memento,
 			secrets: storage.secrets,
 		} as unknown as vscode.ExtensionContext;
+		const removals = new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession(salt));
 		return {
-			env: createServerSyncEnv(
-				context,
-				logger,
-				fakeFingerprintSaltSession(salt),
-				new GroupRemovalStore(storage.memento),
-				() => []
-			),
+			env: createServerSyncEnv(context, logger, fakeFingerprintSaltSession(salt), removals, () => [], snapshots),
+			removals,
 			storage,
 			lines,
 		};
 	}
+
+	test("the removal notice reads what the tombstones did to the live groups: hidden, shared, or unreported", () => {
+		// Cold start: the ledger named Old at H, New now declares H, and the host serves a group stamped Old. No
+		// identity this session ties them, so the event names no group, yet the entry tombstone it records hides that
+		// group, for as long as the store still holds the tombstone.
+		const stamped = {
+			status: makeServerStatus({ serverId: "group:old", label: "Old", baseUrl: "http://h.test" }),
+			models: [],
+			entryLabel: "Old",
+		};
+		const removed = {
+			kind: "removed" as const,
+			label: "Old",
+			baseUrl: "http://h.test",
+			groupIds: [],
+			sharedGroupIds: [],
+		};
+		const entryRecord = {
+			identity: { by: "entry" as const, label: "Old", baseUrl: "http://h.test" },
+			persistence: "durable" as const,
+		};
+		const stillHeld = () => true;
+		assert.strictEqual(removalOutcome(removed, [entryRecord], [stamped], stillHeld), "hidden");
+		assert.strictEqual(
+			removalOutcome(removed, [entryRecord], [stamped], () => false),
+			"unreported",
+			"an Unhide between the record and the read leaves nothing hidden to claim"
+		);
+		assert.strictEqual(removalOutcome(removed, [entryRecord], [], stillHeld), "unreported");
+		const unstamped = {
+			status: makeServerStatus({ serverId: "group:conn", label: "h.test", baseUrl: "http://h.test" }),
+			models: [],
+		};
+		assert.strictEqual(
+			removalOutcome({ ...removed, sharedGroupIds: ["group:conn"] }, [entryRecord], [unstamped], stillHeld),
+			"shared"
+		);
+		// A group-keyed record under a session-only salt is the only thing hiding the pre-label group: the notice has
+		// to say the hide ends with the session. The stamped leftover's durable entry record keeps its hide durable.
+		const sessionRecord = {
+			identity: { by: "group" as const, groupId: "group:conn", label: "Old", baseUrl: "http://h.test" },
+			persistence: "session-only" as const,
+		};
+		assert.strictEqual(
+			removalOutcome({ ...removed, groupIds: ["group:conn"] }, [entryRecord, sessionRecord], [unstamped], stillHeld),
+			"hidden-session-only"
+		);
+		assert.strictEqual(
+			removalOutcome({ ...removed, groupIds: ["group:conn"] }, [entryRecord, sessionRecord], [stamped], stillHeld),
+			"hidden"
+		);
+	});
+
+	test("a session-only salt keeps a removed entry's group tombstone for this session and the notice says so", async () => {
+		const live = {
+			status: makeServerStatus({ serverId: "group:l1", label: "h.test", baseUrl: "http://h.test" }),
+			models: [],
+		};
+		const { env, removals, storage } = makeEnv("session-only", () => [live]);
+		const toasts: string[] = [];
+		const original = vscode.window.showInformationMessage;
+		(vscode.window as Record<string, unknown>).showInformationMessage = async (message: string) => {
+			toasts.push(message);
+			return undefined;
+		};
+		try {
+			await env.reconcileEntryIdentities(
+				[],
+				[{ kind: "removed", label: "L1", baseUrl: "http://h.test", groupIds: ["group:l1"], sharedGroupIds: [] }]
+			);
+			for (let i = 0; i < 50 && toasts.length === 0; i++) {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+		} finally {
+			(vscode.window as Record<string, unknown>).showInformationMessage = original;
+		}
+		assert.deepStrictEqual(removals.tombstones(), [
+			{ by: "entry", label: "L1", baseUrl: "http://h.test" },
+			{ by: "group", groupId: "group:l1", label: "L1", baseUrl: "http://h.test" },
+		]);
+		assert.strictEqual(
+			removals.isTombstoned({ groupId: "group:l1", label: "h.test", entryLabel: undefined, baseUrl: "http://h.test" }),
+			true,
+			"the pre-label group hides now"
+		);
+		assert.deepStrictEqual(
+			(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY) as { records: unknown[] }).records,
+			[{ by: "entry", label: "L1", baseUrl: "http://h.test" }],
+			"only the salt-independent record reaches storage"
+		);
+		const toast = toasts[0] ?? "";
+		assert.strictEqual(toasts.length, 1, "one notice");
+		assert.ok(
+			toast.includes("hidden for this session only") && toast.includes("cannot be kept across restarts"),
+			toast
+		);
+	});
+
+	test("a removed entry tombstones its stamped leftover and, by client ID, the pre-label groups the event names", async () => {
+		const { env, removals } = makeEnv("durable");
+		await env.reconcileEntryIdentities(
+			[{ label: "L2", baseUrl: "http://h.test", group: undefined }],
+			[{ kind: "removed", label: "L1", baseUrl: "http://h.test", groupIds: ["group:l1"], sharedGroupIds: [] }]
+		);
+		assert.deepStrictEqual(removals.tombstones(), [
+			{ by: "entry", label: "L1", baseUrl: "http://h.test" },
+			{ by: "group", groupId: "group:l1", label: "L1", baseUrl: "http://h.test" },
+		]);
+		assert.strictEqual(
+			removals.isTombstoned({ groupId: "group:l1", label: "h.test", entryLabel: undefined, baseUrl: "http://h.test" }),
+			true,
+			"L1's own pre-label group hides by the client ID its last accepted view carried"
+		);
+	});
 
 	test("a durable salt persists the map as before", async () => {
 		const { env, storage } = makeEnv("durable");
@@ -1755,7 +2037,8 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 				state: () => "durable",
 				confirmDurable: async () => answers.shift() ?? "session-only",
 			},
-			new GroupRemovalStore(storage.memento),
+			new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession()),
+			() => [],
 			() => []
 		);
 

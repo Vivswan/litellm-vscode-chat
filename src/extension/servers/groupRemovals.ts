@@ -4,23 +4,90 @@
  * validated on read: the keys are extension-owned, but storage can hand back stale or corrupt shapes and those must
  * not ride behind a cast.
  *
- *   Tombstones -> identities of groups the user EXPLICITLY removed
+ *   Tombstones -> identities of groups the user EXPLICITLY removed (TombstoneIdentity)
  *   Provenance: identity -> origin classification for groups a removal or rename orphaned
  *
  *   a tombstoned group                           -> an empty model list
  *   the provider layer cannot import this module -> injected as a predicate at activation
- *   Host-side group names are unique per vendor  -> the one accepted collision is two UNLABELED groups on one host
- *   removing one hides both                      -> visibly, in the hidden-groups line, and reversibly through Unhide
  */
 
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../shared/config/storageKeys";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isRecord } from "../../shared/util/json";
+import type { FingerprintSaltSession } from "../fingerprintSalt";
 
-/** One group identity as the removal bookkeeping stores it; baseUrl is kept normalized. */
+/** One group identity as the provenance bookkeeping stores it; baseUrl is kept normalized. */
 export interface GroupIdentity {
 	readonly label: string;
 	readonly baseUrl: string;
+}
+
+/**
+ * What a tombstone hides a group by: the identity the group ownership (dashboard/declaredJoin.ts) names the group
+ * with, never a looser key. `label` and `baseUrl` are what the hidden-groups line shows and what Unhide echoes.
+ *
+ *   group  -> a live group the user hid: its client ID
+ *   entry  -> a removed entry's leftover: the entry label the group's configuration is stamped with, at the URL
+ *   status -> a record persisted before the keyed kinds: the status label and URL it carried; nothing writes it anew
+ */
+export type TombstoneIdentity =
+	| { readonly by: "group"; readonly groupId: string; readonly label: string; readonly baseUrl: string }
+	| { readonly by: "entry"; readonly label: string; readonly baseUrl: string }
+	| { readonly by: "status"; readonly label: string; readonly baseUrl: string };
+
+/**
+ * Whether a recorded tombstone outlives this session. A group-keyed record is minted from a salt-keyed client ID
+ * (shared/util/fingerprint.ts); under a session-only salt no later session could match it, so it is kept in memory
+ * only and the notice says the hide ends with the session. Label-keyed records are salt-independent.
+ */
+export type TombstonePersistence = "durable" | "session-only";
+
+/** What one addTombstone call did: whether it inserted the record (an identical one may already stand) and its reach. */
+export interface TombstoneRecording {
+	readonly persistence: TombstonePersistence;
+	readonly added: boolean;
+}
+
+export interface DeclaredGroupClaim {
+	readonly label: string;
+	readonly baseUrl: string;
+	readonly group: GroupKey | undefined;
+}
+
+export interface GroupKey {
+	readonly groupId: string;
+	/** The status label: the configuration stamp, else the URL host (groupDiscovery.ts). */
+	readonly label: string;
+	readonly entryLabel: string | undefined;
+	readonly baseUrl: string;
+}
+
+export function sameGroupIdentity(a: GroupIdentity, b: GroupIdentity): boolean {
+	return a.label === b.label && normalizeBaseUrl(a.baseUrl) === normalizeBaseUrl(b.baseUrl);
+}
+
+function sameTombstoneIdentity(a: TombstoneIdentity, b: TombstoneIdentity): boolean {
+	switch (a.by) {
+		case "group":
+			return b.by === "group" && a.groupId === b.groupId;
+		case "entry":
+		case "status":
+			return a.by === b.by && sameGroupIdentity(a, b);
+	}
+}
+
+function groupIdentities(group: GroupKey): TombstoneIdentity[] {
+	return [
+		{ by: "group", groupId: group.groupId, label: group.label, baseUrl: group.baseUrl },
+		...(group.entryLabel === undefined
+			? []
+			: [{ by: "entry" as const, label: group.entryLabel, baseUrl: group.baseUrl }]),
+		{ by: "status", label: group.label, baseUrl: group.baseUrl },
+	];
+}
+
+export function tombstoneHides(record: TombstoneIdentity, group: GroupKey): boolean {
+	return groupIdentities(group).some((identity) => sameTombstoneIdentity(record, identity));
 }
 
 /**
@@ -62,11 +129,36 @@ function parseOrigin(value: unknown): OrphanedGroupOrigin | undefined {
 	return undefined;
 }
 
-function parseIdentityList(raw: unknown): GroupIdentity[] {
+/** One parser per kind, so a kind added to TombstoneIdentity without a parser fails the build, not the read. */
+const TOMBSTONE_PARSERS: {
+	[K in TombstoneIdentity["by"]]: (
+		value: Record<string, unknown>,
+		identity: GroupIdentity
+	) => Extract<TombstoneIdentity, { by: K }> | undefined;
+} = {
+	group: (value, identity) =>
+		typeof value.groupId === "string" ? { by: "group", groupId: value.groupId, ...identity } : undefined,
+	entry: (_value, identity) => ({ by: "entry", ...identity }),
+	status: (_value, identity) => ({ by: "status", ...identity }),
+};
+
+function parseTombstone(value: unknown): TombstoneIdentity | undefined {
+	const identity = parseIdentity(value);
+	if (identity === undefined || !isRecord(value)) {
+		return undefined;
+	}
+	// A record from before the keyed kinds has no `by`: the status label and URL it carried.
+	const by = value.by === undefined ? "status" : value.by;
+	return typeof by === "string" && Object.hasOwn(TOMBSTONE_PARSERS, by)
+		? TOMBSTONE_PARSERS[by as TombstoneIdentity["by"]](value, identity)
+		: undefined;
+}
+
+function parseTombstoneList(raw: unknown): TombstoneIdentity[] {
 	if (!Array.isArray(raw)) {
 		return [];
 	}
-	return raw.map(parseIdentity).filter((identity): identity is GroupIdentity => identity !== undefined);
+	return raw.map(parseTombstone).filter((record): record is TombstoneIdentity => record !== undefined);
 }
 
 function parseProvenanceList(raw: unknown): OrphanedGroupRecord[] {
@@ -82,10 +174,6 @@ function parseProvenanceList(raw: unknown): OrphanedGroupRecord[] {
 		}
 	}
 	return records;
-}
-
-function sameIdentity(a: GroupIdentity, label: string, baseUrl: string): boolean {
-	return a.label === label && a.baseUrl === normalizeBaseUrl(baseUrl);
 }
 
 /** One persisted blob: the region's records plus the adoption counter (a decimal string on the wire). */
@@ -133,6 +221,8 @@ function parseVersionedRecords(raw: unknown): VersionedRecords {
  */
 class VersionedRegion<T> {
 	private records: readonly T[];
+	/** Records that live in memory only: listed and matched like the rest, never written, kept across adoption. */
+	private transient = new Set<T>();
 	private version: bigint;
 	private persisting = false;
 	private lastWrittenBlob: unknown;
@@ -172,7 +262,7 @@ class VersionedRegion<T> {
 		}
 		const stored = parseVersionedRecords(raw);
 		if (stored.version > this.version) {
-			this.records = this.parseRecords(stored.records);
+			this.records = [...this.parseRecords(stored.records), ...this.transient];
 			this.version = stored.version;
 		}
 	}
@@ -185,7 +275,14 @@ class VersionedRegion<T> {
 	/** Replace the in-memory list synchronously; callers observe the new state before any event or persist. */
 	commit(records: readonly T[]): void {
 		this.records = records;
+		this.transient = new Set(records.filter((record) => this.transient.has(record)));
 		this.commitGeneration += 1;
+	}
+
+	/** Append a record this session alone can match: no persist generation, because nothing of it is written. */
+	commitTransient(record: T): void {
+		this.records = [...this.records, record];
+		this.transient.add(record);
 	}
 
 	/** Persists run serialized: an out-of-order write would mark a newer failure's records as persisted. */
@@ -205,7 +302,10 @@ class VersionedRegion<T> {
 		const generation = this.commitGeneration;
 		const stored = parseVersionedRecords(this.memento.get(this.key));
 		const next = (stored.version > this.version ? stored.version : this.version) + 1n;
-		const blob = { version: next.toString(), records: [...this.records] };
+		const blob = {
+			version: next.toString(),
+			records: this.records.filter((record) => !this.transient.has(record)),
+		};
 		this.lastWrittenBlob = blob;
 		this.persisting = true;
 		try {
@@ -250,31 +350,54 @@ export class GroupRemovalStore {
 		this.persistErrorListener = listener;
 	}
 
-	private readonly tombstoneRegion: VersionedRegion<GroupIdentity>;
+	private readonly tombstoneRegion: VersionedRegion<TombstoneIdentity>;
 	private readonly provenanceRegion: VersionedRegion<OrphanedGroupRecord>;
 
-	constructor(memento: RemovalMemento) {
+	constructor(
+		memento: RemovalMemento,
+		private readonly salt: Pick<FingerprintSaltSession, "confirmDurable">
+	) {
 		const report = (error: unknown) => this.persistErrorListener?.(error);
-		this.tombstoneRegion = new VersionedRegion(memento, REMOVED_GROUP_TOMBSTONES_KEY, parseIdentityList, report);
+		this.tombstoneRegion = new VersionedRegion(memento, REMOVED_GROUP_TOMBSTONES_KEY, parseTombstoneList, report);
 		this.provenanceRegion = new VersionedRegion(memento, ORPHANED_GROUP_PROVENANCE_KEY, parseProvenanceList, report);
 	}
 
-	tombstones(): readonly GroupIdentity[] {
+	tombstones(): readonly TombstoneIdentity[] {
 		return [...this.tombstoneRegion.list()];
 	}
 
 	/** Whether the user explicitly removed this group; the provider-side suppression predicate. */
-	isTombstoned(label: string, baseUrl: string): boolean {
-		return this.tombstoneRegion.list().some((identity) => sameIdentity(identity, label, baseUrl));
+	isTombstoned(group: GroupKey): boolean {
+		return this.tombstoneRegion.list().some((record) => tombstoneHides(record, group));
 	}
 
-	async addTombstone(identity: GroupIdentity): Promise<void> {
-		const normalized: GroupIdentity = { label: identity.label, baseUrl: normalizeBaseUrl(identity.baseUrl) };
+	/** Whether a tombstone is shown under this identity: what the hidden-groups line's rows act on. */
+	hasTombstone(label: string, baseUrl: string): boolean {
+		return this.tombstoneRegion.list().some((record) => sameGroupIdentity(record, { label, baseUrl }));
+	}
+
+	/**
+	 * Record one tombstone; it hides from the commit on. The result says whether this call inserted it (a caller
+	 * compensating its own hide must not take back an earlier request's record) and whether a later session will still
+	 * hold it: confirmed at the write, like the sync engine's fingerprints, because the salt can downgrade mid-session.
+	 */
+	async addTombstone(identity: TombstoneIdentity): Promise<TombstoneRecording> {
+		const normalized: TombstoneIdentity = { ...identity, baseUrl: normalizeBaseUrl(identity.baseUrl) };
+		const persistence: TombstonePersistence =
+			normalized.by === "group" && (await this.salt.confirmDurable()) !== "durable" ? "session-only" : "durable";
 		const current = this.tombstoneRegion.list();
-		const changed = !current.some((existing) => sameIdentity(existing, normalized.label, normalized.baseUrl));
+		const changed = !current.some((existing) => sameTombstoneIdentity(existing, normalized));
 		if (!changed) {
-			await this.tombstoneRegion.persistCommitted();
-			return;
+			// The re-persist heals an earlier failed write; a session-only record has nothing of its own to write.
+			if (persistence === "durable") {
+				await this.tombstoneRegion.persistCommitted();
+			}
+			return { persistence, added: false };
+		}
+		if (persistence === "session-only") {
+			this.tombstoneRegion.commitTransient(normalized);
+			this.didChangeListener?.();
+			return { persistence, added: true };
 		}
 		this.tombstoneRegion.commit([...current, normalized]);
 		try {
@@ -284,11 +407,30 @@ export class GroupRemovalStore {
 			// storage.
 			await this.tombstoneRegion.persistCommitted();
 		}
+		return { persistence, added: true };
 	}
 
+	/** Clear every tombstone shown under the identity (the line's row), whatever key each hides by. */
 	async removeTombstone(identity: GroupIdentity): Promise<boolean> {
 		const current = this.tombstoneRegion.list();
-		const next = current.filter((existing) => !sameIdentity(existing, identity.label, identity.baseUrl));
+		const next = current.filter((existing) => !sameGroupIdentity(existing, identity));
+		if (next.length === current.length) {
+			return false;
+		}
+		this.tombstoneRegion.commit(next);
+		try {
+			this.didChangeListener?.();
+		} finally {
+			await this.tombstoneRegion.persistCommitted();
+		}
+		return true;
+	}
+
+	/** Take back exactly one record (the one a compensated hide added); the identity's other tombstones stand. */
+	async retractTombstone(identity: TombstoneIdentity): Promise<boolean> {
+		const normalized: TombstoneIdentity = { ...identity, baseUrl: normalizeBaseUrl(identity.baseUrl) };
+		const current = this.tombstoneRegion.list();
+		const next = current.filter((existing) => !sameTombstoneIdentity(existing, normalized));
 		if (next.length === current.length) {
 			return false;
 		}
@@ -302,14 +444,18 @@ export class GroupRemovalStore {
 	}
 
 	/**
-	 * The automatic clear: a declared entry matching a tombstoned identity (re)appeared, so the group is wanted again
-	 * and must never stay suppressed. The sync engine's pass calls this with every current declared identity.
+	 * The automatic clear: a declared entry whose group a tombstone hides (re)appeared, so the group is wanted again
+	 * and must never stay suppressed. The sync engine's pass calls this with every current declared entry and the live
+	 * group the ownership joins it to; a record clears when it equals one of that group's identities or the entry's
+	 * own stamp identity, the equality the suppression reads.
 	 */
-	async clearTombstonesFor(declared: readonly GroupIdentity[]): Promise<boolean> {
+	async clearTombstonesFor(claims: readonly DeclaredGroupClaim[]): Promise<boolean> {
+		const wanted = claims.flatMap((claim): TombstoneIdentity[] => [
+			...(claim.group === undefined ? [] : groupIdentities(claim.group)),
+			{ by: "entry", label: claim.label, baseUrl: claim.baseUrl },
+		]);
 		const current = this.tombstoneRegion.list();
-		const next = current.filter(
-			(existing) => !declared.some((identity) => sameIdentity(existing, identity.label, identity.baseUrl))
-		);
+		const next = current.filter((existing) => !wanted.some((identity) => sameTombstoneIdentity(existing, identity)));
 		if (next.length === current.length) {
 			return false;
 		}
@@ -327,7 +473,7 @@ export class GroupRemovalStore {
 	}
 
 	originFor(label: string, baseUrl: string): OrphanedGroupOrigin | undefined {
-		return this.provenanceRegion.list().find((record) => sameIdentity(record, label, baseUrl))?.origin;
+		return this.provenanceRegion.list().find((record) => sameGroupIdentity(record, { label, baseUrl }))?.origin;
 	}
 
 	/** One record per identity: a newer event replaces an older one, since keeping both would make the badge lie. */
@@ -337,9 +483,7 @@ export class GroupRemovalStore {
 			baseUrl: normalizeBaseUrl(record.baseUrl),
 			origin: record.origin,
 		};
-		const rest = this.provenanceRegion
-			.list()
-			.filter((existing) => !sameIdentity(existing, normalized.label, normalized.baseUrl));
+		const rest = this.provenanceRegion.list().filter((existing) => !sameGroupIdentity(existing, normalized));
 		this.provenanceRegion.commit([...rest, normalized]);
 		await this.provenanceRegion.persistCommitted();
 	}

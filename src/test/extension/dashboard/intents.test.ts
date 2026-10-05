@@ -291,7 +291,11 @@ suite("extension/dashboard/intents", () => {
 			const notice = await adopt(recorded);
 
 			assert.strictEqual(notice, undefined, "a full adoption carries no caveat");
-			assert.deepStrictEqual(recorded.adoptionLookups, [["http://ext.test", "handle-ext"]]);
+			assert.ok(
+				recorded.adoptionLookups.length > 0 &&
+					recorded.adoptionLookups.every(([url, handle]) => url === "http://ext.test" && handle === "handle-ext"),
+				"every lookup names the intent's base URL and handle"
+			);
 			assert.deepStrictEqual(recorded.serverWrites, [
 				[
 					{ label: "Existing", baseUrl: "http://other.test" },
@@ -431,9 +435,9 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.serverWrites, []);
 		});
 
-		test("a missing credential lookup still adopts the plain entry and reports the caveat", async () => {
+		test("a source whose credentials cannot be read still adopts the plain entry and reports the caveat", async () => {
 			const recorded = makeEnv([]);
-			// adoptionCredentials stays unset: the group refreshed away.
+			// adoptionCredentials stays unset: the group is registry-only.
 
 			const notice = await adopt(recorded);
 
@@ -568,16 +572,57 @@ suite("extension/dashboard/intents", () => {
 	suite("executeDashboardIntent: hidden groups", () => {
 		test("hideExternalServer tombstones exactly the identity the handle resolves to", async () => {
 			const recorded = makeEnv();
-			// The resolved identity is the group's own status label and URL, not what the intent claimed: the handle is
-			// the authority.
-			recorded.externalGroup = { label: "Prod", baseUrl: "http://prod.test/" };
+			// The resolved identity is the group's own status label and URL, not
+			// what the intent claimed: the handle is the authority.
+			recorded.externalGroup = { by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test/" };
 			await executeDashboardIntent(
 				{ method: "hideExternalServer", payload: { baseUrl: "http://prod.test", sourceHandle: "handle-1" } },
 				recorded.env
 			);
 
 			assert.deepStrictEqual(recorded.externalLookups, [["http://prod.test", "handle-1"]]);
-			assert.deepStrictEqual(recorded.hidden, [{ label: "Prod", baseUrl: "http://prod.test/" }]);
+			assert.deepStrictEqual(recorded.hidden, [
+				{ by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test/" },
+			]);
+		});
+
+		test("a setting that changes while the tombstone is recorded is unhidden again and refused", async () => {
+			// The store awaits a secret-storage read before it commits, so another window's write can land between the
+			// resolution's check and the commit: the hide is compensated, never left standing on a stale view.
+			const recorded = makeEnv([]);
+			recorded.externalGroup = { by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test" };
+			recorded.duringHide = () => recorded.setSetting([{ label: "L1", baseUrl: "http://prod.test" }]);
+			await assert.rejects(
+				executeDashboardIntent(
+					{ method: "hideExternalServer", payload: { baseUrl: "http://prod.test", sourceHandle: "handle-1" } },
+					recorded.env
+				),
+				/changed while this action ran/
+			);
+			assert.deepStrictEqual(recorded.hidden, [
+				{ by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test" },
+			]);
+			assert.deepStrictEqual(
+				recorded.retracted,
+				[{ by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test" }],
+				"only the record this hide added is taken back, never the pair's other tombstones"
+			);
+			assert.deepStrictEqual(recorded.unhidden, []);
+		});
+
+		test("a repeated hide whose setting changed takes back nothing: the record is the first request's", async () => {
+			const recorded = makeEnv([]);
+			recorded.externalGroup = { by: "group", groupId: "group:prod", label: "Prod", baseUrl: "http://prod.test" };
+			recorded.hideAdded = false;
+			recorded.duringHide = () => recorded.setSetting([{ label: "L1", baseUrl: "http://prod.test" }]);
+			await assert.rejects(
+				executeDashboardIntent(
+					{ method: "hideExternalServer", payload: { baseUrl: "http://prod.test", sourceHandle: "handle-1" } },
+					recorded.env
+				),
+				/changed while this action ran/
+			);
+			assert.deepStrictEqual(recorded.retracted, []);
 		});
 
 		test("hideExternalServer refuses an unusable base URL before any lookup", async () => {

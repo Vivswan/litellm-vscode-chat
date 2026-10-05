@@ -48,7 +48,6 @@ import {
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { Logger } from "../../shared/logger";
 import { pickEntryViewFields, pickNonSecretOptionalFields } from "../../shared/serverEntry";
-import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
 import {
 	DASHBOARD_BUNDLE_FILENAME,
@@ -56,11 +55,13 @@ import {
 	WEBVIEW_DIST_SEGMENTS,
 } from "../../shared/webviewPaths";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
-import type { GroupRemovalStore } from "../servers/groupRemovals";
+import type { GroupRemovalStore, TombstoneIdentity } from "../servers/groupRemovals";
+import { tombstoneHides } from "../servers/groupRemovals";
 import { openManageLanguageModels } from "../servers/manageLanguageModels";
-import type { ServerSyncEngine } from "../servers/serverSync";
+import type { SecretStore, ServerSyncEngine } from "../servers/serverSync";
 import {
 	deleteServerSecrets,
+	IndeterminateServersSettingError,
 	parseServersSetting,
 	readEntryModelParameters,
 	secretLocations,
@@ -70,9 +71,11 @@ import {
 import { readServerSecretsRecord } from "../servers/serverSync/secrets";
 import type { UsagePoller } from "../servers/usage";
 import { isUsageFresh, notifyUsageRefreshFailure } from "../servers/usage";
+import type { SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
+import { secretValueHolders } from "./declaredJoin";
 import { buildDashboardHtml } from "./html";
 import type { DashboardParseIssue } from "./intentSchema";
 import { parseDashboardRequest } from "./intentSchema";
@@ -84,6 +87,7 @@ import {
 	readInlineSecretValues,
 } from "./intents";
 import { buildResolvedModelsView, resolveModelRecordChains } from "./resolvedModels";
+import { entriesOf } from "./rowBoundWrite";
 import type {
 	DeclaredServersInput,
 	EntryCapabilitiesRecord,
@@ -94,11 +98,9 @@ import type {
 import {
 	buildDashboardState,
 	mostSpecificGlobalRecordKey,
-	observedKeysByEntryLabel,
 	observedModelInfoKeysUnion,
 	resolveDashboardModelCapabilities,
 	resolveDashboardModelParameters,
-	visibleHiddenGroups,
 } from "./state";
 import { createDraftConnectionProbe } from "./testDraftConnection";
 import { buildUsageView } from "./usageView";
@@ -141,6 +143,9 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	createPanel(): DashboardPanel;
 	getSnapshots(): readonly ServerModelsSnapshot[];
 	getDeclaredServers(): DeclaredServersInput;
+	/** The declared labels whose secret value each live group carries, by server ID (secretValueHolders). */
+	getSecretHolders(): ReadonlyMap<string, readonly string[]>;
+	/** The removal bookkeeping (tombstones and orphan origins) the state builder folds in. */
 	getRemovedGroups(): RemovedGroupsView;
 	readonly serverResolution: ServerResolution;
 	/** The OpenRouter catalog as in-memory lookup data; EMPTY_CATALOG_LOOKUP while no snapshot exists. */
@@ -187,11 +192,6 @@ export type DashboardSubmission =
  * posted.
  */
 type MessageSource = "webview" | "external";
-
-/** One observed group identity as a set key, normalized like the tombstone store's identities. */
-function observedIdentityKey(label: string, baseUrl: string): string {
-	return `${label}\n${normalizeBaseUrl(baseUrl)}`;
-}
 
 /** How many catalog search results one response may carry; the picker shows a short list. */
 const CATALOG_RESULT_LIMIT = 20;
@@ -248,15 +248,10 @@ export class DashboardController implements vscode.Disposable {
 	 * replay a stale jump.
 	 */
 	private _pendingFocusSection: DashboardSectionId | undefined;
-	/**
-	 * Session-sticky on purpose: snapshots age out of the status window after minutes, but a suppressed group the host
-	 * still holds must keep its hidden-groups row all session, while a group deleted from the models file before this
-	 * session must not show a ghost row.
-	 */
-	/**
-	 * Identity key -> whether a LABELED group was ever seen at it; see DashboardStateInputs.wasLabeledGroupObserved.
-	 */
-	private readonly _observedGroupIdentities = new Map<string, boolean>();
+	private readonly _observedGroups = new Map<
+		string,
+		{ readonly label: string; readonly entryLabel: string | undefined; readonly baseUrl: string }
+	>();
 	/**
 	 * The current page's generation, bumped whenever the page is torn down or replaced (the panel hides - without
 	 * retainContextWhenHidden the page dies hidden and reloads on reveal - or is disposed). _readyGeneration records
@@ -405,52 +400,59 @@ export class DashboardController implements vscode.Disposable {
 	readState(): DashboardState {
 		const snapshots = this.env.getSnapshots();
 		for (const snapshot of snapshots) {
-			const key = observedIdentityKey(snapshot.status.label, snapshot.status.baseUrl);
-			this._observedGroupIdentities.set(
-				key,
-				(this._observedGroupIdentities.get(key) ?? false) || snapshot.entryLabel !== undefined
-			);
+			this._observedGroups.set(snapshot.status.serverId, {
+				label: snapshot.status.label,
+				entryLabel: snapshot.entryLabel,
+				baseUrl: snapshot.status.baseUrl,
+			});
 		}
 		const reader = this.env.settingsReader();
 		const declared = this.env.getDeclaredServers();
 		const entryReports = serverSettingReports(this.env.readServersSetting());
 		const removedGroups = this.env.getRemovedGroups();
-		const wasGroupObserved = (label: string, baseUrl: string) =>
-			this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl));
-		const wasLabeledGroupObserved = (label: string, baseUrl: string) =>
-			this._observedGroupIdentities.get(observedIdentityKey(label, baseUrl)) === true;
-		const hiddenGroups = visibleHiddenGroups({
-			removedGroups,
-			snapshots,
-			declared: declared.views,
-			wasGroupObserved,
-			wasLabeledGroupObserved,
-		});
+		// A tombstone is a ghost until the group it hides was seen this session, by the key it hides by.
+		const observed = (tombstone: TombstoneIdentity) =>
+			[...this._observedGroups.entries()].filter(([groupId, group]) =>
+				tombstoneHides(tombstone, { groupId, ...group })
+			);
+		const wasGroupObserved = (tombstone: TombstoneIdentity) => observed(tombstone).length > 0;
+		const wasLabeledGroupObserved = (tombstone: TombstoneIdentity) =>
+			observed(tombstone).some(([, group]) => group.entryLabel !== undefined);
 		// In FEATURE_MODEL_IDS order for a stable push, whatever object the env built its probes record from.
 		const featureProbes = FEATURE_MODEL_IDS.filter((feature) => this.env.featureProbes[feature] !== undefined);
-		return buildDashboardState({
+		const state = buildDashboardState({
 			snapshots,
 			reader,
 			declared,
 			entryReports,
+			secretHolders: this.env.getSecretHolders(),
 			featureProbes,
 			removedGroups,
 			wasGroupObserved,
 			wasLabeledGroupObserved,
 			catalog: this.env.getCatalogStatus(),
 			usage: this.env.getUsage(),
+		});
+		return {
+			...state,
 			diagnostics: buildConfigDiagnostics({
 				reader,
 				entryReports,
 				declared: declared.views,
 				// The same list the servers section's hidden-groups line renders.
-				hiddenGroups,
-				// The advisory-hint evidence: per entry its own server's observed set, global records the cross-server
-				// union.
-				observedKeysByEntry: observedKeysByEntryLabel(snapshots, declared.views),
+				hiddenGroups: state.hiddenGroups,
+				// The advisory-hint evidence: per entry its own server's observed set (the declared row carries its
+				// joined snapshot's), global records the cross-server union.
+				observedKeysByEntry: new Map(
+					state.servers.flatMap((server) =>
+						server.origin === "declared" && server.observedModelInfoKeys !== undefined
+							? [[server.label, server.observedModelInfoKeys] as const]
+							: []
+					)
+				),
 				observedKeysUnion: observedModelInfoKeysUnion(snapshots),
 			}),
-		});
+		};
 	}
 
 	private flushPendingFocus(): void {
@@ -829,6 +831,96 @@ export interface RegisterDashboardOptions {
 	readonly featureProbes: FeatureProbes;
 }
 
+/** What createIntentEnvironment is built from; the row-bound write suite drives it with fakes for these. */
+export interface IntentEnvironmentDeps {
+	readonly provider: Pick<LiteLLMChatModelProvider, "getServerSnapshots" | "getGroupServer">;
+	readonly syncEngine: Pick<ServerSyncEngine, "requestSync" | "resolveDeclaredIdentities">;
+	readonly removals: Pick<GroupRemovalStore, "addTombstone" | "retractTombstone" | "removeTombstone" | "hasTombstone">;
+	readonly settingsAccess: SettingsAccess;
+	readonly secrets: SecretStore;
+	readonly logger: Pick<Logger, "log">;
+	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
+	readonly ua: string;
+	readonly featureProbes: FeatureProbes;
+	readonly refreshCatalogNow: () => void;
+	readonly refreshUsageNow: () => void;
+}
+
+/** The intent half of the controller's environment: every effect executeDashboardIntent can have, over real stores. */
+export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvironment {
+	const { provider, syncEngine, removals, settingsAccess, secrets, logger } = deps;
+	// The engine's refusal of an indeterminate setting is the user's to fix, so it reaches the webview as validation
+	// text rather than the generic "see the log" failure.
+	const liveIdentities = async () => {
+		try {
+			return await syncEngine.resolveDeclaredIdentities();
+		} catch (error) {
+			if (error instanceof IndeterminateServersSettingError) {
+				throw new DashboardValidationError(l10n.t("The servers setting is not an array; fix the setting, then retry"));
+			}
+			throw error;
+		}
+	};
+	return {
+		updateSetting: (key, value) => settingsAccess.updateAuto(key, value),
+		removeSetting: (key) => settingsAccess.removeConfigured(key),
+		// The effective (scope-merged) value, matching what the state pushes
+		// show and what a fresh getter would read after the awaited write.
+		readSetting: (key) => settingsAccess.readEffective(key),
+		// The servers setting is machine-scoped: workspaces cannot re-point a
+		// label at another host to harvest its stored secrets, and reads and
+		// writes always target the user-scope value.
+		readServersSetting: () => settingsAccess.readGlobal(SERVERS_SETTING_KEY),
+		writeServersSetting: (write) => settingsAccess.writeGlobal(SERVERS_SETTING_KEY, entriesOf(write)),
+		storeServerSecret: (label, field, value, owner) => updateServerSecret(secrets, label, field, value, owner),
+		readServerSecrets: (label) => readServerSecretsRecord(secrets, label),
+		deleteServerSecrets: (label) => deleteServerSecrets(secrets, label),
+		requestServerSync: () => syncEngine.requestSync(),
+		// The adopt intent's credential source: the provider's in-memory group lookup under the one group ownership
+		// over the setting as it stands at the intent (the engine's live declaration, not its last pass's views), so
+		// the values never sit in dashboard state. They flow from here into the setting or SecretStorage only.
+		resolveAdoptionCredentials: async (baseUrl, sourceHandle) => {
+			const live = await liveIdentities();
+			return {
+				source: resolveAdoptableCredentials(provider.getServerSnapshots(), live, baseUrl, sourceHandle, (serverId) =>
+					provider.getGroupServer(serverId)
+				),
+				setting: live.setting,
+			};
+		},
+		// The hide intent's identity source: the same external resolution the adopt path uses, minus the credentials.
+		resolveExternalGroup: async (baseUrl, sourceHandle) => {
+			const live = await liveIdentities();
+			return {
+				identity: resolveExternalGroupIdentity(provider.getServerSnapshots(), live, baseUrl, sourceHandle, (serverId) =>
+					provider.getGroupServer(serverId)
+				),
+				setting: live.setting,
+			};
+		},
+		// Tombstone writes fire the store's onDidChange, which the activation
+		// wiring points at the provider's model-change event: the hidden group's
+		// models leave (or return to) the picker without waiting for the next
+		// background refresh.
+		hideGroup: (identity) => removals.addTombstone(identity),
+		retractHide: async (identity) => {
+			await removals.retractTombstone(identity);
+		},
+		unhideGroup: (identity) => removals.removeTombstone(identity),
+		isGroupHidden: (identity) => removals.hasTombstone(identity.label, identity.baseUrl),
+		openManageLanguageModels: (search) => openManageLanguageModels(search),
+		// The draft-connection test's probe: one throwaway discovery pass, no
+		// mutation, no caching, and no logger (its discovery chatter would enter
+		// the issue-report buffer).
+		probeDraftConnection: createDraftConnectionProbe(deps.ua),
+		featureProbes: deps.featureProbes,
+		refreshCatalogNow: deps.refreshCatalogNow,
+		refreshUsageNow: deps.refreshUsageNow,
+		executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
+		log: (message, data) => logger.log(message, data),
+	};
+}
+
 /**
  * Register litellm.openDashboard and litellm.showDiagnostics (the deep link to the Diagnostics tab) and keep the panel
  * in sync with the stores: configuration changes re-push directly; provider status changes arrive via the returned
@@ -855,6 +947,29 @@ export function registerDashboardCommand(
 	};
 	const settingsAccess = createSettingsAccess();
 	const controller = new DashboardController({
+		...createIntentEnvironment({
+			provider,
+			syncEngine,
+			removals,
+			settingsAccess,
+			secrets: context.secrets,
+			logger,
+			ua,
+			featureProbes: options.featureProbes,
+			// Fire-and-forget kicks; both push state when they settle. The catalog
+			// row stays toast-free; an explicit usage refresh in which NO server
+			// returned data acknowledges itself with one warning toast (partial
+			// failures render on the cards instead).
+			refreshCatalogNow: () => {
+				void catalog.refreshNow().finally(() => controller.refresh());
+			},
+			refreshUsageNow: () => {
+				void usagePoller
+					.refreshNow()
+					.then(notifyUsageRefreshFailure)
+					.finally(() => controller.refresh());
+			},
+		}),
 		createPanel: () => createRealPanel(context.extensionUri),
 		getSnapshots: () => provider.getServerSnapshots(),
 		getDeclaredServers: () => {
@@ -868,6 +983,12 @@ export function registerDashboardCommand(
 				vscode.workspace.getConfiguration(CONFIG_SECTION).get<unknown>(SERVERS_SETTING_KEY)
 			);
 		},
+		getSecretHolders: () =>
+			secretValueHolders(
+				provider.getServerSnapshots(),
+				(serverId) => provider.getGroupServer(serverId),
+				syncEngine.getSecretValues()
+			),
 		getRemovedGroups: (): RemovedGroupsView => ({
 			tombstones: removals.tombstones(),
 			origins: removals.provenance().map((record) => ({
@@ -891,18 +1012,6 @@ export function registerDashboardCommand(
 				now: Date.now(),
 				isFresh: isUsageFresh,
 			}),
-		// Fire-and-forget kicks; both push state when they settle. The catalog row stays toast-free; an explicit usage
-		// refresh in which NO server returned data acknowledges itself with one warning toast (partial failures render
-		// on the cards instead).
-		refreshCatalogNow: () => {
-			void catalog.refreshNow().finally(() => controller.refresh());
-		},
-		refreshUsageNow: () => {
-			void usagePoller
-				.refreshNow()
-				.then(notifyUsageRefreshFailure)
-				.finally(() => controller.refresh());
-		},
 		// The open-triggered pass: staleness-gated, and never toasted - the total-failure acknowledgment belongs to the
 		// EXPLICIT refresh. The poller's own notifications already re-push the dashboard.
 		refreshUsageIfStale: () => {
@@ -912,44 +1021,6 @@ export function registerDashboardCommand(
 		// One snapshot per reader: a dashboard build makes many reads and must not mix configuration versions
 		// mid-build.
 		settingsReader: () => settingsAccess.snapshotReader(),
-		updateSetting: (key, value) => settingsAccess.updateAuto(key, value),
-		removeSetting: (key) => settingsAccess.removeConfigured(key),
-		// The effective (scope-merged) value, matching what the state pushes show and what a fresh getter would read
-		// after the awaited write.
-		readSetting: (key) => settingsAccess.readEffective(key),
-		// The servers setting is machine-scoped: workspaces cannot re-point a label at another host to harvest its
-		// stored secrets, and reads and writes always target the user-scope value.
-		readServersSetting: () => settingsAccess.readGlobal(SERVERS_SETTING_KEY),
-		writeServersSetting: (value) => settingsAccess.writeGlobal(SERVERS_SETTING_KEY, value),
-		storeServerSecret: (label, field, value, owner) => updateServerSecret(context.secrets, label, field, value, owner),
-		readServerSecrets: (label) => readServerSecretsRecord(context.secrets, label),
-		deleteServerSecrets: (label) => deleteServerSecrets(context.secrets, label),
-		requestServerSync: () => syncEngine.requestSync(),
-		// The adopt intent's credential source: the provider's in-memory group lookup, resolved at intent time against
-		// what is external then, so the values never sit in dashboard state. They flow from here into the setting or
-		// SecretStorage only.
-		resolveAdoptionCredentials: (baseUrl, sourceHandle) =>
-			resolveAdoptableCredentials(
-				provider.getServerSnapshots(),
-				syncEngine.getDeclared(),
-				baseUrl,
-				sourceHandle,
-				(serverId) => provider.getGroupServer(serverId)
-			),
-		resolveExternalGroup: (baseUrl, sourceHandle) =>
-			resolveExternalGroupIdentity(provider.getServerSnapshots(), syncEngine.getDeclared(), baseUrl, sourceHandle),
-		// Tombstone writes fire the store's onDidChange, which the activation wiring points at the provider's
-		// model-change event: the hidden group's models leave (or return to) the picker without waiting for the next
-		// background refresh.
-		hideGroup: (identity) => removals.addTombstone(identity),
-		unhideGroup: (identity) => removals.removeTombstone(identity),
-		isGroupHidden: (identity) => removals.isTombstoned(identity.label, identity.baseUrl),
-		openManageLanguageModels: (search) => openManageLanguageModels(search),
-		//   its discovery chatter would enter the issue-report buffer -> no logger
-		probeDraftConnection: createDraftConnectionProbe(ua),
-		featureProbes: options.featureProbes,
-		executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
-		log: (message, data) => logger.log(message, data),
 		logError: (message, error) => logger.error(message, error),
 	});
 	context.subscriptions.push(

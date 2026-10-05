@@ -79,17 +79,19 @@ import {
 import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
-import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
-import { supersedingBaseUrl } from "../servers/serverSync";
+import type { TombstoneIdentity } from "../servers/groupRemovals";
+import { sameGroupIdentity, tombstoneHides } from "../servers/groupRemovals";
+import type { DeclaredServerView, DrawableReject, ServerEntryReport } from "../servers/serverSync";
+import { drawableRejects, rejectedCarrierLabels, supersedingBaseUrl } from "../servers/serverSync";
 import { declaredPresentation } from "../servers/syncFailureOverlay";
 import type { SettingsInspection } from "../settingsAccess";
 import { resolveConfiguredScope, resolveUpdateScope } from "../settingsAccess";
 import { adoptSourceHandle, locateModel, modelScopeKey } from "./adoptHandle";
-import type { LabeledSnapshot } from "./declaredJoin";
-import { joinDeclared, labeledSnapshots } from "./declaredJoin";
+import type { GroupOwnership, LabeledSnapshot, LegacySnapshot } from "./declaredJoin";
+import { labeledSnapshots, resolveGroupOwnership } from "./declaredJoin";
 
 export interface RemovedGroupsView {
-	readonly tombstones: readonly { readonly label: string; readonly baseUrl: string }[];
+	readonly tombstones: readonly TombstoneIdentity[];
 	readonly origins: readonly {
 		readonly label: string;
 		readonly baseUrl: string;
@@ -127,20 +129,28 @@ function checkedAtMs(lastChecked: string | undefined): number | undefined {
 function buildServer(
 	snapshot: ServerModelsSnapshot,
 	label: string,
-	provenance: ExternalServerProvenance | undefined
+	identity:
+		| { readonly origin: "external"; readonly provenance: ExternalServerProvenance | undefined }
+		| { readonly origin: "legacy"; readonly entryLabel: string }
 ): DashboardServer {
 	const { status } = snapshot;
 	const base = {
 		label,
 		baseUrl: status.baseUrl,
 		lastChecked: checkedAtMs(status.lastChecked),
-		// The live group's own report is the verdict here: an external row has no declared secrets whose locations
-		// could still be unread, and the report carries the credential kind alongside the presence.
 		credentials: status.hasApiKey === true ? "present" : "absent",
 		hasOAuth: status.hasOAuth === true,
-		origin: "external",
-		adoptHandle: adoptSourceHandle(status.serverId),
-		...(provenance !== undefined ? { provenance } : {}),
+		...(identity.origin === "external"
+			? ({
+					origin: "external",
+					adoptHandle: adoptSourceHandle(status.serverId),
+					...(identity.provenance !== undefined ? { provenance: identity.provenance } : {}),
+				} as const)
+			: ({
+					origin: "legacy",
+					entryLabel: identity.entryLabel,
+					groupHandle: adoptSourceHandle(status.serverId),
+				} as const)),
 		...(snapshot.observedModelInfoKeys !== undefined ? { observedModelInfoKeys: snapshot.observedModelInfoKeys } : {}),
 		...(snapshot.skippedModeCounts !== undefined ? { skippedModeCounts: snapshot.skippedModeCounts } : {}),
 	} as const;
@@ -153,6 +163,8 @@ function buildServer(
 				error: status.error,
 				errorEnglish: status.logSafeError,
 				...(status.classification !== undefined ? { classification: status.classification } : {}),
+				...(status.expected === true ? { expected: true } : {}),
+				...(status.declaredModelCount !== undefined ? { declaredModelCount: status.declaredModelCount } : {}),
 			};
 }
 
@@ -216,9 +228,6 @@ function declaredOutcome(
 	};
 }
 
-/** A rejected entry that has the identity a row needs: both fields narrowed, so no call site defaults them. */
-export type DrawableReject = ServerEntryReport & { readonly label: string; readonly baseUrl: string };
-
 /**
  * The sync engine reads the secret blobs; the pre-first-pass settings fallback cannot check SecretStorage
  * synchronously, so a field it reports "none" may really be "secure". The tag is producer-owned -
@@ -247,68 +256,33 @@ function secretsView(view: DeclaredServerView, source: DeclaredServersInput["sou
 	return { kind: "unproven" };
 }
 
-/**
- * A reject sits in the setting, so a silently missing row would read as a removal - but a row needs an honest identity
- * to draw, and four causes leave a reject without one: no label, no base URL, a label a declared entry already owns,
- * and a label an earlier reject already drew. Those stay in Configuration diagnostics ONLY, which is why this rule is
- * exported rather than inlined: diagnostics drop the entry problems a row already states, and must drop exactly the
- * ones a row was drawn for.
- */
 export function rejectsWithOwnRow(
 	entryReports: readonly ServerEntryReport[],
 	declared: readonly Pick<DeclaredServerView, "label">[]
 ): readonly DrawableReject[] {
-	const declaredLabels = new Set(declared.map((view) => view.label));
-	const drawn = new Set<string>();
-	const rows: DrawableReject[] = [];
-	for (const report of entryReports) {
-		if (
-			report.accepted ||
-			report.label === undefined ||
-			report.baseUrl === undefined ||
-			declaredLabels.has(report.label) ||
-			drawn.has(report.label)
-		) {
-			continue;
-		}
-		drawn.add(report.label);
-		rows.push({ ...report, label: report.label, baseUrl: report.baseUrl });
-	}
-	return rows;
+	return drawableRejects(entryReports, new Set(declared.map((view) => view.label)));
 }
 
 /**
- * `snapshotLabels` lists each joined claimant, because the picker lists the models under each, minus upsertFailed ones
- * unless none else remains; exact host cardinality is not recoverable from declarations alone, hence that
- * first-claimant fallback.
+ * A pre-label group reports under its URL host (the host never hands the extension the group name), so the join
+ * cannot require a label match (resolveGroupOwnership). `snapshotLabels` lists each joined claimant, because the
+ * picker lists the models under each, minus upsertFailed ones unless none else remains; exact host cardinality is
+ * not recoverable from declarations alone, hence that first-claimant fallback.
  */
 function buildServers(
 	labeled: readonly LabeledSnapshot[],
 	declaredInput: DeclaredServersInput,
 	entryReports: readonly ServerEntryReport[],
-	removedGroups: RemovedGroupsView
+	removedGroups: RemovedGroupsView,
+	ownership: GroupOwnership,
+	tombstoned: ReadonlySet<LabeledSnapshot>
 ): { servers: DashboardServer[]; snapshotLabels: string[][] } {
 	const declared = declaredInput.views;
-	// Superseded leftovers (see supersedingView) never enter the join: a same-URL entry's url pass could otherwise
-	// claim a group the provider serves nothing from, and the row would count models the picker lacks.
-	const joinable = joinableSnapshots(labeled, declared);
-	const superseded = new Set(labeled.filter((entry) => !joinable.includes(entry)));
-	const { matchedByDeclared, unmatched } = joinDeclared(joinable, declared);
-	// The removal bookkeeping is keyed by the snapshot's own status label (never the display label, which can carry a
-	// collision ordinal) plus the normalized base URL. Only EXTERNAL rows are ever suppressed: a declared entry
-	// matching a tombstone clears it engine-side.
-	const isTombstoned = (snapshot: ServerModelsSnapshot) =>
-		removedGroups.tombstones.some(
-			(identity) =>
-				identity.label === snapshot.status.label &&
-				normalizeBaseUrl(identity.baseUrl) === normalizeBaseUrl(snapshot.status.baseUrl)
-		);
+	const { matchedByDeclared, external, legacy } = ownership;
+	// Provenance is keyed by the snapshot's own status label (never the display label, which can carry a collision
+	// ordinal) plus the normalized base URL.
 	const originFor = (snapshot: ServerModelsSnapshot) =>
-		removedGroups.origins.find(
-			(record) =>
-				record.label === snapshot.status.label &&
-				normalizeBaseUrl(record.baseUrl) === normalizeBaseUrl(snapshot.status.baseUrl)
-		)?.origin;
+		removedGroups.origins.find((record) => sameGroupIdentity(record, snapshot.status))?.origin;
 	// Countable claimant labels per snapshot, in declared order, with the first claimant of any state as the
 	// render-at-least-once fallback. Built whole before any row, because a shared snapshot's rows need the full
 	// claimant picture to report their own served counts.
@@ -333,9 +307,12 @@ function buildServers(
 		return claimed.labels.length > 0 ? claimed.labels : [claimed.fallback];
 	};
 	const servers: DashboardServer[] = [];
-	// Hidden externals leave the table AND the models list; for tombstones this only bridges the window between the
+	// Hidden groups leave the table AND the models list; for tombstones this only bridges the window between the
 	// write and the host's re-resolution, for superseded leftovers it is the rule itself.
-	const hidden = new Set<LabeledSnapshot>(superseded);
+	const hidden = new Set<LabeledSnapshot>([
+		...tombstoned,
+		...legacy.flatMap((leftover) => (supersededBy(leftover, declared) === undefined ? [] : [leftover.labeled])),
+	]);
 	declared.forEach((view, declaredIndex) => {
 		const match = matchedByDeclared.get(declaredIndex);
 		const matched = match?.entry;
@@ -419,12 +396,18 @@ function buildServers(
 			...outcome,
 		});
 	});
-	for (const entry of unmatched) {
-		if (isTombstoned(entry.snapshot)) {
-			hidden.add(entry);
+	for (const entry of external) {
+		servers.push(
+			buildServer(entry.snapshot, entry.label, { origin: "external", provenance: originFor(entry.snapshot) })
+		);
+	}
+	// A legacy leftover the provider still serves from has a row, like the picker has its models; the superseded
+	// ones (hidden above) match the provider's own suppression and leave both.
+	for (const { labeled, entryLabel } of legacy) {
+		if (hidden.has(labeled)) {
 			continue;
 		}
-		servers.push(buildServer(entry.snapshot, entry.label, originFor(entry.snapshot)));
+		servers.push(buildServer(labeled.snapshot, labeled.label, { origin: "legacy", entryLabel }));
 	}
 	for (const report of rejectsWithOwnRow(entryReports, declared)) {
 		servers.push({
@@ -685,20 +668,23 @@ export interface DashboardStateInputs {
 	readonly snapshots: readonly ServerModelsSnapshot[];
 	readonly reader: SettingsReader;
 	readonly declared?: DeclaredServersInput;
+	/** The per-entry acceptance reports (serverSettingReports): the Misconfigured rows and the ownership's carriers. */
 	readonly entryReports?: readonly ServerEntryReport[];
+	/** The declared labels whose secret value each live group carries, by server ID (secretValueHolders). */
+	readonly secretHolders?: ReadonlyMap<string, readonly string[]>;
 	readonly removedGroups?: RemovedGroupsView;
 	/**
 	 * Whether a tombstoned identity's group was observed alive at some point this session (suppressed groups still
 	 * report, deleted groups never do). Gates the hidden-groups line only: offering Unhide for a tombstone whose group
 	 * the host no longer holds would reference nothing.
 	 */
-	readonly wasGroupObserved?: (label: string, baseUrl: string) => boolean;
+	readonly wasGroupObserved?: (tombstone: TombstoneIdentity) => boolean;
 	/**
 	 * Like wasGroupObserved, but only for observations of a LABELED group at the identity (its configuration carried
 	 * the entry label): what lets a tombstone be classified superseded once its entry declares another URL. The default
 	 * observes nothing, so tombstones read as removed.
 	 */
-	readonly wasLabeledGroupObserved?: (label: string, baseUrl: string) => boolean;
+	readonly wasLabeledGroupObserved?: (tombstone: TombstoneIdentity) => boolean;
 	readonly catalog?: CatalogStatusView;
 	readonly usage?: DashboardUsage;
 	readonly diagnostics?: readonly ConfigDiagnosticView[];
@@ -707,44 +693,38 @@ export interface DashboardStateInputs {
 }
 
 /**
- * The base URL a LABELED live group's entry now declares when the group sits at another one, if any (supersedingBaseUrl
- * over the engine's declared views; the provider reads the same rule over the live setting): the group is the leftover
- * an add-only host kept when the entry was re-pointed. Keyed on the configuration's entry label, never the status label
- * - an unlabeled group's URL-host display fallback is not an entry's identity.
+ * The URL a legacy leftover's stamped entry now declares, when the leftover is the one legacy class the provider
+ * suppresses too (isGroupSuppressed, by the group's own stamp): a group STAMPED with an accepted label whose entry
+ * moved, whichever label's secret it holds. An unstamped holder of a moved entry's secret is a legacy row instead,
+ * because the provider keeps serving it.
  */
-function supersedingView(snapshot: ServerModelsSnapshot, declared: readonly DeclaredServerView[]): string | undefined {
+function supersededBy(leftover: LegacySnapshot, declared: readonly DeclaredServerView[]): string | undefined {
+	const { snapshot } = leftover.labeled;
 	return snapshot.entryLabel === undefined
 		? undefined
 		: supersedingBaseUrl(declared, snapshot.entryLabel, snapshot.status.baseUrl);
 }
 
-function joinableSnapshots<T extends { readonly snapshot: ServerModelsSnapshot }>(
-	entries: readonly T[],
-	declared: readonly DeclaredServerView[]
-): T[] {
-	return entries.filter((entry) => supersedingView(entry.snapshot, declared) === undefined);
-}
-
-function supersededLeftovers(
-	snapshots: readonly ServerModelsSnapshot[],
-	declared: readonly DeclaredServerView[]
-): HiddenGroup[] {
-	return snapshots.flatMap((snapshot): HiddenGroup[] => {
-		const declaredBaseUrl = supersedingView(snapshot, declared);
+/** The superseded leftovers among the ownership's legacy groups, as hidden-groups rows; see HiddenGroup. */
+function supersededLeftovers(ownership: GroupOwnership, declared: readonly DeclaredServerView[]): HiddenGroup[] {
+	return ownership.legacy.flatMap((leftover): HiddenGroup[] => {
+		const declaredBaseUrl = supersededBy(leftover, declared);
+		const { status } = leftover.labeled.snapshot;
 		return declaredBaseUrl === undefined
 			? []
-			: [{ label: snapshot.status.label, baseUrl: snapshot.status.baseUrl, reason: "superseded", declaredBaseUrl }];
+			: [{ label: status.label, baseUrl: status.baseUrl, reason: "superseded", declaredBaseUrl }];
 	});
 }
 
-export interface HiddenGroupsInputs {
+interface HiddenGroupsInputs {
 	readonly removedGroups: RemovedGroupsView;
-	readonly snapshots: readonly ServerModelsSnapshot[];
 	readonly declared: readonly DeclaredServerView[];
+	/** The live leftovers the ownership hides (supersededLeftovers). */
+	readonly superseded: readonly HiddenGroup[];
 	/** See DashboardStateInputs.wasGroupObserved. */
-	readonly wasGroupObserved: (label: string, baseUrl: string) => boolean;
+	readonly wasGroupObserved: (tombstone: TombstoneIdentity) => boolean;
 	/** See DashboardStateInputs.wasLabeledGroupObserved. */
-	readonly wasLabeledGroupObserved: (label: string, baseUrl: string) => boolean;
+	readonly wasLabeledGroupObserved: (tombstone: TombstoneIdentity) => boolean;
 }
 
 /**
@@ -755,33 +735,40 @@ export interface HiddenGroupsInputs {
  *   tombstone never observed this session                              -> not offered as a ghost
  *   tombstone seen as a LABELED group, entry now declaring another URL -> superseded, since an Unhide could not lift it
  */
-export function visibleHiddenGroups(inputs: HiddenGroupsInputs): HiddenGroup[] {
-	const { removedGroups, snapshots, declared, wasGroupObserved, wasLabeledGroupObserved } = inputs;
-	const superseded = supersededLeftovers(snapshots, declared);
-	const sameIdentity = (group: HiddenGroup, label: string, baseUrl: string) =>
-		group.label === label && normalizeBaseUrl(group.baseUrl) === normalizeBaseUrl(baseUrl);
-	const fromTombstones = removedGroups.tombstones
-		.filter(
-			(identity) =>
-				wasGroupObserved(identity.label, identity.baseUrl) &&
-				!superseded.some((group) => sameIdentity(group, identity.label, identity.baseUrl))
-		)
-		.map((identity): HiddenGroup => {
-			const labeled = wasLabeledGroupObserved(identity.label, identity.baseUrl);
-			const declaredBaseUrl = labeled ? supersedingBaseUrl(declared, identity.label, identity.baseUrl) : undefined;
-			if (declaredBaseUrl !== undefined) {
-				return { label: identity.label, baseUrl: identity.baseUrl, reason: "superseded", declaredBaseUrl };
-			}
-			return {
-				label: identity.label,
-				baseUrl: identity.baseUrl,
-				reason: "removed",
-				...(labeled ? { syncedName: identity.label } : {}),
-			};
-		});
-	return [...fromTombstones, ...superseded].sort(
-		(a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl)
-	);
+function visibleHiddenGroups(inputs: HiddenGroupsInputs): HiddenGroup[] {
+	const { removedGroups, declared, superseded, wasGroupObserved, wasLabeledGroupObserved } = inputs;
+	// One row per reason and shown identity, the key the webview lists by: two client-ID tombstones under one label
+	// and URL unhide together, so one row acts; a superseded leftover under a removed row's identity is another group
+	// and keeps its own row, two superseded ones read the same.
+	const shown = new Map<string, HiddenGroup>();
+	const show = (group: HiddenGroup) => {
+		const key = JSON.stringify([group.reason, group.label, normalizeBaseUrl(group.baseUrl)]);
+		if (!shown.has(key)) {
+			shown.set(key, group);
+		}
+	};
+	for (const identity of removedGroups.tombstones) {
+		if (wasGroupObserved(identity)) {
+			show(tombstoneRow(identity));
+		}
+	}
+	for (const group of superseded) {
+		show(group);
+	}
+	function tombstoneRow(identity: TombstoneIdentity): HiddenGroup {
+		const labeled = wasLabeledGroupObserved(identity);
+		const declaredBaseUrl = labeled ? supersedingBaseUrl(declared, identity.label, identity.baseUrl) : undefined;
+		if (declaredBaseUrl !== undefined) {
+			return { label: identity.label, baseUrl: identity.baseUrl, reason: "superseded", declaredBaseUrl };
+		}
+		return {
+			label: identity.label,
+			baseUrl: identity.baseUrl,
+			reason: "removed",
+			...(labeled ? { syncedName: identity.label } : {}),
+		};
+	}
+	return [...shown.values()].sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
 }
 
 /**
@@ -807,33 +794,13 @@ export function observedModelInfoKeysUnion(
 	return [...union].sort();
 }
 
-/**
- * Entries with no snapshot, or whose snapshot carries no set, are absent - the advisory-hint filter reads absence as
- * "unknown" and stays silent. Same handling rules as observedModelInfoKeysUnion (Map-keyed, never logged).
- */
-export function observedKeysByEntryLabel(
-	snapshots: readonly ServerModelsSnapshot[],
-	declared: readonly DeclaredServerView[]
-): ReadonlyMap<string, readonly string[]> {
-	// The same join the rows render from: a superseded leftover's keys must not stand in for the entry that now claims
-	// its URL.
-	const { matchedByDeclared } = joinDeclared(joinableSnapshots(labeledSnapshots(snapshots), declared), declared);
-	const byLabel = new Map<string, readonly string[]>();
-	declared.forEach((view, declaredIndex) => {
-		const keys = matchedByDeclared.get(declaredIndex)?.entry.snapshot.observedModelInfoKeys;
-		if (keys !== undefined) {
-			byLabel.set(view.label, keys);
-		}
-	});
-	return byLabel;
-}
-
 export function buildDashboardState(inputs: DashboardStateInputs): DashboardState {
 	const {
 		snapshots,
 		reader,
 		declared = { source: "engine", views: [] },
 		entryReports = [],
+		secretHolders,
 		removedGroups = NO_REMOVED_GROUPS,
 		wasGroupObserved = () => true,
 		wasLabeledGroupObserved = () => false,
@@ -843,11 +810,39 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 		featureProbes = [],
 	} = inputs;
 	const labeled = labeledSnapshots(snapshots);
-	const { servers, snapshotLabels } = buildServers(labeled, declared, entryReports, removedGroups);
+	// A tombstoned group is out of the join: the provider serves nothing from it, so no declared entry may claim it
+	// by label and URL; a declared entry whose own client or connection ID it carries clears the tombstone
+	// engine-side (GroupRemovalStore.clearTombstonesFor) and claims it on the next push.
+	const tombstoned = new Set(
+		labeled.filter(({ snapshot }) =>
+			removedGroups.tombstones.some((record) =>
+				tombstoneHides(record, {
+					groupId: snapshot.status.serverId,
+					label: snapshot.status.label,
+					entryLabel: snapshot.entryLabel,
+					baseUrl: snapshot.status.baseUrl,
+				})
+			)
+		)
+	);
+	const ownership = resolveGroupOwnership({
+		labeled: labeled.filter((entry) => !tombstoned.has(entry)),
+		declared: declared.views,
+		carriers: rejectedCarrierLabels(entryReports),
+		...(secretHolders !== undefined ? { secretHolders } : {}),
+	});
+	const { servers, snapshotLabels } = buildServers(
+		labeled,
+		declared,
+		entryReports,
+		removedGroups,
+		ownership,
+		tombstoned
+	);
 	const hiddenGroups = visibleHiddenGroups({
 		removedGroups,
-		snapshots,
 		declared: declared.views,
+		superseded: supersededLeftovers(ownership, declared.views),
 		wasGroupObserved,
 		wasLabeledGroupObserved,
 	});

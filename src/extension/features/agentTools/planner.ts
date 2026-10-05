@@ -521,7 +521,10 @@ export function planRemoveServer(input: AgentToolInput<"removeServer">, state: D
 				const external = state.servers.some((server) => server.origin === "external" && server.label === input.label);
 				return refused(external ? "server-not-declared" : "server-not-found", { label: input.label });
 			}
-			return requests({ method: "removeServerSetting", payload: { label: input.label } });
+			return requests({
+				method: "removeServerSetting",
+				payload: { label: declared.label, baseUrl: declared.baseUrl },
+			});
 		}
 	}
 }

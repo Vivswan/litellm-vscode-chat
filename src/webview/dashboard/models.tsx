@@ -23,6 +23,7 @@ import { compactTokenCount } from "../../shared/util/tokenCount";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { helpModelsSection } from "./helpText";
 import { IconArrowUp, IconCheck, IconClose, IconCopy } from "./icons";
+import { tupleKey } from "./keys";
 import { Button } from "./ui/button";
 import { DisclosureChevron } from "./ui/disclosureChevron";
 import { Input } from "./ui/input";
@@ -191,7 +192,7 @@ function ModelDetail({
  *   "prod/openai" + "gpt-4"        -> prod/openai/gpt-4
  */
 function rowIdOf(model: DashboardModel): string {
-	return JSON.stringify([model.scopeKey, model.serverLabel, model.id]);
+	return tupleKey(model.scopeKey, model.serverLabel, model.id);
 }
 
 /**

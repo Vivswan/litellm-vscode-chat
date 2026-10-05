@@ -409,6 +409,17 @@ export function ServerDrawer({
 						<Why text={externalTip(server)} />
 					</Fact>
 				) : null}
+				{server.origin === "legacy" ? (
+					<Fact label={l10n.t("Origin")}>
+						{l10n.t("legacy")}
+						<Why
+							text={l10n.t(
+								'Left behind by the entry "{0}", whose configuration no longer matches it. Its models stay in the picker until its object is deleted from the models file or in Manage Language Models.',
+								server.entryLabel
+							)}
+						/>
+					</Fact>
+				) : null}
 				{numbers !== undefined ? (
 					<UsageFacts server={numbers} pollingOff={pollingOff} now={now} currencySymbol={currencySymbol} />
 				) : usage?.kind === "forbidden" ? (

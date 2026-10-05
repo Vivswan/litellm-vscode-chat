@@ -3,9 +3,9 @@ import { FEATURE_IDS, isFeatureModelId } from "../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../shared/config/settings";
 import { entryUsesSecretField } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
-import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
 import { mcpEnabledEntryCount } from "../features/mcp/wiring";
+import { sameGroupIdentity } from "../servers/groupRemovals";
 import { inlineSecretValues } from "../servers/serverSync/secrets";
 import type { DeclaredServer } from "../servers/serverSync/setting";
 import { currentDeclaredServers } from "../servers/serverSync/vscodeEnv";
@@ -31,7 +31,7 @@ function keyPresence(declared: readonly DeclaredServer[], groupStatuses: readonl
 	}
 	const reported = (entry: DeclaredServer) =>
 		groupStatuses.some(
-			(s) => s.entryLabel === entry.label && normalizeBaseUrl(s.baseUrl) === normalizeBaseUrl(entry.baseUrl)
+			(s) => s.entryLabel !== undefined && sameGroupIdentity({ label: s.entryLabel, baseUrl: s.baseUrl }, entry)
 		);
 	if (groupStatuses.length > 0 && groupStatuses.every((s) => s.hasApiKey === false) && declared.every(reported)) {
 		return false;

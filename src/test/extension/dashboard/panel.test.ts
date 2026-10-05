@@ -9,6 +9,7 @@ import {
 	declaredViewsFromSetting,
 	entryParametersResolver,
 } from "../../../extension/dashboard/panel";
+import { entriesOf } from "../../../extension/dashboard/rowBoundWrite";
 import type {
 	DeclaredServersInput,
 	EntryCapabilitiesRecord,
@@ -151,6 +152,7 @@ function makeHarness(): Harness {
 		},
 		getSnapshots: () => harness.snapshots,
 		getDeclaredServers: () => harness.declaredServers,
+		getSecretHolders: () => new Map(),
 		getRemovedGroups: () => ({ tombstones: [], origins: [] }),
 		serverResolution,
 		getCatalogLookup: () => EMPTY_CATALOG_LOOKUP,
@@ -182,15 +184,15 @@ function makeHarness(): Harness {
 		},
 		readSetting: (key) => settingsValues[key],
 		readServersSetting: () => harness.serversSetting,
-		writeServersSetting: async (value) => {
+		writeServersSetting: async (write) => {
 			if (harness.failUpdates !== undefined) {
 				throw harness.failUpdates;
 			}
 			// Simulate the real store plus latency: a concurrent second intent that read before this write would lose
 			// the update.
 			await new Promise((resolve) => setTimeout(resolve, 0));
-			harness.serversSetting = [...value];
-			serverWrites.push([...value]);
+			harness.serversSetting = [...entriesOf(write)];
+			serverWrites.push([...entriesOf(write)]);
 		},
 		storeServerSecret: async (label, field, value) => {
 			if (value === undefined && harness.failUnstore !== undefined) {
@@ -201,9 +203,10 @@ function makeHarness(): Harness {
 		readServerSecrets: async () => ({ values: {}, owners: {} }),
 		deleteServerSecrets: async () => {},
 		requestServerSync: () => {},
-		resolveAdoptionCredentials: () => undefined,
-		resolveExternalGroup: () => undefined,
-		hideGroup: async () => {},
+		resolveAdoptionCredentials: async () => ({ source: { credentials: undefined }, setting: harness.serversSetting }),
+		resolveExternalGroup: async () => ({ identity: undefined, setting: harness.serversSetting }),
+		hideGroup: async () => ({ persistence: "durable", added: true }),
+		retractHide: async () => {},
 		unhideGroup: async () => false,
 		isGroupHidden: () => false,
 		openManageLanguageModels: async () => true,
@@ -1214,7 +1217,7 @@ suite("extension/dashboard/panel", () => {
 		const fake = harness.panels[0];
 		assert.ok(fake);
 
-		fake.receiveMessage(request("removeServerSetting", { label: "Missing" }, "req-7"));
+		fake.receiveMessage(request("removeServerSetting", { label: "Missing", baseUrl: "http://missing.test" }, "req-7"));
 		await settle();
 
 		const notice = fake.posted.at(-1) as ExtensionToWebviewMessage;
@@ -1449,7 +1452,7 @@ suite("extension/dashboard/panel", () => {
 			);
 			assert.strictEqual(
 				await harness.controller.injectMessageForTest(
-					request("removeServerSetting", { label: "Chained" }, "req-chain-2")
+					request("removeServerSetting", { label: "Chained", baseUrl: "http://chained.test" }, "req-chain-2")
 				),
 				"ok"
 			);
