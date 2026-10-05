@@ -1,8 +1,7 @@
 /**
- * The usage.alertThresholds row's custom-list state: a hand-written list of
- * 3+ values the two boxes cannot represent renders read-only with the values,
- * the edit-in-settings.json hint, and the reveal button. The step scrolls the
- * row into view; render with --clip-viewport for a focused shot.
+ * The usage.alertThresholds row's custom-list state: a hand-written list of 3+ values the two boxes cannot represent
+ * renders read-only with the values, the edit-in-settings.json hint, and the reveal button. The step scrolls the row
+ * into view; render with --clip-viewport for a focused shot.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

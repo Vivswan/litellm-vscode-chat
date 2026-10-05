@@ -1,4 +1,3 @@
-/** The add-server form with the API version disclosure clicked open: auto mode, the default select. */
 import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

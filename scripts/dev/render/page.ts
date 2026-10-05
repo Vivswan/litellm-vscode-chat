@@ -1,8 +1,3 @@
-/**
- * The rendered page: the dashboard shell assembled the way the webview host
- * does, the message-replay stub that stands in for the extension, the
- * determinism CSS, and the pinned measurement font faces.
- */
 import { buildDashboardHtml } from "../../../src/extension/dashboard/html.ts";
 import type { UiAccent, UiTheme } from "../../../src/shared/config/settingSpec.ts";
 import { DEFAULT_UI_ACCENT, DEFAULT_UI_THEME } from "../../../src/shared/config/settingSpec.ts";
@@ -11,7 +6,6 @@ import { RENDER_EPOCH_MS } from "../renderClock.ts";
 import type { HostTheme } from "./hostThemes.ts";
 import { inlineTokenStyle } from "./hostThemes.ts";
 
-/** The reader's own two appearance settings, the vocabularies the shell stamps. */
 export type AppTheme = UiTheme;
 
 export type Accent = UiAccent;
@@ -25,13 +19,9 @@ function inlineJson(value: unknown): string {
 }
 
 /**
- * The acquireVsCodeApi stub: the page's {type:"ready"} post replays the
- * fixture's messages as window "message" events and flips window.__ready, and
- * every post lands in window.__posted for steps to inspect. It also freezes the
- * page's clock to RENDER_EPOCH_MS before the bundle loads, since relative-time
- * labels otherwise shift with the wall clock. Carrying the shell's nonce, it
- * doubles as the CSP violation collector: a component that only works without
- * the policy must fail here, not in the webview.
+ * It also freezes the page's clock to RENDER_EPOCH_MS before the bundle loads, since relative-time labels otherwise
+ * shift with the wall clock. Carrying the shell's nonce, it doubles as the CSP violation collector: a component that
+ * only works without the policy must fail here, not in the webview.
  */
 function stubScript(nonce: string, messages: readonly unknown[], respond: Readonly<Record<string, unknown>>): string {
 	return `<script nonce="${nonce}">
@@ -100,20 +90,21 @@ function stubScript(nonce: string, messages: readonly unknown[], respond: Readon
 }
 
 /**
- * Always-on determinism styles: CSS animations, transitions, and the text
- * caret's blink phase depend on capture timing, so two renders of the same
- * fixture would differ pixel for pixel. Presentation is otherwise untouched.
+ * Always-on determinism styles: CSS animations, transitions, and the text caret's blink phase depend on capture timing,
+ * so two renders of the same fixture would differ pixel for pixel.
  */
 export const DETERMINISM_CSS =
 	"*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
 
 /**
  * VS Code writes these into every webview document AHEAD of the extension's stylesheets, so any author rule beats them.
- * Both halves are emulated so a --show-scrollbars render proves the dashboard's scrollbar rules beat whichever the host injects.
+ * Both halves are emulated so a --show-scrollbars render proves the dashboard's scrollbar rules beat whichever the host
+ * injects.
  *
- *   current hosts -> the html scrollbar-color rule (webview/browser/pre/index.html); a non-auto value inherits into every
- *                    scroller, paints the track in opaque editor-background, and DISABLES ::-webkit-scrollbar styling wholesale
- *   older hosts   -> the ::-webkit-scrollbar rules
+ *   current hosts    -> the html scrollbar-color rule (webview/browser/pre/index.html)
+ *   a non-auto value -> inherits into every scroller, paints the track in opaque editor-background, and DISABLES
+ *                       ::-webkit-scrollbar styling wholesale
+ *   older hosts      -> the ::-webkit-scrollbar rules
  */
 export const VSCODE_DEFAULT_CSS = `@layer vscode-default {
 	html { scrollbar-color: var(--vscode-scrollbarSlider-background) var(--vscode-editor-background); }
@@ -125,14 +116,17 @@ export const VSCODE_DEFAULT_CSS = `@layer vscode-default {
 }`;
 
 /**
- * Measurement runs (--widths, --pane-widths) swap every font token for these faces; screenshot runs (--out alone) keep the
- * native stacks, since design review judges the host's fonts and measurement judges the pinned ones.
+ * Measurement runs (--widths, --pane-widths) swap every font token for these faces; screenshot runs (--out alone) keep
+ * the native stacks, since design review judges the host's fonts and measurement judges the pinned ones.
  *
- *   vertical overrides -> every line box is a fixed fraction of the font size, so a green macOS sweep predicts the Linux-only
- *                         gate (the host's mono fallback once rounded a mixed sans+mono line box 1px taller there)
- *   local() chains     -> CSS cannot override advances, so only faces with IDENTICAL advances pass (Liberation Sans carries
- *                         Arial's, Liberation Mono carries Courier New's); the engagement control fails any other face
- *   divergent faces    -> the same sources with other vertical metrics, so a swap changes ONLY the metrics (check-geometry's metric probe)
+ *   vertical overrides -> every line box is a fixed fraction of the font size
+ *   every line box is a fixed fraction of the font size -> a green macOS sweep predicts the Linux-only gate
+ *   the host's mono fallback once rounded a mixed sans+mono line box 1px taller there -> vertical overrides
+ *   local() chains     -> only faces with IDENTICAL advances pass (Liberation Sans carries Arial's, Liberation Mono
+ *                         carries Courier New's); the engagement control fails any other face
+ *   CSS cannot override advances -> only faces with IDENTICAL advances pass
+ *   divergent faces    -> the same sources with other vertical metrics, so a swap changes ONLY the metrics
+ *                         (check-geometry's metric probe)
  */
 const PINNED_SANS_SOURCES = `local("Arial"), local("Liberation Sans")`;
 
@@ -177,17 +171,13 @@ export function measurementFontCss(): string {
 }
 
 /**
- * The flags decide the appearance VALUES, not the fixture: the webview restamps
- * the root element from every state push, so a fixture's own theme and accent
- * would overwrite the shell's stamp and render every --app-theme and --accent
- * as the default. The two SCOPES ride through instead, because nothing stamps
- * them and they are what draws a row's modified marker and offers its Reset.
+ * The flags decide the appearance VALUES, not the fixture: the webview restamps the root element from every state push,
+ * so a fixture's own theme and accent would overwrite the shell's stamp and render every --app-theme and --accent as
+ * the default.
  */
 export function withAppearance(messages: readonly unknown[], theme: AppTheme, accent: Accent): readonly unknown[] {
-	// The scope a forced non-default value implies - such a value only exists
-	// BECAUSE some scope wrote it - as "global", where the dashboard writes. Both
-	// arms normalize to null because the row tests `!== null`, so an absent scope
-	// would otherwise render as configured.
+	// The scope a forced non-default value implies - such a value only exists BECAUSE some scope wrote it - as
+	// "global", where the dashboard writes.
 	const forcedScope = (value: string, fallback: string, scope: unknown): unknown =>
 		value === fallback ? (scope ?? null) : (scope ?? "global");
 	return messages.map((message) => {
@@ -216,11 +206,9 @@ export function withAppearance(messages: readonly unknown[], theme: AppTheme, ac
 }
 
 /**
- * The standalone page: the real HTML shell, CSP meta included with file: as the
- * style source so the policy is enforced exactly as the webview enforces it,
- * plus the harness.css link (inline style tags would violate that policy) and
- * the acquireVsCodeApi stub, which precedes the bundle tag so it exists when
- * the bundle's module scope calls it.
+ * The standalone page: the real HTML shell, CSP meta included with file: as the style source so the policy is enforced
+ * exactly as the webview enforces it, plus the harness.css link (inline style tags would violate that policy) and the
+ * acquireVsCodeApi stub, which precedes the bundle tag so it exists when the bundle's module scope calls it.
  */
 export function buildPageHtml(
 	messages: readonly unknown[],
@@ -241,8 +229,8 @@ export function buildPageHtml(
 		theme: forcedTheme,
 		accent,
 	});
-	// The editor injects its defaults before the extension's stylesheets; the
-	// emulation keeps that order so the layer cascade matches the webview's.
+	// The editor injects its defaults before the extension's stylesheets; the emulation keeps that order so the layer
+	// cascade matches the webview's.
 	const dashboardLink = `<link rel="stylesheet" href="./${DASHBOARD_STYLESHEET_FILENAME}">`;
 	if (!html.includes(dashboardLink)) {
 		throw new Error("Unexpected dashboard HTML shape: the stylesheet link was not found");
@@ -250,8 +238,8 @@ export function buildPageHtml(
 	html = html.replace(dashboardLink, `<link rel="stylesheet" href="./vscode-default.css">\n\t${dashboardLink}`);
 	html = html.replace("</head>", `<link rel="stylesheet" href="./harness.css">\n</head>`);
 	if (tokensCss !== "") {
-		// The value is the host theme's own token CSS, not user input.
-		// The double quote is the one character that could close the style attribute.
+		// The value is the host theme's own token CSS, not user input. The double quote is the one character that could
+		// close the style attribute.
 		// nosemgrep: javascript.audit.detect-replaceall-sanitization.detect-replaceall-sanitization
 		const attribute = inlineTokenStyle(tokensCss).replaceAll('"', "&quot;");
 		if (!html.includes("<html ")) {
@@ -259,10 +247,9 @@ export function buildPageHtml(
 		}
 		html = html.replace("<html ", `<html style="${attribute}" `);
 	}
-	// VS Code stamps the theme kind onto the body, and theme.css keys its
-	// contrast overrides off that class. HC light carries both classes, exactly
-	// as the host's applyStyles does, so a rule keyed on only one of them cannot
-	// behave differently here than in the editor.
+	// VS Code stamps the theme kind onto the body, and theme.css keys its contrast overrides off that class. HC light
+	// carries both classes, exactly as the host's applyStyles does, so a rule keyed on only one of them cannot behave
+	// differently here than in the editor.
 	const bodyClass = {
 		dark: "vscode-dark",
 		light: "vscode-light",

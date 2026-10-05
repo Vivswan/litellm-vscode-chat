@@ -1,11 +1,9 @@
 /**
- * A refused scalar write, standing where placement puts it: in the posting row's
- * covered description slot. The steps drive the real flow - type a value, commit
- * with Enter, read the posted request's id off the harness stub, answer it with
- * a fail envelope that quotes the id to reach that request and names the row -
- * so the shot proves the named row places the notice rather than photographing
- * a hand-placed line. The slot carries the framed headline only, over the
- * description it covers.
+ * A refused scalar write, standing where placement puts it: in the posting row's covered description slot. The slot
+ * carries the framed headline only, over the description it covers.
+ *
+ *   The steps drive the real flow -> the shot proves the named row places the notice rather than photographing a
+ *                                    hand-placed line
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
@@ -38,12 +36,12 @@ const fixture: RenderFixture = {
 			);
 			box.scrollIntoView({ block: "center" });
 		})()`,
-		// The shot's own subject, asserted, or the render exits green while
-		// photographing a page without the thing it exists to show. The overlay is
-		// identified by NOT carrying the row's parse-error id: the two share the
-		// slot and the .error class, and only the parse error is pointed at by the
-		// inputs' aria-describedby. Asserting on the injected message rather than
-		// the localized frame keeps the guard off the translated string.
+		// The shot's own subject, asserted, or the render exits green while photographing a page without the thing it
+		// exists to show. The overlay is identified by NOT carrying the row's parse-error id: the two share the slot
+		// and the .error class, and only the parse error is pointed at by the inputs' aria-describedby.
+		//
+		//   Asserting on the injected message rather than the localized frame -> keeps the guard off the translated
+		//                                                                         string
 		`(() => {
 			const row = document.querySelector('.setting-row:has([id="setting-usage.alertThresholds-warning"])');
 			const overlay = row === null ? null : row.querySelector(".setting-hint .setting-cover > span.error:not([id])");

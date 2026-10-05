@@ -1,8 +1,3 @@
-/**
- * Headless Chrome for the render harness: discovery, launch with its retry
- * budget, process-tree teardown, the DevTools target lookup, and the CDP
- * connection the probes evaluate through.
- */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
@@ -12,10 +7,9 @@ import { setTimeout as delay } from "node:timers/promises";
 export const READY_TIMEOUT_MS = 15000;
 
 /**
- * Launch is the one phase that retries: on a loaded CI runner several Chromes
- * starting at once can starve each other past READY_TIMEOUT_MS, which says
- * nothing about the page. Anything after the DevTools server is up is a finding
- * about the code, and retrying it would mask nondeterminism instead of noise.
+ * Launch is the one phase that retries: on a loaded CI runner several Chromes starting at once can starve each other
+ * past READY_TIMEOUT_MS, which says nothing about the page. Anything after the DevTools server is up is a finding about
+ * the code, and retrying it would mask nondeterminism instead of noise.
  */
 const LAUNCH_ATTEMPTS = 3;
 
@@ -52,12 +46,10 @@ export function findChrome(): string {
 }
 
 /**
- * Chrome writes "<port>\n<browser ws path>" here once the DevTools server is
- * up. A Chrome that DIED on startup is not a slow one, so its exit ends the
- * wait immediately: otherwise a systematic launch failure (a forbidden sandbox,
- * a missing library) would spend the full deadline once per attempt per
- * fixture, and the sweep would hit its CI job timeout instead of reporting
- * which fixtures never ran.
+ * Chrome writes "<port>\n<browser ws path>" here once the DevTools server is up. A Chrome that DIED on startup is not a
+ * slow one, so its exit ends the wait immediately: otherwise a systematic launch failure (a forbidden sandbox, a
+ * missing library) would spend the full deadline once per attempt per fixture, and the sweep would hit its CI job
+ * timeout instead of reporting which fixtures never ran.
  */
 async function waitForDevtoolsPort(chrome: ChildProcess, userDataDir: string, timeoutMs: number): Promise<number> {
 	const portFile = path.join(userDataDir, "DevToolsActivePort");
@@ -71,8 +63,8 @@ async function waitForDevtoolsPort(chrome: ChildProcess, userDataDir: string, ti
 		} catch {
 			// Not written yet.
 		}
-		// Read AFTER the file check, so a Chrome that wrote the port and exited
-		// in the same breath is still believed about the port.
+		// Read AFTER the file check, so a Chrome that wrote the port and exited in the same breath is still believed
+		// about the port.
 		if (chrome.exitCode !== null || chrome.signalCode !== null) {
 			throw new Error(
 				`Chrome exited (code ${chrome.exitCode ?? "none"}, signal ${chrome.signalCode ?? "none"})` +
@@ -85,24 +77,18 @@ async function waitForDevtoolsPort(chrome: ChildProcess, userDataDir: string, ti
 }
 
 /**
- * Whether this platform has POSIX process groups. Windows does not: a
- * negative-pid probe reports ESRCH for a live Chrome there, and reading that as
- * "group gone" would skip the kill entirely.
+ * Whether this platform has POSIX process groups. Windows does not: a negative-pid probe reports ESRCH for a live
+ * Chrome there, and reading that as "group gone" would skip the kill entirely.
  */
 const CAN_SIGNAL_PROCESS_GROUP = process.platform !== "win32";
 
 /**
- * Ends a Chrome by its whole process group, SIGTERM then SIGKILL: a launch
- * killed mid-startup can leave renderer and GPU children the browser process
- * never got around to owning. Liveness is judged on the GROUP, not the leader,
- * because those children can outlive the browser process - precisely the leak
- * this hunts. Where group signalling does not exist or fails, the direct handle
- * and its exit or signal code are the fallback.
+ *   a launch killed mid-startup -> can leave renderer and GPU children the browser process never got around to owning
+ *   those children -> can outlive the browser process - precisely the leak this hunts
  */
 export async function killChromeTree(chrome: ChildProcess): Promise<void> {
-	// A spawn that never produced a pid has nothing to kill and reports neither
-	// an exit code nor a signal, so the loop below would poll out its whole
-	// grace period to signal nobody.
+	// A spawn that never produced a pid has nothing to kill and reports neither an exit code nor a signal, so the loop
+	// below would poll out its whole grace period to signal nobody.
 	if (chrome.pid === undefined) {
 		return;
 	}
@@ -146,14 +132,11 @@ export async function killChromeTree(chrome: ChildProcess): Promise<void> {
 }
 
 /**
- * Launches Chrome and waits for its DevTools server, relaunching one that never
- * got there. Each attempt gets a FRESH profile directory, because the killed
- * attempt leaves a half-written one (SingletonLock included) behind; they live
- * under the caller's tmpRoot, so its one removal sweeps every attempt.
- * `onSpawn` hands the caller each attempt's process so a cancellation mid-wait
- * has something to kill, and `stopped` is read before every spawn with no await
- * in between: a cancellation that landed BETWEEN attempts already ran its
- * cleanup, and a relaunch after it would be a Chrome nothing kills.
+ * Each attempt gets a FRESH profile directory, because the killed attempt leaves a half-written one (SingletonLock
+ * included) behind; they live under the caller's tmpRoot, so its one removal sweeps every attempt. `onSpawn` hands the
+ * caller each attempt's process so a cancellation mid-wait has something to kill, and `stopped` is read before every
+ * spawn with no await in between: a cancellation that landed BETWEEN attempts already ran its cleanup, and a relaunch
+ * after it would be a Chrome nothing kills.
  */
 export async function launchChrome(
 	chromeBin: string,
@@ -171,8 +154,7 @@ export async function launchChrome(
 		}
 		const chrome = spawn(chromeBin, [...flags, `--user-data-dir=${profileDir}`, pageUrl], {
 			stdio: "ignore",
-			// Its own process group where groups exist, so killChromeTree can
-			// signal the whole tree.
+			// Its own process group where groups exist, so killChromeTree can signal the whole tree.
 			detached: CAN_SIGNAL_PROCESS_GROUP,
 			env: { ...process.env, TZ: "UTC", LANG: "en_US.UTF-8" },
 		});
@@ -217,7 +199,6 @@ export async function findPageTargetUrl(port: number, pageUrl: string, timeoutMs
 	throw new Error(`Chrome never listed a page target for ${pageUrl} within ${timeoutMs}ms`);
 }
 
-/** A minimal DevTools protocol client over Chrome's page WebSocket: send a method, await its result. */
 export class CdpConnection {
 	private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 	private nextId = 1;
@@ -234,8 +215,7 @@ export class CdpConnection {
 				connection.rejectPending(new Error("DevTools WebSocket errored"));
 			});
 			socket.addEventListener("message", (event) => connection.onMessage(String(event.data)));
-			// A Chrome that dies mid-session must fail every in-flight command,
-			// not leave its awaiter hanging forever.
+			// A Chrome that dies mid-session must fail every in-flight command, not leave its awaiter hanging forever.
 			socket.addEventListener("close", () => connection.rejectPending(new Error("DevTools WebSocket closed")));
 		});
 	}
@@ -291,7 +271,6 @@ export async function evaluate(cdp: CdpConnection, expression: string, awaitProm
 	return raw.result?.value;
 }
 
-/** Applies a viewport width and lets two frames settle under it. */
 export async function setWidth(cdp: CdpConnection, width: number, height: number, dpr: number): Promise<void> {
 	await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile: false });
 	await evaluate(cdp, "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))", true);

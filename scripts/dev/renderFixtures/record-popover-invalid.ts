@@ -1,7 +1,6 @@
 /**
- * A chip popover holding a validation error: the value input rejects "not
- * json", the message renders inside the popover, and the chip behind it is
- * marked invalid - Apply is blocked meanwhile.
+ * A chip popover holding a validation error: the value input rejects "not json", the message renders inside the
+ * popover, and the chip behind it is marked invalid - Apply is blocked meanwhile.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
@@ -29,9 +28,8 @@ const fixture: RenderFixture = {
 	],
 	viewport: { width: 1300, height: 1600 },
 	settleMs: 400,
-	// Opened by a step that MEASURED its anchor, so the side it hangs on
-	// belongs to this width; a sweep that narrowed the viewport afterwards
-	// would judge a page the dashboard never builds.
+	// Opened by a step that MEASURED its anchor, so the side it hangs on belongs to this width; a sweep that narrowed
+	// the viewport afterwards would judge a page the dashboard never builds.
 	measuredAtOwnWidth: true,
 };
 

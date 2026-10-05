@@ -1,13 +1,12 @@
 /**
- * The rail collapse boundary's one ambiguous integer, held by a throwing step:
- * at exactly width 1000 the harness's layout applies the rail's narrow block
- * while matchMedia("(width < 1000px)") reports false, so a `<`-spelled pair
- * once left the PAINT collapsed and useCollapsedRail expanded on one and the
- * same page. Both spell `<=` now (rail.tsx RAIL_COLLAPSE_QUERY says why), and
- * this fixture proves the agreement AT the boundary: the painted state is read
- * off the rail's box, the hook's state off the one behavior only it controls
- * (the verdict pill's collapsed-only tab stop), and a mismatch throws. 999 and
- * 1001 are unambiguous on both sides and ride the overflow sweep.
+ * The rail collapse boundary's one ambiguous integer, held by a throwing step: at exactly width 1000 the harness's
+ * layout applies the rail's narrow block while matchMedia("(width < 1000px)") reports false, so a `<`-spelled pair once
+ * left the PAINT collapsed and useCollapsedRail expanded on one and the same page. Both spell `<=` now (rail.tsx
+ * RAIL_COLLAPSE_QUERY says why), and this fixture proves the agreement AT the boundary: the painted state is read off
+ * the rail's box, the hook's state off the one behavior only it controls (the verdict pill's collapsed-only tab stop),
+ * and a mismatch throws.
+ *
+ *   999 and 1001 -> unambiguous on both sides and ride the overflow sweep
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import base from "./diagnostics-empty.ts";

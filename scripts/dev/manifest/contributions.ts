@@ -1,12 +1,9 @@
 /**
- * Renders the contributes blocks whose identities live in code: commands, menus, languageModelTools, chatParticipants,
- * mcpServerDefinitionProviders, the provider's configuration, and walkthroughs. Identities, gates, and model-facing
- * text come from the constants (commandIds.ts, settingSpec.ts, serverEntry.ts, the slash-command tables, the agent
- * tools' envelopes); what only a manifest can say - menu placement and groups, icons, stickiness, disambiguation
- * categories, walkthrough steps and media - is authored here, typed against those constants so a renamed command or a
- * new slash command fails to compile before it renders. Prose stays in package.nls.json behind %key% names the
- * renderers derive from the ids. Builders take their inputs as parameters (the real tables are the defaults) so tests
- * render hand-written fixtures.
+ * Identities, gates, and model-facing text come from the constants (commandIds.ts, settingSpec.ts, serverEntry.ts, the
+ * slash-command tables, the agent tools' envelopes); what only a manifest can say - menu placement and groups, icons,
+ * stickiness, disambiguation categories, walkthrough steps and media - is authored here, typed against those constants
+ * so a renamed command or a new slash command fails to compile before it renders. Prose stays in package.nls.json
+ * behind %key% names the renderers derive from the ids.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -52,7 +49,6 @@ type GatedCommandKey = {
 	[K in CommandKey]: (typeof COMMAND_FEATURES)[K] extends FeatureId ? K : never;
 }[CommandKey];
 
-/** The `when` clause reading one boolean setting. */
 function settingClause(key: BooleanSettingId): string {
 	return `config.${CONFIG_SECTION}.${key}`;
 }
@@ -70,7 +66,6 @@ interface ContributedCommand {
 	readonly icon?: string;
 }
 
-/** The commands with a toolbar or title-bar icon; the rest show their title alone. */
 const COMMAND_ICONS: Readonly<Partial<Record<CommandKey, string>>> = {
 	generateCommitMessage: "$(sparkle)",
 	reviewChanges: "$(sparkle)",
@@ -80,7 +75,6 @@ const COMMAND_ICONS: Readonly<Partial<Record<CommandKey, string>>> = {
 	reviewDeleteThread: "$(trash)",
 };
 
-/** contributes.commands: every CMD member in declaration order, its title behind `litellm.command.<key>.title`. */
 export function renderCommands(): ContributedCommand[] {
 	return (Object.keys(CMD) as CommandKey[]).map((key): ContributedCommand => {
 		const icon = COMMAND_ICONS[key];
@@ -98,7 +92,6 @@ interface MenuItem {
 	readonly group: string;
 }
 
-/** The palette entry carries no group. */
 type PaletteItem = Omit<MenuItem, "group">;
 
 interface ContributedMenus {
@@ -108,23 +101,21 @@ interface ContributedMenus {
 	readonly commandPalette: readonly PaletteItem[];
 }
 
-/** One item of a comment-thread menu. */
 export interface CommentThreadItem<Key extends string = string> {
 	readonly command: Key;
 	readonly group: `inline@${number}`;
-	/** Restricts the item to threads in one state; absent, it shows on both. */
 	readonly thread?: "resolved" | "unresolved";
 }
 
 export interface MenuInputs<Key extends string = string> {
-	/** Command key to id, in contribution order; the palette lists the gated commands in this order. */
 	readonly commands: Readonly<Record<string, string>>;
 	readonly features: Readonly<Record<string, FeatureId | undefined>>;
-	/** The SCM title-bar buttons, one `navigation` entry each, shown on git repositories only. */
 	readonly scmTitle: readonly Key[];
 	readonly commentThreadContext: readonly CommentThreadItem<Key>[];
 	readonly commentThreadTitle: readonly CommentThreadItem<Key>[];
-	/** Gated commands contributed only so a menu may name them; the palette hides them, they need a thread to act on. */
+	/**
+	 * Gated commands contributed only so a menu may name them; the palette hides them, they need a thread to act on.
+	 */
 	readonly paletteHidden: readonly Key[];
 }
 
@@ -142,10 +133,10 @@ const MENU_INPUTS = {
 } satisfies MenuInputs<GatedCommandKey>;
 
 /**
- * contributes.menus. The SCM buttons read the feature gate first; the comment menus name this extension's controller
- * first, so our actions never appear on another extension's threads. The palette carries an entry for every gated
- * command: its gate, or `false` for the thread actions. An ungated command in a menu is a compile error for the real
- * tables and a refusal for injected ones.
+ * The SCM buttons read the feature gate first; the comment menus name this extension's controller first, so our
+ * actions never appear on another extension's threads.
+ *
+ * An ungated command in a menu is a compile error for the real tables and a refusal for injected ones.
  */
 export function renderMenus(inputs: MenuInputs = MENU_INPUTS): ContributedMenus {
 	const id = (key: string): string => {
@@ -191,7 +182,6 @@ export function renderMenus(inputs: MenuInputs = MENU_INPUTS): ContributedMenus 
 	};
 }
 
-/** Each agent tool's codicon. */
 const AGENT_TOOL_ICONS = {
 	diagnostics: "$(pulse)",
 	configuration: "$(settings-gear)",
@@ -228,7 +218,6 @@ const CONSULT_TOOL_INPUT_SCHEMA: JsonObject = {
 interface ToolEntry {
 	readonly name: string;
 	readonly referenceName: string;
-	/** The nls key segment: `litellm.tool.<nlsId>.displayName` and `.userDescription`. */
 	readonly nlsId: string;
 	readonly modelDescription: string;
 	readonly icon: string;
@@ -264,9 +253,8 @@ function toolEntry(entry: ToolEntry): ContributedTool {
 }
 
 /**
- * One agent tool's entry. Its `when` says what the registration says: the feature switch for a read, the feature
- * switch AND the tool's own toggle for a write. The contribution is a parameter so a test can render a read and a
- * write shape without the real table.
+ * Its `when` says what the registration says: the feature switch for a read, the feature switch AND the tool's own
+ * toggle for a write.
  */
 export function renderAgentTool(
 	id: AgentToolId,
@@ -319,10 +307,8 @@ export interface SlashCommandPresentation extends Disambiguation {
 }
 
 export interface ParticipantInputs {
-	/** The live slash-command names in registration order: what the host's "/" picker lists. */
 	readonly commands: readonly string[];
 	readonly presentation: Readonly<Record<string, SlashCommandPresentation>>;
-	/** The participant's own disambiguation, each block's prose behind `litellm.participant.disambiguation.<key>`. */
 	readonly disambiguation: readonly (Disambiguation & { readonly key: string })[];
 }
 
@@ -382,10 +368,10 @@ interface ContributedParticipant {
 }
 
 /**
- * contributes.chatParticipants. The categories are the classifier's intent ids: each must be a lower-case identifier
- * and unique across the participant and its commands, or routing is ambiguous by our own making; a block with no
- * example, or a participant with no block, gives the classifier nothing to route on. A live command without a
- * presentation row is a compile error for the real table and a refusal for injected inputs.
+ * The categories are the classifier's intent ids: each must be a lower-case identifier and unique across the
+ * participant and its commands, or routing is ambiguous by our own making; a block with no example, or a participant
+ * with no block, gives the classifier nothing to route on. A live command without a presentation row is a compile
+ * error for the real table and a refusal for injected inputs.
  */
 export function renderChatParticipants(inputs: ParticipantInputs = liveParticipantInputs()): ContributedParticipant[] {
 	if (inputs.disambiguation.length === 0) {
@@ -445,7 +431,6 @@ export function renderMcpServerDefinitionProviders(): { readonly id: string; rea
 	return [{ id: MCP_PROVIDER_ID, label: "%litellm.mcp.label%" }];
 }
 
-/** One field of the provider group's configuration; the descriptor's entries are this shape. */
 export interface ProviderField {
 	readonly id: string;
 	readonly secret?: boolean;
@@ -496,10 +481,8 @@ const BASE_PROVIDER_PROPERTIES: Readonly<Record<string, ProviderProperty>> = {
 };
 
 /**
- * contributes.languageModelChatProviders: the vendor and the group configuration's schema. baseUrl is the one
- * required field; label mirrors the servers entry label serverSync stamps in, giving groups that share a URL and
- * credentials distinct identities; then the descriptor's optional fields in its order, secret flags as it declares
- * them.
+ *   label -> mirrors the servers entry label serverSync stamps in, giving groups that share a URL and credentials
+ *            distinct identities
  */
 export function renderLanguageModelChatProviders(
 	optionalFields: readonly ProviderField[] = OPTIONAL_ENTRY_FIELDS
@@ -528,7 +511,6 @@ type CompletionEvent =
 	| "onStepSelected";
 
 export interface WalkthroughStep {
-	/** The step's id and nls key segment: `litellm.walkthrough.<id>`. */
 	readonly id: string;
 	/** The step's markdown, repo-relative; shipped with the extension, so it must exist in the checkout. */
 	readonly media: string;
@@ -594,7 +576,6 @@ interface ContributedWalkthrough {
 	readonly steps: readonly ContributedWalkthroughStep[];
 }
 
-/** The checkout these sources were loaded from, three levels above scripts/dev/manifest; the media ships from here. */
 const SOURCE_CHECKOUT = path.resolve(__dirname, "..", "..", "..");
 
 /** Whether a repo-relative path exists in the source checkout (not under the --root output directory). */
@@ -602,7 +583,6 @@ function mediaInSourceCheckout(relative: string): boolean {
 	return fs.existsSync(path.join(SOURCE_CHECKOUT, relative));
 }
 
-/** contributes.walkthroughs: the one getting-started walkthrough. A step whose media file does not exist is refused. */
 export function renderWalkthroughs(
 	steps: readonly WalkthroughStep[] = WALKTHROUGH_STEPS,
 	mediaExists: (relative: string) => boolean = mediaInSourceCheckout
@@ -628,7 +608,6 @@ export function renderWalkthroughs(
 	];
 }
 
-/** Every generated block, keyed as contributes carries it. */
 export function renderContributes(): Record<string, unknown> {
 	return {
 		languageModelChatProviders: renderLanguageModelChatProviders(),

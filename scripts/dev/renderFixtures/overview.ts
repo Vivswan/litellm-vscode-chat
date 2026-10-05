@@ -1,6 +1,5 @@
 /**
- * The overview tab under load: declared, expected-failure, misconfigured, and
- * external rows; notices and banners.
+ * The overview tab under load: declared, expected-failure, misconfigured, and external rows; notices and banners.
  */
 import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

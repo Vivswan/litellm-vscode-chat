@@ -12,6 +12,18 @@ import { openUrl } from "../../shared/util/openUrl";
 const MAX_LOG_ENTRIES = 50;
 const MAX_URL_LENGTH = 8000;
 const COMPACT_STACK_LINES = 8;
+/**
+ * The account name under a home directory root, on every platform's spelling. A name may hold spaces and punctuation
+ * and Node quotes a path without escaping it, so a later separator or closing quote on the line ends the name, never
+ * the first space.
+ *   at run (C:\\Users\\Bob O'Brien, Jr\\x.js:3:4)  -> at run (C:\\Users\\[REDACTED]\\x.js:3:4)
+ *   scandir '\\?\C:\Users\Bob O' Brien'          -> scandir '\\?\C:\Users\[REDACTED]'
+ *   open '/Users/alice'                          -> open '/Users/[REDACTED]'
+ *   GET /home/health returned 404                -> GET /home/[REDACTED] returned 404
+ *   mkdir /Users/alice then /tmp/x                -> mkdir /Users/[REDACTED]/tmp/x
+ */
+const HOME_DIRECTORY_NAME =
+	/([\\/](?:Users|home)[\\/]+)(?:[^\\/\n\r]+?(?=[\\/])|(?<='[^'\n\r]*)[^\n\r]+(?=')|(?<="[^"\n\r]*)[^\n\r]+(?=")|[^\\/\s"'()[\]]+)/gi;
 
 export interface ErrorContext {
 	source: string;
@@ -261,7 +273,7 @@ export class IssueReporter {
 	buildTitle(snapshot: DiagnosticsSnapshot): string {
 		if (snapshot.latestError) {
 			const firstLine = redactSecrets(snapshot.latestError.message.split("\n")[0] ?? "").slice(0, 80);
-			return `[Bug] ${snapshot.latestError.source}: ${firstLine}`;
+			return `[Bug] ${redactSecrets(snapshot.latestError.source)}: ${firstLine}`;
 		}
 		return "[Bug] Issue report from diagnostics";
 	}
@@ -298,14 +310,7 @@ export class IssueReporter {
 		].filter((l): l is string => l !== null);
 
 		if (snapshot.latestError) {
-			diagLines.push("");
-			diagLines.push("### Latest error");
-			diagLines.push("");
-			diagLines.push(`- Source: ${snapshot.latestError.source}`);
-			diagLines.push(`- Time: ${snapshot.latestError.timestamp}`);
-			if (snapshot.latestError.classification !== undefined) {
-				diagLines.push(classificationLine(snapshot.latestError.classification));
-			}
+			diagLines.push(...latestErrorLines(snapshot.latestError));
 			diagLines.push(`- Message: ${bulletContinuation(redactSecrets(snapshot.latestError.message))}`);
 		}
 		diagLines.push("");
@@ -413,6 +418,21 @@ function classificationLine(classification: TransportErrorClassification): strin
 }
 
 /**
+ * The source is the log message the Logger recorded the error under, which may name a configured URL, so it is
+ * redacted like the message beneath it.
+ */
+function latestErrorLines(error: ErrorContext): string[] {
+	return [
+		"",
+		"### Latest error",
+		"",
+		`- Source: ${redactSecrets(error.source)}`,
+		`- Time: ${error.timestamp}`,
+		...(error.classification !== undefined ? [classificationLine(error.classification)] : []),
+	];
+}
+
+/**
  * A multi-line message kept inside one markdown list item: blank lines are dropped and continuation lines indented,
  * because a blank line would end the list and spill the detail out of the bullet.
  */
@@ -464,12 +484,7 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, sink: Compact
 	];
 
 	if (snapshot.latestError) {
-		lines.push("", "### Latest error", "");
-		lines.push(`- Source: ${snapshot.latestError.source}`);
-		lines.push(`- Time: ${snapshot.latestError.timestamp}`);
-		if (snapshot.latestError.classification !== undefined) {
-			lines.push(classificationLine(snapshot.latestError.classification));
-		}
+		lines.push(...latestErrorLines(snapshot.latestError));
 		lines.push(`- Message: ${shortenLine(redactSecrets(snapshot.latestError.message.split(/\r?\n/)[0] ?? ""), 500)}`);
 	}
 
@@ -512,6 +527,7 @@ export function redactSecrets(text: string): string {
 			.replace(/(access[_-]?token[=:\s]+)\S+/gi, "$1[REDACTED]")
 			// sk- prefixed API keys
 			.replace(/(sk-[a-zA-Z0-9]{4})[a-zA-Z0-9]+/g, "$1[REDACTED]")
+			.replace(HOME_DIRECTORY_NAME, "$1[REDACTED]")
 			// Full http(s) URLs: replace host+path with just the scheme and a placeholder
 			.replace(/https?:\/\/[^\s"')>\]]+/gi, (match) => {
 				try {

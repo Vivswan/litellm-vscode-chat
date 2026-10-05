@@ -177,8 +177,9 @@ function logDataText(data: unknown, scrub: (text: string) => string): string {
 }
 
 /**
- * Callers interpolate configured URLs (a baseUrl, an OAuth tokenUrl, an MCP uri) that may carry user:pass@, and the
- * issue report renders the recorder's source unredacted, so the floor wraps the sinks, where no caller can skip it.
+ * Callers interpolate configured URLs (a baseUrl, an OAuth tokenUrl, an MCP uri) that may carry user:pass@, and only
+ * the known values can catch a credential the URL cut cannot read, so the floor wraps the sinks, where no caller can
+ * skip it.
  *   Failed to fetch models for provider group at http://user:pass@host:4000 -> ... at http://host:4000
  *   answered 403 for key sk-live-Q7, the configured key                      -> ... for key [redacted]
  *   a 1 MB stack                                                             -> its first TEXT_BUDGET characters
@@ -261,6 +262,18 @@ export class Logger {
 		if (stack !== undefined) {
 			this.output.error(`Stack trace: ${stack}`);
 		}
+		this.recorder?.recordError(message, recordedError(error));
+	}
+
+	/**
+	 * An error-level line whose text is the caller's data, for a failure whose own text is response-derived: the channel
+	 * and the buffer get the data, and the recorder's latest-error snapshot takes the error through its public
+	 * renderings. No stack reaches the channel, since its first line would be the error's message.
+	 */
+	failure(message: string, data: unknown, error: unknown): void {
+		const text = `${message}: ${logDataText(data, this.scrub)}`;
+		this.output.error(text);
+		this.recorder?.appendLog(`[${new Date().toISOString()}] ERROR: ${text}`);
 		this.recorder?.recordError(message, recordedError(error));
 	}
 }

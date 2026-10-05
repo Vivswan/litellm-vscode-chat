@@ -1,7 +1,6 @@
 /**
- * The usage.alertThresholds row's both-set state: the default [0.8, 0.95]
- * rendered as the Warning/Error percent pair. The step scrolls the row into
- * view; render with --clip-viewport for a focused shot.
+ * The usage.alertThresholds row's both-set state: the default [0.8, 0.95] rendered as the Warning/Error percent pair.
+ * The step scrolls the row into view; render with --clip-viewport for a focused shot.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

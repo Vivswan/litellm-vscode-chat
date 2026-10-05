@@ -17,8 +17,9 @@ interface VscodeL10nRuleOptions {
 }
 
 /**
- * An allowlist that fails closed, not a catalog of escapes, so a novel laundering form fails the gate instead of shipping untranslated.
- * Matching is syntactic, so a local binding shadowing a tracked name flags too; rename it or add a deliberate allowlist entry here.
+ * An allowlist that fails closed, not a catalog of escapes, so a novel laundering form fails the gate instead of
+ * shipping untranslated. Matching is syntactic, so a local binding shadowing a tracked name flags too; rename it or add
+ * a deliberate allowlist entry here.
  */
 export function vscodeL10nOffenses(contents: string, fileName: string, options: VscodeL10nRuleOptions): number[] {
 	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
@@ -33,8 +34,7 @@ export function vscodeL10nOffenses(contents: string, fileName: string, options: 
 			? statement.moduleSpecifier.text
 			: undefined;
 
-	// Unwrap parens and type wrappers so `(vscode).l10n` or
-	// `const loc = (l10n as typeof l10n)` cannot slip by.
+	// Unwrap parens and type wrappers so `(vscode).l10n` or `const loc = (l10n as typeof l10n)` cannot slip by.
 	const unwrap = (node: ts.Expression): ts.Expression => {
 		let current = node;
 		while (
@@ -55,8 +55,8 @@ export function vscodeL10nOffenses(contents: string, fileName: string, options: 
 		ts.isNamespaceImport(statement.importClause.namedBindings) &&
 		statement.importClause.namedBindings.name.text === "l10n";
 
-	// Pass 1: which local names bind the vscode module, and whether the
-	// canonical @vscode/l10n binding exists (its laundering checks key off it).
+	// Pass 1: which local names bind the vscode module, and whether the canonical @vscode/l10n binding exists (its
+	// laundering checks key off it).
 	const vscodeNamespaces = new Set<string>();
 	let hasCanonicalL10n = false;
 	for (const statement of sourceFile.statements) {
@@ -67,8 +67,8 @@ export function vscodeL10nOffenses(contents: string, fileName: string, options: 
 				continue;
 			}
 			if (specifier === "vscode") {
-				// Default and namespace imports both bind the whole module
-				// object under Node16 interop, so both feed the member checks.
+				// Default and namespace imports both bind the whole module object under Node16 interop, so both feed
+				// the member checks.
 				if (clause.name !== undefined) {
 					vscodeNamespaces.add(clause.name.text);
 				}
@@ -124,10 +124,8 @@ export function vscodeL10nOffenses(contents: string, fileName: string, options: 
 					flag(statement);
 				}
 			} else {
-				// import x = <entity>: an alias of whatever the entity names. Off
-				// a vscode binding a non-l10n member alias is fine; the whole
-				// namespace or anything through .l10n is not. Off the canonical
-				// binding, every alias breaks the one canonical call shape.
+				// Off a vscode binding a non-l10n member alias is fine; the whole namespace or anything through .l10n
+				// is not. Off the canonical binding, every alias breaks the one canonical call shape.
 				const segments: string[] = [];
 				let root: ts.EntityName = reference;
 				while (ts.isQualifiedName(root)) {
@@ -190,11 +188,11 @@ export function vscodeL10nOffenses(contents: string, fileName: string, options: 
 		return hasCanonicalL10n && ts.isIdentifier(inner) && inner.text === "l10n";
 	};
 
-	// The walk allows the sanctioned forms and flags every other appearance
-	// of a tracked binding, so unknown shapes fail closed.
+	// The walk allows the sanctioned forms and flags every other appearance of a tracked binding, so unknown shapes
+	// fail closed.
 	const scan = (node: ts.Node): void => {
-		// A heritage clause's expression evaluates when the class does, even
-		// though its node counts as a type node; walk it before the type skip.
+		// A heritage clause's expression evaluates when the class does, even though its node counts as a type node;
+		// walk it before the type skip.
 		if (ts.isExpressionWithTypeArguments(node)) {
 			scan(node.expression);
 			return;
@@ -203,13 +201,13 @@ export function vscodeL10nOffenses(contents: string, fileName: string, options: 
 		if (ts.isTypeNode(node) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
 			return;
 		}
-		// Import and export statements were judged in pass 2; walking into
-		// them would flag their own binding identifiers.
+		// Import and export statements were judged in pass 2; walking into them would flag their own binding
+		// identifiers.
 		if (ts.isImportDeclaration(node) || ts.isImportEqualsDeclaration(node) || ts.isExportDeclaration(node)) {
 			return;
 		}
-		// A dynamic import or CommonJS require of either module is a
-		// laundering route the walk cannot follow; nothing sanctioned needs one.
+		// A dynamic import or CommonJS require of either module is a laundering route the walk cannot follow; nothing
+		// sanctioned needs one.
 		if (
 			ts.isCallExpression(node) &&
 			(node.expression.kind === ts.SyntaxKind.ImportKeyword ||
@@ -222,9 +220,8 @@ export function vscodeL10nOffenses(contents: string, fileName: string, options: 
 				return;
 			}
 		}
-		// Sanctioned: the exact canonical call shape, l10n.t(...) or
-		// l10n.config(...), unwrapped and unchained - extraction follows
-		// nothing looser, so a wrapped or optional variant falls through.
+		// Sanctioned: the exact canonical call shape, l10n.t(...) or l10n.config(...), unwrapped and unchained -
+		// extraction follows nothing looser, so a wrapped or optional variant falls through.
 		if (ts.isCallExpression(node) && node.questionDotToken === undefined) {
 			const callee = node.expression;
 			if (
@@ -265,8 +262,7 @@ export function vscodeL10nOffenses(contents: string, fileName: string, options: 
 			scan(node.expression);
 			return;
 		}
-		// Element access on a vscode binding stays banned even where passing
-		// the module object as a value is allowed.
+		// Element access on a vscode binding stays banned even where passing the module object as a value is allowed.
 		if (ts.isElementAccessExpression(node) && isVscodeBinding(unwrap(node.expression))) {
 			flag(node);
 			scan(node.argumentExpression);
@@ -283,9 +279,8 @@ export function vscodeL10nOffenses(contents: string, fileName: string, options: 
 				return;
 			}
 		}
-		// Property KEYS spell a name without referencing a binding: skip a
-		// member's non-computed name (and a binding element's property name)
-		// while still walking initializers, bodies, and computed names.
+		// Property KEYS spell a name without referencing a binding: skip a member's non-computed name (and a binding
+		// element's property name) while still walking initializers, bodies, and computed names.
 		const named = node as { readonly name?: ts.Node; readonly propertyName?: ts.Node };
 		const key =
 			ts.isBindingElement(node) && node.propertyName !== undefined && !ts.isComputedPropertyName(node.propertyName)

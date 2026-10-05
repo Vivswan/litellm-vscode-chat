@@ -496,6 +496,91 @@ suite("provider/transport/errorMapping", () => {
 				assert.ok(!mapped.englishMessage?.includes("sekret"), mapped.englishMessage ?? "");
 			});
 
+			test("a 404 body quoting the credentialed base URL is scrubbed on the detail line, classification intact", () => {
+				// A proxy echoes the URL it was asked for; the headline stripped the userinfo while the detail quoted the
+				// body verbatim into the chat error, the NotFound wrapper, and the status texts. The parser drops a line
+				// break or a tab wherever it sits, so a password or a host split by one is still the configured URL.
+				const base = { baseUrl: "https://user:pass@host.test", timeoutMs: 5000 };
+				const chatHeadline =
+					"The server did not recognize this request - the model may have been removed from the proxy. " +
+					'Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base ' +
+					"URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).";
+				const discoveryHeadline =
+					"Failed to fetch LiteLLM models: the server at https://host.test answered 404 - it responded, but does " +
+					"not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL " +
+					"already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.";
+				const spellings: [quoted: string, shown: string][] = [
+					["https://user:pass@host.test", "https://host.test"],
+					["https://user:\npass@host.test", "https://host.test"],
+					["https://user:pass@[::\t1]/v1", "https://[::1]/v1"],
+				];
+				for (const [quoted, shown] of spellings) {
+					const err = APIError.generate(404, { error: { message: `rejected ${quoted}` } }, undefined, new Headers());
+					const chat = expectRequestError(mapSdkError(err, { ...base, surface: "chat" }), "http");
+					const chatMessage = `${chatHeadline}\n\nDetails: LiteLLM 404: rejected ${shown}`;
+					assert.strictEqual(chat.message, chatMessage);
+					assert.strictEqual(chat.englishMessage, chatMessage);
+					assert.strictEqual(chat.status, 404);
+					assert.strictEqual(chat.logClassification, "RequestError(http, status 404, chat)");
+					const wrapped = toLanguageModelError(chat);
+					assert.ok(wrapped instanceof LanguageModelError, String(wrapped));
+					assert.strictEqual(wrapped.code, LanguageModelError.NotFound().code);
+					assert.strictEqual(wrapped.message, chatMessage);
+					const texts = statusErrorTexts(chat);
+					assert.strictEqual(texts.error, chatMessage);
+					assert.strictEqual(texts.logSafeError, "RequestError(http, status 404, chat)");
+					assert.deepStrictEqual(texts.classification, { kind: "http", status: 404 });
+
+					const discovery = expectRequestError(mapSdkError(err, { ...base, surface: "discovery" }), "http");
+					const discoveryMessage = `${discoveryHeadline}\nLiteLLM 404: rejected ${shown}`;
+					assert.strictEqual(discovery.message, discoveryMessage);
+					assert.strictEqual(discovery.englishMessage, discoveryMessage);
+					assert.strictEqual(discovery.setupHint, "check-base-url");
+				}
+			});
+
+			test("the envelope's failure marks classify as sent even when the rendered type is scrubbed", () => {
+				// The scrub changes text, never a classification: a type field spelled as a credentialed URL still
+				// carries its budget mark to the classifier while the detail renders it without the credential.
+				const err = APIError.generate(
+					400,
+					{ error: { message: "denied", type: "https://budget_exceeded:pass@host.test" } },
+					undefined,
+					new Headers()
+				);
+				const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
+				assert.strictEqual(chat.logClassification, "RequestError(http, status 400, budget_exceeded)");
+				assert.ok(chat.message.endsWith("\n\nDetails: LiteLLM 400 https://host.test: denied"), chat.message);
+			});
+
+			test("statusErrorTexts scrubs a credentialed URL quoted by an unclassified error on both renderings", () => {
+				// The status rows and the feature-failure notifications render whatever a feature threw; a platform
+				// error quoting the configured URL reached them whole, a password split by a line break included, and a
+				// thrown string the same way.
+				const shown = "Failed to parse URL from https://host.test/v1";
+				const reasons: [reason: unknown, shown: string][] = [
+					[new Error("Failed to parse URL from https://user:pass@host.test/v1"), shown],
+					[new Error("Failed to parse URL from https://user:\npass@host.test/v1"), shown],
+					["Failed to parse URL from https://user:pass@host.test/v1", shown],
+					[
+						new Error("Failed https://user:pass@one.test/v1\nhttps://other:secret@two.test/v1"),
+						"Failed https://one.test/v1\nhttps://two.test/v1",
+					],
+					[
+						new Error("Failed https://user:pass@one.test/v1 and https://other:secret@[::\t1]/v1"),
+						"Failed https://one.test/v1 and https://[::1]/v1",
+					],
+					[new Error("Failed https://user:\npass@[::\t1]/v1"), "Failed https://[::1]/v1"],
+					[new Error("Headline\nDetail line without a URL"), "Headline\nDetail line without a URL"],
+				];
+				for (const [reason, expected] of reasons) {
+					const texts = statusErrorTexts(reason);
+					assert.strictEqual(texts.error, expected);
+					assert.strictEqual(texts.logSafeError, expected);
+					assert.ok(!("classification" in texts));
+				}
+			});
+
 			test("the anonymous tail scrubs a credentialed URL quoted in arbitrary error text", () => {
 				const mapped = mapSdkError(new Error("boom while probing http://user:sekret@x.test/v1"), chatCtx);
 				assert.ok(mapped instanceof MirroredError, mapped.message);

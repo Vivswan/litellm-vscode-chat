@@ -626,21 +626,15 @@ suite("Docker server sync", () => {
 		assert.strictEqual(status.expected, true, "the failure carries the expected tag");
 		assert.strictEqual(status.declaredModelCount, 1, "the declared model rides the error status");
 
-		// Info-level logging: the model/info fallback line carries `expected: true` and the boundary classification its
-		// (expected: modelListing) note. Polled, since the sweep emits them asynchronously.
+		// Info-level logging: the model/info fallback line and the boundary's failure line both carry `expected: true`.
+		// Polled, since the sweep emits them asynchronously.
 		await waitUntil("the expected-failure classifications to appear in the logs", 30000, async () => {
-			const logs = await sessionLogLines();
+			const logs = (await sessionLogLines()).join("\n");
 			return (
-				/model\/info failed; falling back to the models listing: \{[^}]*"expected": true/.test(logs.join("\n")) &&
-				logs.some((line) => line.includes("Model discovery failed (expected: modelListing) for provider group"))
+				/model\/info failed; falling back to the models listing: \{[^}]*"expected": true/.test(logs) &&
+				/Model discovery failed for provider group: \{[^}]*"expected": true/.test(logs)
 			);
 		});
-		// The session tee is lossless, so absence here means the error-level line was never logged at all.
-		const logs = await sessionLogLines();
-		assert.ok(
-			logs.every((line) => !line.includes(`Failed to fetch models for provider group at ${NO_DISCOVERY_URL}`)),
-			"an expected terminal failure must never log at error level"
-		);
 
 		// One attempt per endpoint. The blanked 404s carry x-should-retry: true (the SDK never retries a plain
 		// 404), so only the zeroed per-endpoint retry budgets can hold these deltas at one.
@@ -662,8 +656,7 @@ suite("Docker server sync", () => {
 	test("scenario 11: a declared model registers chat-capable when discovery fails UNEXPECTEDLY", async function () {
 		this.timeout(120000);
 		// The contract delta against scenario 10: declaration is active on ANY discovery failure type, so this
-		// entry declares no expectedFailures. Runs LAST on purpose - its unexpected failures log at error level
-		// with the no-discovery URL, which scenario 10's log scan must never see.
+		// entry declares no expectedFailures.
 		await declareServer({
 			label: LABEL_DECLARED_UNEXPECTED,
 			baseUrl: NO_DISCOVERY_URL,

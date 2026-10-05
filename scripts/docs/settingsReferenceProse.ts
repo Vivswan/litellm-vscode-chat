@@ -1,7 +1,6 @@
 /**
- * The behavior column of each locale's settings reference table. Completeness
- * is a type, not a check: Record<SettingId, ...> makes a setting with no prose
- * a compile error, so a feature cannot ship a setting the docs never mention.
+ * The behavior column of each locale's settings reference table. Completeness is a type, not a check: Record<SettingId,
+ * ...> makes a setting with no prose a compile error, so a feature cannot ship a setting the docs never mention.
  */
 import type { SettingId } from "../../src/shared/config/settingSpec";
 

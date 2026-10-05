@@ -1,17 +1,13 @@
 /**
- * The unpriced rows, which print NOTHING where a price would be. Four rows
- * covering the row's second line at its extremes: priced with capabilities,
- * unpriced with capabilities, unpriced with none, and priced again, so a drift
- * shows against neighbours on both sides.
+ * The unpriced rows, which print NOTHING where a price would be.
  *
- * The step is the guard the component tests cannot be: happy-dom runs no
- * cascade, so nothing there notices when an EMPTY second line collapses the
- * row's second grid track and the row-line's centring drops the model name out
- * of line with every other row. It empties that line itself rather than asking
- * a container query to do it, because a fixture's steps run ONCE at its own
- * declared viewport (the harness sweeps widths afterwards, and the sweep only
- * measures overflow) - a narrow tier is simply not reachable from here, and a
- * step that waited for one would assert nothing at all.
+ *   The step -> is the guard the component tests cannot be
+ *   priced with capabilities, unpriced with capabilities, unpriced with none, and priced again -> a drift shows
+ *                                                                                                 against neighbours on
+ *                                                                                                 both sides
+ *   a fixture's steps run ONCE at its own declared viewport (the harness sweeps widths afterwards, and the sweep only
+ *   measures overflow) - a narrow tier is simply not reachable from here, and a step that waited for one would assert
+ *   nothing at all -> It empties that line itself rather than asking a container query to do it
  */
 import type { DashboardModel } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
@@ -51,9 +47,8 @@ const fixture: RenderFixture = {
 		{ kind: "focusSection", section: "models" },
 	],
 	steps: [
-		// Scoped to the VISIBLE Models panel: every tab panel stays mounted
-		// (hidden attribute only), so an unscoped selector would measure rows on
-		// a page this shot does not show.
+		// Scoped to the VISIBLE Models panel: every tab panel stays mounted (hidden attribute only), so an unscoped
+		// selector would measure rows on a page this shot does not show.
 		`(() => {
 			const panel = document.querySelector("#panel-models");
 			if (!panel || panel.hidden) { throw new Error("the Models panel is hidden; these rows are not the ones on screen"); }
@@ -90,10 +85,9 @@ const fixture: RenderFixture = {
 			}
 		})()`,
 	],
-	// 990, not 1000: the stylesheet's rail query reads `width <= 1000px`, so
-	// 1000 sits exactly on the collapse boundary (the rail-flip-integer
-	// fixture's subject). This fixture's subject is row alignment, not the
-	// rail, so it stands clear of the boundary.
+	// 990, not 1000: the stylesheet's rail query reads `width <= 1000px`, so 1000 sits exactly on the collapse boundary
+	// (the rail-flip-integer fixture's subject). This fixture's subject is row alignment, not the rail, so it stands
+	// clear of the boundary.
 	viewport: { width: 990, height: 600 },
 	clipViewport: true,
 };

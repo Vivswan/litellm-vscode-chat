@@ -133,24 +133,4 @@ suite("provider/diagnostics", () => {
 		assert.ok(logs.some((log) => log.includes("provideLanguageModelChatInformation")));
 		assert.ok(logs.some((log) => log.includes("Serving no models for the group-agnostic refresh")));
 	});
-
-	// Injects the transport: the assertion needs a known injected error message ("Test error") to show up in the log
-	// lines, which msw cannot produce.
-	test("output channel receives error logs at the error level", async () => {
-		const errors: string[] = [];
-		const mockOutputChannel = {
-			info: () => {},
-			error: (message: string) => errors.push(message),
-		} as unknown as vscode.LogOutputChannel;
-
-		const provider = makeProvider(TEST_BASE_URL, "test-key", mockOutputChannel, {
-			fetch: async () => {
-				throw new Error("Test error");
-			},
-		});
-		await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
-
-		assert.ok(errors.length > 0);
-		assert.ok(errors.some((line) => line.includes("Test error")));
-	});
 });

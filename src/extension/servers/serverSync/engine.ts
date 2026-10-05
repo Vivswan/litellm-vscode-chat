@@ -337,13 +337,10 @@ function isDuplicateGroupError(error: unknown): boolean {
  * Why a label's last add did not land, keyed to the fingerprint it concerned; the persisted map holds
  * last-known-good only, so this is the retry signal between passes.
  *
- *   blocked, unforced pass -> skip the host call and keep the error
- *   the host has no update API -> the same configuration cannot land
- *   blocked, but the host now serves the label at the declared URL -> back to the host once
- *   its duplicate answer -> confirms (servedAsDeclared)
- *   blocked, forced pass   -> retry anyway
- *   the user may have removed the stale group natively -> retry anyway
- *   upsertFailed, revert   -> in sync without a call
+ *   blocked on this print, unforced, not seen as declared  -> no host call; the error stands (no host update API)
+ *   blocked, seen serving the label as declared            -> the matching record confirms, else one more duplicate
+ *   blocked, forced pass                                   -> retry anyway; the user may have fixed the group natively
+ *   upsertFailed, the entry reverted                       -> in sync without a call
  */
 interface RetryState {
 	kind: "blocked" | "upsertFailed";
@@ -724,16 +721,29 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
-	 * The one base URL the host is serving `label`'s group at, when the observation is unambiguous; see
-	 * ServerSyncEnv.observedGroupBaseUrls. A throwing env reads as no observation.
+	 * The distinct base URLs the host is serving `label`'s labeled groups at (ServerSyncEnv.observedGroupBaseUrls); a
+	 * throwing env reads as nothing observed.
+	 *
+	 *   []           -> no evidence; the records decide
+	 *   [url]        -> the live group's identity
+	 *   two or more  -> ambiguous; proves nothing and lifts nothing
 	 */
-	private soleObservedBaseUrl(label: string): string | undefined {
+	private observedBaseUrls(label: string): readonly string[] {
 		try {
-			const urls = new Set(this.env.observedGroupBaseUrls(label).map(normalizeBaseUrl));
-			return urls.size === 1 ? [...urls][0] : undefined;
+			return [...new Set(this.env.observedGroupBaseUrls(label).map(normalizeBaseUrl))];
 		} catch {
-			return undefined;
+			return [];
 		}
+	}
+
+	/**
+	 * Where a label's group is known to live while the pass has not proved the declared URL: a sole live observation
+	 * outranks the remembered URL, since a group re-pointed natively keeps its name while the ledger still names where
+	 * it was.
+	 */
+	private knownBaseUrl(label: string, ledger: Readonly<Record<string, string>>): string | undefined {
+		const observed = this.observedBaseUrls(label);
+		return observed.length === 1 ? observed[0] : ledger[label];
 	}
 
 	/**
@@ -775,7 +785,9 @@ export class ServerSyncEngine implements vscode.Disposable {
 		const previous: Readonly<Record<string, string>> = this.fingerprints;
 		const next: Record<string, string> = {};
 		const views: DeclaredServerView[] = [];
-		const printedByLabel = new Map<string, string>();
+		// The labels whose live group this pass proved at the declared URL (added, confirmed, or in sync without a call);
+		// the pass-end ledger records the declared URL for these and the observed or remembered one for the rest.
+		const synced = new Set<string>();
 		// Secret values by declared label, carriers included, for the dashboard's group ownership; published with the
 		// views. A failed read keeps the last pass's values, so a leftover holding the label's key does not turn into
 		// an adoptable external row for the length of the outage.
@@ -819,15 +831,20 @@ export class ServerSyncEngine implements vscode.Disposable {
 			}
 			const args = buildGroupArgs(entry, stored);
 			const printed = groupArgsFingerprint(args);
-			printedByLabel.set(entry.label, printed);
 			const retryState = this.retry.get(entry.label);
-			// The host serving the label's one group at the entry's own URL proves that group IS this entry's identity
-			// (groupIdentityArgs covers nothing else; credentials overlay at serve time), so a duplicate refusal with
-			// no matching record is the add-only steady state, not a conflict (#398).
+			// The live observation outranks the records. The label's one group at the entry's URL IS this entry's identity
+			// (groupIdentityArgs covers nothing else; credentials overlay at serve time), while a record only pins the add
+			// this window made under the name, which a group re-pointed natively in chatLanguageModels.json keeps.
 			//
-			//   entry removed, then re-added  -> the removal pruned its records while the hidden group kept serving
-			//   records lost (new profile)    -> same evidence, same verdict
-			const servedAsDeclared = this.soleObservedBaseUrl(entry.label) === normalizeBaseUrl(entry.baseUrl);
+			//   no record, one group seen as declared (#398)  -> the duplicate refusal is the add-only steady state
+			//   record matches, one group seen elsewhere       -> blocked, not in sync
+			//   blocked on this print, not seen as declared     -> stays blocked; no group or two groups seen settles nothing
+			const observed = this.observedBaseUrls(entry.label);
+			const servedAsDeclared = observed.length === 1 && observed[0] === normalizeBaseUrl(entry.baseUrl);
+			const servedElsewhere = observed.length === 1 && !servedAsDeclared;
+			const blockedAsPrinted = retryState?.kind === "blocked" && retryState.fingerprint === printed;
+			const recordConfirms = (record: string | undefined) =>
+				record === printed && !servedElsewhere && (!blockedAsPrinted || servedAsDeclared);
 			if (secretsUnreadable) {
 				//   no host call and no retry bookkeeping (the stored retry state stays put on purpose)
 				//     -> last-known-good carries
@@ -850,10 +867,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 			} else if (
 				!force &&
-				previous[entry.label] === printed &&
+				recordConfirms(previous[entry.label]) &&
 				!(retryState?.kind === "upsertFailed" && retryState.fingerprint === printed)
 			) {
 				next[entry.label] = printed;
+				synced.add(entry.label);
 				// Credential rotations land here by design - the identity print does not cover them, the overlay serves
 				// the current values, and no host call is owed.
 				//
@@ -861,7 +879,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				//     -> was reverted
 				//   A pending retry recorded for some OTHER configuration -> moot for the same reason
 				this.retry.delete(entry.label);
-			} else if (!force && retryState?.kind === "blocked" && retryState.fingerprint === printed && !servedAsDeclared) {
+			} else if (!force && blockedAsPrinted && !servedAsDeclared) {
 				// The last-known-good fingerprint is carried so a later revert of the entry can still match it.
 				//
 				//   retrying without a user gesture -> would just hammer the command
@@ -880,6 +898,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				try {
 					await this.env.addProviderGroup(args);
 					next[entry.label] = printed;
+					synced.add(entry.label);
 					this.retry.delete(entry.label);
 					// Write-through: in-memory first, because that record is what keeps the group's next duplicate
 					// response reading as in-sync and it must survive any storage misbehavior; the persist for the next
@@ -906,22 +925,23 @@ export class ServerSyncEngine implements vscode.Disposable {
 						//   a stale read can only UNDER-report, never invent a matching fingerprint
 						//     -> the asymmetry is load-bearing
 						const storeRecord = this.env.getFingerprints()[entry.label];
-						const confirmed = previous[entry.label] === printed || storeRecord === printed || servedAsDeclared;
+						const confirmed = recordConfirms(previous[entry.label]) || recordConfirms(storeRecord) || servedAsDeclared;
 						if (confirmed) {
 							// Not logged for that reason.
 							//
 							//   every activation's forced pass -> lands here for every healthy entry
 							next[entry.label] = printed;
+							synced.add(entry.label);
 							// Into the session map at once, like a successful add: a LATER entry's write-through
 							// persists a spread of this map, and without the confirmed label it would re-clobber the
 							// other window's record mid-pass.
 							this.fingerprints = { ...this.fingerprints, [entry.label]: printed };
 							this.retry.delete(entry.label);
 						} else {
-							// The entry changed (or is new under a taken name) but the host cannot update or replace an
-							// existing group. The refused fingerprint goes into the retry state as "blocked" (not the
-							// map) so unforced passes keep the error without hammering and a forced pass retries after
-							// the user removes the stale group natively.
+							// The host holds the name for a group this entry does not provably own (the entry changed, the
+							// name was taken, or the group was re-pointed natively) and cannot update or replace it. The
+							// refused fingerprint goes into the retry state as "blocked" (not the map) so unforced passes
+							// keep the error without hammering and a forced pass retries after the user fixes the group.
 							this.carryLastGood(entry.label, previous, next, storeRecord);
 							this.retry.set(entry.label, { kind: "blocked", fingerprint: printed });
 							syncFailure = syncFailureOf("blocked");
@@ -981,7 +1001,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 			});
 		}
 		try {
-			await this.finishPass(rawSetting, entries, views, previous, next, printedByLabel);
+			await this.finishPass(rawSetting, entries, views, previous, next, synced);
 		} finally {
 			// In a finally because a throwing finish must not discard the pass's computed views.
 			//
@@ -1004,7 +1024,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 		views: readonly DeclaredServerView[],
 		previous: Readonly<Record<string, string>>,
 		next: Record<string, string>,
-		printedByLabel: ReadonlyMap<string, string>
+		synced: ReadonlySet<string>
 	): Promise<void> {
 		if (!Array.isArray(rawSetting)) {
 			// A malformed container (a mid-edit settings.json, an undefined or null read) proves nothing about any
@@ -1097,7 +1117,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				(a.expectedConnectionId !== undefined && a.expectedConnectionId === b.expectedConnectionId));
 		const events: RemovedEntryEvent[] = [];
 		for (const label of removed) {
-			const baseUrl = ledger[label] ?? this.soleObservedBaseUrl(label);
+			const baseUrl = this.knownBaseUrl(label, ledger);
 			const carried = this.unresolvedRemovals.get(label);
 			if (baseUrl === undefined) {
 				//   A rename's other half -> is remembered only within the session
@@ -1159,12 +1179,10 @@ export class ServerSyncEngine implements vscode.Disposable {
 			//
 			//   No evidence at all -> degrades that removal to the honest untracked notice instead
 			const ledgerEntries = entries.flatMap((entry): [string, string][] => {
-				const inSync =
-					printedByLabel.get(entry.label) !== undefined && next[entry.label] === printedByLabel.get(entry.label);
-				if (inSync) {
+				if (synced.has(entry.label)) {
 					return [[entry.label, normalizeBaseUrl(entry.baseUrl)]];
 				}
-				const knownUrl = ledger[entry.label] ?? this.soleObservedBaseUrl(entry.label);
+				const knownUrl = this.knownBaseUrl(entry.label, ledger);
 				return knownUrl !== undefined ? [[entry.label, knownUrl]] : [];
 			});
 			const nextLedger = Object.fromEntries([...ledgerEntries, ...Object.entries(carriedLedger)]);

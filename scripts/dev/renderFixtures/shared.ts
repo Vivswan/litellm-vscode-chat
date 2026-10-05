@@ -1,8 +1,4 @@
-/**
- * Shared builders for the render fixtures: one rich, protocol-typed
- * DashboardState covering the screenshot matrix, with per-fixture overrides.
- * Values are invented but realistic; nothing here is secret material.
- */
+/** Values are invented but realistic; nothing here is secret material. */
 import type {
 	DashboardModel,
 	DashboardServer,
@@ -15,8 +11,8 @@ import type { SecretFieldId, SecretLocation } from "../../../src/shared/serverEn
 import { makeSettings } from "../../../src/test/dashboardSettingsFixture.ts";
 import { RENDER_EPOCH_MS } from "../renderClock.ts";
 
-// The harness freezes the page's clock to the same instant, so every
-// relative and absolute time label renders identically on every run.
+// The harness freezes the page's clock to the same instant, so every relative and absolute time label renders
+// identically on every run.
 const NOW = RENDER_EPOCH_MS;
 
 export function minutesAgoMs(minutes: number): number {
@@ -71,9 +67,8 @@ export const GATEWAY_SERVER: DashboardServer = {
 		expectedFailures: ["modelListing", "modelInfo"],
 		declaredModels: ["deepseek-r1"],
 	},
-	// No nothing-declared notice: the declared model IS serving (served 1,
-	// declared 1), and the builder only flags an expected failure serving
-	// nothing at all.
+	// No nothing-declared notice: the declared model IS serving (served 1, declared 1), and the builder only flags an
+	// expected failure serving nothing at all.
 };
 
 export const MISCONFIGURED_SERVER: DashboardServer = {
@@ -95,16 +90,16 @@ export const EXTERNAL_SERVER: DashboardServer = {
 	baseUrl: "http://localhost:4000",
 	servedModelCount: 2,
 	credentials: "present",
-	// The host report carries the credential kind for external groups too; this
-	// row is the matrix's external-OAuth specimen.
+	// The host report carries the credential kind for external groups too; this row is the matrix's external-OAuth
+	// specimen.
 	hasOAuth: true,
 	state: "ok",
 	lastChecked: minutesAgoMs(5),
 	adoptHandle: "handle-fixture",
 };
 
-// The external-API-key specimen: "API key" + "external" is the widest badge
-// pair a row can produce, so the overflow sweep must keep measuring it.
+// The external-API-key specimen: "API key" + "external" is the widest badge pair a row can produce, so the overflow
+// sweep must keep measuring it.
 export const EXTERNAL_KEYED_SERVER: DashboardServer = {
 	origin: "external",
 	label: "Legacy proxy",
@@ -235,9 +230,8 @@ export const USAGE: DashboardUsage = {
 };
 
 /**
- * A realistic full supported_openai_params report (27 entries, the shape a
- * LiteLLM /model/info answer carries for an Anthropic-backed route): the
- * worst case the params-list rendering must stay readable against.
+ * A realistic full supported_openai_params report (27 entries, the shape a LiteLLM /model/info answer carries for an
+ * Anthropic-backed route): the worst case the params-list rendering must stay readable against.
  */
 export const OPENAI_PARAMS_FULL: readonly string[] = [
 	"frequency_penalty",
@@ -270,11 +264,10 @@ export const OPENAI_PARAMS_FULL: readonly string[] = [
 ];
 
 /**
- * The worst-case effective-capabilities bag both model-inspector fixtures
- * render: the core seven, the three consumed booleans, the FULL eight-field cost
- * family with sub-micro per-token values (the scientific-notation regression
- * case), the 27-element params list, and one unknown extra - with mixed
- * provenance across every level so the Source column shows its whole vocabulary.
+ *   The worst-case effective-capabilities bag both model-inspector fixtures render
+ *     -> the core seven, the three consumed booleans, the FULL eight-field cost family with sub-micro per-token values
+ *        (the scientific-notation regression case), the 27-element params list, and one unknown extra - with mixed
+ *        provenance
  */
 export function worstCaseCapabilityFields(): Record<string, unknown> {
 	return {
@@ -312,11 +305,9 @@ export function worstCaseCapabilityFields(): Record<string, unknown> {
 }
 
 /**
- * The same worst case as a RAW record value, for the matcher-editor fixtures:
- * the full eight-field Anthropic-style cost family (sub-micro scientific
- * values included) plus the 27-entry params list - the densest record a
- * record editor has to lay out. One definition, so "full density" cannot
- * quietly mean different things in different fixtures.
+ * The same worst case as a RAW record value, for the matcher-editor fixtures: the full eight-field Anthropic-style cost
+ * family (sub-micro scientific values included) plus the 27-entry params list - the densest record a record editor has
+ * to lay out. One definition, so "full density" cannot quietly mean different things in different fixtures.
  */
 export function worstCaseRecordFields(): Record<string, unknown> {
 	return {
@@ -333,10 +324,7 @@ export function worstCaseRecordFields(): Record<string, unknown> {
 }
 
 /**
- * A genuinely long matcher key, the length real users write: the longest key
- * the base state carries is the 13-character deepseek regex, which says
- * nothing about how the editors survive a route-family regex spanning
- * providers and vendor prefixes.
+ *   A genuinely long matcher key -> the length real users write
  */
 export const LONG_MATCHER_KEY =
 	"/^(openrouter|github_copilot)\\/(anthropic|google)[./](claude|gemini)-[0-9][\\w.-]*(-thinking)?$/i";
@@ -413,9 +401,8 @@ export const RESOLVED_VIEW: ResolvedModelsView = {
 			matchedKeys: ["*", "claude-sonnet-4"],
 			parameters: [{ name: "temperature", valueText: "1", layer: "global", key: "claude-sonnet-4" }],
 			capabilities: [
-				// A catalog-directive model: the token facts fill from the
-				// _openrouter_model directive while the UNIFORM server pricing
-				// collapses under one source badge.
+				// A catalog-directive model: the token facts fill from the _openrouter_model directive while the
+				// UNIFORM server pricing collapses under one source badge.
 				{ name: "context_length", valueText: "200000", level: "directive", key: "anthropic/claude-sonnet-4" },
 				{ name: "max_output_tokens", valueText: "64000", level: "directive", key: "anthropic/claude-sonnet-4" },
 				{ name: "supports_prompt_caching", valueText: "true", level: "server" },
@@ -448,8 +435,8 @@ export const RESOLVED_VIEW: ResolvedModelsView = {
 				{ name: "supports_reasoning", valueText: "true", level: "global", key: "gpt-5*" },
 				{ name: "supports_pdf_input", valueText: "true", level: "catalog", key: "anthropic/claude-sonnet-4" },
 				{ name: "supports_web_search", valueText: "true", level: "global", key: "gpt-5*" },
-				// The full Anthropic-style cost family with MIXED sources, so the
-				// collapsed pricing line badges each tier separately.
+				// The full Anthropic-style cost family with MIXED sources, so the collapsed pricing line badges each
+				// tier separately.
 				{ name: "input_cost_per_token", valueText: "0.000005", level: "server" },
 				{ name: "output_cost_per_token", valueText: "0.000025", level: "server" },
 				{ name: "cache_read_input_token_cost", valueText: "5e-7", level: "server" },
@@ -476,9 +463,8 @@ export const RESOLVED_VIEW: ResolvedModelsView = {
 				{ name: "context_length", valueText: "131072", level: "entry-fallback", key: "deepseek-r1" },
 				{ name: "supports_reasoning", valueText: "true", level: "entry", key: "deepseek-r1" },
 				{ name: "max_output_tokens", valueText: "16000", level: "floor" },
-				// An open-vocabulary field with a LONG raw wire key: the key renders
-				// as-is (no friendly label), so it is the widest unbreakable token
-				// the capability column ever has to survive at narrow panes.
+				// An open-vocabulary field with a LONG raw wire key: the key renders as-is (no friendly label), so it
+				// is the widest unbreakable token the capability column ever has to survive at narrow panes.
 				{
 					name: "x_gateway_rate_limit_tier_override",
 					valueText: '"gold-eu-west"',
@@ -492,13 +478,11 @@ export const RESOLVED_VIEW: ResolvedModelsView = {
 };
 
 export function baseState(overrides: Partial<DashboardState> = {}): DashboardState {
-	// The merged served count derives from whichever server rows the fixture
-	// renders (an explicit override still wins), so fixture states stay
-	// producible: the hero's count is the rows' sum in production too.
+	// The merged served count derives from whichever server rows the fixture renders (an explicit override still wins),
+	// so fixture states stay producible: the hero's count is the rows' sum in production too.
 	const servers = overrides.servers ?? [PROD_SERVER, GATEWAY_SERVER, EXTERNAL_SERVER];
-	// The screenshot matrix's settings, layered over the ONE shared builder
-	// (src/test/dashboardSettingsFixture.ts) so a DashboardSettings shape
-	// change never needs a second hand-maintained literal here.
+	// The screenshot matrix's settings, layered over the ONE shared builder (src/test/dashboardSettingsFixture.ts) so a
+	// DashboardSettings shape change never needs a second hand-maintained literal here.
 	const settingsDefaults = makeSettings();
 	return {
 		servers,

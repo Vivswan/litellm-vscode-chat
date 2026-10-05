@@ -1,7 +1,6 @@
 /**
- * The matcher editor overlay over the server edit page: the entry's gpt-5*
- * parameters record opened through its pencil, the one slide-over (own
- * scrim) above the page.
+ * The matcher editor overlay over the server edit page: the entry's gpt-5* parameters record opened through its pencil,
+ * the one slide-over (own scrim) above the page.
  */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

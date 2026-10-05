@@ -234,6 +234,36 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 			);
 		});
 
+		test("an optional slot that is not an object is reported under one rule and applies nothing", () => {
+			const cases: { raw: Record<string, unknown>; slot: string; field: keyof DeclaredServer }[] = [
+				{ raw: { headers: "oops" }, slot: "headers", field: "headers" },
+				{ raw: { models: "oops" }, slot: "models", field: "modelParameters" },
+				{ raw: { models: { parameters: "oops" } }, slot: "models.parameters", field: "modelParameters" },
+				{ raw: { models: { capabilities: "oops" } }, slot: "models.capabilities", field: "modelCapabilities" },
+				{ raw: { discovery: "oops" }, slot: "discovery", field: "declaredModels" },
+			];
+			for (const { raw, slot, field } of cases) {
+				const { entries, problems } = parseOne(raw);
+				assert.strictEqual(entries.length, 1, `${slot}: a wrong-shaped slot is a diagnostic, not a rejection`);
+				assert.ok(!(field in (entries[0] ?? {})), `${slot}: nothing from the slot applies`);
+				assert.deepStrictEqual(problems, [`entry 1 has a ${slot} value that is not an object, ignored`]);
+			}
+		});
+
+		test("a discovery list that is not a list is reported under one rule and applies nothing", () => {
+			const cases: { slot: string; field: keyof DeclaredServer }[] = [
+				{ slot: "declared", field: "declaredModels" },
+				{ slot: "expectedFailures", field: "expectedFailures" },
+				{ slot: "includeModes", field: "includeModes" },
+			];
+			for (const { slot, field } of cases) {
+				const { entries, problems } = parseOne({ discovery: { [slot]: "junk" } });
+				assert.strictEqual(entries.length, 1, `${slot}: a wrong-shaped list is a diagnostic, not a rejection`);
+				assert.ok(!(field in (entries[0] ?? {})), `${slot}: nothing from the list applies`);
+				assert.deepStrictEqual(problems, [`entry 1 has a discovery.${slot} value that is not a list, ignored`]);
+			}
+		});
+
 		test("discovery.declared keeps usable exact IDs, deduplicated; junk entries are counted", () => {
 			const { entries, problems } = parseOne({
 				discovery: { declared: ["deepseek-r1", "deepseek-r1", "  ", 42, "qwen"] },

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
-// Runs the docker-stack test suites against the dockerized LiteLLM proxy in the canonical order of src/test/dockerTestLabels.ts.
-// docker-monkey goes last because it deliberately dirties host state; --only (the CI shards use it) replaces the selection but keeps the order.
+// Runs the docker-stack test suites against the dockerized LiteLLM proxy in the canonical order of
+// src/test/dockerTestLabels.ts. docker-monkey goes last because it deliberately dirties host state; --only (the CI
+// shards use it) replaces the selection but keeps the order.
 //
 // Usage:
 //   bun run test:docker                     every label in canonical order (see src/test/dockerTestLabels.ts)
@@ -40,20 +41,17 @@ const usageError = (message: string): never => {
 	process.exit(2);
 };
 
-// --skip-* carves legs out of the default full run; --only replaces the
-// selection outright, so combining the two has no coherent meaning and errors.
-// The flag-per-label mapping lives in src/test/dockerTestLabels.ts so the
-// nightly-fuzz drift guard reads the same source; `docker` has no skip flag.
+// --skip-* carves legs out of the default full run; --only replaces the selection outright, so combining the two has no
+// coherent meaning and errors. The flag-per-label mapping lives in src/test/dockerTestLabels.ts so the nightly-fuzz
+// drift guard reads the same source; `docker` has no skip flag.
 const KNOWN_SKIP_FLAGS: ReadonlySet<string> = new Set(Object.values(DOCKER_SKIP_FLAGS));
 
 /**
- * Reject any argv token this script does not understand: a mistyped skip flag
- * would otherwise run the leg it meant to skip, and extra positionals after
- * `--only a` would be dropped without a word. Exit 2 names the vocabulary.
+ * Reject any argv token this script does not understand: a mistyped skip flag would otherwise run the leg it meant to
+ * skip, and extra positionals after `--only a` would be dropped without a word. Exit 2 names the vocabulary.
  */
 function validateArgs(): void {
-	// The value a bare `--only` consumes is validated by parseOnlyLabels, not
-	// as a standalone token here.
+	// The value a bare `--only` consumes is validated by parseOnlyLabels, not as a standalone token here.
 	const onlyValueIndexes = new Set(args.flatMap((arg, index) => (arg === "--only" ? [index + 1] : [])));
 	for (const [index, arg] of args.entries()) {
 		if (onlyValueIndexes.has(index) || arg === "--only" || arg.startsWith("--only=")) {
@@ -105,8 +103,8 @@ function selectLabels(): ReadonlySet<DockerTestLabel> {
 
 const selected = selectLabels();
 
-// The suite must agree with docker-compose on ports and key, so it resolves
-// them with the same ${VAR:-fallback} semantics compose uses.
+// The suite must agree with docker-compose on ports and key, so it resolves them with the same ${VAR:-fallback}
+// semantics compose uses.
 const envFile = readEnvFile();
 const setting = (key: string, fallback: string): string => composeSetting(key, fallback, envFile);
 
@@ -116,26 +114,23 @@ const masterKey = setting("LITELLM_MASTER_KEY", STACK_DEFAULTS.LITELLM_MASTER_KE
 const baseUrl = `http://localhost:${litellmPort}`;
 const fakeUrl = `http://localhost:${fakePort}`;
 
-// Resolved eagerly so a missing runtime fails before any work; the resolution
-// is memoized, so every compose call below reuses this same runtime.
+//   the resolution is memoized -> every compose call below reuses this same runtime
 const composeDisplay = resolveComposeCommand().join(" ");
 const run = (command: string, env: Record<string, string> = {}): void => {
 	execSync(command, { stdio: "inherit", env: { ...process.env, ...env } });
 };
 
 /**
- * One vscode-test leg, streamed to the console and watched for the host-stall signature
- * (scripts/stack/hostStall.ts). A stall before any test ran relaunches the leg once; anything
- * else, a test verdict included, throws with execSync's error shape so the catch and teardown
- * paths below stay as they are.
+ * One vscode-test leg, streamed to the console and watched for the host-stall signature (scripts/stack/hostStall.ts). A
+ * stall before any test ran relaunches the leg once; anything else, a test verdict included, throws with execSync's
+ * error shape so the catch and teardown paths below stay as they are.
  */
 const runLeg = async (label: DockerTestLabel, env: Record<string, string>): Promise<void> => {
-	// argv form, no shell, like runCompose: the label is the one variable and it
-	// comes from DOCKER_TEST_LABELS.
+	// argv form, no shell, like runCompose: the label is the one variable and it comes from DOCKER_TEST_LABELS.
 	const argv = ["vscode-test", "--config", ".vscode-test.mjs", "--label", label];
 	for (let attempt = 1; ; attempt += 1) {
-		// One detector per pipe: each decodes its own byte stream, so a glyph or
-		// the marker split across chunks still reads whole.
+		// One detector per pipe: each decodes its own byte stream, so a glyph or the marker split across chunks still
+		// reads whole.
 		const stdout = new HostStallDetector();
 		const stderr = new HostStallDetector();
 		const status = await new Promise<number | null>((resolve, reject) => {
@@ -168,10 +163,9 @@ const runLeg = async (label: DockerTestLabel, env: Record<string, string>): Prom
 		throw Object.assign(new Error(`${argv.join(" ")} exited with status ${status}`), { status });
 	}
 };
-// Compose goes through the shared no-shell executor (runCompose), so a quoted
-// COMPOSE_CMD behaves identically here and in scripts/stack/compose.ts. A
-// non-zero exit throws with `status`, keeping execSync's error shape for the
-// catch and teardown paths.
+// Compose goes through the shared no-shell executor (runCompose), so a quoted COMPOSE_CMD behaves identically here and
+// in scripts/stack/compose.ts. A non-zero exit throws with `status`, keeping execSync's error shape for the catch and
+// teardown paths.
 const compose = (...composeArgs: string[]): void => {
 	const status = runCompose(composeArgs);
 	if (status !== 0) {
@@ -184,20 +178,17 @@ const compose = (...composeArgs: string[]): void => {
 let failed = false;
 async function main(): Promise<void> {
 	try {
-		// Test config is always generated without real-provider wildcards, so a
-		// developer's keys in .env cannot change the model list under test, and
-		// --force-recreate makes a stack already running with a different config
-		// pick this one up instead of poisoning the run.
+		// Test config is always generated without real-provider wildcards, so a developer's keys in .env cannot change
+		// the model list under test, and --force-recreate makes a stack already running with a different config pick
+		// this one up instead of poisoning the run.
 		ensureGeneratedConfig({ realProviders: false });
 		console.log(`\nStarting the LiteLLM stack via "${composeDisplay}"...`);
-		// 180 over the litellm healthcheck's 90s start_period: --wait-timeout is
-		// hard wall clock, so a cold runner's first-boot prisma migration needs
-		// real headroom before the shard dies.
+		// 180 over the litellm healthcheck's 90s start_period: --wait-timeout is hard wall clock, so a cold runner's
+		// first-boot prisma migration needs real headroom before the shard dies.
 		compose("up", "-d", "--wait", "--wait-timeout", "180", "--force-recreate");
 
-		// The usage/budget fixture key must exist before any suite runs: the
-		// docker-usage smoke suite reads it directly, later usage suites spend
-		// through it, and --force-recreate wiped the DB (tmpfs), so this always
+		// The usage/budget fixture key must exist before any suite runs: the docker-usage smoke suite reads it
+		// directly, later usage suites spend through it, and --force-recreate wiped the DB (tmpfs), so this always
 		// starts from spend 0.
 		await seedStackUsageBudgetKey();
 
@@ -209,11 +200,10 @@ async function main(): Promise<void> {
 
 		run("bun run compile && bun run bundle:dev");
 
-		// One entry per label, keyed on the full set (Record, not Partial) so a
-		// label added to DOCKER_TEST_LABELS cannot compile without a leg to run.
-		// Each label gets its own fresh extension host, which is load-bearing for
-		// docker-serversync (provider groups are add-only for the host lifetime)
-		// and docker-monkey (walks deliberately dirty host state).
+		// One entry per label, keyed on the full set (Record, not Partial) so a label added to DOCKER_TEST_LABELS
+		// cannot compile without a leg to run. Each label gets its own fresh extension host, which is load-bearing for
+		// docker-serversync (provider groups are add-only for the host lifetime) and docker-monkey (walks deliberately
+		// dirty host state).
 		const legs: Record<DockerTestLabel, { banner: string; env: Record<string, string> }> = {
 			docker: { banner: "Running the docker suite...", env: suiteEnv },
 			"docker-usage": { banner: "Running the usage/budget smoke suite...", env: suiteEnv },
@@ -232,8 +222,8 @@ async function main(): Promise<void> {
 					LITELLM_REAL_MODEL: PLAYBACK_MODEL.alias,
 				},
 			},
-			// Capture-mode: the suite stands up its own capture server and never
-			// touches the stack, so it takes no connection env.
+			// Capture-mode: the suite stands up its own capture server and never touches the stack, so it takes no
+			// connection env.
 			"host-fidelity-groups": { banner: "Running the host-fidelity group-label suite (capture)...", env: {} },
 			"docker-monkey": { banner: "Running the interaction (monkey) fuzzer...", env: suiteEnv },
 		};

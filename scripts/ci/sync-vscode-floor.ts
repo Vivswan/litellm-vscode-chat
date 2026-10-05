@@ -1,20 +1,14 @@
 /**
- * Floor sync: when a Dependabot bump makes the DECLARED @types/vscode pin
- * newer than engines.vscode, raise the engine floor to the pin's minor and
- * rewrite every doc that states the old floor. check-vscode-types.ts is the
- * gate this satisfies: it fails any PR whose typings outrun the floor, so
- * Dependabot's @types/vscode PRs land red until the floor moves with them -
- * the dependabot-vscode-floor workflow runs this script on those PRs and
- * pushes the result. In-sync is a successful no-op, so the workflow can run
- * on every Dependabot manifest bump. Fail-closed: an unreadable manifest,
- * a non-exact pin, a non-caret floor, or a doc missing its floor claim is
- * a failure, never a silent pass.
+ * check-vscode-types.ts is the gate this satisfies: it fails any PR whose typings outrun the floor, so Dependabot's
+ * @types/vscode PRs land red until the floor moves with them - the dependabot-vscode-floor workflow runs this script on
+ * those PRs and pushes the result. In-sync is a successful no-op, so the workflow can run on every Dependabot manifest
+ * bump.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 
-// Every doc stating the minimum VS Code version. A doc missing here keeps its old
-// floor at the next bump, which the claims test in stackDrift.test.ts turns red.
+// Every doc stating the minimum VS Code version. A doc missing here keeps its old floor at the next bump, which the
+// claims test in stackDrift.test.ts turns red.
 const FLOOR_DOCS = [
 	"README.md",
 	"README.zh-cn.md",
@@ -54,9 +48,8 @@ if (!floorMatch?.[1]) {
 }
 const floor = floorMatch[1];
 
-// Same major.minor judgment as check-vscode-types.ts, which rejects EVERY
-// major mismatch, either direction; a patch-level typings bump never moves
-// the floor.
+// Same major.minor judgment as check-vscode-types.ts, which rejects EVERY major mismatch, either direction; a
+// patch-level typings bump never moves the floor.
 if (pin[1] !== floorMatch[2]) {
 	fail(
 		`@types/vscode ${declared} and engines.vscode ${floorRange} disagree on the major version: raise the floor by hand`
@@ -67,8 +60,7 @@ if (Number(pin[2]) <= Number(floorMatch[3])) {
 	process.exit(0);
 }
 
-// Validate every file before writing any, so a failure never leaves the
-// tree half-raised.
+// Validate every file before writing any, so a failure never leaves the tree half-raised.
 const raised = `${pin[1]}.${pin[2]}.0`;
 const manifestSource = readFileSync(manifestPath, "utf8");
 const enginesLine = `"vscode": "^${floor}"`;

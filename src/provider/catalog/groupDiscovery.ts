@@ -7,6 +7,7 @@ import type { ChatClient, ServerConnection } from "../transport/chatClient";
 import { statusErrorTexts } from "../transport/errorMapping";
 import type { ExpectedDiscoveryFailures } from "./discovery";
 import type { DiscoveryCache } from "./discoveryCache";
+import { discoveryLineWriter, failureKindOf } from "./discoveryLog";
 import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./groupModels";
 import { attachGroupServer, groupClientId, groupServerLabel, markStale } from "./groupModels";
 import { buildModelInfos } from "./registration";
@@ -95,7 +96,11 @@ export interface GroupDiscoveryOptions {
 	// Facade-bound log callbacks: this module logs only through them, so the provider facade stays the single logging
 	// boundary.
 	log: (message: string, data?: unknown) => void;
-	logError: (message: string, error: unknown) => void;
+	/**
+	 * The error-level line for an unexpected failure: `data` is what the channel shows, `error` what the report
+	 * records.
+	 */
+	logFailure: (message: string, data: unknown, error: unknown) => void;
 }
 
 export class GroupDiscovery {
@@ -274,14 +279,16 @@ export class GroupDiscovery {
 		// modelListing declaration for a listing failure only: that declaration speaks about the endpoint, so a
 		// credential failure stays unexpected and the declared set it serves cannot read as connected.
 		const serveFailure = (error: unknown, expected: boolean): LiteLLMModelInfo[] => {
-			if (expected) {
-				// The one boundary log for an expected terminal failure: an info classification instead of an error.
-				this._options.log(`Model discovery failed (expected: modelListing) for provider group`, {
-					baseUrl: server.baseUrl,
-				});
-			} else {
-				this._options.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
-			}
+			// The boundary's one log for the failure, through the closed discovery line table: an http error's English
+			// mirror quotes the response body, so the line carries the transport kind and status, never a rendering of
+			// the error. An expected failure is information; an unexpected one is the boundary's error and the issue
+			// report's latest.
+			const log = discoveryLineWriter(
+				expected
+					? (message, line) => this._options.log(message, line)
+					: (message, line) => this._options.logFailure(message, line, error)
+			);
+			log("Model discovery failed for provider group", { expected, silent, ...failureKindOf(error) });
 			const texts = statusErrorTexts(error);
 			const outcome: FailureServeShape = { state: "error", ...texts, ...(expected ? { expected: true } : {}) };
 			const decorateFailure = (

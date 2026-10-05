@@ -1,19 +1,12 @@
-/**
- * The host themes a render can emulate: the approximated VS Code token sets, the
- * coverage assertions that keep them honest against the stylesheet, and the
- * token-CSS rewrites (inlining, font pinning) the page builder applies.
- */
-/** Every host theme a render can emulate; the fixture field, page builder and flag parser all read this. */
 export const HOST_THEMES = ["dark", "light", "high-contrast", "high-contrast-light", "forced-colors"] as const;
 
 export type HostTheme = (typeof HOST_THEMES)[number];
 
-/** The kinds of surface a host theme paints, which is what the wash scale keys off. */
 export const LIGHT_HOST_THEMES: ReadonlySet<HostTheme> = new Set<HostTheme>(["light", "high-contrast-light"]);
 
 /**
- * The VS Code Dark Modern theme tokens, approximated so a plain Chrome page
- * renders like the webview. Presentation aid only; --no-theme disables it.
+ * The VS Code Dark Modern theme tokens, approximated so a plain Chrome page renders like the webview. Presentation aid
+ * only; --no-theme disables it.
  */
 export function themeCss(): string {
 	return `
@@ -86,9 +79,8 @@ export function themeCss(): string {
 }
 
 /**
- * The VS Code Light Modern tokens, over the same key set as the dark tokens
- * above: a token one theme defines and the other omits would read as a design
- * difference when it is really a gap in this file.
+ * The VS Code Light Modern tokens, over the same key set as the dark tokens above: a token one theme defines and the
+ * other omits would read as a design difference when it is really a gap in this file.
  */
 export function lightCss(): string {
 	return `
@@ -161,11 +153,11 @@ export function lightCss(): string {
 }
 
 /**
- * The VS Code Dark High Contrast tokens, from the workbench color registry's
- * hcDark defaults. Deliberately sparse where the real theme is: secondary
- * backgrounds and list hover colors are genuinely null there, so the fallback
- * chains and theme.css's contrast overrides are what render. button.background
- * IS set - black, the whole reason theme.css cannot read an accent off it.
+ * The VS Code Dark High Contrast tokens, from the workbench color registry's hcDark defaults. Deliberately sparse where
+ * the real theme is: secondary backgrounds and list hover colors are genuinely null there, so the fallback chains and
+ * theme.css's contrast overrides are what render.
+ *
+ *   button.background IS set - black -> theme.css cannot read an accent off it
  */
 export function highContrastCss(): string {
 	return `
@@ -218,10 +210,9 @@ export function highContrastCss(): string {
 }
 
 /**
- * The VS Code Light High Contrast tokens, from the registry's hcLight defaults.
- * Its own combination, and an unrenderable state is one nobody checks:
- * theme.css keys the wash scale off body.vscode-high-contrast-light, a class no
- * other render produces.
+ * The VS Code Light High Contrast tokens, from the registry's hcLight defaults. Its own combination, and an
+ * unrenderable state is one nobody checks: theme.css keys the wash scale off body.vscode-high-contrast-light, a class
+ * no other render produces.
  */
 export function highContrastLightCss(): string {
 	return `
@@ -274,13 +265,11 @@ export function highContrastLightCss(): string {
 }
 
 /**
- * Every --vscode-* token the stylesheet reads must be defined by the ORDINARY
- * themes: VS Code hands the real webview a full token set, so a token omitted
- * here falls back to whatever literal the stylesheet carries, and those
- * literals were written against dark. High contrast is exempt on purpose - the
- * real HC themes leave those values null, so its sparseness IS the fidelity -
- * and contrast-only tokens are exempt everywhere, since the ordinary themes do
- * not define them and the stylesheet reads them behind a fallback.
+ * Every --vscode-* token the stylesheet reads must be defined by the ORDINARY themes: VS Code hands the real webview a
+ * full token set, so a token omitted here falls back to whatever literal the stylesheet carries, and those literals
+ * were written against dark. High contrast is exempt on purpose - the real HC themes leave those values null, so its
+ * sparseness IS the fidelity - and contrast-only tokens are exempt everywhere, since the ordinary themes do not define
+ * them and the stylesheet reads them behind a fallback.
  */
 const CONTRAST_ONLY_TOKENS = new Set(["--vscode-contrastBorder", "--vscode-contrastActiveBorder"]);
 
@@ -297,11 +286,14 @@ export function assertThemeCoversStylesheet(stylesheet: string, tokensCss: strin
 }
 
 /**
- * Pinning the four font tokens pins the page only if every font-family resolves through them (or inherit), so this fails closed otherwise.
+ * Pinning the four font tokens pins the page only if every font-family resolves through them (or inherit), so this
+ * fails closed otherwise.
  *
- *   a literal font stack or new utility class -> silent platform divergence would return
- *   the font SHORTHAND, any value but inherit -> it also sets the family; failing it outright is cheaper than a family parser
- *   .font-sans or .font-mono rule missing     -> the engagement check's utility legs would measure inherited font and prove nothing
+ *   a literal font stack or new utility class  -> silent platform divergence would return
+ *   the font SHORTHAND, any value but inherit  -> it also sets the family
+ *   failing it outright                        -> cheaper than a family parser
+ *   .font-sans or .font-mono rule missing      -> the engagement check's utility legs would measure inherited font and
+ *                                                 prove nothing
  */
 export function assertPinCoversStylesheet(stylesheet: string): void {
 	const pinnedSources = [
@@ -336,14 +328,13 @@ export function assertPinCoversStylesheet(stylesheet: string): void {
 }
 
 /**
- * The host's token delivery, reproduced exactly: VS Code writes --vscode-* one
- * by one onto the document element's inline style (webview/browser/pre/
- * index.html, applyStyles), not into a stylesheet. An inline declaration
- * outranks every author rule on the same element, so a stylesheet rule that
- * redefines a host token loses in the editor and would win here. The
- * measurement font pin's --font-* declarations ride the same delivery for the
- * same reason: inline is the one place the stylesheet's theme layer cannot
- * re-define them (the theme token sets themselves carry no --font-*).
+ * The host's token delivery, reproduced exactly: VS Code writes --vscode-* one by one onto the document element's
+ * inline style (webview/browser/pre/index.html, applyStyles), not into a stylesheet. An inline declaration outranks
+ * every author rule on the same element, so a stylesheet rule that redefines a host token loses in the editor and would
+ * win here.
+ *
+ *   inline is the one place the stylesheet's theme layer cannot re-define them (the theme token sets themselves carry
+ *   no --font-*) -> The measurement font pin's --font-* declarations ride the same delivery
  */
 export function inlineTokenStyle(tokensCss: string): string {
 	const declarations = [...tokensCss.matchAll(/(--(?:vscode|font)-[A-Za-z0-9-]+):\s*([^;]+);/g)].map(
@@ -356,14 +347,11 @@ export function inlineTokenStyle(tokensCss: string): string {
 }
 
 /**
- * Repoints every font token at the pinned faces: the host pair
- * (--vscode-font-family, --vscode-editor-font-family) and the Tailwind pair
- * (--font-sans, --font-mono) the stylesheet's font-sans/font-mono utilities
- * read - the dashboard reaches fonts only through these four tokens (plus
- * inherit), so the swap covers every rule. All four ride the inline token
- * style, which outranks the stylesheet's theme layer where the Tailwind pair
- * is normally defined; under --no-theme there is no token set to rewrite, so
- * the pin becomes the whole set.
+ * Repoints every font token at the pinned faces: the host pair (--vscode-font-family, --vscode-editor-font-family) and
+ * the Tailwind pair (--font-sans, --font-mono) the stylesheet's font-sans/font-mono utilities read - the dashboard
+ * reaches fonts only through these four tokens (plus inherit), so the swap covers every rule. All four ride the inline
+ * token style, which outranks the stylesheet's theme layer where the Tailwind pair is normally defined; under
+ * --no-theme there is no token set to rewrite, so the pin becomes the whole set.
  */
 export function pinFontTokens(tokensCss: string): string {
 	const tailwindPins = "--font-sans: geometry-pinned-sans; --font-mono: geometry-pinned-mono;";

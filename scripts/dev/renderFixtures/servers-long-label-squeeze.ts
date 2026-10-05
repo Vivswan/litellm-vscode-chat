@@ -1,14 +1,13 @@
 /**
- * The wide tier at its LOW end, with the row genuinely out of space: the
- * content-sized name track (minmax to max-content) lets the sibling's long
- * label push the URL's fr track all the way DOWN to its 12ch floor, and only
- * then does the label itself start giving characters to an ellipsis - the
- * yield order the base template promises. servers-long-label.ts shoots the
- * slack end of the same tier (label whole, URLs untouched) and lends this one
- * its state; this sibling guards the floor end, where the template's "the 12ch
- * floor keeps the URL identifying its row" claim is actually load-bearing.
- * Both clipped cells are by design: the drawer's Label and Base URL facts are
- * the full-text path out of this state.
+ * The wide tier at its LOW end, with the row genuinely out of space: the content-sized name track (minmax to
+ * max-content) lets the sibling's long label push the URL's fr track all the way DOWN to its 12ch floor, and only then
+ * does the label itself start giving characters to an ellipsis - the yield order the base template promises. Both
+ * clipped cells are by design: the drawer's Label and Base URL facts are the full-text path out of this state.
+ *
+ *   servers-long-label.ts -> shoots the slack end of the same tier (label whole, URLs untouched) and lends this one its
+ *                            state
+ *   this sibling          -> guards the floor end, where the template's "the 12ch floor keeps the URL identifying its
+ *                            row" claim is actually load-bearing
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { LONG_LABEL_MESSAGES } from "./servers-long-label.ts";
@@ -74,12 +73,11 @@ const fixture: RenderFixture = {
 			}
 		})()`,
 	],
-	// A 983px pane as the CONTAINER QUERY counts it: 1248 window - 216 rail -
-	// 1 rail border - 48 pane padding. Not the pane's clientWidth, which keeps
-	// the padding (the sibling's gate reads that one), so the two files quote
-	// different quantities. Past the 920px fold, but short enough that the
-	// label's max-content run exhausts the row - which is what parks the URL
-	// on its floor and starts the label's own ellipsis.
+	// Not the pane's clientWidth, which keeps the padding (the sibling's gate reads that one), so the two files quote
+	// different quantities. Past the 920px fold, but short enough that the label's max-content run exhausts the row -
+	// which is what parks the URL on its floor and starts the label's own ellipsis.
+	//
+	//   1248 window - 216 rail - 1 rail border - 48 pane padding -> A 983px pane as the CONTAINER QUERY counts it
 	viewport: { width: 1248, height: 800 },
 	clipViewport: true,
 };

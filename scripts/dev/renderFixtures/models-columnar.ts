@@ -1,13 +1,13 @@
 /**
- * The models list at its COLUMNAR tier: `@container pane (width >= 1136px)`
- * unfolds the two-line sentence rows into one line of aligned columns. The tier
- * is a PANE width; at this fixture's geometry the conversion is 1410 window -
- * 216 rail - 1 rail border - 48 pane padding = a 1145px pane (a 1400 window
- * gives 1135, one pixel short). Windowed like models.ts, because the tier's
- * threshold arithmetic budgets for the windowed scrollport's scrollbar.
+ * The models list at its COLUMNAR tier: `@container pane (width >= 1136px)` unfolds the two-line sentence rows into one
+ * line of aligned columns. Windowed like models.ts, because the tier's threshold arithmetic budgets for the windowed
+ * scrollport's scrollbar.
  *
- * The steps ASSERT the tier was actually caught: a render that fell back to the
- * stacked tier would still exit 0 with a large, plausible PNG.
+ *   The tier is a PANE width -> at this fixture's geometry the conversion is 1410 window - 216 rail - 1 rail border -
+ *                               48 pane padding = a 1145px pane (a 1400 window gives 1135, one pixel short)
+ *   a render that fell back to the stacked tier would still exit 0 with a large, plausible PNG -> The steps ASSERT the
+ *                                                                                                 tier was actually
+ *                                                                                                 caught
  */
 import type { DashboardModel } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
@@ -37,9 +37,8 @@ const fixture: RenderFixture = {
 		{ kind: "focusSection", section: "models" },
 	],
 	steps: [
-		// Scoped to the VISIBLE Models panel: every tab panel stays mounted
-		// (hidden attribute only), so an unscoped selector would find a line in
-		// a hidden panel and happily assert a page the shot does not show.
+		// Scoped to the VISIBLE Models panel: every tab panel stays mounted (hidden attribute only), so an unscoped
+		// selector would find a line in a hidden panel and happily assert a page the shot does not show.
 		`(() => {
 			const panel = document.querySelector("#panel-models");
 			if (!panel || panel.hidden) { throw new Error("the Models panel is hidden; the shot would photograph another page"); }

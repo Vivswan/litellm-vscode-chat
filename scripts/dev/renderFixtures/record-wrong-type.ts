@@ -1,9 +1,8 @@
 /**
- * Wrong-record-type directives on both editors: the parameters record's gpt-5*
- * group carries `_openrouter_model` (a capabilities directive) and the
- * capabilities record's `*` group carries `_force` (a parameters directive), so
- * both chips wear the "ignored" badge; the gpt-5* matcher editor is opened so
- * the same badge also shows in the overlay's directive-flag cell.
+ * Wrong-record-type directives on both editors: the parameters record's gpt-5* group carries `_openrouter_model` (a
+ * capabilities directive) and the capabilities record's `*` group carries `_force` (a parameters directive), so both
+ * chips wear the "ignored" badge; the gpt-5* matcher editor is opened so the same badge also shows in the overlay's
+ * directive-flag cell.
  */
 import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

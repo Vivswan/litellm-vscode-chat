@@ -1,7 +1,6 @@
 /**
- * The Models destination with structured filter pills pressed: one family and
- * one capability, composed AND, so the shot shows the pressed (filled) pill
- * state beside resting (outline) siblings, the live "showing N of M" count
+ * The Models destination with structured filter pills pressed: one family and one capability, composed AND, so the shot
+ * shows the pressed (filled) pill state beside resting (outline) siblings, the live "showing N of M" count
  * mid-narrowing, and the clear-all action that appears with the first press.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
@@ -19,8 +18,7 @@ const fixture: RenderFixture = {
 		{ kind: "focusSection", section: "models" },
 	],
 	steps: [
-		// Throw on a missing pill rather than photograph an unfiltered page that
-		// claims to show the filtered one.
+		// Throw on a missing pill rather than photograph an unfiltered page that claims to show the filtered one.
 		`(() => {
 			const pill = (text) => {
 				const node = Array.from(document.querySelectorAll("button.filter-pill")).find(

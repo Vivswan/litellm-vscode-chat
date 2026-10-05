@@ -1,9 +1,8 @@
 /**
- * The pre-proof window: a declared entry whose secret locations the first sync
- * pass has not proven yet, beside a proven row for contrast. The subject is the
- * credential verdict's third state - the unproven row's drawer says the key
- * location is not read yet (dim dash plus reason, never a false "none"), and
- * its header carries no auth badge while the proven row keeps its "API key".
+ * The pre-proof window: a declared entry whose secret locations the first sync pass has not proven yet, beside a proven
+ * row for contrast. The subject is the credential verdict's third state - the unproven row's drawer says the key
+ * location is not read yet (dim dash plus reason, never a false "none"), and its header carries no auth badge while the
+ * proven row keeps its "API key".
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, minutesAgoMs, provenSecrets } from "./shared.ts";
@@ -41,8 +40,8 @@ const fixture: RenderFixture = {
 		},
 	],
 	steps: [
-		// Two steps, not one: React commits the click's state on its own schedule,
-		// so the open assertion runs a step later, after the harness's settle.
+		// Two steps, not one: React commits the click's state on its own schedule, so the open assertion runs a step
+		// later, after the harness's settle.
 		`(() => {
 			for (const label of ["prod", "staging"]) {
 				const line = Array.from(document.querySelectorAll("button.server-line")).find(

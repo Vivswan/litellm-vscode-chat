@@ -1,7 +1,6 @@
 /**
- * The guard's own teeth, proven before it judges real files: each fixture is a
- * pattern the AST walk must classify correctly, so a guard regression fails the
- * gate instead of silently passing frozen-English catalogs.
+ * The guard's own teeth, proven before it judges real files: each fixture is a pattern the AST walk must classify
+ * correctly, so a guard regression fails the gate instead of silently passing frozen-English catalogs.
  */
 export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string; readonly flagged: boolean }[] =
 	[
@@ -111,8 +110,8 @@ export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: 
 			flagged: true,
 		},
 		{
-			// Forwarding stripped: .call/.apply/.bind cannot launder a freeze past
-			// the callee match (vscodeL10nOffenses bans this shape too).
+			// Forwarding stripped: .call/.apply/.bind cannot launder a freeze past the callee match (vscodeL10nOffenses
+			// bans this shape too).
 			name: "t invoked through .call at module scope",
 			source: 'const TITLE = l10n.t.call(undefined, "x");\n',
 			flagged: true,
@@ -204,8 +203,8 @@ export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: 
 			flagged: true,
 		},
 		{
-			// The composition: stripping exposes a fresh choosing shape underneath,
-			// and the resolution re-flattens to a fixed point.
+			// The composition: stripping exposes a fresh choosing shape underneath, and the resolution re-flattens to a
+			// fixed point.
 			name: "a ternary receiver behind .call flags through either branch",
 			source: "const TITLE = (enabled ? manageCommandTitle : plain).call(undefined);\n",
 			flagged: true,
@@ -272,8 +271,8 @@ export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: 
 			flagged: true,
 		},
 		{
-			// bind evaluates nothing itself, but a module-scope bind of a lazy
-			// helper only exists to be called; flagging it is deliberate.
+			// bind evaluates nothing itself, but a module-scope bind of a lazy helper only exists to be called;
+			// flagging it is deliberate.
 			name: "a lazy helper bound without invocation still flags",
 			source: "const HELD = manageCommandTitle.bind(undefined);\n",
 			flagged: true,
@@ -309,8 +308,8 @@ export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: 
 			flagged: false,
 		},
 		{
-			// .call shifts the forwarder's target one slot right; every direct
-			// argument of a recognized forwarder is checked.
+			// .call shifts the forwarder's target one slot right; every direct argument of a recognized forwarder is
+			// checked.
 			name: "Reflect.apply forwarded through .call still flags",
 			source: "const TITLE = Reflect.apply.call(Reflect, manageCommandTitle, undefined, []);\n",
 			flagged: true,
@@ -331,8 +330,8 @@ export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: 
 			flagged: false,
 		},
 		{
-			// Text matching is the decision (see isCallerForwarder): a re-spelled
-			// forwarder stays outside, like every custom wrapper.
+			// Text matching is the decision (see isCallerForwarder): a re-spelled forwarder stays outside, like every
+			// custom wrapper.
 			name: "a globalThis-spelled forwarder stays quiet (the documented boundary)",
 			source: "const TITLE = globalThis.Reflect.apply(manageCommandTitle, undefined, []);\n",
 			flagged: false,
@@ -364,16 +363,15 @@ export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: 
 			flagged: true,
 		},
 		{
-			// The namespace's `call` export is a module member, not Function.prototype:
-			// stripping must stop at the namespace read.
+			// The namespace's `call` export is a module member, not Function.prototype: stripping must stop at the
+			// namespace read.
 			name: "a local namespace member named call still resolves as a member",
 			source: 'import * as helpers from "./h";\nconst call = () => l10n.t("x");\nconst FROZEN = helpers.call();\n',
 			flagged: true,
 		},
 		{
-			// Statics stay out of construction evidence, so the class is not lazy and
-			// the member call is unreadable - the documented boundary, not a hole
-			// this guard claims to cover.
+			// Statics stay out of construction evidence, so the class is not lazy and the member call is unreadable -
+			// the documented boundary, not a hole this guard claims to cover.
 			name: "a member call reaching a localizing class static stays quiet (the documented limit)",
 			source: 'class C {\n\tstatic label(): string {\n\t\treturn l10n.t("x");\n\t}\n}\nconst TITLE = C.label();\n',
 			flagged: false,

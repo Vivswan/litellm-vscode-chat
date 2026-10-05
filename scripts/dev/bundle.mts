@@ -246,7 +246,7 @@ if (watchMode) {
 				void event.result.close();
 				break;
 			case "ERROR": {
-				// biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI color codes from rolldown's diagnostics
+				// biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI color codes
 				const message = event.error.message.replace(/\u001b\[[0-9;]*m/g, "");
 				// The first [KIND]-tagged diagnostic line (rolldown's own, or a
 				// wrapped [CSS_ERROR] from the stylesheet plugin) reads better

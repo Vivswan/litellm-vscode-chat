@@ -1,15 +1,12 @@
 /**
- * The same unpriced rows at the COLUMNAR tier (`@container pane (width >=
- * 1136px)`), where each second-line segment is PINNED to its own grid column.
- * models-unpriced.ts guards the stacked tier, and a fixture's steps run once
- * at its own viewport, so the pins have no guard without this sibling: an
- * unpriced row renders no cost segment at all, and without the pins
- * auto-placement slides its capabilities left into the empty price column -
- * aligned rows down the page are the whole reason the tier exists.
+ * The same unpriced rows at the COLUMNAR tier (`@container pane (width >= 1136px)`), where each second-line segment is
+ * PINNED to its own grid column. models-unpriced.ts guards the stacked tier, and a fixture's steps run once at its own
+ * viewport, so the pins have no guard without this sibling: an unpriced row renders no cost segment at all, and without
+ * the pins auto-placement slides its capabilities left into the empty price column - aligned rows down the page are the
+ * whole reason the tier exists.
  *
- * The steps assert the tier was actually caught and then compare cell
- * x-positions across rows: a render that fell back to the stacked tier, or a
- * lost pin, throws instead of exiting 0 with a plausible PNG.
+ *   The steps assert the tier was actually caught and then compare cell x-positions across rows
+ *     -> a render that fell back to the stacked tier, or a lost pin, throws instead of exiting 0 with a plausible PNG
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { UNPRICED_ROWS } from "./models-unpriced.ts";
@@ -21,9 +18,8 @@ const fixture: RenderFixture = {
 		{ kind: "focusSection", section: "models" },
 	],
 	steps: [
-		// Scoped to the VISIBLE Models panel: every tab panel stays mounted
-		// (hidden attribute only), so an unscoped selector would measure rows on
-		// a page this shot does not show.
+		// Scoped to the VISIBLE Models panel: every tab panel stays mounted (hidden attribute only), so an unscoped
+		// selector would measure rows on a page this shot does not show.
 		`(() => {
 			const panel = document.querySelector("#panel-models");
 			if (!panel || panel.hidden) { throw new Error("the Models panel is hidden; these rows are not the ones on screen"); }

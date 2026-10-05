@@ -1,9 +1,8 @@
 /**
- * Renders contributes.configuration from the setting spec: the section table gives order and grouping, the value specs
- * and shared constants give each property's value contract, SETTING_PRESENTATION gives scope, trust, and the
- * description kind, and package.nls.json keeps the prose behind `%litellm.config.<id>.description%`. The builders take
- * their inputs as parameters (the real tables are the defaults) so a test can render a mini-spec and pin the key order
- * and the nls key convention.
+ * The builders take their inputs as parameters (the real tables are the defaults) so a test can render a mini-spec and
+ * pin the key order and the nls key convention.
+ *
+ *   package.nls.json -> keeps the prose behind `%litellm.config.<id>.description%`
  */
 import { WIRE_LIMITS } from "../../../src/dashboard/endpoints";
 import {
@@ -36,10 +35,6 @@ import {
 } from "../../../src/shared/config/settingSpec";
 import { assertServersSchemaCoversEntryFields, type JsonObject, SERVERS_ENTRY_SCHEMA } from "./serversEntrySchema";
 
-/**
- * How one setting's value schema renders. Numbers and booleans come from their spec tables, the feature models from
- * their key map; everything else names its shape here, with the constants spliced in by the builder for that shape.
- */
 export type SettingShape =
 	| { readonly kind: "number"; readonly spec: NumberSettingValueSpec }
 	| { readonly kind: "boolean"; readonly spec: BooleanSettingValueSpec }
@@ -59,10 +54,8 @@ export interface ConfigurationInputs {
 	readonly presentation: Readonly<Record<string, SettingPresentation>>;
 }
 
-/** The settings whose shape is neither a number spec, a boolean spec, nor a feature model ref. */
 type StructuredSettingId = Exclude<SettingId, NumberSettingId | BooleanSettingId | FeatureModelSettingKey>;
 
-/** The structured settings' shapes; total over them, so a new structured setting without a shape does not compile. */
 const STRUCTURED_SHAPES = {
 	servers: { kind: "servers" },
 	"models.parameters": { kind: "modelRecord" },
@@ -116,7 +109,6 @@ function editPresentation(presentation: SettingPresentation): JsonObject {
 	return presentation.editPresentation === undefined ? {} : { editPresentation: presentation.editPresentation };
 }
 
-/** The prose reference: `description` or `markdownDescription` by the presentation's kind, pointing at the nls key. */
 function description(id: string, presentation: SettingPresentation): JsonObject {
 	const key = presentation.description === "markdown" ? "markdownDescription" : "description";
 	return { [key]: `%litellm.config.${id}.description%` };
@@ -253,8 +245,8 @@ export function renderProperty(id: string, shape: SettingShape, presentation: Se
 }
 
 /**
- * The whole contributes.configuration array. Refuses a setting listed in two sections, and one with no shape or
- * presentation (for the spec's own inputs the latter two are compile errors; injected inputs reach the check).
+ * Refuses a setting listed in two sections, and one with no shape or presentation (for the spec's own inputs the
+ * latter two are compile errors; injected inputs reach the check).
  */
 export function renderConfiguration(inputs: ConfigurationInputs = SPEC_INPUTS): readonly JsonObject[] {
 	const seen = new Set<string>();
