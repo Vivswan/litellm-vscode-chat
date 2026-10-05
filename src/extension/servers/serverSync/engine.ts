@@ -267,10 +267,10 @@ function isDuplicateGroupError(error: unknown): boolean {
  * Why a label's last add did not land, keyed to the fingerprint it concerned; the persisted map holds
  * last-known-good only, so this is the retry signal between passes.
  *
- *   blocked, unforced pass                            -> no host call; the error stands (the host has no update API)
- *   blocked, host seen serving the label as declared  -> confirmed by the matching record, else by one more duplicate
- *   blocked, forced pass                              -> retry anyway; the user may have fixed the group natively
- *   upsertFailed, the entry reverted                  -> in sync without a call
+ *   blocked on this print, unforced, not seen as declared  -> no host call; the error stands (no host update API)
+ *   blocked, seen serving the label as declared            -> the matching record confirms, else one more duplicate
+ *   blocked, forced pass                                   -> retry anyway; the user may have fixed the group natively
+ *   upsertFailed, the entry reverted                       -> in sync without a call
  */
 interface RetryState {
 	kind: "blocked" | "upsertFailed";
@@ -638,12 +638,13 @@ export class ServerSyncEngine implements vscode.Disposable {
 			//
 			//   no record, one group seen as declared (#398)  -> the duplicate refusal is the add-only steady state
 			//   record matches, one group seen elsewhere       -> blocked, not in sync
-			//   record matches, blocked, two groups seen       -> blocked; the observation settles nothing
+			//   blocked on this print, not seen as declared     -> stays blocked; no group or two groups seen settles nothing
 			const observed = this.observedBaseUrls(entry.label);
 			const servedAsDeclared = observed.length === 1 && observed[0] === normalizeBaseUrl(entry.baseUrl);
 			const servedElsewhere = observed.length === 1 && !servedAsDeclared;
+			const blockedAsPrinted = retryState?.kind === "blocked" && retryState.fingerprint === printed;
 			const recordConfirms = (record: string | undefined) =>
-				record === printed && !servedElsewhere && !(observed.length > 1 && retryState?.kind === "blocked");
+				record === printed && !servedElsewhere && (!blockedAsPrinted || servedAsDeclared);
 			if (secretsUnreadable) {
 				//   no host call and no retry bookkeeping (the stored retry state stays put on purpose)
 				//     -> last-known-good carries
@@ -678,7 +679,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				//     -> was reverted
 				//   A pending retry recorded for some OTHER configuration -> moot for the same reason
 				this.retry.delete(entry.label);
-			} else if (!force && retryState?.kind === "blocked" && retryState.fingerprint === printed && !servedAsDeclared) {
+			} else if (!force && blockedAsPrinted && !servedAsDeclared) {
 				// The last-known-good fingerprint is carried so a later revert of the entry can still match it.
 				//
 				//   retrying without a user gesture -> would just hammer the command

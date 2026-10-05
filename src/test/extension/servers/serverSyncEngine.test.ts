@@ -1171,6 +1171,15 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				);
 				assert.strictEqual(hostCalls.count, 1, `force=${force}: the ambiguous pass makes no call`);
 
+				recorded.observedGroups = {};
+				await reloaded.syncNow();
+				assert.strictEqual(
+					reloaded.getDeclared()[0]?.syncFailure?.class,
+					"blocked",
+					`force=${force}: the group leaving the window proves nothing and lifts nothing`
+				);
+				assert.strictEqual(hostCalls.count, 1, `force=${force}: the unobserved pass makes no call`);
+
 				recorded.setting = [];
 				await reloaded.syncNow();
 				assert.deepStrictEqual(
