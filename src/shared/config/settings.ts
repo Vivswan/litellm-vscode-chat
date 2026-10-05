@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { z } from "zod";
 import type { HeaderScalar } from "../util/headers";
 import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue, trimHttpWhitespace } from "../util/headers";
-import { isRecord, isUnsafeRecordKey, objectSlot } from "../util/json";
+import { cloneJson, isUnsafeRecordKey, objectSlot } from "../util/json";
 import type {
 	AgentWriteToolId,
 	BooleanSettingId,
@@ -364,7 +364,7 @@ function normalizePrefixKeyedRecords(
 		}
 		const entry = objectSlot(map[modelId], { kind: "entry", key: modelId } as const, tell);
 		if (entry !== undefined) {
-			records[modelId] = entry;
+			records[modelId] = cloneJson(entry);
 		}
 	}
 	return records;
@@ -429,7 +429,7 @@ export function agentToolsAcceptSecretValues(): boolean {
 
 /**
  * Narrow a raw `<feature>.model` value to the explicit model choice: an object whose `server` and `model` are
- * non-empty strings, edge-trimmed like the entry labels they address.
+ * non-empty strings, edge-trimmed like the entry labels they address. null is the manifest's declared "unset".
  */
 export function normalizeFeatureModelRef(
 	raw: unknown,
@@ -439,12 +439,16 @@ export function normalizeFeatureModelRef(
 	if (raw === undefined || raw === null) {
 		return undefined;
 	}
-	const server = isRecord(raw) && typeof raw.server === "string" ? trimHttpWhitespace(raw.server) : "";
-	const model = isRecord(raw) && typeof raw.model === "string" ? trimHttpWhitespace(raw.model) : "";
+	const unset = `Invalid ${FEATURE_MODEL_SETTING_KEYS[feature]} configuration, reading the model as unset`;
+	const tell = (message: string) => log?.(message, { configured: typeof raw });
+	const ref = objectSlot(raw, unset, tell);
+	if (ref === undefined) {
+		return undefined;
+	}
+	const server = typeof ref.server === "string" ? trimHttpWhitespace(ref.server) : "";
+	const model = typeof ref.model === "string" ? trimHttpWhitespace(ref.model) : "";
 	if (server.length === 0 || model.length === 0) {
-		log?.(`Invalid ${FEATURE_MODEL_SETTING_KEYS[feature]} configuration, reading the model as unset`, {
-			configured: typeof raw,
-		});
+		tell(unset);
 		return undefined;
 	}
 	return { server, model };
@@ -470,32 +474,32 @@ export function normalizeInlineLanguageFilter(raw: unknown, log?: LogFn): Inline
 	if (raw === undefined) {
 		return DEFAULT_INLINE_LANGUAGE_FILTER;
 	}
-	if (
-		!isRecord(raw) ||
-		typeof raw.mode !== "string" ||
-		!(LANGUAGE_FILTER_MODES as readonly string[]).includes(raw.mode)
-	) {
-		log?.("Invalid inlineCompletions.languageFilter configuration, using the default (block nothing)", {
-			configured: typeof raw,
-		});
+	const invalid = "Invalid inlineCompletions.languageFilter configuration, using the default (block nothing)";
+	const tell = (message: string) => log?.(message, { configured: typeof raw });
+	const filter = objectSlot(raw, invalid, tell);
+	if (filter === undefined) {
 		return DEFAULT_INLINE_LANGUAGE_FILTER;
 	}
-	const mode = raw.mode as LanguageFilterMode;
-	if (!Array.isArray(raw.languages)) {
-		if (raw.languages !== undefined) {
+	if (typeof filter.mode !== "string" || !(LANGUAGE_FILTER_MODES as readonly string[]).includes(filter.mode)) {
+		tell(invalid);
+		return DEFAULT_INLINE_LANGUAGE_FILTER;
+	}
+	const mode = filter.mode as LanguageFilterMode;
+	if (!Array.isArray(filter.languages)) {
+		if (filter.languages !== undefined) {
 			log?.("Invalid inlineCompletions.languageFilter languages configuration, using the empty list", {
-				configured: typeof raw.languages,
+				configured: typeof filter.languages,
 			});
 		}
 		return { mode, languages: [] };
 	}
-	const valid = raw.languages
+	const valid = filter.languages
 		.filter((value): value is string => typeof value === "string")
 		.map((value) => trimHttpWhitespace(value))
 		.filter((value) => value.length > 0);
-	if (valid.length < raw.languages.length) {
+	if (valid.length < filter.languages.length) {
 		log?.("Ignoring language filter entries that are not non-empty language IDs", {
-			ignored: raw.languages.length - valid.length,
+			ignored: filter.languages.length - valid.length,
 		});
 	}
 	return { mode, languages: [...new Set(valid)] };

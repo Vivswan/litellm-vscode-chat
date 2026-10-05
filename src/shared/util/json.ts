@@ -16,6 +16,24 @@ export function objectSlot<Problem>(
 }
 
 /**
+ * A plain copy of a JSON-shaped value whose object properties are read through own descriptors rather than [[Get]]:
+ * the host hands settings out as clone-on-write proxies whose get trap treats a read of any key named "toJSON"
+ * (JSON.stringify, a schema property) as the moment to re-find every value by a dotted path, which a key like
+ * "gpt-5.2-mini" breaks. Arrays arrive from the host as plain copies already.
+ */
+export function cloneJson<T>(value: T): T {
+	if (Array.isArray(value)) {
+		return value.map(cloneJson) as T;
+	}
+	if (isRecord(value)) {
+		return Object.fromEntries(
+			Object.keys(value).map((key) => [key, cloneJson(Object.getOwnPropertyDescriptor(value, key)?.value)])
+		) as T;
+	}
+	return value;
+}
+
+/**
  * The path of the first non-finite number under `root`, or undefined when there is none: JSON.parse reads an
  * overflowing literal ("1e999") as Infinity, which JSON.stringify then writes as null, so the refusal names where.
  * Dotted keys and bracketed indices ("models.parameters.gpt-4.temperature", "stop[2]"); the root itself is "".

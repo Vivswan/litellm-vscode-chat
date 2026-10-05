@@ -12,20 +12,10 @@
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
-import { isRecord } from "../../shared/util/json";
+import { cloneJson, isRecord } from "../../shared/util/json";
 import type { StoredServerSecrets } from "../servers/serverSync/secrets";
 
 type MutableSecrets = { -readonly [K in SecretFieldId]?: string };
-
-function cloneJson(value: unknown): unknown {
-	if (Array.isArray(value)) {
-		return value.map(cloneJson);
-	}
-	if (isRecord(value)) {
-		return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneJson(item)]));
-	}
-	return value;
-}
 
 export interface StrippedEntry {
 	readonly entry: Readonly<Record<string, unknown>>;

@@ -516,11 +516,10 @@ function acceptEntries(
 			problems?.push(`entry ${index + 1} ${what}`);
 			reportTo?.(index, what);
 		};
-		if (!isRecord(item)) {
-			report("is not an object");
+		const record = objectSlot(item, "is not an object", report);
+		if (record === undefined) {
 			return;
 		}
-		const record = item;
 		const label = usableHttpText(record.label);
 		const baseUrl = usableHttpText(record.baseUrl);
 		if (label === undefined || baseUrl === undefined) {
