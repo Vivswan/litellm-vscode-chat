@@ -277,9 +277,9 @@ interface Scenario {
 		 * expect the push before the intent, minus exactly the hidden group.
 		 */
 		readonly push?: {
-			/** The rows the move adds, as label, origin, state, URL; every other row and model is compared whole. */
-			readonly added: readonly [string, string, string, string][];
-			/** Row fields the move legitimately changes on rows present before and after; none in these windows. */
+			/** The full rows the move adds; every row and model is compared whole. */
+			readonly added: readonly DashboardServer[];
+			/** Row fields the move legitimately changes on any row; none in these windows. */
 			readonly changed?: readonly string[];
 		};
 	};
@@ -288,6 +288,21 @@ interface Scenario {
 const A_ENTRY = { label: "A", baseUrl: "http://a.test" };
 const L1_ENTRY = { label: "L1", baseUrl: H };
 const L1_INLINE = { label: "L1", baseUrl: H, auth: { apiKey: SECRET } };
+/**
+ * The row the settings fallback draws for L1_INLINE before any pass has joined it: its key is only known to exist,
+ * nothing is checked, and no credential value or scope key reaches the push.
+ */
+const L1_FALLBACK_ROW: DashboardServer = {
+	baseUrl: H,
+	config: { secrets: { kind: "unproven" } },
+	credentials: "present",
+	hasOAuth: false,
+	label: "L1",
+	lastChecked: undefined,
+	origin: "declared",
+	servedModelCount: 0,
+	state: "unchecked",
+};
 /** An OAuth block without its client id: the parser refuses the entry whole. */
 const L1_REJECTED = { label: "L1", baseUrl: H, auth: { oauth: { tokenUrl: "https://idp.test/token" } } };
 /** L1 after its token URL moved to another identity provider; the client secret is the one its legacy group holds. */
@@ -467,7 +482,7 @@ const WINDOWS: Record<string, Scenario> = {
 			secrets: {},
 			// No pass has published views, so the settings fallback declares L1 without join keys: the native group
 			// stays an external row beside it until the pass runs.
-			push: { added: [["L1", "declared", "unchecked", H]] },
+			push: { added: [L1_FALLBACK_ROW] },
 		},
 		intents: ["adopt"],
 		adopt: "rejects",
@@ -891,7 +906,7 @@ const WINDOWS: Record<string, Scenario> = {
 		after: {
 			setting: [L1_INLINE],
 			secrets: {},
-			push: { added: [["L1", "declared", "unchecked", H]] },
+			push: { added: [L1_FALLBACK_ROW] },
 		},
 		intents: ["hide"],
 		adopt: "rejects",
@@ -947,45 +962,38 @@ function assertOutcome(
 		settingsWrites.length > 0 && fixture.engine.getDeclared().length === 0 ? 1 : 0,
 		"the Copy row appears only through the settings fallback after a landed adoption"
 	);
-	if (scenario.after.push !== undefined) {
-		// Rows present before and after compare whole (handles and scope keys included) minus the fields the move
-		// legitimately changes; the move's added rows are named by identity.
-		const identity = (server: DashboardServer) => JSON.stringify([server.origin, server.label, server.baseUrl]);
-		const before = new Map(before_.state.servers.map((server) => [identity(server), server]));
-		const changed = new Set(scenario.after.push.changed ?? []);
-		const strip = (server: DashboardServer) =>
-			Object.fromEntries(Object.entries(server).filter(([field]) => !changed.has(field)));
-		const added: [string, string, string, string][] = [];
-		for (const server of after.servers) {
-			const earlier = before.get(identity(server));
-			if (earlier === undefined) {
-				added.push([server.label, server.origin, server.state, server.baseUrl]);
-			} else {
-				assert.deepStrictEqual(strip(server), strip(earlier), `${identity(server)} changed beyond the move`);
-				before.delete(identity(server));
-			}
-		}
-		assert.deepStrictEqual([...before.keys()], [], "a row the move did not touch left the push");
-		assert.deepStrictEqual(added, scenario.after.push.added);
-		assert.deepStrictEqual(after.models, before_.state.models);
-		assert.deepStrictEqual(after.hiddenGroups, before_.state.hiddenGroups);
-		assert.strictEqual(after.servedModelCount, before_.state.servedModelCount);
-		return;
-	}
 	const hiddenId =
 		acted.hidden === undefined
 			? undefined
 			: [...fixture.host.servers.keys()].find((serverId) => adoptSourceHandle(serverId) === acted.handle);
 	assert.ok(acted.hidden === undefined || hiddenId !== undefined, "the hidden handle names a host group");
-	const liveRows = (state: DashboardState) => state.servers.filter((server) => server.origin !== "declared");
+	// Every row compares whole (handles and scope keys included) minus the fields the move legitimately changes:
+	// rows present before and after against their earlier self, rows the move added against the scenario's full
+	// records, and the only row allowed to leave is the hidden group's. The Copy row is counted above, not compared.
+	const identity = (server: DashboardServer) => JSON.stringify([server.origin, server.label, server.baseUrl]);
+	const before = new Map(before_.state.servers.map((server) => [identity(server), server]));
+	const changed = new Set(scenario.after.push?.changed ?? []);
+	const strip = (server: DashboardServer) =>
+		Object.fromEntries(Object.entries(server).filter(([field]) => !changed.has(field)));
+	const added: DashboardServer[] = [];
+	for (const server of after.servers) {
+		if (copyRows.includes(server)) {
+			continue;
+		}
+		const earlier = before.get(identity(server));
+		if (earlier === undefined) {
+			added.push(server);
+		} else {
+			assert.deepStrictEqual(strip(server), strip(earlier), `${identity(server)} changed beyond the move`);
+			before.delete(identity(server));
+		}
+	}
 	assert.deepStrictEqual(
-		liveRows(after),
-		liveRows(before_.state).filter((server) => hiddenId === undefined || server.adoptHandle !== acted.handle)
+		[...before.values()],
+		before_.state.servers.filter((server) => hiddenId !== undefined && server.adoptHandle === acted.handle),
+		"only the hidden group's row leaves the push"
 	);
-	assert.deepStrictEqual(
-		after.servers.filter((server) => server.origin === "declared" && server.label !== "Copy"),
-		before_.state.servers.filter((server) => server.origin === "declared")
-	);
+	assert.deepStrictEqual(added.map(strip), (scenario.after.push?.added ?? []).map(strip));
 	assert.deepStrictEqual(
 		after.models,
 		before_.state.models.filter((model) => hiddenId === undefined || model.scopeKey !== modelScopeKey(hiddenId))
