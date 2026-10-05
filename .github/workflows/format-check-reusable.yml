@@ -64,6 +64,10 @@ jobs:
         # The same script .husky/pre-commit runs, so a local green predicts this gate.
         run: bun scripts/ci/check-vscode-types.ts
 
+      - name: Output-channel writes outside the Logger must not exist
+        # The same script .husky/pre-commit runs through check:static, so a local green predicts this gate.
+        run: bun scripts/ci/check-output-channel-writes.ts
+
       # The OpenRouter catalog arrives from the openrouter-catalog job of the
       # caller (the run's one live fetch, validated there) rather than from a
       # second fetch here. Judged by the next step so the failure names its
