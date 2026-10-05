@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
+import type { StoredSecretsRecord } from "./serverSync/secrets";
 import { readServerSecretsRecord, resolveOwnedSecrets } from "./serverSync/secrets";
 import type { DeclaredServer } from "./serverSync/setting";
 import { acceptedEntry } from "./serverSync/setting";
@@ -9,9 +10,10 @@ import { usageConnectionFor } from "./usage/spendClient";
 /**
  * Why a label resolved to no connection; a value rather than an error because each caller words its own sentence.
  * secretsMismatched is resolveOwnedSecrets' `refused`: a stored secret the entry would send is stamped for another
- * destination, usually a base URL edited after the secret was stored.
+ * destination, usually a base URL edited after the secret was stored. secretsUnreadable carries nothing of the read
+ * error: its message can hold storage text, and the feature boundaries log and notify with what they are thrown.
  */
-export type EntryConnectionRefusal = "noEntry" | "secretsMismatched";
+export type EntryConnectionRefusal = "noEntry" | "secretsMismatched" | "secretsUnreadable";
 
 export type EntryConnectionResolution =
 	| { readonly kind: "resolved"; readonly entry: DeclaredServer; readonly connection: UsageConnection }
@@ -33,7 +35,13 @@ export async function entryConnectionFor(
 	if (found === undefined) {
 		return { kind: "noEntry" };
 	}
-	const owned = resolveOwnedSecrets(found.entry, await readServerSecretsRecord(secrets, label));
+	let record: StoredSecretsRecord;
+	try {
+		record = await readServerSecretsRecord(secrets, label);
+	} catch {
+		return { kind: "secretsUnreadable" };
+	}
+	const owned = resolveOwnedSecrets(found.entry, record);
 	if (owned.refused.length > 0) {
 		return { kind: "secretsMismatched" };
 	}

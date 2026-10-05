@@ -39,5 +39,15 @@ export function configuredServerUnavailable(
 				`The ${featureEnglishName(feature)} model setting names server "${serverLabel}", but a stored secret for that entry was saved for a different server address. Set the secret again (edit the server in the dashboard, or run LiteLLM: Set Server Secret), or remove the stored value.`,
 				`${featureLogSurface(feature)}(stored secrets stamped for another destination)`
 			);
+		case "secretsUnreadable":
+			return localizedError(
+				l10n.t(
+					'The {0} model setting names server "{1}", but reading its stored secrets failed. Try again.',
+					featureDisplayName(feature, "sentence"),
+					serverLabel
+				),
+				`The ${featureEnglishName(feature)} model setting names server "${serverLabel}", but reading its stored secrets failed. Try again.`,
+				`${featureLogSurface(feature)}(stored secrets unreadable)`
+			);
 	}
 }
