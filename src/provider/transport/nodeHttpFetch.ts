@@ -18,8 +18,11 @@ export type TransportFetch = (url: string | URL, init?: RequestInit) => Promise<
 const MAX_REDIRECTS = 20;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const NULL_BODY_STATUSES = new Set([204, 205, 304]);
-/** Never carried across an origin change: the three fetch strips, plus x-api-key, this extension's own auth carrier. */
-const CREDENTIAL_HEADERS = ["authorization", "proxy-authorization", "cookie", "x-api-key"];
+/**
+ * The only request headers carried across an origin change: every other one may be a credential the entry configured
+ * under any name, and the new origin was never meant to see it.
+ */
+const CROSS_ORIGIN_HEADERS = new Set(["content-type", "accept", "accept-encoding", "user-agent", "content-length"]);
 /** Dropped when a redirect turns the request into a bodiless GET, as the fetch spec lists them. */
 const BODY_HEADERS = ["content-type", "content-length", "content-encoding", "content-language", "content-location"];
 /**
@@ -283,8 +286,10 @@ export async function nodeHttpFetch(input: string | URL, init: RequestInit = {})
 			}
 		}
 		if (next.origin !== url.origin) {
-			for (const name of CREDENTIAL_HEADERS) {
-				headers.delete(name);
+			for (const name of [...headers.keys()]) {
+				if (!CROSS_ORIGIN_HEADERS.has(name.toLowerCase())) {
+					headers.delete(name);
+				}
 			}
 		}
 		url = next;

@@ -59,7 +59,7 @@ export function readRedesignSnapshot(setting: RedesignSettings): SettingsSnapsho
 
 /**
  * Log lines can accompany a "nothing-to-do" outcome (workspace leftovers, an inert global headers value, a blocked trio
- * merge).
+ * merge, a blocked entry field).
  */
 export async function applySettingsRedesign(setting: RedesignSettings, logger: Logger): Promise<MigrationOutcome> {
 	const snapshot = readRedesignSnapshot(setting);

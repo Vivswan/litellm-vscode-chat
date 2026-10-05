@@ -1,13 +1,15 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
+import type { RecordedError } from "../../../shared/logger";
 import { errorMessageText, Logger, publicErrorStack, publicErrorText } from "../../../shared/logger";
+import { collectKnownSecretValues, KnownSecrets } from "../../../shared/util/knownSecrets";
 import { expectDefined } from "../../pureHelpers";
 
 function makeSinks() {
 	const infoLines: string[] = [];
 	const errorLines: string[] = [];
 	const bufferLines: string[] = [];
-	const recorded: { source: string; error: unknown }[] = [];
+	const recorded: { source: string; error: RecordedError }[] = [];
 	return {
 		infoLines,
 		errorLines,
@@ -19,7 +21,7 @@ function makeSinks() {
 		},
 		recorder: {
 			appendLog: (line: string) => bufferLines.push(line),
-			recordError: (source: string, error: unknown) => recorded.push({ source, error }),
+			recordError: (source: string, error: RecordedError) => recorded.push({ source, error }),
 		},
 	};
 }
@@ -87,7 +89,7 @@ describe("shared/logger", () => {
 		assert.equal(sinks.recorded.length, 1);
 		const recorded = expectDefined(sinks.recorded[0]);
 		assert.equal(recorded.source, "Chat request failed");
-		assert.equal(recorded.error, err);
+		assert.deepStrictEqual(recorded.error, { message: "boom", stack: err.stack });
 	});
 
 	test("error appends the stack trace to the channel only", () => {
@@ -265,9 +267,149 @@ describe("shared/logger", () => {
 
 		logger.error("failed", hostile);
 
-		assert.deepStrictEqual(sinks.errorLines, ["failed: [unrenderable value]"]);
-		assert.ok(expectDefined(sinks.bufferLines[0]).endsWith("ERROR: failed: [unrenderable value]"));
-		assert.equal(sinks.recorded.length, 1, "the recorder still gets the raw value");
+		assert.deepStrictEqual(
+			{
+				error: sinks.errorLines,
+				buffer: sinks.bufferLines.map((line) => line.replace(/^\[\d{4}-\d{2}-\d{2}T[^\]]+\]/, "[T]")),
+				recorded: sinks.recorded,
+			},
+			{
+				error: ["failed: [unrenderable value]"],
+				buffer: ["[T] ERROR: failed: [unrenderable value]"],
+				recorded: [{ source: "failed", error: { message: "[unrenderable value]" } }],
+			}
+		);
+	});
+
+	test("a configured credential never leaves the Logger, by URL scrub or by known value", () => {
+		// Group discovery logged { baseUrl: server.baseUrl } and "...at ${server.baseUrl}" raw, and the issue report
+		// renders the recorder's source unredacted, so http://user:pass@host:4000 reached the channel and a public issue.
+		// Each row is a spelling the settings parser lets through; the known values are what the real collector reads
+		// from that entry, and `rendered` is what every surface shows for it.
+		const rows: readonly { baseUrl: string; apiKey?: string; rendered: string }[] = [
+			{ baseUrl: "http://user:pass@host:4000", rendered: "http://host:4000" },
+			{ baseUrl: "http://user:pa ss@host:4000", rendered: "http://host:4000" },
+			{ baseUrl: "http:\\\\user:pass@host:4000", rendered: "http://host:4000" },
+			{ baseUrl: "http:user:pass@host:4000", rendered: "http://host:4000" },
+			{ baseUrl: "http://user:pass a b c d e@host", rendered: "http://host" },
+			{ baseUrl: "http://secret user@host", rendered: "http://host" },
+			// A long path: the authority is short, so the cap on it never refuses the cut.
+			{ baseUrl: `https://u:pw@host/${"a".repeat(8192)}`, rendered: `https://host/${"a".repeat(8192)}` },
+			// A tab inside the scheme, which the parser drops: one run to the scan, cut like any other spelling.
+			{ baseUrl: "ht\ttp:u:pw@host", rendered: "http://host" },
+			{ baseUrl: "ht\ttp:/u:pw@host", rendered: "http://host" },
+			// The parser refuses a "?" inside the password, so the collector reads the text's user and password; once they
+			// are markers the parser reads the spelling, and the cut lands.
+			{ baseUrl: "http://user:pa?ss@host:4000", rendered: "http://host:4000" },
+			// A known value inside the host: the cut is judged on the original text, then the host is redacted.
+			{ baseUrl: "https://u:pw@proxy.dev", apiKey: "dev", rendered: "https://proxy.[redacted]" },
+		];
+		const stamp = (line: string): string => line.replace(/^\[\d{4}-\d{2}-\d{2}T[^\]]+\]/, "[T]");
+		for (const { baseUrl, apiKey, rendered } of rows) {
+			const sinks = makeSinks();
+			const secrets = new KnownSecrets();
+			const entry = { urls: [baseUrl], secrets: apiKey === undefined ? [] : [apiKey], headers: {}, carriers: [] };
+			secrets.set(collectKnownSecretValues([entry], []));
+			const logger = new Logger(sinks.channel, sinks.recorder, secrets);
+			const err = new Error(`connect ECONNREFUSED ${baseUrl}`);
+			err.stack = `Error: connect ECONNREFUSED ${baseUrl}\n    at real (x.ts:1:1)`;
+
+			logger.log("Fetching models for provider group", { baseUrl, silent: true });
+			logger.advisory("MCP server resolved", { uri: baseUrl });
+			logger.error(`Failed to fetch models for provider group at ${baseUrl}`, err);
+
+			const dataLine = `Fetching models for provider group: {\n  "baseUrl": "${rendered}",\n  "silent": true\n}`;
+			const errorLine = `Failed to fetch models for provider group at ${rendered}: connect ECONNREFUSED ${rendered}`;
+			assert.deepStrictEqual(
+				{
+					info: sinks.infoLines,
+					error: sinks.errorLines,
+					buffer: sinks.bufferLines.map(stamp),
+					recorded: sinks.recorded,
+				},
+				{
+					info: [dataLine, `MCP server resolved: {\n  "uri": "${rendered}"\n}`],
+					error: [errorLine, `Stack trace: Error: connect ECONNREFUSED ${rendered}\n    at real (x.ts:1:1)`],
+					buffer: [`[T] ${dataLine}`, `[T] ERROR: ${errorLine}`],
+					recorded: [
+						{
+							source: `Failed to fetch models for provider group at ${rendered}`,
+							error: {
+								message: `connect ECONNREFUSED ${rendered}`,
+								stack: `Error: connect ECONNREFUSED ${rendered}\n    at real (x.ts:1:1)`,
+							},
+						},
+					],
+				},
+				baseUrl
+			);
+		}
+	});
+
+	test("a long configured password inside a 1 MB stack is redacted within the text budget", () => {
+		// A long configured password against a 1 MB stack scanned whole by both sinks took seconds per Logger.error;
+		// the budget cuts the stack before redaction.
+		const sinks = makeSinks();
+		const secrets = new KnownSecrets();
+		const password = `${"ab".repeat(4000)}a`;
+		secrets.set([password]);
+		const logger = new Logger(sinks.channel, sinks.recorder, secrets);
+		const err = new Error("boom");
+		err.stack = `Error: boom\n${`    at frame (https://u:${password}@host.test/x.ts:1:1)\n`.repeat(130)}`;
+		assert.ok((err.stack?.length ?? 0) > 1_000_000, "the fixture stack is over 1 MB");
+
+		const started = performance.now();
+		logger.error("Failed", err);
+		const elapsed = performance.now() - started;
+
+		const everything = [...sinks.errorLines, ...sinks.bufferLines, JSON.stringify(sinks.recorded)].join("\n");
+		const stackLine = sinks.errorLines[1] ?? "";
+		// The budget (65536) falls inside one frame of the channel's "Stack trace: " line; the cut runs to the end of
+		// that frame's authority when it lands inside the URL, else exactly at the budget.
+		const line = `Stack trace: ${err.stack}`;
+		const frame = `    at frame (https://u:${password}@host.test/x.ts:1:1)\n`;
+		const framesStart = "Stack trace: Error: boom\n".length;
+		const frameStart = framesStart + Math.floor((65_536 - framesStart) / frame.length) * frame.length;
+		const urlStart = frameStart + "    at frame (".length;
+		const authorityEnd = urlStart + `https://u:${password}@host.test`.length;
+		const cutEnd = 65_536 >= urlStart && 65_536 < authorityEnd ? authorityEnd : 65_536;
+		assert.deepStrictEqual(
+			{
+				leaked: everything.includes("abab"),
+				errorLine: sinks.errorLines[0],
+				stackLineStart: stackLine.startsWith("Stack trace: Error: boom\n    at frame (https://host.test/x.ts:1:1)\n"),
+				stackLineUnderBudget: stackLine.length < 70_000,
+				stackLineEnd: stackLine.slice(stackLine.lastIndexOf(" [")),
+				recorded: sinks.recorded.length,
+			},
+			{
+				leaked: false,
+				errorLine: "Failed: boom",
+				stackLineStart: true,
+				stackLineUnderBudget: true,
+				stackLineEnd: ` [${line.length - cutEnd} more characters cut]`,
+				recorded: 1,
+			}
+		);
+		assert.ok(elapsed < 1000, `one Logger.error took ${elapsed.toFixed(0)} ms`);
+	});
+
+	test("a known secret value is redacted in every form a line can carry it, keys of log data included", () => {
+		// A 403 body quoting the key, a record keyed by a credential, and the parser's percent-encoding are shapes no
+		// URL scrub reaches; the configured value is the only handle.
+		const sinks = makeSinks();
+		const secrets = new KnownSecrets();
+		secrets.set(["sk-live-Q7", "pa ss"]);
+		const logger = new Logger(sinks.channel, sinks.recorder, secrets);
+
+		logger.log("Capability lint", {
+			"sk-live-Q7": true,
+			note: "GET http://user:pa%20ss@host/ answered 403 for key sk-live-Q7",
+		});
+
+		assert.deepStrictEqual(sinks.infoLines, [
+			'Capability lint: {\n  "[redacted]": true,\n  "note": "GET http://host/ answered 403 for key [redacted]"\n}',
+		]);
 	});
 });
 

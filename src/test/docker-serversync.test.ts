@@ -626,12 +626,12 @@ suite("Docker server sync", () => {
 		assert.strictEqual(status.expected, true, "the failure carries the expected tag");
 		assert.strictEqual(status.declaredModelCount, 1, "the declared model rides the error status");
 
-		// Info-level logging: the model/info fallback line and the boundary classification both carry the expected
-		// marker. Polled, since the sweep emits them asynchronously.
+		// Info-level logging: the model/info fallback line carries `expected: true` and the boundary classification its
+		// (expected: modelListing) note. Polled, since the sweep emits them asynchronously.
 		await waitUntil("the expected-failure classifications to appear in the logs", 30000, async () => {
 			const logs = await sessionLogLines();
 			return (
-				logs.some((line) => line.includes("(expected: modelInfo)")) &&
+				/model\/info failed; falling back to the models listing: \{[^}]*"expected": true/.test(logs.join("\n")) &&
 				logs.some((line) => line.includes("Model discovery failed (expected: modelListing) for provider group"))
 			);
 		});

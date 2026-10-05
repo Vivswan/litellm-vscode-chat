@@ -4,16 +4,16 @@ import { APIConnectionError } from "openai";
 import { consumedFieldsOfKind } from "../../shared/config/capabilityResolution";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
-import { classificationOf, errorMessageText } from "../../shared/logger";
 import type { NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { isNonChatMode } from "../../shared/serverEntry";
 import { displayUrl } from "../../shared/util/displayUrl";
-import { collapseWhitespace } from "../../shared/util/errorText";
 import { isRecord, recordFromKeys } from "../../shared/util/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
 import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
 import { mapSdkError, RequestError, timeoutRequestError } from "../transport/errorMapping";
 import { retryIdempotent } from "../transport/retry";
+import type { DiscoveryLog } from "./discoveryLog";
+import { discoveryLineWriter, failureKindOf, parseWire } from "./discoveryLog";
 import { collapseTokenConstraints, reportedLimits } from "./modelCatalog";
 import { reasoningEffortLevelsFromFlags } from "./modelConfiguration";
 import type {
@@ -26,6 +26,7 @@ import type {
 	RawModelItem,
 } from "./schemas";
 import {
+	dataEnvelopeSchema,
 	isLongContextCostField,
 	LONG_CONTEXT_COST_FIELDS,
 	LONG_CONTEXT_COST_PREFIX,
@@ -50,10 +51,6 @@ export function isLiteLLMModelItem(value: unknown): value is RawModelItem {
 export function parseModelInfoItem(value: unknown): LiteLLMModelInfoItem | undefined {
 	const parsed = rawModelInfoItemSchema.safeParse(value);
 	return parsed.success ? parsed.data : undefined;
-}
-
-function isProviderEntry(value: unknown): value is LiteLLMProvider {
-	return providerEntrySchema.safeParse(value).success;
 }
 
 const COST_FIELDS = consumedFieldsOfKind("cost");
@@ -116,10 +113,14 @@ function longContextCostsOf(record: Record<string, unknown>): (field: LongContex
 }
 
 /** Exported so tests can drive the same /v1/models normalization path production uses. */
-export function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["log"]): LiteLLMModelItem {
+export function normalizeModelItem(raw: RawModelItem, log: DiscoveryLog): LiteLLMModelItem {
 	const providers: LiteLLMProvider[] = [];
-	for (const entry of raw.providers ?? []) {
-		if (isProviderEntry(entry)) {
+	for (const [index, wire] of (raw.providers ?? []).entries()) {
+		const provider = parseWire(providerEntrySchema, wire);
+		if (provider.success) {
+			// providerEntrySchema checks `provider` alone; the other LiteLLMProvider fields are wire pass-throughs read on
+			// the same trust basis as the rest of the entry.
+			const entry = wire as LiteLLMProvider;
 			// Pass-through entries keep their raw keys.
 			//   the internal `output_limit_source` marker -> is cleared so a wire entry cannot forge it
 			//   the four token limits                     -> are narrowed to positive numbers (numeric strings parse,
@@ -138,7 +139,7 @@ export function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["l
 				...serverCostsOf(entry),
 			});
 		} else {
-			log("Skipping malformed provider entry", { modelId: raw.id, entry: truncateForLog(entry) });
+			log("Skipping malformed provider entry", { index, rejection: provider.rejection });
 		}
 	}
 	const [first, ...rest] = providers;
@@ -149,14 +150,6 @@ export function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["l
 		// registration actually consumes it.
 		architecture: raw.architecture as LiteLLMArchitecture | undefined,
 	};
-}
-
-function truncateForLog(value: unknown): string {
-	try {
-		return JSON.stringify(value)?.slice(0, 300) ?? String(value);
-	} catch {
-		return String(value);
-	}
 }
 
 export interface MappedModelInfo {
@@ -302,8 +295,8 @@ export interface FetchModelsResult {
 }
 
 /**
- * Per endpoint: an expected endpoint gets exactly one attempt, and the nonfatal /model/info fallback log carries the
- * "(expected)" classification. Only a /models failure aborts discovery, expected or not.
+ * Per endpoint: an expected endpoint gets exactly one attempt, and the nonfatal /model/info fallback log carries
+ * `expected: true`. Only a /models failure aborts discovery, expected or not.
  */
 export interface ExpectedDiscoveryFailures {
 	readonly modelInfo: boolean;
@@ -315,9 +308,9 @@ export interface FetchModelsRequest {
 	client: OpenAI;
 	baseUrl: string;
 	/**
-	 * The entry's apiVersion override the client was built with, so the logged endpoint URLs match the client's real
-	 * API root; "" and undefined follow apiRootOf's rules. Required so a caller cannot build the client on an
-	 * overridden root and silently log the auto one.
+	 * The entry's apiVersion override the client was built with, so the endpoint URLs in discovery errors match the
+	 * client's real API root; "" and undefined follow apiRootOf's rules. Required so a caller cannot build the client
+	 * on an overridden root and silently report the auto one.
 	 */
 	apiVersion: string | undefined;
 	/** Pre-validated by settings.getDiscoveryTimeout(); used as-is. */
@@ -334,24 +327,20 @@ export interface FetchModelsRequest {
 	entryLabel?: string | undefined;
 	/** Per-request headers resolved by the caller, e.g. a freshly exchanged OAuth bearer token. */
 	headers?: Record<string, string>;
+	/** Receives only what discoveryLineWriter lets through. */
 	log: (message: string, data?: unknown) => void;
-}
-
-function extractDataArray(parsed: unknown): unknown[] {
-	return isRecord(parsed) && Array.isArray(parsed.data) ? parsed.data : [];
 }
 
 /** The /v1/models fallback rethrow keys on it rather than matching message text. */
 const UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION = "RequestError(http, unparseable models response body)";
 
-/** Cap on the parser reason quoted in the user-facing detail line; the full error stays on the cause. */
-const UNPARSEABLE_REASON_MAX_LENGTH = 100;
+/** V8 quotes the body around the failure in its message, and a body can spell a position, so only the name travels. */
+function parseFailureText(error: unknown): string {
+	return error instanceof SyntaxError ? "SyntaxError" : "parse error";
+}
 
-function unparseableModelsResponse(endpointUrl: string, reason: string, cause: unknown): RequestError {
-	const detail = `Unparseable response from ${displayUrl(endpointUrl)}: ${collapseWhitespace(reason).slice(
-		0,
-		UNPARSEABLE_REASON_MAX_LENGTH
-	)}`;
+function unparseableModelsResponse(endpointUrl: string, cause: unknown): RequestError {
+	const detail = `Unparseable response from ${displayUrl(endpointUrl)}: ${parseFailureText(cause)}`;
 	return new RequestError(
 		`${l10n.t(
 			"The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2; LiteLLM's default port is 4000."
@@ -373,7 +362,7 @@ function parseJsonBody(text: string, endpointUrl: string): unknown {
 	try {
 		return JSON.parse(text);
 	} catch (error) {
-		throw unparseableModelsResponse(endpointUrl, errorMessageText(error), error);
+		throw unparseableModelsResponse(endpointUrl, error);
 	}
 }
 
@@ -592,7 +581,7 @@ const OBSERVED_MODEL_INFO_KEY_MAX_LENGTH = 128;
  */
 function narrowModelInfoData(
 	data: unknown[],
-	log: FetchModelsRequest["log"],
+	log: DiscoveryLog,
 	includeModes: readonly NonChatMode[] = []
 ): NarrowedModelInfoData {
 	let usableEntryCount = 0;
@@ -619,7 +608,7 @@ function narrowModelInfoData(
 		| { kind: "model"; model: LiteLLMModelItem };
 	const slots: Slot[] = [];
 	const deploymentsById = new Map<string, [MappedModelInfo, ...MappedModelInfo[]]>();
-	for (const entry of data) {
+	for (const [index, entry] of data.entries()) {
 		// Raw keys, before any parsing: the union covers every entry that carries a model_info object on the wire,
 		// malformed and listing-shaped entries included, because the keys were observed either way.
 		if (isRecord(entry) && isRecord(entry.model_info)) {
@@ -629,11 +618,12 @@ function narrowModelInfoData(
 				}
 			}
 		}
-		const parsed = parseModelInfoItem(entry);
-		if (parsed !== undefined) {
+		const info = parseWire(rawModelInfoItemSchema, entry);
+		if (info.success) {
+			const parsed = info.data;
 			usableEntryCount += 1;
 			if (parsed.model_info?.blocked === true) {
-				log("Skipping blocked model/info entry");
+				log("Skipping blocked model/info entry", { index });
 				continue;
 			}
 			if (dropsByMode(parsed.model_info?.mode)) {
@@ -650,22 +640,27 @@ function narrowModelInfoData(
 			}
 			continue;
 		}
-		if (isLiteLLMModelItem(entry)) {
+		const listing = parseWire(rawModelItemSchema, entry);
+		if (listing.success) {
 			usableEntryCount += 1;
 			// The same two judgments as the rich shape, in the same order: a paused deployment is blocked, never a
 			// skipped mode and never admitted.
-			const modelInfo = isRecord(entry.model_info) ? entry.model_info : undefined;
+			const modelInfo = isRecord(listing.data.model_info) ? listing.data.model_info : undefined;
 			if (modelInfo?.blocked === true) {
-				log("Skipping blocked model/info entry");
+				log("Skipping blocked model/info entry", { index });
 				continue;
 			}
 			if (dropsByMode(modelInfo?.mode)) {
 				continue;
 			}
-			slots.push({ kind: "model", model: normalizeModelItem(entry, log) });
+			slots.push({ kind: "model", model: normalizeModelItem(listing.data, log) });
 			continue;
 		}
-		log("Skipping malformed model/info entry", { entry: truncateForLog(entry) });
+		log("Skipping malformed model/info entry", {
+			index,
+			modelInfo: info.rejection,
+			listing: listing.rejection,
+		});
 	}
 	const models = slots.map((slot) =>
 		slot.kind === "deployments" ? toModelItem(mergeModelDeployments(slot.group)) : slot.model
@@ -678,9 +673,10 @@ function narrowModelInfoData(
 }
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
-	const { client, baseUrl, apiVersion, discoveryTimeout, expected, includeModes, entryLabel, headers, log } = request;
+	const { client, baseUrl, apiVersion, discoveryTimeout, expected, includeModes, entryLabel, headers } = request;
+	const log = discoveryLineWriter(request.log);
 
-	log("Fetching from:", modelInfoUrl(baseUrl, apiVersion));
+	log("Fetching models", { endpoint: MODEL_INFO_PATH });
 
 	// What the model-info probe did, for the same-pass verdicts: the /models success return and the /models failure
 	// refinement both read it.
@@ -696,9 +692,10 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		});
 		// An unparseable body throws above and proves nothing about endpoint support.
 		modelInfo.answered = true;
-		if (isRecord(parsedInfo) && Array.isArray(parsedInfo.data)) {
-			const data: unknown[] = parsedInfo.data;
-			log("Parsed model/info response:", { modelCount: data.length });
+		const infoEnvelope = parseWire(dataEnvelopeSchema, parsedInfo);
+		if (infoEnvelope.success) {
+			const data: unknown[] = infoEnvelope.data.data;
+			log("Parsed model/info response", { modelCount: data.length });
 
 			const { models, usableEntryCount, observedModelInfoKeys, skippedModeCounts } = narrowModelInfoData(
 				data,
@@ -706,16 +703,13 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 				includeModes
 			);
 			if (data.length > 0 && usableEntryCount === 0) {
-				log("model/info returned data but no usable models; falling back", {
-					dataLength: data.length,
-					firstEntry: truncateForLog(data[0]),
-				});
+				log("model/info returned data but no usable models; falling back", { dataLength: data.length });
 			} else {
-				log("Successfully fetched models:", models.length);
+				log("Successfully fetched models", { modelCount: models.length });
 				return { models, observedModelInfoKeys, skippedModeCounts };
 			}
 		} else {
-			log("model/info response has no data array; falling back", { payload: truncateForLog(parsedInfo) });
+			log("model/info response has no data array; falling back", { rejection: infoEnvelope.rejection });
 		}
 	} catch (error) {
 		// Response-derived text can echo credentials into the issue-report buffer, so the log carries only the
@@ -725,18 +719,13 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		// The signal firing IS the timeout evidence even when the mapped error is not classified as one
 		// (AbortSignal.timeout's TimeoutError maps to the unhandled tail).
 		modelInfo.evidence = infoSignal.aborted ? { kind: "timeout" } : unservedEvidenceOf(mapped);
-		const expectedNote = expected?.modelInfo === true ? " (expected: modelInfo)" : "";
-		// The `error` field prefers the classification: it names the failure shape where the class name would not, and
-		// it is never message text.
-		log(`model/info failed, falling back to ${modelsUrl(baseUrl, apiVersion)}${expectedNote}`, {
-			error: classificationOf(mapped) ?? mapped.name,
-			...(mapped instanceof RequestError
-				? { kind: mapped.kind, ...(mapped.status !== undefined ? { status: mapped.status } : {}) }
-				: {}),
+		log("model/info failed; falling back to the models listing", {
+			expected: expected?.modelInfo === true,
+			...failureKindOf(mapped),
 		});
 	}
 
-	log("Fetching from:", modelsUrl(baseUrl, apiVersion));
+	log("Fetching models", { endpoint: MODELS_PATH });
 	const timeoutSignal = AbortSignal.timeout(discoveryTimeout);
 	const errorContext = { surface: "discovery" as const, baseUrl, timeoutMs: discoveryTimeout };
 	const failureContext: ModelsFailureContext = {
@@ -764,18 +753,20 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		}
 		throw refineModelsListingFailure(mapSdkError(error, errorContext), failureContext);
 	}
-	const data = extractDataArray(parsed);
-	log("Parsed response:", { modelCount: data.length });
+	const listingEnvelope = parseWire(dataEnvelopeSchema, parsed);
+	const data = listingEnvelope.success ? listingEnvelope.data.data : [];
+	log("Parsed models listing", { modelCount: data.length });
 
 	const models: LiteLLMModelItem[] = [];
-	for (const entry of data) {
-		if (isLiteLLMModelItem(entry)) {
-			models.push(normalizeModelItem(entry, log));
+	for (const [index, entry] of data.entries()) {
+		const item = parseWire(rawModelItemSchema, entry);
+		if (item.success) {
+			models.push(normalizeModelItem(item.data, log));
 		} else {
-			log("Skipping malformed models entry", { entry: truncateForLog(entry) });
+			log("Skipping malformed models entry", { index, rejection: item.rejection });
 		}
 	}
-	log("Successfully fetched models:", models.length);
+	log("Successfully fetched models", { modelCount: models.length });
 	return {
 		models,
 		// See FetchModelsResult.modelInfoUnsupported: a declared-expected probe failure is already handled and gets no

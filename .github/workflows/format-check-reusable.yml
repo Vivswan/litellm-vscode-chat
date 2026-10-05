@@ -64,6 +64,10 @@ jobs:
         # The same script .husky/pre-commit runs, so a local green predicts this gate.
         run: bun scripts/ci/check-vscode-types.ts
 
+      - name: Output-channel writes outside the Logger must not exist
+        # The same script .husky/pre-commit runs through check:static, so a local green predicts this gate.
+        run: bun scripts/ci/check-output-channel-writes.ts
+
       # The OpenRouter catalog arrives from the openrouter-catalog job of the
       # caller (the run's one live fetch, validated there) rather than from a
       # second fetch here. Judged by the next step so the failure names its
@@ -102,226 +106,16 @@ jobs:
             exit 1
           fi
 
-      # The dev compile puts out/ on disk first, so this proves .vscodeignore
-      # excludes it rather than passing because the files were never built.
-      # logs/ and coverage/ get seeded the same way: the dev launcher and
-      # test:coverage write them locally but nothing in this job does, so
-      # without the seeding their exclusion would never actually be exercised.
-      # The downloaded catalog is the same slimmed file vscode:prepublish's
-      # fetch writes, so with it on disk the listing below checks the exact
-      # file set a release build would package; after the producer reports
-      # catalog=skipped the listing lacks that one file, which the guarded
-      # assertions account for.
+      # The dev compile puts out/ on disk first, so the listing proves .vscodeignore excludes it rather than passing
+      # because the files were never built. With the downloaded catalog on disk the listing is the exact file set a
+      # release build packages; after the producer reported catalog=skipped the script skips that file's assertions.
       - name: Verify the packaged file list stays clean
         env:
           CATALOG_PRESENT: ${{ steps.present.outputs.present }}
         run: |
           bun run compile
           bun run bundle
-          mkdir -p logs coverage
-          touch logs/ci-proof.log coverage/ci-proof.json
-          listing="$(bunx vsce ls)"
-          echo "$listing"
-          # Allowlist, not denylist: the package is a small known file set,
-          # and a denylist only catches leaks someone predicted (the
-          # repo-tooling files it missed shipped in a VSIX before anyone
-          # noticed). Anything new must be added here deliberately, including
-          # new asset types and new localization catalogs. POSIX bracket
-          # expressions treat \w literally, hence the spelled-out class.
-          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE\.md|ThirdPartyNotices\.txt|dist/extension\.js|dist/chunks/[A-Za-z0-9_.-]+\.js|dist/webview/dashboard\.js|dist/webview/dashboard\.css|dist/openrouter-models\.json)$|^assets/.+\.(png|md)$|^package\.nls(\.[A-Za-z0-9_-]+)?\.json$|^l10n/bundle\.l10n(\.[A-Za-z0-9_-]+)?\.json$'
-          if echo "$listing" | grep -Ev "$allowed"; then
-            echo "::error::vsce would package files outside the allowed set (matches above)"
-            exit 1
-          fi
-          if ! echo "$listing" | grep -qx 'dist/extension.js'; then
-            echo "::error::dist/extension.js is missing from the packaged file list"
-            exit 1
-          fi
-          if ! echo "$listing" | grep -qx 'dist/webview/dashboard.js'; then
-            echo "::error::dist/webview/dashboard.js is missing from the packaged file list"
-            exit 1
-          fi
-          if ! echo "$listing" | grep -qx 'dist/webview/dashboard.css'; then
-            echo "::error::dist/webview/dashboard.css is missing from the packaged file list"
-            exit 1
-          fi
-          # The tokenizer rank data must ride the lazy chunks, never the eager
-          # entry: dist/extension.js reaches the encodings only through dynamic
-          # import (scripts/dev/bundle.mts splits them into dist/chunks/). Four
-          # assertions carry the claim jointly. The entry ceiling proves the
-          # ranks did not inline - each encoding's ranks alone are 1-2 MB, and
-          # the production entry weighed about 561,000 bytes when the ceiling
-          # was set (2026-08-13; a dev bundle from the test entry points is
-          # unminified and larger, so compare against a fresh production
-          # `bun run bundle` only, like the webview bounds below). The chunk
-          # floors prove the ranks actually shipped. The shape grep proves the
-          # entry's single reference to each encoding is the deferred
-          # `.then(()=>require(...))` thunk - a top-level require or an
-          # eagerly-evaluated `then(require(...))` both fail, and a bundler
-          # that changes the emitted shape fails closed here rather than
-          # passing unproven. And the all-chunks listing loop proves every
-          # emitted chunk - the eagerly required
-          # rolldown runtime and the shared GptEncoding module included -
-          # survives .vscodeignore into the package; losing the runtime chunk
-          # would fail every activation, losing GptEncoding would silently
-          # degrade every tokenizer load. The activation-side twin (activation
-          # with the default mode loads no rank data) is pinned in
-          # src/test/activation/production.test.ts.
-          extension_size="$(wc -c < dist/extension.js | tr -d ' ')"
-          echo "dist/extension.js: ${extension_size} bytes"
-          if [ "$extension_size" -gt 1200000 ]; then
-            echo "::error::dist/extension.js is ${extension_size} bytes; the tokenizer ranks look inlined into the eager bundle"
-            exit 1
-          fi
-          for chunk in chunks/o200k_base.js chunks/cl100k_base.js; do
-            occurrences="$(grep -oF "$chunk" dist/extension.js | wc -l | tr -d ' ')"
-            if [ "$occurrences" != "1" ]; then
-              echo "::error::dist/extension.js references ${chunk} ${occurrences} times (expected exactly the one lazy edge)"
-              exit 1
-            fi
-            escaped="${chunk//./\\.}"
-            if ! grep -qE "then\(\(\) ?=> ?require\(\"\./${escaped}\"\)\)" dist/extension.js; then
-              echo "::error::dist/extension.js's reference to ${chunk} is not the deferred then(()=>require(...)) thunk"
-              exit 1
-            fi
-          done
-          for chunk in dist/chunks/*.js; do
-            if ! echo "$listing" | grep -qx "$chunk"; then
-              echo "::error::${chunk} is missing from the packaged file list"
-              exit 1
-            fi
-          done
-          o200k_size="$(wc -c < dist/chunks/o200k_base.js | tr -d ' ')"
-          cl100k_size="$(wc -c < dist/chunks/cl100k_base.js | tr -d ' ')"
-          echo "dist/chunks: o200k_base ${o200k_size} bytes, cl100k_base ${cl100k_size} bytes"
-          if [ "$o200k_size" -lt 1500000 ] || [ "$cl100k_size" -lt 700000 ]; then
-            echo "::error::a tokenizer chunk is too small to carry its rank data (o200k ${o200k_size}, cl100k ${cl100k_size})"
-            exit 1
-          fi
-          # The OpenRouter catalog artifact must ship AND carry a real model
-          # set: a size floor alone cannot catch a semantically empty file.
-          # The floor is read from CATALOG_MODEL_COUNT_FLOOR so it cannot
-          # drift from the fetch script's own validation. The three
-          # assertions skip only when the catalog step above accepted the
-          # producer's catalog=skipped report (its warning already names it).
-          if [ "$CATALOG_PRESENT" = "true" ]; then
-            if ! echo "$listing" | grep -qx 'dist/openrouter-models.json'; then
-              echo "::error::dist/openrouter-models.json is missing from the packaged file list"
-              exit 1
-            fi
-            catalog_floor="$(bun -e 'console.log(require("./src/shared/config/openRouterCatalog.ts").CATALOG_MODEL_COUNT_FLOOR)')"
-            catalog_count="$(jq '.data | length // 0' dist/openrouter-models.json)"
-            if ! [[ "$catalog_count" =~ ^[0-9]+$ ]] || [ "$catalog_count" -lt "$catalog_floor" ]; then
-              echo "::error::dist/openrouter-models.json parses to ${catalog_count} models (floor ${catalog_floor})"
-              exit 1
-            fi
-            # The catalog is capabilities-only: pricing never rides it (LiteLLM
-            # is the only pricing source), so a pricing key in the shipped
-            # artifact means the slim encoder regressed or a stale file slipped
-            # into the package.
-            catalog_priced="$(jq '[.data[] | has("pricing")] | any' dist/openrouter-models.json)"
-            if [ "$catalog_priced" != "false" ]; then
-              echo "::error::dist/openrouter-models.json carries pricing keys; the catalog is capabilities-only"
-              exit 1
-            fi
-          else
-            echo "dist/openrouter-models.json absent because the producer reported catalog=skipped; its three assertions did not run"
-          fi
-          # The localization catalogs must ship: without package.nls.json the
-          # host renders raw %key% placeholders, and without the English
-          # bundle vscode.l10n and the webview injection have nothing to read.
-          if ! echo "$listing" | grep -qx 'package.nls.json'; then
-            echo "::error::package.nls.json is missing from the packaged file list"
-            exit 1
-          fi
-          if ! echo "$listing" | grep -qx 'l10n/bundle.l10n.json'; then
-            echo "::error::l10n/bundle.l10n.json is missing from the packaged file list"
-            exit 1
-          fi
-          # The webview suite renders source .tsx, never the bundled output, so
-          # a bundler regression could ship a blank dashboard with every test
-          # green. The real dashboard weighed 487,104 bytes minified when these
-          # bounds were set (2026-08-13, production `bun run bundle`; React 19
-          # inlined - even a blank render carries react-dom). The floor guards
-          # a truncated or empty emit, the CEILING guards the webview graph
-          # against a heavy dependency landing in it (the bundle quadrupled
-          # once when zod rode in; a floor alone waved that through), and the
-          # greps are the content gate: these strings only survive if the real
-          # dashboard components compiled into the bundle. Print the size so a
-          # bounds rebase can read CI's own number from the log. When comparing
-          # locally, measure after a fresh production `bun run bundle`: the
-          # test entry points rebuild dist as an unminified development bundle
-          # (~1.6 MB), which these bounds are not written for.
-          #
-          # Markers are WIRE METHOD NAMES from src/dashboard/endpoints.ts, never
-          # UI copy. A copy marker fails the moment the interface is redesigned,
-          # which is a false red on a healthy bundle: this list once held the
-          # dashboard's visible title, and retiring that heading for the rail
-          # broke the check while nothing about the build was wrong. A method
-          # name breaks only when the protocol breaks, which is the thing worth
-          # detecting. Keep them spread across surfaces (server save, secret
-          # prefill, usage settings) so one dead tree cannot pass the gate.
-          webview_size="$(wc -c < dist/webview/dashboard.js | tr -d ' ')"
-          echo "dist/webview/dashboard.js: ${webview_size} bytes"
-          if [ "$webview_size" -lt 350000 ]; then
-            echo "::error::dist/webview/dashboard.js is only ${webview_size} bytes; the dashboard bundle looks broken"
-            exit 1
-          fi
-          if [ "$webview_size" -gt 700000 ]; then
-            echo "::error::dist/webview/dashboard.js is ${webview_size} bytes; a heavy dependency has landed in the webview graph"
-            exit 1
-          fi
-          for marker in 'setUsageAlertThresholds' 'readInlineSecrets' 'saveServerSetting'; do
-            if ! grep -q "$marker" dist/webview/dashboard.js; then
-              echo "::error::dist/webview/dashboard.js lacks '${marker}'; the dashboard did not compile into the bundle"
-              exit 1
-            fi
-          done
-          # The bundle script's NODE_ENV define decides which React build
-          # ships, and the size check above is a floor, so a development
-          # build would pass it silently. The define must have replaced every
-          # process.env.NODE_ENV read, and React's dev-only warning text must
-          # not survive a production bundle.
-          for banned in 'process.env.NODE_ENV' 'Each child in a list'; do
-            if grep -q "$banned" dist/webview/dashboard.js; then
-              echo "::error::dist/webview/dashboard.js contains '${banned}'; the production bundle looks like a development build"
-              exit 1
-            fi
-          done
-          # The stylesheet is the same kind of test-invisible build output as
-          # the bundle (the webview suite never loads the bundled css either):
-          # the real emit weighed 80,769 bytes when these bounds were set
-          # (2026-08-13, dashboard rules and Tailwind theme block together).
-          # The floor fails a truncated emit or a silently missing bundle leg,
-          # the ceiling catches a runaway emit (a plugin or a scan gone wide),
-          # and the grep pins the theme-token contract - every rule reads the
-          # host's var(--vscode-*) tokens.
-          stylesheet_size="$(wc -c < dist/webview/dashboard.css | tr -d ' ')"
-          echo "dist/webview/dashboard.css: ${stylesheet_size} bytes"
-          if [ "$stylesheet_size" -lt 55000 ]; then
-            echo "::error::dist/webview/dashboard.css is only ${stylesheet_size} bytes; the dashboard stylesheet looks broken"
-            exit 1
-          fi
-          if [ "$stylesheet_size" -gt 120000 ]; then
-            echo "::error::dist/webview/dashboard.css is ${stylesheet_size} bytes; the stylesheet emit has run away"
-            exit 1
-          fi
-          if ! grep -q 'var(--vscode-' dist/webview/dashboard.css; then
-            echo "::error::dist/webview/dashboard.css lacks the host theme tokens; the real stylesheet did not bundle"
-            exit 1
-          fi
-          # The size bounds cannot prove WHICH leg emitted, so the Tailwind
-          # theme block needs its own presence marker: the semantic --primary
-          # token only exists if the Tailwind leg of the bundle ran.
-          if ! grep -q -- '--primary' dist/webview/dashboard.css; then
-            echo "::error::dist/webview/dashboard.css lacks the Tailwind theme block; the Tailwind bundle leg did not run"
-            exit 1
-          fi
-          if ! echo "$listing" | grep -qx 'ThirdPartyNotices.txt'; then
-            echo "::error::ThirdPartyNotices.txt is missing from the packaged file list"
-            exit 1
-          fi
-          echo "Packaged file list is clean ($(echo "$listing" | wc -l | tr -d ' ') files)"
+          bun scripts/ci/check-packaged-files.ts
 
       # No PNGs in git. The dashboard's pixel baselines used to live here as
       # 37 tracked PNGs; they were purged from history, and images that churn

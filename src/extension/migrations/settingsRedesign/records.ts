@@ -184,6 +184,15 @@ export interface ScopedMoveTarget {
 	readonly normalizedBaseUrl: string;
 }
 
+/**
+ * A target with the state of the two slots a scoped key can land in (entries.ts, entrySlotAccepts). A key moves only
+ * when every target at its URL can take it, so one blocked entry keeps the key in place for all of them.
+ */
+export interface ScopedMoveTargetState extends ScopedMoveTarget {
+	readonly acceptsRecords: boolean;
+	readonly acceptsDeclares: boolean;
+}
+
 export interface GlobalRecordTransform {
 	readonly value: unknown;
 	readonly entryAdditions: ReadonlyMap<number, ReadonlyMap<string, unknown>>;
@@ -203,6 +212,7 @@ export interface GlobalRecordTransform {
  *
  *   scoped key no declared entry matches -> kept verbatim
  *                                        -> collectLegacyHints reports it
+ *   scoped key an entry at its URL cannot take -> kept verbatim the same way
  *   unscoped `_declare`                  -> stripped; the old parser diagnosed it as inert
  *   scoped `_declare`                    -> stripped into the owning entries' declared lists; it declared only the
  *                                           key's exact remainder
@@ -210,7 +220,7 @@ export interface GlobalRecordTransform {
 export function transformGlobalRecord(
 	raw: unknown,
 	kind: RecordKind,
-	targets: readonly ScopedMoveTarget[]
+	targets: readonly ScopedMoveTargetState[]
 ): GlobalRecordTransform {
 	if (!isRecord(raw)) {
 		return {
@@ -238,8 +248,23 @@ export function transformGlobalRecord(
 		if (isUrlScopedKey(key)) {
 			// A bare "<baseUrl>" key without a remainder separator never scoped-matched anything under the old rules;
 			// only "<baseUrl>/..." keys are movable readings.
-			const movable = targets.filter((target) => key.startsWith(`${target.normalizedBaseUrl}/`));
-			if (movable.length === 0) {
+			const landings = targets.flatMap((target) => {
+				if (!key.startsWith(`${target.normalizedBaseUrl}/`)) {
+					return [];
+				}
+				const remainder = key.slice(target.normalizedBaseUrl.length + 1);
+				const strip: DeclareStripResult =
+					kind === "capabilities"
+						? stripDeclare(value, isDeclarableKey(remainder))
+						: { value, declared: false, strippedInert: false };
+				return [{ target, remainder, strip }];
+			});
+			// Under the old runtime every entry at the URL read the key, so a partial move would silently drop one
+			// entry's reading.
+			const blocked = landings.some(
+				({ target, strip }) => !target.acceptsRecords || (strip.declared && !target.acceptsDeclares)
+			);
+			if (landings.length === 0 || blocked) {
 				inertScopedKeys += 1;
 				kept.push({ sourceKey: key, newKey: key, value });
 				continue;
@@ -249,21 +274,16 @@ export function transformGlobalRecord(
 			// most once otherwise.
 			let keyDeclared = false;
 			let keyStrippedInert = false;
-			for (const target of movable) {
-				const remainder = key.slice(target.normalizedBaseUrl.length + 1);
-				let carried = value;
-				if (kind === "capabilities") {
-					const strip = stripDeclare(value, isDeclarableKey(remainder));
-					carried = strip.value;
-					if (strip.declared) {
-						keyDeclared = true;
-						const list = entryDeclares.get(target.entryIndex) ?? [];
-						// The parser trims declared IDs, so the move writes the trimmed form.
-						list.push(remainder.trim());
-						entryDeclares.set(target.entryIndex, list);
-					} else if (strip.strippedInert) {
-						keyStrippedInert = true;
-					}
+			for (const { target, remainder, strip } of landings) {
+				let carried = strip.value;
+				if (strip.declared) {
+					keyDeclared = true;
+					const list = entryDeclares.get(target.entryIndex) ?? [];
+					// The parser trims declared IDs, so the move writes the trimmed form.
+					list.push(remainder.trim());
+					entryDeclares.set(target.entryIndex, list);
+				} else if (strip.strippedInert) {
+					keyStrippedInert = true;
 				}
 				if (kind === "parameters") {
 					const normalized = normalizeMigratedForce(carried);

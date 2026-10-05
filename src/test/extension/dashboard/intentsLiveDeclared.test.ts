@@ -335,6 +335,8 @@ const validation =
  *                                join any group
  *   rejected-carrier-inline-key -> L1's rejected shape still carries its key inline; the unstamped group holding that key
  *                                  is L1's leftover, not the user's
+ *   rejected-carrier-flat-key -> L1's rejected shape carries its key at the flat position; the group holding it is
+ *                                L1's leftover
  *   rejected-carrier-stored-and-inline -> L1's rejected shape carries one key inline while another is stored; the group
  *                                         holding the stored one is L1's leftover too
  *   rotated-inline-secret-unstamped -> L1's OAuth token URL changed with its inline client secret kept; the unstamped
@@ -578,6 +580,21 @@ const WINDOWS: Record<string, Scenario> = {
 			fixture.declare([{ label: "L1", baseUrl: H, auth: { apiKey: SECRET, oauth: {} } }]);
 			await engine.syncNow();
 			assert.strictEqual(pushedHandle("native"), undefined, "the group holding L1's inline key is no external row");
+			assert.deepStrictEqual(pushedLegacyRows(), ["L1"]);
+			return { handle: fixture.handleOf("native"), close: async () => {} };
+		},
+	},
+	"rejected-carrier-flat-key": {
+		after: { setting: [{ label: "L1", baseUrl: H, apiKey: SECRET, auth: { oauth: {} } }], secrets: {} },
+		intents: ["adopt", "hide"],
+		adopt: "rejects",
+		refusal: DashboardValidationError,
+		open: async (fixture) => {
+			const { engine, host, pushedHandle, pushedLegacyRows } = fixture;
+			await host.addProviderGroup({ name: "native", vendor: "litellm", baseUrl: H, apiKey: SECRET });
+			fixture.declare([{ label: "L1", baseUrl: H, apiKey: SECRET, auth: { oauth: {} } }]);
+			await engine.syncNow();
+			assert.strictEqual(pushedHandle("native"), undefined, "the group holding L1's flat key is no external row");
 			assert.deepStrictEqual(pushedLegacyRows(), ["L1"]);
 			return { handle: fixture.handleOf("native"), close: async () => {} };
 		},

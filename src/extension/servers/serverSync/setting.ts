@@ -26,12 +26,18 @@ import type {
 	NonSecretOptionalFields,
 	OptionalEntryFieldId,
 	OptionalEntryFields,
-	SecretFieldId,
 } from "../../../shared/serverEntry";
-import { isExpectedFailureCategory, isNonChatMode, NON_SECRET_OPTIONAL_FIELD_IDS } from "../../../shared/serverEntry";
+import {
+	isExpectedFailureCategory,
+	isNonChatMode,
+	NON_SECRET_OPTIONAL_FIELD_IDS,
+	SECRET_FIELD_IDS,
+	SECRET_FIELD_NESTED_PATHS,
+} from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
+import { HEADER_NAME_PATTERN, isHeaderScalar } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
+import type { CollectableEntry } from "../../../shared/util/knownSecrets";
 import { sameGroupIdentity } from "../groupRemovals";
 
 export type EntryModelParameters = EntryViewFieldValues["modelParameters"];
@@ -153,16 +159,14 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 
 	if (hasOAuth) {
 		const oauthProblems = parseOAuthForm(raw.oauth, fields);
-		return oauthProblems.length > 0 ? { problems: oauthProblems } : { fields };
+		if (oauthProblems.length > 0) {
+			return { problems: oauthProblems };
+		}
+		assignNestedSecrets(raw, fields);
+		return { fields };
 	}
-	if (hasApiKey) {
-		if (typeof raw.apiKey !== "string") {
-			return { problems: ["has an auth.apiKey that is not a string"] };
-		}
-		const apiKey = usableString(raw.apiKey);
-		if (apiKey !== undefined) {
-			fields.apiKey = apiKey;
-		}
+	if (hasApiKey && typeof raw.apiKey !== "string") {
+		return { problems: ["has an auth.apiKey that is not a string"] };
 	}
 	if (hasVirtualKey) {
 		// Alone it is the virtualKey form; beside apiKey it is that form's companion. The flat fields are identical -
@@ -173,7 +177,76 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 		}
 		Object.assign(fields, virtualKey.fields);
 	}
+	assignNestedSecrets(raw, fields);
 	return { fields };
+}
+
+function valueAt(root: unknown, path: readonly string[]): unknown {
+	let node = root;
+	for (const segment of path) {
+		node = isRecord(node) ? node[segment] : undefined;
+	}
+	return node;
+}
+
+/** The secret values at the table's nested positions (SECRET_FIELD_NESTED_PATHS), usable text only. */
+function assignNestedSecrets(auth: Readonly<Record<string, unknown>>, fields: FlatAuthFields): void {
+	for (const field of SECRET_FIELD_IDS) {
+		for (const path of SECRET_FIELD_NESTED_PATHS[field]) {
+			// The first segment is "auth", the object in hand.
+			const value = usableString(valueAt(auth, path.slice(1)));
+			if (value !== undefined) {
+				fields[field] = value;
+			}
+		}
+	}
+}
+
+/**
+ * The collectable view of EVERY raw record, over-inclusive by design: every string at every secret position is a
+ * value, the one the parser selects and the ones it passes over, in an entry it accepts or rejects (an auth conflict,
+ * a bad URL), since a line can quote any of them. SECRET_FIELD_NESTED_PATHS stays the one table of the positions.
+ *   URL fields    -> baseUrl, the flat and the nested token URL, mcp.url
+ *   secret values -> every flat secret field and every nested position of the table
+ *   headers       -> every raw header entry with a scalar value, the normalizer's rejections included
+ *   carriers      -> the flat virtualKeyHeader and the header beside each nested virtual-key value
+ */
+export function collectableEntries(raw: unknown): CollectableEntry[] {
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+	const strings = (values: readonly unknown[]): string[] =>
+		values.map(usableString).filter((value): value is string => value !== undefined);
+	return raw.filter(isRecord).map((record) => {
+		// A null prototype: a raw header named "__proto__" must become an own entry, not reach the inherited setter.
+		const headers: Record<string, string> = Object.create(null);
+		if (isRecord(record.headers)) {
+			for (const [name, value] of Object.entries(record.headers)) {
+				if (isHeaderScalar(value)) {
+					headers[name] = String(value);
+				}
+			}
+		}
+		return {
+			urls: strings([
+				record.baseUrl,
+				record.oauthTokenUrl,
+				valueAt(record, ["auth", "oauth", "tokenUrl"]),
+				valueAt(record, ["mcp", "url"]),
+			]),
+			secrets: strings(
+				SECRET_FIELD_IDS.flatMap((id) => [
+					record[id],
+					...SECRET_FIELD_NESTED_PATHS[id].map((path) => valueAt(record, path)),
+				])
+			),
+			headers,
+			carriers: strings([
+				record.virtualKeyHeader,
+				...SECRET_FIELD_NESTED_PATHS.virtualKeyValue.map((path) => valueAt(record, [...path.slice(0, -1), "header"])),
+			]),
+		};
+	});
 }
 
 function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
@@ -214,18 +287,11 @@ function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
 	}
 	fields.oauthTokenUrl = tokenUrl;
 	fields.oauthClientId = clientId;
-	const clientSecret = usableString(raw.clientSecret);
-	if (clientSecret !== undefined) {
-		fields.oauthClientSecret = clientSecret;
-	}
 	const scopes = usableString(raw.scopes);
 	if (scopes !== undefined) {
 		fields.oauthScopes = scopes;
 	}
-	const companionApiKey = usableString(raw.apiKey);
-	if (companionApiKey !== undefined) {
-		fields.apiKey = companionApiKey;
-	}
+	// The secret values (clientSecret, the companion apiKey) are assigned from the table by the caller.
 	return [];
 }
 
@@ -256,12 +322,8 @@ function parseVirtualKeyObject(raw: unknown, path: string): { fields: FlatAuthFi
 	if (problems.length > 0 || header === undefined) {
 		return { problems };
 	}
-	const fields: FlatAuthFields = { virtualKeyHeader: header };
-	const value = usableString(raw.value);
-	if (value !== undefined) {
-		fields.virtualKeyValue = value;
-	}
-	return { fields };
+	// The value is assigned from the table by the caller.
+	return { fields: { virtualKeyHeader: header } };
 }
 
 export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; problems: string[] } {
@@ -306,48 +368,30 @@ export function rejectedCarrierLabels(entryReports: readonly ServerEntryReport[]
 
 /**
  * The secret values a rejected carrier still carries inline, by label: the parser refused the entry whole, but the
- * values sit in the setting, so a group holding one is the label's leftover like a stored value makes it (the
- * group ownership's holder evidence). Read at the auth grammar's paths, strings only; a shape the grammar never
- * accepts carries nothing here.
+ * values sit in the setting, so a group holding one is the label's leftover like a stored value makes it (the group
+ * ownership's holder evidence). Read at every flat secret field and every nested position of the one table the
+ * parser assigns through (SECRET_FIELD_NESTED_PATHS), like collectableEntries.
  */
 export function rejectedCarrierInlineSecrets(
 	raw: unknown,
 	entryReports: readonly ServerEntryReport[]
-): ReadonlyMap<string, Readonly<Partial<Record<SecretFieldId, string>>>> {
-	const inline = new Map<string, Readonly<Partial<Record<SecretFieldId, string>>>>();
+): ReadonlyMap<string, readonly string[]> {
+	const inline = new Map<string, readonly string[]>();
 	if (!Array.isArray(raw)) {
 		return inline;
 	}
-	const stringAt = (value: unknown, path: readonly string[]): string | undefined => {
-		let cursor: unknown = value;
-		for (const key of path) {
-			if (!isRecord(cursor)) {
-				return undefined;
-			}
-			cursor = cursor[key];
-		}
-		return typeof cursor === "string" && cursor.length > 0 ? cursor : undefined;
-	};
 	for (const report of entryReports) {
-		if (report.accepted || report.label === undefined) {
+		const record = raw[report.index];
+		if (report.accepted || report.label === undefined || !isRecord(record)) {
 			continue;
 		}
-		const auth = isRecord(raw[report.index]) ? (raw[report.index] as Record<string, unknown>).auth : undefined;
-		const values: { -readonly [K in SecretFieldId]?: string } = {};
-		const apiKey = stringAt(auth, ["apiKey"]) ?? stringAt(auth, ["oauth", "apiKey"]);
-		const oauthClientSecret = stringAt(auth, ["oauth", "clientSecret"]);
-		const virtualKeyValue = stringAt(auth, ["virtualKey", "value"]) ?? stringAt(auth, ["oauth", "virtualKey", "value"]);
-		if (apiKey !== undefined) {
-			values.apiKey = apiKey;
-		}
-		if (oauthClientSecret !== undefined) {
-			values.oauthClientSecret = oauthClientSecret;
-		}
-		if (virtualKeyValue !== undefined) {
-			values.virtualKeyValue = virtualKeyValue;
-		}
-		if (Object.keys(values).length > 0) {
-			inline.set(report.label, { ...(inline.get(report.label) ?? {}), ...values });
+		const values = SECRET_FIELD_IDS.flatMap((id) =>
+			[record[id], ...SECRET_FIELD_NESTED_PATHS[id].map((path) => valueAt(record, path))]
+				.map(usableString)
+				.filter((value): value is string => value !== undefined)
+		);
+		if (values.length > 0) {
+			inline.set(report.label, [...new Set([...(inline.get(report.label) ?? []), ...values])]);
 		}
 	}
 	return inline;

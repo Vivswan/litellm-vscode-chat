@@ -42,7 +42,7 @@ export interface TransportErrorClassification {
 	readonly unsupportedEndpoint?: "modelListing" | undefined;
 }
 
-function isTransportErrorKind(value: unknown): value is TransportErrorKind {
+export function isTransportErrorKind(value: unknown): value is TransportErrorKind {
 	return (TRANSPORT_ERROR_KINDS as readonly unknown[]).includes(value);
 }
 

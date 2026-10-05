@@ -256,13 +256,10 @@ const SETTING_UNSTABLE_MESSAGE =
 	"The servers setting or its stored secrets changed on every read while identities were being resolved; retry";
 
 /** Every non-empty value a label's stored record and its inline fields carry, each once. */
-function secretValuesOf(
-	record: StoredSecretsRecord | undefined,
-	inline: Readonly<Partial<Record<SecretFieldId, string>>> | undefined
-): string[] {
+function secretValuesOf(record: StoredSecretsRecord | undefined, inline: readonly string[]): string[] {
 	return [
 		...new Set(
-			[...Object.values(record?.values ?? {}), ...Object.values(inline ?? {})].filter(
+			[...Object.values(record?.values ?? {}), ...inline].filter(
 				(value): value is string => typeof value === "string" && value.length > 0
 			)
 		),
@@ -546,7 +543,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 		for (const entry of parseServersSetting(setting).entries) {
 			const record = await this.env.readSecrets(entry.label);
 			records.set(entry.label, record);
-			secretValues.set(entry.label, secretValuesOf(record, inlineSecretValues(entry)));
+			secretValues.set(entry.label, secretValuesOf(record, Object.values(inlineSecretValues(entry))));
 			entries.push({ entry, stored: resolveOwnedSecrets(entry, record).values });
 		}
 		const reports = serverSettingReports(setting);
@@ -555,7 +552,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 		for (const label of carriers) {
 			const record = records.get(label) ?? (await this.env.readSecrets(label));
 			secretValues.set(label, [
-				...new Set([...(secretValues.get(label) ?? []), ...secretValuesOf(record, inline.get(label))]),
+				...new Set([...(secretValues.get(label) ?? []), ...secretValuesOf(record, inline.get(label) ?? [])]),
 			]);
 		}
 		return { setting, entries, carriers, secretValues };
@@ -803,7 +800,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// value stamped for a different destination must never enter the args this pass could submit.
 				const record = await this.env.readSecrets(entry.label);
 				records.set(entry.label, record);
-				secretValues.set(entry.label, secretValuesOf(record, inlineSecretValues(entry)));
+				secretValues.set(entry.label, secretValuesOf(record, Object.values(inlineSecretValues(entry))));
 				const owned = resolveOwnedSecrets(entry, record);
 				stored = owned.values;
 				refusedFields = owned.refused;
@@ -962,7 +959,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 			try {
 				const record = records.get(label) ?? (await this.env.readSecrets(label));
 				secretValues.set(label, [
-					...new Set([...(secretValues.get(label) ?? []), ...secretValuesOf(record, carrierInline.get(label))]),
+					...new Set([...(secretValues.get(label) ?? []), ...secretValuesOf(record, carrierInline.get(label) ?? [])]),
 				]);
 			} catch (error) {
 				carrySecretValues(label);

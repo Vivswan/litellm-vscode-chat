@@ -48,48 +48,11 @@ jobs:
         run: bun scripts/ci/sync-vscode-floor.ts
       - name: Commit and push the floor bump
         id: push
-        shell: bash
         env:
           TOKEN: ${{ secrets.REPO_PLATFORM_TOKEN || github.token }}
           CAN_RETRIGGER: ${{ secrets.REPO_PLATFORM_TOKEN != '' }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          if git diff --quiet; then
-            echo "floor already in sync"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Only the files the floor-sync script owns, so a stray runner
-          # edit can never ride along.
-          git add -u -- package.json README.md README.zh-cn.md README.zh-tw.md docs
-          # [dependabot skip] keeps Dependabot rebasing and updating the
-          # PR over this commit.
-          git commit -m "build: raise engines.vscode to match @types/vscode" -m "[dependabot skip]"
-          # Dependabot can rebase or amend the same head in this window, so
-          # a rejected push refetches and rebases onto it. Three attempts,
-          # then fail loudly.
-          for _ in 1 2 3; do
-            if git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$HEAD_REF"; then
-              pushed=true
-              break
-            fi
-            git fetch origin "$HEAD_REF"
-            git rebase "origin/$HEAD_REF"
-          done
-          if [ "${pushed:-false}" != "true" ]; then
-            echo "::error::could not push the floor bump after 3 attempts"
-            exit 1
-          fi
-          if [ "$CAN_RETRIGGER" = "true" ]; then
-            exit 0
-          fi
-          # github.token starts no workflows: say so on the PR (the sticky
-          # comment below) and as an annotation, but stay green - the fleet
-          # legitimately runs without the token.
-          echo "no_retrigger=true" >> "$GITHUB_OUTPUT"
-          echo "::warning::floor bump pushed without REPO_PLATFORM_TOKEN - checks will not re-run on the new head;" \
-            "close/reopen the PR or register the token as a Dependabot secret"
+        run: bun scripts/ci/push-floor-bump.ts
       # One comment per PR, edited in place on every fix push; a posting
       # failure fails the step.
       - name: Say the fix push cannot re-trigger CI

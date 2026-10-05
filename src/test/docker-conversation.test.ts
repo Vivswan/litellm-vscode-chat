@@ -142,7 +142,7 @@ suite("Docker LiteLLM multi-turn conversations", () => {
 
 	test(`runs ${ITERATIONS} generated conversations (seed ${SEED})`, async function () {
 		this.timeout(Math.max(120000, ITERATIONS * 20000));
-		// Nightly's failure handler greps this exact format for the repro command.
+		// scripts/ci/nightly-fuzz-leg.ts parses this line (parseLastFuzzSeedLine) for the replay command.
 		logFuzzSeed(SEED, ITERATIONS, "conversation");
 		const random = mulberry32(SEED ^ 0x2545f491);
 

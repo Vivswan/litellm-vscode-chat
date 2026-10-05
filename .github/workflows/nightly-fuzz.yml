@@ -46,22 +46,22 @@ jobs:
     name: fuzz (${{ matrix.leg }})
     runs-on: ubuntu-latest
     # A job that hits this timeout is cancelled, not failed, and the
-    # failure-reporting path never runs - so every fuzz command below is
-    # wrapped in `timeout --kill-after` (TERM, then KILL for a TERM-ignoring
+    # failure-reporting path never runs - so the leg script wraps every fuzz
+    # command in `timeout --kill-after` (TERM, then KILL for a TERM-ignoring
     # extension host) with budgets that leave room for setup and upload.
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      # One row per leg. `family` picks the step below (unit legs take
-      # FUZZ_SEED/FUZZ_RUNS through `bun run test`; docker legs take
-      # FUZZ_SEED plus the per-suite iteration counts through `test:docker`,
-      # seeded rows naming their labels via --only and the unseeded row
-      # running everything else via skip flags), and `salt` keeps the
-      # derived seeds distinct across legs. A future fuzz family is one
-      # appended row - another unit or docker row with a fresh salt, or a
-      # new `family` value with its own step. Legs are sized to land in one
-      # time class: the seeded docker labels share a leg (the monkey walks
-      # dominate it), and the short unseeded suites share the last one.
+      # One row per leg; `family` picks the step, which hands the row to
+      # scripts/ci/nightly-fuzz-leg.ts, and `salt` keeps the derived seeds
+      # distinct across legs. A new family is a row with a fresh salt and
+      # its own step.
+      #   unit    FUZZ_SEED/FUZZ_RUNS through `bun run test`; four legs, so
+      #           more distinct seeds over the property surface
+      #   docker  FUZZ_SEED plus the per-suite iteration counts through
+      #           `test:docker`; seeded rows run SEEDED_FUZZ_LABELS via --only
+      #           and share a leg (the monkey walks dominate it), the unseeded
+      #           row runs the rest via their skip flags
       matrix:
         include:
           - leg: unit-1
@@ -78,17 +78,14 @@ jobs:
             salt: 8
           - leg: docker-seeded-1
             family: docker
-            labels: docker-fuzz,docker-conversation,docker-monkey
             seeded: true
             salt: 4
           - leg: docker-seeded-2
             family: docker
-            labels: docker-fuzz,docker-conversation,docker-monkey
             seeded: true
             salt: 5
           - leg: docker-seeded-3
             family: docker
-            labels: docker-fuzz,docker-conversation,docker-monkey
             seeded: true
             salt: 6
           # The unseeded suites ignore FUZZ_SEED; the salt stays unique so
@@ -151,121 +148,20 @@ jobs:
 
       - name: Fuzz the unit property suites
         if: matrix.family == 'unit'
-        shell: bash
         env:
           ITERATIONS: ${{ inputs.iterations || '1000' }}
           LEG: ${{ matrix.leg }}
-        run: |
-          echo "leg $LEG: seed $SEED, $ITERATIONS runs"
-          set +e
-          FUZZ_SEED="$SEED" FUZZ_RUNS="$ITERATIONS" timeout --kill-after=60 15m xvfb-run -a bun run test 2>&1 | tee nightly-unit.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            dir=".fuzz-failures/$LEG"
-            mkdir -p "$dir"
-            cp nightly-unit.log "$dir/" || true
-            {
-              echo "# Unit property suites failed (leg $LEG, seed $SEED)"
-              echo
-              echo "Replay:"
-              echo
-              echo '```bash'
-              echo "FUZZ_SEED=$SEED FUZZ_RUNS=$ITERATIONS bun run test"
-              echo '```'
-              echo
-              echo "fast-check prints the shrunk counterexample in the attached log."
-              echo "Pin it as an example test next to the failing property, or in"
-              echo "src/test/fuzzCorpus.ts when it is a FuzzEvent[] stream."
-              echo
-              echo "bun run test also runs the unseeded webview, activation-production,"
-              echo "and capture host-fidelity suites; if the log blames one of those,"
-              echo "the seed guidance above does not apply."
-            } > "$dir/report.md"
-            exit "$status"
-          fi
+        run: bun scripts/ci/nightly-fuzz-leg.ts unit
 
       - name: Fuzz the docker suites
         if: matrix.family == 'docker'
-        shell: bash
         env:
           LEG: ${{ matrix.leg }}
-          LABELS: ${{ matrix.labels }}
           SEEDED: ${{ matrix.seeded }}
           FUZZ_ITERATIONS: '500'
           CONVERSATION_ITERATIONS: '50'
           MONKEY_ITERATIONS: '40'
-        run: |
-          if [ "$SEEDED" = "true" ]; then
-            # Explicit for every suite in the leg (resolveDockerFuzzSeed
-            # replays an explicit FUZZ_SEED exactly), so one seed reproduces
-            # the whole leg and legs never overlap.
-            export FUZZ_SEED="$SEED"
-            set -- --only "$LABELS"
-          else
-            # Skip flags rather than --only: the unseeded leg runs the
-            # complement of the seeded labels, so a label added to
-            # DOCKER_TEST_LABELS is picked up here automatically instead of
-            # silently never running at night.
-            set -- --skip-fuzz --skip-conversation --skip-monkey
-          fi
-          echo "leg $LEG: test:docker $*${FUZZ_SEED:+, seed $FUZZ_SEED}"
-          set +e
-          # 45m covers the seeded leg, whose 40 monkey walks dominate; the
-          # unseeded leg finishes far under it. A step killed by this timeout
-          # still files an issue naming the leg (and, when seeded, its seed).
-          timeout --kill-after=60 45m xvfb-run -a bun run test:docker "$@" 2>&1 | tee nightly-docker.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            # The orchestrator runs the leg's suites in sequence; the mode of
-            # the last "[fuzz] seed=... mode=..." line names the suite that
-            # logged it. The line format is owned by src/test/fuzzSeed.ts
-            # (fuzzSeedLine), and fuzzSeed.test.ts pins it against these
-            # exact patterns. On a seeded leg the grepped seed equals $SEED
-            # (FUZZ_SEED was explicit); the fallback covers a failure before
-            # any suite logged.
-            fuzzline="$(grep -oE '\[fuzz\] seed=[0-9]+[^"]*' nightly-docker.log | tail -1 || true)"
-            seed="$(printf '%s' "$fuzzline" | grep -oE 'seed=[0-9]+' | grep -oE '[0-9]+' || true)"
-            mode="$(printf '%s' "$fuzzline" | grep -oE 'mode=[a-z-]+' | cut -d= -f2 || true)"
-            dir=".fuzz-failures/$LEG"
-            mkdir -p "$dir"
-            cp nightly-docker.log "$dir/" || true
-            if [ "$SEEDED" = "true" ]; then
-              {
-                echo "# Docker leg $LEG failed (mode ${mode:-unknown}, seed ${seed:-$SEED})"
-                echo
-                echo "Replay:"
-                echo
-                echo '```bash'
-                echo "FUZZ_SEED=${seed:-$SEED} FUZZ_ITERATIONS=$FUZZ_ITERATIONS" \
-                  "CONVERSATION_ITERATIONS=$CONVERSATION_ITERATIONS MONKEY_ITERATIONS=$MONKEY_ITERATIONS" \
-                  "bun run test:docker --only $LABELS"
-                echo '```'
-                echo
-                echo "Every suite in this leg ran under the same explicit seed, so the"
-                echo "command replays the whole leg; the mode names the suite that"
-                echo "logged last (keep FUZZ_SEED and narrow --only to that suite's"
-                echo "label to skip the rest). A seeded failure report includes a"
-                echo "minimal failing event list; pin it in src/test/fuzzCorpus.ts so"
-                echo "the case replays on every run."
-              } > "$dir/report.md"
-            else
-              {
-                echo "# Docker leg $LEG failed (unseeded suites)"
-                echo
-                echo "Replay:"
-                echo
-                echo '```bash'
-                echo "bun run test:docker $*"
-                echo '```'
-                echo
-                echo "These suites draw no fuzz seed; see the attached log for the"
-                echo "failing suite."
-              } > "$dir/report.md"
-            fi
-            exit "$status"
-          fi
+        run: bun scripts/ci/nightly-fuzz-leg.ts docker
 
       - name: Upload failure artifacts
         if: failure()

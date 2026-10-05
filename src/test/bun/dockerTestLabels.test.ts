@@ -1,6 +1,6 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import { DOCKER_TEST_LABELS, parseOnlyLabels } from "../dockerTestLabels";
+import { DOCKER_TEST_LABELS, nightlyDockerArgs, parseOnlyLabels } from "../dockerTestLabels";
 
 /**
  * Pins the label grammar behind `bun run test:docker --only ...`, which the CI shard matrices drive: canonical order
@@ -46,5 +46,14 @@ describe("dockerTestLabels: parseOnlyLabels", () => {
 		assert.throws(() => parseOnlyLabels(""), /empty label/);
 		assert.throws(() => parseOnlyLabels("docker,,docker-fuzz"), /empty label/);
 		assert.throws(() => parseOnlyLabels("docker,"), /empty label/);
+	});
+});
+
+describe("dockerTestLabels: nightlyDockerArgs", () => {
+	// scripts/ci/nightly-fuzz-leg.ts hands these lists to test:docker; a flag dropped from the complement would run
+	// that suite in both legs every night with every leg green.
+	test("the seeded legs run exactly the seeded labels and the unseeded leg skips exactly them", () => {
+		assert.deepStrictEqual(nightlyDockerArgs(true), ["--only", "docker-fuzz,docker-conversation,docker-monkey"]);
+		assert.deepStrictEqual(nightlyDockerArgs(false), ["--skip-fuzz", "--skip-conversation", "--skip-monkey"]);
 	});
 });
