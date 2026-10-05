@@ -100,6 +100,14 @@ function objectSlot(
 	return undefined;
 }
 
+function listSlot(value: unknown, path: string, report: (what: string) => void): readonly unknown[] | undefined {
+	if (value === undefined || Array.isArray(value)) {
+		return value;
+	}
+	report(`has a ${path} value that is not a list, ignored`);
+	return undefined;
+}
+
 function optionalSlot(
 	value: unknown,
 	path: string,
@@ -416,12 +424,13 @@ export function serverSettingReports(raw: unknown): ServerEntryReport[] {
 
 /** Unknown tokens are counted in the report, never echoed - they are user text. */
 function knownTokens<T extends string>(
-	raw: unknown,
-	isKnown: (value: unknown) => value is T,
+	discovery: Record<string, unknown>,
 	field: string,
+	isKnown: (value: unknown) => value is T,
 	report: (what: string) => void
 ): T[] {
-	if (!Array.isArray(raw)) {
+	const raw = listSlot(discovery[field], `discovery.${field}`, report);
+	if (raw === undefined) {
 		return [];
 	}
 	const known = raw.filter(isKnown);
@@ -546,19 +555,15 @@ function acceptEntries(
 					report(`has an unknown discovery key "${key}", ignored`);
 				}
 			}
-			const expectedFailures = knownTokens(
-				discovery.expectedFailures,
-				isExpectedFailureCategory,
-				"expectedFailures",
-				report
-			);
+			const expectedFailures = knownTokens(discovery, "expectedFailures", isExpectedFailureCategory, report);
 			if (expectedFailures.length > 0) {
 				entry.expectedFailures = expectedFailures;
 			}
-			if (Array.isArray(discovery.declared)) {
-				const ids = discovery.declared.map(usableString).filter((id): id is string => id !== undefined);
-				if (ids.length < discovery.declared.length) {
-					const dropped = discovery.declared.length - ids.length;
+			const declared = listSlot(discovery.declared, "discovery.declared", report);
+			if (declared !== undefined) {
+				const ids = declared.map(usableString).filter((id): id is string => id !== undefined);
+				if (ids.length < declared.length) {
+					const dropped = declared.length - ids.length;
 					report(`lists ${dropped} unusable discovery.declared value(s), ignored`);
 				}
 				const unique = [...new Set(ids)];
@@ -566,7 +571,7 @@ function acceptEntries(
 					entry.declaredModels = unique;
 				}
 			}
-			const includeModes = knownTokens(discovery.includeModes, isNonChatMode, "includeModes", report);
+			const includeModes = knownTokens(discovery, "includeModes", isNonChatMode, report);
 			if (includeModes.length > 0) {
 				entry.includeModes = includeModes;
 			}

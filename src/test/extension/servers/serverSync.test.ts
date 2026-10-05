@@ -625,6 +625,8 @@ suite("extension/servers/serverSync", () => {
 				"entry 1 lists 2 unknown discovery.expectedFailures value(s), ignored",
 				"entry 1 lists 2 unknown discovery.includeModes value(s), ignored",
 				"entry 2 has a models.capabilities value that is not an object, ignored",
+				"entry 2 has a discovery.expectedFailures value that is not a list, ignored",
+				"entry 2 has a discovery.includeModes value that is not a list, ignored",
 			]);
 			assert.deepStrictEqual(entries[0]?.modelCapabilities, {
 				"gpt-4": { context_length: 200000, supports_vision: true },
