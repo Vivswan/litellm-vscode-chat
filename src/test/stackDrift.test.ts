@@ -400,7 +400,7 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 			path.join(base, "index.ts"),
 			path.join(base, "index.tsx"),
 		]) {
-			if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+			if (fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) {
 				return candidate;
 			}
 		}
@@ -411,25 +411,49 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		);
 	}
 
-	function reachesHostMachinery(entryFile: string): boolean {
-		const seen = new Set<string>();
-		const stack = [entryFile];
-		while (stack.length > 0) {
-			const file = stack.pop() as string;
-			if (seen.has(file)) {
-				continue;
-			}
-			seen.add(file);
-			for (const spec of runtimeImportSpecs(file, fs.readFileSync(file, "utf8"))) {
-				if (spec === "vscode" || spec === "msw" || spec.startsWith("msw/")) {
-					return true;
+	interface ModuleEdges {
+		readonly hostPackage: string | undefined;
+		readonly imports: readonly string[];
+	}
+
+	// One parsed graph for both walks. The entries overlap on src/shared and src/provider almost completely, so a parse
+	// per visit redid the same files for every entry and overran mocha's 20 s budget on a loaded runner.
+	const graph = new Map<string, ModuleEdges>();
+
+	function edgesOf(file: string): ModuleEdges {
+		let edges = graph.get(file);
+		if (edges === undefined) {
+			const specs = runtimeImportSpecs(file, fs.readFileSync(file, "utf8"));
+			edges = {
+				hostPackage: specs.find((spec) => spec === "vscode" || spec === "msw" || spec.startsWith("msw/")),
+				imports: specs.filter((spec) => spec.startsWith(".")).map((spec) => resolveRelative(file, spec)),
+			};
+			graph.set(file, edges);
+		}
+		return edges;
+	}
+
+	function hostMachineryChain(entryFile: string): string | undefined {
+		const parents = new Map<string, string | undefined>([[entryFile, undefined]]);
+		const queue = [entryFile];
+		for (let index = 0; index < queue.length; index++) {
+			const file = queue[index] as string;
+			const edges = edgesOf(file);
+			if (edges.hostPackage !== undefined) {
+				const chain = [`"${edges.hostPackage}"`];
+				for (let at: string | undefined = file; at !== undefined; at = parents.get(at)) {
+					chain.unshift(path.relative(repoRoot, at).split(path.sep).join("/"));
 				}
-				if (spec.startsWith(".")) {
-					stack.push(resolveRelative(file, spec));
+				return chain.join(" -> ");
+			}
+			for (const next of edges.imports) {
+				if (!parents.has(next)) {
+					parents.set(next, file);
+					queue.push(next);
 				}
 			}
 		}
-		return false;
+		return undefined;
 	}
 
 	test("the scanner counts value edges and erases type-only forms", () => {
@@ -476,17 +500,15 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 				hostSuites.includes(listed),
 				`${listed} is allow-listed but is no longer a host-side unit suite; drop the stale entry`
 			);
-			assert.ok(
-				!reachesHostMachinery(path.join(repoRoot, listed)),
-				`${listed} now reaches vscode or msw; its allow-list entry is stale, drop it`
-			);
+			const chain = hostMachineryChain(path.join(repoRoot, listed));
+			assert.strictEqual(chain, undefined, `${listed} now reaches ${chain}; its allow-list entry is stale, drop it`);
 		}
 		for (const file of hostSuites) {
 			if (HOST_SIDE_PURE_SUITES.has(file)) {
 				continue;
 			}
 			assert.ok(
-				reachesHostMachinery(path.join(repoRoot, file)),
+				hostMachineryChain(path.join(repoRoot, file)) !== undefined,
 				`${file} reaches neither vscode nor msw through its runtime imports; move it to src/test/bun/ (mirrored path, bun:test callables) or allow-list it here with a reason`
 			);
 		}
@@ -508,9 +530,11 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		const bunSuites = walkTestFiles(path.join(repoRoot, "src", "test", "bun"), []);
 		assert.ok(bunSuites.length > 20, `walking src/test/bun found a real bun tree (got ${bunSuites.length} files)`);
 		for (const file of [...preloads, ...bunSuites]) {
-			assert.ok(
-				!reachesHostMachinery(path.join(repoRoot, file)),
-				`${file} reaches vscode or msw through its runtime imports; it cannot run under bun - move it back to the host tree`
+			const chain = hostMachineryChain(path.join(repoRoot, file));
+			assert.strictEqual(
+				chain,
+				undefined,
+				`${file} reaches vscode or msw through its runtime imports (${chain}); it cannot run under bun - move it back to the host tree`
 			);
 		}
 	});
