@@ -480,10 +480,10 @@
 							"type": "boolean"
 						},
 						"server": {
+							"description": "A servers entry label, to edit that entry's own record instead of the global setting.",
 							"type": "string",
 							"minLength": 1,
-							"maxLength": 1024,
-							"description": "A servers entry label, to edit that entry's own record instead of the global setting."
+							"maxLength": 1024
 						}
 					},
 					"required": [
@@ -902,10 +902,10 @@
 									"additionalProperties": false
 								},
 								"renameFrom": {
+									"description": "The current label of the entry to rename to label.",
 									"type": "string",
 									"minLength": 1,
-									"maxLength": 1024,
-									"description": "The current label of the entry to rename to label."
+									"maxLength": 1024
 								}
 							},
 							"required": [

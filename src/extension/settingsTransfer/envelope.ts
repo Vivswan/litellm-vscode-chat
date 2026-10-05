@@ -49,14 +49,15 @@ export function parseEnvelope(raw: string): ParseEnvelopeResult {
 	} catch {
 		return { ok: false, reason: "not-json" };
 	}
+	if (!isRecord(parsed)) {
+		// A bare number (1e999 included) is no export; the overflow scan below always has a key to name.
+		return { ok: false, reason: "not-an-export" };
+	}
 	const overflowAt = nonFiniteNumberPath(parsed);
 	if (overflowAt !== undefined) {
 		// 1e999 parsed to Infinity and would import as null: no repair, so the file is refused whole, naming the value
 		// by its settings path (the envelope wrapper is not the user's to fix).
 		return { ok: false, reason: "overflowing-number", path: overflowAt.replace(/^settings\./, "") };
-	}
-	if (!isRecord(parsed)) {
-		return { ok: false, reason: "not-an-export" };
 	}
 	const version = parsed[CONFIG_SECTION];
 	if (typeof version !== "number") {

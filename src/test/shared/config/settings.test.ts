@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import { WIRE_LIMITS } from "../../../dashboard/endpoints";
 import { parseHeaderValue, parseJsonValue, parseNumberDraft, parseThresholdBox } from "../../../dashboard/presenters";
 import { parseCatalogIdText, parseHeaderRows, parseInheritKeysText } from "../../../dashboard/recordDraft";
 import { parseBudgetText, parseDeclaredModelsText } from "../../../dashboard/serverForm";
@@ -767,6 +768,15 @@ suite("one trim rule: padded user values are kept verbatim or refused, never rep
 			["normalizePositiveNumber: HTTP edges", () => normalizePositiveNumber(" 9000 "), 9000],
 			["normalizePositiveNumber: U+00A0 refused", () => normalizePositiveNumber(`${NBSP}9000`), undefined],
 			["normalizePositiveNumber: hex refused", () => normalizePositiveNumber("0x10"), undefined],
+			[
+				"agent tool label at the length limit, padded",
+				() => {
+					const atLimit = "a".repeat(WIRE_LIMITS.label);
+					const parsed = parseAgentToolInput("inspectModel", { server: ` ${atLimit} `, model: "m" });
+					return parsed.ok ? parsed.input.server : parsed;
+				},
+				"a".repeat(WIRE_LIMITS.label),
+			],
 			[
 				"agent tool label",
 				() => {

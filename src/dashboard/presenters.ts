@@ -381,10 +381,8 @@ function scaledDecimal(prefix: string, factor: number): number | undefined {
 	if (match === null) {
 		return undefined;
 	}
-	const [, sign = "", whole = "", fraction = "", exponent = "0"] = match;
-	if (whole === "" && fraction === "") {
-		return undefined;
-	}
+	const [, sign = "", whole = "", dotFraction, leadingFraction, exponent = "0"] = match;
+	const fraction = dotFraction ?? leadingFraction ?? "";
 	// The mantissa as significant digits only: leading and trailing zeros spell nothing, so neither counts against the
 	// exponent guard ("1" + 401 zeros + "e-401" is 1).
 	const spelled = `${whole}${fraction}`.replace(/^0+/, "");

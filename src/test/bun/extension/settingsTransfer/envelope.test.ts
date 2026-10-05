@@ -38,6 +38,8 @@ describe("extension/settingsTransfer/envelope", () => {
 		const cases = [
 			"null",
 			"42",
+			// A bare overflowing literal is no export either; it never reaches the overflow verdict with a blank path.
+			"1e999",
 			'"text"',
 			"[]",
 			"{}",

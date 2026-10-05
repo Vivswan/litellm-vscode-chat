@@ -175,6 +175,12 @@ describe("dashboard: protocol value helpers", () => {
 				problem: "chat.timeout must be a whole number between 1000 and 2147483647.",
 			});
 			assert.ok(elapsedMs < 50, `refusing the draft took ${elapsedMs} ms`);
+			// A stray suffix after a long digit run used to backtrack quadratically in the decimal grammar (875 ms at 20000).
+			const suffixed = `${"1".repeat(20_000)}x`;
+			const suffixedStart = performance.now();
+			assert.strictEqual(parseNumberDraft("chat.timeout", suffixed).kind, "invalid");
+			const suffixedMs = performance.now() - suffixedStart;
+			assert.ok(suffixedMs < 50, `refusing the suffixed draft took ${suffixedMs} ms`);
 		});
 
 		/** The hint the settings form shows for a draft: parse once, then the equivalence of the committed value. */
