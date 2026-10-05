@@ -10,12 +10,14 @@ import {
 	liveInlineLanguageStatusRows,
 } from "../../../../extension/features/inline/languageStatus";
 import { createFimProbe, wireInlineCompletions } from "../../../../extension/features/inline/wiring";
+import { updateServerSecret } from "../../../../extension/servers/serverSync/secrets";
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";
 import { COMPLETIONS_URL, completionJsonResponse, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
 import { withDisposalCount } from "../disposalCount";
+import { memorySecretStorage } from "../wiringSpies";
 
 interface RecordedRegistration {
 	readonly selector: vscode.DocumentSelector;
@@ -135,10 +137,10 @@ async function withWiringSpies<T>(fn: (spies: WiringSpies) => T | Promise<T>): P
 	}
 }
 
-function fakeContext(): vscode.ExtensionContext {
+function fakeContext(secrets: vscode.SecretStorage = memorySecretStorage()): vscode.ExtensionContext {
 	return {
 		subscriptions: [] as vscode.Disposable[],
-		secrets: { get: async () => undefined, store: async () => {}, delete: async () => {} },
+		secrets,
 	} as unknown as vscode.ExtensionContext;
 }
 
@@ -302,6 +304,44 @@ suite("extension/features/inline wiring", () => {
 						return true;
 					}
 				)
+			);
+		});
+	});
+
+	test("a key stored for another host never follows a base URL edit: no request leaves, the classified error", async () => {
+		// Stored while "Main" pointed at retired.test, then the entry's base URL was edited; the sync engine and the
+		// usage poller refuse this pairing, and so must the FIM send.
+		const secrets = memorySecretStorage();
+		await updateServerSecret(secrets, "Main", "apiKey", "sk-retired", "http://retired.test");
+		let seenAuthorization: string | null | undefined;
+		mswServer.use(
+			http.post(COMPLETIONS_URL, ({ request }) => {
+				seenAuthorization = request.headers.get("authorization");
+				return completionJsonResponse("leaked");
+			})
+		);
+		await withWiringSpies(async () => {
+			const { fimSend } = await withConfig({ "inlineCompletions.enabled": false, servers: [SERVER_ENTRY] }, () =>
+				wireInlineCompletions(fakeContext(secrets), quietLogger(), {
+					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+				})
+			);
+			const outcome = await withConfig({ servers: [SERVER_ENTRY] }, () =>
+				fimSend({
+					modelRef: MODEL_REF,
+					prefix: "p",
+					suffix: "s",
+					token: new vscode.CancellationTokenSource().token,
+				}).then(
+					() => "sent",
+					(error: unknown) => error
+				)
+			);
+			assert.strictEqual(seenAuthorization, undefined, `a request left carrying ${seenAuthorization}`);
+			assert.ok(outcome instanceof MirroredError);
+			assert.strictEqual(
+				outcome.logClassification,
+				"InlineCompletions(stored secrets stamped for another destination)"
 			);
 		});
 	});

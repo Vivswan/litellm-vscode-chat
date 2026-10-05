@@ -15,6 +15,7 @@ import {
 	PROBE_QUESTION,
 	wireConsultTool,
 } from "../../../../extension/features/consultTool/wiring";
+import { updateServerSecret } from "../../../../extension/servers/serverSync/secrets";
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { CONSULT_TOOL_READY_CONTEXT_KEY, TOOL_NAME } from "../../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../../shared/config/settingSpec";
@@ -23,7 +24,7 @@ import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../..
 import { withConfig } from "../../../testUtils";
 import { withDisposalCount } from "../disposalCount";
 import type { WiringSpies } from "../wiringSpies";
-import { fakeContext, quietLogger, withWiringSpies } from "../wiringSpies";
+import { fakeContext, memorySecretStorage, quietLogger, withWiringSpies } from "../wiringSpies";
 
 const MODEL_REF = { server: "alpha", model: "gpt-test" };
 const SERVER_ENTRY = { label: "alpha", baseUrl: TEST_BASE_URL, auth: { apiKey: "sk-test" } };
@@ -257,6 +258,70 @@ suite("extension/features/consultTool wiring", () => {
 			});
 		});
 	});
+
+	/**
+	 * The refusals entryConnectionFor hands the shared chat send, each with the stored text that must never ride the
+	 * error: the sync engine and the usage poller refuse the same pairings, and the feature boundaries log and notify
+	 * with what they are thrown.
+	 */
+	const SECRET_REFUSALS: readonly {
+		readonly name: string;
+		readonly secrets: () => Promise<vscode.SecretStorage>;
+		readonly classification: string;
+		readonly storedText: string;
+	}[] = [
+		{
+			name: "a key stored for another host never follows a base URL edit",
+			secrets: async () => {
+				const secrets = memorySecretStorage();
+				await updateServerSecret(secrets, "alpha", "apiKey", "sk-retired", "http://retired.test");
+				return secrets;
+			},
+			classification: "ConsultTool(stored secrets stamped for another destination)",
+			storedText: "sk-retired",
+		},
+		{
+			name: "a secret storage read failure",
+			secrets: async () => ({
+				...memorySecretStorage(),
+				get: () => Promise.reject(new Error("storage-read-sentinel http://retired.test sk-retired")),
+			}),
+			classification: "ConsultTool(stored secrets unreadable)",
+			storedText: "storage-read-sentinel",
+		},
+	];
+
+	for (const refusal of SECRET_REFUSALS) {
+		test(`${refusal.name}: no request leaves, the classified error carries none of the stored text`, async () => {
+			const secrets = await refusal.secrets();
+			let seenAuthorization: string | null | undefined;
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
+					seenAuthorization = request.headers.get("authorization");
+					return chatReply("leaked");
+				})
+			);
+			const servers = [{ label: "alpha", baseUrl: TEST_BASE_URL }];
+			await withWiringSpies(async (spies) => {
+				await withConfig({ ...ENABLED_CONFIG, servers }, async () => {
+					wireConsultTool(fakeContext(secrets), quietLogger(), {
+						oneShot: new OneShotClient({ userAgent: "test-agent" }),
+					});
+					const outcome = await invokeRecorded(spies, { question: "anything?" }).then(
+						() => "sent",
+						(error: unknown) => error
+					);
+					assert.strictEqual(seenAuthorization, undefined, `a request left carrying ${seenAuthorization}`);
+					assert.ok(outcome instanceof MirroredError, `expected the classified error, got ${String(outcome)}`);
+					assert.strictEqual(outcome.logClassification, refusal.classification);
+					assert.ok(
+						!outcome.message.includes(refusal.storedText) && !outcome.englishMessage?.includes(refusal.storedText),
+						"the stored text never rides the error"
+					);
+				});
+			});
+		});
+	}
 
 	test("a disable racing an in-flight turn is refused by the invoke itself, not just by registration", async () => {
 		await withWiringSpies(async (spies) => {
