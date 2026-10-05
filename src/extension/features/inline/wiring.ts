@@ -7,7 +7,7 @@ import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getModelParametersConfig, isFeatureEnabled } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import { entryConnectionFor } from "../../servers/entryConnection";
-import { noEntryForConfiguredServer } from "../modelSettingError";
+import { configuredServerUnavailable } from "../modelSettingError";
 import { withProbeToken } from "../probeToken";
 import { CompletionCache } from "./completionCache";
 import type { InlineCompletionSend } from "./inlineCompletionProvider";
@@ -30,8 +30,8 @@ function createFimSend(
 ): InlineCompletionSend {
 	return async ({ modelRef, prefix, suffix, token }) => {
 		const resolved = await entryConnectionFor(secrets, modelRef.server);
-		if (resolved === undefined) {
-			throw noEntryForConfiguredServer("inlineCompletions", modelRef.server);
+		if (resolved.kind !== "resolved") {
+			throw configuredServerUnavailable("inlineCompletions", modelRef.server, resolved.kind);
 		}
 		const { fimTemplate } = table.resolveParameters(modelRef.server, modelRef.model, {
 			globalParameters: getModelParametersConfig(),

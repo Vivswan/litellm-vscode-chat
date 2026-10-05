@@ -15,6 +15,7 @@ import {
 	PROBE_QUESTION,
 	wireConsultTool,
 } from "../../../../extension/features/consultTool/wiring";
+import { updateServerSecret } from "../../../../extension/servers/serverSync/secrets";
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { CONSULT_TOOL_READY_CONTEXT_KEY, TOOL_NAME } from "../../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../../shared/config/settingSpec";
@@ -23,7 +24,7 @@ import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../..
 import { withConfig } from "../../../testUtils";
 import { withDisposalCount } from "../disposalCount";
 import type { WiringSpies } from "../wiringSpies";
-import { fakeContext, quietLogger, withWiringSpies } from "../wiringSpies";
+import { fakeContext, memorySecretStorage, quietLogger, withWiringSpies } from "../wiringSpies";
 
 const MODEL_REF = { server: "alpha", model: "gpt-test" };
 const SERVER_ENTRY = { label: "alpha", baseUrl: TEST_BASE_URL, auth: { apiKey: "sk-test" } };
@@ -254,6 +255,35 @@ suite("extension/features/consultTool wiring", () => {
 					assert.strictEqual(error.logClassification, "ConsultTool(configured server label matches no entry)");
 					return true;
 				});
+			});
+		});
+	});
+
+	test("a key stored for another host never follows a base URL edit: no request leaves, the classified error", async () => {
+		// Stored while "alpha" pointed at retired.test, then the entry's base URL was edited; the sync engine and the
+		// usage poller refuse this pairing, and so must the shared chat send.
+		const secrets = memorySecretStorage();
+		await updateServerSecret(secrets, "alpha", "apiKey", "sk-retired", "http://retired.test");
+		let seenAuthorization: string | null | undefined;
+		mswServer.use(
+			http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
+				seenAuthorization = request.headers.get("authorization");
+				return chatReply("leaked");
+			})
+		);
+		const servers = [{ label: "alpha", baseUrl: TEST_BASE_URL }];
+		await withWiringSpies(async (spies) => {
+			await withConfig({ ...ENABLED_CONFIG, servers }, async () => {
+				wireConsultTool(fakeContext(secrets), quietLogger(), {
+					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+				});
+				const outcome = await invokeRecorded(spies, { question: "anything?" }).then(
+					() => "sent",
+					(error: unknown) => error
+				);
+				assert.strictEqual(seenAuthorization, undefined, `a request left carrying ${seenAuthorization}`);
+				assert.ok(outcome instanceof MirroredError);
+				assert.strictEqual(outcome.logClassification, "ConsultTool(stored secrets stamped for another destination)");
 			});
 		});
 	});

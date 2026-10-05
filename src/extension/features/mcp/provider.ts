@@ -184,11 +184,8 @@ export function createMcpServerDefinitionProvider(
 				if (entry === undefined || resolved === undefined) {
 					refuse("not-published");
 				}
-				if (resolved.refusedSecrets.length > 0) {
-					// The label's stored blob was paired with a different server (a base URL edited after the secret
-					// was stored is the usual cause). The chat path refuses such a pairing outright; this one must too,
-					// because the credentials leave our process and no 401 of ours would ever come back to correct it.
-					refuse("stale-secrets");
+				if (resolved.kind !== "resolved") {
+					refuse(resolved.kind === "noEntry" ? "not-published" : "stale-secrets");
 				}
 				baseUrl = entry.baseUrl;
 				headers = sameOrigin(before.uri, baseUrl)

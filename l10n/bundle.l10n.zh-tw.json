@@ -1067,6 +1067,7 @@
 	"The undo changed {0} servers' connection settings; their dashboard rows will show the steps to reconnect.": "復原變更了 {0} 個伺服器的連線設定; 它們在儀表板中的列會顯示重新連線的步驟。",
 	"The value cannot be sent as an HTTP header": "此值無法作為 HTTP 標頭傳送",
 	"The {0} feature is off. Enable \"{1}\" in settings to use it.": "{0}功能已關閉。在設定中啟用「{1}」即可使用。",
+	"The {0} model setting names server \"{1}\", but a stored secret for that entry was saved for a different server address. Set the secret again (edit the server in the dashboard, or run LiteLLM: Set Server Secret), or remove the stored value.": "{0}模型設定指定了伺服器「{1}」, 但為該項目儲存的祕密是為另一個伺服器位址保存的。請重新設定該祕密(在儀表板中編輯該伺服器, 或執行「LiteLLM: 設定伺服器祕密」), 或移除已儲存的值。",
 	"The {0} model setting names server \"{1}\", but no servers entry carries that label. Update the \"{2}\" setting.": "{0}模型設定指定了伺服器「{1}」, 但沒有任何 servers 項目使用該標籤。請更新「{2}」設定。",
 	"There are no changes to describe.": "沒有可描述的變更。",
 	"There are no uncommitted changes to review.": "沒有未提交的變更可供審查。",

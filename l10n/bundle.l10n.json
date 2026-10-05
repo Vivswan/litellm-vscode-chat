@@ -1182,6 +1182,7 @@
 	"The undo changed {0} servers' connection settings; their dashboard rows will show the steps to reconnect.": "The undo changed {0} servers' connection settings; their dashboard rows will show the steps to reconnect.",
 	"The value cannot be sent as an HTTP header": "The value cannot be sent as an HTTP header",
 	"The {0} feature is off. Enable \"{1}\" in settings to use it.": "The {0} feature is off. Enable \"{1}\" in settings to use it.",
+	"The {0} model setting names server \"{1}\", but a stored secret for that entry was saved for a different server address. Set the secret again (edit the server in the dashboard, or run LiteLLM: Set Server Secret), or remove the stored value.": "The {0} model setting names server \"{1}\", but a stored secret for that entry was saved for a different server address. Set the secret again (edit the server in the dashboard, or run LiteLLM: Set Server Secret), or remove the stored value.",
 	"The {0} model setting names server \"{1}\", but no servers entry carries that label. Update the \"{2}\" setting.": "The {0} model setting names server \"{1}\", but no servers entry carries that label. Update the \"{2}\" setting.",
 	"There are no changes to describe.": "There are no changes to describe.",
 	"There are no uncommitted changes to review.": "There are no uncommitted changes to review.",
