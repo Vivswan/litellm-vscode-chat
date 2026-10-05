@@ -6,6 +6,7 @@ import {
 	guessedMaxTokensDefault,
 } from "../../shared/config/capabilityResolution";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
+import { orderedReasoningLevels } from "./modelConfiguration";
 import type { DeclaredPerTokenCosts, LiteLLMProvider, PerTokenCosts, TokenConstraints } from "./schemas";
 
 export function buildExposedModelId(rawModelId: string, serverId: string, serverCount: number): string {
@@ -80,20 +81,18 @@ function serverCostValues(costs: Readonly<PerTokenCosts>): Partial<ServerCapabil
 	return values;
 }
 
-/**
- * The intersection of a contributor set's string lists: present only when EVERY contributor carries an array, holding
- * the strings every contributor lists. Providers-array entries are lenient pass-throughs, so each list is re-narrowed
- * element-wise to non-empty strings, the same vocabulary the user-record "string-array" kind validates.
- */
+/** Providers-array entries are lenient pass-throughs, so a list is re-narrowed to the string-array kind's values. */
+function narrowStrings(list: unknown[]): string[] {
+	return list.filter((param): param is string => typeof param === "string" && param.length > 0);
+}
+
 function intersectReportedLists(lists: readonly (string[] | null | undefined)[]): readonly string[] | undefined {
 	const [first, ...rest] = lists;
 	if (!Array.isArray(first) || rest.some((list) => !Array.isArray(list))) {
 		return undefined;
 	}
-	const narrow = (list: unknown[]): string[] =>
-		list.filter((param): param is string => typeof param === "string" && param.length > 0);
-	const tails = rest.map((list) => new Set(narrow(list as unknown[])));
-	return narrow(first).filter((param) => tails.every((tail) => tail.has(param)));
+	const tails = rest.map((list) => new Set(narrowStrings(list as unknown[])));
+	return narrowStrings(first).filter((param) => tails.every((tail) => tail.has(param)));
 }
 
 function intersectReportedParams(providers: readonly LiteLLMProvider[]): readonly string[] | undefined {
@@ -101,13 +100,19 @@ function intersectReportedParams(providers: readonly LiteLLMProvider[]): readonl
 }
 
 /**
- * An EMPTY intersection (contributors flagging disjoint levels) collapses to no signal, so the menu falls back rather
- * than registering empty - only a user-written [] means "no levels", and that value never passes through here. The one
- * levels rule registration's configurationSchemaFor and the capability baseline both read, so the two cannot disagree.
+ * The UNION, unlike the params intersection: the proxy routes each request to one deployment, so a level any of them
+ * flags is a real choice, and one the serving deployment rejects surfaces that server's own error. Deployment merging,
+ * registration's configurationSchemaFor, and the capability baseline all read this one rule.
+ *   {low} and {high}  -> [low, high], in menu order
+ *   {low} and no flag -> [low]
+ *   no flag anywhere  -> undefined: the menu falls back rather than registering empty (only a user record writes [])
  */
-export function reportedReasoningLevels(providers: readonly LiteLLMProvider[]): readonly string[] | undefined {
-	const intersection = intersectReportedLists(providers.map((p) => p.reasoning_effort_levels));
-	return intersection !== undefined && intersection.length > 0 ? intersection : undefined;
+export function reportedReasoningLevels(providers: readonly LiteLLMProvider[]): string[] | undefined {
+	const reported = providers
+		.map((p) => p.reasoning_effort_levels)
+		.filter((levels): levels is string[] => Array.isArray(levels));
+	const union = orderedReasoningLevels(reported.flatMap((levels) => narrowStrings(levels)));
+	return union.length > 0 ? union : undefined;
 }
 
 export interface DiscoveredBaselineInput {

@@ -429,7 +429,7 @@ suite("provider/model info and fallback", () => {
 			);
 		});
 
-		test("deployments flagging disjoint levels fall back to the built-in menu", async () => {
+		test("deployments flagging disjoint levels offer their union end to end", async () => {
 			mswServer.use(
 				...discoveryHandlers({
 					data: [
@@ -440,8 +440,8 @@ suite("provider/model info and fallback", () => {
 			);
 			assert.deepStrictEqual(
 				(await findInfo("split")).configurationSchema,
-				REASONING_EFFORT_SCHEMA,
-				"an empty intersection is no signal; the menu must never register empty"
+				reasoningEffortSchema(["low", "high"]),
+				"a level either deployment accepts is offered; the built-in list is not"
 			);
 		});
 

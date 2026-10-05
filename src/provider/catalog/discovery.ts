@@ -14,7 +14,7 @@ import { mapSdkError, RequestError, timeoutRequestError } from "../transport/err
 import { retryIdempotent } from "../transport/retry";
 import type { DiscoveryLog } from "./discoveryLog";
 import { discoveryLineWriter, failureKindOf, parseWire } from "./discoveryLog";
-import { collapseTokenLimits, deriveTokenConstraints } from "./modelCatalog";
+import { collapseTokenLimits, deriveTokenConstraints, reportedReasoningLevels } from "./modelCatalog";
 import { reasoningEffortLevelsFromFlags } from "./modelConfiguration";
 import type {
 	LiteLLMArchitecture,
@@ -256,7 +256,7 @@ export function mergeModelDeployments(deployments: ModelDeployments): MappedMode
 		supports_reasoning: everyDeploymentSupports(providers.map((p) => p.supports_reasoning)),
 		supports_pdf_input: everyDeploymentSupports(providers.map((p) => p.supports_pdf_input)),
 		supported_openai_params: intersectSupportedParams(providers.map((p) => p.supported_openai_params)),
-		reasoning_effort_levels: intersectSupportedParams(providers.map((p) => p.reasoning_effort_levels)),
+		reasoning_effort_levels: reportedReasoningLevels(providers) ?? null,
 		...recordFromKeys(COST_FIELDS, (field) => agreedCost(providers.map((p) => p[field]))),
 	};
 	const inputModalities = first.inputModalities.filter((modality) =>
