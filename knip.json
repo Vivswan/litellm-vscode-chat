@@ -9,6 +9,7 @@
 		"src/test/capture-server.ts",
 		"src/test/util/fingerprintSalt.ts",
 		"src/test/util/buildDefines.ts",
+		"src/test/bun/scripts/ci/outputChannelWritesFixture.ts",
 		"scripts/**/*.ts",
 		"scripts/**/*.mts",
 		".vscode-test.mjs"
