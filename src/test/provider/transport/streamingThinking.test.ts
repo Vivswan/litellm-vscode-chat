@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
-import { StreamProcessor } from "../../../provider/transport/streaming";
+import { StreamProcessor } from "../../../provider/transport/streaming/processor";
 import type { ThinkingPartCtor } from "../../../shared/conversion/thinkingPart";
 import { resetThinkingPartLogOnce } from "../../../shared/conversion/thinkingPart";
 import { expectDefined } from "../../pureHelpers";

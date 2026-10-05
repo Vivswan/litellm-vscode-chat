@@ -2,12 +2,21 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { classifyOverall } from "../../../dashboard/presenters";
-import type { GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
+import type { GroupCredentialsResolution, LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { publicErrorText } from "../../../shared/logger";
 import { MirroredError } from "../../../shared/mirroredError";
-import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, makeLogger } from "../../pureHelpers";
-import { makeProvider } from "../../testUtils";
+import {
+	CHAT_COMPLETIONS_URL,
+	emptyErrorResponse,
+	MODEL_INFO_URL,
+	MODELS_URL,
+	mswServer,
+	sseTextResponse,
+	TEST_BASE_URL,
+	useMsw,
+} from "../../mocks/handlers";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeLogger } from "../../pureHelpers";
+import { makeProvider, userMessage } from "../../testUtils";
 
 /** The unresolved-credentials failure's log rendering, in the status window and the issue report's latest error. */
 const EXPECTED_CLASSIFICATION = "EntryCredentialsUnavailable(secretsUnreadable)";
@@ -50,13 +59,16 @@ suite("provider credential overlay", () => {
 
 		assert.deepStrictEqual(captured.headers, ["Bearer sk-rotated"], "discovery must carry the overlaid key");
 		assert.deepStrictEqual(resolved, [["Default", TEST_BASE_URL]], "the resolver gets the group's identity");
-		const server = infos[0]?.litellm?.server;
-		assert.strictEqual(server?.apiKey, "sk-rotated", "the attached connection carries the overlaid key");
 		// The status identity follows the overlaid credentials too, so the cache, prune keep-set, and dashboard join
 		// all describe what requests use.
 		const snapshot = provider.getServerSnapshots()[0];
 		assert.ok(snapshot !== undefined);
 		assert.strictEqual(provider.getGroupServer(snapshot.status.serverId)?.apiKey, "sk-rotated");
+		// What the host receives names the group and holds no credential: neither the key the host baked nor the one
+		// the entry resolved to.
+		const handedToHost = JSON.stringify(infos);
+		assert.ok(!handedToHost.includes("sk-baked") && !handedToHost.includes("sk-rotated"), handedToHost);
+		assert.strictEqual(typeof infos[0]?.litellm.group, "string", "the model names its group");
 	});
 
 	test("an external answer (no declared entry) keeps the baked credentials in force", async () => {
@@ -294,7 +306,7 @@ suite("provider credential overlay", () => {
 		});
 		const captured = capturingDiscovery();
 
-		const infos = await provider.provideLanguageModelChatInformation(
+		await provider.provideLanguageModelChatInformation(
 			groupOptions({
 				baseUrl: TEST_BASE_URL,
 				apiKey: "sk-baked",
@@ -307,6 +319,212 @@ suite("provider credential overlay", () => {
 		);
 
 		assert.deepStrictEqual(captured.headers, ["Bearer sk-only"], "no OAuth exchange rides a dropped unit");
-		assert.strictEqual(infos[0]?.litellm?.server?.oauth, undefined, "the baked OAuth unit is gone");
+		const served = expectDefined(provider.getServerSnapshots()[0]).status.serverId;
+		assert.strictEqual(provider.getGroupServer(served)?.oauth, undefined, "the baked OAuth unit is gone");
+	});
+
+	suite("request path", () => {
+		/** The Authorization header of the one chat request, or null for a request that carried none. */
+		function capturingChat(): { headers: (string | null)[] } {
+			const captured: { headers: (string | null)[] } = { headers: [] };
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
+					captured.headers.push(request.headers.get("authorization"));
+					return sseTextResponse("ok");
+				})
+			);
+			return captured;
+		}
+
+		function sendChat(provider: ReturnType<typeof makeProvider>, model: LiteLLMModelInfo): Promise<void> {
+			return provider.provideLanguageModelChatResponse(
+				model,
+				[userMessage("hi")],
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+				{ report: () => {} },
+				cancellation()
+			);
+		}
+
+		test("a request authenticates with the entry's credentials at request time, not at serve time", async () => {
+			// The model object dates from the serve; a rotation since then must reach the very next request, not wait
+			// out a host re-resolve.
+			let key = "sk-first";
+			const resolved: [string, string][] = [];
+			const provider = makeProvider(undefined, "unused", undefined, {
+				resolveEntryCredentials: async (label, baseUrl) => {
+					resolved.push([label, baseUrl]);
+					return { kind: "resolved", credentials: { apiKey: key } };
+				},
+			});
+			capturingDiscovery();
+			const chat = capturingChat();
+			const infos = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" }),
+				cancellation()
+			);
+
+			key = "sk-rotated";
+			await sendChat(provider, expectDefined(infos[0]));
+
+			assert.deepStrictEqual(chat.headers, ["Bearer sk-rotated"], "the request authenticates with the current key");
+			assert.deepStrictEqual(resolved, [
+				["Default", TEST_BASE_URL],
+				["Default", TEST_BASE_URL],
+			]);
+		});
+
+		test("a serve that finishes before a newer claim records still routes the models it handed out", async () => {
+			// Serve A stalls in discovery, serve B claims the next generation and stalls in the resolver, then A
+			// completes first. A's models reach the host; a request with one of them must route until B's record
+			// replaces A's, so A yields only to a newer RECORD, never to a newer claim.
+			// Calls 1 and 2 are the serves; every request-time call answers external, so the recorded set shows which
+			// record the request routed through.
+			let call = 0;
+			let releaseDiscovery!: () => void;
+			const discoveryGate = new Promise<void>((resolve) => {
+				releaseDiscovery = resolve;
+			});
+			let releaseResolver!: () => void;
+			const resolverGate = new Promise<void>((resolve) => {
+				releaseResolver = resolve;
+			});
+			const provider = makeProvider(undefined, "unused", undefined, {
+				resolveEntryCredentials: async () => {
+					const serve = ++call;
+					if (serve > 2) {
+						return { kind: "external" };
+					}
+					if (serve === 2) {
+						await resolverGate;
+					}
+					return { kind: "resolved", credentials: { apiKey: `sk-${serve}` } };
+				},
+			});
+			mswServer.use(
+				http.get(MODEL_INFO_URL, async ({ request }) => {
+					if (request.headers.get("authorization") === "Bearer sk-1") {
+						await discoveryGate;
+					}
+					return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+				})
+			);
+			const chat = capturingChat();
+			const configuration = { baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" };
+			const serveA = provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
+			const serveB = provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
+
+			releaseDiscovery();
+			const fromA = await serveA;
+			await sendChat(provider, expectDefined(fromA[0]));
+			assert.deepStrictEqual(chat.headers, ["Bearer sk-1"], "A's model routes through A's record");
+
+			releaseResolver();
+			await serveB;
+			assert.strictEqual(provider.getServerSnapshots().length, 1, "B's record replaced A's");
+			await sendChat(provider, expectDefined(fromA[0]));
+			assert.strictEqual(chat.headers.at(-1), "Bearer sk-2", "the same model now routes through B's record");
+		});
+
+		test("two labeled external groups at one URL keep their own keys: no declared owner, no shared identity", async () => {
+			// Hand-labeled native groups can share a label and a URL with different keys. Nothing declarative says one
+			// stands in for the other, so each model must route through its own group's recorded connection.
+			const provider = makeProvider(undefined, "unused", undefined, {
+				resolveEntryCredentials: async () => ({ kind: "external" }),
+			});
+			capturingDiscovery();
+			const chat = capturingChat();
+			const serveTwin = (apiKey: string) =>
+				provider.provideLanguageModelChatInformation(
+					groupOptions({ baseUrl: TEST_BASE_URL, apiKey, label: "Twin" }),
+					cancellation()
+				);
+			const fromA = await serveTwin("key-a");
+			const fromB = await serveTwin("key-b");
+			assert.strictEqual(provider.getServerSnapshots().length, 2, "two groups, two window entries");
+
+			await sendChat(provider, expectDefined(fromA[0]));
+			await sendChat(provider, expectDefined(fromB[0]));
+			assert.deepStrictEqual(chat.headers, ["Bearer key-a", "Bearer key-b"]);
+		});
+
+		test("a base URL with userinfo never hands its password to the host, labeled or not", async () => {
+			// The identity rides the model object and the status identity rides the dashboard; both are built on the
+			// credential-free URL. Discovery at such a URL may fail; the declared model is served either way.
+			const cases = [
+				{
+					name: "entry-owned",
+					configuration: { baseUrl: "https://user:pass@vault.test/v1", apiKey: "k", label: "Vault" },
+				},
+				{ name: "unlabeled", configuration: { baseUrl: "https://user:pass@vault.test/v1", apiKey: "k" } },
+			];
+			for (const { name, configuration } of cases) {
+				const provider = makeProvider(undefined, "unused", undefined, {
+					resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: "k" } }),
+					getEntryDeclaredModels: () => ["declared-model"],
+				});
+				mswServer.use(
+					http.get("https://vault.test/v1/model/info", () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)),
+					http.get("https://vault.test/v1/models", () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
+				);
+				const infos = await provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
+				assert.ok(infos.length > 0, `${name}: the declared model is served`);
+				const handedToHost = JSON.stringify(infos);
+				assert.ok(!handedToHost.includes("pass"), `${name}: ${handedToHost}`);
+				const serverId = expectDefined(provider.getServerSnapshots()[0]).status.serverId;
+				assert.ok(!serverId.includes("pass"), `${name}: the status identity ${serverId}`);
+			}
+		});
+
+		test("an external answer sends the recorded credentials; an unresolved entry fails before any request", async () => {
+			// The recorded set is the serve-time copy a rotation may have retired, so a declared entry whose credentials
+			// cannot be resolved (or a resolver that throws) must fail the request instead of sending it (#398).
+			const cases: { name: string; answer: () => Promise<GroupCredentialsResolution>; sent: boolean }[] = [
+				{ name: "external", answer: async () => ({ kind: "external" }), sent: true },
+				{
+					name: "unavailable",
+					answer: async () => ({ kind: "unavailable", reason: "secretsMismatched" }),
+					sent: false,
+				},
+				{
+					name: "throwing",
+					answer: async () => {
+						throw new Error("secret storage exploded");
+					},
+					sent: false,
+				},
+			];
+			for (const { name, answer, sent } of cases) {
+				// The serve resolves, so the group records and the model exists; the request then gets `answer`.
+				let answerRequests = false;
+				const provider = makeProvider(undefined, "unused", undefined, {
+					resolveEntryCredentials: () =>
+						answerRequests ? answer() : Promise.resolve({ kind: "resolved", credentials: { apiKey: "sk-served" } }),
+				});
+				capturingDiscovery();
+				const chat = capturingChat();
+				const infos = await provider.provideLanguageModelChatInformation(
+					groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" }),
+					cancellation()
+				);
+				answerRequests = true;
+
+				const send = sendChat(provider, expectDefined(infos[0]));
+				if (sent) {
+					await send;
+					assert.deepStrictEqual(chat.headers, ["Bearer sk-served"], `${name}: the recorded key is the request's`);
+					continue;
+				}
+				await assert.rejects(
+					send,
+					(error: unknown) =>
+						error instanceof MirroredError &&
+						publicErrorText(error) ===
+							`EntryCredentialsUnavailable(${name === "throwing" ? "secretsUnreadable" : "secretsMismatched"})`,
+					`${name}: the classified failure`
+				);
+				assert.deepStrictEqual(chat.headers, [], `${name}: no request left with the recorded key`);
+			}
+		});
 	});
 });

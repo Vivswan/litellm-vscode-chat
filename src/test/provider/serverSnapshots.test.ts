@@ -7,11 +7,12 @@ import {
 	MODEL_INFO_URL,
 	MODELS_URL,
 	mswServer,
+	sseTextResponse,
 	TEST_BASE_URL,
 	useMsw,
 } from "../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined } from "../pureHelpers";
-import { makeProvider, withConfig } from "../testUtils";
+import { makeProvider, userMessage, withConfig } from "../testUtils";
 
 /** The host passes the group configuration structurally; stable typings only declare `silent`. */
 function groupOptions(configuration: unknown, silent = true): { silent: boolean } {
@@ -38,7 +39,6 @@ suite("provider server snapshots", () => {
 		assert.strictEqual(snapshot.status.state, "ok");
 		const model = expectDefined(snapshot.models[0]);
 		assert.strictEqual(model.id, "test-model");
-		assert.strictEqual(model.litellm.server, undefined, "snapshot models must stay credential-free");
 		assert.ok(!JSON.stringify(snapshots).includes("group-secret"), "no credential may leak into the snapshot");
 	});
 
@@ -141,6 +141,46 @@ suite("provider server snapshots", () => {
 		const snapshot = expectDefined(provider.getServerSnapshots()[0]);
 		assert.strictEqual(snapshot.status.state, "ok");
 		assert.strictEqual(snapshot.models.length, 1);
+	});
+
+	test("a first serve that outlives an apiVersion edit still records, so the models it handed out route", async () => {
+		// No newer serve has recorded, so this serve's record is the only thing that can route the models the host
+		// just received; the edited root reaches the next serve through the cache key, not by discarding this record.
+		let apiVersion: string | undefined;
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getEntryApiVersion: () => apiVersion,
+		});
+		let releaseDiscovery = (): void => {};
+		const gate = new Promise<void>((resolve) => {
+			releaseDiscovery = resolve;
+		});
+		let chatHits = 0;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, async () => {
+				await gate;
+				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+			}),
+			http.post(`${TEST_BASE_URL}/chat/completions`, () => {
+				chatHits += 1;
+				return sseTextResponse("ok");
+			})
+		);
+		const configuration = groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k", label: "prod" });
+
+		const first = provider.provideLanguageModelChatInformation(configuration, cancellation());
+		await new Promise((resolve) => setTimeout(resolve, 25));
+		apiVersion = "";
+		releaseDiscovery();
+		const served = await first;
+
+		await provider.provideLanguageModelChatResponse(
+			expectDefined(served[0]),
+			[userMessage("hi")],
+			{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+			{ report: () => {} },
+			cancellation()
+		);
+		assert.strictEqual(chatHits, 1, "the request routed through the serve's record, at the edited root");
 	});
 
 	test("a serve that joins an in-flight old-root discovery refetches at the new root", async () => {

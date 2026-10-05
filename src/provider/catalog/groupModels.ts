@@ -18,6 +18,7 @@ import {
 } from "../../shared/serverEntry";
 import type { NormalizedBaseUrl } from "../../shared/util/baseUrl";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { displayUrl } from "../../shared/util/displayUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
@@ -27,18 +28,25 @@ import { oauthCredentialFingerprint } from "../transport/auth";
 /**
  * The host stores one configuration object per named group and hands the exact LanguageModelChatInformation objects a
  * provider returned back to provideLanguageModelChatResponse and provideTokenCount, so LiteLLM facts ride on the model
- * objects themselves.
+ * objects themselves. The group's connection does not: a model carries its group's identity, and the provider resolves
+ * the live connection from it at request time, so no credential value is ever handed to the host.
  */
 
 export interface GroupServer {
 	baseUrl: NormalizedBaseUrl;
 	apiKey: string;
-	/** Non-secret. Part of the group's identity (see groupClientId). */
+	/** Non-secret. Part of the group's identity (see groupIdentity and groupClientId). */
 	label?: string;
 	/** Client-credentials authentication; present only when the configuration names a token URL and client ID. */
 	oauth?: OAuthConfig;
 	/** Gateway virtual key; present only when the configuration names both a header and a value. */
 	virtualKey?: VirtualKeyConfig;
+	/**
+	 * Set by overlayEntryCredentials when a declared entry at this label and URL owns the group. Owned, the group's
+	 * identity is the rotation-stable label plus URL (the setting is truth); unowned, it stays the client ID, since no
+	 * declarative source exists that would make one labeled external twin stand in for another.
+	 */
+	entryOwned?: true;
 }
 
 interface LiteLLMModelMetadataBase {
@@ -65,9 +73,9 @@ interface LiteLLMModelMetadataBase {
 }
 
 /**
- * The `never` pins the credential boundary, so a group-attached copy, whose server embeds the group's credentials, does
- * not compile into the discovery cache (groupDiscovery.ts), StatusWindow.record (statusWindow.ts), or a dashboard
- * snapshot.
+ * The `never` pins the serve boundary: a served copy, stamped with one group's identity and possibly stale-decorated
+ * (markStale), does not compile into the discovery cache (groupDiscovery.ts), StatusWindow.record (statusWindow.ts),
+ * or a dashboard snapshot, which hold the configuration-free form.
  */
 export interface PreAttachModelInfo extends LanguageModelChatInformation {
 	readonly litellm: LiteLLMModelMetadataBase & {
@@ -76,17 +84,18 @@ export interface PreAttachModelInfo extends LanguageModelChatInformation {
 		 * patched values.
 		 */
 		readonly serverDeclared: ServerDeclaredCapabilities;
-		readonly server?: never;
+		readonly group?: never;
 	};
 }
 
 /**
- * A model entry with its group's resolved connection attached, for the host round trip only: attachGroupServer is the
- * sole constructor, and the value must never enter a cache, a status snapshot, or a state push.
+ * A model entry stamped with the identity of the group that served it, for the host round trip: attachGroup is the
+ * sole constructor. No field of this type can hold a credential value; the request path resolves the live connection
+ * from `group`.
  */
 export interface AttachedModelInfo extends LanguageModelChatInformation {
 	readonly litellm: LiteLLMModelMetadataBase & {
-		readonly server: GroupServer;
+		readonly group: string;
 		readonly serverDeclared?: never;
 	};
 }
@@ -98,15 +107,20 @@ export type GroupCredentials = Pick<GroupServer, "apiKey" | "oauth" | "virtualKe
 
 /**
  * Wholesale, never merged: the entry's resolved credential set is the complete truth, so an entry that dropped its
- * OAuth unit (or virtual key) must strip the baked one rather than keep authenticating with it.
+ * OAuth unit (or virtual key) must strip the baked one rather than keep authenticating with it. The destructure is a
+ * canary: when GroupServer grows a field it stops compiling, so the field-by-field copies here and in groupDiscovery's
+ * ServerConnection get visited.
  */
 function overlayGroupCredentials(server: GroupServer, credentials: GroupCredentials): GroupServer {
+	const { baseUrl, label, apiKey: _key, oauth: _oauth, virtualKey: _vk, entryOwned: _owned, ...unconsumed } = server;
+	void (unconsumed satisfies Record<string, never>);
 	return {
-		baseUrl: server.baseUrl,
+		baseUrl,
 		apiKey: credentials.apiKey,
-		...(server.label !== undefined ? { label: server.label } : {}),
+		...(label !== undefined ? { label } : {}),
 		...(credentials.oauth !== undefined ? { oauth: credentials.oauth } : {}),
 		...(credentials.virtualKey !== undefined ? { virtualKey: credentials.virtualKey } : {}),
+		entryOwned: true,
 	};
 }
 
@@ -114,11 +128,11 @@ function overlayGroupCredentials(server: GroupServer, credentials: GroupCredenti
 type CredentialsUnavailableReason = "secretsUnreadable" | "secretsMismatched" | "unusable";
 
 /**
- * The entry-credentials resolver's answer for a labeled group. The baked credentials are the copy the host stored at
- * group creation, which a rotation retires.
- *   external (no declared entry at this label and normalized base URL) -> the baked set stays; a leftover group
+ * The entry-credentials resolver's answer for a labeled group, overlaid onto the connection handed in: at serve time
+ * the host-baked set a rotation retires, at request time the status window's recorded set.
+ *   external (no declared entry at this label and normalized base URL) -> the connection handed in stays; a leftover group
  *   resolved                                                           -> the entry's current set overlays it
- *   unavailable(reason)                                                -> a classified failure, never the baked key
+ *   unavailable(reason)                                                -> a classified failure, never the handed-in key
  */
 export type GroupCredentialsResolution =
 	| { readonly kind: "external" }
@@ -140,9 +154,9 @@ function credentialsUnavailableError(reason: CredentialsUnavailableReason): Mirr
 export type EntryCredentialsResolver = (label: string, baseUrl: string) => Promise<GroupCredentialsResolution>;
 
 /**
- * The one overlay for both consumers of a labeled group's credentials.
- *   serve path (provider/index.ts)      -> the failure rides beside the baked server as the discovery preflight failure
- *   request path (transport/chatClient) -> the failure is thrown before anything is sent
+ * The one overlay for both consumers of a labeled group's credentials, both in provider/index.ts.
+ *   serve path   -> the failure rides beside the baked server as the discovery preflight failure
+ *   request path -> the failure is thrown before anything is sent
  */
 export async function overlayEntryCredentials(
 	server: GroupServer,
@@ -163,7 +177,7 @@ export async function overlayEntryCredentials(
 		case "resolved":
 			return { server: overlayGroupCredentials(server, resolution.credentials) };
 		case "unavailable":
-			return { server, failure: credentialsUnavailableError(resolution.reason) };
+			return { server: { ...server, entryOwned: true }, failure: credentialsUnavailableError(resolution.reason) };
 	}
 }
 
@@ -171,9 +185,10 @@ export async function overlayEntryCredentials(
 const GROUP_CLIENT_ID_PREFIX = "group:";
 
 /**
- * A fixed-arity JSON tuple, injective because escaping keeps every value inside its slot, hashed so no ID
- * embeds credential material. A credential rotation mints a new client ID for the same logical group; a labeled
- * group's logicalGroupId (statusWindow.ts) does not change, so its status entry survives the rotation.
+ * A fixed-arity JSON tuple, injective because escaping keeps every value inside its slot, hashed so no ID embeds
+ * credential material; the readable URL suffix is the credential-free spelling (userinfo stripped). A credential
+ * rotation mints a new client ID for the same logical group; a labeled group's logicalGroupId (statusWindow.ts) does
+ * not change, so its status entry survives the rotation.
  *
  *   credential fingerprint -> two groups may share a base URL with different credentials
  *   entry label            -> two DECLARED entries may share the URL and every credential, and without it
@@ -187,7 +202,7 @@ export function groupClientId(server: GroupServer): string {
 		server.oauth ? oauthCredentialFingerprint(server.oauth) : null,
 		server.virtualKey ? [server.virtualKey.header, server.virtualKey.value] : null,
 	]);
-	return `${GROUP_CLIENT_ID_PREFIX}${fingerprint(identity)}:${server.baseUrl}`;
+	return `${GROUP_CLIENT_ID_PREFIX}${fingerprint(identity)}:${displayUrl(server.baseUrl)}`;
 }
 
 /**
@@ -244,7 +259,7 @@ function narrowOAuth(raw: RawOptionalFields): OAuthConfig | undefined {
 
 type NarrowLog = (message: string, data?: unknown) => void;
 
-/** One warning per rejected header name, so per-request re-narrowing does not spam the log. */
+/** One warning per rejected header name, so repeated serves of one configuration do not spam the log. */
 const reportedInvalidVirtualKeys = new Set<string>();
 
 /** A rejection is logged once per header name so typos are diagnosable; the value never reaches the log. */
@@ -361,15 +376,9 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
 	return { baseUrl, ...narrowCredentials(raw, log), ...(label !== undefined ? { label } : {}) };
 }
 
-/**
- * `detail` is dropped so the host fills it with the group name. The destructure below is a canary, not
- * round-trip safety; when GroupServer grows a field it stops compiling so someone visits the copies that
- * cannot carry such a guard, parseAttachedServer below and chatClient.ts's ServerConnection copies.
- */
-export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer): AttachedModelInfo {
+/** `detail` is dropped so the host fills it with the group name. */
+export function attachGroup(info: PreAttachModelInfo, group: string): AttachedModelInfo {
 	const { detail: _detail, ...rest } = info;
-	const { baseUrl: _url, apiKey: _key, label: _label, oauth: _oauth, virtualKey: _vk, ...unconsumed } = server;
-	void (unconsumed satisfies Record<string, never>);
 	return {
 		...rest,
 		litellm: {
@@ -378,7 +387,7 @@ export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer)
 			outputLimitSource: modelOutputLimitSource(info),
 			supportsAudioInput: modelSupportsAudioInput(info),
 			...(info.litellm.declared === true ? { declared: true } : {}),
-			server: { ...server },
+			group,
 		},
 	};
 }
@@ -405,15 +414,18 @@ export function markStale(infos: readonly AttachedModelInfo[], lastSyncedDisplay
  */
 export interface ParsedModelMetadata {
 	/**
-	 * The attached group server, or undefined when the model object carries none - a state the provider never serves,
-	 * which the request path fails loudly on.
+	 * The identity of the group that served the model, or undefined when the model object carries none - a state the
+	 * provider never serves, which the request path fails loudly on.
 	 */
-	readonly server: GroupServer | undefined;
+	readonly group: string | undefined;
 	/**
 	 * A model object whose round trip lost the stamp falls back to its exposed ID, which group registrations mint raw
 	 * anyway.
 	 */
 	readonly rawModelId: string;
+	/** The host's token limits as the model object carries them; the request path reads them from here only. */
+	readonly maxInputTokens: number;
+	readonly maxOutputTokens: number;
 	readonly supportsPromptCaching: boolean;
 	readonly supportsAudioInput: boolean;
 	/** The registered imageInput capability, re-narrowed like the litellm fields; gates image message conversion. */
@@ -425,52 +437,18 @@ export interface ParsedModelMetadata {
 	readonly outputLimitSource: EffectiveOutputLimitSource;
 }
 
-/**
- * The attached server's base URL is re-normalized because identity surfaces require the normalized form and the host
- * round trip could hand back anything string-shaped. OAuth and virtual-key sub-objects get the same lenient narrowing
- * as the group configuration: malformed ones degrade to absent.
- */
-export function parseModelMetadata(model: LiteLLMModelInfo, log?: NarrowLog): ParsedModelMetadata {
+/** The group identity is compared with the window's, never derived from, so any usable string is taken as-is. */
+export function parseModelMetadata(model: LiteLLMModelInfo): ParsedModelMetadata {
 	const rawModelId = model.litellm?.rawModelId;
 	return {
-		server: parseAttachedServer(model.litellm?.server, log),
+		group: usableString(model.litellm?.group),
 		rawModelId: typeof rawModelId === "string" && rawModelId.length > 0 ? rawModelId : model.id,
+		maxInputTokens: model.maxInputTokens,
+		maxOutputTokens: model.maxOutputTokens,
 		supportsPromptCaching: modelSupportsPromptCaching(model),
 		supportsAudioInput: modelSupportsAudioInput(model),
 		imageInput: model.capabilities?.imageInput === true,
 		outputLimitSource: modelOutputLimitSource(model),
-	};
-}
-
-function parseAttachedServer(candidate: unknown, log?: NarrowLog): GroupServer | undefined {
-	if (!isRecord(candidate) || typeof candidate.baseUrl !== "string" || typeof candidate.apiKey !== "string") {
-		return undefined;
-	}
-	const baseUrl = normalizeBaseUrl(candidate.baseUrl);
-	if (baseUrl.length === 0) {
-		// Symmetric with parseGroupConfiguration: a URL that normalizes to nothing (e.g. "/") is no server.
-		return undefined;
-	}
-	const label = usableString(candidate.label);
-	const rawOAuth: unknown = candidate.oauth;
-	const rawVirtualKey: unknown = candidate.virtualKey;
-	const oauth = isRecord(rawOAuth)
-		? narrowOAuth({
-				oauthTokenUrl: rawOAuth.tokenUrl,
-				oauthClientId: rawOAuth.clientId,
-				oauthClientSecret: rawOAuth.clientSecret,
-				oauthScopes: rawOAuth.scopes,
-			})
-		: undefined;
-	const virtualKey = isRecord(rawVirtualKey)
-		? narrowVirtualKey({ virtualKeyHeader: rawVirtualKey.header, virtualKeyValue: rawVirtualKey.value }, log)
-		: undefined;
-	return {
-		baseUrl,
-		apiKey: candidate.apiKey,
-		...(label !== undefined ? { label } : {}),
-		...(oauth !== undefined ? { oauth } : {}),
-		...(virtualKey !== undefined ? { virtualKey } : {}),
 	};
 }
 

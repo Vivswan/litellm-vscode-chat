@@ -6,8 +6,9 @@ import { defaultHostRefreshDeadlineMs, hostRefreshDeadlineMs } from "../../provi
 import { mapModelInfoEntry, parseModelInfoItem } from "../../provider/catalog/discovery";
 import { DiscoveryCache } from "../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../provider/catalog/groupDiscovery";
-import { attachGroupServer } from "../../provider/catalog/groupModels";
+import { attachGroup, groupClientId } from "../../provider/catalog/groupModels";
 import { buildModelInfos } from "../../provider/catalog/registration";
+import { groupIdentity } from "../../provider/catalog/statusWindow";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { Logger, publicErrorText } from "../../shared/logger";
 import { MirroredError } from "../../shared/mirroredError";
@@ -113,26 +114,48 @@ suite("provider", () => {
 		);
 	});
 
-	test("provideLanguageModelChatResponse throws without configuration", async () => {
-		const provider = makeProvider();
-
-		let error: unknown;
-		try {
-			await provider.provideLanguageModelChatResponse(
-				makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
-				[],
-				{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
-				{ report: () => {} },
-				new vscode.CancellationTokenSource().token
+	test("a model the provider cannot route fails classified, mirrored, and before any network call", async () => {
+		// Two ways a model object can name no live group: it carries no identity (a hostile or pre-identity object),
+		// or it names a group the window no longer holds (removed, or never served by this provider).
+		const ghost = makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 });
+		const cases = [
+			{ name: "no identity", model: ghost, classification: "RequestRouting(no group identity)" },
+			{
+				name: "unserved group",
+				model: attachGroup(ghost, groupIdentity(testGroupServer(), groupClientId(testGroupServer()))),
+				classification: "RequestRouting(group not served)",
+			},
+		];
+		for (const { name, model, classification } of cases) {
+			let fetchCalled = false;
+			const provider = makeProvider(undefined, undefined, undefined, {
+				fetch: async () => {
+					fetchCalled = true;
+					throw new Error("fetch must not be called");
+				},
+			});
+			await assert.rejects(
+				provider.provideLanguageModelChatResponse(
+					model,
+					[],
+					{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				),
+				(error: unknown) => {
+					assert.ok(error instanceof MirroredError, `${name}: a mirrored error`);
+					assert.strictEqual(
+						error.message,
+						'Model "m" is not registered with any configured server. Refresh the model list and try again.',
+						`${name}: the display text`
+					);
+					assert.strictEqual(error.englishMessage, error.message, `${name}: the English mirror`);
+					assert.strictEqual(publicErrorText(error), classification, `${name}: the classification`);
+					return true;
+				}
 			);
-		} catch (e) {
-			error = e;
+			assert.strictEqual(fetchCalled, false, `${name}: no request may be sent`);
 		}
-		assert.ok(error instanceof Error);
-		assert.ok(
-			error.message.includes('Model "m" is not registered with any configured server'),
-			`Unexpected error message: ${error.message}`
-		);
 	});
 
 	test("user cancellation rejects with CancellationError and is not logged as an error", async () => {
@@ -142,19 +165,28 @@ suite("provider", () => {
 			error: (line: string) => lines.push(`ERROR: ${line}`),
 		} as unknown as vscode.LogOutputChannel;
 		const provider = makeProvider(TEST_BASE_URL, "test-key", channel, {
+			// Discovery answers the one serve that puts the group in the window; the chat POST then hangs until aborted.
 			fetch: (_url, init) =>
-				new Promise((_resolve, reject) => {
-					init?.signal?.addEventListener("abort", () => {
-						reject(new DOMException("The operation was aborted.", "AbortError"));
-					});
-				}),
+				init?.method === "POST"
+					? new Promise((_resolve, reject) => {
+							init.signal?.addEventListener("abort", () => {
+								reject(new DOMException("The operation was aborted.", "AbortError"));
+							});
+						})
+					: Promise.resolve(
+							new Response(JSON.stringify(DEFAULT_DISCOVERY_PAYLOAD), {
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							})
+						),
 		});
+		await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 
 		const cts = new vscode.CancellationTokenSource();
 		const pending = provider.provideLanguageModelChatResponse(
-			attachGroupServer(
+			attachGroup(
 				makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
-				testGroupServer()
+				groupIdentity(testGroupServer(), groupClientId(testGroupServer()))
 			),
 			[userMessage("hi")],
 			{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
@@ -167,28 +199,6 @@ suite("provider", () => {
 			!lines.some((l) => l.includes("ERROR:")),
 			`Cancellation must not produce an error log. Lines: ${lines.join(" | ")}`
 		);
-	});
-
-	test("provideLanguageModelChatResponse rejects a model without an attached server before any network call", async () => {
-		let fetchCalled = false;
-		const provider = makeProvider(undefined, undefined, undefined, {
-			fetch: async () => {
-				fetchCalled = true;
-				throw new Error("fetch must not be called");
-			},
-		});
-
-		await assert.rejects(
-			provider.provideLanguageModelChatResponse(
-				makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
-				[],
-				{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
-				{ report: () => {} },
-				new vscode.CancellationTokenSource().token
-			),
-			/not registered with any configured server/
-		);
-		assert.strictEqual(fetchCalled, false, "No request may be sent when the model has no attached server");
 	});
 
 	// This nested suite mocks the network with msw; the tests above inject their transport instead, so the interceptor

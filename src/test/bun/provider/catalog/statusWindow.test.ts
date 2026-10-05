@@ -15,7 +15,12 @@ import { normalizeBaseUrl } from "../../../../shared/util/baseUrl";
 const MINUTE_MS = 60_000;
 const DEFAULT_WINDOW_MS = 10 * MINUTE_MS;
 
-const groupServer: GroupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "k", label: "Default" };
+const groupServer: GroupServer = {
+	baseUrl: normalizeBaseUrl("http://litellm.test"),
+	apiKey: "k",
+	label: "Default",
+	entryOwned: true,
+};
 
 // The window stores and returns models opaquely; one branded stand-in is enough.
 const models = [{ id: "test-model" } as PreAttachModelInfo];
@@ -231,8 +236,18 @@ describe("provider/catalog/statusWindow: observed labeled group identities", () 
 				entered += 1;
 			}
 		);
-		const oldGroup: GroupServer = { baseUrl: normalizeBaseUrl("http://old.test/"), apiKey: "k", label: "Prod" };
-		const newGroup: GroupServer = { baseUrl: normalizeBaseUrl("http://new.test"), apiKey: "k", label: "Prod" };
+		const oldGroup: GroupServer = {
+			baseUrl: normalizeBaseUrl("http://old.test/"),
+			apiKey: "k",
+			label: "Prod",
+			entryOwned: true,
+		};
+		const newGroup: GroupServer = {
+			baseUrl: normalizeBaseUrl("http://new.test"),
+			apiKey: "k",
+			label: "Prod",
+			entryOwned: true,
+		};
 		const unlabeled: GroupServer = { baseUrl: normalizeBaseUrl("http://bare.test"), apiKey: "k" };
 		window.record(errorStatus("old"), NOTHING_SERVED, oldGroup);
 		window.record(okStatus("new"), served, newGroup, { discoveredRawIds: ["test-model"] });

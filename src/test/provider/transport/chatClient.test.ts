@@ -1,13 +1,13 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { GroupCredentialsResolution, LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
+import type { GroupServer, LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
+import { parseModelMetadata } from "../../../provider/catalog/groupModels";
+import type { ChatRequestContext } from "../../../provider/transport/chatClient";
 import { ChatClient } from "../../../provider/transport/chatClient";
 import type { TransportFetch } from "../../../provider/transport/nodeHttpFetch";
 import { convertMessages } from "../../../shared/conversion/messages";
-import { publicErrorText } from "../../../shared/logger";
-import { MirroredError } from "../../../shared/mirroredError";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { makeLogger, toHeaderMap } from "../../pureHelpers";
+import { makeLogger, makeModelInfo } from "../../pureHelpers";
 import { withConfig } from "../../testUtils";
 
 function controllableStream(): { stream: ReadableStream<Uint8Array>; push(text: string): void; close(): void } {
@@ -51,22 +51,11 @@ function collector(): { callIds: string[]; progress: vscode.Progress<vscode.Lang
 	};
 }
 
-const model = {
-	id: "test-model",
-	name: "test-model",
-	family: "litellm",
-	version: "1.0.0",
-	maxInputTokens: 100000,
-	maxOutputTokens: 8000,
-	capabilities: {},
-	litellm: {
-		rawModelId: "test-model",
-		supportsPromptCaching: false,
-		outputLimitSource: "defaults",
-		// The attached group connection, as every served model carries it; the request path routes by nothing else.
-		server: { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "k", label: "Default" },
-	},
-} satisfies LiteLLMModelInfo;
+/** The group's live connection, which the provider resolves from the model's group identity before calling send. */
+const server: GroupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "k", label: "Default" };
+
+/** Transport never routes, so the fixture needs no group identity: send reads only what the parse carries. */
+const model = makeModelInfo();
 
 const messages: vscode.LanguageModelChatRequestMessage[] = [
 	{
@@ -79,6 +68,20 @@ const messages: vscode.LanguageModelChatRequestMessage[] = [
 const options = {
 	toolMode: vscode.LanguageModelChatToolMode.Auto,
 } as unknown as vscode.ProvideLanguageModelChatResponseOptions;
+
+/** A request for `model` (or the fixture) over `server`, parsed the way the provider hands it to send. */
+function request(overrides: Partial<ChatRequestContext> & { model?: LiteLLMModelInfo } = {}): ChatRequestContext {
+	const { model: target = model, ...rest } = overrides;
+	return {
+		metadata: parseModelMetadata(target),
+		server,
+		messages,
+		options,
+		progress: collector().progress,
+		token: new vscode.CancellationTokenSource().token,
+		...rest,
+	};
+}
 
 suite("provider/transport/chatClient", () => {
 	// These tests inject the transport: they observe interleaved stream delivery across concurrent requests,
@@ -99,8 +102,8 @@ suite("provider/transport/chatClient", () => {
 		const a = collector();
 		const b = collector();
 		const token = new vscode.CancellationTokenSource().token;
-		const sendA = client.send({ model, messages, options, progress: a.progress, token });
-		const sendB = client.send({ model, messages, options, progress: b.progress, token });
+		const sendA = client.send(request({ progress: a.progress, token }));
+		const sendB = client.send(request({ progress: b.progress, token }));
 
 		first.push(idlessToolCallChunk("tool_one"));
 		second.push(idlessToolCallChunk("tool_two"));
@@ -136,13 +139,7 @@ suite("provider/transport/chatClient", () => {
 			id: "picker-alias/gpt-4:cheapest",
 			litellm: { ...model.litellm, rawModelId: "gpt-4:cheapest" },
 		} satisfies LiteLLMModelInfo;
-		const send = client.send({
-			model: diverged,
-			messages,
-			options,
-			progress: { report: () => {} },
-			token: new vscode.CancellationTokenSource().token,
-		});
+		const send = client.send(request({ model: diverged }));
 		body.push("data: [DONE]\n\n");
 		body.close();
 		await send;
@@ -164,13 +161,7 @@ suite("provider/transport/chatClient", () => {
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 			modelOptions: { audio: { voice: "alloy", format: "mp3" } },
 		} as unknown as vscode.ProvideLanguageModelChatResponseOptions;
-		const send = client.send({
-			model,
-			messages,
-			options: audioOptions,
-			progress,
-			token: new vscode.CancellationTokenSource().token,
-		});
+		const send = client.send(request({ options: audioOptions, progress }));
 
 		body.push(`data: ${JSON.stringify({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] })}\n\n`);
 		body.push("data: [DONE]\n\n");
@@ -223,11 +214,7 @@ suite("provider/transport/chatClient", () => {
 			},
 		});
 
-		const token = new vscode.CancellationTokenSource().token;
-		await assert.rejects(
-			client.send({ model, messages: rejectedMessages, options, progress: collector().progress, token }),
-			/missing a tool result/
-		);
+		await assert.rejects(client.send(request({ messages: rejectedMessages })), /missing a tool result/);
 
 		assert.strictEqual(fetchCalled, false, "the rejected request must never leave the machine");
 		const leaked = lines.filter((message) => conversionLogPattern.test(message));
@@ -252,13 +239,7 @@ suite("provider/transport/chatClient", () => {
 		});
 
 		const cts = new vscode.CancellationTokenSource();
-		const sendPromise = client.send({
-			model,
-			messages,
-			options,
-			progress: collector().progress,
-			token: cts.token,
-		});
+		const sendPromise = client.send(request({ token: cts.token }));
 		setTimeout(() => cts.cancel(), 20);
 
 		await assert.rejects(sendPromise, (err: unknown) => {
@@ -277,11 +258,7 @@ suite("provider/transport/chatClient", () => {
 			},
 		});
 
-		const token = new vscode.CancellationTokenSource().token;
-		await assert.rejects(
-			client.send({ model, messages, options, progress: collector().progress, token }),
-			/chat\.timeout/
-		);
+		await assert.rejects(client.send(request()), /chat\.timeout/);
 	});
 
 	test("a stream that stalls mid-body aborts at the configured chat.timeout", async function () {
@@ -303,88 +280,12 @@ suite("provider/transport/chatClient", () => {
 		await withConfig({ "chat.timeout": 1000 }, async () => {
 			const client = new ChatClient({ userAgent: "test-agent", fetch: stalling });
 
-			const token = new vscode.CancellationTokenSource().token;
 			const startedAt = Date.now();
-			await assert.rejects(
-				client.send({ model, messages, options, progress: collector().progress, token }),
-				/chat\.timeout/
-			);
+			await assert.rejects(client.send(request()), /chat\.timeout/);
 			assert.ok(
 				Date.now() - startedAt >= 900,
 				"the abort must come from the whole-call timeout, not an early transport failure"
 			);
 		});
-	});
-
-	test("a send overlays the attached credentials with the entry's current ones", async () => {
-		// The attached server dates from the serve that minted the model object; a rotation since then must reach the
-		// very next request, not wait out a host re-resolve.
-		const resolved: [string, string][] = [];
-		const stream = controllableStream();
-		let authHeader: string | undefined;
-		const client = new ChatClient({
-			userAgent: "test-agent",
-			resolveEntryCredentials: async (label, baseUrl) => {
-				resolved.push([label, baseUrl]);
-				return { kind: "resolved", credentials: { apiKey: "k-rotated" } };
-			},
-			fetch: async (_url, init) => {
-				authHeader = toHeaderMap(init?.headers).authorization;
-				return sseResponse(stream.stream);
-			},
-		});
-		const token = new vscode.CancellationTokenSource().token;
-		const send = client.send({ model, messages, options, progress: collector().progress, token });
-		stream.push("data: [DONE]\n\n");
-		stream.close();
-		await send;
-		assert.strictEqual(authHeader, "Bearer k-rotated", "the request authenticates with the overlaid key");
-		assert.deepStrictEqual(resolved, [["Default", normalizeBaseUrl("http://litellm.test")]]);
-	});
-
-	test("an external answer keeps the attached credentials; an unresolved entry fails before any request", async () => {
-		// The attached key is the serve-time copy a rotation may have retired, so a declared entry whose credentials
-		// cannot be resolved (or a resolver that throws) must fail the request instead of sending it (#398).
-		const cases: { name: string; resolve: () => Promise<GroupCredentialsResolution>; sent: boolean }[] = [
-			{ name: "external", resolve: async () => ({ kind: "external" }), sent: true },
-			{ name: "unavailable", resolve: async () => ({ kind: "unavailable", reason: "secretsMismatched" }), sent: false },
-			{
-				name: "throwing",
-				resolve: async () => {
-					throw new Error("secret storage exploded");
-				},
-				sent: false,
-			},
-		];
-		for (const { name, resolve, sent } of cases) {
-			const stream = controllableStream();
-			let authHeader: string | undefined;
-			const client = new ChatClient({
-				userAgent: "test-agent",
-				resolveEntryCredentials: resolve,
-				fetch: async (_url, init) => {
-					authHeader = toHeaderMap(init?.headers).authorization;
-					return sseResponse(stream.stream);
-				},
-			});
-			const token = new vscode.CancellationTokenSource().token;
-			const send = client.send({ model, messages, options, progress: collector().progress, token });
-			stream.push("data: [DONE]\n\n");
-			stream.close();
-			if (sent) {
-				await send;
-				assert.strictEqual(authHeader, "Bearer k", `${name}: the attached key remains a valid request input`);
-				continue;
-			}
-			await assert.rejects(
-				send,
-				(error: unknown) =>
-					error instanceof MirroredError &&
-					publicErrorText(error) ===
-						`EntryCredentialsUnavailable(${name === "throwing" ? "secretsUnreadable" : "secretsMismatched"})`,
-				`${name}: the classified failure`
-			);
-			assert.strictEqual(authHeader, undefined, `${name}: no request left with the attached key`);
-		}
 	});
 });
