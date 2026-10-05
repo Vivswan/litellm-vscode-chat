@@ -203,6 +203,15 @@ suite("extension failure lines", () => {
 			recorded: AUTH_MESSAGE_ENGLISH,
 		},
 		{
+			name: "a chat completion whose socket fails: a kind-only line, and the recorder keeps the English mirror",
+			message: "Chat request failed",
+			handlers: () => [http.post(CHAT_COMPLETIONS_URL, () => HttpResponse.error())],
+			run: (logger) => chatRequest(logger, "m", true),
+			rejects: true,
+			line: { kind: "network" },
+			recorded: `Could not reach ${TEST_BASE_URL}. Check your network, VPN, or proxy settings, and that the server is up.\n\nDetails: fetch failed (cause: Network error)`,
+		},
+		{
 			name: "a chat request for a model named by the marker that carries no group identity",
 			message: "Chat request failed",
 			handlers: () => [],
