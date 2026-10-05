@@ -72,6 +72,7 @@ suite("shared/serverEntry SECRET_FIELD_NESTED_PATHS", () => {
 			"user",
 			"base-Q7",
 			"user:base-Q7",
+			"u",
 			"token-Q7",
 			"u:token-Q7",
 			"mcp-Q7",
