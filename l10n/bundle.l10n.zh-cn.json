@@ -1433,5 +1433,8 @@
 	"{0}: {1} spent, no budget": "{0}: 已消费 {1}, 无预算",
 	"legacy": "遗留",
 	"Left behind by the entry \"{0}\", whose configuration no longer matches it. Its models stay in the picker until its object is deleted from the models file or in Manage Language Models.": "由条目「{0}」遗留, 其配置已与此组不符。在从模型文件或「管理语言模型」中删除其对象之前, 它的模型会一直留在选择器中。",
-	"This row no longer matches an adoptable server - it may have just been declared or removed.": "该行不再匹配可收编的服务器 - 它可能刚被声明或移除。"
+	"This row no longer matches an adoptable server - it may have just been declared or removed.": "该行不再匹配可收编的服务器 - 它可能刚被声明或移除。",
+	"Removed {0} from the servers setting. VS Code has not reported its provider group this session, so its models stay until the group is next reported; delete it in Manage Language Models, or remove its object from the models file and reload the window.": "已从 servers 设置中移除 {0}。VS Code 在本次会话中尚未报告它的提供程序组, 因此在该组下次被报告之前, 它的模型会继续保留; 请在「管理语言模型」中删除它, 或从模型文件中移除它的对象后重新加载窗口。",
+	"Removed {0} from the servers setting. VS Code has not reported their provider groups this session, so their models stay until each group is next reported; delete them in Manage Language Models, or remove their objects from the models file and reload the window.": "已从 servers 设置中移除 {0}。VS Code 在本次会话中尚未报告它们的提供程序组, 因此在各组下次被报告之前, 它们的模型会继续保留; 请在「管理语言模型」中删除它们, 或从模型文件中移除它们的对象后重新加载窗口。",
+	"Removed {0} from the servers setting. Another entry still declares the same provider group, so it keeps serving; there is nothing to delete.": "已从 servers 设置中移除 {0}。另一个条目仍声明同一个提供程序组, 因此该组继续提供服务; 无需删除任何内容。"
 }

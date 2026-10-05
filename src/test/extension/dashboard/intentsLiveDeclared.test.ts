@@ -4,7 +4,6 @@
  * engine and a fake host, in a window where a weaker resolution would hand out a declared entry's secret.
  */
 import * as assert from "node:assert";
-import { isDeepStrictEqual } from "node:util";
 import type { RequestPayload } from "../../../dashboard/endpoints";
 import type { DashboardState } from "../../../dashboard/viewModels";
 import { adoptSourceHandle, modelScopeKey } from "../../../extension/dashboard/adoptHandle";
@@ -207,7 +206,7 @@ function makeFixture(): Fixture {
 	fixture.engine = new ServerSyncEngine(
 		{
 			...makeSyncEnv().env,
-			observedGroupIds: () => new Set(host.snapshots.map((snapshot) => snapshot.status.serverId)),
+			observedSnapshots: () => host.snapshots,
 			readServersSetting: effective,
 			readSecrets: (label) => readServerSecretsRecord(secrets, label),
 			addProviderGroup: host.addProviderGroup,
@@ -273,6 +272,15 @@ interface Scenario {
 		readonly setting: unknown;
 		readonly secrets: Readonly<Record<string, unknown>>;
 		readonly hidden?: readonly { label: string; baseUrl: string }[];
+		/**
+		 * The push once the window's own mid-intent change has landed, for the windows that make one; the others
+		 * expect the push before the intent, minus exactly the hidden group.
+		 */
+		readonly push?: {
+			readonly rows: readonly [string, string, string, string][];
+			/** Each model as "serverLabel/id". */
+			readonly models: readonly string[];
+		};
 	};
 }
 
@@ -412,7 +420,18 @@ const WINDOWS: Record<string, Scenario> = {
 		},
 	},
 	"declared-mid-read": {
-		after: { setting: [A_ENTRY, L1_ENTRY], secrets: { A: keyBlob("http://a.test", A_KEY), L1: keyBlob(H) } },
+		after: {
+			setting: [A_ENTRY, L1_ENTRY],
+			secrets: { A: keyBlob("http://a.test", A_KEY), L1: keyBlob(H) },
+			// The pass's views predate L1, so its stamped group still draws external until the next pass.
+			push: {
+				rows: [
+					["A", "declared", "ok", "http://a.test"],
+					["L1", "external", "ok", H],
+				],
+				models: ["A/A-model", "L1/L1-model"],
+			},
+		},
 		intents: ["adopt", "hide"],
 		adopt: "rejects",
 		refusal: DashboardValidationError,
@@ -440,7 +459,19 @@ const WINDOWS: Record<string, Scenario> = {
 		},
 	},
 	"declared-during-adopt": {
-		after: { setting: [L1_INLINE], secrets: {} },
+		after: {
+			setting: [L1_INLINE],
+			secrets: {},
+			// No pass has published views, so the settings fallback declares L1 without join keys: the native group
+			// stays an external row beside it until the pass runs.
+			push: {
+				rows: [
+					["h.test", "external", "ok", H],
+					["L1", "declared", "unchecked", H],
+				],
+				models: ["h.test/native-model"],
+			},
+		},
 		intents: ["adopt"],
 		adopt: "rejects",
 		refusal: DashboardValidationError,
@@ -780,7 +811,17 @@ const WINDOWS: Record<string, Scenario> = {
 		},
 	},
 	"declared-after-resolution": {
-		after: { setting: [L1_INLINE], secrets: {} },
+		after: {
+			setting: [L1_INLINE],
+			secrets: {},
+			push: {
+				rows: [
+					["h.test", "external", "ok", H],
+					["L1", "declared", "unchecked", H],
+				],
+				models: ["h.test/native-model"],
+			},
+		},
 		intents: ["hide"],
 		adopt: "rejects",
 		refusal: DashboardValidationError,
@@ -804,7 +845,7 @@ const WINDOWS: Record<string, Scenario> = {
 function assertOutcome(
 	fixture: Fixture,
 	scenario: Scenario,
-	before: { writes: number; hostCalls: number; secretOps: number; state: DashboardState; windowMoved: () => boolean },
+	before: { writes: number; hostCalls: number; secretOps: number; state: DashboardState },
 	settingsWrites: readonly unknown[][],
 	acted: { readonly handle: string; readonly hidden?: readonly { label: string; baseUrl: string }[] }
 ): void {
@@ -828,8 +869,6 @@ function assertOutcome(
 			"a hide tombstones the group by its own client ID, never by a label or URL another group shares"
 		);
 	}
-	// A window that re-declares or re-keys the setting or a secret mid-intent moves the rows on its own, so only the
-	// Copy rule is checked for it.
 	const after = fixture.pushedState();
 	const copyRows = after.servers.filter((server) => server.origin === "declared" && server.label === "Copy");
 	assert.strictEqual(
@@ -837,7 +876,17 @@ function assertOutcome(
 		settingsWrites.length > 0 && fixture.engine.getDeclared().length === 0 ? 1 : 0,
 		"the Copy row appears only through the settings fallback after a landed adoption"
 	);
-	if (before.windowMoved()) {
+	if (scenario.after.push !== undefined) {
+		assert.deepStrictEqual(
+			after.servers.map((server) => [server.label, server.origin, server.state, server.baseUrl]),
+			scenario.after.push.rows
+		);
+		assert.deepStrictEqual(
+			after.models.map((model) => `${model.serverLabel}/${model.id}`),
+			scenario.after.push.models
+		);
+		assert.deepStrictEqual(after.hiddenGroups, []);
+		assert.strictEqual(after.servedModelCount, scenario.after.push.models.length);
 		return;
 	}
 	const hiddenId =
@@ -870,13 +919,6 @@ function assertOutcome(
 	);
 }
 
-function windowMovedSince(fixture: Fixture, scenario: Scenario): () => boolean {
-	const setting = structuredClone(fixture.currentSetting());
-	const secrets = fixture.secretsSnapshot();
-	return () =>
-		!isDeepStrictEqual(scenario.after.setting, setting) || !isDeepStrictEqual(scenario.after.secrets, secrets);
-}
-
 suite("extension/dashboard intents against the live sync truth", () => {
 	for (const [name, scenario] of Object.entries(WINDOWS)) {
 		if (scenario.intents.includes("adopt")) {
@@ -893,7 +935,6 @@ suite("extension/dashboard intents against the live sync truth", () => {
 					hostCalls: fixture.host.attempted.length,
 					secretOps: fixture.secretOps.length,
 					state: fixture.pushedState(),
-					windowMoved: windowMovedSince(fixture, scenario),
 				};
 				const adopt = () =>
 					executeDashboardIntent(
@@ -944,7 +985,6 @@ suite("extension/dashboard intents against the live sync truth", () => {
 					hostCalls: fixture.host.attempted.length,
 					secretOps: fixture.secretOps.length,
 					state: fixture.pushedState(),
-					windowMoved: windowMovedSince(fixture, scenario),
 				};
 				const hide = () =>
 					executeDashboardIntent(

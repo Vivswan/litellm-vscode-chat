@@ -8,6 +8,7 @@
 import { isDeepStrictEqual } from "node:util";
 import type * as vscode from "vscode";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
+import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import { VENDOR_ID } from "../../../shared/config/commandIds";
 import type {
 	EntryViewFields,
@@ -19,6 +20,8 @@ import { OPTIONAL_ENTRY_FIELDS, pickEntryViewFields, pickNonSecretOptionalFields
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { fingerprint } from "../../../shared/util/fingerprint";
+import { labeledSnapshots, resolveGroupOwnership } from "../../dashboard/declaredJoin";
+import type { DeclaredGroupClaim, GroupKey } from "../groupRemovals";
 import type { StoredSecretsRecord, StoredServerSecrets } from "./secrets";
 import { inlineSecretValues, resolveOwnedSecrets, secretLocations } from "./secrets";
 import type { DeclaredServer } from "./setting";
@@ -117,10 +120,16 @@ export type RemovedEntryEvent =
 			readonly label: string;
 			readonly baseUrl: string | undefined;
 			/**
-			 * The one live group the removed entry joined by its last readable identities and no present entry shares
-			 * (ServerSyncEngine.joinKeyOf): what a pre-label leftover hides by. Empty when nothing live answers to it.
+			 * The one live group the removed entry joined by its last readable identity and no present entry shares
+			 * (ServerSyncEngine.joinedGroupOf): what a pre-label leftover hides by. Empty unless `leftover` is
+			 * "hidden".
 			 */
 			readonly groupIds: readonly string[];
+			/**
+			 * What the removal did to the entry's live group: hidden by `groupIds`; shared, when an entry still present
+			 * joins the same group, so it keeps serving; unreported, when no live group answers to the identity.
+			 */
+			readonly leftover: "hidden" | "shared" | "unreported";
 	  }
 	| { readonly kind: "renamed"; readonly oldLabel: string; readonly newLabel: string; readonly baseUrl: string };
 
@@ -160,18 +169,15 @@ export interface ServerSyncEnv {
 	 * within a sweep; wiring/servers.ts re-runs a pass when a labeled group enters, so late evidence is not lost.
 	 */
 	observedGroupBaseUrls(label: string): readonly string[];
-	/** The client IDs of the groups the host serves right now; see joinKeyOf. */
-	observedGroupIds(): ReadonlySet<string>;
+	/** The groups the host serves right now, as the provider's status window reports them; see joinedGroupOf. */
+	observedSnapshots(): readonly ServerModelsSnapshot[];
 	/**
 	 * A re-declared group must never stay suppressed, so the env clears matching removal tombstones before
 	 * recording the events; extensions cannot delete the group itself, only the user can.
 	 *
 	 *   The pass awaits it -> reconciliations stay serialized with their passes
 	 */
-	reconcileEntryIdentities(
-		declared: readonly DeclaredGroupIdentity[],
-		events: readonly RemovedEntryEvent[]
-	): Promise<void>;
+	reconcileEntryIdentities(claims: readonly DeclaredGroupClaim[], events: readonly RemovedEntryEvent[]): Promise<void>;
 	log(message: string, data?: unknown): void;
 	logError(message: string, error: unknown): void;
 }
@@ -385,39 +391,44 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 */
 	private declaredLabelsLastPass: ReadonlySet<string> | undefined;
 	/**
-	 * Each label's identities as its last readable accepted view published them, kept while the label stays in the
-	 * setting (a rejected shape publishes no view, a failed blob read a credential-less one). The removal event and
-	 * the tombstone clear both read them through joinKeyOf, so neither acts by a key the group ownership would not
-	 * join the entry by.
+	 * Each label's identity as its last readable accepted view published it, kept while the label stays in the
+	 * setting (a rejected shape publishes no view, a failed or refused secret read a credential-less one). The removal
+	 * event, the rename classification, and the tombstone clear all read it through joinedGroupOf.
 	 */
-	private readonly lastIdentities = new Map<
-		string,
-		Pick<DeclaredGroupIdentity, "expectedClientId" | "expectedConnectionId">
-	>();
+	private readonly lastIdentities = new Map<string, DeclaredGroupIdentity>();
 
 	/**
-	 * The identity the group ownership (dashboard/declaredJoin.ts) joins the entry by, given the groups the host serves
-	 * now: its client ID when a group carries it, else its connection ID when a pre-label group carries that, else
-	 * nothing; the connection ID is never an entry's identity beside its own labeled group.
+	 * The live group the ownership (dashboard/declaredJoin.ts) joins an identity to, over every group the host serves,
+	 * tombstoned ones included: the one join function, so the engine never names a group by a key the dashboard would
+	 * not, and a hidden group a re-declared entry owns is found so its tombstone can lift.
 	 */
-	private joinKeyOf(
-		ids: Pick<DeclaredGroupIdentity, "expectedClientId" | "expectedConnectionId"> | undefined,
-		live: ReadonlySet<string>
-	): string | undefined {
-		if (ids?.expectedClientId !== undefined && live.has(ids.expectedClientId)) {
-			return ids.expectedClientId;
+	private joinedGroupOf(
+		identity: DeclaredGroupIdentity | undefined,
+		snapshots: readonly ServerModelsSnapshot[]
+	): GroupKey | undefined {
+		if (identity === undefined) {
+			return undefined;
 		}
-		return ids?.expectedConnectionId !== undefined && live.has(ids.expectedConnectionId)
-			? ids.expectedConnectionId
-			: undefined;
+		const joined = resolveGroupOwnership({
+			labeled: labeledSnapshots(snapshots),
+			declared: [identity],
+		}).matchedByDeclared.get(0)?.entry.snapshot;
+		return joined === undefined
+			? undefined
+			: {
+					groupId: joined.status.serverId,
+					label: joined.status.label,
+					entryLabel: joined.entryLabel,
+					baseUrl: joined.status.baseUrl,
+				};
 	}
 
-	/** The host's live group IDs; a throwing env reads as none served. */
-	private liveGroupIds(): ReadonlySet<string> {
+	/** The host's live groups; a throwing env reads as none served. */
+	private liveSnapshots(): readonly ServerModelsSnapshot[] {
 		try {
-			return this.env.observedGroupIds();
+			return this.env.observedSnapshots();
 		} catch {
-			return new Set();
+			return [];
 		}
 	}
 	private running: Promise<void> | undefined;
@@ -944,6 +955,8 @@ export class ServerSyncEngine implements vscode.Disposable {
 				continue;
 			}
 			this.lastIdentities.set(view.label, {
+				label: view.label,
+				baseUrl: view.baseUrl,
 				expectedClientId: view.expectedClientId,
 				expectedConnectionId: view.expectedConnectionId,
 			});
@@ -1057,7 +1070,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 			}
 		}
 		const present = rawDeclaredLabels(rawSetting);
-		const live = this.liveGroupIds();
+		const snapshots = this.liveSnapshots();
+		const sameIdentity = (a: DeclaredGroupIdentity | undefined, b: DeclaredGroupIdentity | undefined) =>
+			a !== undefined &&
+			b !== undefined &&
+			((a.expectedClientId !== undefined && a.expectedClientId === b.expectedClientId) ||
+				(a.expectedConnectionId !== undefined && a.expectedConnectionId === b.expectedConnectionId));
 		const events: RemovedEntryEvent[] = [];
 		for (const label of removed) {
 			const baseUrl = ledger[label] ?? this.soleObservedBaseUrl(label);
@@ -1066,7 +1084,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				//   A rename's other half -> is remembered only within the session
 				if (carried === undefined) {
 					this.unresolvedRemovals.set(label, newLabels);
-					events.push({ kind: "removed", label, baseUrl, groupIds: [] });
+					events.push({ kind: "removed", label, baseUrl, groupIds: [], leftover: "unreported" });
 				}
 				continue;
 			}
@@ -1074,18 +1092,28 @@ export class ServerSyncEngine implements vscode.Disposable {
 				this.env.log("Removed entry's group identity resolved from the live provider group", { label });
 			}
 			this.unresolvedRemovals.delete(label);
-			const renamedTo = [...(carried ?? newLabels)].find(([, url]) => url === baseUrl)?.[0];
 			const own = this.lastIdentities.get(label);
 			this.lastIdentities.delete(label);
+			const renamedTo = [...(carried ?? newLabels)].find(
+				([newLabel, url]) => url === baseUrl && sameIdentity(own, this.lastIdentities.get(newLabel))
+			)?.[0];
 			const shared = new Set(
-				[...this.lastIdentities].flatMap(([other, ids]) => (present.has(other) ? [this.joinKeyOf(ids, live)] : []))
+				[...this.lastIdentities].flatMap(([other, ids]) =>
+					present.has(other) ? [this.joinedGroupOf(ids, snapshots)?.groupId] : []
+				)
 			);
-			const ownKey = this.joinKeyOf(own, live);
-			const groupIds = ownKey !== undefined && !shared.has(ownKey) ? [ownKey] : [];
+			const ownGroup = this.joinedGroupOf(own, snapshots);
+			const leftover = ownGroup === undefined ? "unreported" : shared.has(ownGroup.groupId) ? "shared" : "hidden";
 			events.push(
 				renamedTo !== undefined
 					? { kind: "renamed", oldLabel: label, newLabel: renamedTo, baseUrl }
-					: { kind: "removed", label, baseUrl, groupIds }
+					: {
+							kind: "removed",
+							label,
+							baseUrl,
+							groupIds: leftover === "hidden" && ownGroup !== undefined ? [ownGroup.groupId] : [],
+							leftover,
+						}
 			);
 		}
 		// An unresolved removal - detected this pass or carried from an earlier one - keeps its fingerprint record (see
@@ -1139,16 +1167,18 @@ export class ServerSyncEngine implements vscode.Disposable {
 		if (reported.length > 0) {
 			this.env.log("Servers setting entries removed; their provider groups remain", { labels: reported });
 		}
+		// A deferred removal (unresolvedRemovals) keeps its identity until its observation arrives and classifies it.
 		for (const label of [...this.lastIdentities.keys()]) {
-			if (!present.has(label)) {
+			if (!present.has(label) && !this.unresolvedRemovals.has(label)) {
 				this.lastIdentities.delete(label);
 			}
 		}
 		await this.env.reconcileEntryIdentities(
-			views.map(({ label, baseUrl }) => {
-				const key = this.joinKeyOf(this.lastIdentities.get(label), live);
-				return { label, baseUrl: normalizeBaseUrl(baseUrl), expectedClientId: key };
-			}),
+			views.map(({ label, baseUrl }) => ({
+				label,
+				baseUrl: normalizeBaseUrl(baseUrl),
+				group: this.joinedGroupOf(this.lastIdentities.get(label), snapshots),
+			})),
 			events
 		);
 	}

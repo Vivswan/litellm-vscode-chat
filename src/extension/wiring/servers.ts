@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
 import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import {
@@ -38,8 +39,8 @@ export function wireServers(
 		notifyModelsChanged: DebouncedAction;
 		/** The engine's live ownership evidence: which base URLs the host is serving each labeled group at. */
 		observedGroupBaseUrls: (label: string) => readonly string[];
-		/** The client IDs of the groups the host serves now; see ServerSyncEnv.observedGroupIds. */
-		observedGroupIds: () => ReadonlySet<string>;
+		/** The groups the host serves now; see ServerSyncEnv.observedSnapshots. */
+		observedSnapshots: () => readonly ServerModelsSnapshot[];
 		/** Fires when a labeled group enters the provider's status window; a pass re-runs so the evidence is used. */
 		onDidObserveGroup: vscode.Event<void>;
 	}
@@ -53,7 +54,7 @@ export function wireServers(
 			deps.fingerprintSalt,
 			deps.groupRemovals,
 			deps.observedGroupBaseUrls,
-			deps.observedGroupIds
+			deps.observedSnapshots
 		)
 	);
 	const usagePoller = new UsagePoller(createUsagePollerEnv(context, logger, userAgent));

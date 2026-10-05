@@ -14,7 +14,6 @@
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../shared/config/storageKeys";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isRecord } from "../../shared/util/json";
-import type { DeclaredGroupIdentity } from "./serverSync/engine";
 
 /** One group identity as the provenance bookkeeping stores it; baseUrl is kept normalized. */
 export interface GroupIdentity {
@@ -34,6 +33,12 @@ export type TombstoneIdentity =
 	| { readonly by: "group"; readonly groupId: string; readonly label: string; readonly baseUrl: string }
 	| { readonly by: "entry"; readonly label: string; readonly baseUrl: string }
 	| { readonly by: "status"; readonly label: string; readonly baseUrl: string };
+
+export interface DeclaredGroupClaim {
+	readonly label: string;
+	readonly baseUrl: string;
+	readonly group: GroupKey | undefined;
+}
 
 export interface GroupKey {
 	readonly groupId: string;
@@ -97,19 +102,28 @@ function parseOrigin(value: unknown): OrphanedGroupOrigin | undefined {
 	return undefined;
 }
 
+/** One parser per kind, so a kind added to TombstoneIdentity without a parser fails the build, not the read. */
+const TOMBSTONE_PARSERS: {
+	[K in TombstoneIdentity["by"]]: (
+		value: Record<string, unknown>,
+		identity: GroupIdentity
+	) => Extract<TombstoneIdentity, { by: K }> | undefined;
+} = {
+	group: (value, identity) =>
+		typeof value.groupId === "string" ? { by: "group", groupId: value.groupId, ...identity } : undefined,
+	entry: (_value, identity) => ({ by: "entry", ...identity }),
+	status: (_value, identity) => ({ by: "status", ...identity }),
+};
+
 function parseTombstone(value: unknown): TombstoneIdentity | undefined {
 	const identity = parseIdentity(value);
-	if (identity === undefined) {
+	if (identity === undefined || !isRecord(value)) {
 		return undefined;
 	}
-	if (!isRecord(value) || value.by === undefined) {
-		return { by: "status", ...identity };
-	}
-	if (value.by === "entry" || value.by === "status") {
-		return { by: value.by, ...identity };
-	}
-	return value.by === "group" && typeof value.groupId === "string"
-		? { by: "group", groupId: value.groupId, ...identity }
+	// A record from before the keyed kinds has no `by`: the status label and URL it carried.
+	const by = value.by === undefined ? "status" : value.by;
+	return typeof by === "string" && Object.hasOwn(TOMBSTONE_PARSERS, by)
+		? TOMBSTONE_PARSERS[by as TombstoneIdentity["by"]](value, identity)
 		: undefined;
 }
 
@@ -366,21 +380,21 @@ export class GroupRemovalStore {
 
 	/**
 	 * The automatic clear: a declared entry whose group a tombstone hides (re)appeared, so the group is wanted again
-	 * and must never stay suppressed; the sync engine's pass calls this with every current declared identity. A group
-	 * record a declared entry would reach only by label and URL stays hidden and out of the join (state.ts), so the
-	 * dashboard and the provider agree.
-	 *
-	 *   group record         -> the entry's join key (ServerSyncEngine.joinKeyOf) is the group's
-	 *   entry, status record -> the entry's label and URL
+	 * and must never stay suppressed. The sync engine's pass calls this with every current declared entry and the
+	 * group the ownership joins it to; the match is the one tombstoneHides makes, over that group's key with the
+	 * entry's own label as the stamp, so a re-added entry also lifts the record its removal wrote.
 	 */
-	async clearTombstonesFor(declared: readonly DeclaredGroupIdentity[]): Promise<boolean> {
+	async clearTombstonesFor(claims: readonly DeclaredGroupClaim[]): Promise<boolean> {
 		const current = this.tombstoneRegion.list();
 		const next = current.filter(
 			(existing) =>
-				!declared.some((identity) =>
-					existing.by === "group"
-						? existing.groupId === identity.expectedClientId
-						: sameIdentity(existing, identity.label, identity.baseUrl)
+				!claims.some((claim) =>
+					tombstoneHides(existing, {
+						groupId: claim.group?.groupId ?? "",
+						label: claim.group?.label ?? "",
+						entryLabel: claim.label,
+						baseUrl: claim.baseUrl,
+					})
 				)
 		);
 		if (next.length === current.length) {

@@ -36,13 +36,13 @@ import { sendRequest } from "./vscodeApi";
 function serverRowKey(server: DashboardServer): string {
 	switch (server.origin) {
 		case "legacy":
-			return `legacy:${server.groupHandle}`;
+			return JSON.stringify([server.origin, server.groupHandle]);
 		case "external":
-			return `external:${server.adoptHandle}`;
+			return JSON.stringify([server.origin, server.adoptHandle]);
 		default:
 			// The URL is part of the key so a re-pointed entry is a new row: an armed Remove or declare never follows
-			// the label onto its successor.
-			return `${server.origin}:${server.label}:${server.baseUrl}`;
+			// the label onto its successor. A JSON array, never a joined string: labels and URLs both carry ":".
+			return JSON.stringify([server.origin, server.label, server.baseUrl]);
 	}
 }
 

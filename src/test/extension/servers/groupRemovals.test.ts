@@ -67,6 +67,17 @@ suite("extension/servers/groupRemovals", () => {
 			assert.strictEqual(changes.length, 2, "a no-op removal fires no change");
 		});
 
+		test("a re-declared entry joined to the group a pre-keyed record hides lifts that record", async () => {
+			// The one identity match: the clear reads the joined group's key exactly as the suppression does.
+			const { store } = makeStore({
+				[REMOVED_GROUP_TOMBSTONES_KEY]: { version: "1", records: [{ label: "h.test", baseUrl: "http://h.test" }] },
+			});
+			const group = { groupId: "group:g", label: "h.test", entryLabel: undefined, baseUrl: "http://h.test" };
+			assert.strictEqual(store.isTombstoned(group), true);
+			assert.strictEqual(await store.clearTombstonesFor([{ label: "L1", baseUrl: "http://h.test", group }]), true);
+			assert.deepStrictEqual(store.tombstones(), []);
+		});
+
 		test("a persisted record without a key keeps hiding by the status label and URL it carried", () => {
 			const { store } = makeStore({
 				[REMOVED_GROUP_TOMBSTONES_KEY]: {
@@ -121,9 +132,13 @@ suite("extension/servers/groupRemovals", () => {
 			await store.addTombstone({ by: "group", groupId: "group:other", label: "c.test", baseUrl: "http://c.test" });
 
 			const cleared = await store.clearTombstonesFor([
-				{ label: "Prod", baseUrl: "http://prod.test/" },
-				{ label: "Unrelated", baseUrl: "http://elsewhere.test" },
-				{ label: "Conn", baseUrl: "http://c.test", expectedClientId: "group:conn" },
+				{ label: "Prod", baseUrl: "http://prod.test/", group: undefined },
+				{ label: "Unrelated", baseUrl: "http://elsewhere.test", group: undefined },
+				{
+					label: "Conn",
+					baseUrl: "http://c.test",
+					group: { groupId: "group:conn", label: "c.test", entryLabel: undefined, baseUrl: "http://c.test" },
+				},
 			]);
 
 			assert.strictEqual(cleared, true);
@@ -134,7 +149,7 @@ suite("extension/servers/groupRemovals", () => {
 			assert.strictEqual(changes.length, 5);
 
 			assert.strictEqual(
-				await store.clearTombstonesFor([{ label: "Prod", baseUrl: "http://prod.test" }]),
+				await store.clearTombstonesFor([{ label: "Prod", baseUrl: "http://prod.test", group: undefined }]),
 				false,
 				"nothing left to clear reports false"
 			);

@@ -48,7 +48,6 @@ export function entriesOf(write: ValidatedServersWrite): readonly unknown[] {
 	return ValidatedServersWrite.entriesOf(write);
 }
 
-/** What a displayed row carries about its entry. */
 export interface RowIdentity {
 	readonly label: string;
 	readonly baseUrl: string;

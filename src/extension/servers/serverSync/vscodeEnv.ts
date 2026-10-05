@@ -1,6 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
+import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import { CMD, HOST_CMD, INTERNAL_CMD } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getMaskSecretInputs, SERVERS_SETTING_KEY } from "../../../shared/config/settings";
@@ -68,16 +69,46 @@ const quoted = (labels: readonly string[]) => labels.map((label) => `"${label}"`
  */
 async function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): Promise<void> {
 	const hidden: string[] = [];
+	const shared: string[] = [];
+	const unreported: string[] = [];
 	const untracked: string[] = [];
 	const renamed: Extract<RemovedEntryEvent, { kind: "renamed" }>[] = [];
 	for (const event of events) {
 		if (event.kind === "renamed") {
 			renamed.push(event);
-		} else if (event.baseUrl !== undefined) {
-			hidden.push(event.label);
-		} else {
+		} else if (event.baseUrl === undefined) {
 			untracked.push(event.label);
+		} else if (event.leftover === "hidden") {
+			hidden.push(event.label);
+		} else if (event.leftover === "shared") {
+			shared.push(event.label);
+		} else {
+			unreported.push(event.label);
 		}
+	}
+	if (shared.length > 0) {
+		void showActionableMessage(
+			"info",
+			l10n.t(
+				"Removed {0} from the servers setting. Another entry still declares the same provider group, so it keeps serving; there is nothing to delete.",
+				quoted(shared)
+			),
+			[]
+		);
+	}
+	if (unreported.length > 0) {
+		const labels = quoted(unreported);
+		const message =
+			unreported.length === 1
+				? l10n.t(
+						"Removed {0} from the servers setting. VS Code has not reported its provider group this session, so its models stay until the group is next reported; delete it in Manage Language Models, or remove its object from the models file and reload the window.",
+						labels
+					)
+				: l10n.t(
+						"Removed {0} from the servers setting. VS Code has not reported their provider groups this session, so their models stay until each group is next reported; delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
+						labels
+					);
+		void showActionableMessage("info", message, await leftoverGroupActions(unreported));
 	}
 	if (hidden.length > 0) {
 		const labels = quoted(hidden);
@@ -126,7 +157,7 @@ export function createServerSyncEnv(
 	fingerprintSalt: FingerprintSaltSession,
 	removals: GroupRemovalStore,
 	observedGroupBaseUrls: (label: string) => readonly string[],
-	observedGroupIds: () => ReadonlySet<string>
+	observedSnapshots: () => readonly ServerModelsSnapshot[]
 ): ServerSyncEnv {
 	if (fingerprintSalt.state() !== "durable") {
 		logger.log(
@@ -175,10 +206,10 @@ export function createServerSyncEnv(
 			await context.globalState.update(SYNCED_ENTRY_BASE_URLS_KEY, map);
 		},
 		observedGroupBaseUrls,
-		observedGroupIds,
-		reconcileEntryIdentities: async (declared, events) => {
+		observedSnapshots,
+		reconcileEntryIdentities: async (claims, events) => {
 			try {
-				await removals.clearTombstonesFor(declared);
+				await removals.clearTombstonesFor(claims);
 			} catch (error) {
 				logger.error("Clearing removed-group tombstones failed", error);
 			}
@@ -217,7 +248,13 @@ export function createServerSyncEnv(
 				} catch (error) {
 					logger.error("Recording removed-group bookkeeping failed", error);
 					if (event.kind === "removed") {
-						noticeEvents.push({ kind: "removed", label: event.label, baseUrl: undefined, groupIds: [] });
+						noticeEvents.push({
+							kind: "removed",
+							label: event.label,
+							baseUrl: undefined,
+							groupIds: [],
+							leftover: "unreported",
+						});
 					} else {
 						noticeEvents.push(event);
 					}

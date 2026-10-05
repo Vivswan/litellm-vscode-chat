@@ -256,7 +256,6 @@ function secretsView(view: DeclaredServerView, source: DeclaredServersInput["sou
 	return { kind: "unproven" };
 }
 
-/** The rejected entries that draw a Misconfigured row: drawableRejects over the labels the declared views hold. */
 export function rejectsWithOwnRow(
 	entryReports: readonly ServerEntryReport[],
 	declared: readonly Pick<DeclaredServerView, "label">[]
