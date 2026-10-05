@@ -1,5 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import type OpenAI from "openai";
+import { APIConnectionError } from "openai";
 import { consumedFieldsOfKind } from "../../shared/config/capabilityResolution";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
@@ -12,6 +13,7 @@ import { isRecord, recordFromKeys } from "../../shared/util/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
 import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
 import { mapSdkError, RequestError, timeoutRequestError } from "../transport/errorMapping";
+import { retryIdempotent } from "../transport/retry";
 import { collapseTokenConstraints, reportedLimits } from "./modelCatalog";
 import { reasoningEffortLevelsFromFlags } from "./modelConfiguration";
 import type {
@@ -345,10 +347,6 @@ const UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION = "RequestError(http, unparseab
 /** Cap on the parser reason quoted in the user-facing detail line; the full error stays on the cause. */
 const UNPARSEABLE_REASON_MAX_LENGTH = 100;
 
-/**
- * The one constructor for both unparseable-payload sites, so their classification, display message, and English
- * mirror cannot drift apart.
- */
 function unparseableModelsResponse(endpointUrl: string, reason: string, cause: unknown): RequestError {
 	const detail = `Unparseable response from ${displayUrl(endpointUrl)}: ${collapseWhitespace(reason).slice(
 		0,
@@ -370,21 +368,53 @@ function unparseableModelsResponse(endpointUrl: string, reason: string, cause: u
 	);
 }
 
-/**
- * The SDK only parses JSON when the response advertises a JSON content type.
- *
- * Servers that return JSON with a missing or wrong content-type header still work, so a string payload gets one
- * JSON.parse attempt here.
- */
-function coerceJsonPayload(value: unknown, endpointUrl: string): unknown {
-	if (typeof value !== "string") {
-		return value;
-	}
+/** The content type is never consulted: servers mislabel JSON, so every body takes this one parse. */
+function parseJsonBody(text: string, endpointUrl: string): unknown {
 	try {
-		return JSON.parse(value);
+		return JSON.parse(text);
 	} catch (error) {
 		throw unparseableModelsResponse(endpointUrl, errorMessageText(error), error);
 	}
+}
+
+/**
+ * One discovery GET: the SDK runs without retries because its backoff sleep ignores the signal, so retryIdempotent
+ * owns the retries and `signal` bounds the whole call, sleeps included. The per-request timeout keeps the SDK's own
+ * 600 s default from overriding ours.
+ */
+async function getJson(
+	client: OpenAI,
+	path: string,
+	endpointUrl: string,
+	options: {
+		readonly signal: AbortSignal;
+		readonly timeoutMs: number;
+		readonly maxRetries: number;
+		readonly headers: FetchModelsRequest["headers"];
+	}
+): Promise<unknown> {
+	return retryIdempotent(
+		async () => {
+			const response = await client
+				.get(path, { signal: options.signal, timeout: options.timeoutMs, maxRetries: 0, headers: options.headers })
+				.asResponse();
+			if (response.status === 204) {
+				return null;
+			}
+			let text: string;
+			try {
+				text = await response.text();
+			} catch (readError) {
+				if (options.signal.aborted) {
+					throw readError;
+				}
+				// A socket death mid-body classifies like one before the headers.
+				throw new APIConnectionError({ cause: readError instanceof Error ? readError : undefined });
+			}
+			return parseJsonBody(text, endpointUrl);
+		},
+		{ maxRetries: options.maxRetries, signal: options.signal }
+	);
 }
 
 /** How the model-info probe's failure looked, for the /models leg's same-pass verdict. */
@@ -538,33 +568,6 @@ function refineModelsListingFailure(mapped: Error, ctx: ModelsFailureContext): E
 	return mapped;
 }
 
-/**
- * The SDK's retry backoff sleep does not observe the abort signal, so a server sending a large Retry-After could stall
- * a retried call well past the discovery timeout. Racing the call against its signal restores the hard bound.
- */
-function boundedBySignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-	// The call may lose the race; its eventual rejection must not surface as unhandled.
-	promise.catch(() => {});
-	return new Promise<T>((resolve, reject) => {
-		const onAbort = () => reject(signal.reason ?? new Error("The operation was aborted"));
-		if (signal.aborted) {
-			onAbort();
-			return;
-		}
-		signal.addEventListener("abort", onAbort, { once: true });
-		promise.then(
-			(value) => {
-				signal.removeEventListener("abort", onAbort);
-				resolve(value);
-			},
-			(error) => {
-				signal.removeEventListener("abort", onAbort);
-				reject(error);
-			}
-		);
-	});
-}
-
 interface NarrowedModelInfoData {
 	models: LiteLLMModelItem[];
 	/**
@@ -686,21 +689,13 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	const modelInfo: ModelInfoProbeOutcome = { answered: false, evidence: undefined };
 	const infoSignal = AbortSignal.timeout(discoveryTimeout);
 	try {
-		// The per-request timeout keeps the SDK's own 600 s default from overriding ours; boundedBySignal makes the
-		// signal a hard whole-call bound across retries. Retries are safe here (idempotent GET) and stay off for an
-		// endpoint whose failure the entry declares expected.
-		const parsedInfo: unknown = coerceJsonPayload(
-			await boundedBySignal(
-				client.get(MODEL_INFO_PATH, {
-					signal: infoSignal,
-					timeout: discoveryTimeout,
-					maxRetries: expected?.modelInfo === true ? 0 : DISCOVERY_MAX_RETRIES,
-					headers,
-				}),
-				infoSignal
-			),
-			modelInfoUrl(baseUrl, apiVersion)
-		);
+		// Retries stay off for an endpoint whose failure the entry declares expected.
+		const parsedInfo: unknown = await getJson(client, MODEL_INFO_PATH, modelInfoUrl(baseUrl, apiVersion), {
+			signal: infoSignal,
+			timeoutMs: discoveryTimeout,
+			maxRetries: expected?.modelInfo === true ? 0 : DISCOVERY_MAX_RETRIES,
+			headers,
+		});
 		// An unparseable body throws above and proves nothing about endpoint support.
 		modelInfo.answered = true;
 		if (isRecord(parsedInfo) && Array.isArray(parsedInfo.data)) {
@@ -756,28 +751,18 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	};
 	let parsed: unknown;
 	try {
-		parsed = coerceJsonPayload(
-			await boundedBySignal(
-				client.get(MODELS_PATH, {
-					signal: timeoutSignal,
-					timeout: discoveryTimeout,
-					maxRetries: expected?.modelListing === true ? 0 : DISCOVERY_MAX_RETRIES,
-					headers,
-				}),
-				timeoutSignal
-			),
-			modelsUrl(baseUrl, apiVersion)
-		);
+		parsed = await getJson(client, MODELS_PATH, modelsUrl(baseUrl, apiVersion), {
+			signal: timeoutSignal,
+			timeoutMs: discoveryTimeout,
+			maxRetries: expected?.modelListing === true ? 0 : DISCOVERY_MAX_RETRIES,
+			headers,
+		});
 	} catch (error) {
 		if (timeoutSignal.aborted) {
 			throw refineModelsListingFailure(timeoutRequestError(errorContext, error), failureContext);
 		}
 		if (error instanceof RequestError && error.logClassification === UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION) {
 			throw error;
-		}
-		if (error instanceof SyntaxError) {
-			// Same leak shape as coerceJsonPayload, same classification.
-			throw unparseableModelsResponse(modelsUrl(baseUrl, apiVersion), error.message, error);
 		}
 		throw refineModelsListingFailure(mapSdkError(error, errorContext), failureContext);
 	}

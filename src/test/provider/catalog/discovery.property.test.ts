@@ -112,7 +112,7 @@ suite("provider/discovery expectedFailures retry properties", () => {
 	 * combination: an expected endpoint gets exactly one attempt, an unexpected one keeps
 	 * the full budget, a model/info success skips the fallback, and expectations never
 	 * change WHICH failure is terminal. Run count is capped because retried 5xx attempts
-	 * pay the SDK's real backoff sleeps.
+	 * pay the real backoff sleeps.
 	 */
 	test("expected endpoints get one attempt, unexpected ones the full budget, per endpoint", async function () {
 		this.timeout(120000);

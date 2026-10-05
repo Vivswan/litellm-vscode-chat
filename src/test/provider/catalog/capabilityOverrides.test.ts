@@ -1,9 +1,9 @@
 /**
  * The attach-side override application and declared-model synthesis: coherent rebuilds
  * (token constraints, capability flags, the reasoning and caching gates, pricing,
- * outputLimitSource promotion, stale-pricing healing), the object-identity fast path when
- * no consumed configuration matches, inertness against the DISCOVERED raw-ID set, and
- * collision suppression against reserved exposed IDs.
+ * outputLimitSource promotion, stale-pricing healing), the idempotence of the unconditional
+ * rebuild, inertness against the DISCOVERED raw-ID set, and collision suppression against
+ * reserved exposed IDs.
  */
 import * as assert from "node:assert";
 import type { CapabilityOverrideOptions } from "../../../provider/catalog/capabilityOverrides";
@@ -61,28 +61,15 @@ const DEPLOYMENT: LiteLLMModelItem = {
 
 suite("provider/catalog/capabilityOverrides", () => {
 	suite("applyCapabilityOverrides", () => {
-		test("no matching configuration returns the input array and elements by identity", () => {
+		test("no matching configuration re-derives registration's values exactly", () => {
 			const infos = [registered(DEPLOYMENT)];
 			const out = applyCapabilityOverrides(infos, SERVER, options());
-			assert.strictEqual(out, infos, "an untouched pass must not copy the array");
-			assert.strictEqual(out[0], infos[0], "an untouched model must keep its identity");
-		});
-
-		test("an extras-only configuration keeps the identity fast path: the rebuild reads core fields only", () => {
-			const infos = [registered(DEPLOYMENT)];
-			const out = applyCapabilityOverrides(
-				infos,
-				SERVER,
-				options({ globalCapabilities: { "gpt-test": { mode: "chat", litellm_provider: { name: "openai" } } } })
-			);
-			assert.strictEqual(out, infos, "open extras feed no registered artifact, so nothing rebuilds");
-			assert.strictEqual(out[0], infos[0]);
+			assert.deepStrictEqual(out, infos, "the walk's server level must re-derive what registration advertised");
 		});
 
 		test("a stored copy overridden under an earlier configuration heals once the override is removed", () => {
 			// The status window's stale-served models were rebuilt under the OLD
-			// configuration; the fast path must verify the advertisement instead of
-			// freezing the removed override in place.
+			// configuration; the next pass must not freeze the removed override in place.
 			const overridden = applyCapabilityOverrides(
 				[registered(DEPLOYMENT)],
 				SERVER,
@@ -95,10 +82,9 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(healed[0]?.configurationSchema, undefined, "the promoted control is demoted again");
 		});
 
-		test("a fallback-provided field triggers the rebuild path, never the identity fast path", () => {
-			// The fast path's level classification is total over CapabilityLevel;
-			// this pins the fallback levels. The server declares no output limit, so
-			// registration advertised the floor fill and the _fallback must rebuild.
+		test("a fallback-provided field fills a floor-filled limit as user-set", () => {
+			// The server declares no output limit, so registration advertised the
+			// floor fill and the _fallback value takes its place.
 			const undeclaredOutput: LiteLLMModelItem = {
 				id: "gpt-test",
 				shape: {
@@ -112,7 +98,6 @@ suite("provider/catalog/capabilityOverrides", () => {
 				SERVER,
 				options({ globalCapabilities: { "gpt-test": { _fallback: true, max_output_tokens: 23456 } } })
 			);
-			assert.notStrictEqual(out[0], infos[0], "a fallback-resolved field must not take the identity fast path");
 			assert.strictEqual(out[0]?.maxOutputTokens, 23456);
 			assert.strictEqual(out[0]?.litellm.outputLimitSource, "user", "a fallback value counts as user-set");
 		});
@@ -129,7 +114,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 					},
 				})
 			);
-			assert.strictEqual(out, infos);
+			assert.deepStrictEqual(out, infos, "records for other models and other servers move no value here");
 		});
 
 		test("an override rebuilds token constraints, flags, and provenance coherently", () => {
@@ -267,7 +252,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			);
 		});
 
-		test("server-declared per-level flags register their menu directly and take the identity fast path", () => {
+		test("server-declared per-level flags register their menu directly and the walk re-derives it", () => {
 			const flagged: LiteLLMModelItem = {
 				...DEPLOYMENT,
 				shape: {
@@ -286,7 +271,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 				"registration's schema is the server's flag-derived list"
 			);
 			const out = applyCapabilityOverrides(infos, SERVER, options());
-			assert.strictEqual(out, infos, "the walk's server level re-derives the same menu, so nothing rebuilds");
+			assert.deepStrictEqual(out, infos, "the walk's server level re-derives the same menu");
 		});
 
 		test("a stale served menu heals once its level record is removed", () => {
@@ -311,14 +296,14 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.deepStrictEqual(
 				healed[0]?.configurationSchema,
 				reasoningEffortSchema(["low", "high"]),
-				"the advertises check compares the menu itself, so the server's list returns"
+				"the server's list returns"
 			);
 		});
 
-		test("a stored copy carrying pricing the walk does not derive is healed by the verified rebuild", () => {
+		test("a stored copy carrying pricing the walk does not derive is healed by the rebuild", () => {
 			// A stale window copy rebuilt under an earlier configuration can carry
 			// price fields the current walk no longer justifies: the rebuild strips
-			// and re-derives, and the healed copy settles on the fast path.
+			// and re-derives, and a further pass changes nothing.
 			const bare: LiteLLMModelItem = { id: "gpt-test", shape: { kind: "bare" } };
 			const info = registered(bare);
 			const stale = {
@@ -332,7 +317,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(stripped[0]?.outputCost, undefined);
 			assert.strictEqual(stripped[0]?.pricing, undefined);
 			const healed = applyCapabilityOverrides(stripped, SERVER, options());
-			assert.strictEqual(healed, stripped, "the healed copy is unpriced and takes the identity fast path");
+			assert.deepStrictEqual(healed, stripped, "the rebuild is idempotent");
 
 			const server = applyCapabilityOverrides([registered(DEPLOYMENT)], SERVER, options());
 			assert.strictEqual(server[0]?.inputCost, 3, "server-reported pricing rides untouched");
@@ -405,8 +390,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 				shape: { kind: "deployment", provider: mapped.provider },
 			};
 			const infos = [registered(stamped)];
-			// An unrelated override forces the rebuild path; the stamp (and the
-			// stray cache cost beside it) must not resurface as pricing.
+			// The stamp (and the stray cache cost beside it) must not resurface as
+			// pricing beside an unrelated override.
 			const out = applyCapabilityOverrides(
 				infos,
 				SERVER,
@@ -414,13 +399,12 @@ suite("provider/catalog/capabilityOverrides", () => {
 			);
 			const rebuilt = out[0];
 			assert.ok(rebuilt !== undefined);
-			assert.notStrictEqual(rebuilt, infos[0], "the vision override forces the rebuild path");
 			for (const key of ["inputCost", "outputCost", "cacheCost", "priceCategory", "pricing"] as const) {
 				assert.ok(!(key in rebuilt), `the 0/0 stamp must rebuild with no ${key}`);
 			}
 		});
 
-		test("server pricing re-derives byte-identical on a rebuild forced by an unrelated override", () => {
+		test("server pricing re-derives byte-identical beside an unrelated override", () => {
 			const priced: LiteLLMModelItem = {
 				id: "gpt-test",
 				shape: {
@@ -445,7 +429,6 @@ suite("provider/catalog/capabilityOverrides", () => {
 			const rebuilt = out[0];
 			const original = infos[0];
 			assert.ok(rebuilt !== undefined && original !== undefined);
-			assert.notStrictEqual(rebuilt, original, "the audio override forces the rebuild path");
 			for (const key of [
 				"inputCost",
 				"outputCost",
@@ -484,8 +467,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 
 		test("a stored copy priced under a removed user cost record heals back to the server price", () => {
 			// A stale window copy rebuilt under an earlier configuration must
-			// re-price from the server once the record is gone, then settle on the
-			// identity fast path.
+			// re-price from the server once the record is gone, and a further pass
+			// changes nothing.
 			const priced = applyCapabilityOverrides(
 				[registered(DEPLOYMENT)],
 				SERVER,
@@ -499,7 +482,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(healed[0]?.outputCost, 15);
 			assert.strictEqual(healed[0]?.pricing, "$3 in / $15 out per 1M tokens");
 			const settled = applyCapabilityOverrides(healed, SERVER, options());
-			assert.strictEqual(settled, healed, "the healed copy takes the identity fast path");
+			assert.deepStrictEqual(settled, healed, "the rebuild is idempotent");
 		});
 
 		test("sub-unit dust re-derives byte-identical: no $0 label sneaks in through the rebuild", () => {
@@ -660,19 +643,25 @@ suite("provider/catalog/capabilityOverrides", () => {
 			});
 		});
 
-		test("a pdf/schema-only configuration keeps the identity fast path", () => {
-			// supports_pdf_input and supports_response_schema resolve and display
-			// but feed no registered artifact yet, so they must not rebuild.
+		test("fields registration does not consume leave every advertised value unchanged", () => {
+			// Open extras, supports_pdf_input, and supports_response_schema resolve
+			// and display but feed no registered artifact yet.
 			const infos = [registered(DEPLOYMENT)];
 			const out = applyCapabilityOverrides(
 				infos,
 				SERVER,
 				options({
-					globalCapabilities: { "gpt-test": { supports_pdf_input: true, supports_response_schema: true } },
+					globalCapabilities: {
+						"gpt-test": {
+							mode: "chat",
+							litellm_provider: { name: "openai" },
+							supports_pdf_input: true,
+							supports_response_schema: true,
+						},
+					},
 				})
 			);
-			assert.strictEqual(out, infos, "pdf/schema overrides gate nothing at registration");
-			assert.strictEqual(out[0], infos[0]);
+			assert.deepStrictEqual(out, infos, "unconsumed fields gate nothing at registration");
 		});
 
 		test("record problems log one classification per distinct problem, routed by severity", () => {

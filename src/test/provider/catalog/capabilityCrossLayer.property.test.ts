@@ -2,7 +2,7 @@
  * Cross-layer fuzzer for the open capability vocabulary: the invariants that
  * only hold ACROSS resolver and registration seam - the core seven are
  * independent of every non-core field, unknown fields are inert at
- * registration down to the identity fast path, the effective view matches a
+ * registration and across every re-serve, the effective view matches a
  * naive full-walk oracle (provenance and shadow stacks included), the catalog
  * never prices, user costs beat server costs per field with the 0/0
  * free-vs-undeclared split, and ModelResolutionTable equals the uncached walk
@@ -784,11 +784,11 @@ suite("provider/catalog capability cross-layer properties", () => {
 		);
 	});
 
-	test("an extras-only configuration takes the identity fast path: the served array is the input array", () => {
+	test("an extras-only configuration changes nothing: the served models equal the input models", () => {
 		// supports_pdf_input and supports_response_schema resolve and display but
 		// gate no registered artifact yet, so they ride with the unknown keys: a
 		// configuration touching only non-registration-consumed fields must not
-		// rebuild anything.
+		// move any advertised value.
 		const extrasRecordArb = fc
 			.tuple(
 				fc.array(fc.tuple(extraFieldKeyArb, extraFieldValueArb), { maxLength: 3 }),
@@ -817,13 +817,12 @@ suite("provider/catalog capability cross-layer properties", () => {
 					};
 					// One normalizing pass so the extras pass below starts from models
 					// that already advertise their baseline; a second zero-config pass
-					// must already be the identity, or the fast path never engages in
-					// production at all.
+					// must change nothing.
 					const base = applyCapabilityOverrides(infos, SERVER, emptyOpts);
-					assert.strictEqual(
+					assert.deepStrictEqual(
 						applyCapabilityOverrides(base, SERVER, emptyOpts),
 						base,
-						"a normalized zero-config pass must take the identity fast path"
+						"a normalized zero-config pass must be idempotent"
 					);
 					const extrasOnly: CapabilityOverrideOptions = {
 						globalCapabilities: Object.fromEntries(
@@ -838,7 +837,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 						logAdvisory: () => {},
 					};
 					const served = applyCapabilityOverrides(base, SERVER, extrasOnly);
-					assert.strictEqual(served, base, "an extras-only pass must return the input array by identity");
+					assert.deepStrictEqual(served, base, "an extras-only pass must move no advertised value");
 				}
 			),
 			{ numRuns: NUM_RUNS, seed: SEED }
@@ -923,9 +922,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 					}
 				}
 				// The stale-copy path: forge pricing the walk does not derive, and the
-				// verified rebuild strips it. Strict identity is asserted where the
-				// fast path is reachable (the extras-only property); here a directive
-				// or a matching record may legitimately keep the rebuild path.
+				// rebuild strips it.
 				const stale = served.map(
 					(info): PreAttachModelInfo => ({
 						...info,

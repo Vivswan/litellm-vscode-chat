@@ -357,8 +357,7 @@ suite("provider/catalog/discovery", () => {
 
 		test("a failing model/info response never leaks its body into the fallback log", async () => {
 			const echoedSecret = "sk-super-secret-key-echoed-by-gateway";
-			// 401 and 400 both echo the body immediately; 5xx would be retried by
-			// the SDK until the discovery timeout wins, which tests a different path.
+			// 401 and 400 both echo the body immediately; a 5xx would be retried first, which tests a different path.
 			for (const status of [401, 400]) {
 				mswServer.use(
 					http.get(MODEL_INFO_URL, () =>
@@ -415,35 +414,6 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(error.logClassification, "RequestError(http, unparseable models response body)");
 			// The display message localizes; under the English fallback its full
 			// English mirror (what the output channel renders) is identical.
-			assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
-			assert.ok(!publicErrorText(error).includes("MARKER"), "the public rendering leaked the payload snippet");
-		});
-
-		test("a malformed application/json models body throws the same classification via the SDK's own parse", async () => {
-			// The SDK parses JSON itself when the content type advertises it, so its
-			// SyntaxError arrives at a different rethrow branch than coerceJsonPayload;
-			// the two sites must stay indistinguishable on every rendering.
-			const body = '{"data": [MARKER-not-json';
-			let modelsAttempts = 0;
-			mswServer.use(
-				http.get(MODEL_INFO_URL, () => HttpResponse.text(body, { headers: { "Content-Type": "application/json" } })),
-				http.get(MODELS_URL, () => {
-					modelsAttempts += 1;
-					return HttpResponse.text(body, { headers: { "Content-Type": "application/json" } });
-				})
-			);
-
-			const error = await fetchModels(request()).then(
-				() => assert.fail("a malformed application/json models body must fail discovery"),
-				(e: unknown) => e
-			);
-
-			assert.strictEqual(modelsAttempts, 1, "a 200 with an unparseable body must not be retried");
-			assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
-			assert.ok(error.message.startsWith("The server replied, but not with a model list"), error.message);
-			assert.ok(error.message.includes(`Unparseable response from ${MODELS_URL}`), error.message);
-			assert.strictEqual(error.message.split("\n").length, 2, `headline plus one detail line: ${error.message}`);
-			assert.strictEqual(error.logClassification, "RequestError(http, unparseable models response body)");
 			assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
 			assert.ok(!publicErrorText(error).includes("MARKER"), "the public rendering leaked the payload snippet");
 		});
