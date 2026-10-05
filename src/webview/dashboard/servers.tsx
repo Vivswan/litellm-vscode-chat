@@ -36,7 +36,7 @@ import { sendRequest } from "./vscodeApi";
  * Remove would arm both rows at once.
  */
 function serverRowKey(server: DashboardServer): string {
-	return `${server.origin}:${server.adoptHandle ?? server.label}`;
+	return `${server.origin}:${server.origin === "legacy" ? server.groupHandle : (server.adoptHandle ?? server.label)}`;
 }
 
 /**
@@ -274,11 +274,14 @@ function ServerRow({
 							{/* Provenance is the drawer's Origin fact; a hover tip here would be a
 							    focusable wrapper inside this button. */}
 							{server.origin === "external" ? <Badge>{l10n.t("external")}</Badge> : null}
+							{server.origin === "legacy" ? <Badge>{l10n.t("legacy")}</Badge> : null}
 						</span>
 					</span>
 				</button>
+				{/* A legacy leftover has no action: not in the setting (no Edit, no adopt), not the user's own
+				    (no hide); the drawer's Origin fact names the deletion route. */}
 				<span className={armed ? "server-actions armed" : "server-actions"}>
-					{armed ? (
+					{server.origin === "legacy" ? null : armed ? (
 						<>
 							{/* At the narrowest tier the armed pair covers ALL of the row, so the name
 							    the reader is checking against goes inside the cover there, ellipsized;
@@ -921,7 +924,7 @@ export function ServersSection({
 										// The one place the destination's purpose is decided: a declared row
 										// edits, an external row adopts; the misconfigured guard (no Edit
 										// renders) keeps the narrowing honest.
-										if (server.origin === "misconfigured") {
+										if (server.origin === "misconfigured" || server.origin === "legacy") {
 											return;
 										}
 										if (server.origin === "declared") {

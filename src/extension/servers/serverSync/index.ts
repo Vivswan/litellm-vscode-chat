@@ -16,6 +16,7 @@
 export type {
 	DeclaredEntryIdentity,
 	DeclaredGroupIdentity,
+	DeclaredIdentities,
 	DeclaredServerView,
 	RemovedEntryEvent,
 	ServerSyncEnv,
@@ -42,6 +43,7 @@ export {
 	entryModelParametersFor,
 	entrySupersedingBaseUrl,
 	parseServersSetting,
+	rejectedCarrierLabels,
 	serverSettingReports,
 	supersedingBaseUrl,
 } from "./setting";

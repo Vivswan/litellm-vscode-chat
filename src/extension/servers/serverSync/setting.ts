@@ -319,15 +319,25 @@ export interface ServerEntryReport {
 	readonly accepted: boolean;
 }
 
-/** A rejected entry that has the identity a row or a join needs: both fields narrowed, so no call site defaults them. */
+/** A rejected entry with the identity a row or a join needs: both fields narrowed, so no call site defaults them. */
 export type DrawableReject = ServerEntryReport & { readonly label: string; readonly baseUrl: string };
+
+/**
+ * The labels the setting carries outside an accepted entry (rejected siblings, duplicates of an accepted label): the
+ * group ownership (dashboard/declaredJoin.ts) reads these so a group stamped with, or holding the key of, a label the
+ * setting still carries is never external.
+ */
+export function rejectedCarrierLabels(entryReports: readonly ServerEntryReport[]): string[] {
+	return entryReports.flatMap((report) => (report.accepted || report.label === undefined ? [] : [report.label]));
+}
 
 /**
  * The rejected entries that stand for a label nothing accepted holds, one per label in setting order. A reject sits
  * in the setting, so it must show somewhere; without a label and a base URL it has no identity to show under.
  *
- *   state.ts rejectsWithOwnRow                   -> draws the Misconfigured rows from this, and Configuration diagnostics drop exactly the problems those rows state
- *   ServerSyncEngine.resolveDeclaredIdentities   -> gives each its label-and-URL identity, so the group a valid earlier shape created stays declared
+ *   state.ts rejectsWithOwnRow      -> draws the Misconfigured rows from this, and Configuration diagnostics drop
+ *                                      exactly the problems those rows state
+ *   rowBoundWrite.ts carriersOfRow  -> the row a removal or declare acts for, when no accepted entry holds the label
  */
 export function drawableRejects(
 	entryReports: readonly ServerEntryReport[],
@@ -650,7 +660,7 @@ export function matchedEntryFor(raw: unknown, label: string, baseUrl: string): D
 /**
  * A LABELED live group carrying an entry's label at another URL is that entry's superseded leftover, because
  * the add-only host kept the old connection when the entry was re-pointed and one label cannot honestly name
- * two servers. The provider (entrySupersedingBaseUrl, over the live setting) and the dashboard (over the
+ * two servers. The provider (entrySupersedingBaseUrl, over the live setting) and the dashboard (state.ts, over the
  * engine's declared views) hide groups through this one rule; matchedEntryFor is its complement.
  */
 export function supersedingBaseUrl(

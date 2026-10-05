@@ -243,32 +243,6 @@ suite("extension/dashboard/state", () => {
 			});
 		});
 
-		test("a declared entry joins its live group even when the snapshot label is the URL host", () => {
-			const state = buildState(
-				[
-					{
-						status: makeServerStatus({
-							serverId: "g1",
-							label: "x.example",
-							baseUrl: "https://x.example",
-							servedModelCount: 3,
-						}),
-						models: [makeModelInfo({ id: "m1", name: "m1" })],
-					},
-				],
-				makeReader({}),
-				[makeDeclared({ label: "Production", baseUrl: "https://x.example/" })]
-			);
-
-			assert.strictEqual(state.servers.length, 1, "no duplicate external row");
-			const server = state.servers[0];
-			assert.strictEqual(server?.label, "Production");
-			assert.strictEqual(server?.origin, "declared");
-			assert.strictEqual(server?.state, "ok");
-			assert.strictEqual(server?.servedModelCount, 3);
-			assert.strictEqual(state.models[0]?.serverLabel, "Production", "models adopt the declared label");
-		});
-
 		test("entries sharing a base URL pair by label first, so matching labels stay correctly paired", () => {
 			const state = buildState(
 				[
@@ -343,27 +317,210 @@ suite("extension/dashboard/state", () => {
 			assert.ok(!JSON.stringify(state).includes("fp-prod"), "the join key never reaches the webview state");
 		});
 
-		test("an entry whose client ID matches no snapshot still joins by URL", () => {
-			// A stale fingerprint (a secret rotated but not yet re-synced) must
-			// degrade to the URL join, like an entry with no fingerprint at all.
-			const state = buildState(
-				[
-					{
-						status: makeServerStatus({
-							serverId: "group:fp-old:http://x.test",
-							label: "x.test",
-							baseUrl: "http://x.test",
-							servedModelCount: 2,
-						}),
-						models: [],
+		test("a group no entry claims by ID, connection, or label and URL is external unless a declared label still names it", () => {
+			// Never by URL alone: a user's own group beside a declared one is nobody's. What the setting still names
+			// (a stamp, a stored key) is the label's leftover: a legacy row the provider keeps serving from, or hidden
+			// as superseded when it is the stamped leftover of an entry that moved, the one class the provider hides.
+			const group = (serverId: string, label: string, baseUrl: string, entryLabel?: string) => ({
+				status: makeServerStatus({ serverId, label, baseUrl, servedModelCount: 1 }),
+				models: [makeModelInfo({ id: `m-${serverId}`, name: `m-${serverId}` })],
+				...(entryLabel !== undefined ? { entryLabel } : {}),
+			});
+			const prodAtX = makeDeclared({
+				label: "Prod",
+				baseUrl: "http://x.test/",
+				expectedClientId: "group:fp-new:http://x.test",
+			});
+			const rejectedProd = (baseUrl: string) => [
+				{ index: 0, label: "Prod", baseUrl, problems: ["auth.oauth lacks clientId"], accepted: false },
+			];
+			const cases: {
+				name: string;
+				inputs: Parameters<typeof buildDashboardState>[0];
+				rows: [string, string, string][];
+				hidden: unknown[];
+				/** The server label each live model renders under; a hidden leftover's models leave the list. */
+				models: string[];
+			}[] = [
+				{
+					name: "rotated secret, pre-label group at the entry's URL, no stored key: the user's own group",
+					inputs: {
+						snapshots: [group("group:fp-old:http://x.test", "x.test", "http://x.test")],
+						reader: makeReader({}),
+						declared: { source: "engine", views: [prodAtX] },
 					},
-				],
-				makeReader({}),
-				[makeDeclared({ label: "Prod", baseUrl: "http://x.test/", expectedClientId: "group:fp-new:http://x.test" })]
-			);
-
-			assert.strictEqual(state.servers.length, 1, "no duplicate external row");
-			assert.strictEqual(state.servers[0]?.servedModelCount, 2);
+					rows: [
+						["Prod", "declared", "unchecked"],
+						["x.test", "external", "ok"],
+					],
+					hidden: [],
+					models: ["x.test"],
+				},
+				{
+					name: "pre-label group carrying the entry's stored key at its own URL: a legacy row",
+					inputs: {
+						snapshots: [group("group:fp-old:http://x.test", "x.test", "http://x.test")],
+						reader: makeReader({}),
+						declared: { source: "engine", views: [prodAtX] },
+						secretHolders: new Map([["group:fp-old:http://x.test", ["Prod"]]]),
+					},
+					rows: [
+						["Prod", "declared", "unchecked"],
+						["x.test", "legacy", "ok"],
+					],
+					hidden: [],
+					models: ["x.test"],
+				},
+				{
+					name: "stamped group of an entry that moved: superseded, hidden like the provider hides it",
+					inputs: {
+						snapshots: [group("g-prod", "Prod", "http://old.test", "Prod")],
+						reader: makeReader({}),
+						declared: { source: "engine", views: [makeDeclared({ label: "Prod", baseUrl: "http://new.test" })] },
+					},
+					rows: [["Prod", "declared", "unchecked"]],
+					hidden: [
+						{ label: "Prod", baseUrl: "http://old.test", reason: "superseded", declaredBaseUrl: "http://new.test" },
+					],
+					models: [],
+				},
+				{
+					name: "pre-label group carrying the moved entry's retained key: a legacy row, since the provider still serves it",
+					inputs: {
+						snapshots: [group("group:fp-old:http://old.test", "old.test", "http://old.test")],
+						reader: makeReader({}),
+						declared: { source: "engine", views: [makeDeclared({ label: "Prod", baseUrl: "http://new.test" })] },
+						secretHolders: new Map([["group:fp-old:http://old.test", ["Prod"]]]),
+					},
+					rows: [
+						["old.test", "legacy", "ok"],
+						["Prod", "declared", "unchecked"],
+					],
+					hidden: [],
+					models: ["old.test"],
+				},
+				{
+					name: "stamped group of a label only a rejected carrier holds, at the carrier's URL: a legacy row",
+					inputs: {
+						snapshots: [group("g-prod", "Prod", "http://x.test", "Prod")],
+						reader: makeReader({}),
+						entryReports: rejectedProd("http://x.test"),
+					},
+					rows: [
+						["Prod", "legacy", "ok"],
+						["Prod", "misconfigured", "error"],
+					],
+					hidden: [],
+					models: ["Prod"],
+				},
+				{
+					name: "stamped group of a label only a rejected carrier holds, the carrier at another URL: still a legacy row",
+					inputs: {
+						snapshots: [group("g-prod", "Prod", "http://old.test", "Prod")],
+						reader: makeReader({}),
+						entryReports: rejectedProd("http://new.test"),
+					},
+					rows: [
+						["Prod", "misconfigured", "error"],
+						["Prod", "legacy", "ok"],
+					],
+					hidden: [],
+					models: ["Prod"],
+				},
+				{
+					name: "leftover at the accepted entry's own URL, a rejected duplicate elsewhere: legacy, the duplicate's URL says nothing",
+					inputs: {
+						snapshots: [group("group:fp-old:http://x.test", "x.test", "http://x.test")],
+						reader: makeReader({}),
+						declared: { source: "engine", views: [prodAtX] },
+						entryReports: [
+							{ index: 0, label: "Prod", baseUrl: "http://x.test", problems: [], accepted: true },
+							...rejectedProd("http://dup.test").map((report) => ({ ...report, index: 1 })),
+						],
+						secretHolders: new Map([["group:fp-old:http://x.test", ["Prod"]]]),
+					},
+					rows: [
+						["Prod", "declared", "unchecked"],
+						["x.test", "legacy", "ok"],
+					],
+					hidden: [],
+					models: ["x.test"],
+				},
+				{
+					name: "tombstone of a carrier-only label's labeled group, its snapshot evicted: removed, an Unhide can lift it",
+					inputs: {
+						snapshots: [],
+						reader: makeReader({}),
+						entryReports: rejectedProd("http://new.test"),
+						removedGroups: { tombstones: [{ label: "Prod", baseUrl: "http://old.test" }], origins: [] },
+						wasGroupObserved: () => true,
+						wasLabeledGroupObserved: () => true,
+					},
+					rows: [["Prod", "misconfigured", "error"]],
+					hidden: [{ label: "Prod", baseUrl: "http://old.test", reason: "removed", syncedName: "Prod" }],
+					models: [],
+				},
+				{
+					name: "holder of a moved entry's key stamped with another, undeclared label: a legacy row, since the provider reads the stamp",
+					inputs: {
+						snapshots: [group("g-personal", "Personal", "http://old.test", "Personal")],
+						reader: makeReader({}),
+						declared: { source: "engine", views: [makeDeclared({ label: "Prod", baseUrl: "http://new.test" })] },
+						secretHolders: new Map([["g-personal", ["Prod"]]]),
+					},
+					rows: [
+						["Personal", "legacy", "ok"],
+						["Prod", "declared", "unchecked"],
+					],
+					hidden: [],
+					models: ["Personal"],
+				},
+				{
+					name: "tombstoned legacy leftover: hidden as removed, like the provider hides every tombstone",
+					inputs: {
+						snapshots: [group("g-prod", "Prod", "http://old.test", "Prod")],
+						reader: makeReader({}),
+						entryReports: rejectedProd("http://new.test"),
+						removedGroups: { tombstones: [{ label: "Prod", baseUrl: "http://old.test" }], origins: [] },
+						wasGroupObserved: () => true,
+						wasLabeledGroupObserved: () => true,
+					},
+					rows: [["Prod", "misconfigured", "error"]],
+					hidden: [{ label: "Prod", baseUrl: "http://old.test", reason: "removed", syncedName: "Prod" }],
+					models: [],
+				},
+				{
+					name: "holder of a label the setting no longer carries (the last pass's stored key): the user's own group",
+					inputs: {
+						snapshots: [group("group:fp-old:http://x.test", "x.test", "http://x.test")],
+						reader: makeReader({}),
+						secretHolders: new Map([["group:fp-old:http://x.test", ["Old"]]]),
+					},
+					rows: [["x.test", "external", "ok"]],
+					hidden: [],
+					models: ["x.test"],
+				},
+			];
+			for (const { name, inputs, rows, hidden, models } of cases) {
+				const state = buildDashboardState(inputs);
+				assert.deepStrictEqual(
+					state.servers.map((server) => [server.label, server.origin, server.state]),
+					rows,
+					name
+				);
+				assert.deepStrictEqual(state.hiddenGroups, hidden, name);
+				assert.deepStrictEqual(
+					state.models.map((model) => model.serverLabel),
+					models,
+					name
+				);
+				assert.ok(
+					state.servers.every(
+						(server) => server.origin !== "legacy" || (server.adoptHandle === undefined && server.groupHandle !== "")
+					),
+					`${name}: a legacy row carries its group token and no adopt handle`
+				);
+			}
 		});
 
 		test("two declared entries mirroring one pre-label group share its snapshot instead of one reading unchecked", () => {
@@ -721,34 +878,6 @@ suite("extension/dashboard/state", () => {
 
 			assert.deepStrictEqual(state.servers[0]?.notices, ["entry-params-inactive"]);
 			assert.strictEqual(state.servers[0]?.state, "ok", "the notice never degrades the live status");
-		});
-
-		test("an entry with modelParameters joined by the URL-only fallback still flags them", () => {
-			const state = buildState(
-				[
-					{
-						status: makeServerStatus({
-							serverId: "group:fp-other:http://x.test",
-							label: "x.test",
-							baseUrl: "http://x.test",
-							servedModelCount: 3,
-						}),
-						models: [],
-					},
-				],
-				makeReader({}),
-				[
-					makeDeclared({
-						label: "Prod",
-						baseUrl: "http://x.test",
-						expectedClientId: "group:fp-labeled:http://x.test",
-						expectedConnectionId: "group:fp-conn:http://x.test",
-						modelParameters: { "gpt-4": { temperature: 0.2 } },
-					}),
-				]
-			);
-
-			assert.deepStrictEqual(state.servers[0]?.notices, ["entry-params-inactive"]);
 		});
 
 		test("the shared pass never crosses connections: a different-credential entry keeps its own outcome", () => {
@@ -1304,15 +1433,12 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a live group carrying an entry's label at another URL is a superseded leftover: hidden, out of the join, no Unhide", () => {
-			// The entry "Prod" was re-pointed from old.test to new.test; the add-only
-			// host kept the group at old.test. A second entry declares old.test
-			// itself, so a plain URL join would hand it the leftover as its own
-			// group - the leftover must leave the join pool before any pass runs.
-			// A tombstone on the same identity yields to the superseded reading:
-			// an Unhide could not lift that suppression. An UNLABELED group whose
-			// URL-host display label equals a declared label ("bare.test") is not
-			// a leftover of anything: its configuration carries no entry label, so
-			// it stays an external row.
+			// The entry "Prod" was re-pointed from old.test to new.test; the add-only host kept the stamped group at
+			// old.test. A second entry declares old.test itself and claims nothing by URL alone, so the leftover is
+			// Prod's and hidden as superseded, the suppression the provider applies by the same stamp. A tombstone
+			// on the same identity yields to the superseded reading: an Unhide could not lift that suppression. An
+			// UNLABELED group whose URL-host display label equals a declared label ("bare.test") is not a leftover
+			// of anything: its configuration carries no entry label, so it stays an external row.
 			const state = buildState(
 				[
 					{

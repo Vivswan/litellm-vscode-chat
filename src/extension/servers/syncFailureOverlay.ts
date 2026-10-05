@@ -10,7 +10,7 @@
 
 import { markLogSafe } from "../../shared/logger";
 import type { ServerStatus } from "../../shared/servers";
-import { joinDeclared, labeledSnapshots } from "../dashboard/declaredJoin";
+import { labeledSnapshots, resolveGroupOwnership } from "../dashboard/declaredJoin";
 import type { DeclaredServerView, SyncFailure } from "./serverSync";
 
 /**
@@ -61,8 +61,8 @@ function syncFailureStatus(
 }
 
 /**
- * Joined by the same passes the dashboard's servers table renders from (joinDeclared), so both surfaces blame
- * one snapshot.
+ * Joined by the same ownership the dashboard's servers table renders from (resolveGroupOwnership), so both
+ * surfaces blame one snapshot.
  *
  *   upsertFailed, no live status       -> synthetic error serving nothing, so the failed add shows before any group reports
  *   blocked or skipped, no live status -> nothing; a live group may hold the name or keep serving, so absence proves nothing about the group
@@ -77,7 +77,7 @@ export function applySyncFailures(
 		return [...statuses];
 	}
 	const labeled = labeledSnapshots(statuses.map((status) => ({ status, models: [], discoveredRawIds: [] })));
-	const { matchedByDeclared } = joinDeclared(labeled, declared);
+	const { matchedByDeclared } = resolveGroupOwnership({ labeled, declared });
 	const overlaid = new Map<ServerStatus, ServerStatus>();
 	const unseen: ServerStatus[] = [];
 	declared.forEach((view, declaredIndex) => {

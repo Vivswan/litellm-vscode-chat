@@ -110,7 +110,10 @@ function acceptedEntryOfRow(
 	return match;
 }
 
-/** Raw labels count as taken: a parser-rejected sibling still occupies its label, and appending beside it would land two entries under one. */
+/**
+ * Raw labels count as taken: a parser-rejected sibling still occupies its label, and appending beside it would land
+ * two entries under one.
+ */
 export function requireLabelFree(entries: readonly unknown[], label: string): void {
 	if (rawDeclaredLabels(entries).has(label)) {
 		throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);

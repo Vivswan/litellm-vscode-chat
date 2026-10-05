@@ -155,6 +155,7 @@ function makeHarness(): Harness {
 		},
 		getSnapshots: () => harness.snapshots,
 		getDeclaredServers: () => harness.declaredServers,
+		getSecretHolders: () => new Map(),
 		getRemovedGroups: () => ({ tombstones: [], origins: [] }),
 		serverResolution,
 		getCatalogLookup: () => EMPTY_CATALOG_LOOKUP,

@@ -78,6 +78,7 @@ import type { SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
+import { storedSecretHolders } from "./declaredJoin";
 import { buildDashboardHtml } from "./html";
 import type { DashboardParseIssue } from "./intentSchema";
 import { parseDashboardRequest } from "./intentSchema";
@@ -100,11 +101,9 @@ import type {
 import {
 	buildDashboardState,
 	mostSpecificGlobalRecordKey,
-	observedKeysByEntryLabel,
 	observedModelInfoKeysUnion,
 	resolveDashboardModelCapabilities,
 	resolveDashboardModelParameters,
-	visibleHiddenGroups,
 } from "./state";
 import { createDraftConnectionProbe } from "./testDraftConnection";
 import { buildUsageView } from "./usageView";
@@ -153,6 +152,8 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	getSnapshots(): readonly ServerModelsSnapshot[];
 	/** The declared views with their proof source (engine pass vs pre-first-pass settings fallback). */
 	getDeclaredServers(): DeclaredServersInput;
+	/** The declared labels whose stored secret each live group carries, by server ID (storedSecretHolders). */
+	getSecretHolders(): ReadonlyMap<string, readonly string[]>;
 	/** The removal bookkeeping (tombstones and orphan origins) the state builder folds in. */
 	getRemovedGroups(): RemovedGroupsView;
 	/** The per-server resolver seams, grouped; see ServerResolution. */
@@ -454,39 +455,43 @@ export class DashboardController implements vscode.Disposable {
 			this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl));
 		const wasLabeledGroupObserved = (label: string, baseUrl: string) =>
 			this._observedGroupIdentities.get(observedIdentityKey(label, baseUrl)) === true;
-		const hiddenGroups = visibleHiddenGroups({
-			removedGroups,
-			snapshots,
-			declared: declared.views,
-			wasGroupObserved,
-			wasLabeledGroupObserved,
-		});
 		// In FEATURE_MODEL_IDS order for a stable push, whatever object the env
 		// built its probes record from.
 		const featureProbes = FEATURE_MODEL_IDS.filter((feature) => this.env.featureProbes[feature] !== undefined);
-		return buildDashboardState({
+		const state = buildDashboardState({
 			snapshots,
 			reader,
 			declared,
 			entryReports,
+			secretHolders: this.env.getSecretHolders(),
 			featureProbes,
 			removedGroups,
 			wasGroupObserved,
 			wasLabeledGroupObserved,
 			catalog: this.env.getCatalogStatus(),
 			usage: this.env.getUsage(),
+		});
+		return {
+			...state,
 			diagnostics: buildConfigDiagnostics({
 				reader,
 				entryReports,
 				declared: declared.views,
 				// The same list the servers section's hidden-groups line renders.
-				hiddenGroups,
+				hiddenGroups: state.hiddenGroups,
 				// The advisory-hint evidence: per entry its own server's observed
-				// set, global records the cross-server union.
-				observedKeysByEntry: observedKeysByEntryLabel(snapshots, declared.views),
+				// set (the declared row carries its joined snapshot's), global
+				// records the cross-server union.
+				observedKeysByEntry: new Map(
+					state.servers.flatMap((server) =>
+						server.origin === "declared" && server.observedModelInfoKeys !== undefined
+							? [[server.label, server.observedModelInfoKeys] as const]
+							: []
+					)
+				),
 				observedKeysUnion: observedModelInfoKeysUnion(snapshots),
 			}),
-		});
+		};
 	}
 
 	/** Deliver the pending deep-link focus, once, and only to a page that has proven it is listening. */
@@ -914,7 +919,7 @@ export interface IntentEnvironmentDeps {
 	readonly refreshUsageNow: () => void;
 }
 
-/** The intent half of the controller's environment: every effect executeDashboardIntent can have, over the real stores. */
+/** The intent half of the controller's environment: every effect executeDashboardIntent can have, over real stores. */
 export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvironment {
 	const { provider, syncEngine, removals, settingsAccess, secrets, logger } = deps;
 	// The engine's refusal of an indeterminate setting is the user's to fix, so it reaches the webview as validation
@@ -924,11 +929,7 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 			return await syncEngine.resolveDeclaredIdentities();
 		} catch (error) {
 			if (error instanceof IndeterminateServersSettingError) {
-				throw new DashboardValidationError(
-					l10n.t(
-						"The servers setting is not an array, or carries an entry without a base URL; fix the setting, then retry"
-					)
-				);
+				throw new DashboardValidationError(l10n.t("The servers setting is not an array; fix the setting, then retry"));
 			}
 			throw error;
 		}
@@ -948,15 +949,15 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 		readServerSecrets: (label) => readServerSecretsRecord(secrets, label),
 		deleteServerSecrets: (label) => deleteServerSecrets(secrets, label),
 		requestServerSync: () => syncEngine.requestSync(),
-		// The adopt intent's credential source: the provider's in-memory group lookup, joined against the setting as
-		// it stands at the intent (the engine's live identities, not its last pass's views), so the values never sit
-		// in dashboard state. They flow from here into the setting or SecretStorage only.
+		// The adopt intent's credential source: the provider's in-memory group lookup under the one group ownership
+		// over the setting as it stands at the intent (the engine's live declaration, not its last pass's views), so
+		// the values never sit in dashboard state. They flow from here into the setting or SecretStorage only.
 		resolveAdoptionCredentials: async (baseUrl, sourceHandle) => {
 			const live = await liveIdentities();
 			return {
 				credentials: resolveAdoptableCredentials(
 					provider.getServerSnapshots(),
-					live.identities,
+					live,
 					baseUrl,
 					sourceHandle,
 					(serverId) => provider.getGroupServer(serverId)
@@ -964,12 +965,13 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 				setting: live.setting,
 			};
 		},
-		// The hide intent's identity source: the same still-external resolution
-		// the adopt path uses, minus the credentials.
+		// The hide intent's identity source: the same external resolution the adopt path uses, minus the credentials.
 		resolveExternalGroup: async (baseUrl, sourceHandle) => {
 			const live = await liveIdentities();
 			return {
-				identity: resolveExternalGroupIdentity(provider.getServerSnapshots(), live.identities, baseUrl, sourceHandle),
+				identity: resolveExternalGroupIdentity(provider.getServerSnapshots(), live, baseUrl, sourceHandle, (serverId) =>
+					provider.getGroupServer(serverId)
+				),
 				setting: live.setting,
 			};
 		},
@@ -1062,6 +1064,12 @@ export function registerDashboardCommand(
 				vscode.workspace.getConfiguration(CONFIG_SECTION).get<unknown>(SERVERS_SETTING_KEY)
 			);
 		},
+		getSecretHolders: () =>
+			storedSecretHolders(
+				provider.getServerSnapshots(),
+				(serverId) => provider.getGroupServer(serverId),
+				syncEngine.getStoredSecrets()
+			),
 		getRemovedGroups: (): RemovedGroupsView => ({
 			tombstones: removals.tombstones(),
 			origins: removals.provenance().map((record) => ({

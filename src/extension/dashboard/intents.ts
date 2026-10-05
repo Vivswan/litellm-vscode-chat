@@ -110,7 +110,7 @@ export type FeatureProbes = Readonly<
 
 /** The effects an intent can have; injected so intents are testable without vscode. */
 export interface IntentEnvironment {
-	/** Write one litellm-vscode-chat.* setting by key; the servers array is no key here, only a rowBoundWrite.ts guard writes it. */
+	/** Write one litellm-vscode-chat.* setting by key; the servers array is no key here, rowBoundWrite.ts writes it. */
 	updateSetting(key: KeyedSettingId, value: unknown): Promise<void>;
 	/** Remove one keyed setting from the highest-precedence scope that sets it (resolveConfiguredScope). */
 	removeSetting(key: KeyedSettingId): Promise<void>;
@@ -146,7 +146,10 @@ export interface IntentEnvironment {
 	 * the setting or SecretStorage and are never logged.
 	 */
 	resolveAdoptionCredentials(baseUrl: string, sourceHandle: string): Promise<AdoptionResolution>;
-	/** The identity (status label and base URL) a hide intent's handle names, with the setting it was judged against; same resolution rules, no credential material. */
+	/**
+	 * The identity (status label and base URL) a hide intent's handle names, with the setting it was judged against;
+	 * same resolution rules, no credential material.
+	 */
 	resolveExternalGroup(baseUrl: string, sourceHandle: string): Promise<ExternalGroupResolution>;
 	/** Persist one removed-group tombstone; the group answers with no models until unhidden. */
 	hideGroup(identity: { label: string; baseUrl: string }): Promise<void>;
@@ -758,9 +761,8 @@ export async function executeDashboardIntent(
 		}
 		case "declareExpectedFailure": {
 			const category = intent.payload.category;
-			// Only discovery.expectedFailures grows; every other key on the entry, junk included, is written back verbatim.
-			//   category already declared (a stale row, a double click)       -> nothing written, the ack stays truthful
-			//   discovery not a record, or expectedFailures not an array       -> replaced by the valid shape so the category can land
+			// Only discovery.expectedFailures grows; every other key on the entry, junk included, is written back
+			// verbatim.
 			const written = await writeServersSettingFrom(env, (fresh) =>
 				patchRow(fresh, intent.payload, (rawEntry) => {
 					const discovery = isRecord(rawEntry.discovery) ? rawEntry.discovery : {};

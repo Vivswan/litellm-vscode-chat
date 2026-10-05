@@ -1,14 +1,16 @@
 /**
- * The declared-entry join: pairing the servers setting's entries with the live
- * snapshots the provider's status window saw. Shared by the dashboard state
- * builder, the adopt intent's source resolution, and the status surfaces' sync
- * failure overlay, which must all agree on which snapshot a declared entry
- * describes; kept vscode-free so pure consumers stay testable without a host.
+ * Who owns each live provider group: the declared entry it belongs to, the declared label it is a leftover of, or
+ * nobody (external). One function, read by the dashboard state builder, the hidden-groups line, the sync failure
+ * overlay, and the adopt and hide intents' live resolution, so every surface draws and acts on the same verdict;
+ * kept vscode-free so pure consumers stay testable without a host.
  */
 
+import type { GroupServer } from "../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
+import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import type { DeclaredGroupIdentity } from "../servers/serverSync";
+import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 
 /**
  * Snapshots joined with the display label their server renders under. Labels
@@ -53,28 +55,48 @@ export function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): La
  * what buildServers flags entries on: any other pass means the entry's own
  * modelParameters may not apply.
  */
-export type JoinPass = "identity" | "connection" | "label-url" | "url";
+type JoinPass = "identity" | "connection" | "label-url";
+
+export interface GroupOwnershipInputs {
+	readonly labeled: readonly LabeledSnapshot[];
+	/** The accepted entries, with the join keys their configuration produces. */
+	readonly declared: readonly DeclaredGroupIdentity[];
+	/** The labels the setting carries outside an accepted entry (rejectedCarrierLabels); join-only readers omit it. */
+	readonly carriers?: readonly string[];
+	/** The declared label whose stored secret value a group carries, by server ID (storedSecretHolders). */
+	readonly secretHolders?: ReadonlyMap<string, readonly string[]>;
+}
+
+/** A live group a declared label left behind: not external, never a credential source. */
+export interface LegacySnapshot {
+	readonly labeled: LabeledSnapshot;
+	/** The declared label the group belongs to. */
+	readonly entryLabel: string;
+}
+
+export interface GroupOwnership {
+	/** The labeled snapshot each declared entry matched, with the pass that matched it, by declared index. */
+	readonly matchedByDeclared: ReadonlyMap<number, { readonly entry: LabeledSnapshot; readonly pass: JoinPass }>;
+	/** Labeled snapshots no declared label owns: the external rows. */
+	readonly external: readonly LabeledSnapshot[];
+	readonly legacy: readonly LegacySnapshot[];
+}
 
 /**
- * Pair declared entries with live snapshots, in four passes: the group client
- * ID (credential-fingerprinted, so entries sharing a base URL with different
- * credentials join exactly), then the label-agnostic connection ID
- * non-exclusively (groups created before entry labels flowed into their
- * configurations report under one shared identity, and every entry mirroring
- * that connection is honestly described by it), then label plus base URL, then
- * base URL alone for every identity but a label-bound one. Shared by the state
- * builder and the adopt intent's source resolution, which must agree on which
- * snapshots are external.
+ * A group belongs to a declared entry by its client ID (credential-fingerprinted, so same-URL entries join exactly),
+ * else by the label-agnostic connection ID shared non-exclusively (pre-label groups report under one identity every
+ * entry mirroring that connection describes), else by label and URL; never by URL alone, so a user's own group
+ * beside a declared one is nobody's. What no entry claims is external unless the setting still names it:
+ *
+ *   configuration stamped with a declared label    -> legacy of that label; a moved or rotated entry's leftover
+ *   carrying a declared label's stored secret value -> legacy of that label; a pre-stamp group of a moved entry
+ *
+ * The group ownership is not the provider's suppression (wiring/provider.ts isGroupSuppressed): a legacy group
+ * keeps serving its models until the user deletes it, unless it is tombstoned or the stamped leftover of an entry
+ * that now declares another URL, which both hide.
  */
-export function joinDeclared(
-	labeled: readonly LabeledSnapshot[],
-	declared: readonly DeclaredGroupIdentity[]
-): {
-	/** The labeled snapshot each declared entry matched, with the pass that matched it, by declared index. */
-	matchedByDeclared: Map<number, { entry: LabeledSnapshot; pass: JoinPass }>;
-	/** Labeled snapshots no declared entry claimed: the external rows. */
-	unmatched: Set<LabeledSnapshot>;
-} {
+export function resolveGroupOwnership(inputs: GroupOwnershipInputs): GroupOwnership {
+	const { labeled, declared, carriers = [], secretHolders = new Map<string, readonly string[]>() } = inputs;
 	const unmatched = new Set<LabeledSnapshot>(labeled);
 	const matchedByDeclared = new Map<number, { entry: LabeledSnapshot; pass: JoinPass }>();
 	const passes: readonly {
@@ -100,14 +122,8 @@ export function joinDeclared(
 				snapshot.status.label === view.label &&
 				normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
 		},
-		{
-			pass: "url",
-			match: (snapshot, view) =>
-				view.labelBound !== true && normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
-		},
 	];
 	for (const pass of passes) {
-		// Snapshots this pass already handed out, still claimable when shared.
 		const claimed = new Set<LabeledSnapshot>();
 		declared.forEach((view, declaredIndex) => {
 			if (matchedByDeclared.has(declaredIndex)) {
@@ -122,5 +138,58 @@ export function joinDeclared(
 			}
 		});
 	}
-	return { matchedByDeclared, unmatched };
+	const declaredLabels = new Set([...declared.map((identity) => identity.label), ...carriers]);
+	// A holder label from an earlier pass that the setting no longer carries names nothing: the group is the user's.
+	const legacyLabelOf = (snapshot: ServerModelsSnapshot): string | undefined => {
+		const stamp = snapshot.entryLabel;
+		if (stamp !== undefined && declaredLabels.has(stamp)) {
+			return stamp;
+		}
+		return secretHolders.get(snapshot.status.serverId)?.find((label) => declaredLabels.has(label));
+	};
+	const external: LabeledSnapshot[] = [];
+	const legacy: LegacySnapshot[] = [];
+	for (const labeledSnapshot of unmatched) {
+		const entryLabel = legacyLabelOf(labeledSnapshot.snapshot);
+		if (entryLabel === undefined) {
+			external.push(labeledSnapshot);
+		} else {
+			legacy.push({ labeled: labeledSnapshot, entryLabel });
+		}
+	}
+	return { matchedByDeclared, external, legacy };
+}
+
+/**
+ * The declared labels whose stored secret value a live group carries, by server ID: the evidence that a group nothing
+ * else names is a declared entry's leftover. The value alone decides, whatever destination its ownership stamp names
+ * and whichever credential field holds it on either side, because copying it out would hand a declared secret to a
+ * new entry; values compare extension-side only and never leave.
+ */
+export function storedSecretHolders(
+	snapshots: readonly ServerModelsSnapshot[],
+	getGroupServer: (serverId: string) => GroupServer | undefined,
+	storedSecrets: ReadonlyMap<string, StoredSecretsRecord>
+): ReadonlyMap<string, readonly string[]> {
+	const holders = new Map<string, readonly string[]>();
+	const carries = (server: GroupServer, record: StoredSecretsRecord): boolean => {
+		const live = new Set(
+			[server.apiKey, server.oauth?.clientSecret, server.virtualKey?.value].filter((value) => value !== undefined)
+		);
+		return SECRET_FIELD_IDS.some((field) => {
+			const stored = record.values[field];
+			return stored !== undefined && stored.length > 0 && live.has(stored);
+		});
+	};
+	for (const { status } of snapshots) {
+		const server = getGroupServer(status.serverId);
+		if (server === undefined) {
+			continue;
+		}
+		const labels = [...storedSecrets].flatMap(([label, record]) => (carries(server, record) ? [label] : []));
+		if (labels.length > 0) {
+			holders.set(status.serverId, labels);
+		}
+	}
+	return holders;
 }

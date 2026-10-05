@@ -16,11 +16,11 @@ import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serv
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
-import type { DeclaredGroupIdentity } from "../servers/serverSync";
+import type { DeclaredIdentities } from "../servers/serverSync";
 import { secretDestination } from "../servers/serverSync/secrets";
 import { acceptedEntry } from "../servers/serverSync/setting";
 import { adoptSourceHandle } from "./adoptHandle";
-import { joinDeclared, labeledSnapshots } from "./declaredJoin";
+import { labeledSnapshots, resolveGroupOwnership, storedSecretHolders } from "./declaredJoin";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
@@ -33,7 +33,10 @@ import { appendFree, requireLabelFree, requireSettingUnchanged, writeServersSett
  */
 export type AdoptableGroupCredentials = OptionalEntryFields;
 
-/** What IntentEnvironment.resolveAdoptionCredentials answers: the source's credentials and the setting they were judged against. */
+/**
+ * What IntentEnvironment.resolveAdoptionCredentials answers: the source's credentials and the setting they were
+ * judged against.
+ */
 export interface AdoptionResolution {
 	/** Undefined when nothing still-external matches the handle. */
 	readonly credentials: AdoptableGroupCredentials | undefined;
@@ -41,49 +44,52 @@ export interface AdoptionResolution {
 	readonly setting: unknown;
 }
 
-/** What IntentEnvironment.resolveExternalGroup answers: the identity a hide tombstones and the setting it was judged against. */
+/**
+ * What IntentEnvironment.resolveExternalGroup answers: the identity a hide tombstones and the setting it was judged
+ * against.
+ */
 export interface ExternalGroupResolution {
 	/** Undefined when nothing still-external matches the handle. */
 	readonly identity: { readonly label: string; readonly baseUrl: string } | undefined;
 	readonly setting: unknown;
 }
 
+export type LiveDeclaration = Pick<DeclaredIdentities, "identities" | "carriers" | "storedSecrets">;
+
 /**
- * The still-external snapshot a row handle names, bound to the intent's base URL. `declared` is the engine's live
- * resolution (ServerSyncEngine.resolveDeclaredIdentities), so a stale or forged handle cannot land on a group the
- * setting declares now, and cannot re-point at another host.
- *
- *   snapshot joinDeclared matched to an identity  -> declared (by ID, else by label and URL; an accepted entry also by
- *                                                    URL alone, a rejected carrier never)
- *   snapshot stamped with a declared label        -> that entry's group, past or present (a moved entry leaves one
- *                                                    behind); never external, whatever its URL
- *   any other snapshot at a declared entry's URL  -> external: a native group beside a declared one stays adoptable
+ * The external snapshot a row handle names, bound to the intent's base URL, under the one group ownership
+ * (resolveGroupOwnership) over the engine's live declaration: a stale or forged handle cannot land on a group an
+ * entry owns or a declared label left behind, and cannot re-point at another host.
  */
 function resolveExternalSnapshot(
 	snapshots: readonly ServerModelsSnapshot[],
-	declared: readonly DeclaredGroupIdentity[],
+	live: LiveDeclaration,
 	baseUrl: string,
-	sourceHandle: string
+	sourceHandle: string,
+	getGroupServer: (serverId: string) => GroupServer | undefined
 ): ServerModelsSnapshot | undefined {
-	const labeled = labeledSnapshots(snapshots);
-	const { unmatched } = joinDeclared(labeled, declared);
-	const declaredLabels = new Set(declared.map((identity) => identity.label));
-	return [...unmatched].find(
+	const { external } = resolveGroupOwnership({
+		labeled: labeledSnapshots(snapshots),
+		declared: live.identities,
+		carriers: live.carriers,
+		secretHolders: storedSecretHolders(snapshots, getGroupServer, live.storedSecrets),
+	});
+	return external.find(
 		(entry) =>
 			adoptSourceHandle(entry.snapshot.status.serverId) === sourceHandle &&
-			normalizeBaseUrl(entry.snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl) &&
-			(entry.snapshot.entryLabel === undefined || !declaredLabels.has(entry.snapshot.entryLabel))
+			normalizeBaseUrl(entry.snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl)
 	)?.snapshot;
 }
 
-/** The identity a hide intent's tombstone is keyed by: the status label and base URL, under resolveExternalSnapshot's rules. */
+/** The identity a hide's tombstone is keyed by: status label and base URL, under resolveExternalSnapshot's rules. */
 export function resolveExternalGroupIdentity(
 	snapshots: readonly ServerModelsSnapshot[],
-	declared: readonly DeclaredGroupIdentity[],
+	live: LiveDeclaration,
 	baseUrl: string,
-	sourceHandle: string
+	sourceHandle: string,
+	getGroupServer: (serverId: string) => GroupServer | undefined
 ): { label: string; baseUrl: string } | undefined {
-	const source = resolveExternalSnapshot(snapshots, declared, baseUrl, sourceHandle);
+	const source = resolveExternalSnapshot(snapshots, live, baseUrl, sourceHandle, getGroupServer);
 	if (source === undefined) {
 		return undefined;
 	}
@@ -91,17 +97,17 @@ export function resolveExternalGroupIdentity(
 }
 
 /**
- * The credentials an adopt intent may copy, under resolveExternalSnapshot's rules. Undefined when nothing
- * still-external matches; the caller then adopts the plain entry with a caveat.
+ * The credentials an adopt intent may copy, under resolveExternalSnapshot's rules. Undefined when nothing external
+ * matches; the caller then adopts the plain entry with a caveat.
  */
 export function resolveAdoptableCredentials(
 	snapshots: readonly ServerModelsSnapshot[],
-	declared: readonly DeclaredGroupIdentity[],
+	live: LiveDeclaration,
 	baseUrl: string,
 	sourceHandle: string,
 	getGroupServer: (serverId: string) => GroupServer | undefined
 ): AdoptableGroupCredentials | undefined {
-	const source = resolveExternalSnapshot(snapshots, declared, baseUrl, sourceHandle);
+	const source = resolveExternalSnapshot(snapshots, live, baseUrl, sourceHandle, getGroupServer);
 	if (source === undefined) {
 		return undefined;
 	}

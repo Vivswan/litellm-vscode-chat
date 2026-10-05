@@ -5,29 +5,37 @@
  */
 import * as assert from "node:assert";
 import type { RequestPayload } from "../../../dashboard/endpoints";
+import type { DashboardState } from "../../../dashboard/viewModels";
 import { adoptSourceHandle } from "../../../extension/dashboard/adoptHandle";
+import { storedSecretHolders } from "../../../extension/dashboard/declaredJoin";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
 import { DashboardValidationError, executeDashboardIntent } from "../../../extension/dashboard/intents";
 import { createIntentEnvironment, declaredViewsFromSetting } from "../../../extension/dashboard/panel";
-import type { DeclaredServerView, SecretStore } from "../../../extension/servers/serverSync";
-import { acceptedEntry, ServerSyncEngine } from "../../../extension/servers/serverSync";
+import type { DeclaredServersInput } from "../../../extension/dashboard/state";
+import { buildDashboardState } from "../../../extension/dashboard/state";
+import type { SecretStore } from "../../../extension/servers/serverSync";
+import { acceptedEntry, ServerSyncEngine, serverSettingReports } from "../../../extension/servers/serverSync";
 import { readServerSecretsRecord, secretDestination } from "../../../extension/servers/serverSync/secrets";
 import type { SettingsAccess } from "../../../extension/settingsAccess";
 import type { GroupServer } from "../../../provider/catalog/groupModels";
-import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
+import { groupClientId, groupServerLabel, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
 import { makeServerStatus } from "../../testUtils";
 import { makeSecretStore, makeSyncEnv } from "../servers/serverSyncHelpers";
-import { buildState, makeReader } from "./stateHelpers";
+import { makeReader } from "./stateHelpers";
 
 const H = "http://h.test";
+/** The status label an unlabeled group at H reports under: discovery's URL-host fallback. */
+const HOST = "h.test";
 const SECRET = "s3cret";
 
 /** A host whose add hands the group to the provider at once and then, while held, blocks like a slow serve. */
 function makeHost() {
 	const snapshots: ServerModelsSnapshot[] = [];
 	const servers = new Map<string, GroupServer>();
+	/** Each group's server ID by the name it was added under; the extension never sees the name itself. */
+	const names = new Map<string, string>();
 	/** Names the host refuses as an add-only host refuses an existing name. */
 	const taken = new Set<string>();
 	/** Every add the engine attempted, refused ones included. */
@@ -36,6 +44,7 @@ function makeHost() {
 	return {
 		snapshots,
 		servers,
+		names,
 		taken,
 		attempted,
 		addProviderGroup: async (args: Readonly<Record<string, string>>) => {
@@ -47,8 +56,14 @@ function makeHost() {
 			assert.ok(server !== undefined);
 			const serverId = groupClientId(server);
 			servers.set(serverId, server);
+			names.set(args.name ?? "", serverId);
 			snapshots.push({
-				status: makeServerStatus({ serverId, label: args.name ?? "", baseUrl: args.baseUrl ?? "" }),
+				// The status label as discovery reports it: the configured entry label, else the URL host.
+				status: makeServerStatus({
+					serverId,
+					label: server.label ?? groupServerLabel(server.baseUrl),
+					baseUrl: args.baseUrl ?? "",
+				}),
 				models: [],
 				...(args.label !== undefined ? { entryLabel: args.label } : {}),
 			});
@@ -81,8 +96,14 @@ interface Fixture {
 	declare(value: unknown): void;
 	/** Land a secure API key for a declared label without awaiting, stamped for the entry as the setting holds it. */
 	storeSecureKey(label: string, value: string): void;
-	/** The handle the webview row under `label` carries, or undefined when the push shows no external row there. */
-	pushedHandle(label: string): string | undefined;
+	/** The state push as the panel assembles it: the engine's views (else the settings fallback), reports, holders. */
+	pushedState(): DashboardState;
+	/** The declared labels the push's legacy rows belong to: leftovers drawn without adopt or hide. */
+	pushedLegacyRows(): string[];
+	/** The handle the push's external row for the group added under `name` carries; undefined when none is drawn. */
+	pushedHandle(name: string): string | undefined;
+	/** The handle of the group added under `name`, whether or not the push draws it. */
+	handleOf(name: string): string;
 	currentSetting(): unknown;
 	/** Every stored API key by label, as SecretStorage holds them now. */
 	secretsSnapshot(): Record<string, unknown>;
@@ -133,12 +154,32 @@ function makeFixture(): Fixture {
 				JSON.stringify({ apiKey: value, _owner: { apiKey: secretDestination(entry, "apiKey") } })
 			);
 		},
-		pushedHandle: (label) => {
+		pushedState: () => {
 			const views = fixture.engine.getDeclared();
-			const declared: readonly DeclaredServerView[] =
-				views.length > 0 ? views : declaredViewsFromSetting(effective()).views;
-			return buildState(host.snapshots, makeReader({}), declared).servers.find((row) => row.label === label)
-				?.adoptHandle;
+			const declared: DeclaredServersInput =
+				views.length > 0 ? { source: "engine", views } : declaredViewsFromSetting(effective());
+			return buildDashboardState({
+				snapshots: host.snapshots,
+				reader: makeReader({}),
+				declared,
+				entryReports: serverSettingReports(effective()),
+				secretHolders: storedSecretHolders(
+					host.snapshots,
+					(serverId) => host.servers.get(serverId),
+					fixture.engine.getStoredSecrets()
+				),
+			});
+		},
+		pushedLegacyRows: () =>
+			fixture.pushedState().servers.flatMap((server) => (server.origin === "legacy" ? [server.entryLabel] : [])),
+		handleOf: (name) => {
+			const serverId = host.names.get(name);
+			assert.ok(serverId !== undefined, `no group was added under ${name}`);
+			return adoptSourceHandle(serverId);
+		},
+		pushedHandle: (name) => {
+			const handle = fixture.handleOf(name);
+			return fixture.pushedState().servers.find((row) => row.adoptHandle === handle)?.adoptHandle;
 		},
 		engine: undefined as unknown as ServerSyncEngine,
 		env: undefined as unknown as IntentEnvironment,
@@ -187,7 +228,7 @@ function makeFixture(): Fixture {
 	return fixture;
 }
 
-function saveSecure(label: string, baseUrl: string): RequestPayload<"saveServerSetting"> {
+function saveSecure(label: string, baseUrl: string, value = SECRET): RequestPayload<"saveServerSetting"> {
 	return {
 		server: {
 			label,
@@ -201,7 +242,7 @@ function saveSecure(label: string, baseUrl: string): RequestPayload<"saveServerS
 			mcp: null,
 		},
 		secrets: {
-			apiKey: { action: "set", location: "secure", value: SECRET },
+			apiKey: { action: "set", location: "secure", value },
 			oauthClientSecret: { action: "keep" },
 			virtualKeyValue: { action: "keep" },
 		},
@@ -247,7 +288,12 @@ const L1_OAUTH_ROTATED = {
 	auth: { oauth: { tokenUrl: "https://idp2.test/token", clientId: "client-1", clientSecret: SECRET } },
 };
 /** The blob a secure API key stored for an entry at `baseUrl` leaves, owner stamp included. */
-const keyBlob = (baseUrl: string) => ({ apiKey: SECRET, _owner: { apiKey: secretDestination({ baseUrl }, "apiKey") } });
+const keyBlob = (baseUrl: string, value = SECRET) => ({
+	apiKey: value,
+	_owner: { apiKey: secretDestination({ baseUrl }, "apiKey") },
+});
+/** A's own key; a value equal to L1's would make L1's group A's leftover by the stored-value rule. */
+const A_KEY = "a-key";
 /** A refusal the webview renders as validation text, not as the generic failure: the class and the message both. */
 const validation =
 	(message: RegExp) =>
@@ -256,41 +302,59 @@ const validation =
 
 /**
  * Windows in which a live group carries L1's secret and a resolution short of one consistent, fully read
- * setting+secrets pair would hand it out.
+ * setting+secrets pair would hand it out, and the siblings in which a user's own group beside L1 must stay the
+ * user's. Unlabeled groups report under the URL host, as discovery labels them.
  *
- *   mid-pass              -> L1's add has not returned; the views predate L1 and the state push shows its group as an external row
- *   first-pass            -> last session's pass created the group; no pass completed this session, so the push falls back to the setting
- *   secrets-unreadable    -> L1 is blocked and a legacy unlabeled group carries its secret (joined by connection ID); the read fails at the intent
- *   declared-mid-read     -> L1 and its secure key land while the resolver awaits another entry's blob; its group is already served
- *   declared-during-adopt -> the native source's key becomes a declared entry's between the adopt's resolution and its write
- *   secret-rotates-mid-read   -> L1's stored key rotates while the resolver awaits another entry's blob; the group carrying the new key was external
- *   declared-after-resolution -> the declaration lands in the promise continuation between the resolution's return and the tombstone write
- *   rejected-entry            -> L1's auth block was hand-edited into a shape the parser refuses after its group, key baked in, was created
- *   label-only-entry          -> L1 was hand-edited down to its label; the pass keeps the label declared, yet nothing can join its group
- *   non-array-setting         -> the setting is mid-edit; the pass keeps every old label declared, yet nothing can join any group
+ *   mid-pass              -> L1's add has not returned; the views predate L1 and the state push shows its group as an
+ *                            external row
+ *   first-pass            -> last session's pass created the group; no pass completed this session, so the push falls
+ *                            back to the setting
+ *   secrets-unreadable    -> L1 is blocked and a legacy unlabeled group carries its secret (joined by connection ID);
+ *                            the read fails at the intent
+ *   declared-mid-read     -> L1 and its secure key land while the resolver awaits another entry's blob; its group is
+ *                            already served
+ *   declared-during-adopt -> the native source's key becomes a declared entry's between the adopt's resolution and
+ *                            its write
+ *   secret-rotates-mid-read   -> L1's stored key rotates while the resolver awaits another entry's blob; the group
+ *                                carrying the new key was external
+ *   declared-after-resolution -> the declaration lands in the promise continuation between the resolution's return
+ *                                and the tombstone write
+ *   rejected-entry            -> L1's auth block was hand-edited into a shape the parser refuses after its group, key
+ *                                baked in, was created
+ *   label-only-entry          -> L1 was hand-edited down to its label; its stamped group is the label's legacy row
+ *   non-array-setting         -> the setting is mid-edit; the pass keeps every old label declared, yet nothing can
+ *                                join any group
  *   rejected-entry-sibling-group -> the rejected L1's own group, label stamped, sits at H beside an external group
  *                                   with its own key; the external one stays adoptable
  *   malformed-after-resolution -> the setting turns into a non-array in the continuation
  *                                 between the resolution's return and the write
  *   rotated-oauth-personal    -> L1's OAuth token URL changed; its old group, label stamped, joins by label and URL,
  *                                and the user's own Personal group at H stays adoptable
+ *   renamed-legacy-personal   -> L1's rotated identity gets a new group; its renamed, stamped old group is a legacy row
+ *   two-entries-personal      -> L2 declares H but has no group, and claims nothing by URL alone
  *   unset-setting-native      -> nothing declared (the user scope reads undefined, the engine []); a native group's own
  *                                key is the one adoption that copies
  *   moved-entry-old-group     -> L1 moved to another URL; the group its old shape created, label stamped, lives on at H
- *   rejected-sibling-named-group -> a rejected duplicate of the accepted L1 sits at H, where a group the host names
- *                                   L1 (no label stamp) still carries the key
+ *   retained-key-legacy       -> L1 moved to another URL with a rejected duplicate left at H; its secure key stays
+ *                                stamped for H, and the pre-stamp group at H carrying that key is L1's legacy row
+ *   rejected-moved-stamped-group -> L1's only carrier is rejected, at another URL; the stamped group its valid shape
+ *                                   created at H is the label's legacy row, not external
  *   rejected-duplicate-personal  -> a rejected duplicate of the accepted L1 at H, whose own group joins by ID; the
  *                                   duplicate claims nothing by URL alone, so Personal at H stays adoptable
- *   sibling-without-url       -> the rejected duplicate has no URL, so nothing can say where its old group lives
+ *   sibling-without-url       -> the rejected duplicate has no URL; an unlabeled group at H that nothing ties to L1
+ *                                is the user's own
  */
 const WINDOWS: Record<string, Scenario> = {
 	"mid-pass": {
-		after: { setting: [A_ENTRY, L1_ENTRY], secrets: { A: keyBlob("http://a.test"), L1: keyBlob(H) } },
+		after: { setting: [A_ENTRY, L1_ENTRY], secrets: { A: keyBlob("http://a.test", A_KEY), L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
 		adopt: "plain-entry",
 		refusal: DashboardValidationError,
 		open: async ({ engine, env, host, pushedHandle }) => {
-			await executeDashboardIntent({ method: "saveServerSetting", payload: saveSecure("A", "http://a.test") }, env);
+			await executeDashboardIntent(
+				{ method: "saveServerSetting", payload: saveSecure("A", "http://a.test", A_KEY) },
+				env
+			);
 			await engine.syncNow();
 			await executeDashboardIntent({ method: "saveServerSetting", payload: saveSecure("L1", H) }, env);
 			const release = host.hold();
@@ -319,13 +383,11 @@ const WINDOWS: Record<string, Scenario> = {
 		intents: ["adopt", "hide"],
 		adopt: "plain-entry",
 		refusal: DashboardValidationError,
-		open: async ({ env, host, pushedHandle }) => {
+		open: async ({ env, host, pushedHandle, handleOf }) => {
 			await executeDashboardIntent({ method: "saveServerSetting", payload: saveSecure("L1", H) }, env);
 			await host.addProviderGroup({ name: "L1", vendor: "litellm", baseUrl: H, label: "L1", apiKey: SECRET });
 			assert.strictEqual(pushedHandle("L1"), undefined, "the settings fallback shows L1 as declared");
-			const serverId = host.snapshots[0]?.status.serverId;
-			assert.ok(serverId !== undefined);
-			return { handle: adoptSourceHandle(serverId), close: async () => {} };
+			return { handle: handleOf("L1"), close: async () => {} };
 		},
 	},
 	"secrets-unreadable": {
@@ -341,24 +403,25 @@ const WINDOWS: Record<string, Scenario> = {
 			host.taken.add("L1");
 			await engine.syncNow();
 			assert.strictEqual(pushedHandle("legacy"), undefined, "the pass's views claim the legacy group by connection ID");
-			const serverId = host.snapshots[0]?.status.serverId;
-			assert.ok(serverId !== undefined);
 			fixture.onSecretRead = (label) => {
 				if (label === "L1") {
 					throw new Error("keychain locked");
 				}
 			};
-			return { handle: adoptSourceHandle(serverId), close: async () => {} };
+			return { handle: fixture.handleOf("legacy"), close: async () => {} };
 		},
 	},
 	"declared-mid-read": {
-		after: { setting: [A_ENTRY, L1_ENTRY], secrets: { A: keyBlob("http://a.test"), L1: keyBlob(H) } },
+		after: { setting: [A_ENTRY, L1_ENTRY], secrets: { A: keyBlob("http://a.test", A_KEY), L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
 		adopt: "plain-entry",
 		refusal: DashboardValidationError,
 		open: async (fixture) => {
 			const { engine, env, host, pushedHandle } = fixture;
-			await executeDashboardIntent({ method: "saveServerSetting", payload: saveSecure("A", "http://a.test") }, env);
+			await executeDashboardIntent(
+				{ method: "saveServerSetting", payload: saveSecure("A", "http://a.test", A_KEY) },
+				env
+			);
 			await host.addProviderGroup({ name: "L1", vendor: "litellm", baseUrl: H, label: "L1", apiKey: SECRET });
 			await engine.syncNow();
 			const handle = pushedHandle("L1");
@@ -433,30 +496,30 @@ const WINDOWS: Record<string, Scenario> = {
 		adopt: "plain-entry",
 		refusal: DashboardValidationError,
 		open: async (fixture) => {
-			const { engine, env, pushedHandle } = fixture;
+			const { engine, env, pushedHandle, pushedLegacyRows } = fixture;
 			await executeDashboardIntent({ method: "saveServerSetting", payload: saveSecure("L1", H) }, env);
 			await engine.syncNow();
 			fixture.declare([L1_REJECTED]);
 			await engine.syncNow();
-			const handle = pushedHandle("L1");
-			assert.ok(handle !== undefined, "the pass's views omit the rejected entry, so its live group reads as external");
-			return { handle, close: async () => {} };
+			assert.strictEqual(pushedHandle("L1"), undefined, "the rejected entry's own group is no external row");
+			assert.deepStrictEqual(pushedLegacyRows(), ["L1"], "it is drawn as L1's legacy leftover");
+			return { handle: fixture.handleOf("L1"), close: async () => {} };
 		},
 	},
 	"label-only-entry": {
 		after: { setting: [{ label: "L1" }], secrets: { L1: keyBlob(H) } },
 		intents: ["adopt", "hide"],
-		adopt: "rejects",
-		refusal: validation(/without a base URL/),
+		adopt: "plain-entry",
+		refusal: DashboardValidationError,
 		open: async (fixture) => {
-			const { engine, env, pushedHandle } = fixture;
+			const { engine, env, pushedHandle, pushedLegacyRows } = fixture;
 			await executeDashboardIntent({ method: "saveServerSetting", payload: saveSecure("L1", H) }, env);
 			await engine.syncNow();
 			fixture.declare([{ label: "L1" }]);
 			await engine.syncNow();
-			const handle = pushedHandle("L1");
-			assert.ok(handle !== undefined, "the pass's views omit the entry, so its live group reads as external");
-			return { handle, close: async () => {} };
+			assert.strictEqual(pushedHandle("L1"), undefined, "the label's stamped group is no external row");
+			assert.deepStrictEqual(pushedLegacyRows(), ["L1"], "it is drawn as L1's legacy leftover");
+			return { handle: fixture.handleOf("L1"), close: async () => {} };
 		},
 	},
 	"non-array-setting": {
@@ -476,7 +539,7 @@ const WINDOWS: Record<string, Scenario> = {
 		},
 	},
 	"rejected-entry-sibling-group": {
-		after: { setting: [L1_REJECTED], secrets: { L1: keyBlob(H) }, hidden: [{ label: "ext", baseUrl: H }] },
+		after: { setting: [L1_REJECTED], secrets: { L1: keyBlob(H) }, hidden: [{ label: HOST, baseUrl: H }] },
 		intents: ["adopt", "hide"],
 		adopt: { copies: "ext-key" },
 		refusal: DashboardValidationError,
@@ -514,7 +577,7 @@ const WINDOWS: Record<string, Scenario> = {
 		},
 	},
 	"rotated-oauth-personal": {
-		after: { setting: [L1_OAUTH_ROTATED], secrets: {}, hidden: [{ label: "Personal", baseUrl: H }] },
+		after: { setting: [L1_OAUTH_ROTATED], secrets: {}, hidden: [{ label: HOST, baseUrl: H }] },
 		intents: ["adopt", "hide"],
 		adopt: { copies: "personal-key" },
 		refusal: DashboardValidationError,
@@ -539,6 +602,58 @@ const WINDOWS: Record<string, Scenario> = {
 			return { handle, close: async () => {} };
 		},
 	},
+	"renamed-legacy-personal": {
+		after: { setting: [L1_OAUTH_ROTATED], secrets: {}, hidden: [{ label: HOST, baseUrl: H }] },
+		intents: ["adopt", "hide"],
+		adopt: { copies: "personal-key" },
+		refusal: DashboardValidationError,
+		open: async (fixture) => {
+			const { engine, host, pushedHandle, pushedLegacyRows } = fixture;
+			fixture.declare([L1_OAUTH_ROTATED]);
+			await host.addProviderGroup({
+				name: "ZLegacy",
+				vendor: "litellm",
+				baseUrl: H,
+				label: "L1",
+				oauthTokenUrl: "https://idp.test/token",
+				oauthClientId: "client-1",
+				oauthClientSecret: SECRET,
+			});
+			await host.addProviderGroup({ name: "Personal", vendor: "litellm", baseUrl: H, apiKey: "personal-key" });
+			await engine.syncNow();
+			assert.deepStrictEqual(host.attempted, ["ZLegacy", "Personal", "L1"], "the pass adds L1's rotated group");
+			assert.strictEqual(pushedHandle("L1"), undefined, "L1 joins the group its configuration produces, by ID");
+			assert.strictEqual(pushedHandle("ZLegacy"), undefined, "the renamed old group is L1's leftover, no external row");
+			assert.deepStrictEqual(pushedLegacyRows(), ["L1"], "drawn as L1's legacy leftover, still serving");
+			const handle = pushedHandle("Personal");
+			assert.ok(handle !== undefined, "the user's own group at the same host stays external");
+			return { handle, close: async () => {} };
+		},
+	},
+	"two-entries-personal": {
+		after: {
+			setting: [L1_INLINE, { label: "L2", baseUrl: H, auth: { apiKey: "l2-key" } }],
+			secrets: {},
+			hidden: [{ label: HOST, baseUrl: H }],
+		},
+		intents: ["adopt", "hide"],
+		adopt: { copies: "personal-key" },
+		refusal: DashboardValidationError,
+		open: async (fixture) => {
+			const { engine, host, pushedHandle } = fixture;
+			fixture.declare([L1_INLINE, { label: "L2", baseUrl: H, auth: { apiKey: "l2-key" } }]);
+			await host.addProviderGroup({ name: "L1", vendor: "litellm", baseUrl: H, label: "L1", apiKey: SECRET });
+			// L2's add is refused (the name exists natively), so L2 has no group of its own.
+			host.taken.add("L1");
+			host.taken.add("L2");
+			await host.addProviderGroup({ name: "Personal", vendor: "litellm", baseUrl: H, apiKey: "personal-key" });
+			await engine.syncNow();
+			assert.strictEqual(pushedHandle("L1"), undefined, "L1 claims its own group by ID");
+			const handle = pushedHandle("Personal");
+			assert.ok(handle !== undefined, "the group-less L2 claims nothing by URL alone");
+			return { handle, close: async () => {} };
+		},
+	},
 	"unset-setting-native": {
 		after: { setting: [], secrets: {} },
 		intents: ["adopt"],
@@ -558,45 +673,71 @@ const WINDOWS: Record<string, Scenario> = {
 		adopt: "plain-entry",
 		refusal: DashboardValidationError,
 		open: async (fixture) => {
-			const { engine, env, host, pushedHandle } = fixture;
+			const { engine, env, pushedHandle, pushedState } = fixture;
 			await executeDashboardIntent({ method: "saveServerSetting", payload: saveSecure("L1", H) }, env);
 			await engine.syncNow();
 			fixture.declare([{ label: "L1", baseUrl: "http://new.test" }]);
 			await engine.syncNow();
 			assert.strictEqual(pushedHandle("L1"), undefined, "the push hides the superseded group");
-			const serverId = host.snapshots[0]?.status.serverId;
-			assert.ok(serverId !== undefined);
-			return { handle: adoptSourceHandle(serverId), close: async () => {} };
+			assert.deepStrictEqual(pushedState().hiddenGroups, [
+				{ label: "L1", baseUrl: H, reason: "superseded", declaredBaseUrl: "http://new.test" },
+			]);
+			return { handle: fixture.handleOf("L1"), close: async () => {} };
 		},
 	},
-	"rejected-sibling-named-group": {
+	"retained-key-legacy": {
 		after: {
-			setting: [
-				{ label: "L1", baseUrl: "http://new.test" },
-				{ label: "L1", baseUrl: H },
-			],
+			setting: [{ label: "L1", baseUrl: "http://new.test" }, L1_ENTRY],
+			secrets: { L1: keyBlob(H) },
+		},
+		intents: ["adopt", "hide"],
+		adopt: "plain-entry",
+		refusal: DashboardValidationError,
+		open: async (fixture) => {
+			const { engine, host, pushedHandle, pushedLegacyRows } = fixture;
+			fixture.declare([L1_ENTRY]);
+			fixture.storeSecureKey("L1", SECRET);
+			// L1's group from before labels flowed into configurations: no stamp, the key baked in, labeled by host.
+			await host.addProviderGroup({ name: "L1", vendor: "litellm", baseUrl: H, apiKey: SECRET });
+			host.taken.add("L1");
+			fixture.declare([{ label: "L1", baseUrl: "http://new.test" }, L1_ENTRY]);
+			await engine.syncNow();
+			assert.strictEqual(pushedHandle("L1"), undefined, "the group holding L1's retained key is no external row");
+			assert.deepStrictEqual(pushedLegacyRows(), ["L1"], "unstamped, so the provider still serves it: a legacy row");
+			return { handle: fixture.handleOf("L1"), close: async () => {} };
+		},
+	},
+	"rejected-moved-stamped-group": {
+		after: {
+			setting: [{ label: "L1", baseUrl: "http://new.test", auth: { oauth: { tokenUrl: "https://idp.test/token" } } }],
 			secrets: {},
 		},
 		intents: ["adopt", "hide"],
 		adopt: "plain-entry",
 		refusal: DashboardValidationError,
 		open: async (fixture) => {
-			const { engine, host, pushedHandle } = fixture;
-			fixture.declare([
-				{ label: "L1", baseUrl: "http://new.test" },
-				{ label: "L1", baseUrl: H },
-			]);
-			// A group the host names L1 at H from before labels flowed into configurations: no entryLabel stamp.
-			await host.addProviderGroup({ name: "L1", vendor: "litellm", baseUrl: H, apiKey: SECRET });
-			host.taken.add("L1");
+			const { engine, pushedHandle, pushedLegacyRows, pushedState } = fixture;
+			fixture.declare([L1_ENTRY]);
 			await engine.syncNow();
-			const handle = pushedHandle("L1");
-			assert.ok(handle !== undefined, "the rejected sibling draws no row, so its old group reads as external");
-			return { handle, close: async () => {} };
+			fixture.declare([
+				{ label: "L1", baseUrl: "http://new.test", auth: { oauth: { tokenUrl: "https://idp.test/token" } } },
+			]);
+			await engine.syncNow();
+			assert.strictEqual(pushedHandle("L1"), undefined, "the rejected carrier's stamped group is no external row");
+			assert.deepStrictEqual(pushedLegacyRows(), ["L1"], "no accepted entry moved it: a legacy row, still serving");
+			assert.deepStrictEqual(
+				pushedState().servers.map((server) => [server.origin, server.baseUrl]),
+				[
+					["legacy", H],
+					["misconfigured", "http://new.test"],
+				],
+				"the carrier's own Misconfigured row stands beside it"
+			);
+			return { handle: fixture.handleOf("L1"), close: async () => {} };
 		},
 	},
 	"rejected-duplicate-personal": {
-		after: { setting: [L1_INLINE, L1_ENTRY], secrets: {}, hidden: [{ label: "Personal", baseUrl: H }] },
+		after: { setting: [L1_INLINE, L1_ENTRY], secrets: {}, hidden: [{ label: HOST, baseUrl: H }] },
 		intents: ["adopt", "hide"],
 		adopt: { copies: "personal-key" },
 		refusal: DashboardValidationError,
@@ -609,7 +750,7 @@ const WINDOWS: Record<string, Scenario> = {
 			await engine.syncNow();
 			assert.deepStrictEqual(
 				host.snapshots.map((snapshot) => snapshot.status.label),
-				["L1", "Personal"],
+				["L1", HOST],
 				"one group under L1, so the duplicate has nothing to claim by label"
 			);
 			assert.strictEqual(pushedHandle("L1"), undefined, "the accepted L1 claims its own group");
@@ -619,10 +760,14 @@ const WINDOWS: Record<string, Scenario> = {
 		},
 	},
 	"sibling-without-url": {
-		after: { setting: [{ label: "L1", baseUrl: "http://new.test" }, { label: "L1" }], secrets: {} },
+		after: {
+			setting: [{ label: "L1", baseUrl: "http://new.test" }, { label: "L1" }],
+			secrets: {},
+			hidden: [{ label: HOST, baseUrl: H }],
+		},
 		intents: ["adopt", "hide"],
-		adopt: "rejects",
-		refusal: validation(/without a base URL/),
+		adopt: { copies: SECRET },
+		refusal: DashboardValidationError,
 		open: async (fixture) => {
 			const { engine, host, pushedHandle } = fixture;
 			fixture.declare([{ label: "L1", baseUrl: "http://new.test" }, { label: "L1" }]);
@@ -630,7 +775,7 @@ const WINDOWS: Record<string, Scenario> = {
 			await host.addProviderGroup({ name: "legacy", vendor: "litellm", baseUrl: H, apiKey: SECRET });
 			await engine.syncNow();
 			const handle = pushedHandle("legacy");
-			assert.ok(handle !== undefined);
+			assert.ok(handle !== undefined, "no stamp and no stored key tie the group to L1");
 			return { handle, close: async () => {} };
 		},
 	},
@@ -656,7 +801,6 @@ const WINDOWS: Record<string, Scenario> = {
 	},
 };
 
-/** The whole outcome of one intent: the settings writes it made, the setting and secure contents it left, the tombstones, the host calls. */
 function assertOutcome(
 	fixture: Fixture,
 	scenario: Scenario,

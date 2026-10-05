@@ -27,6 +27,7 @@ import {
 	acceptedEntry,
 	parseServersSetting,
 	rawDeclaredLabels,
+	rejectedCarrierLabels,
 	serverSettingReports,
 	stillDeclaredIn,
 } from "./setting";
@@ -59,24 +60,30 @@ export interface SyncFailure {
  * credential fingerprint and stay extension-side, never in DashboardState; both are absent when the entry does
  * not resolve to a usable group configuration.
  *
- *   expectedClientId     -> the client ID the entry's resolved configuration produces, the identity the provider stamps on its status snapshots
- *   expectedConnectionId -> the same without the entry label; groups created before labels flowed into the configuration report under it
- *   labelBound           -> a rejected carrier's identity: no configuration could have created a group for it under
- *                           another name, so the join claims only the group named by its label at its URL, never one
- *                           by URL alone
+ *   expectedClientId     -> the client ID the entry's resolved configuration produces, the identity the provider
+ *                           stamps on its status snapshots
+ *   expectedConnectionId -> the same without the entry label; groups created before labels flowed into the
+ *                           configuration report under it
  */
 export interface DeclaredGroupIdentity {
 	readonly label: string;
 	readonly baseUrl: string;
 	readonly expectedClientId?: string | undefined;
 	readonly expectedConnectionId?: string | undefined;
-	readonly labelBound?: true;
 }
 
-/** One consistent reading: the identities and the raw setting value they were derived from (ServerSyncEngine.resolveDeclaredIdentities). */
+/**
+ * One consistent reading of what the setting declares, as the group ownership (extension/dashboard/declaredJoin.ts)
+ * consumes it, with the raw setting value it was read from (ServerSyncEngine.resolveDeclaredIdentities).
+ */
 export interface DeclaredIdentities {
 	readonly setting: unknown;
+	/** The accepted entries. */
 	readonly identities: readonly DeclaredGroupIdentity[];
+	/** The labels the setting carries outside an accepted entry (rejectedCarrierLabels). */
+	readonly carriers: readonly string[];
+	/** Every declared label's stored secrets, ownership stamps included; extension-side only, never pushed. */
+	readonly storedSecrets: ReadonlyMap<string, StoredSecretsRecord>;
 }
 
 /** The non-secret view of a declared server the dashboard renders; secret values stay out. */
@@ -86,7 +93,7 @@ export interface DeclaredServerView extends DeclaredGroupIdentity, NonSecretOpti
 	readonly syncFailure?: SyncFailure | undefined;
 }
 
-/** One derivation for the join keys (extension/dashboard/declaredJoin.ts), so a pass's views and the live resolution cannot drift. */
+/** One derivation for the join keys (dashboard/declaredJoin.ts), so a pass's views and the live resolution agree. */
 function declaredGroupIdentity(entry: DeclaredServer, args: Readonly<Record<string, string>>): DeclaredGroupIdentity {
 	const groupServer = parseGroupConfiguration(args);
 	if (groupServer === undefined) {
@@ -240,10 +247,10 @@ const IDENTITY_READ_ATTEMPTS = 3;
 const SETTING_UNSTABLE_MESSAGE =
 	"The servers setting or its stored secrets changed on every read while identities were being resolved; retry";
 
-/** The live resolution's refusal of a setting the pass would treat as declaring a label nothing can join on. */
+/** The live resolution's refusal of a setting the pass treats as declaring every old label; nothing can join on it. */
 export class IndeterminateServersSettingError extends Error {
 	constructor() {
-		super("The servers setting is not an array, or carries an entry without a base URL; fix the setting, then retry");
+		super("The servers setting is not an array; fix the setting, then retry");
 		this.name = "IndeterminateServersSettingError";
 	}
 }
@@ -340,6 +347,8 @@ interface RetryState {
  */
 export class ServerSyncEngine implements vscode.Disposable {
 	private views: DeclaredServerView[] = [];
+	/** Each declared label's stored secrets as the last pass read them; published with the views, never pushed. */
+	private storedSecrets: ReadonlyMap<string, StoredSecretsRecord> = new Map();
 	/**
 	 * Seeded from the store on the first pass and session truth from then on; syncPass's duplicate confirmation
 	 * and carryLastGood take a store re-read presence-only, where a match proves the live group and an absence
@@ -405,6 +414,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 		return this.views;
 	}
 
+	/** The stored secrets the last pass read, by declared label, for the group ownership (storedSecretHolders). */
+	getStoredSecrets(): ReadonlyMap<string, StoredSecretsRecord> {
+		return this.storedSecrets;
+	}
+
 	/**
 	 * Exactly what a sync pass would submit, so litellm._test.refreshEntryModels can drive the otherwise
 	 * host-invoked group serving path; like buildGroupArgs's output it carries resolved secrets verbatim and
@@ -422,17 +436,21 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
-	 * The join keys of every entry the setting declares at the moment of the call, resolved like a pass resolves them
-	 * but with no host call and no bookkeeping. The adopt and hide intents decide which live groups are external
-	 * against this, never against getDeclared(), whose views lag until the next pass ends.
+	 * What the setting declares at the moment of the call, resolved like a pass resolves it but with no host call and
+	 * no bookkeeping. The adopt and hide intents decide which live groups are external against this, never against
+	 * getDeclared(), whose views lag until the next pass ends.
 	 *
-	 *   settings write, pass pending        -> the new entry is already here
-	 *   pass running, new group served      -> it joins by identity instead of reading as external
-	 *   secrets read throws                 -> rejects; inline-only keys miss a legacy group whose connection ID carries the secret
-	 *   setting or a blob changes mid-read  -> read everything again; the pair returned was read twice unchanged, or the call rejects
-	 *   parser-rejected entry, label and URL -> an identity with no client ID; the group a valid earlier shape created joins by label and URL
-	 *   non-array setting, or a label with no URL -> rejects; the pass still treats the label as declared, and nothing could join its group
-	 *   a blob rotated after its second read -> not seen; SecretStorage has no compare-and-swap (secrets.ts), the save path's residual too
+	 *   settings write, pass pending         -> the new entry is already here
+	 *   pass running, new group served       -> it joins by identity instead of reading as external
+	 *   secrets read throws                  -> rejects; inline-only keys miss a legacy group whose connection ID
+	 *                                           carries the secret
+	 *   setting or a blob changes mid-read   -> read everything again; the pair returned was read twice unchanged,
+	 *                                           or the call rejects
+	 *   parser-rejected entry with a label   -> a carrier; a group stamped with it or holding its key is never external
+	 *   non-array setting                    -> rejects; the pass still treats every old label as declared, and
+	 *                                           nothing could join its group
+	 *   a blob rotated after its second read -> not seen; SecretStorage has no compare-and-swap (secrets.ts), the
+	 *                                           save path's residual too
 	 */
 	async resolveDeclaredIdentities(): Promise<DeclaredIdentities> {
 		let previous = await this.readDeclaredPair();
@@ -441,10 +459,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 			if (isDeepStrictEqual(current, previous)) {
 				return {
 					setting: current.setting,
-					identities: [
-						...current.entries.map(({ entry, stored }) => declaredGroupIdentity(entry, buildGroupArgs(entry, stored))),
-						...current.rejected,
-					],
+					identities: current.entries.map(({ entry, stored }) =>
+						declaredGroupIdentity(entry, buildGroupArgs(entry, stored))
+					),
+					carriers: current.carriers,
+					storedSecrets: current.storedSecrets,
 				};
 			}
 			previous = current;
@@ -452,38 +471,31 @@ export class ServerSyncEngine implements vscode.Disposable {
 		throw new Error(SETTING_UNSTABLE_MESSAGE);
 	}
 
-	/**
-	 * A valid earlier shape of a now-rejected entry may have created its group, and the pass still treats a present
-	 * label as declared (stillDeclaredIn; finishPass on a non-array container).
-	 *
-	 *   rejected carrier with a label and a URL, a sibling included -> a label-bound identity; the join claims the group
-	 *                                                                  the host names with that label there, nothing else
-	 *   carrier with a label and no URL, or a non-array container  -> indeterminate; the reading rejects
-	 */
+	/** One reading of the setting and every declared label's blob, a rejected carrier's included. */
 	private async readDeclaredPair(): Promise<{
 		setting: unknown;
 		entries: { entry: DeclaredServer; stored: StoredServerSecrets }[];
-		rejected: DeclaredGroupIdentity[];
+		carriers: string[];
+		storedSecrets: Map<string, StoredSecretsRecord>;
 	}> {
 		const setting: unknown = structuredClone(this.env.readServersSetting());
 		if (!Array.isArray(setting)) {
 			throw new IndeterminateServersSettingError();
 		}
+		const storedSecrets = new Map<string, StoredSecretsRecord>();
 		const entries: { entry: DeclaredServer; stored: StoredServerSecrets }[] = [];
 		for (const entry of parseServersSetting(setting).entries) {
-			entries.push({ entry, stored: resolveOwnedSecrets(entry, await this.env.readSecrets(entry.label)).values });
+			const record = await this.env.readSecrets(entry.label);
+			storedSecrets.set(entry.label, record);
+			entries.push({ entry, stored: resolveOwnedSecrets(entry, record).values });
 		}
-		const rejected: DeclaredGroupIdentity[] = [];
-		for (const report of serverSettingReports(setting)) {
-			if (report.accepted || report.label === undefined) {
-				continue;
+		const carriers = rejectedCarrierLabels(serverSettingReports(setting));
+		for (const label of carriers) {
+			if (!storedSecrets.has(label)) {
+				storedSecrets.set(label, await this.env.readSecrets(label));
 			}
-			if (report.baseUrl === undefined) {
-				throw new IndeterminateServersSettingError();
-			}
-			rejected.push({ label: report.label, baseUrl: report.baseUrl, labelBound: true });
 		}
-		return { setting, entries, rejected };
+		return { setting, entries, carriers, storedSecrets };
 	}
 
 	requestSync(): void {
@@ -712,6 +724,16 @@ export class ServerSyncEngine implements vscode.Disposable {
 		// compares it against `next` to tell in-sync entries (whose declared URL
 		// provably describes the live group) from blocked or skipped ones.
 		const printedByLabel = new Map<string, string>();
+		// Stored secrets by declared label, carriers included, for the dashboard's group ownership; published with
+		// the views. A failed read keeps the last pass's record, so a leftover holding the label's key does not turn
+		// into an adoptable external row for the length of the outage.
+		const storedSecrets = new Map<string, StoredSecretsRecord>();
+		const carryStoredSecrets = (label: string) => {
+			const last = this.storedSecrets.get(label);
+			if (last !== undefined) {
+				storedSecrets.set(label, last);
+			}
+		};
 		for (const entry of entries) {
 			let stored: StoredServerSecrets = {};
 			let refusedFields: readonly SecretFieldId[] = [];
@@ -725,7 +747,9 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// The ownership check runs at the read boundary, before any branch
 				// (a forced pass included): a stored value stamped for a different
 				// destination must never enter the args this pass could submit.
-				const owned = resolveOwnedSecrets(entry, await this.env.readSecrets(entry.label));
+				const record = await this.env.readSecrets(entry.label);
+				storedSecrets.set(entry.label, record);
+				const owned = resolveOwnedSecrets(entry, record);
 				stored = owned.values;
 				refusedFields = owned.refused;
 			} catch (error) {
@@ -737,6 +761,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// the inline-only reading.
 				secretsUnreadable = true;
 				syncFailure = syncFailureOf("secretsUnreadable");
+				carryStoredSecrets(entry.label);
 				this.env.log("Reading a server entry's stored secrets failed", {
 					label: entry.label,
 					error: errorLabel(error),
@@ -912,6 +937,18 @@ export class ServerSyncEngine implements vscode.Disposable {
 			});
 		}
 
+		for (const label of rejectedCarrierLabels(serverSettingReports(rawSetting))) {
+			if (storedSecrets.has(label)) {
+				continue;
+			}
+			try {
+				storedSecrets.set(label, await this.env.readSecrets(label));
+			} catch (error) {
+				carryStoredSecrets(label);
+				this.env.log("Reading a rejected entry's stored secrets failed", { label, error: errorLabel(error) });
+			}
+		}
+
 		try {
 			await this.finishPass(rawSetting, entries, previous, next, printedByLabel);
 		} finally {
@@ -921,6 +958,9 @@ export class ServerSyncEngine implements vscode.Disposable {
 			// finally because a throwing finish must not discard the pass's computed
 			// views.
 			this.views = views;
+			// A non-array setting declares every old label and parses no entry, so the pass read no blob; the last
+			// pass's records stay until an array reads them again.
+			this.storedSecrets = Array.isArray(rawSetting) ? storedSecrets : this.storedSecrets;
 		}
 	}
 

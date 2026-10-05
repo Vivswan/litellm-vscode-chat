@@ -952,6 +952,36 @@ test("an external row's drawer states the provenance classification, or the hone
 	expect(defaultTip).toContain("added outside this extension");
 });
 
+test("a legacy row carries the badge and the Origin fact, and offers neither Edit nor Remove", () => {
+	// A leftover a declared entry no longer matches: not in the setting (no Edit, no adopt), not the user's own
+	// (no hide); the drawer names the entry and the deletion route.
+	const legacyRow: DashboardServer = {
+		origin: "legacy",
+		entryLabel: "Prod",
+		groupHandle: "handle-legacy",
+		label: "Prod",
+		baseUrl: "http://a.test",
+		servedModelCount: 2,
+		credentials: "present",
+		hasOAuth: false,
+		state: "ok",
+	};
+	const root = mountSection([legacyRow, makeExternalServer()]);
+	const [legacy, external] = [...root.querySelectorAll(".server-item")] as HTMLElement[];
+	const badgeTexts = (item: Element) =>
+		[...item.querySelectorAll(".server-badges span[data-slot='badge']")].map((el) => el.textContent?.trim());
+	expect(badgeTexts(legacy as Element)).toEqual(["API key", "legacy"]);
+	expect(legacy?.querySelectorAll(".server-actions button").length).toBe(0);
+	expect(external?.querySelectorAll(".server-actions button").length).toBe(2);
+	fireClick(legacy?.querySelector("button.server-line") as HTMLElement);
+	const origin = [...root.querySelectorAll(".server-facts dt")]
+		.filter((dt) => (dt.textContent ?? "").trim() === "Origin")
+		.map((dt) => dt.nextElementSibling?.textContent ?? "");
+	expect(origin.length).toBe(1);
+	expect(origin[0]).toContain("legacy");
+	expect(origin[0]).toContain('Left behind by the entry "Prod"');
+});
+
 test("the drawer's Authentication fact keeps the three credential verdicts apart", () => {
 	// Pre-proof, "none" would be a guess (the fallback cannot read secret blobs),
 	// so the unknown row goes absent-with-reason instead of denying a key.

@@ -1524,7 +1524,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 		});
 
 		test("a rejected duplicate at the row's old base URL does not authorize removing the accepted entry", async () => {
-			// The accepted L1 moved to new.test; a rejected duplicate still sits at old.test, where the stale row points.
+			// The accepted L1 moved to new.test; a rejected duplicate still sits at old.test, where the stale row
+			// points.
 			const recorded = makeEnv([
 				{ label: "L1", baseUrl: "http://new.test" },
 				{ label: "L1", baseUrl: "http://old.test" },
