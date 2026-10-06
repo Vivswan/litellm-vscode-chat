@@ -9,18 +9,18 @@
  *   user intent, no network -> Explicit `_openrouter_model` directives keep answering byExactId
  */
 
+import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
 import * as vscode from "vscode";
 import type { CatalogRefreshFailure } from "../dashboard/viewModels";
 import { DISCOVERY_MAX_RETRIES } from "../provider/catalog/discovery";
+import { retryIdempotent } from "../provider/transport/retry";
 import type { CapabilityCatalogLookup } from "../shared/config/capabilityResolution";
 import {
 	CATALOG_MODEL_COUNT_FLOOR,
 	createCatalogLookup,
 	EMPTY_CATALOG_SNAPSHOT,
-	isRetryableOpenRouterFailure,
 	OPENROUTER_MODELS_URL,
 	type OpenRouterCatalogSnapshot,
-	type OpenRouterFetchFailure,
 	parseCatalogSnapshot,
 	slimCatalogPayload,
 } from "../shared/config/openRouterCatalog";
@@ -53,7 +53,10 @@ export interface OpenRouterCatalogStoreOptions {
 	readonly logger: Logger;
 	/** The opt-out setting, read at decision time so a toggle needs no rebuild. */
 	readonly isEnabled: () => boolean;
-	/** Injectable network seam; the default GETs OPENROUTER_MODELS_URL and returns the parsed JSON payload. */
+	/**
+	 * Injectable network seam; the default GETs OPENROUTER_MODELS_URL and returns the parsed JSON payload. A failure
+	 * retries only in the SDK's error vocabulary (see fetchOpenRouterCatalog); anything else is settled.
+	 */
 	readonly fetchCatalog?: (signal: AbortSignal) => Promise<unknown>;
 	readonly timer?: Timer;
 	readonly clock?: Clock;
@@ -90,35 +93,17 @@ export interface OpenRouterCatalogStatus {
 }
 
 /**
- * A refresh attempt failure the default fetch classified itself, carrying the reason both fetchers share
- * (src/shared/config/openRouterCatalog.ts); the log word and the retry verdict both derive from that reason, and
- * anything else a fetch throws reads as a network failure (refreshFailureReason).
+ * The fixed vocabulary the log line and the dashboard row carry, read off the SDK error shapes the fetch throws (the
+ * shapes discovery's retry rule judges): response-derived text never reaches either.
  */
-class RefreshFailure extends Error {
-	constructor(readonly reason: OpenRouterFetchFailure) {
-		super(renderRefreshFailure(reason));
+function classifyRefreshFailure(error: unknown): CatalogRefreshFailure {
+	if (error instanceof APIConnectionTimeoutError) {
+		return "timeout";
 	}
-}
-
-function refreshFailureReason(error: unknown): OpenRouterFetchFailure {
-	return error instanceof RefreshFailure ? error.reason : { kind: "network" };
-}
-
-/**
- * The fixed vocabulary the log line and the dashboard row carry: one word per reason kind plus the status number -
- * response-derived text never reaches either, and the phase of a timeout is the script's evidence, not ours.
- */
-function renderRefreshFailure(reason: OpenRouterFetchFailure): CatalogRefreshFailure {
-	switch (reason.kind) {
-		case "timeout":
-			return "timeout";
-		case "network":
-			return "network error";
-		case "http":
-			return `HTTP ${reason.status}`;
-		case "unparseable":
-			return "unparseable response";
+	if (error instanceof APIError && error.status !== undefined) {
+		return `HTTP ${error.status}`;
 	}
+	return error instanceof SyntaxError ? "unparseable response" : "network error";
 }
 
 /**
@@ -141,46 +126,41 @@ function readBody(response: Response, signal: AbortSignal): Promise<string> {
 }
 
 /**
- *   our own budget expiring -> throws `timeout` whichever phase it interrupts
- *   any other failure -> propagates for the store to read as `network error`
+ * One GET in the SDK's error vocabulary, so discovery's retry rule reads it unchanged (a 503 with `x-should-retry:
+ * false` is settled here too).
+ *   our own budget expiring, whichever phase it interrupts -> APIConnectionTimeoutError
+ *   a connect failure or a socket death mid-body            -> APIConnectionError
+ *   a non-2xx answer                                        -> APIError carrying the status and headers
+ *   a body that is not JSON                                 -> JSON.parse's SyntaxError
  */
 async function fetchOpenRouterCatalog(signal: AbortSignal): Promise<unknown> {
 	const budget = AbortSignal.timeout(REFRESH_FETCH_TIMEOUT_MS);
 	const attempt = AbortSignal.any([signal, budget]);
-	const classifyAbort = (error: unknown, phase: "headers" | "body"): unknown => {
+	const classifyAbort = (error: unknown): unknown => {
 		if (signal.aborted) {
 			return signal.reason;
 		}
-		return budget.aborted ? new RefreshFailure({ kind: "timeout", phase }) : error;
+		return budget.aborted
+			? new APIConnectionTimeoutError()
+			: new APIConnectionError({ cause: error instanceof Error ? error : undefined });
 	};
 	let response: Response;
 	try {
 		response = await globalThis.fetch(OPENROUTER_MODELS_URL, { signal: attempt });
 	} catch (error) {
-		throw classifyAbort(error, "headers");
+		throw classifyAbort(error);
 	}
 	if (!response.ok) {
-		throw new RefreshFailure({ kind: "http", status: response.status });
+		throw new APIError(response.status, undefined, undefined, response.headers);
 	}
 	let text: string;
 	try {
 		text = await readBody(response, attempt);
 	} catch (error) {
-		throw classifyAbort(error, "body");
+		throw classifyAbort(error);
 	}
-	try {
-		const payload: unknown = JSON.parse(text);
-		return payload;
-	} catch (error) {
-		if (error instanceof SyntaxError) {
-			throw new RefreshFailure({ kind: "unparseable" });
-		}
-		throw error;
-	}
-}
-
-function classifyRefreshFailure(error: unknown): CatalogRefreshFailure {
-	return renderRefreshFailure(refreshFailureReason(error));
+	const payload: unknown = JSON.parse(text);
+	return payload;
 }
 
 class Store implements OpenRouterCatalogStore {
@@ -196,7 +176,6 @@ class Store implements OpenRouterCatalogStore {
 	private current = EMPTY_CATALOG_SNAPSHOT;
 	private inner = createCatalogLookup(EMPTY_CATALOG_SNAPSHOT, { implicitLookup: true });
 	private readonly scheduled: PendingCall;
-	private pendingBackoff: { cancel: () => void; resolve: () => void } | undefined;
 	private inFlight: Promise<void> | undefined;
 	private disposed = false;
 	/** The last refresh failure, standing until the next success; see OpenRouterCatalogStatus. */
@@ -262,10 +241,6 @@ class Store implements OpenRouterCatalogStore {
 		this.disposed = true;
 		this.scheduled.cancel();
 		this.abort.abort();
-		// A backoff sleep must not strand an in-flight refresh promise.
-		this.pendingBackoff?.cancel();
-		this.pendingBackoff?.resolve();
-		this.pendingBackoff = undefined;
 		this.updateEmitter.dispose();
 	}
 
@@ -387,41 +362,19 @@ class Store implements OpenRouterCatalogStore {
 	}
 
 	/**
-	 * Idempotent GET, so it retries like discovery's model-listing calls (chat completions never do), under the retry
-	 * rule the fetch script shares (isRetryableOpenRouterFailure): a settled answer - a 200 with a non-JSON body, a
-	 * non-transient 4xx - gets one attempt, exactly as discovery's body parse sits outside the SDK's retry loop.
+	 * Idempotent GET, so it retries under discovery's pipeline (chat completions never retry): a settled answer - a
+	 * 200 with a non-JSON body, a non-transient 4xx - gets one attempt because the rule does not retry it, exactly as
+	 * for discovery's own body parse. Opting out mid-refresh turns the next attempt into a settled failure, which
+	 * runRefresh swallows; dispose() ends a backoff sleep through the signal.
 	 */
-	private async fetchWithRetries(): Promise<unknown> {
-		for (let attempt = 0; ; attempt += 1) {
-			try {
-				return await this.fetchCatalog(this.abort.signal);
-			} catch (error) {
-				// Opting out mid-refresh stops the remaining attempts, and dispose() resolves a pending backoff, so
-				// both are re-checked before every retry.
-				if (
-					this.disposed ||
-					!this.options.isEnabled() ||
-					attempt >= DISCOVERY_MAX_RETRIES ||
-					!isRetryableOpenRouterFailure(refreshFailureReason(error))
-				) {
-					throw error;
-				}
-				await this.backoff(1000 * 2 ** attempt);
-				if (this.disposed || !this.options.isEnabled()) {
-					throw error;
-				}
-			}
-		}
-	}
-
-	private backoff(ms: number): Promise<void> {
-		return new Promise((resolve) => {
-			const cancel = this.timer.set(() => {
-				this.pendingBackoff = undefined;
-				resolve();
-			}, ms);
-			this.pendingBackoff = { cancel, resolve };
-		});
+	private fetchWithRetries(): Promise<unknown> {
+		return retryIdempotent(
+			() =>
+				this.options.isEnabled()
+					? this.fetchCatalog(this.abort.signal)
+					: Promise.reject(new Error("OpenRouter catalog refresh opted out")),
+			{ maxRetries: DISCOVERY_MAX_RETRIES, signal: this.abort.signal }
+		);
 	}
 
 	private async persist(text: string): Promise<boolean> {
