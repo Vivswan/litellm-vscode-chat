@@ -14,7 +14,7 @@ if [ ! -d node_modules ]; then
 	exit 1
 fi
 
-# check:static reads the working tree, not the index; about twenty seconds.
+# check:static reads the working tree, not the index; about half a minute.
 if ! bun run check:static; then
 	echo "pre-commit: refused; nothing was written. Fix what the failing check reported above (when a command exists it is named: bun run format, bun run manifest:generate, bun run docs:settings, bun run l10n:extract; otherwise edit the reported source or translation and rerun bun run check:static), stage, and commit again."
 	exit 1

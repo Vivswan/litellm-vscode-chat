@@ -2147,7 +2147,7 @@
 	"scripts": {
 		"prepare": "husky",
 		"check": "bun run check:static && bun run test",
-		"check:static": "bun scripts/ci/check-vscode-types.ts && bun scripts/ci/check-output-channel-writes.ts && bun scripts/ci/check-user-text-readers.ts && bun scripts/ci/check-repo-root-marker.ts && bun run lint && bun run typecheck && bun run l10n:check && bun run manifest:check && bun run docs:settings:check",
+		"check:static": "bun scripts/ci/check-vscode-types.ts && bun scripts/ci/check-user-text-readers.ts && bun run lint && bun run typecheck && bun run l10n:check && bun run manifest:check && bun run docs:settings:check",
 		"vscode:prepublish": "tsc -p tsconfig.prod.json && bun scripts/dev/fetch-openrouter-catalog.ts && bun run bundle",
 		"compile": "bun -e \"require('node:fs').rmSync('out',{recursive:true,force:true,maxRetries:5,retryDelay:100})\" && tsc -p ./",
 		"bundle": "bun scripts/dev/bundle.mts --production && bun scripts/dev/generate-third-party-notices.ts",
@@ -2163,8 +2163,7 @@
 		"docs:settings": "bun scripts/docs/generate-settings-reference.ts",
 		"docs:settings:check": "bun scripts/docs/generate-settings-reference.ts --check",
 		"lint:knip": "knip",
-		"lint:types": "eslint src scripts",
-		"lint": "biome check --max-diagnostics=none .",
+		"lint": "biome check --max-diagnostics=none . && eslint src scripts",
 		"format": "biome check --write --max-diagnostics=none .",
 		"watch": "tsc -watch -p ./",
 		"docker:up": "bun scripts/stack/compose.ts up -d --wait",

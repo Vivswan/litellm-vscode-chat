@@ -40,14 +40,11 @@ jobs:
       - name: Set up development environment
         run: bun scripts/env/setup-env.ts
 
-      - name: Check formatting and lint
-        run: bunx biome ci --max-diagnostics=none .
+      - name: Lint (Biome, then ESLint for the type-aware promise rules and the restricted-API rules)
+        run: bun run lint
 
       - name: Type-check helper scripts
         run: bunx tsc --noEmit -p tsconfig.scripts.json
-
-      - name: Type-aware promise linting
-        run: bun run lint:types
 
       - name: Check the localization catalogs
         run: bun run l10n:check
@@ -64,17 +61,9 @@ jobs:
         # The same script .husky/pre-commit runs, so a local green predicts this gate.
         run: bun scripts/ci/check-vscode-types.ts
 
-      - name: Output-channel writes outside the Logger must not exist
-        # The same script .husky/pre-commit runs through check:static, so a local green predicts this gate.
-        run: bun scripts/ci/check-output-channel-writes.ts
-
       - name: Settings readers must not trim or number user text themselves
         # The same script .husky/pre-commit runs through check:static, so a local green predicts this gate.
         run: bun scripts/ci/check-user-text-readers.ts
-
-      - name: Test suites derive repository paths only through the REPO_ROOT marker
-        # The same script .husky/pre-commit runs through check:static, so a local green predicts this gate.
-        run: bun scripts/ci/check-repo-root-marker.ts
 
       # The OpenRouter catalog arrives from the openrouter-catalog job of the
       # caller (the run's one live fetch, validated there) rather than from a

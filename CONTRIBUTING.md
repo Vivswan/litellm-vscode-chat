@@ -45,7 +45,7 @@ bun run setup-env
 From the project directory:
 
 ```bash
-bun run lint         # Biome formatting, lint, and import-order check (bun run format applies the fixes)
+bun run lint         # Biome formatting, lint, and import-order check, then ESLint (bun run format applies Biome fixes)
 bun run compile      # compile TypeScript
 bun run typecheck    # type-check all four tsconfig projects (compile builds only the root one)
 bun run test         # run the VS Code extension tests
