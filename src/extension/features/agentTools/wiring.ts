@@ -23,6 +23,7 @@ import type { IssueReporter } from "../../ui/issueReporter";
 import type { ConnectionStatus } from "../../ui/status";
 import { statusServerStatuses } from "../../ui/status";
 import { featureDisabledMessage, featureDisabledMessageEnglish } from "../featureGate";
+import { preparedInvocation, toolResult } from "../modelFacingExit";
 import type { AgentToolInput } from "./inputSchema";
 import { parseAgentToolInput } from "./inputSchema";
 import type { AgentRequest, SecretPrompt, ToolPlan } from "./planner";
@@ -165,15 +166,9 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	 */
 	prepareInvocation(options: vscode.LanguageModelToolInvocationPrepareOptions<unknown>): vscode.PreparedToolInvocation {
 		if (this.contribution.toggle === undefined) {
-			return { invocationMessage: l10n.t("Reading LiteLLM {0}...", this.id) };
+			return preparedInvocation(l10n.t("Reading LiteLLM {0}...", this.id));
 		}
-		const card = this.confirmationCard(options.input);
-		return card === undefined
-			? { invocationMessage: l10n.t("LiteLLM: {0}", this.id) }
-			: {
-					invocationMessage: l10n.t("LiteLLM: {0}", this.id),
-					confirmationMessages: { title: card.title, message: new vscode.MarkdownString(card.message) },
-				};
+		return preparedInvocation(l10n.t("LiteLLM: {0}", this.id), this.confirmationCard(options.input));
 	}
 
 	private confirmationCard(raw: unknown): ConfirmationCard | undefined {
@@ -336,7 +331,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 		}
 		try {
 			const payload = await this.run(options.input, token);
-			return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(renderJson(payload))]);
+			return toolResult(renderJson(payload));
 		} catch (error) {
 			if (error instanceof vscode.CancellationError) {
 				throw error;
