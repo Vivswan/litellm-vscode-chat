@@ -522,7 +522,9 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(statusLogSafeError(unclassified), "unclassified", "the log rendering carries no thrown text");
 			assert.strictEqual(transportClassificationOf(unclassified), undefined);
 			assert.strictEqual(
-				statusLogSafeError(expectRequestError(mapSdkError(notFound, { surface: "chat", baseUrl: base, timeoutMs: 5000 }), "http")),
+				statusLogSafeError(
+					expectRequestError(mapSdkError(notFound, { surface: "chat", baseUrl: base, timeoutMs: 5000 }), "http")
+				),
 				"RequestError(http, status 404, chat)"
 			);
 		});
@@ -1020,8 +1022,52 @@ suite("provider/transport/errorMapping", () => {
 			const key = `sk-live-${"A".repeat(32)}`;
 			Logger.registerSecrets([key]);
 			const err = streamErrorFrame({ message: `${"x".repeat(275)}${key}` });
-			assert.ok(err.message.endsWith(`\n\nDetails: LiteLLM stream error: ${"x".repeat(275)}sk-liv...`), err.message);
-			assert.ok(!err.message.includes("sk-live-A"), `the head of the key leaked: ${err.message}`);
+			const expected =
+				"The server reported an error while it was streaming this reply, so the response was interrupted. This is often temporary - trying again may work; if it repeats, the detail below shows what the server said." +
+				`\n\nDetails: LiteLLM stream error: ${"x".repeat(275)}sk-liv...`;
+			assert.deepStrictEqual(
+				{ message: err.message, english: err.englishMessage },
+				{ message: expected, english: expected }
+			);
+		});
+
+		test("a cause-chain message masks where it is read, before the punctuation strip and the collapse", () => {
+			// 'key-zq7w.' with 'key-zq7w' registered: the detail line strips the trailing period, which would otherwise
+			// leave 'key-zq7w' unmatched; masked at the chain reader, the strip works on the marker.
+			Logger.registerSecrets(["key-zq7w", "two\nlines-zq7w"]);
+			const stripped = mapSdkError(connectionError(new Error("key-zq7w.")), chatCtx);
+			assert.ok(stripped.message.endsWith("\n\nDetails: [redacted]"), stripped.message);
+			const collapsed = mapSdkError(connectionError(new Error("rejected two\nlines-zq7w")), chatCtx);
+			assert.ok(collapsed.message.endsWith("\n\nDetails: rejected [redacted]"), collapsed.message);
+		});
+
+		test("masking is idempotent across the doors: a value inside a marker is no match, so no exit writes [[redacted]]", () => {
+			// "acted]" stands in for a registered word that is also inside the marker (the fixture avoids registering
+			// "redacted" itself, which would blank the word across every later test).
+			Logger.registerSecrets(["acted]"]);
+			const err = streamErrorFrame({ message: "Denied acted]" });
+			assert.ok(err.message.endsWith("\n\nDetails: LiteLLM stream error: Denied [redacted]"), err.message);
+			assert.ok(
+				err.englishMessage?.endsWith("\n\nDetails: LiteLLM stream error: Denied [redacted]"),
+				err.englishMessage ?? "no English mirror"
+			);
+			assert.strictEqual(
+				thrownErrorDisplayText(new MirroredError("Denied acted]", { englishMessage: "Denied acted]" })),
+				"Denied [redacted]"
+			);
+		});
+
+		test("thrownErrorDisplayText renders a raw throw through the door whole, and a MirroredError's text as built", () => {
+			const key = `sk-live-${"A".repeat(32)}`;
+			Logger.registerSecrets([key]);
+			assert.deepStrictEqual(
+				[
+					thrownErrorDisplayText(new Error(`failed for ${key} at http://bob:pw@hub.test/v1`)),
+					thrownErrorDisplayText(`failed for ${key}`),
+					thrownErrorDisplayText(new MirroredError(`failed for ${key}`, { englishMessage: `failed for ${key}` })),
+				],
+				["failed for sk-liv... at http://[redacted]@hub.test/v1", "failed for sk-liv...", "failed for sk-liv..."]
+			);
 		});
 
 		test("a message-less stream error frame still surfaces its type and code", () => {

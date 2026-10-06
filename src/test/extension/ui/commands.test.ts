@@ -1320,6 +1320,63 @@ suite("extension/ui/commands", () => {
 				}
 			});
 
+			test("a failing Open Existing Issues or Report Anyway toasts the thrown text through the door", async () => {
+				const key = `sk-live-${"A".repeat(32)}`;
+				Logger.registerSecrets([key]);
+				const storage = makeExtensionStorage();
+				const openedIssueUrls: string[] = [];
+				// The first report opens and is remembered; the second attempt's opener is down.
+				const reporter = new IssueReporter(
+					{
+						writeClipboard: async () => {},
+						openExternal: async (url) => {
+							if (openedIssueUrls.length > 0) {
+								throw new Error(`opener down for ${key} at http://bob:pw@hub.test`);
+							}
+							openedIssueUrls.push(url);
+						},
+					},
+					() => []
+				);
+				const errorToasts: string[] = [];
+				const origError = vscode.window.showErrorMessage;
+				(vscode.window as Record<string, unknown>).showErrorMessage = async (message: string) => {
+					errorToasts.push(message);
+					return undefined;
+				};
+				try {
+					const first = mockHint(undefined);
+					try {
+						await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
+					} finally {
+						first.restore();
+					}
+					const anyway = mockHint("Report Anyway");
+					try {
+						await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
+						await waitFor(() => errorToasts.length === 1, "the failing report to toast");
+					} finally {
+						anyway.restore();
+					}
+					const existing = mockHint("Open Existing Issues");
+					(vscode.commands as Record<string, unknown>).executeCommand = async () => {
+						throw new Error(`no opener for ${key}`);
+					};
+					try {
+						await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
+						await waitFor(() => errorToasts.length === 2, "the failing issues list to toast");
+					} finally {
+						existing.restore();
+					}
+				} finally {
+					(vscode.window as Record<string, unknown>).showErrorMessage = origError;
+				}
+				assert.deepStrictEqual(errorToasts, [
+					"LiteLLM: Could not open the issue report - opener down for sk-liv... at http://[redacted]@hub.test",
+					"LiteLLM: Could not open the issues list - no opener for sk-liv...",
+				]);
+			});
+
 			test("Report Anyway opens the issue and refreshes the stored fingerprint", async () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];

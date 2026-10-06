@@ -10,6 +10,7 @@ import type { DashboardState } from "../../../../../dashboard/viewModels";
 import type { AgentRequest } from "../../../../../extension/features/agentTools/planner";
 import {
 	CREDENTIAL_HEADER_PLACEHOLDER,
+	describeAction,
 	describeAdoption,
 	describeRecordChange,
 	describeServerChange,
@@ -20,7 +21,7 @@ import {
 	shapeSubmission,
 } from "../../../../../extension/features/agentTools/render";
 import type { DiagnosticsSnapshot } from "../../../../../extension/ui/issueReporter";
-import { markLogSafe } from "../../../../../shared/logger";
+import { Logger, markLogSafe } from "../../../../../shared/logger";
 import type { ServerStatus } from "../../../../../shared/servers";
 import { REPO_ROOT } from "../../../../util/repoRoot";
 import { makeDeclaredServer, makeExternalServer, makeState } from "../../../webview/fixtures";
@@ -34,6 +35,17 @@ const NO_SECRETS = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue:
 const BODY_MARKER = "bearer-marker-9f8e7d";
 
 describe("agentTools render", () => {
+	test("renderJson and a fenced card body pass the output door whole: a registered value and a URL's userinfo mask", () => {
+		const key = `sk-live-${"A".repeat(32)}`;
+		Logger.registerSecrets([key]);
+		expect(renderJson({ key, url: "http://bob:pw@hub.test/v1" })).toBe(
+			'{\n  "key": "sk-liv...",\n  "url": "http://[redacted]@hub.test/v1"\n}'
+		);
+		expect(describeAction("remove", `Prod at http://bob:pw@hub.test with ${key}`)).toBe(
+			"```\nremove: Prod at http://[redacted]@hub.test with sk-liv...\n```"
+		);
+	});
+
 	// The rows carry a failure as a cause key and no text; the agent reads the English rendering beside the key, so the
 	// result can never carry a response body (and nothing is left to redact).
 	test("a server row in error comes out of shapeConfiguration with its cause rendered in English beside the key", () => {

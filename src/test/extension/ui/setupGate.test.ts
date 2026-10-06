@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { detectSetupProblem, showSetupProblemGate } from "../../../extension/ui/setupGate";
 import type { ConnectionStatus } from "../../../extension/ui/status";
 import { SETUP_HINT_KINDS } from "../../../shared/errorClassification";
-import { markLogSafe } from "../../../shared/logger";
+import { Logger, markLogSafe } from "../../../shared/logger";
 import type { ServerStatus } from "../../../shared/servers";
 import { makeServerStatus } from "../../testUtils";
 
@@ -148,10 +148,15 @@ suite("extension/ui/setupGate", () => {
 			return Promise.resolve(undefined);
 		};
 		try {
-			await showSetupProblemGate("check-base-url", () => Promise.reject(new Error("clipboard unavailable")));
-			assert.strictEqual(errorToasts.length, 1);
-			assert.ok(errorToasts[0]?.includes("Could not open the issue report"), `got: ${errorToasts[0]}`);
-			assert.ok(errorToasts[0]?.includes("clipboard unavailable"), `got: ${errorToasts[0]}`);
+			const key = `sk-live-${"A".repeat(32)}`;
+			Logger.registerSecrets([key]);
+			await showSetupProblemGate("check-base-url", () =>
+				Promise.reject(new Error(`clipboard unavailable for ${key} at http://bob:pw@hub.test`))
+			);
+			// The detail is the thrown message through the output door, whole.
+			assert.deepStrictEqual(errorToasts, [
+				"LiteLLM: Could not open the issue report - clipboard unavailable for sk-liv... at http://[redacted]@hub.test",
+			]);
 		} finally {
 			(vscode.window as { showWarningMessage: unknown }).showWarningMessage = origWarn;
 			(vscode.window as { showErrorMessage: unknown }).showErrorMessage = origError;

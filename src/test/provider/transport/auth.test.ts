@@ -240,8 +240,13 @@ suite("provider/transport/auth", () => {
 				"auth"
 			);
 
-			assert.ok(error.message.includes(`invalid_client: ${"x".repeat(175)}sk-liv...`), error.message);
-			assert.ok(!error.message.includes("sk-live-A"), `the head of the secret leaked: ${error.message}`);
+			const expected =
+				"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry." +
+				`\nOAuth 401 at ${TOKEN_URL}: invalid_client: ${"x".repeat(175)}sk-liv...`;
+			assert.deepStrictEqual(
+				{ message: error.message, english: error.englishMessage },
+				{ message: expected, english: expected }
+			);
 		});
 
 		test("a public client's grant omits the client_secret field entirely", async () => {

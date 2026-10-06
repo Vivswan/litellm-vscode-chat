@@ -3,7 +3,7 @@ import * as assert from "node:assert";
 import { safeCut, secretSpans } from "../../../../shared/util/secretMask";
 
 describe("shared/util/secretMask", () => {
-	test("secretSpans finds every spelling on the original text, merges overlaps, and keeps a value only when one occurrence stands alone", () => {
+	test("secretSpans finds every spelling on the original text, merges overlaps, and keeps a value only for a lone raw occurrence", () => {
 		assert.deepStrictEqual(
 			[
 				secretSpans("abc123xyz", ["abc123", "123xyz"]),
@@ -14,7 +14,7 @@ describe("shared/util/secretMask", () => {
 			],
 			[
 				[{ from: 0, to: 9, value: undefined }],
-				[{ from: 23, to: 34, value: "pa ss/1" }],
+				[{ from: 23, to: 34, value: undefined }],
 				[{ from: 4, to: 13, value: undefined }],
 				[{ from: 11, to: 24, value: undefined }],
 				[{ from: 17, to: 21, value: "abcd" }],
@@ -28,7 +28,7 @@ describe("shared/util/secretMask", () => {
 		const value = "abc\uD800def";
 		assert.deepStrictEqual(secretSpans(`raw ${value} form abc%EF%BF%BDdef`, [value]), [
 			{ from: 4, to: 11, value },
-			{ from: 17, to: 32, value },
+			{ from: 17, to: 32, value: undefined },
 		]);
 	});
 
@@ -53,8 +53,11 @@ describe("shared/util/secretMask", () => {
 				safeCut("abc secret-Q7 def", 4, ["secret-Q7"]),
 				safeCut("abc secret-Q7 def", 3, ["secret-Q7"]),
 				safeCut("GET http://alice:pw@host/", 14, []),
+				// Exactly before the "@": the kept prefix would hold "alice:pw" with no "@" for the mask to read.
+				safeCut("GET http://alice:pw@host/", 19, []),
+				safeCut("abc secret-Q7 def", 13, ["secret-Q7"]),
 			],
-			[4, 4, 3, 11]
+			[4, 4, 3, 11, 11, 4]
 		);
 	});
 });

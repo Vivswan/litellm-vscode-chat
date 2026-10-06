@@ -264,16 +264,19 @@ function timeoutError(url: string, budget: TimeoutBudget, cause?: unknown): Requ
 	}
 }
 
-/** Never the raw body: it is untrusted and can be huge. Masked before the cap, so a cut never falls inside a value. */
+/**
+ * Never the raw body: it is untrusted and can be huge. The IdP's fields enter the extension here, so each is masked
+ * as it is read, again after the collapse (which can respell a value), and only then capped.
+ */
 function oauthErrorDetail(payload: string): string {
 	try {
 		const parsed: unknown = JSON.parse(payload);
 		if (isRecord(parsed)) {
-			const parts = [parsed.error, parsed.error_description].filter(
-				(part): part is string => typeof part === "string" && part.length > 0
-			);
+			const parts = [parsed.error, parsed.error_description]
+				.filter((part): part is string => typeof part === "string" && part.length > 0)
+				.map((part) => Logger.redact(part));
 			if (parts.length > 0) {
-				return collapseWhitespace(Logger.redact(parts.join(": "))).slice(0, 200);
+				return Logger.redact(collapseWhitespace(parts.join(": "))).slice(0, 200);
 			}
 		}
 	} catch {

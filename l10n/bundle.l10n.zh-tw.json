@@ -1493,14 +1493,6 @@
 	"{0}: {1} of {2} ({3})": "{0}: {1} / {2} ({3})",
 	"{0}: {1} of {2} ({3}) - key reports {4}": "{0}: {1} / {2} ({3}) - 金鑰回報 {4}",
 	"{0}: {1} spent, no budget": "{0}: 已花費 {1}, 無預算",
-	"legacy": "遺留",
-	"Left behind by the entry \"{0}\", whose configuration no longer matches it. Its models stay in the picker until its object is deleted from the models file or in Manage Language Models.": "由項目「{0}」遺留, 其設定已與此群組不符。在從模型檔案或「管理語言模型」中刪除其物件之前, 它的模型會一直留在選擇器中。",
-	"This row no longer matches an adoptable server - it may have just been declared or removed.": "該列不再符合可收編的伺服器 - 它可能剛被宣告或移除。",
-	"Removed {0} from the servers setting. Another entry still declares the same provider group, so it keeps serving; there is nothing to delete.": "已從 servers 設定中移除 {0}。另一個項目仍宣告同一個提供者群組, 因此該群組繼續提供服務; 無需刪除任何內容。",
-	"Removed {0} from the servers setting. VS Code has not reported its provider group this session, so its models may still appear; delete it in Manage Language Models, or remove its object from the models file and reload the window.": "已從 servers 設定中移除 {0}。VS Code 在本次工作階段中尚未回報它的提供者群組, 因此它的模型可能仍會出現; 請在「管理語言模型」中刪除它, 或從模型檔案中移除它的物件後重新載入視窗。",
-	"Removed {0} from the servers setting. VS Code has not reported their provider groups this session, so their models may still appear; delete them in Manage Language Models, or remove their objects from the models file and reload the window.": "已從 servers 設定中移除 {0}。VS Code 在本次工作階段中尚未回報它們的提供者群組, 因此它們的模型可能仍會出現; 請在「管理語言模型」中刪除它們, 或從模型檔案中移除它們的物件後重新載入視窗。",
-	"Removed {0} from the servers setting; its models are hidden for this session only, because the hide cannot be kept across restarts. VS Code still keeps a provider group named {0}: delete it in Manage Language Models, or remove its object from the models file and reload the window.": "已從伺服器設定中移除 {0}; 它的模型僅在本次工作階段中隱藏, 因為該隱藏無法在重新啟動後保留。VS Code 仍保留著名為 {0} 的提供者群組: 在「管理語言模型」中刪除它, 或從模型檔案刪除它的物件後重新載入視窗。",
-	"Removed {0} from the servers setting; their models are hidden for this session only, because the hides cannot be kept across restarts. VS Code still keeps a provider group for each: delete them in Manage Language Models, or remove their objects from the models file and reload the window.": "已從伺服器設定中移除 {0}; 它們的模型僅在本次工作階段中隱藏, 因為這些隱藏無法在重新啟動後保留。VS Code 仍為每一個保留著提供者群組: 在「管理語言模型」中刪除它們, 或從模型檔案刪除它們的物件後重新載入視窗。",
 	"Virtual key": "虛擬金鑰",
 	"A provider group already appears under this label; if it is this server, adopt it from its row instead - VS Code refuses a second group with one name.": "此標籤下似乎已有一個提供者群組; 如果就是這台伺服器, 請改為從其所在列採用它 - VS Code 不接受兩個同名的群組。"
 }

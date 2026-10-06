@@ -328,8 +328,7 @@ function redactUrlCredentials(text: string): string {
 /**
  * The identity form of one CONFIGURED URL (a provider-group key). A URL without userinfo passes through byte-identical;
  * tabs and newlines go first, since the parser ignores them wherever they sit. A value the parser refuses that holds
- * an "@" anywhere fails closed: only what follows its last "@" is kept. Free text (an issue-report line) takes
- * redactUrlCredentials instead, where an "@" is prose until the parser reads a URL around it.
+ * an "@" anywhere fails closed: only what follows its last "@" is kept.
  *   "http://user:pass@host:bad"  -> "host:bad"
  *   "//user:pass@"               -> "[unparseable URL]"
  */

@@ -341,6 +341,43 @@ suite("IssueReporter", () => {
 		);
 	});
 
+	test("the whole title and body equal those of a snapshot masked by hand", () => {
+		// Every field passes the door once over the whole snapshot: the report of the raw snapshot is byte for byte the
+		// report of the snapshot with each value replaced by hand, so no field and no section is left out of the mask.
+		const key = `sk-live-${"A".repeat(32)}`;
+		Logger.registerSecrets([key]);
+		const raw = makeSnapshot({
+			latestError: {
+				source: `Failed at http://user:pass@localhost:4000 for ${key}`,
+				message: `connect ECONNREFUSED http://user:pass@localhost:4000 for key ${key}`,
+				stack: `Error: for key ${key}\n    at real (x.ts:1:1)`,
+				timestamp: "2026-01-01T00:00:00.000Z",
+			},
+			recentLogs: [`[T] GET http://user:pa%20ss@localhost/ sent ${key}`, "[T] GET https://proxy.host.test/v1"],
+		});
+		const masked = makeSnapshot({
+			latestError: {
+				source: "Failed at http://[redacted]@localhost:4000 for sk-liv...",
+				message: "connect ECONNREFUSED http://[redacted]@localhost:4000 for key sk-liv...",
+				stack: "Error: for key sk-liv...\n    at real (x.ts:1:1)",
+				timestamp: "2026-01-01T00:00:00.000Z",
+			},
+			recentLogs: ["[T] GET http://[redacted]@localhost/ sent sk-liv...", "[T] GET https://proxy.host.test/v1"],
+		});
+		const reporter = new IssueReporter();
+		const rendered = {
+			title: reporter.buildTitle(raw),
+			body: reporter.buildBody(raw),
+			url: getIssueBody(reporter.buildIssueUrl(raw)),
+		};
+		assert.deepStrictEqual(rendered, {
+			title: reporter.buildTitle(masked),
+			body: reporter.buildBody(masked),
+			url: getIssueBody(reporter.buildIssueUrl(masked)),
+		});
+		assert.ok(rendered.body.includes("sk-liv..."), "the masked snapshot's own rendering carries the marker");
+	});
+
 	test("the Classification line survives into the clipboard fallback body", () => {
 		const reporter = new IssueReporter();
 		const url = reporter.buildIssueUrl(

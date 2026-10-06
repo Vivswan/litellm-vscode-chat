@@ -111,7 +111,9 @@ export const PROBE_QUESTION = "Reply with one short sentence confirming that you
 export function createConsultProbe(send: ConsultSend): (model: FeatureModelRef) => Promise<string | undefined> {
 	return (model) =>
 		withProbeToken(async (token) => {
-			const shaped = shapeConsultResult(await send({ modelRef: model, input: { question: PROBE_QUESTION }, token }));
+			const shaped = shapeConsultResult(
+				Logger.redact(await send({ modelRef: model, input: { question: PROBE_QUESTION }, token }))
+			);
 			return shaped.value === EMPTY_REPLY_TEXT ? "" : shaped.value;
 		});
 }
@@ -139,8 +141,9 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 	prepareInvocation(): vscode.PreparedToolInvocation {
 		const ref = getFeatureModelRef("consultTool");
 		return {
-			invocationMessage:
-				ref === undefined ? l10n.t("Consulting another model...") : l10n.t('Consulting "{0}"...', ref.model),
+			invocationMessage: Logger.redact(
+				ref === undefined ? l10n.t("Consulting another model...") : l10n.t('Consulting "{0}"...', ref.model)
+			),
 		};
 	}
 
@@ -177,7 +180,8 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 		}
 		let reply: string;
 		try {
-			reply = await this.send({ modelRef: ref, input, token });
+			// The model's reply enters the extension here: masked as received, before the trim and the budget cut.
+			reply = Logger.redact(await this.send({ modelRef: ref, input, token }));
 		} catch (error) {
 			if (error instanceof vscode.CancellationError) {
 				// User cancellation: never logged, and the host owns the surfacing.

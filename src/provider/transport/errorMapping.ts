@@ -126,8 +126,8 @@ export interface MapErrorContext {
  * unclassified too.
  */
 export function statusLogSafeError(reason: unknown): LogSafeErrorText {
-	const logSafe = publicErrorText(reason);
-	return logSafe.length > 0 ? logSafe : markLogSafe("unclassified");
+	const logSafe = Logger.redact(publicErrorText(reason));
+	return markLogSafe(logSafe.length > 0 ? logSafe : "unclassified");
 }
 
 /**
@@ -229,6 +229,10 @@ interface ChainLink {
 	code?: string | undefined;
 }
 
+/**
+ * The cause chain's texts enter the extension here (Node, undici, and the SDK quote URLs, hosts, and bodies in them),
+ * so each is masked as it is read, before anything downstream strips, collapses, or caps it.
+ */
 function causeChain(err: unknown): ChainLink[] {
 	const chain: ChainLink[] = [];
 	let current: unknown = err;
@@ -238,8 +242,8 @@ function causeChain(err: unknown): ChainLink[] {
 			const rawCode = (current as Error & { code?: unknown }).code;
 			link = {
 				name: typeof current.name === "string" ? current.name : "Error",
-				message: typeof current.message === "string" ? current.message : "",
-				code: typeof rawCode === "string" ? rawCode : undefined,
+				message: typeof current.message === "string" ? Logger.redact(current.message) : "",
+				code: typeof rawCode === "string" ? Logger.redact(rawCode) : undefined,
 			};
 		} catch {
 			link = { name: "Error", message: "" };
@@ -272,7 +276,7 @@ function linkText(link: ChainLink | undefined): string {
 
 /** Compacted so a multi-line cause cannot break the two-line message shape. */
 function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
-	const fallback = typeof fallbackMessage === "string" ? fallbackMessage : "";
+	const fallback = typeof fallbackMessage === "string" ? Logger.redact(fallbackMessage) : "";
 	const first = chain.length > 0 ? linkText(chain[0]) : fallback;
 	const deepest = linkText(chain.at(-1));
 	const head = first.replace(/\.$/, "");
@@ -280,9 +284,13 @@ function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
 	return compactText(joined, 300);
 }
 
-/** Masked before the cap: a value astride the cut would otherwise leave its head in the detail. */
+/**
+ * Masked before the cap, so a value astride the cut cannot leave its head in the detail; masked again after the
+ * collapse, which can respell a value the server echoed with other whitespace. Both passes are no-ops on text the
+ * readers above already masked.
+ */
 function compactText(text: string, cap: number): string {
-	const collapsed = collapseWhitespace(Logger.redact(text));
+	const collapsed = Logger.redact(collapseWhitespace(Logger.redact(text)));
 	return collapsed.length > cap ? `${collapsed.slice(0, cap)}...` : collapsed;
 }
 
@@ -306,13 +314,14 @@ interface ErrorEnvelope {
 	marks: string;
 }
 
+/** The server's envelope fields enter the extension here, so each rendered one is masked as it is read. */
 function errorEnvelopeOf(raw: unknown): ErrorEnvelope | undefined {
 	if (typeof raw !== "object" || raw === null) {
 		return undefined;
 	}
 	const { message, type, code } = raw as { message?: unknown; type?: unknown; code?: unknown };
 	const envelope: ErrorEnvelope = {
-		message: typeof message === "string" && message.trim() !== "" ? message : undefined,
+		message: typeof message === "string" && message.trim() !== "" ? Logger.redact(message) : undefined,
 		type: meaningfulString(type),
 		code: typeof code === "number" ? String(code) : meaningfulString(code),
 		marks: `${typeof type === "string" ? type : ""} ${typeof code === "string" || typeof code === "number" ? code : ""}`,
@@ -330,7 +339,9 @@ function errorEnvelopeOf(raw: unknown): ErrorEnvelope | undefined {
  */
 function recoveredSdkText(status: number, err: APIError, cap: number): string {
 	const prefix = `${status} `;
-	const text = err.message.startsWith(prefix) ? err.message.slice(prefix.length) : err.message;
+	// The SDK's message enters here: masked as read, before the prefix strip.
+	const message = Logger.redact(err.message);
+	const text = message.startsWith(prefix) ? message.slice(prefix.length) : message;
 	return compactText(text, cap);
 }
 

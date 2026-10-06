@@ -448,7 +448,7 @@ describe("shared/logger", () => {
 			{
 				count: 50,
 				first: "[T] line 11",
-				last: "[T] ERROR: failed: boom",
+				last: "[T] ERROR: failed: unclassified",
 				channelLast: ["failed: boom", "Stack trace: Error: boom\n    at real (x.ts:1:1)"],
 			}
 		);
@@ -488,7 +488,7 @@ describe("shared/logger", () => {
 				replayedSame: replayedStacks[0]?.[1] === stackLines[0],
 			},
 			{
-				report: ["[T] ERROR: failed: boom"],
+				report: ["[T] ERROR: failed: unclassified"],
 				written: 1,
 				cut: 262_144 + ` [${(err.stack?.length ?? 0) + "Stack trace: ".length - 262_144} more characters cut]`.length,
 				marker: ` [${(err.stack?.length ?? 0) + "Stack trace: ".length - 262_144} more characters cut]`,
@@ -500,7 +500,7 @@ describe("shared/logger", () => {
 		for (let i = 150; i < 400; i++) {
 			logger.advisory(`serve pass ${i}`);
 		}
-		assert.deepStrictEqual(logger.reportLines().map(stamp), ["[T] ERROR: failed: boom"]);
+		assert.deepStrictEqual(logger.reportLines().map(stamp), ["[T] ERROR: failed: unclassified"]);
 	});
 });
 
@@ -586,10 +586,37 @@ describe("shared/logger redact: the one output door", () => {
 				values: [],
 				expected: "GET http://[redacted]@hub.test/ and https://host.test?email=admin@example.com#x@y",
 			},
+			{
+				title: "a double quote ends a userinfo run: a serialized URL and a later field's address are two strings",
+				text: 'after: {"webhook":"https://host.test","owner":"admin@example.com"}',
+				values: [],
+				expected: 'after: {"webhook":"https://host.test","owner":"admin@example.com"}',
+			},
+			{
+				title: "the reveal shows raw characters only where the raw spelling stands: an escaped spelling masks whole",
+				text: '{"k":"ab\\"cdefghijklmnopqrstuvwxyz"} and ab"cdefghijklmnopqrstuvwxyz',
+				values: ['ab"cdefghijklmnopqrstuvwxyz'],
+				expected: '{"k":"[redacted]"} and ab"cde...',
+			},
+			{
+				title:
+					"percent-escape case folds in the encoded spellings only; a raw value with a percent sign matches literally",
+				text: "raw key%ABcd-zq7 goes, key%abcd-zq7 stays, pa%20ss%2f1 goes",
+				values: ["key%ABcd-zq7", "pa ss/1"],
+				expected: "raw [redacted] goes, key%abcd-zq7 stays, [redacted] goes",
+			},
+			{
+				title: "a value inside an existing marker is no match, so no exit can write [[redacted]]",
+				text: "value acted] here, marker [redacted] here",
+				values: ["acted]"],
+				expected: "value [redacted] here, marker [redacted] here",
+			},
 		];
 		for (const { title, text, values, expected } of rows) {
 			Logger.registerSecrets(values);
-			assert.strictEqual(Logger.redact(text), expected, title);
+			const masked = Logger.redact(text);
+			assert.strictEqual(masked, expected, title);
+			assert.strictEqual(Logger.redact(masked), masked, `idempotent: ${title}`);
 		}
 	});
 
@@ -615,6 +642,14 @@ describe("shared/logger redact: the one output door", () => {
 });
 
 describe("shared/logger channel history bounds", () => {
+	test("the masked channel rendering masks before the bound: a 300000-character value shows as its marker, not a cut", () => {
+		// Cut first, safeCut would move the cut to the span's start and the channel would show the cut marker alone.
+		const sinks = makeSinks();
+		const logger = loggerWith(["aaaa"], () => true, sinks, undefined);
+		logger.advisory("a".repeat(300_000));
+		assert.deepStrictEqual(sinks.infoLines, ["[redacted]"]);
+	});
+
 	test("an oversized line is cut before a value astride the bound, so a flip cannot replay a prefix of it", () => {
 		// Written with redaction OFF, replayed after turning it ON: the raw prefix kept in the history holds whole
 		// values or none, so the mask of the moment applies to it as to any line.

@@ -1,6 +1,6 @@
 import type { TransportErrorClassification } from "./errorClassification";
 import { transportClassificationOf } from "./errorClassification";
-import { safeCut, secretSpans } from "./util/secretMask";
+import { REDACTED_MARKER, safeCut, secretSpans } from "./util/secretMask";
 
 /**
  * Leveled sink, structurally satisfied by vscode.LogOutputChannel. The host adds timestamps and level tags to channel
@@ -183,9 +183,10 @@ function logDataText(data: unknown): string {
  * What replay restores after a logs.redactSecrets flip: the channel's own history, held raw. The line and character
  * bounds evict channel-only entries (advisory lines, stack prints), oldest first, so a run of stack prints cannot pin
  * hundreds of megabytes in the extension host; a single line past CHANNEL_LINE_CHARS is cut at write, with a marker,
- * since neither the channel nor the replay can use it whole. The cut never splits a value the door would replace
+ * since neither the channel nor the replay can use it whole. The raw cut never splits a value the door would replace
  * (safeCut), so the kept prefix masks the same in either mode; a report rendering is cut and charged the same way,
- * since the report masks it later.
+ * since the report masks it later. The masked rendering masks FIRST and cuts the masked text plainly, so a value
+ * astride the bound is masked whole, never cut.
  */
 const CHANNEL_HISTORY_LINES = 200;
 const CHANNEL_HISTORY_CHARS = 1_048_576;
@@ -196,14 +197,24 @@ const CHANNEL_LINE_CHARS = 262_144;
  */
 const REPORT_LOG_LINES = 50;
 
-const REDACTED = "[redacted]";
 /** A configured value this long shows its first REVEALED_CHARS so the user can tell which key a message is about. */
 const REVEAL_FROM_LENGTH = 20;
 const REVEALED_CHARS = 6;
 
+/** A text cut at `at` with a marker saying how much went; the identity when nothing is past `at`. */
+function cutAt(text: string, at: number): string {
+	return text.length <= at ? text : `${text.slice(0, at)} [${text.length - at} more characters cut]`;
+}
+
+function cutPlainly(text: string): string {
+	return cutAt(text, CHANNEL_LINE_CHARS);
+}
+
 /** The replacement for one merged span: a long single value keeps its first six characters, everything else goes whole. */
 function replacementFor(value: string | undefined): string {
-	return value !== undefined && value.length >= REVEAL_FROM_LENGTH ? `${value.slice(0, REVEALED_CHARS)}...` : REDACTED;
+	return value !== undefined && value.length >= REVEAL_FROM_LENGTH
+		? `${value.slice(0, REVEALED_CHARS)}...`
+		: REDACTED_MARKER;
 }
 
 /**
@@ -277,9 +288,13 @@ export class Logger {
 		private readonly redactionEnabled: () => boolean = () => false
 	) {}
 
-	/** The channel rendering of a remembered line under the mode of the moment. */
-	private rendered(text: string): string {
-		return this.redactionEnabled() ? Logger.redact(text) : text;
+	/**
+	 * The channel rendering of a line under the mode of the moment: masked, the door runs over the whole text FIRST
+	 * and the masked text is cut plainly (a cut through a marker is harmless); raw, the text is cut where no value is
+	 * split. `kept` is the raw text already cut that way, which replay renders without cutting again.
+	 */
+	private rendered(text: string, kept: string): string {
+		return this.redactionEnabled() ? cutPlainly(Logger.redact(text)) : kept;
 	}
 
 	/** A text past CHANNEL_LINE_CHARS cut where no value is split, with a marker saying how much went. */
@@ -287,14 +302,14 @@ export class Logger {
 		if (text.length <= CHANNEL_LINE_CHARS) {
 			return text;
 		}
-		const at = safeCut(text, CHANNEL_LINE_CHARS, Logger.secrets);
-		return `${text.slice(0, at)} [${text.length - at} more characters cut]`;
+		return cutAt(text, safeCut(text, CHANNEL_LINE_CHARS, Logger.secrets));
 	}
 
 	/**
-	 * The one channel write: every line the channel shows is remembered raw, so replay restores exactly it. A report
-	 * rendering leaves only when REPORT_LOG_LINES newer ones exist, and its channel text stays; the channel bounds
-	 * evict entries without a report rendering, oldest first, and stop when none is left.
+	 * The one channel write: every line the channel shows is remembered raw (cut where no value is split), so replay
+	 * restores it under the mode of the moment. A report rendering leaves only when REPORT_LOG_LINES newer ones exist,
+	 * and its channel text stays; the channel bounds evict entries without a report rendering, oldest first, and stop
+	 * when none is left.
 	 */
 	private write(level: keyof LogSink, text: string, reportText?: string): void {
 		const kept = this.bounded(text);
@@ -313,7 +328,7 @@ export class Logger {
 		) {
 			// Each pass drops the oldest channel-only entry.
 		}
-		this.output[level](this.rendered(kept));
+		this.output[level](this.rendered(text, kept));
 		if (report !== undefined) {
 			this.recorder?.appendLog?.(report);
 		}
@@ -354,7 +369,8 @@ export class Logger {
 	 */
 	replay(): void {
 		for (const { level, text } of this.history) {
-			this.output[level](this.rendered(text));
+			// The remembered text is already cut where no value is split, so the mask applies to it whole.
+			this.output[level](this.redactionEnabled() ? Logger.redact(text) : text);
 		}
 	}
 

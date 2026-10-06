@@ -81,7 +81,7 @@ export function shapeDiagnostics(
  */
 export const CREDENTIAL_HEADER_PLACEHOLDER = "<redacted header value>";
 
-function withCredentialHeaderValuesHidden(server: DashboardServer): DashboardServer {
+function withCredentialHeaderValuesHidden<T extends DashboardServer>(server: T): T {
 	if (server.origin !== "declared" || server.config.headers === undefined) {
 		return server;
 	}
@@ -106,11 +106,10 @@ export function shapeConfiguration(
 	const wanted = new Set<ConfigurationSection>(
 		sections ?? ["servers", "settings", "models", "hiddenGroups", "catalog", "usage"]
 	);
-	const servers = state.servers.map((server) =>
-		withCredentialHeaderValuesHidden(
-			server.state === "error" ? { ...server, error: failureTexts(server.cause, server.baseUrl).english } : server
-		)
-	);
+	const servers = state.servers.map((server) => {
+		const hidden = withCredentialHeaderValuesHidden(server);
+		return hidden.state === "error" ? { ...hidden, error: failureTexts(hidden.cause, hidden.baseUrl).english } : hidden;
+	});
 	return {
 		...(wanted.has("servers") ? { servers, servedModelCount: state.servedModelCount } : {}),
 		...(wanted.has("settings") ? { settings: state.settings } : {}),
