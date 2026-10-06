@@ -2,7 +2,9 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { APIConnectionError } from "openai";
 import * as vscode from "vscode";
+import type { CatalogRefreshFailure } from "../../dashboard/viewModels";
 import type { OpenRouterCatalogStatus, OpenRouterCatalogStore } from "../../extension/openRouterCatalog";
 import { createOpenRouterCatalogStore } from "../../extension/openRouterCatalog";
 import { OPENROUTER_CATALOG_METADATA_KEY } from "../../shared/config/storageKeys";
@@ -42,17 +44,13 @@ interface ScheduledCall {
 }
 
 /**
- * A recording timer: long delays (the weekly/daily schedule) are captured for the test to fire; short retry-backoff
- * sleeps run on a microtask so awaited refreshes complete without real time.
+ * A recording timer: the schedule's delays (weekly, daily) are captured for the test to fire. Retry backoff runs on
+ * discovery's pipeline, not this timer, so retrying tests pay its real sub-second sleeps.
  */
 function makeTimer(): { timer: Timer; scheduled: ScheduledCall[] } {
 	const scheduled: ScheduledCall[] = [];
 	const timer: Timer = {
 		set: (cb, ms) => {
-			if (ms < MIN_DELAY_MS) {
-				queueMicrotask(cb);
-				return () => {};
-			}
 			const call: ScheduledCall = {
 				ms,
 				cb: () => {
@@ -278,7 +276,7 @@ suite("extension openRouterCatalog store", () => {
 		const harness = makeHarness({
 			bundled: fixtureText,
 			fetchCatalog: async () => {
-				throw new Error("ECONNREFUSED 10.0.0.1:443 secret-response-text");
+				throw new APIConnectionError({ message: "ECONNREFUSED 10.0.0.1:443 secret-response-text" });
 			},
 		});
 		await harness.store.initialize();
@@ -346,7 +344,8 @@ suite("extension openRouterCatalog store", () => {
 			enabled: () => enabled,
 			fetchCatalog: async () => {
 				enabled = false;
-				throw new Error("first attempt fails after the user opts out");
+				// Retryable under the shared rule, so only the opt-out can be what stops the second attempt.
+				throw new APIConnectionError({ message: "first attempt fails after the user opts out" });
 			},
 		});
 		await harness.store.initialize();
@@ -412,7 +411,7 @@ suite("extension openRouterCatalog store", () => {
 				if (harness.fetchCalls === 2) {
 					enabled = false;
 				}
-				throw new Error("transient failure");
+				throw new APIConnectionError({ message: "transient failure" });
 			},
 		});
 		await harness.store.initialize();
@@ -456,15 +455,30 @@ suite("extension openRouterCatalog store", () => {
 		assert.deepStrictEqual(pendingSchedules(harness.scheduled), []);
 	});
 
-	// The retry rule the runtime shares with the fetch script (isRetryableOpenRouterFailure, discovery's SDK rule):
-	// 408/409/429/5xx and connection failures retry, and a 200 with garbage or a settled 4xx gets exactly one attempt -
-	// as discovery's body parse sits outside the SDK's retry loop.
-	for (const { name, body, status, classification, attempts } of [
+	// Discovery's retry rule, read through the one pipeline: 408/409/429/5xx and connection failures retry, a 200 with
+	// garbage or a settled 4xx gets exactly one attempt (the rule retries neither, for discovery's body parse either),
+	// and the server's `x-should-retry` overrides the status - the header only a shared rule honors.
+	const retryCases: readonly {
+		readonly name: string;
+		readonly body: string;
+		readonly status: number;
+		readonly headers?: Record<string, string>;
+		readonly classification: CatalogRefreshFailure;
+		readonly attempts: 1 | 3;
+	}[] = [
 		{ name: "a 503", body: "upstream-secret-body", status: 503, classification: "HTTP 503", attempts: 3 },
 		{ name: "a 429", body: "upstream-secret-body", status: 429, classification: "HTTP 429", attempts: 3 },
 		{ name: "a 408", body: "upstream-secret-body", status: 408, classification: "HTTP 408", attempts: 3 },
 		{ name: "a 409", body: "upstream-secret-body", status: 409, classification: "HTTP 409", attempts: 3 },
 		{ name: "a 404", body: "upstream-secret-body", status: 404, classification: "HTTP 404", attempts: 1 },
+		{
+			name: "a 503 carrying x-should-retry: false",
+			body: "upstream-secret-body",
+			status: 503,
+			headers: { "x-should-retry": "false" },
+			classification: "HTTP 503",
+			attempts: 1,
+		},
 		{
 			name: "a non-JSON 200",
 			body: "<html>interstitial-page</html>",
@@ -472,7 +486,8 @@ suite("extension openRouterCatalog store", () => {
 			classification: "unparseable response",
 			attempts: 1,
 		},
-	] as const) {
+	];
+	for (const { name, body, status, headers, classification, attempts } of retryCases) {
 		test(`the real fetch classifies ${name} as \`${classification}\` after ${attempts} attempt(s), leaking no response text`, async () => {
 			const harness = makeHarness({ bundled: fixtureText, useDefaultFetch: true });
 			await harness.store.initialize();
@@ -480,7 +495,7 @@ suite("extension openRouterCatalog store", () => {
 			await withFetch(
 				async () => {
 					fetchCalls += 1;
-					return new Response(body, { status });
+					return new Response(body, { status, ...(headers !== undefined ? { headers } : {}) });
 				},
 				() => harness.store.refreshNow()
 			);
@@ -505,6 +520,34 @@ suite("extension openRouterCatalog store", () => {
 			);
 		});
 	}
+
+	test("a 503 followed by a 200 succeeds on the second attempt, with no standing failure", async () => {
+		const harness = makeHarness({ bundled: fixtureText, useDefaultFetch: true });
+		await harness.store.initialize();
+		let fetchCalls = 0;
+		await withFetch(
+			async () => {
+				fetchCalls += 1;
+				return fetchCalls === 1
+					? new Response("upstream-secret-body", { status: 503 })
+					: Response.json(refreshedPayload);
+			},
+			() => harness.store.refreshNow()
+		);
+		assert.strictEqual(fetchCalls, 2);
+		assert.strictEqual(harness.updates, 1);
+		assert.strictEqual(harness.store.lookup.byExactId("refreshed/model-1").kind, "found");
+		assert.ok(!harness.logLines.some((line) => line.includes("refresh failed")));
+		assert.deepStrictEqual(harness.store.status(), {
+			modelCount: 250,
+			lastSuccessAt: 1_000_000_000_000,
+			refreshing: false,
+		} satisfies OpenRouterCatalogStatus);
+		assert.deepStrictEqual(
+			pendingSchedules(harness.scheduled).map((call) => call.ms),
+			[WEEK_MS]
+		);
+	});
 
 	for (const phase of ["headers", "body"] as const) {
 		test(`the real fetch classifies its own budget expiring during the ${phase} as a timeout`, async () => {

@@ -10,14 +10,14 @@ import {
 	unreachableVerdict,
 	worstCaseWallTimeMs,
 } from "../../../../../scripts/dev/openRouterCatalogFetch";
-import { OPENROUTER_MODELS_URL, type OpenRouterFetchFailure } from "../../../../../src/shared/config/openRouterCatalog";
+import { OPENROUTER_MODELS_URL } from "../../../../../src/shared/config/openRouterCatalog";
 import { REPO_ROOT } from "../../../util/repoRoot";
 
 /**
- * The fetch script's failure classification, asserted on the whole message and on the shared reason behind it: a CI
- * operator reads that one line and nothing else, and the retry loop reads the reason and nothing else. The stall case
- * is the one that motivated the module - headers 200 from a CDN edge, body never finishing - and it used to read "the
- * response body is not JSON" because the abort landed in a discarded catch.
+ * The fetch script's failure classification, asserted on the whole message and on the shared rule's verdict behind
+ * it: a CI operator reads that one line and nothing else, and the retry loop reads the verdict and nothing else. The
+ * stall case is the one that motivated the module - headers 200 from a CDN edge, body never finishing - and it used to
+ * read "the response body is not JSON" because the abort landed in a discarded catch.
  */
 
 const encoder = new TextEncoder();
@@ -68,13 +68,13 @@ function brokenResponse(head: string): Response {
 const fetchCases: readonly {
 	readonly name: string;
 	readonly fetch: Fetch;
-	readonly reason: OpenRouterFetchFailure;
+	readonly transient: boolean;
 	readonly message: string;
 }[] = [
 	{
 		name: "a body that stalls past the budget is a timeout with the headers and the bytes seen so far",
 		fetch: async (_url, init) => stalledResponse("<!DOCTYPE html", init.signal),
-		reason: { kind: "timeout", phase: "body" },
+		transient: true,
 		message:
 			`timed out after ${BUDGET_MS} ms while reading the body (status 200, ` +
 			`content-type text/html; charset=utf-8, content-length 5120, received 14 bytes, ` +
@@ -83,7 +83,7 @@ const fetchCases: readonly {
 	{
 		name: "a stalled body nothing else releases is the same timeout, released by the reader",
 		fetch: async () => stalledResponse("<!DOCTYPE html"),
-		reason: { kind: "timeout", phase: "body" },
+		transient: true,
 		message:
 			`timed out after ${BUDGET_MS} ms while reading the body (status 200, ` +
 			`content-type text/html; charset=utf-8, content-length 5120, received 14 bytes, ` +
@@ -92,13 +92,13 @@ const fetchCases: readonly {
 	{
 		name: "headers that never arrive are a timeout in the headers phase",
 		fetch: neverAnswers,
-		reason: { kind: "timeout", phase: "headers" },
+		transient: true,
 		message: `timed out after ${BUDGET_MS} ms waiting for the response headers`,
 	},
 	{
 		name: "a 200 with an HTML body is not JSON, with the first bytes as evidence",
 		fetch: async () => new Response(HTML, { status: 200, headers: { "content-type": "text/html" } }),
-		reason: { kind: "unparseable" },
+		transient: false,
 		message:
 			`the response body is not JSON (status 200, content-type text/html, content-length absent, ` +
 			`received ${HTML.length} bytes, first ${HTML.length} bytes: ${JSON.stringify(HTML)})`,
@@ -106,7 +106,7 @@ const fetchCases: readonly {
 	{
 		name: "a body that breaks mid-stream inside the budget is a read failure with the runtime's error",
 		fetch: async () => brokenResponse('{"data":'),
-		reason: { kind: "network" },
+		transient: true,
 		message:
 			"reading the body failed (TypeError: socket hang up; status 200, content-type application/json, " +
 			`content-length absent, received 8 bytes, first 8 bytes: ${JSON.stringify('{"data":')})`,
@@ -114,7 +114,7 @@ const fetchCases: readonly {
 	{
 		name: "a 429 is the HTTP status, body unread",
 		fetch: async () => new Response(HTML, { status: 429, headers: { "content-type": "text/html" } }),
-		reason: { kind: "http", status: 429 },
+		transient: true,
 		message: `HTTP 429 from ${OPENROUTER_MODELS_URL}`,
 	},
 	{
@@ -122,17 +122,17 @@ const fetchCases: readonly {
 		fetch: async () => {
 			throw new Error("Unable to connect. Is the computer able to access the url?");
 		},
-		reason: { kind: "network" },
+		transient: true,
 		message: "Unable to connect. Is the computer able to access the url?",
 	},
 ];
 
 describe("fetchOnce classification", () => {
-	for (const { name, fetch, reason, message } of fetchCases) {
+	for (const { name, fetch, transient, message } of fetchCases) {
 		test(name, async () => {
 			await assert.rejects(fetchOnce({ fetch, timeoutMs: BUDGET_MS }), (error: unknown) => {
 				assert.ok(error instanceof UnreachableError, `not a catalog, got ${String(error)}`);
-				assert.deepStrictEqual(error.reason, reason);
+				assert.strictEqual(error.transient, transient);
 				assert.strictEqual(error.message, message);
 				return true;
 			});
@@ -296,18 +296,12 @@ describe("unreachableVerdict", () => {
 			"Not a schema problem - the endpoint answered but the catalog was unusable; " +
 			"check the URL and the response before retrying.",
 	};
-	const cases: readonly { readonly reason: OpenRouterFetchFailure; readonly verdict: typeof transient }[] = [
-		{ reason: { kind: "timeout", phase: "headers" }, verdict: transient },
-		{ reason: { kind: "timeout", phase: "body" }, verdict: transient },
-		{ reason: { kind: "network" }, verdict: transient },
-		{ reason: { kind: "http", status: 429 }, verdict: transient },
-		{ reason: { kind: "http", status: 503 }, verdict: transient },
-		{ reason: { kind: "http", status: 404 }, verdict: settled },
-		{ reason: { kind: "unparseable" }, verdict: settled },
-	];
-	for (const { reason, verdict } of cases) {
-		test(`${JSON.stringify(reason)} reads as ${verdict === transient ? "transient" : "settled"}`, () => {
-			assert.deepStrictEqual(unreachableVerdict(new UnreachableError(reason, "evidence")), verdict);
+	for (const [isTransient, verdict] of [
+		[true, transient],
+		[false, settled],
+	] as const) {
+		test(`a ${isTransient ? "transient" : "settled"} failure reads with the ${isTransient ? "transient" : "settled"} words`, () => {
+			assert.deepStrictEqual(unreachableVerdict(new UnreachableError(isTransient, "evidence")), verdict);
 		});
 	}
 });
@@ -320,8 +314,8 @@ describe("unreachableVerdict", () => {
  */
 describe("failureExit", () => {
 	class DriftError extends Error {}
-	const unreachable = new UnreachableError({ kind: "http", status: 503 }, `HTTP 503 from ${OPENROUTER_MODELS_URL}`);
-	const settled = new UnreachableError({ kind: "http", status: 404 }, `HTTP 404 from ${OPENROUTER_MODELS_URL}`);
+	const unreachable = new UnreachableError(true, `HTTP 503 from ${OPENROUTER_MODELS_URL}`);
+	const settled = new UnreachableError(false, `HTTP 404 from ${OPENROUTER_MODELS_URL}`);
 	const drift = new DriftError("payload yields 3 usable models (floor 100)");
 	const skipTail =
 		"skipping the live catalog check on this push - pull request runs, manual dispatch, " +

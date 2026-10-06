@@ -2,17 +2,16 @@
 // edge (headers 200, bytes never finishing) used to surface as "the response body is not JSON" because the abort
 // landed inside a discarded catch.
 //
-//   Whether a failure earns another attempt                  -> isRetryableOpenRouterFailure's call, not this module's
+//   Whether a failure earns another attempt                  -> discovery's one retry rule (isRetryableFailure), asked
+//                                                               once at the throw, never this module's
 //   a timeout, a connection failure, or a 408/409/429/ 5xx  -> retries
 //   any other 4xx and a non-JSON 200 (a CDN interstitial)   -> the server's settled answer within this run's budget
 //   Schema drift                                             -> the caller's judgement over the parsed payload, never
 //                                                               made here
 
-import {
-	isRetryableOpenRouterFailure,
-	OPENROUTER_MODELS_URL,
-	type OpenRouterFetchFailure,
-} from "../../src/shared/config/openRouterCatalog";
+import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
+import { isRetryableFailure } from "../../src/provider/transport/retry";
+import { OPENROUTER_MODELS_URL } from "../../src/shared/config/openRouterCatalog";
 
 /**
  * Per-attempt budget covering the connect, the headers, and the whole body read; one signal carries it through every
@@ -42,12 +41,18 @@ export function worstCaseWallTimeMs(): number {
 }
 
 export class UnreachableError extends Error {
+	/** `transient` is the shared rule's verdict, taken once at the throw: the retry loop and the headline both read it. */
 	constructor(
-		readonly reason: OpenRouterFetchFailure,
+		readonly transient: boolean,
 		message: string
 	) {
 		super(message);
 	}
+}
+
+/** The failure rendered in the SDK's error vocabulary is what the rule judges; only its verdict is kept. */
+function unreachable(failure: unknown, message: string): UnreachableError {
+	return new UnreachableError(isRetryableFailure(failure), message);
 }
 
 /**
@@ -57,7 +62,7 @@ export class UnreachableError extends Error {
  * other way round.
  */
 export function unreachableVerdict(error: UnreachableError): { readonly headline: string; readonly advice: string } {
-	return isRetryableOpenRouterFailure(error.reason)
+	return error.transient
 		? {
 				headline: "OpenRouter unreachable (transient)",
 				advice: "Not a schema problem - retry once the endpoint is reachable.",
@@ -160,29 +165,32 @@ export async function fetchOnce(options: Pick<CatalogFetchOptions, "fetch" | "ti
 		response = await options.fetch(OPENROUTER_MODELS_URL, { signal });
 	} catch (error) {
 		if (signal.aborted) {
-			throw new UnreachableError(
-				{ kind: "timeout", phase: "headers" },
+			throw unreachable(
+				new APIConnectionTimeoutError(),
 				`timed out after ${options.timeoutMs} ms waiting for the response headers`
 			);
 		}
-		throw new UnreachableError({ kind: "network" }, error instanceof Error ? error.message : String(error));
+		throw unreachable(
+			new APIConnectionError({ cause: error instanceof Error ? error : undefined }),
+			error instanceof Error ? error.message : String(error)
+		);
 	}
 	if (!response.ok) {
-		throw new UnreachableError(
-			{ kind: "http", status: response.status },
+		throw unreachable(
+			new APIError(response.status, undefined, undefined, response.headers),
 			`HTTP ${response.status} from ${OPENROUTER_MODELS_URL}`
 		);
 	}
 	const body = await readBody(response, signal);
 	if (signal.aborted) {
-		throw new UnreachableError(
-			{ kind: "timeout", phase: "body" },
+		throw unreachable(
+			new APIConnectionTimeoutError(),
 			`timed out after ${options.timeoutMs} ms while reading the body (${describeResponse(response, body.bytes)})`
 		);
 	}
 	if ("error" in body) {
-		throw new UnreachableError(
-			{ kind: "network" },
+		throw unreachable(
+			new APIConnectionError({ cause: body.error instanceof Error ? body.error : undefined }),
 			`reading the body failed (${errorText(body.error)}; ${describeResponse(response, body.bytes)})`
 		);
 	}
@@ -192,10 +200,7 @@ export async function fetchOnce(options: Pick<CatalogFetchOptions, "fetch" | "ti
 		if (!(error instanceof SyntaxError)) {
 			throw error;
 		}
-		throw new UnreachableError(
-			{ kind: "unparseable" },
-			`the response body is not JSON (${describeResponse(response, body.bytes)})`
-		);
+		throw unreachable(error, `the response body is not JSON (${describeResponse(response, body.bytes)})`);
 	}
 }
 
@@ -204,11 +209,7 @@ export async function fetchLivePayload(options: CatalogFetchOptions): Promise<un
 		try {
 			return await fetchOnce(options);
 		} catch (error) {
-			if (
-				!(error instanceof UnreachableError) ||
-				!isRetryableOpenRouterFailure(error.reason) ||
-				attempt >= FETCH_ATTEMPTS
-			) {
+			if (!(error instanceof UnreachableError) || !error.transient || attempt >= FETCH_ATTEMPTS) {
 				throw error;
 			}
 			const delay = retryDelayMs(attempt);

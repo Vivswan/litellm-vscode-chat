@@ -15,12 +15,13 @@ export interface RetryOptions {
 
 /**
  * The SDK's own retry verdict, re-stated here because the SDK's backoff sleep ignores the abort signal, so the SDK
- * runs with maxRetries 0 and this loop retries in its place.
+ * runs with maxRetries 0 and this loop retries in its place. The one retry rule for every idempotent GET: the
+ * OpenRouter catalog refresh and the catalog fetch script render their failures as these SDK errors to ask it.
  *   a connection failure, including a per-attempt timeout -> retried
  *   HTTP 408, 409, 429, 5xx                                -> retried
  *   an `x-should-retry` header                             -> overrides the status rule either way
  */
-function isRetryableSdkFailure(error: unknown): boolean {
+export function isRetryableFailure(error: unknown): boolean {
 	if (error instanceof APIConnectionError) {
 		return true;
 	}
@@ -58,7 +59,7 @@ export async function retryIdempotent<T>(attempt: () => Promise<T>, options: Ret
 		try {
 			return await attempt();
 		} catch (error) {
-			if (options.signal.aborted || retries >= options.maxRetries || !isRetryableSdkFailure(error)) {
+			if (options.signal.aborted || retries >= options.maxRetries || !isRetryableFailure(error)) {
 				throw error;
 			}
 			failure = error;
