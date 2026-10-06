@@ -46,7 +46,10 @@ describe("scanUserTextReaders", () => {
 	// anywhere, so the fixture's refused lines are the one place a missed shape shows.
 	test("refuses every tagged read in the fixture by line, column, and shape, and nothing else", () => {
 		const tags = tagsOf(FIXTURE);
-		const allowed = [{ file: FIXTURE, function: "sanctioned", reason: "the fixture's one allowed reader" }];
+		const allowed = [
+			{ file: FIXTURE, function: "sanctioned", reason: "the fixture's allowed function" },
+			{ file: FIXTURE, function: "assigned", reason: "the fixture's allowed arrow, keyed by its binding" },
+		];
 
 		const { seen, refused, unusedAllowed } = scanUserTextReaders(TSCONFIG, [join(REPO_ROOT, FIXTURE)], {
 			modules: [FIXTURE],

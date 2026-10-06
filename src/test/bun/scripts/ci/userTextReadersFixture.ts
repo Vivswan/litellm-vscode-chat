@@ -1,7 +1,7 @@
 /**
- * Negative control for scripts/ci/user-text-readers.ts: every trim and number read the scanner must refuse beside the
- * look-alikes it must ignore. Never imported; the test scans this path as a reader module with `sanctioned` as its one
- * allowed function and reads the tags.
+ * Negative control for scripts/ci/user-text-readers.ts: every trim, number read, and coercion the scanner must refuse
+ * beside the look-alikes it must ignore. Never imported; the test scans this path as a reader module with two allowlist
+ * rows, the function `sanctioned` and the assigned arrow `assigned`, and reads the tags.
  *
  *   // refused <shape>          -> the scanner reports this line with that shape, at the line's first non-blank column
  *   // refused <shape> at <col>  -> the same, at that column (the read starts after a `return` or inside a callback)
@@ -23,6 +23,9 @@ declare const holder: { readonly label: string };
 declare const own: { trim(): string };
 declare const mapped: Record<"trim", () => number>;
 declare const either: string | { trim(): string };
+declare const scalar: string | number;
+declare const stamp: string | Date;
+declare const laterStamp: string | Date;
 
 export function reads(): void {
 	text.trim(); // refused .trim()
@@ -78,6 +81,35 @@ export function reads(): void {
 	count * 2; // seen
 	big * 2n; // seen
 	total -= 1; // seen
+	-loose; // refused unary -
+	~loose; // refused unary ~
+	loose | 0; // refused binary |
+	loose & 1; // refused binary &
+	loose ^ 1; // refused binary ^
+	loose << 1; // refused binary <<
+	loose >> 1; // refused binary >>
+	loose >>> 0; // refused binary >>>
+	total |= loose; // refused binary |=
+	total &= loose; // refused binary &=
+	total ^= loose; // refused binary ^=
+	total <<= loose; // refused binary <<=
+	total >>= loose; // refused binary >>=
+	total >>>= loose; // refused binary >>>=
+	loose < 20; // refused binary <
+	20 <= loose; // refused binary <=
+	loose > 20; // refused binary >
+	loose >= 20; // refused binary >=
+	scalar < text; // refused binary <
+	scalar <= text; // refused binary <=
+	stamp < laterStamp; // refused binary <
+	parseInt("10", loose); // refused parseInt()
+	Number.parseInt("10", loose); // refused Number.parseInt()
+	-count; // seen
+	~count; // seen
+	count | 0; // seen
+	count < 20; // seen
+	text < "a"; // seen
+	parseInt("10", count); // seen
 	void total;
 	Number(count); // seen
 	Number(stamped); // seen
@@ -113,5 +145,9 @@ export function sanctioned(value: string): number {
 		},
 	};
 	void reader;
+	const bound = () => value.trim(); // refused .trim() at 22
+	void bound;
 	return parseFloat(trimmed); // seen
 }
+
+export const assigned = (value: string): string => value.trim(); // seen

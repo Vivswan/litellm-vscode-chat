@@ -6,10 +6,11 @@
  * user's text, so a settings reader that trims, numbers, or coerces a value itself is refused. A call is judged by the
  * lib declaration it resolves to, never by its name, and a type the checker cannot settle is a refusal, never a pass.
  *
- *   .trim() .trimStart() .trimEnd() .trimLeft() .trimRight() -> refused on every receiver
- *   Number(x) parseFloat(x) parseInt(x) new Number(x)        -> refused unless x is a literal, number, bigint, or boolean
- *   +x, and x * y, /, -, %, ** with their compound forms     -> refused unless every operand is one of those
- *   READER_HOMES, an ALLOWED_READS (file, function) pair     -> seen, not refused
+ *   .trim() .trimStart() .trimEnd() .trimLeft() .trimRight()               -> refused on every receiver
+ *   Number(x) parseFloat(x) parseInt(x, r) new Number(x)                   -> refused unless every argument is a literal, number, bigint, or boolean
+ *   +x -x ~x, and *, /, -, %, **, |, &, ^, <<, >>, >>> with compound forms -> refused unless every operand is one of those
+ *   x < y, <=, >, >=                                                       -> refused unless both sides are numbers or both are strings
+ *   READER_HOMES, an ALLOWED_READS (file, function) pair                   -> seen, not refused
  */
 import * as path from "node:path";
 import ts from "typescript";
@@ -227,16 +228,39 @@ function unresolvedReaderName(access: ts.Expression): string | undefined {
 	return name === "Number" || (name !== undefined && NUMBER_PARSERS.has(name)) ? name : undefined;
 }
 
-/** A branded number (`number & { unit: "ms" }`) is still a number, so one not-text member clears an intersection. */
-function isNotText(type: ts.Type): boolean {
-	return type.isIntersection() ? type.types.some(isNotText) : (type.flags & NOT_TEXT) !== 0;
+/** A branded number (`number & { unit: "ms" }`) is still a number, so one member with the flags clears an intersection. */
+function hasFlags(type: ts.Type, flags: ts.TypeFlags): boolean {
+	return type.isIntersection() ? type.types.some((member) => hasFlags(member, flags)) : (type.flags & flags) !== 0;
 }
 
 function isText(checker: ts.TypeChecker, argument: ts.Expression | undefined): boolean {
 	if (argument === undefined) {
 		return false;
 	}
-	return constituents(checker, checker.getTypeAtLocation(argument)).some((part) => !isNotText(part));
+	return constituents(checker, checker.getTypeAtLocation(argument)).some((part) => !hasFlags(part, NOT_TEXT));
+}
+
+const NUMERIC =
+	ts.TypeFlags.NumberLike |
+	ts.TypeFlags.BigIntLike |
+	ts.TypeFlags.BooleanLike |
+	ts.TypeFlags.Null |
+	ts.TypeFlags.Undefined;
+
+/** Undefined when the side may read a number from text: any, a `string | number`, or an object whose valueOf decides. */
+function orderingKind(checker: ts.TypeChecker, operand: ts.Expression): "numeric" | "text" | undefined {
+	const parts = constituents(checker, checker.getTypeAtLocation(operand));
+	if (parts.every((part) => hasFlags(part, NUMERIC))) {
+		return "numeric";
+	}
+	return parts.every((part) => hasFlags(part, ts.TypeFlags.StringLike)) ? "text" : undefined;
+}
+
+/** Strings against strings compare UTF-16 code units and read no number; every other pairing may read one. */
+function isMixedOrdering(checker: ts.TypeChecker, node: ts.BinaryExpression): boolean {
+	const left = orderingKind(checker, node.left);
+	const right = orderingKind(checker, node.right);
+	return left === undefined || right === undefined || left !== right;
 }
 
 function numberReadAt(
@@ -250,8 +274,17 @@ function numberReadAt(
 		return name === undefined ? undefined : { shape: `${name}() unresolved`, refused: true };
 	}
 	const shape = numberReaderOf(program, declaration);
-	return shape === undefined ? undefined : { shape, refused: isText(checker, node.arguments?.[0]) };
+	// parseInt's radix is read like its text: "0x10" there is base 16.
+	return shape === undefined
+		? undefined
+		: { shape, refused: (node.arguments ?? []).some((argument) => isText(checker, argument)) };
 }
+
+const COERCING_PREFIXES: ReadonlyMap<ts.SyntaxKind, string> = new Map([
+	[ts.SyntaxKind.PlusToken, "+"],
+	[ts.SyntaxKind.MinusToken, "-"],
+	[ts.SyntaxKind.TildeToken, "~"],
+]);
 
 const COERCING_OPERATORS: ReadonlyMap<ts.SyntaxKind, string> = new Map([
 	[ts.SyntaxKind.AsteriskToken, "*"],
@@ -259,25 +292,48 @@ const COERCING_OPERATORS: ReadonlyMap<ts.SyntaxKind, string> = new Map([
 	[ts.SyntaxKind.MinusToken, "-"],
 	[ts.SyntaxKind.PercentToken, "%"],
 	[ts.SyntaxKind.AsteriskAsteriskToken, "**"],
+	[ts.SyntaxKind.BarToken, "|"],
+	[ts.SyntaxKind.AmpersandToken, "&"],
+	[ts.SyntaxKind.CaretToken, "^"],
+	[ts.SyntaxKind.LessThanLessThanToken, "<<"],
+	[ts.SyntaxKind.GreaterThanGreaterThanToken, ">>"],
+	[ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken, ">>>"],
 	[ts.SyntaxKind.AsteriskEqualsToken, "*="],
 	[ts.SyntaxKind.SlashEqualsToken, "/="],
 	[ts.SyntaxKind.MinusEqualsToken, "-="],
 	[ts.SyntaxKind.PercentEqualsToken, "%="],
 	[ts.SyntaxKind.AsteriskAsteriskEqualsToken, "**="],
+	[ts.SyntaxKind.BarEqualsToken, "|="],
+	[ts.SyntaxKind.AmpersandEqualsToken, "&="],
+	[ts.SyntaxKind.CaretEqualsToken, "^="],
+	[ts.SyntaxKind.LessThanLessThanEqualsToken, "<<="],
+	[ts.SyntaxKind.GreaterThanGreaterThanEqualsToken, ">>="],
+	[ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken, ">>>="],
 ]);
 
-/** `+x` and `x * 1` are Number(x) without the name: "0x10" reads 16 and " " reads 0. */
+const ORDERING_OPERATORS: ReadonlyMap<ts.SyntaxKind, string> = new Map([
+	[ts.SyntaxKind.LessThanToken, "<"],
+	[ts.SyntaxKind.LessThanEqualsToken, "<="],
+	[ts.SyntaxKind.GreaterThanToken, ">"],
+	[ts.SyntaxKind.GreaterThanEqualsToken, ">="],
+]);
+
+/** `+x`, `x | 0`, and `x < 20` are Number(x) without the name: "0x10" reads 16 and " " reads 0. */
 function coercionAt(checker: ts.TypeChecker, node: ts.Node): Judged | undefined {
-	if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.PlusToken) {
-		return { shape: "unary +", refused: isText(checker, node.operand) };
+	if (ts.isPrefixUnaryExpression(node)) {
+		const prefix = COERCING_PREFIXES.get(node.operator);
+		return prefix === undefined ? undefined : { shape: `unary ${prefix}`, refused: isText(checker, node.operand) };
 	}
 	if (!ts.isBinaryExpression(node)) {
 		return undefined;
 	}
-	const operator = COERCING_OPERATORS.get(node.operatorToken.kind);
-	return operator === undefined
-		? undefined
-		: { shape: `binary ${operator}`, refused: isText(checker, node.left) || isText(checker, node.right) };
+	const kind = node.operatorToken.kind;
+	const operator = COERCING_OPERATORS.get(kind);
+	if (operator !== undefined) {
+		return { shape: `binary ${operator}`, refused: isText(checker, node.left) || isText(checker, node.right) };
+	}
+	const ordering = ORDERING_OPERATORS.get(kind);
+	return ordering === undefined ? undefined : { shape: `binary ${ordering}`, refused: isMixedOrdering(checker, node) };
 }
 
 function readAt(checker: ts.TypeChecker, program: ts.Program, node: ts.Node): Judged | undefined {

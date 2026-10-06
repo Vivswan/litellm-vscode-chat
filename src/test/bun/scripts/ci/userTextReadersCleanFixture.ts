@@ -26,6 +26,10 @@ export function readSeconds(value: number): number {
 	return value * 1000; // seen
 }
 
+export function readBelowFloor(value: number): boolean {
+	return value < 1000; // seen
+}
+
 export function readFlag(value: boolean): number {
 	return Number(value); // seen
 }
