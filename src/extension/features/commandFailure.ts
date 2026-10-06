@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { type FailureLineMessage, logFailure } from "../../provider/catalog/discoveryLog";
 import { statusErrorTexts } from "../../provider/transport/errorMapping";
 import type { Logger } from "../../shared/logger";
 import { commandErrorActions, showActionableMessage } from "../ui/notifier";
@@ -11,13 +12,13 @@ import { commandErrorActions, showActionableMessage } from "../ui/notifier";
 export async function reportCommandFailure(
 	deps: { readonly logger: Logger; readonly outputChannel: vscode.OutputChannel },
 	error: unknown,
-	logLine: string
+	logLine: FailureLineMessage
 ): Promise<void> {
 	if (error instanceof vscode.CancellationError) {
 		// User cancellation: never logged, nothing to show.
 		return;
 	}
-	deps.logger.error(logLine, error);
+	logFailure((message, data, cause) => deps.logger.failure(message, data, cause), logLine, error);
 	const texts = statusErrorTexts(error);
 	await showActionableMessage("error", texts.error, commandErrorActions(texts.classification, deps.outputChannel));
 }

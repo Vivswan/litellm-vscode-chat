@@ -9,9 +9,10 @@ import { MODEL_INFO_PATH, MODELS_PATH } from "../transport/clients";
 const mint = Symbol("classification");
 
 /**
- * Minted only by parseWire below, and recognized by the writer by its private field, never by text: the constructor
- * demands this module's token (so an instance's `.constructor` mints nothing), no string of a caller's choosing can
- * pose as one, Object.assign cannot carry one onto another object, and a replaced toString is never consulted.
+ * Minted only inside this module (parseWire's rendering of a schema issue, logFailure's read of a MirroredError's own
+ * classification), and recognized by the writer by its private field, never by text: the constructor demands this
+ * module's token (so an instance's `.constructor` mints nothing), no string of a caller's choosing can pose as one,
+ * Object.assign cannot carry one onto another object, and a replaced toString is never consulted.
  */
 class ClassificationText {
 	readonly #text: string;
@@ -35,12 +36,33 @@ type DiscoveryEndpoint = typeof MODEL_INFO_PATH | typeof MODELS_PATH;
 
 type FailureKind = TransportErrorKind | "unclassified";
 
+/** What a boundary's error-level line may say about the value it caught; logFailure derives it. */
+interface ClassifiedFailure {
+	kind: FailureKind;
+	status?: number;
+	classification?: Classification;
+}
+
 /**
- * Every discovery and registration log line and the data it carries, because these lines reach the public issue
- * report. A message is a key here and a value is a count, a flag, a constant, or a Classification, so no response
- * value has a type here.
+ * The boundaries that log a caught value at error level, one key per boundary: a message templated over the value
+ * would carry its text past the data vocabulary.
  */
-interface DiscoveryLogLines {
+export type FailureLineMessage =
+	| "Chat request failed"
+	| "Consult tool consultation failed"
+	| "MCP resolve failed"
+	| "Commit message generation failed"
+	| "Pull request description generation failed"
+	| "Review failed"
+	| "Review reply failed"
+	| "Quick fix fallback failed";
+
+/**
+ * Every discovery and registration log line and every boundary failure line, with the data each carries, because
+ * these lines reach the public issue report. A message is a key here and a value is a count, a flag, a constant, or a
+ * Classification, so no response value has a type here.
+ */
+interface DiscoveryLogLines extends Record<FailureLineMessage, ClassifiedFailure> {
 	"Fetching models": { endpoint: DiscoveryEndpoint };
 	"Parsed model/info response": { modelCount: number };
 	"Parsed models listing": { modelCount: number };
@@ -90,6 +112,8 @@ const ACCEPTS: { readonly [K in ValueKind]: (value: unknown) => boolean } = {
 	failureKind: (value) => value === "unclassified" || isTransportErrorKind(value),
 };
 
+const FAILURE_SHAPE = { kind: "failureKind", status: "number", classification: "classification" } as const;
+
 /**
  * The writer admits only these keys, each only through its kind's closed vocabulary, so a value the type system was
  * talked past (a narrowed alias, a defined-in property, a string behind a branded type) never reaches the sink; a
@@ -128,6 +152,14 @@ const LINE_SHAPES: {
 		kind: "failureKind",
 		status: "number",
 	},
+	"Chat request failed": FAILURE_SHAPE,
+	"Consult tool consultation failed": FAILURE_SHAPE,
+	"MCP resolve failed": FAILURE_SHAPE,
+	"Commit message generation failed": FAILURE_SHAPE,
+	"Pull request description generation failed": FAILURE_SHAPE,
+	"Review failed": FAILURE_SHAPE,
+	"Review reply failed": FAILURE_SHAPE,
+	"Quick fix fallback failed": FAILURE_SHAPE,
 };
 
 /** The one path from a discovery line to the host's logger. */
@@ -178,6 +210,31 @@ export function failureKindOf(error: unknown): { kind: FailureKind; status?: num
 		kind: classification.kind,
 		...(classification.status !== undefined ? { status: classification.status } : {}),
 	};
+}
+
+/** Logger.failure's shape: the line's data for the channel and the buffer, the caught value for the recorder only. */
+export type FailureSink = (message: string, data: unknown, error: unknown) => void;
+
+/**
+ * A boundary's one error-level line for a caught value. The value's own terse classification rides along under the
+ * same guard as its kind, so the errors that carry no transport kind (a routing refusal, a tool-pairing rejection)
+ * stay apart in an issue report.
+ */
+export function logFailure(sink: FailureSink, message: FailureLineMessage, error: unknown): void {
+	const classification = ownClassificationOf(error);
+	discoveryLineWriter((text, line) => sink(text, line, error))(message, {
+		...failureKindOf(error),
+		...(classification !== undefined ? { classification: new ClassificationText(mint, classification) } : {}),
+	});
+}
+
+/** Total like failureKindOf's read of the kind: a getter that throws must not replace the failure being logged. */
+function ownClassificationOf(error: unknown): string | undefined {
+	try {
+		return error instanceof MirroredError ? error.logClassification : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /**
