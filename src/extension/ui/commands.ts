@@ -27,6 +27,7 @@ import {
 	reconfigureAction,
 	reportIssueAction,
 	showActionableMessage,
+	showMessage,
 	viewOutputAction,
 } from "./notifier";
 import { profileUserFileUri } from "./profilePath";
@@ -452,21 +453,21 @@ function relativeTimeText(elapsedMs: number): string {
 async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promise<void>): Promise<void> {
 	const openExisting = l10n.t("Open Existing Issues");
 	const reportAnywayLabel = l10n.t("Report Anyway");
-	const choice = await vscode.window.showInformationMessage(
+	const choice = await showMessage(
+		"info",
 		l10n.t(
 			"LiteLLM: You opened an issue report that looks the same as one from {0}. Adding details to the existing issue helps more than a new report.",
 			relativeTimeText(elapsedMs)
 		),
-		{ modal: true },
-		openExisting,
-		reportAnywayLabel
+		[openExisting, reportAnywayLabel],
+		{ modal: true }
 	);
 	if (choice === openExisting) {
 		try {
 			await openUrl(GITHUB_OPEN_BUG_ISSUES_URL);
 		} catch (error) {
 			const detail = thrownErrorDisplayText(error);
-			void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the issues list - {0}", detail));
+			void showMessage("error", l10n.t("LiteLLM: Could not open the issues list - {0}", detail), []);
 		}
 		return;
 	}
@@ -475,7 +476,7 @@ async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promi
 			await reportAnyway();
 		} catch (error) {
 			const detail = thrownErrorDisplayText(error);
-			void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the issue report - {0}", detail));
+			void showMessage("error", l10n.t("LiteLLM: Could not open the issue report - {0}", detail), []);
 		}
 	}
 }
@@ -514,11 +515,13 @@ export function registerOpenGroupsFileCommand(context: vscode.ExtensionContext, 
 				await vscode.window.showTextDocument(document, { preview: false });
 			} catch {
 				logger.log("Provider-groups file could not be opened");
-				void vscode.window.showErrorMessage(
+				void showMessage(
+					"error",
 					l10n.t(
 						"LiteLLM: Could not open the provider groups file (User/{0}). It may not exist yet - VS Code creates it with the first provider group - or it lives on the desktop profile, out of reach of this window.",
 						GROUPS_FILE_NAME
-					)
+					),
+					[]
 				);
 			}
 		})

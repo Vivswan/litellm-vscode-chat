@@ -13,6 +13,7 @@ import {
 	logThinkingPartProbeErrorOnce,
 	thinkingPartCtor,
 } from "../../../shared/conversion/thinkingPart";
+import { Logger } from "../../../shared/logger";
 import { chatErrorMessage, localizedError } from "../../../shared/mirroredError";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { tryParseJSONObject } from "../../../shared/util/json";
@@ -293,6 +294,8 @@ export class StreamProcessor {
 				// No content: refusal text can echo user data into issue reports.
 				this._log("Model refused the request");
 			}
+			// Delta text streams as received: a chunk can split a value, so no mask here. The processor masks only the
+			// Sources trailer it builds whole (emitTrailers).
 			this.emit(new vscode.LanguageModelTextPart(delta.refusal));
 			this._req.hasEmittedAssistantText = true;
 			emitted = true;
@@ -679,7 +682,8 @@ export class StreamProcessor {
 			const escapeUrl = (url: string) =>
 				url.replace(/[\s()]/g, (c) => (c === "(" ? "%28" : c === ")" ? "%29" : encodeURIComponent(c)));
 			const lines = Array.from(this._req.citations.entries()).map(
-				([url, title]) => `- [${escapeTitle(title)}](${escapeUrl(url)})`
+				// Masked before escaping: an escaped spelling of a value would no longer match the registered one.
+				([url, title]) => `- [${escapeTitle(Logger.redact(title))}](${escapeUrl(Logger.redact(url))})`
 			);
 			this._progress.report(new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
 		}

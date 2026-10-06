@@ -20,6 +20,8 @@ export interface MessageAction {
 	run: () => void | Promise<void>;
 }
 
+export type MessageKind = "info" | "warning" | "error";
+
 /**
  * A function, not a constant: module-level localized constants would evaluate before l10n.config and freeze English.
  */
@@ -27,18 +29,41 @@ export function configureNowLabel(): string {
 	return l10n.t("Configure Now");
 }
 
+/**
+ * The one toast door: the message and a modal's detail pass Logger.redact once before VS Code shows them, so an
+ * error that quotes a configured value or a URL's userinfo never reaches a toast whole. An l10n literal carries no
+ * value and comes out unchanged; the labels are the caller's own button titles.
+ */
+export function showMessage(
+	kind: MessageKind,
+	message: string,
+	labels: readonly string[],
+	options?: vscode.MessageOptions
+): Thenable<string | undefined> {
+	const shown = Logger.redact(message);
+	const show =
+		kind === "info"
+			? vscode.window.showInformationMessage
+			: kind === "warning"
+				? vscode.window.showWarningMessage
+				: vscode.window.showErrorMessage;
+	if (options === undefined) {
+		return show(shown, ...labels);
+	}
+	const masked = options.detail === undefined ? options : { ...options, detail: Logger.redact(options.detail) };
+	return show(shown, masked, ...labels);
+}
+
 export async function showActionableMessage(
-	kind: "info" | "warning" | "error",
+	kind: MessageKind,
 	message: string,
 	actions: MessageAction[]
 ): Promise<void> {
-	const labels = actions.map((a) => a.label);
-	const choice =
-		kind === "info"
-			? await vscode.window.showInformationMessage(message, ...labels)
-			: kind === "warning"
-				? await vscode.window.showWarningMessage(message, ...labels)
-				: await vscode.window.showErrorMessage(message, ...labels);
+	const choice = await showMessage(
+		kind,
+		message,
+		actions.map((a) => a.label)
+	);
 	const action = actions.find((a) => a.label === choice);
 	if (action) {
 		await action.run();

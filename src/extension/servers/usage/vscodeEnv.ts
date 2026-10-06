@@ -11,6 +11,7 @@ import {
 } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import type { HeaderValue } from "../../../shared/util/headers";
+import { showMessage } from "../../ui/notifier";
 import { readServerSecretsRecord } from "../serverSync/secrets";
 import type { UsagePollerEnv, UsageRefreshOutcome } from "./poller";
 import { usageRefreshFailureSummary } from "./poller";
@@ -60,8 +61,10 @@ export function notifyUsageRefreshFailure(outcome: UsageRefreshOutcome | undefin
 	if (summary === undefined) {
 		return;
 	}
-	void vscode.window.showWarningMessage(
-		l10n.t("LiteLLM: {0}", `${l10n.t("Usage refresh failed - no server returned usage data.")} ${summary}`)
+	void showMessage(
+		"warning",
+		l10n.t("LiteLLM: {0}", `${l10n.t("Usage refresh failed - no server returned usage data.")} ${summary}`),
+		[]
 	);
 }
 

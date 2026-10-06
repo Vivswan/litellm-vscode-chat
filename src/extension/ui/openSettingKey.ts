@@ -9,6 +9,7 @@ import * as vscode from "vscode";
 import { INTERNAL_CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { Logger } from "../../shared/logger";
+import { showMessage } from "./notifier";
 import { profileUserFileUri } from "./profilePath";
 
 const OPEN_USER_SETTINGS_JSON = "workbench.action.openSettingsJson";
@@ -70,7 +71,7 @@ export async function handleOpenSettingKey(
 		await openUserSettingAtKey(key, openSettingsJson);
 	} catch {
 		logger.log("Open user settings.json failed");
-		void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the user settings.json."));
+		void showMessage("error", l10n.t("LiteLLM: Could not open the user settings.json."), []);
 	}
 }
 
