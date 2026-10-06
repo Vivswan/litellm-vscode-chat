@@ -38,7 +38,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Set up development environment
-        run: bash scripts/env/setup-env.sh
+        run: bun scripts/env/setup-env.ts
 
       - name: Check formatting and lint
         run: bunx biome ci --max-diagnostics=none .

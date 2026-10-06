@@ -42,7 +42,6 @@ knip.json
 .gitignore
 .gitleaks.toml
 .file-size-allow.local
-.shell-complexity-allow.local
 .yamllint
 .repo-platform.yml
 .typography-allow

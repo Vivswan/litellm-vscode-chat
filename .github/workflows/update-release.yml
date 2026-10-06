@@ -45,7 +45,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Set up development environment
-        run: bash scripts/env/setup-env.sh
+        run: bun scripts/env/setup-env.ts
 
       - name: Type-check and bundle the extension
         run: bun run vscode:prepublish

@@ -33,7 +33,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Set up development environment
-        run: bash scripts/env/setup-env.sh
+        run: bun scripts/env/setup-env.ts
 
       - name: Format (biome)
         run: bunx biome check --write --max-diagnostics=none .
