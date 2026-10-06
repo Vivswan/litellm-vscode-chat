@@ -1,11 +1,13 @@
 import tseslint from "typescript-eslint";
 import { outputChannelWrites } from "./scripts/lint/outputChannelWrites";
+import { type AllowedRead, userTextReaders } from "./scripts/lint/userTextReaders";
 
 /**
  * Biome owns formatting and every check it has a rule for. This config carries what Biome cannot express: the promise
- * rules that need the type checker (VS Code APIs return Thenables, which Biome's rule cannot see), the one local rule
- * that judges a receiver by its vscode type, and the restricted-syntax rules, which need AST selectors.
+ * rules that need the type checker (VS Code APIs return Thenables, which Biome's rule cannot see), the two local rules
+ * that judge a call by the declaration it resolves to, and the restricted-syntax rules, which need AST selectors.
  */
+const litellm = { rules: { "output-channel-writes": outputChannelWrites, "user-text-readers": userTextReaders } };
 const promiseRules = {
 	"@typescript-eslint/no-floating-promises": ["error", { checkThenables: true }],
 	"@typescript-eslint/no-misused-promises": "error",
@@ -21,6 +23,41 @@ const REPO_ROOT_FIX =
 const TEST_FILES = "src/test/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}";
 
 const SOURCE_FILES = "src/**/*.{ts,tsx,mts,cts}";
+
+/**
+ * The settings readers: where a user's text is taken in, so a trim or number read there must go through the two homes
+ * (src/shared/util/headers.ts, src/shared/util/decimalText.ts). The homes are not listed: every read inside them is the
+ * rule itself.
+ */
+const READER_MODULES = [
+	"src/shared/config/**/*.{ts,tsx,mts,cts}",
+	"src/extension/servers/serverSync/setting.ts",
+	"src/dashboard/**/*.{ts,tsx,mts,cts}",
+	"src/extension/settingsTransfer/**/*.{ts,tsx,mts,cts}",
+	"src/extension/dashboard/state.ts",
+	"src/extension/dashboard/entryAuth.ts",
+	"src/extension/ui/settingsTransferCommands.ts",
+	"src/provider/catalog/groupModels.ts",
+];
+
+/** A read that is not user text, by file and the function holding it; the rule refuses a row no read matches. */
+const ALLOWED_READS: AllowedRead[] = [
+	{
+		file: "src/shared/config/openRouterCatalog.ts",
+		function: "nonBlankString",
+		reason: "reads a catalog response field, not user text; the one trim rule covers settings values",
+	},
+	{
+		file: "src/dashboard/spendFormat.ts",
+		function: "formatPercentExact",
+		reason: "re-reads the code's own toPrecision output, never user text",
+	},
+	{
+		file: "src/dashboard/presenters.ts",
+		function: "scaledDecimal",
+		reason: "reads a DECIMAL_TEXT_PATTERN capture; the grammar has already judged the text",
+	},
+];
 
 /**
  * Text leaves the extension through one door per surface, where Logger.redact runs once. Each entry is a VS Code API,
@@ -137,12 +174,16 @@ export default tseslint.config(
 		// The Logger is the one writer, so the rule is off there; the wiring file may only create the channel.
 		files: [SOURCE_FILES],
 		ignores: ["src/test/**", "src/shared/logger.ts"],
-		plugins: { litellm: { rules: { "output-channel-writes": outputChannelWrites } } },
+		plugins: { litellm },
 		rules: { "litellm/output-channel-writes": "error" },
 	},
 	{
 		files: ["src/extension.ts"],
 		rules: { "litellm/output-channel-writes": ["error", { allow: ["createOutputChannel"] }] },
+	},
+	{
+		files: READER_MODULES,
+		rules: { "litellm/user-text-readers": ["error", { allow: ALLOWED_READS }] },
 	},
 	{
 		files: [SOURCE_FILES],
