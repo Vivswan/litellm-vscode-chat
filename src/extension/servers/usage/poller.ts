@@ -7,8 +7,11 @@
  *   refreshNow                  -> still works
  */
 
+import * as l10n from "@vscode/l10n";
 import type { UsageEndpointId } from "../../../dashboard/usageEndpoints";
 import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
+import type { RejectedCredentialField } from "../../../provider/catalog/groupModels";
+import { rejectedCredentialKinds } from "../../../provider/catalog/groupModels";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
@@ -88,8 +91,11 @@ export interface UsageServerRefreshOutcome {
 	 * (resolveOwnedSecrets).
 	 */
 	readonly secretsMismatched?: true | undefined;
-	/** The pass never reached the network: a configured key cannot ride its header (usageConnectionFor). */
-	readonly credentialsRefused?: true | undefined;
+	/**
+	 * The pass never reached the network: a configured key cannot ride its header (usageConnectionFor). The fields
+	 * name which, for the toast; never a value.
+	 */
+	readonly credentialsRefused?: readonly [RejectedCredentialField, ...RejectedCredentialField[]] | undefined;
 }
 
 export interface UsageRefreshOutcome {
@@ -128,8 +134,12 @@ function actionableFailureText(server: UsageServerRefreshOutcome): string | unde
 	if (server.secretsMismatched === true) {
 		return `${server.label}: a stored secret belongs to a different server address`;
 	}
-	if (server.credentialsRefused === true) {
-		return `${server.label}: a configured key cannot be sent as an HTTP header`;
+	if (server.credentialsRefused !== undefined) {
+		return l10n.t(
+			"{0}: the stored {1} cannot be sent as an HTTP header",
+			server.label,
+			rejectedCredentialKinds(server.credentialsRefused).display
+		);
 	}
 	const failures = server.failures.filter((failure) => failure.reason !== "unsupported");
 	if (failures.length === 0) {
@@ -456,7 +466,7 @@ export class UsagePoller {
 		let stored: StoredServerSecrets | undefined;
 		let secretsUnreadable = false;
 		let secretsMismatched = false;
-		let credentialsRefused = false;
+		let credentialsRefused: UsageServerRefreshOutcome["credentialsRefused"];
 		try {
 			// The same ownership check the sync engine applies at its read boundary: a stored value stamped for a
 			// different destination must never ride an authenticated probe to this entry's host.
@@ -500,7 +510,7 @@ export class UsagePoller {
 			} else {
 				// Skipped like a mismatched stamp: a keyless probe would only manufacture a 401 to render, and the sync
 				// engine's view carries the actionable text.
-				credentialsRefused = true;
+				credentialsRefused = resolution.fields;
 				this.env.log("A configured key cannot be sent as an HTTP header; usage refresh skipped", {
 					label: entry.label,
 					fields: resolution.fields,
@@ -644,7 +654,7 @@ export class UsagePoller {
 			succeededAny,
 			...(secretsUnreadable ? { secretsUnreadable: true } : {}),
 			...(secretsMismatched ? { secretsMismatched: true } : {}),
-			...(credentialsRefused ? { credentialsRefused: true } : {}),
+			...(credentialsRefused !== undefined ? { credentialsRefused } : {}),
 		};
 	}
 

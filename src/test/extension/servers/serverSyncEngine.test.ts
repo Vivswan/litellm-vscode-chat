@@ -12,7 +12,7 @@ import {
 	SECRETS_READ_FAILED_MESSAGE,
 	ServerSyncEngine,
 } from "../../../extension/servers/serverSync";
-import { CREDENTIALS_REFUSED_MESSAGE, groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
+import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
 import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
 import { canonicalEntryBaseUrls, removalOutcome } from "../../../extension/servers/serverSync/vscodeEnv";
 import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
@@ -96,7 +96,11 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 
 				const view = expectDefined(engine.getDeclared()[0]);
 				assert.strictEqual(view.syncFailure?.class, "credentialsRefused", field);
-				assert.strictEqual(view.syncFailure.message, CREDENTIALS_REFUSED_MESSAGE, field);
+				assert.strictEqual(
+					view.syncFailure.message,
+					"A configured API key or virtual key for this entry cannot be sent as an HTTP header, so requests to it are refused. See the Diagnostics tab for the field, then enter the value again.",
+					field
+				);
 				assert.deepStrictEqual(view.rejectedCredentials, [field]);
 				assert.strictEqual(recorded.upserts.length, 1, `${field}: the group add itself still lands`);
 			}

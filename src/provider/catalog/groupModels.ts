@@ -127,7 +127,7 @@ function overlayGroupCredentials(server: GroupServer, credentials: GroupCredenti
  * The secret fields that ride an HTTP header, so a value the platform's Headers would refuse is a refusal of the field.
  * The OAuth client secret rides the token request's body (transport/auth.ts) and has no header rule.
  */
-export const HEADER_BORNE_SECRET_FIELDS = ["apiKey", "virtualKeyValue"] as const satisfies readonly SecretFieldId[];
+const HEADER_BORNE_SECRET_FIELDS = ["apiKey", "virtualKeyValue"] as const satisfies readonly SecretFieldId[];
 
 export type RejectedCredentialField = (typeof HEADER_BORNE_SECRET_FIELDS)[number];
 

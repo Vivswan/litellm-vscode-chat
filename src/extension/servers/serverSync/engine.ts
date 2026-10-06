@@ -6,6 +6,7 @@
  */
 
 import { isDeepStrictEqual } from "node:util";
+import * as l10n from "@vscode/l10n";
 import type * as vscode from "vscode";
 import type { CredentialRejection, ParsedGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
@@ -325,15 +326,9 @@ export const SALT_UNAVAILABLE_MESSAGE =
 	"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session.";
 
 /**
- * The group itself synced; the refusal is the request path's, which sends nothing for this entry until the value is
- * replaced. The field is named on the dashboard's Diagnostics tab (rejectedCredentials), not here.
- */
-export const CREDENTIALS_REFUSED_MESSAGE =
-	"A configured API key or virtual key for this entry cannot be sent as an HTTP header, so requests to it are refused. See the Diagnostics tab for the field, then enter the value again.";
-
-/**
  * The one SyncFailure constructor: the message derives from the class, so the pairing is right by construction at
- * every producer site. The total Record makes a new class a compile error until it names its message.
+ * every producer site. The total Record makes a new class a compile error until it names its message. The refusal's
+ * text names no field: the group itself synced, and the Diagnostics tab (rejectedCredentials) points at the field.
  */
 function syncFailureOf(failureClass: SyncErrorClass): SyncFailure {
 	const messages: Readonly<Record<SyncErrorClass, string>> = {
@@ -342,7 +337,9 @@ function syncFailureOf(failureClass: SyncErrorClass): SyncFailure {
 		secretsUnreadable: SECRETS_READ_FAILED_MESSAGE,
 		secretsMismatched: SECRET_OWNERSHIP_MISMATCH_MESSAGE,
 		saltUnavailable: SALT_UNAVAILABLE_MESSAGE,
-		credentialsRefused: CREDENTIALS_REFUSED_MESSAGE,
+		credentialsRefused: l10n.t(
+			"A configured API key or virtual key for this entry cannot be sent as an HTTP header, so requests to it are refused. See the Diagnostics tab for the field, then enter the value again."
+		),
 	};
 	return { class: failureClass, message: messages[failureClass] };
 }

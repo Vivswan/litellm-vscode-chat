@@ -714,22 +714,42 @@ suite("extension/servers/usage poller", () => {
 		assert.ok(!h.logs.join("\n").includes("sk-old"), "no log line carries the value");
 	});
 
-	test("a stored key the header rule refuses skips the probes and records the refusal, never a keyless 401", async () => {
-		// The interior newline survives the edge trim; resolving keyless sent /key/info headerless and the server's
-		// 401 became the usage state ("forbidden") while the row said the key was present.
-		const h = makeHarness({
-			intervalMs: 0,
-			readSecrets: async () => ({ values: { apiKey: "sk-a\nb" }, owners: {} }),
+	/**
+	 * A stored value with an interior newline survives the edge trim; resolving keyless sent /key/info headerless and
+	 * the server's 401 became the usage state ("forbidden") while the row said the key was present.
+	 */
+	const REFUSED_KEYS = [
+		{
+			field: "apiKey",
+			servers: [{ label: "alpha", baseUrl: "http://one.test" }],
+			values: { apiKey: "sk-a\nb" },
+			summary: "alpha: the stored API key cannot be sent as an HTTP header",
+		},
+		{
+			field: "virtualKeyValue",
+			servers: [{ label: "alpha", baseUrl: "http://one.test", auth: { virtualKey: { header: "x-vk" } } }],
+			values: { virtualKeyValue: "vk-a\nb" },
+			summary: "alpha: the stored virtual key cannot be sent as an HTTP header",
+		},
+	] as const;
+	for (const refused of REFUSED_KEYS) {
+		test(`a stored ${refused.field} the header rule refuses skips the probes and names the field, never a keyless 401`, async () => {
+			const h = makeHarness({
+				intervalMs: 0,
+				servers: refused.servers,
+				readSecrets: async () => ({ values: refused.values, owners: {} }),
+			});
+
+			const outcome = await h.poller.refreshNow();
+
+			assert.strictEqual(h.client.calls.keyInfo, 0, "the refused credential must never ride a probe");
+			assert.strictEqual(h.client.calls.dailyActivity, 0);
+			assert.deepStrictEqual(outcome?.servers[0]?.credentialsRefused, [refused.field]);
+			assert.strictEqual(usageRefreshFailureSummary(outcome), refused.summary);
+			assert.ok(h.logs.some((line) => line.includes("cannot be sent as an HTTP header")));
+			assert.ok(!h.logs.join("\n").includes("-a\nb"), "no log line carries the value");
 		});
-
-		const outcome = await h.poller.refreshNow();
-
-		assert.strictEqual(h.client.calls.keyInfo, 0, "the refused credential must never ride a probe");
-		assert.strictEqual(outcome?.servers[0]?.credentialsRefused, true);
-		assert.strictEqual(usageRefreshFailureSummary(outcome), "alpha: a configured key cannot be sent as an HTTP header");
-		assert.ok(h.logs.some((line) => line.includes("cannot be sent as an HTTP header")));
-		assert.ok(!h.logs.join("\n").includes("sk-a"), "no log line carries the value");
-	});
+	}
 
 	test("dispose cancels the pending tick", () => {
 		const h = makeHarness({ intervalMs: 300_000 });

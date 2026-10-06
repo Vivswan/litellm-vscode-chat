@@ -7,8 +7,13 @@
  *   the split -> keeps every prompt between the two steps fakeable
  */
 
+import * as l10n from "@vscode/l10n";
 import type { RejectedCredentialField } from "../../provider/catalog/groupModels";
-import { HEADER_BORNE_SECRET_FIELDS } from "../../provider/catalog/groupModels";
+import {
+	narrowGroupCredentials,
+	refusedCredentialFields,
+	rejectedCredentialKinds,
+} from "../../provider/catalog/groupModels";
 import {
 	ALL_SETTING_KEYS,
 	acceptsNumberSetting,
@@ -21,9 +26,10 @@ import {
 } from "../../shared/config/settingSpec";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import { sendableHeaderValue, trimHttpWhitespace } from "../../shared/util/headers";
+import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { restructureServers } from "../migrations/settingsRedesign/entries";
+import { buildGroupArgs } from "../servers/serverSync/engine";
 import type { StoredSecretOwners, StoredServerSecrets } from "../servers/serverSync/secrets";
 import { secretDestination } from "../servers/serverSync/secrets";
 import type { DeclaredServer, ServerEntryReport } from "../servers/serverSync/setting";
@@ -197,31 +203,36 @@ function representativeIndices(incomingServers: readonly IncomingServer[]): Read
 	return new Map([...fallbacks].map(([label, index]) => [label, claimants.get(label) ?? index]));
 }
 
-const REFUSED_SECRET_PROBLEM: Readonly<Record<RejectedCredentialField, string>> = {
-	apiKey: "has an API key that cannot be sent as an HTTP header; it is not imported, so enter it again afterwards",
-	virtualKeyValue:
-		"has a virtual key value that cannot be sent as an HTTP header; it is not imported, so enter it again afterwards",
-};
+function refusedSecretProblem(field: RejectedCredentialField): string {
+	return l10n.t(
+		"the {0} cannot be sent as an HTTP header; it is not imported, so enter it again afterwards",
+		rejectedCredentialKinds([field]).display
+	);
+}
 
 /**
- * The import's one reading of an entry's secrets: a header-borne value no repair makes sendable is refused by field
- * and never stored, the rule the request path narrows by (sendableHeaderValue); the entry still lands without it.
+ * The import's one reading of an entry's secrets, judged by the same narrowing every request path narrows by: a
+ * configured key the narrowing rejects is refused by field and never stored, and the entry still lands without it. An
+ * entry the parser does not accept configures no unit, so nothing of it is refused here.
  */
-function importableSecrets(raw: Readonly<Record<string, unknown>>): {
+function importableSecrets(
+	raw: Readonly<Record<string, unknown>>,
+	label: string | undefined
+): {
 	readonly entry: Readonly<Record<string, unknown>>;
 	readonly secrets: StoredServerSecrets;
 	readonly refused: readonly RejectedCredentialField[];
 	readonly unsanitizable: boolean;
 } {
 	const stripped = stripEntrySecrets(raw);
+	const entry = label === undefined ? undefined : acceptedEntry([stripped.entry], label)?.entry;
+	const refused =
+		entry === undefined
+			? []
+			: (refusedCredentialFields(narrowGroupCredentials(buildGroupArgs(entry, stripped.secrets)).rejections) ?? []);
 	const secrets: { -readonly [K in SecretFieldId]?: string } = { ...stripped.secrets };
-	const refused: RejectedCredentialField[] = [];
-	for (const field of HEADER_BORNE_SECRET_FIELDS) {
-		const value = secrets[field];
-		if (value !== undefined && sendableHeaderValue(value) === undefined) {
-			delete secrets[field];
-			refused.push(field);
-		}
+	for (const field of refused) {
+		delete secrets[field];
 	}
 	return { entry: stripped.entry, secrets, refused, unsanitizable: stripped.unsanitizable };
 }
@@ -262,7 +273,7 @@ export function planSettingsImport(
 			const reports = serverSettingReports(incoming);
 			incoming.forEach((raw: unknown, index) => {
 				const report = reports[index] ?? { index, problems: [], accepted: false };
-				const secrets = isRecord(raw) ? importableSecrets(raw) : undefined;
+				const secrets = isRecord(raw) ? importableSecrets(raw, report.label) : undefined;
 				// An uncertifiable shape must not land in the settings file (its text is presumed to be a credential);
 				// the entry skips with the reason beside the parser's own problem lines.
 				if (secrets?.unsanitizable) {
@@ -292,10 +303,7 @@ export function planSettingsImport(
 					});
 					return;
 				}
-				const problems = [
-					...report.problems,
-					...(secrets?.refused ?? []).map((field) => REFUSED_SECRET_PROBLEM[field]),
-				];
+				const problems = [...report.problems, ...(secrets?.refused ?? []).map(refusedSecretProblem)];
 				incomingServers.push({ raw, report: { ...report, problems }, skipped: report.label === undefined });
 			});
 			continue;
@@ -314,9 +322,9 @@ export function planSettingsImport(
 	const representatives = representativeIndices(incomingServers);
 	let secretFieldCount = 0;
 	for (const index of representatives.values()) {
-		const raw = incomingServers[index]?.raw;
-		if (isRecord(raw)) {
-			secretFieldCount += Object.keys(importableSecrets(raw).secrets).length;
+		const incoming = incomingServers[index];
+		if (incoming !== undefined && isRecord(incoming.raw)) {
+			secretFieldCount += Object.keys(importableSecrets(incoming.raw, incoming.report.label).secrets).length;
 		}
 	}
 	const collisions: ServerCollision[] = [];
@@ -428,7 +436,7 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 	let skipped = 0;
 
 	const land = (label: string, rawEntry: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
-		const stripped = importableSecrets(rawEntry);
+		const stripped = importableSecrets(rawEntry, label);
 		// The stamp target is the entry as it will be written and parsed back;
 		// see SecretWrite.owners for the fail-closed fallback.
 		const parsed = acceptedEntry([stripped.entry], label)?.entry;

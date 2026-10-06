@@ -100,7 +100,7 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 
 		test("a set key the platform's Headers would refuse is refused before the probe, naming the field", async () => {
 			// Sent as-is, the probe's error quoted the whole key back to the form ("... invalid value: 'Bearer sk-a b'");
-			// the same rule refuses a save of a newly set key (a kept stored one is the Diagnostics tab's to report).
+			// the same rule refuses a save of a newly set key.
 			const recorded = makeEnv([]);
 			await assert.rejects(
 				draftTest(recorded, {
@@ -112,6 +112,42 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 			);
 			assert.deepStrictEqual(recorded.probes, []);
 		});
+
+		/**
+		 * A KEPT stored value with an interior newline passes the typed-directive gate above (nothing was typed) and
+		 * survives the edge trim; probing with it dropped sent the probe headerless and showed the form a 401.
+		 */
+		const REFUSED_KEPT_KEYS = [
+			{
+				field: "apiKey",
+				entry: { label: "Prod", baseUrl: "http://prod.test" },
+				payload: {},
+				value: "sk-a\nb",
+				message: "The draft's API key cannot be sent as an HTTP header",
+			},
+			{
+				field: "virtualKeyValue",
+				entry: { label: "Prod", baseUrl: "http://prod.test", auth: { virtualKey: { header: "x-vk" } } },
+				payload: { virtualKeyHeader: "x-vk" },
+				value: "vk-a\nb",
+				message: "The draft's virtual key cannot be sent as an HTTP header",
+			},
+		] as const;
+		for (const refused of REFUSED_KEPT_KEYS) {
+			test(`a kept stored ${refused.field} the header rule refuses is refused before the probe, naming the field`, async () => {
+				const recorded = makeEnv([refused.entry]);
+				recorded.storedSecrets.set("Prod", { [refused.field]: refused.value });
+				recorded.storedOwners.set("Prod", { [refused.field]: "http://prod.test" });
+				await assert.rejects(
+					draftTest(recorded, {
+						server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", ...refused.payload }),
+						replace: await displayedReplace(recorded, "Prod"),
+					}),
+					(error: unknown) => error instanceof DashboardValidationError && error.message === refused.message
+				);
+				assert.deepStrictEqual(recorded.probes, [], "a refused credential never reaches the probe");
+			});
+		}
 
 		test("the draft's apiVersion override rides the probe connection trimmed; auto stays absent", async () => {
 			const custom = makeEnv([]);

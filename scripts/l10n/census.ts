@@ -433,4 +433,12 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"credentialsUnavailableError",
 	"unroutableModelError",
 	"overlayEntryCredentials",
+	// The credential-refusal texts: the kind renderer, the sync-failure constructor's generic sentence, and the usage
+	// toast's summary and the import preview's problem line that name the refused field through the renderer.
+	"rejectedCredentialKinds",
+	"syncFailureOf",
+	"actionableFailureText",
+	"usageRefreshFailureSummary",
+	"refusedSecretProblem",
+	"planSettingsImport",
 ];

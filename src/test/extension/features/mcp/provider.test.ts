@@ -424,6 +424,78 @@ suite("extension/features/mcp", () => {
 			assert.deepStrictEqual(definition.headers, {}, "a refused pairing attaches nothing");
 		});
 
+		/**
+		 * A stored value with an interior newline survives the edge trim; composing headers from it would have handed
+		 * the editor a definition whose first request the server answered 401.
+		 */
+		const REFUSED_KEYS = [
+			{
+				field: "apiKey",
+				entry: entry(),
+				value: "sk-a\nb",
+				english:
+					'The stored API key for "Main" cannot be sent as an HTTP header, so its MCP server cannot be started. Enter the value again from the server row on the dashboard.',
+			},
+			{
+				field: "virtualKeyValue",
+				entry: entry({ auth: { virtualKey: { header: "x-vk" } } }),
+				value: "vk-a\nb",
+				english:
+					'The stored virtual key for "Main" cannot be sent as an HTTP header, so its MCP server cannot be started. Enter the value again from the server row on the dashboard.',
+			},
+		] as const;
+		for (const refused of REFUSED_KEYS) {
+			test(`a stored ${refused.field} the header rule refuses: the resolve names the field, no request leaves`, async () => {
+				const blobs = new Map<string, string>();
+				const store: vscode.SecretStorage = {
+					get: async (key: string) => blobs.get(key),
+					store: async (key: string, value: string) => {
+						blobs.set(key, value);
+					},
+					delete: async (key: string) => {
+						blobs.delete(key);
+					},
+					onDidChange: () => new vscode.Disposable(() => {}),
+				} as unknown as vscode.SecretStorage;
+				await updateServerSecret(store, "Main", refused.field, refused.value, TEST_BASE_URL);
+				let requests = 0;
+				mswServer.use(
+					http.all("*", () => {
+						requests += 1;
+						return HttpResponse.json({});
+					})
+				);
+
+				const provider = createMcpServerDefinitionProvider(
+					{
+						secrets: store,
+						oneShot: new OneShotClient({ userAgent: "test-agent" }),
+						versions: new McpVersionCounters(memento()),
+						advisory: () => {},
+						logError: () => {},
+						logFailure: () => {},
+					},
+					new vscode.EventEmitter<void>().event
+				);
+				const servers = [refused.entry];
+				const [definition] = await withConfig({ servers }, () => provide(provider));
+				assert.ok(definition);
+				await withConfig({ servers }, async () => {
+					await assert.rejects(
+						() => resolve(provider, definition),
+						(error: unknown) => {
+							assert.ok(error instanceof MirroredError);
+							assert.strictEqual(error.logClassification, "Mcp(configured credential cannot be sent as a header)");
+							assert.strictEqual(error.englishMessage, refused.english);
+							return true;
+						}
+					);
+				});
+				assert.strictEqual(requests, 0, "a refused credential never leaves");
+				assert.deepStrictEqual(definition.headers, {}, "a refused pairing attaches nothing");
+			});
+		}
+
 		test("an inert stale stamp resolves; declaring the field's shape refuses the same stored value", async () => {
 			// Refusal is scoped by the one wire rule (entryUsesSecretField): a stale-stamped virtualKeyValue with no
 			// declared header has no carrier (usageConnectionFor builds the virtualKey unit only with a header), so the
