@@ -57,7 +57,7 @@ import {
 import type { PreImportSnapshot, SnapshotBlobEntry, SnapshotEntry } from "../settingsTransfer/snapshot";
 import { buildPreImportSnapshot, planSnapshotRestore } from "../settingsTransfer/snapshot";
 import type { MessageAction } from "./notifier";
-import { showActionableMessage } from "./notifier";
+import { showActionableMessage, showMessage } from "./notifier";
 
 /** The import file size cap; a settings export is small, so anything larger is not one. */
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
@@ -227,19 +227,20 @@ function createSettingsTransferPrompts(): SettingsTransferPrompts {
 	return {
 		confirmImport: async (summary) => {
 			const proceed = l10n.t("Import");
-			const choice = await vscode.window.showInformationMessage(
-				l10n.t("Import these LiteLLM settings?"),
-				{ modal: true, detail: renderImportPreview(summary) },
-				proceed
-			);
+			const choice = await showMessage("info", l10n.t("Import these LiteLLM settings?"), [proceed], {
+				modal: true,
+				detail: renderImportPreview(summary),
+			});
 			return choice === proceed;
 		},
 		resolveCollision: async (label, connectionChanged) => {
 			const overwrite = l10n.t("Overwrite");
 			const skip = l10n.t("Skip");
 			const rename = l10n.t("Import Renamed");
-			const choice = await vscode.window.showWarningMessage(
+			const choice = await showMessage(
+				"warning",
 				l10n.t('A server named "{0}" already exists.', label),
+				[overwrite, skip, rename],
 				{
 					modal: true,
 					detail: connectionChanged
@@ -247,10 +248,7 @@ function createSettingsTransferPrompts(): SettingsTransferPrompts {
 								"Overwriting replaces the entry and its stored secrets, and changes its connection settings; the server's dashboard row will show the steps to reconnect."
 							)
 						: l10n.t("Overwriting replaces the entry and its stored secrets."),
-				},
-				overwrite,
-				skip,
-				rename
+				}
 			);
 			return choice === overwrite ? "overwrite" : choice === skip ? "skip" : choice === rename ? "rename" : undefined;
 		},
@@ -267,17 +265,13 @@ function createSettingsTransferPrompts(): SettingsTransferPrompts {
 			// than "Invalid Date".
 			const recorded = new Date(snapshotAt);
 			const when = Number.isNaN(recorded.getTime()) ? snapshotAt : recorded.toLocaleString();
-			const choice = await vscode.window.showWarningMessage(
-				l10n.t("Undo the last settings import?"),
-				{
-					modal: true,
-					detail: l10n.t(
-						"Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.",
-						when
-					),
-				},
-				undo
-			);
+			const choice = await showMessage("warning", l10n.t("Undo the last settings import?"), [undo], {
+				modal: true,
+				detail: l10n.t(
+					"Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.",
+					when
+				),
+			});
 			return choice === undo;
 		},
 		notify: (kind, message, actions = []) => showActionableMessage(kind, message, [...actions]),

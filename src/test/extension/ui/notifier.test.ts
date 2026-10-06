@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import { APIConnectionError } from "openai";
 import * as vscode from "vscode";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
-import { reconfigureAction } from "../../../extension/ui/notifier";
+import { reconfigureAction, showMessage } from "../../../extension/ui/notifier";
 import { zeroModelJudgment, zeroModelTexts } from "../../../extension/ui/status";
 import { mapSdkError } from "../../../provider/transport/errorMapping";
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
@@ -644,5 +644,53 @@ suite("extension/ui/notifier", () => {
 			(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
 		}
 		assert.deepStrictEqual(executed, ["litellm.openDashboard"]);
+	});
+
+	// The door is the one place toast text is masked, so it must change nothing in text that carries no value: a byte
+	// lost here would be a byte lost from every toast and modal in the extension.
+	test("showMessage hands a secret-free message, detail, and labels to VS Code unchanged", async () => {
+		const calls: unknown[][] = [];
+		const origWarn = vscode.window.showWarningMessage;
+		(vscode.window as Record<string, unknown>).showWarningMessage = async (...args: unknown[]) => {
+			calls.push(args);
+			return undefined;
+		};
+		const message = 'A server named "Prod (http://localhost:4000/v1)" already exists.';
+		const detail = "Overwriting replaces the entry and its stored secrets.\n\tTab, trailing space ";
+		try {
+			await showMessage("warning", message, ["Overwrite", "Skip"], { modal: true, detail });
+			await showMessage("warning", message, ["Overwrite"]);
+		} finally {
+			(vscode.window as Record<string, unknown>).showWarningMessage = origWarn;
+		}
+		assert.deepStrictEqual(calls, [
+			[message, { modal: true, detail }, "Overwrite", "Skip"],
+			[message, "Overwrite"],
+		]);
+	});
+
+	test("showMessage masks a registered value in the message and a URL's userinfo in the detail", async () => {
+		const calls: unknown[][] = [];
+		const origError = vscode.window.showErrorMessage;
+		(vscode.window as Record<string, unknown>).showErrorMessage = async (...args: unknown[]) => {
+			calls.push(args);
+			return undefined;
+		};
+		Logger.registerSecrets(["toast-key-Q7-marker"]);
+		try {
+			await showMessage("error", "LiteLLM: 401 for toast-key-Q7-marker", ["Reconfigure"], {
+				modal: true,
+				detail: "Seen at http://user:sekret@localhost:4000/v1",
+			});
+		} finally {
+			(vscode.window as Record<string, unknown>).showErrorMessage = origError;
+		}
+		assert.deepStrictEqual(calls, [
+			[
+				"LiteLLM: 401 for [redacted]",
+				{ modal: true, detail: "Seen at http://[redacted]@localhost:4000/v1" },
+				"Reconfigure",
+			],
+		]);
 	});
 });

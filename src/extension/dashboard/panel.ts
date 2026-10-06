@@ -72,6 +72,7 @@ import type { UsagePoller } from "../servers/usage";
 import { isUsageFresh, notifyUsageRefreshFailure } from "../servers/usage";
 import type { SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
+import { copyToClipboard } from "../ui/clipboard";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
 import { secretValueHolders } from "./declaredJoin";
@@ -892,7 +893,7 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 		refreshCatalogNow: deps.refreshCatalogNow,
 		refreshUsageNow: deps.refreshUsageNow,
 		executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
-		writeClipboard: (text) => vscode.env.clipboard.writeText(text),
+		writeClipboard: copyToClipboard,
 		log: (message, data) => logger.log(message, data),
 	};
 }

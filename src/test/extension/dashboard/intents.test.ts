@@ -12,19 +12,12 @@ import { isRecord } from "../../../shared/util/json";
 import { makeEnv, type RecordedEnv } from "./recordedEnv";
 
 suite("extension/dashboard/intents", () => {
-	test("copyDiagnostics writes the composed text through the output door: userinfo and registered values masked", async () => {
+	test("copyDiagnostics hands the composed text to the env's clipboard writer whole: the door it injects does the masking", async () => {
 		const recorded = makeEnv();
 		Logger.registerSecrets(["copy-key-Q7-marker"]);
-		await executeDashboardIntent(
-			{
-				method: "copyDiagnostics",
-				payload: { text: "Prod (http://user:sekret@localhost:4000): 401 for copy-key-Q7-marker at /home/alice" },
-			},
-			recorded.env
-		);
-		assert.deepStrictEqual(recorded.clipboard, [
-			"Prod (http://[redacted]@localhost:4000): 401 for [redacted] at /home/alice",
-		]);
+		const text = "Prod (http://user:sekret@localhost:4000): 401 for copy-key-Q7-marker at /home/alice";
+		await executeDashboardIntent({ method: "copyDiagnostics", payload: { text } }, recorded.env);
+		assert.deepStrictEqual(recorded.clipboard, [text]);
 	});
 
 	suite("executeDashboardIntent", () => {

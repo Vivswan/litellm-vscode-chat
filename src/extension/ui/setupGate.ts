@@ -5,7 +5,6 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import * as vscode from "vscode";
 import { thrownErrorDisplayText } from "../../provider/transport/errorMapping";
 import type { SetupHintKind } from "../../shared/errorClassification";
 import { failureClassification } from "../../shared/failureCause";
@@ -16,6 +15,7 @@ import {
 	type MessageAction,
 	reconfigureAction,
 	showActionableMessage,
+	showMessage,
 	testConnectionAction,
 	troubleshootingDocsAction,
 } from "./notifier";
@@ -97,7 +97,7 @@ export async function showSetupProblemGate(problem: SetupProblem, reportAnyway: 
 				await reportAnyway();
 			} catch (error) {
 				const detail = thrownErrorDisplayText(error);
-				void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the issue report - {0}", detail));
+				void showMessage("error", l10n.t("LiteLLM: Could not open the issue report - {0}", detail), []);
 			}
 		},
 	};

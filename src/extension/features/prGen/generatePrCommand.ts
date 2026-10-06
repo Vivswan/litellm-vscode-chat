@@ -4,6 +4,7 @@ import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
 import { Logger } from "../../../shared/logger";
 import { truncateKeepingHead } from "../../../shared/util/text";
+import { copyToClipboard } from "../../ui/clipboard";
 import { openSettingsAction, showActionableMessage } from "../../ui/notifier";
 import { reportCommandFailure } from "../commandFailure";
 import {
@@ -123,10 +124,10 @@ export async function runGeneratePrDescription(
 		);
 		switch (outcome.kind) {
 			case "generated": {
-				const copy = deps.copy ?? ((text: string) => vscode.env.clipboard.writeText(text));
-				// Model output onto the clipboard and into the toast: through the one output door like a tool result, and
-				// before the toast's cut so the cut never falls inside a value.
-				await copy(Logger.redact(clipboardText(outcome.result.title, outcome.result.description)));
+				const copy = deps.copy ?? copyToClipboard;
+				// The clipboard door masks the whole text; the toast's title is masked here, before its cut, so the cut
+				// never falls inside a value and leaves a fragment the door cannot recognize.
+				await copy(clipboardText(outcome.result.title, outcome.result.description));
 				const notified = notifiedTitle(Logger.redact(outcome.result.title));
 				await showActionableMessage(
 					"info",

@@ -15,7 +15,7 @@ import type { HeaderValue } from "../../../shared/util/headers";
 import { validatedStringRecord } from "../../../shared/util/json";
 import type { FingerprintSaltSession } from "../../fingerprintSalt";
 import type { MessageAction } from "../../ui/notifier";
-import { showActionableMessage } from "../../ui/notifier";
+import { showActionableMessage, showMessage } from "../../ui/notifier";
 import type { GroupKey, GroupRemovalStore, TombstoneIdentity, TombstonePersistence } from "../groupRemovals";
 import { tombstoneHides } from "../groupRemovals";
 import { manageLanguageModelsAvailable, openManageLanguageModels } from "../manageLanguageModels";
@@ -460,11 +460,13 @@ export function registerSetServerSecretCommand(
 		vscode.commands.registerCommand(CMD.setServerSecret, async () => {
 			const entries = currentDeclaredServers();
 			if (entries.length === 0) {
-				void vscode.window.showInformationMessage(
+				void showMessage(
+					"info",
 					l10n.t(
 						"No servers declared in the {0} setting yet. Add one there or in the dashboard first.",
 						`${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`
-					)
+					),
+					[]
 				);
 				return;
 			}
@@ -504,11 +506,13 @@ export function registerSetServerSecretCommand(
 				logger.log("Set Server Secret refused: the entry changed while the prompts were open", {
 					label: entryPick.label,
 				});
-				void vscode.window.showWarningMessage(
+				void showMessage(
+					"warning",
 					l10n.t(
 						'The server entry "{0}" changed while the prompts were open, so nothing was stored. Run the command again.',
 						entryPick.label
-					)
+					),
+					[]
 				);
 				return;
 			}
@@ -527,12 +531,14 @@ export function registerSetServerSecretCommand(
 				cleared: value.length === 0,
 			});
 			if (value.length > 0 && inlineSecretValues(fresh.entry)[fieldPick.field] !== undefined) {
-				void vscode.window.showWarningMessage(
+				void showMessage(
+					"warning",
 					l10n.t(
 						'"{0}" also sets {1} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.',
 						entryPick.label,
 						fieldPick.field
-					)
+					),
+					[]
 				);
 			}
 			engine.requestSync();

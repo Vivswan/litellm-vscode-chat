@@ -4,6 +4,7 @@ import { StreamProcessor } from "../../../provider/transport/streaming/processor
 import type { DataPartCtor } from "../../../shared/conversion/dataPart";
 import { resetDataPartLogOnce } from "../../../shared/conversion/dataPart";
 import type { ThinkingPartCtor } from "../../../shared/conversion/thinkingPart";
+import { Logger } from "../../../shared/logger";
 import { assertContains, assertEndsWith, assertShows, expectDefined } from "../../pureHelpers";
 import { BUILTIN_SCENARIOS } from "../../scenarios";
 import { collector, idSource, playChunks, sseStream, visibleTextOf } from "./streamingHelpers";
@@ -19,6 +20,42 @@ suite("provider/streaming refusal and annotations", () => {
 
 		assert.equal(visibleTextOf(parts), "I cannot help with that.");
 		assert.equal(logs.filter((l) => l.includes("Model refused the request")).length, 1);
+	});
+
+	// The processor is the chat stream's exit door: the parts it builds whole (a refusal, the sources trailer) are
+	// masked there, while content deltas arrive in token-sized pieces no mask can judge.
+	test("a refusal quoting a registered value and a citation URL's userinfo leave masked; content does not change", async () => {
+		Logger.registerSecrets(["refusal-Q7-marker", "paren(Q7)marker"]);
+		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), () => {}, progress);
+
+		await playChunks(stream, [
+			{ choices: [{ delta: { refusal: "I cannot reveal refusal-Q7-marker." } }] },
+			{
+				choices: [
+					{
+						delta: {
+							content: "The sky is blue.",
+							annotations: [
+								{ type: "url_citation", url_citation: { url: "https://user:sekret@example.test/sky", title: "Sky" } },
+								// Masked before the URL's parens are percent-encoded, or the encoded spelling would slip past.
+								{ type: "url_citation", url_citation: { url: "https://example.test/paren(Q7)marker", title: "Paren" } },
+							],
+						},
+					},
+				],
+			},
+			{ choices: [{ delta: {}, finish_reason: "stop" }] },
+		]);
+
+		const text = visibleTextOf(parts);
+		assertContains(text, "I cannot reveal [redacted].", "The refusal passes the door");
+		assertContains(text, "The sky is blue.", "Content is untouched");
+		assertEndsWith(
+			text,
+			"\n\nSources:\n- [Sky](https://[redacted]@example.test/sky)\n- [Paren](https://example.test/[redacted])",
+			"The trailer passes the door"
+		);
 	});
 
 	test("url citations from annotations emit one sources trailer at end of stream", async () => {
