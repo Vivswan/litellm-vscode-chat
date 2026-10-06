@@ -3,7 +3,7 @@ import * as fc from "fast-check";
 import * as vscode from "vscode";
 import { StreamProcessor } from "../../../provider/transport/streaming/processor";
 import { parseChunk } from "../../../provider/transport/wire";
-import type { FuzzEvent } from "../../fuzzCorpus";
+import type { ExpectedToolCall, FuzzEvent } from "../../fuzzCorpus";
 import {
 	assemble,
 	chunkOf,
@@ -11,9 +11,11 @@ import {
 	makeTailEvent,
 	newGeneratorState,
 	PROPERTY_EVENT_KIND_WEIGHTS,
+	type PropertyEventKind,
 	resolveFuzzSeed,
 	TAIL_EVENT_KINDS,
 } from "../../fuzzStream";
+import { expectDefined } from "../../pureHelpers";
 
 /**
  * StreamProcessor uses its default host-probed thinking ctor and the pinned host exposes LanguageModelThinkingPart,
@@ -34,8 +36,8 @@ interface RunResult {
 	parts: vscode.LanguageModelResponsePart[];
 }
 
-function runChunks(chunks: unknown[]): RunResult {
-	const parts: vscode.LanguageModelResponsePart[] = [];
+/** `parts` is the caller's when a run is expected to throw at end of stream: it holds what emitted before the throw. */
+function runChunks(chunks: unknown[], parts: vscode.LanguageModelResponsePart[] = []): RunResult {
 	const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 	const processor = new StreamProcessor(idSource(), () => {}, progress);
 	for (const raw of chunks) {
@@ -59,6 +61,13 @@ function toolCallsOf(parts: vscode.LanguageModelResponsePart[]): vscode.Language
 	return parts.filter(
 		(p): p is vscode.LanguageModelToolCallPart => p instanceof vscode.LanguageModelToolCallPart
 	) as vscode.LanguageModelToolCallPart[];
+}
+
+/** Emitted calls in the oracle's shape, sorted by seq as the oracle lists them. */
+function callsBySeq(calls: vscode.LanguageModelToolCallPart[]): ExpectedToolCall[] {
+	return calls
+		.map((c) => ({ name: c.name, args: c.input as Record<string, unknown> }))
+		.sort((a, b) => Number(a.args.seq) - Number(b.args.seq));
 }
 
 /** Comparable rendering of a part list; ids stay in (fresh processors mint them deterministically). */
@@ -99,18 +108,37 @@ const eventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 		return events;
 	});
 
-/**
- * Streams that always end in one delta-channel tool call (and never a tail), so the index-invariance property has a
- * numeric index to rewrite in every run.
- */
-const eventsWithDeltaArb: fc.Arbitrary<FuzzEvent[]> = fc
-	.tuple(fc.array(eventSpecArb, { maxLength: 7 }), seedArb)
-	.map(([specs, deltaSeed]) => {
+/** No tail event: the property needs `kind` to be the last event of every stream. */
+function eventsEndingIn(kind: PropertyEventKind): fc.Arbitrary<FuzzEvent[]> {
+	return fc.tuple(fc.array(eventSpecArb, { maxLength: 7 }), seedArb).map(([specs, lastSeed]) => {
 		const state = newGeneratorState(true);
-		const events = specs.map(([kind, kindSeed]) => makePropertyEvent(kind, kindSeed, state));
-		events.push(makePropertyEvent("delta-tool", deltaSeed, state));
+		const events = specs.map(([eventKind, kindSeed]) => makePropertyEvent(eventKind, kindSeed, state));
+		events.push(makePropertyEvent(kind, lastSeed, state));
 		return events;
 	});
+}
+
+const eventsWithDeltaArb = eventsEndingIn("delta-tool");
+const eventsWithSplitDeltaArb = eventsEndingIn("split-delta-tool");
+
+function carriesArguments(chunk: unknown): boolean {
+	const choices = (chunk as { choices?: unknown }).choices;
+	if (!Array.isArray(choices)) {
+		return false;
+	}
+	const toolCalls = (choices[0] as { delta?: { tool_calls?: unknown } } | undefined)?.delta?.tool_calls;
+	return (
+		Array.isArray(toolCalls) &&
+		toolCalls.some((tc) => typeof (tc as { function?: { arguments?: unknown } }).function?.arguments === "string")
+	);
+}
+
+/** The withheld call can never complete, so it leaves the oracle's expected calls. */
+function withoutLastArgumentDelta(event: FuzzEvent): FuzzEvent {
+	const last = event.chunks.findLastIndex(carriesArguments);
+	assert.ok(last >= 0, `event ${event.label} carries no argument delta to withhold`);
+	return { ...event, tools: [], chunks: event.chunks.filter((_, i) => i !== last) };
+}
 
 function inlineCallChunk(name: string, index: number, argText: string): Record<string, unknown> {
 	return chunkOf({
@@ -136,11 +164,28 @@ suite("provider/streaming dedup properties", () => {
 
 				const calls = toolCallsOf(parts);
 				assert.strictEqual(calls.length, assembled.expectedToolCalls.length, "tool call count diverged");
-				const actualSorted = calls
-					.map((c) => ({ name: c.name, args: c.input as Record<string, unknown> }))
-					.sort((a, b) => Number(a.args.seq) - Number(b.args.seq));
-				assert.deepStrictEqual(actualSorted, assembled.expectedToolCalls, "tool calls diverged");
+				assert.deepStrictEqual(callsBySeq(calls), assembled.expectedToolCalls, "tool calls diverged");
 
+				const ids = calls.map((c) => c.callId);
+				assert.strictEqual(new Set(ids).size, ids.length, `duplicate tool call IDs: ${ids.join(", ")}`);
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+
+	test("a split call whose last argument delta never arrives is reported as a broken call, never emitted", function () {
+		// The finish_reason mid-arguments must not stand in for the missing delta: the half-read call is the same
+		// truncation as one with no finish_reason at all, and the calls that did complete still emit exactly once.
+		this.timeout(Math.max(120000, NUM_RUNS * 50));
+		fc.assert(
+			fc.property(eventsWithSplitDeltaArb, (events) => {
+				const truncated = [...events.slice(0, -1), withoutLastArgumentDelta(expectDefined(events.at(-1)))];
+				const assembled = assemble(truncated);
+				const parts: vscode.LanguageModelResponsePart[] = [];
+				assert.throws(() => runChunks(assembled.chunks, parts), /broken tool call/);
+
+				const calls = toolCallsOf(parts);
+				assert.deepStrictEqual(callsBySeq(calls), assembled.expectedToolCalls, "the complete calls diverged");
 				const ids = calls.map((c) => c.callId);
 				assert.strictEqual(new Set(ids).size, ids.length, `duplicate tool call IDs: ${ids.join(", ")}`);
 			}),

@@ -93,12 +93,8 @@ function randomSlices(state: GeneratorState, text: string): string[] {
 	const slices: string[] = [];
 	let rest = text;
 	for (let i = 0; i < cuts && rest.length > 1; i++) {
-		let at = 1 + Math.floor(state.random() * (rest.length - 1));
-		const beforeCut = rest.charCodeAt(at - 1);
-		if (!state.allowSurrogateSplit && beforeCut >= 0xd800 && beforeCut <= 0xdbff && at < rest.length) {
-			at++;
-		}
-		if (at >= rest.length) {
+		const at = interiorCut(state, rest);
+		if (at === undefined) {
 			break;
 		}
 		slices.push(rest.slice(0, at));
@@ -106,6 +102,26 @@ function randomSlices(state: GeneratorState, text: string): string[] {
 	}
 	slices.push(rest);
 	return slices;
+}
+
+/** A random cut strictly inside `text`, or undefined when the surrogate rule pushes it onto the end. */
+function interiorCut(state: GeneratorState, text: string): number | undefined {
+	let at = 1 + Math.floor(state.random() * (text.length - 1));
+	const beforeCut = text.charCodeAt(at - 1);
+	if (!state.allowSurrogateSplit && beforeCut >= 0xd800 && beforeCut <= 0xdbff && at < text.length) {
+		at++;
+	}
+	return at < text.length ? at : undefined;
+}
+
+/**
+ * A call's argument text cut at a random interior point, so a finish_reason placed at the cut always lands
+ * mid-arguments. The fallback cut after the opening brace covers the surrogate rule's end-of-text case.
+ */
+function cutArgs(state: GeneratorState, call: ExpectedToolCall): [string, string] {
+	const text = JSON.stringify(call.args);
+	const at = interiorCut(state, text) ?? 1;
+	return [text.slice(0, at), text.slice(at)];
 }
 
 function words(state: GeneratorState, count: number): string {
@@ -129,8 +145,17 @@ function toolCallSpec(state: GeneratorState): ExpectedToolCall {
 	return { name, args };
 }
 
-function deltaToolFrames(state: GeneratorState, call: ExpectedToolCall, index: number): unknown[] {
-	const slices = randomSlices(state, JSON.stringify(call.args));
+function argumentsFrame(index: number, slice: string): Record<string, unknown> {
+	return chunkOf({ tool_calls: [{ index, function: { arguments: slice } }] });
+}
+
+function deltaToolFrames(
+	state: GeneratorState,
+	call: ExpectedToolCall,
+	index: number,
+	argText = JSON.stringify(call.args)
+): Record<string, unknown>[] {
+	const slices = randomSlices(state, argText);
 	const frames = [
 		chunkOf({
 			tool_calls: [
@@ -139,7 +164,7 @@ function deltaToolFrames(state: GeneratorState, call: ExpectedToolCall, index: n
 		}),
 	];
 	for (const slice of slices.slice(1)) {
-		frames.push(chunkOf({ tool_calls: [{ index, function: { arguments: slice } }] }));
+		frames.push(argumentsFrame(index, slice));
 	}
 	return frames;
 }
@@ -248,6 +273,81 @@ function interleavedToolsEvent(state: GeneratorState): FuzzEvent {
 		}
 	}
 	return { label: "interleaved-tools", tools: [first, second], deltaToolChannel: true, chunks };
+}
+
+/**
+ * Where a finish_reason lands relative to a call whose arguments are still arriving (#456, #476). A finish_reason
+ * never finalizes a call: the processor holds the half-read call through it and emits it once, complete, when the
+ * rest of the arguments land. In same-chunk, the class's boundary, the last delta rides the finish chunk, so the call
+ * completes before the finish_reason is read.
+ */
+const SPLIT_FINISH_VARIANTS = ["before-last", "same-chunk", "empty-delta-between", "text-after"] as const;
+type SplitFinishVariant = (typeof SPLIT_FINISH_VARIANTS)[number];
+
+function withFinishReason(chunk: Record<string, unknown>, reason: string): Record<string, unknown> {
+	const [choice] = chunk.choices as Array<Record<string, unknown>>;
+	return { ...chunk, choices: [{ ...choice, finish_reason: reason }] };
+}
+
+/** `head` and `tail` each carry argument bytes of the call: the finish_reason never lands before it starts. */
+function splitAroundFinish(
+	variant: SplitFinishVariant,
+	reason: string,
+	head: Record<string, unknown>[],
+	tail: Record<string, unknown>[]
+): unknown[] {
+	switch (variant) {
+		case "before-last":
+		case "text-after":
+			return [...head, chunkOf({}, reason), ...tail];
+		case "same-chunk":
+			return [...head, ...tail.slice(0, -1), withFinishReason(expectDefined(tail.at(-1)), reason)];
+		case "empty-delta-between":
+			return [...head, chunkOf({}, reason), chunkOf({}), ...tail];
+	}
+}
+
+function splitFinishSetup(state: GeneratorState): { variant: SplitFinishVariant; reason: string } {
+	const variant = expectDefined(SPLIT_FINISH_VARIANTS[Math.floor(state.random() * SPLIT_FINISH_VARIANTS.length)]);
+	return { variant, reason: state.random() < 0.5 ? "tool_calls" : "stop" };
+}
+
+/** A delta-channel call with a finish_reason placed among its argument chunks. */
+function splitDeltaToolEvent(state: GeneratorState): FuzzEvent {
+	const call = toolCallSpec(state);
+	const index = state.toolIndex++;
+	const { variant, reason } = splitFinishSetup(state);
+	const [headArgs, tailArgs] = cutArgs(state, call);
+	const head = deltaToolFrames(state, call, index, headArgs);
+	const tail = randomSlices(state, tailArgs).map((slice) => argumentsFrame(index, slice));
+	const chunks = splitAroundFinish(variant, reason, head, tail);
+	// The text lands behind the call's frames, so the hint-space accounting matches a plain delta-tool event.
+	const text = variant === "text-after" ? `${words(state, 1)} ` : "";
+	if (text) {
+		chunks.push(chunkOf({ content: text }));
+	}
+	return { label: `split-delta-tool-${variant}`, text, tools: [call], deltaToolChannel: true, chunks };
+}
+
+/** An inline call with a finish_reason placed among its content chunks (the #476 shape). */
+function splitInlineToolEvent(state: GeneratorState): FuzzEvent {
+	const call = toolCallSpec(state);
+	const index = state.toolIndex++;
+	const { variant, reason } = splitFinishSetup(state);
+	const [headArgs, tailArgs] = cutArgs(state, call);
+	const pre = `${words(state, 1)} `;
+	const content = (slice: string) => chunkOf({ content: slice });
+	const head = randomSlices(
+		state,
+		`${pre}<|tool_call_begin|>${call.name}:${index}<|tool_call_argument_begin|>${headArgs}`
+	).map(content);
+	const tail = randomSlices(state, `${tailArgs}<|tool_call_end|>`).map(content);
+	const chunks = splitAroundFinish(variant, reason, head, tail);
+	const post = variant === "text-after" ? ` ${words(state, 1)} ` : "";
+	if (post) {
+		chunks.push(content(post));
+	}
+	return { label: `split-inline-tool-${variant}`, text: pre + post, tools: [call], chunks };
 }
 
 function refusalEvent(state: GeneratorState): FuzzEvent {
@@ -504,6 +604,8 @@ export const PROPERTY_EVENT_KIND_WEIGHTS = [
 	{ kind: "inline-tool", weight: 9, directOnly: false },
 	{ kind: "duplicate-tool", weight: 6, directOnly: false },
 	{ kind: "interleaved-tools", weight: 6, directOnly: false },
+	{ kind: "split-delta-tool", weight: 6, directOnly: false },
+	{ kind: "split-inline-tool", weight: 5, directOnly: false },
 	{ kind: "same-channel-twins", weight: 5, directOnly: false },
 	{ kind: "inline-no-index", weight: 5, directOnly: false },
 	{ kind: "citation", weight: 6, directOnly: false },
@@ -531,6 +633,10 @@ function buildEvent(kind: PropertyEventKind, state: GeneratorState): FuzzEvent {
 			return duplicateToolEvent(state);
 		case "interleaved-tools":
 			return interleavedToolsEvent(state);
+		case "split-delta-tool":
+			return splitDeltaToolEvent(state);
+		case "split-inline-tool":
+			return splitInlineToolEvent(state);
 		case "same-channel-twins":
 			return sameChannelTwinsEvent(state);
 		case "inline-no-index":
