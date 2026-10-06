@@ -112,6 +112,10 @@ export class ChatClient {
 		this.logger?.log(message, data);
 	};
 
+	private readonly advise = (message: string, data?: unknown): void => {
+		this.logger?.advisory(message, data);
+	};
+
 	constructor(options: ChatClientOptions) {
 		this.userAgent = options.userAgent;
 		this.logger = options.logger;
@@ -263,7 +267,7 @@ export class ChatClient {
 		const entryModelParameters =
 			server.label !== undefined ? this.getEntryModelParameters(server.label, server.baseUrl) : undefined;
 		const { params: modelParams, forcedParams } = this.resolution.resolveParameters(serverId, metadata.rawModelId, {
-			globalParameters: getModelParametersConfig(this.log),
+			globalParameters: getModelParametersConfig(this.advise),
 			entryParameters: entryModelParameters,
 		});
 

@@ -48,7 +48,7 @@ export class ServedModelDecorator {
 	 */
 	private capabilityOptions(server: ServerConfig, entryLabel: string | undefined): CapabilityOverrideOptions {
 		return {
-			globalCapabilities: getModelCapabilitiesConfig((message, data) => this._options.log(message, data)),
+			globalCapabilities: getModelCapabilitiesConfig((message, data) => this._options.logAdvisory(message, data)),
 			entryCapabilities:
 				entryLabel !== undefined ? this._options.getEntryModelCapabilities(entryLabel, server.baseUrl) : undefined,
 			entryDeclaredModels:

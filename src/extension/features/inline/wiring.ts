@@ -27,7 +27,7 @@ function createFimSend(
 	secrets: vscode.SecretStorage,
 	oneShot: Pick<OneShotClient, "completeFim">,
 	table: ModelResolutionTable,
-	log: (message: string, data?: unknown) => void
+	advise: (message: string, data?: unknown) => void
 ): InlineCompletionSend {
 	return async ({ modelRef, prefix, suffix, token }) => {
 		const resolved = await entryConnectionFor(secrets, modelRef.server);
@@ -35,7 +35,7 @@ function createFimSend(
 			throw configuredServerUnavailable("inlineCompletions", modelRef.server, resolved.kind);
 		}
 		const { fimTemplate } = table.resolveParameters(modelRef.server, modelRef.model, {
-			globalParameters: getModelParametersConfig(log),
+			globalParameters: getModelParametersConfig(advise),
 			entryParameters: resolved.entry.modelParameters,
 		});
 		const wire = buildFimPrompt({ prefix, suffix, fimTemplate });
@@ -89,7 +89,9 @@ export function wireInlineCompletions(
 	//   One resolution table for the feature's lifetime -> the directive read is memoized
 	const table = new ModelResolutionTable();
 	const cache = new CompletionCache();
-	const fimSend = createFimSend(context.secrets, deps.oneShot, table, log);
+	const fimSend = createFimSend(context.secrets, deps.oneShot, table, (message, data) =>
+		logger.advisory(message, data)
+	);
 	const provider = createInlineCompletionProvider({ send: fimSend, cache, log });
 
 	let registration: vscode.Disposable | undefined;
