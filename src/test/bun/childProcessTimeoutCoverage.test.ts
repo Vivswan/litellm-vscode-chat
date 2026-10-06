@@ -7,6 +7,7 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { REPO_ROOT } from "../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
 
 const parsed = new Map<string, ts.SourceFile>();
@@ -26,8 +27,7 @@ function parsedSource(file: string): ts.SourceFile {
 	return sourceFile;
 }
 
-const BUN_TREE = path.resolve(import.meta.dir);
-const REPO_ROOT = path.resolve(BUN_TREE, "../../..");
+const BUN_TREE = path.join(REPO_ROOT, "src", "test", "bun");
 /** The file names `bun test` runs, per its discovery rules. */
 const TEST_FILE = /[._](?:test|spec)\.[cm]?[jt]sx?$/;
 const DEADLINE_MODULE = path.join(BUN_TREE, "childProcessTimeout.ts");

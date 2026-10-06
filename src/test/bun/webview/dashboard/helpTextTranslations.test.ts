@@ -9,8 +9,7 @@ import * as path from "node:path";
 import type { ServerFormField } from "../../../../dashboard/serverForm";
 import { EMPTY_SERVER_FORM } from "../../../../dashboard/serverForm";
 import * as helpText from "../../../../webview/dashboard/helpText";
-
-const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..", "..");
+import { REPO_ROOT } from "../../../util/repoRoot";
 
 function addIfString(value: unknown, into: Set<string>): void {
 	if (typeof value === "string") {
@@ -46,7 +45,7 @@ test("every translated help string stays free of interpolation and placeholders"
 	// Floor: a helpX() given an arity would silently drop out of the sweep.
 	expect(english.size).toBeGreaterThanOrEqual(25);
 
-	const l10nDir = path.join(repoRoot, "l10n");
+	const l10nDir = path.join(REPO_ROOT, "l10n");
 	const bundleNames = fs
 		.readdirSync(l10nDir)
 		.filter((name) => /^bundle\.l10n\.[\w-]+\.json$/.test(name))

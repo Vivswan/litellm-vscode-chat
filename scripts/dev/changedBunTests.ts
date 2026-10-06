@@ -1,7 +1,9 @@
 /**
- * The bun test files a staged change can affect, for .husky/pre-commit: a suite runs when it is staged itself or its
- * runtime imports reach a staged file. The whole tree, the host suite, the docker stacks, and fuzz are CI's on every
- * push; here only the suites that can see the change run, so unrelated suites' budgets cannot refuse a commit.
+ * The bun test files a staged change can affect, for .husky/pre-commit: a suite runs when it is staged itself, its
+ * runtime imports reach a staged file, or it reads the repository as data (declared by importing
+ * src/test/util/repoRoot.ts, which no import graph could otherwise see). The whole tree, the host suite, the docker
+ * stacks, and fuzz are CI's on every push; here only the suites that can see the change run, so unrelated suites'
+ * budgets cannot refuse a commit.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -36,27 +38,34 @@ export function selectBunTests(repoRoot: string, staged: readonly string[]): Bun
 	const config = readBunTestConfig(repoRoot);
 	const stagedFiles = new Set(staged.map((file) => path.resolve(repoRoot, file)));
 	const graph = new RuntimeImportGraph();
-	const reachesStaged = (entry: string): boolean => {
-		let reaches = false;
+	const closureHolds = (entry: string, counts: (file: string) => boolean): boolean => {
+		let holds = false;
 		for (const file of graph.closureOf(entry)) {
 			if (graph.edgesOf(file).opaque) {
 				throw new Error(
 					`${file} loads a module by a computed specifier, so the selection cannot know what it reaches; make the specifier a literal`
 				);
 			}
-			reaches ||= stagedFiles.has(file);
+			holds ||= counts(file);
 		}
-		return reaches;
+		return holds;
 	};
+	const isStaged = (file: string): boolean => stagedFiles.has(file);
+	// The marker selects a SUITE on any change; in the preload, which every suite loads, it would select every suite on
+	// every commit, so the preload walk counts staged files only.
+	const repositoryReader = path.join(repoRoot, "src", "test", "util", "repoRoot.ts");
+	const affected = (file: string): boolean => isStaged(file) || file === repositoryReader;
 	const tests = testFilesUnder(path.join(repoRoot, config.root)).sort();
+	// Both the staged input and any suite the walk can print share the one-path-per-line protocol with the hook.
+	for (const file of [...staged, ...tests]) {
+		if (file.includes("\n")) {
+			throw new Error(
+				`a path holds a newline, which the one-path-per-line output cannot carry: ${JSON.stringify(file)}`
+			);
+		}
+	}
 	const asOutput = (files: readonly string[]): string[] =>
-		files.map((file) => {
-			const posix = path.relative(repoRoot, file).split(path.sep).join("/");
-			if (posix.includes("\n")) {
-				throw new Error(`${posix} holds a newline, which the one-path-per-line output cannot carry`);
-			}
-			return `./${posix}`;
-		});
+		files.map((file) => `./${path.relative(repoRoot, file).split(path.sep).join("/")}`);
 	const every = (reason: string): BunTestSelection => ({
 		files: asOutput(tests),
 		summary: `all ${plural(tests.length, "bun test file")} run: ${reason}`,
@@ -67,8 +76,9 @@ export function selectBunTests(repoRoot: string, staged: readonly string[]): Bun
 	}
 	// Every closure is walked before any shortcut answers, so an unresolvable or computed import refuses the commit on
 	// every branch, not only the one that filters.
-	const reaching = tests.filter(reachesStaged);
-	const preloadReaches = config.preloads.filter((preload) => reachesStaged(path.resolve(repoRoot, preload))).length > 0;
+	const reaching = tests.filter((test) => closureHolds(test, affected));
+	const preloadReaches =
+		config.preloads.filter((preload) => closureHolds(path.resolve(repoRoot, preload), isStaged)).length > 0;
 	if (stagedFiles.has(path.join(repoRoot, "bunfig.toml"))) {
 		return every("bunfig.toml is staged");
 	}
@@ -78,11 +88,11 @@ export function selectBunTests(repoRoot: string, staged: readonly string[]): Bun
 	if (reaching.length === 0) {
 		return {
 			files: [],
-			summary: `no bun test file is staged or reaches the ${plural(staged.length, "staged file")}; CI runs the full tree on push`,
+			summary: `no bun test file is staged, reaches the ${plural(staged.length, "staged file")}, or reads the repository; CI runs the full tree on push`,
 		};
 	}
 	return {
 		files: asOutput(reaching),
-		summary: `${reaching.length} of ${tests.length} bun test files are staged or reach the ${plural(staged.length, "staged file")}`,
+		summary: `${reaching.length} of ${tests.length} bun test files are staged, reach the ${plural(staged.length, "staged file")}, or read the repository`,
 	};
 }

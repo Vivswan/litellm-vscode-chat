@@ -2,14 +2,14 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { REPO_ROOT } from "../../util/repoRoot";
 
 /**
  * Line-number citations are banned outright because they rot within days of landing. The citation grammar this
  * file implements is documented at the top of docs/dashboard-visual-language.md.
  */
-const repoRoot = path.resolve(import.meta.dir, "../../../..");
-const charterPath = path.join(repoRoot, "docs/dashboard-visual-language.md");
-const dashboardRoot = path.join(repoRoot, "src/webview/dashboard");
+const charterPath = path.join(REPO_ROOT, "docs/dashboard-visual-language.md");
+const dashboardRoot = path.join(REPO_ROOT, "src/webview/dashboard");
 
 /** First-token file names this grammar recognizes; everything else in backticks is ordinary prose. */
 const CITED_FILE = /^[\w./-]+\.(?:css|tsx|ts)$/;
@@ -19,7 +19,7 @@ function resolveCitedFile(token: string): string {
 		return path.join(dashboardRoot, "styles", token);
 	}
 	if (token.startsWith("src/")) {
-		return path.join(repoRoot, token);
+		return path.join(REPO_ROOT, token);
 	}
 	return path.join(dashboardRoot, token);
 }

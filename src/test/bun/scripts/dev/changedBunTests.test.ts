@@ -3,11 +3,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { selectBunTests } from "../../../../../scripts/dev/changedBunTests";
+import { REPO_ROOT } from "../../../util/repoRoot";
 
 /**
  * A wrong selection skips the suites that guard the staged change and the commit goes through green, so the mapping
  * is pinned on a hand-written tree (FILES): a direct importer, a transitive one, a type-only one, and an unrelated
- * suite, with a preload that reaches a file no suite imports.
+ * suite, with a preload that reaches a file no suite imports. The preload also imports the repository-reader marker,
+ * so the unreachable-doc case pins that the marker selects suites, never the preload (which would select everything).
+ *
+ * Red control: in changedBunTests.ts replace `graph.closureOf(entry)` with `graph.edgesOf(entry).imports`; the two
+ * reach cases fail, each missing the suite that reaches its staged file through one more hop.
  */
 let root: string;
 
@@ -17,7 +22,8 @@ const FILES: Record<string, string> = {
 	"src/helper.ts": 'import { thing } from "./thing";\nexport const helper = thing + 1;\n',
 	"src/other.ts": "export const other = 2;\n",
 	"src/salt.ts": "export const salt = 3;\n",
-	"tests/preload.ts": 'import "../src/salt";\n',
+	"src/test/util/repoRoot.ts": 'export const REPO_ROOT = "";\n',
+	"tests/preload.ts": 'import "../src/salt";\nimport "../src/test/util/repoRoot";\n',
 	"tests/direct.test.ts": 'import { thing } from "../src/thing";\nexport const d = thing;\n',
 	"tests/transitive.test.ts": 'import { helper } from "../src/helper";\nexport const t = helper;\n',
 	"tests/typeOnly.test.ts": 'import type { thing } from "../src/thing";\nexport type T = typeof thing;\n',
@@ -90,5 +96,29 @@ describe("pre-commit bun test selection", () => {
 		} finally {
 			fs.rmSync(opaque);
 		}
+	});
+
+	test("a suite that imports the repository-reader marker runs on any staged change, and only then", () => {
+		// A suite reading a doc or stylesheet as data has no import edge to it; the marker is the one thing that says so.
+		const reader = path.join(root, "tests", "reader.test.ts");
+		fs.writeFileSync(reader, 'import { REPO_ROOT } from "../src/test/util/repoRoot";\nexport const r = REPO_ROOT;\n');
+		try {
+			expect(selectBunTests(root, ["docs/guide.md"]).files).toEqual(["./tests/reader.test.ts"]);
+			expect(selectBunTests(root, []).files).toEqual([]);
+		} finally {
+			fs.rmSync(reader);
+		}
+	});
+
+	test("the repository's data-reading suites are selected for the files they read", () => {
+		// Before the marker rule, staging any of these three selected nothing while each suite fails on the change.
+		const { files } = selectBunTests(REPO_ROOT, [
+			"src/webview/dashboard/styles/dashboard.css",
+			"src/extension/features/gitAccess.ts",
+			"src/test/bun/scripts/ci/outputChannelWritesFixture.ts",
+		]);
+		expect(files).toContain("./src/test/bun/docs/visualLanguageAnchors.test.ts");
+		expect(files).toContain("./src/test/bun/extension/features/documentLabelGuard.test.ts");
+		expect(files).toContain("./src/test/bun/scripts/ci/output-channel-writes.test.ts");
 	});
 });
