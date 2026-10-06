@@ -5,7 +5,7 @@
 #   forbidden: changing the commit (stage, commit, format-and-restage); any writing git command
 #              (stash, checkout, reset, push, config); anything else (fix-then-pass, network)
 #   read-only `git diff --cached --name-only` is fine; the developer reruns the commit
-# This hook writes nothing and runs no git; a refused check names its fix command when one exists.
+# This hook writes nothing; its only git is that read-only diff; a refused check names its fix command when one exists.
 
 # First, before anything that needs an install: the .husky/_ bootstrap files are tracked so git always finds a hook to
 # run, and a checkout that never ran bun install lands here instead of silently committing with no hooks at all.
@@ -20,6 +20,19 @@ if ! bun run check:static; then
 	exit 1
 fi
 
-# The bun tree only. The VS Code host suite (compile, bundle, and the four vscode-test labels) is CI's to judge on
-# every push, on three OSes; running it here too cost each commit minutes for a verdict the push repeats.
-bun test
+# The bun tree, narrowed to what the staged change can reach: the staged bun test files plus every bun test whose
+# runtime imports reach a staged file (scripts/dev/changed-bun-tests.ts prints them and says why on one line). The
+# whole tree, the VS Code host suite on three OSes, the docker stacks, and fuzz are CI's to judge on every push; run
+# here, the whole tree tripped per-test budgets on suites the change never touched. A selection error refuses the
+# commit, so the tests are never skipped silently.
+if ! selected=$(bun scripts/dev/changed-bun-tests.ts); then
+	echo "pre-commit: refused; the bun test selection failed (above), so no bun test ran. Nothing was written."
+	exit 1
+fi
+if [ -n "$selected" ]; then
+	# Split on newlines only, with globbing off, so a name with a space or a bracket stays one whole argument.
+	set -f
+	IFS='
+'
+	bun test $selected
+fi
