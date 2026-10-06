@@ -69,7 +69,7 @@ export interface SettingsSnapshotReader {
  * Any key but the servers setting's: that one is written only through serversSettingWrite.ts's turn, so a keyed
  * writer called with its literal fails to compile.
  */
-export type NotServersKey<K extends string> = [K] extends [typeof SERVERS_SETTING_KEY] ? never : K;
+type NotServersKey<K extends string> = [K] extends [typeof SERVERS_SETTING_KEY] ? never : K;
 
 /**
  * Every method fetches the live configuration at call time: WorkspaceConfiguration is a snapshot, so a captured one
