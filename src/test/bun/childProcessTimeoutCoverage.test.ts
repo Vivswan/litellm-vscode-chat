@@ -78,6 +78,7 @@ const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["@happy-dom/global-registrator", "installs the DOM shim in-process"],
 	["@radix-ui/react-dialog", "React components"],
 	["@vscode/l10n", "string-table lookup"],
+	["async-mutex", "in-process promise serialization"],
 	["bun:test", "the test runner itself"],
 	["class-variance-authority", "class-name composition"],
 	["clsx", "class-name composition"],

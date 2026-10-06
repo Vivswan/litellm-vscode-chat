@@ -11,6 +11,7 @@
  */
 
 import { isDeepStrictEqual } from "node:util";
+import { Mutex } from "async-mutex";
 
 const MINT = Symbol("mint");
 
@@ -58,14 +59,11 @@ export function rawServerEntries(raw: unknown): unknown[] {
 	return Array.isArray(raw) ? [...raw] : [];
 }
 
-let settingsWriteTurn: Promise<unknown> = Promise.resolve();
+const settingsWriteMutex = new Mutex();
 
 /** `run` holds the turn until its promise settles; nothing in this process writes a setting meanwhile. */
 export function inSettingsWriteTurn<T>(run: (turn: SettingsWriteTurn) => Promise<T>): Promise<T> {
-	const body = (): Promise<T> => run({ servers: (value) => new ServersSettingWrite(value, MINT) });
-	const turn = settingsWriteTurn.then(body, body);
-	settingsWriteTurn = turn.catch(() => undefined);
-	return turn;
+	return settingsWriteMutex.runExclusive(() => run({ servers: (value) => new ServersSettingWrite(value, MINT) }));
 }
 
 export function writeServersSettingFrom(
