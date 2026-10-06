@@ -6,8 +6,9 @@
  */
 
 import { isDeepStrictEqual } from "node:util";
+import * as l10n from "@vscode/l10n";
 import type * as vscode from "vscode";
-import type { CredentialRejection } from "../../../provider/catalog/groupModels";
+import type { CredentialRejection, ParsedGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import { VENDOR_ID } from "../../../shared/config/commandIds";
@@ -40,13 +41,20 @@ import {
  * Consumers key on the class alone, never on message text. extension/dashboard/state.ts denies only an
  * upsertFailed claimant a shared snapshot's models and marks only a secretsUnreadable view's locations unproven.
  *
- *   upsertFailed      -> this add attempt failed outright, so the entry may have no group at all
- *   blocked           -> a group with the name exists and the host refused the duplicate
- *   secretsUnreadable -> the blob read itself failed; the view's locations degraded to the inline-only guess
- *   secretsMismatched -> the read succeeded but a stored value's ownership stamp refused the pairing
- *   saltUnavailable   -> the read succeeded and only the unconfirmed fingerprint salt stopped the pass
+ *   upsertFailed       -> this add attempt failed outright, so the entry may have no group at all
+ *   blocked            -> a group with the name exists and the host refused the duplicate
+ *   secretsUnreadable  -> the blob read itself failed; the view's locations degraded to the inline-only guess
+ *   secretsMismatched  -> the read succeeded but a stored value's ownership stamp refused the pairing
+ *   saltUnavailable    -> the read succeeded and only the unconfirmed fingerprint salt stopped the pass
+ *   credentialsRefused -> the group synced, but a configured key cannot ride its header, so requests are refused
  */
-type SyncErrorClass = "upsertFailed" | "blocked" | "secretsUnreadable" | "secretsMismatched" | "saltUnavailable";
+type SyncErrorClass =
+	| "upsertFailed"
+	| "blocked"
+	| "secretsUnreadable"
+	| "secretsMismatched"
+	| "saltUnavailable"
+	| "credentialsRefused";
 
 /**
  * One entry's sync failure: the class and its classified user-facing message, one value so a class without a message
@@ -98,8 +106,9 @@ export interface DeclaredServerView extends DeclaredGroupIdentity, NonSecretOpti
 	/** The label's last sync failure, cleared by the next success. */
 	readonly syncFailure?: SyncFailure | undefined;
 	/**
-	 * The credential fields the group narrowing dropped (a key the platform's Headers would refuse): the request path
-	 * sends without them, and the dashboard says so beside the entry. Fields only, never values.
+	 * The credential fields the group narrowing dropped (a key the platform's Headers would refuse): the field-level
+	 * detail behind a credentialsRefused failure, which the dashboard's diagnostics point at beside the entry. Fields
+	 * only, never values.
 	 */
 	readonly rejectedCredentials?: readonly CredentialRejection["field"][] | undefined;
 }
@@ -107,18 +116,16 @@ export interface DeclaredServerView extends DeclaredGroupIdentity, NonSecretOpti
 /** One derivation for the join keys (dashboard/declaredJoin.ts), so a pass's views and the live resolution agree. */
 function declaredGroupIdentity(
 	entry: DeclaredServer,
-	args: Readonly<Record<string, string>>,
-	report?: (rejection: CredentialRejection) => void
+	parsed: ParsedGroupConfiguration | undefined
 ): DeclaredGroupIdentity {
-	const groupServer = parseGroupConfiguration(args, report);
-	if (groupServer === undefined) {
+	if (parsed === undefined) {
 		return { label: entry.label, baseUrl: entry.baseUrl };
 	}
-	const { label: _label, ...connection } = groupServer;
+	const { label: _label, ...connection } = parsed.server;
 	return {
 		label: entry.label,
 		baseUrl: entry.baseUrl,
-		expectedClientId: groupClientId(groupServer),
+		expectedClientId: groupClientId(parsed.server),
 		expectedConnectionId: groupClientId(connection),
 	};
 }
@@ -320,7 +327,8 @@ export const SALT_UNAVAILABLE_MESSAGE =
 
 /**
  * The one SyncFailure constructor: the message derives from the class, so the pairing is right by construction at
- * every producer site. The total Record makes a new class a compile error until it names its message.
+ * every producer site. The total Record makes a new class a compile error until it names its message. The refusal's
+ * text names no field: the group itself synced, and the Diagnostics tab (rejectedCredentials) points at the field.
  */
 function syncFailureOf(failureClass: SyncErrorClass): SyncFailure {
 	const messages: Readonly<Record<SyncErrorClass, string>> = {
@@ -329,6 +337,9 @@ function syncFailureOf(failureClass: SyncErrorClass): SyncFailure {
 		secretsUnreadable: SECRETS_READ_FAILED_MESSAGE,
 		secretsMismatched: SECRET_OWNERSHIP_MISMATCH_MESSAGE,
 		saltUnavailable: SALT_UNAVAILABLE_MESSAGE,
+		credentialsRefused: l10n.t(
+			"A configured API key or virtual key for this entry cannot be sent as an HTTP header, so requests to it are refused. See the Diagnostics tab for the field, then enter the value again."
+		),
 	};
 	return { class: failureClass, message: messages[failureClass] };
 }
@@ -521,7 +532,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				return {
 					setting: current.setting,
 					identities: current.entries.map(({ entry, stored }) =>
-						declaredGroupIdentity(entry, buildGroupArgs(entry, stored))
+						declaredGroupIdentity(entry, parseGroupConfiguration(buildGroupArgs(entry, stored)))
 					),
 					carriers: current.carriers,
 					secretValues: current.secretValues,
@@ -974,10 +985,16 @@ export class ServerSyncEngine implements vscode.Disposable {
 				}
 			}
 			// The same narrowing the provider applies, collected rather than logged: the dashboard names the dropped
-			// credential beside the entry (configDiagnostics.ts), where the user can re-enter it.
-			const rejections: CredentialRejection[] = [];
+			// credential beside the entry (configDiagnostics.ts), where the user can re-enter it. A failure the pass
+			// already decided above outranks the refusal; the field detail rides beside either.
+			const parsed = parseGroupConfiguration(args);
+			const rejections = parsed?.rejections ?? [];
+			if (rejections.length > 0) {
+				syncFailure ??= syncFailureOf("credentialsRefused");
+			}
+			const identity = declaredGroupIdentity(entry, parsed);
 			views.push({
-				...declaredGroupIdentity(entry, args, (rejection) => rejections.push(rejection)),
+				...identity,
 				...pickNonSecretOptionalFields(entry),
 				...pickEntryViewFields(entry),
 				secrets: secretLocations(entry, stored),

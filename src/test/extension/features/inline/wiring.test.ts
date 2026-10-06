@@ -369,6 +369,69 @@ suite("extension/features/inline wiring", () => {
 		});
 	});
 
+	/**
+	 * A stored value with an interior newline survives the edge trim; resolving keyless sent the FIM request headerless
+	 * and the server's 401 was the ghost text's error.
+	 */
+	const REFUSED_KEYS = [
+		{
+			field: "apiKey",
+			entry: SERVER_ENTRY,
+			value: "sk-a\nb",
+			englishText:
+				"but its API key cannot be sent as an HTTP header, so nothing was sent. Enter the value again from the server row on the dashboard.",
+		},
+		{
+			field: "virtualKeyValue",
+			entry: { ...SERVER_ENTRY, auth: { virtualKey: { header: "x-vk" } } },
+			value: "vk-a\nb",
+			englishText:
+				"but its virtual key cannot be sent as an HTTP header, so nothing was sent. Enter the value again from the server row on the dashboard.",
+		},
+	] as const;
+	for (const refused of REFUSED_KEYS) {
+		test(`a stored ${refused.field} the header rule refuses: no request leaves, the error names the field`, async () => {
+			const secrets = memorySecretStorage();
+			await updateServerSecret(secrets, "Main", refused.field, refused.value, TEST_BASE_URL);
+			let seenAuthorization: string | null | undefined;
+			mswServer.use(
+				http.post(COMPLETIONS_URL, ({ request }) => {
+					seenAuthorization = request.headers.get("authorization");
+					return completionJsonResponse("leaked");
+				})
+			);
+			await withWiringSpies(async () => {
+				const { fimSend } = await withConfig({ "inlineCompletions.enabled": false, servers: [refused.entry] }, () =>
+					wireInlineCompletions(fakeContext(secrets), quietLogger(), {
+						oneShot: new OneShotClient({ userAgent: "test-agent" }),
+					})
+				);
+				const outcome = await withConfig({ servers: [refused.entry] }, () =>
+					fimSend({
+						modelRef: MODEL_REF,
+						prefix: "p",
+						suffix: "s",
+						token: new vscode.CancellationTokenSource().token,
+					}).then(
+						() => "sent",
+						(error: unknown) => error
+					)
+				);
+				assert.strictEqual(seenAuthorization, undefined, `a request left carrying ${seenAuthorization}`);
+				assert.ok(outcome instanceof MirroredError, `expected the classified error, got ${String(outcome)}`);
+				assert.strictEqual(
+					outcome.logClassification,
+					"InlineCompletions(configured credential cannot be sent as a header)"
+				);
+				assert.ok(
+					outcome.englishMessage?.includes(refused.englishText),
+					`the refusal names the field: ${outcome.englishMessage}`
+				);
+				assert.ok(!outcome.englishMessage?.includes("-a\nb"), "the value never rides the error");
+			});
+		});
+	}
+
 	test("the dashboard probe disposes its cancellation source deterministically, success and failure alike", async () => {
 		await withDisposalCount(async (count) => {
 			const okProbe = createFimProbe(async () => "ok");

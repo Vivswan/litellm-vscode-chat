@@ -529,7 +529,7 @@ suite("provider groups", () => {
 			seen,
 			[
 				{
-					groupId: groupClientId(expectDefined(parseGroupConfiguration(configuration))),
+					groupId: groupClientId(expectDefined(parseGroupConfiguration(configuration)).server),
 					label: "Prod",
 					entryLabel: "Prod",
 					baseUrl: TEST_BASE_URL,
@@ -576,7 +576,7 @@ suite("provider groups", () => {
 		assert.strictEqual(infos.length, 1, "an unsuppressed unlabeled group serves its discovery");
 		assert.deepStrictEqual(seen, [
 			{
-				groupId: groupClientId(expectDefined(parseGroupConfiguration(configuration))),
+				groupId: groupClientId(expectDefined(parseGroupConfiguration(configuration)).server),
 				label: "litellm.test",
 				entryLabel: undefined,
 				baseUrl: TEST_BASE_URL,

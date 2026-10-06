@@ -812,7 +812,7 @@ suite("one trim rule: padded user values are kept verbatim or refused, never rep
 						baseUrl: BASE_URL,
 						label: ` ${padded("Prod")} `,
 						apiKey: ` ${NBSP}sk `,
-					});
+					})?.server;
 					return { label: group?.label, apiKey: group?.apiKey };
 				},
 				{ label: padded("Prod"), apiKey: `${NBSP}sk` },

@@ -1,12 +1,19 @@
 /**
  * Import planning in two pure steps: planSettingsImport reduces a parsed envelope plus the current servers setting to
  * an ImportPlan, and resolveImportPlan folds the user's collision decisions into an ImportApplication. No direct vscode
- * usage; the one impurity is the serverSync setting parser, whose module graph reaches vscode at load time in the
- * host - which is why this core sits in extension/ rather than dashboard/.
+ * usage; the impurities are the serverSync setting parser and the group credential narrowing, whose module graphs
+ * reach vscode at load time in the host - which is why this core sits in extension/ rather than dashboard/.
  *
  *   the split -> keeps every prompt between the two steps fakeable
  */
 
+import * as l10n from "@vscode/l10n";
+import type { RejectedCredentialField } from "../../provider/catalog/groupModels";
+import {
+	narrowGroupCredentials,
+	refusedCredentialFields,
+	rejectedCredentialKinds,
+} from "../../provider/catalog/groupModels";
 import {
 	ALL_SETTING_KEYS,
 	acceptsNumberSetting,
@@ -22,6 +29,7 @@ import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntr
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { restructureServers } from "../migrations/settingsRedesign/entries";
+import { buildGroupArgs } from "../servers/serverSync/engine";
 import type { StoredSecretOwners, StoredServerSecrets } from "../servers/serverSync/secrets";
 import { secretDestination } from "../servers/serverSync/secrets";
 import type { DeclaredServer, ServerEntryReport } from "../servers/serverSync/setting";
@@ -195,6 +203,39 @@ function representativeIndices(incomingServers: readonly IncomingServer[]): Read
 	return new Map([...fallbacks].map(([label, index]) => [label, claimants.get(label) ?? index]));
 }
 
+function refusedSecretProblem(field: RejectedCredentialField): string {
+	return l10n.t(
+		"the {0} cannot be sent as an HTTP header; it is not imported, so enter it again afterwards",
+		rejectedCredentialKinds([field]).display
+	);
+}
+
+/**
+ * The import's one reading of an entry's secrets, judged by the same narrowing every request path narrows by: a
+ * configured key the narrowing rejects is refused by field and never stored, and the entry still lands without it. An
+ * entry the parser does not accept has no carriers to judge a virtual key by, so its secrets are narrowed alone: the
+ * API key is still judged, the virtual key value reads as dormant.
+ */
+function importableSecrets(
+	raw: Readonly<Record<string, unknown>>,
+	label: string | undefined
+): {
+	readonly entry: Readonly<Record<string, unknown>>;
+	readonly secrets: StoredServerSecrets;
+	readonly refused: readonly RejectedCredentialField[];
+	readonly unsanitizable: boolean;
+} {
+	const stripped = stripEntrySecrets(raw);
+	const entry = label === undefined ? undefined : acceptedEntry([stripped.entry], label)?.entry;
+	const fields = entry === undefined ? stripped.secrets : buildGroupArgs(entry, stripped.secrets);
+	const refused = refusedCredentialFields(narrowGroupCredentials(fields).rejections) ?? [];
+	const secrets: { -readonly [K in SecretFieldId]?: string } = { ...stripped.secrets };
+	for (const field of refused) {
+		delete secrets[field];
+	}
+	return { entry: stripped.entry, secrets, refused, unsanitizable: stripped.unsanitizable };
+}
+
 /**
  * `storedSecrets` is the host's pre-fetched SecretStorage blobs by label; when provided, each collision's
  * connectionChanged compares the current side's effective secret material instead of inline text alone. Pure and
@@ -231,9 +272,10 @@ export function planSettingsImport(
 			const reports = serverSettingReports(incoming);
 			incoming.forEach((raw: unknown, index) => {
 				const report = reports[index] ?? { index, problems: [], accepted: false };
+				const secrets = isRecord(raw) ? importableSecrets(raw, report.label) : undefined;
 				// An uncertifiable shape must not land in the settings file (its text is presumed to be a credential);
 				// the entry skips with the reason beside the parser's own problem lines.
-				if (isRecord(raw) && stripEntrySecrets(raw).unsanitizable) {
+				if (secrets?.unsanitizable) {
 					incomingServers.push({
 						raw,
 						report: {
@@ -260,7 +302,8 @@ export function planSettingsImport(
 					});
 					return;
 				}
-				incomingServers.push({ raw, report, skipped: report.label === undefined });
+				const problems = [...report.problems, ...(secrets?.refused ?? []).map(refusedSecretProblem)];
+				incomingServers.push({ raw, report: { ...report, problems }, skipped: report.label === undefined });
 			});
 			continue;
 		}
@@ -278,9 +321,9 @@ export function planSettingsImport(
 	const representatives = representativeIndices(incomingServers);
 	let secretFieldCount = 0;
 	for (const index of representatives.values()) {
-		const raw = incomingServers[index]?.raw;
-		if (isRecord(raw)) {
-			secretFieldCount += Object.keys(stripEntrySecrets(raw).secrets).length;
+		const incoming = incomingServers[index];
+		if (incoming !== undefined && isRecord(incoming.raw)) {
+			secretFieldCount += Object.keys(importableSecrets(incoming.raw, incoming.report.label).secrets).length;
 		}
 	}
 	const collisions: ServerCollision[] = [];
@@ -392,7 +435,7 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 	let skipped = 0;
 
 	const land = (label: string, rawEntry: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
-		const stripped = stripEntrySecrets(rawEntry);
+		const stripped = importableSecrets(rawEntry, label);
 		// The stamp target is the entry as it will be written and parsed back;
 		// see SecretWrite.owners for the fail-closed fallback.
 		const parsed = acceptedEntry([stripped.entry], label)?.entry;

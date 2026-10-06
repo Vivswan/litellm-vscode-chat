@@ -266,9 +266,13 @@ suite("extension/features/consultTool wiring", () => {
 	 */
 	const SECRET_REFUSALS: readonly {
 		readonly name: string;
+		/** The declared entry; the default declares no credential unit. */
+		readonly servers?: readonly Record<string, unknown>[];
 		readonly secrets: () => Promise<vscode.SecretStorage>;
 		readonly classification: string;
 		readonly storedText: string;
+		/** The refusal sentence the English mirror must carry, when the refusal names its field. */
+		readonly englishText?: string;
 	}[] = [
 		{
 			name: "a key stored for another host never follows a base URL edit",
@@ -289,6 +293,31 @@ suite("extension/features/consultTool wiring", () => {
 			classification: "ConsultTool(stored secrets unreadable)",
 			storedText: "storage-read-sentinel",
 		},
+		{
+			name: "a stored API key the header rule refuses",
+			secrets: async () => {
+				const secrets = memorySecretStorage();
+				await updateServerSecret(secrets, "alpha", "apiKey", "sk-a\nb", TEST_BASE_URL);
+				return secrets;
+			},
+			classification: "ConsultTool(configured credential cannot be sent as a header)",
+			storedText: "sk-a",
+			englishText:
+				"but its API key cannot be sent as an HTTP header, so nothing was sent. Enter the value again from the server row on the dashboard.",
+		},
+		{
+			name: "a stored virtual key the header rule refuses",
+			servers: [{ label: "alpha", baseUrl: TEST_BASE_URL, auth: { virtualKey: { header: "x-vk" } } }],
+			secrets: async () => {
+				const secrets = memorySecretStorage();
+				await updateServerSecret(secrets, "alpha", "virtualKeyValue", "vk-a\nb", TEST_BASE_URL);
+				return secrets;
+			},
+			classification: "ConsultTool(configured credential cannot be sent as a header)",
+			storedText: "vk-a",
+			englishText:
+				"but its virtual key cannot be sent as an HTTP header, so nothing was sent. Enter the value again from the server row on the dashboard.",
+		},
 	];
 
 	for (const refusal of SECRET_REFUSALS) {
@@ -301,7 +330,7 @@ suite("extension/features/consultTool wiring", () => {
 					return chatReply("leaked");
 				})
 			);
-			const servers = [{ label: "alpha", baseUrl: TEST_BASE_URL }];
+			const servers = refusal.servers ?? [{ label: "alpha", baseUrl: TEST_BASE_URL }];
 			await withWiringSpies(async (spies) => {
 				await withConfig({ ...ENABLED_CONFIG, servers }, async () => {
 					wireConsultTool(fakeContext(secrets), quietLogger(), {
@@ -314,6 +343,12 @@ suite("extension/features/consultTool wiring", () => {
 					assert.strictEqual(seenAuthorization, undefined, `a request left carrying ${seenAuthorization}`);
 					assert.ok(outcome instanceof MirroredError, `expected the classified error, got ${String(outcome)}`);
 					assert.strictEqual(outcome.logClassification, refusal.classification);
+					if (refusal.englishText !== undefined) {
+						assert.ok(
+							outcome.englishMessage?.includes(refusal.englishText),
+							`the refusal names the field: ${outcome.englishMessage}`
+						);
+					}
 					assert.ok(
 						!outcome.message.includes(refusal.storedText) && !outcome.englishMessage?.includes(refusal.storedText),
 						"the stored text never rides the error"

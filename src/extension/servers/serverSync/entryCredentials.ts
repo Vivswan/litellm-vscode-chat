@@ -7,7 +7,7 @@
  */
 
 import type { GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
-import { logCredentialRejections, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
+import { parseGroupConfiguration, refusedCredentialFields } from "../../../provider/catalog/groupModels";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { buildGroupArgs } from "./engine";
 import type { StoredSecretsRecord } from "./secrets";
@@ -19,6 +19,10 @@ import { matchedEntryFor } from "./setting";
  * capabilities, so a leftover group from a base URL edit never receives the entry's credentials; the ownership check
  * is the sync pass's own fail-closed rule (resolveOwnedSecrets). The resolved values are secrets: never log them,
  * never push them into state.
+ *
+ * A credential the narrowing dropped is a refusal here, as it is in usageConnectionFor for the usage and feature paths:
+ * the chat and serve paths resolve through this function, so neither sends headerless for an entry that configured a
+ * key.
  */
 export async function entryGroupCredentialsFor(
 	readServersSetting: () => unknown,
@@ -45,19 +49,20 @@ export async function entryGroupCredentialsFor(
 	if (owned.refused.length > 0) {
 		return { kind: "unavailable", reason: "secretsMismatched" };
 	}
-	const groupServer = parseGroupConfiguration(
-		buildGroupArgs(entry, owned.values),
-		log === undefined ? undefined : logCredentialRejections(log)
-	);
-	if (groupServer === undefined) {
+	const parsed = parseGroupConfiguration(buildGroupArgs(entry, owned.values));
+	if (parsed === undefined) {
 		return { kind: "unavailable", reason: "unusable" };
+	}
+	const refused = refusedCredentialFields(parsed.rejections);
+	if (refused !== undefined) {
+		return { kind: "unavailable", reason: "credentialsRefused", fields: refused };
 	}
 	return {
 		kind: "resolved",
 		credentials: {
-			apiKey: groupServer.apiKey,
-			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
-			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
+			apiKey: parsed.server.apiKey,
+			...(parsed.server.oauth !== undefined ? { oauth: parsed.server.oauth } : {}),
+			...(parsed.server.virtualKey !== undefined ? { virtualKey: parsed.server.virtualKey } : {}),
 		},
 	};
 }

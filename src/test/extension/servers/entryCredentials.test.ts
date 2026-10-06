@@ -2,7 +2,11 @@ import * as assert from "node:assert";
 import { entryGroupCredentialsFor } from "../../../extension/servers/serverSync/entryCredentials";
 import type { SecretStore } from "../../../extension/servers/serverSync/secrets";
 import { readServerSecretsRecord, updateServerSecret } from "../../../extension/servers/serverSync/secrets";
-import type { GroupCredentials, GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
+import type {
+	GroupCredentials,
+	GroupCredentialsResolution,
+	RejectedCredentialField,
+} from "../../../provider/catalog/groupModels";
 
 function makeSecretStore(): SecretStore & { failReads: boolean } {
 	const values = new Map<string, string>();
@@ -108,5 +112,39 @@ suite("extension/servers/serverSync/entryCredentials", () => {
 
 		secrets.failReads = true;
 		assert.deepStrictEqual(await resolve("A", "http://a.test"), { kind: "unavailable", reason: "secretsUnreadable" });
+	});
+
+	test("a stored value the header rule refuses is a refusal naming the field, never a keyless resolution", async () => {
+		// An interior newline survives the edge trim and the platform's Headers would throw on it; resolving to an empty
+		// key here is what sent the request headerless and read as a server 401.
+		const cases: { field: RejectedCredentialField; setting: unknown; value: string }[] = [
+			{ field: "apiKey", setting: [{ label: "A", baseUrl: "http://a.test" }], value: "sk-a\nb" },
+			{
+				field: "virtualKeyValue",
+				setting: [{ label: "A", baseUrl: "http://a.test", auth: { virtualKey: { header: "x-vk" } } }],
+				value: "vk-a\nb",
+			},
+		];
+		for (const { field, setting, value } of cases) {
+			const secrets = makeSecretStore();
+			await updateServerSecret(secrets, "A", field, value, "http://a.test");
+			assert.deepStrictEqual(
+				await resolver(setting, secrets)("A", "http://a.test"),
+				{ kind: "unavailable", reason: "credentialsRefused", fields: [field] },
+				field
+			);
+		}
+
+		// A dormant stored virtual key (the entry declares no header for it, so buildGroupArgs sends it unpaired) is not a
+		// refusal: the entry's API key resolves as before.
+		const secrets = makeSecretStore();
+		await updateServerSecret(secrets, "A", "virtualKeyValue", "vk-dormant", "http://a.test");
+		assert.deepStrictEqual(
+			await resolver([{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-live" } }], secrets)(
+				"A",
+				"http://a.test"
+			),
+			resolved({ apiKey: "sk-live" })
+		);
 	});
 });

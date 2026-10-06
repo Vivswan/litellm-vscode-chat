@@ -198,7 +198,7 @@ suite("extension/dashboard: probe-save equivalence", () => {
 
 					// The credentials the provider is handed: the saved args narrowed by the group parser, where OAuth
 					// and the virtual key count only as complete units and a header-illegal value is dropped.
-					const savedGroup = parseGroupConfiguration(args);
+					const savedGroup = parseGroupConfiguration(args)?.server;
 					assert.ok(savedGroup !== undefined, "a saved entry's group args parse");
 					const savedEffective = {
 						apiKey: savedGroup.apiKey,

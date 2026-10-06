@@ -32,7 +32,7 @@ function createFimSend(
 	return async ({ modelRef, prefix, suffix, token }) => {
 		const resolved = await entryConnectionFor(secrets, modelRef.server);
 		if (resolved.kind !== "resolved") {
-			throw configuredServerUnavailable("inlineCompletions", modelRef.server, resolved.kind);
+			throw configuredServerUnavailable("inlineCompletions", modelRef.server, resolved);
 		}
 		const { fimTemplate } = table.resolveParameters(modelRef.server, modelRef.model, {
 			globalParameters: getModelParametersConfig(advise),

@@ -7,8 +7,11 @@
  *   refreshNow                  -> still works
  */
 
+import * as l10n from "@vscode/l10n";
 import type { UsageEndpointId } from "../../../dashboard/usageEndpoints";
 import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
+import type { RejectedCredentialField } from "../../../provider/catalog/groupModels";
+import { rejectedCredentialKinds } from "../../../provider/catalog/groupModels";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
@@ -20,7 +23,14 @@ import { resolveOwnedSecrets } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "../serverSync/setting";
 import { newlyCrossedThresholds, resolveBudget } from "./budget";
-import type { ActivityWindow, DailyUsage, KeyUsage, UsageConnection, UserUsage } from "./spendClient";
+import type {
+	ActivityWindow,
+	DailyUsage,
+	KeyUsage,
+	UsageConnection,
+	UsageConnectionResolution,
+	UserUsage,
+} from "./spendClient";
 import { activityWindow, usageConnectionFor, usageUnavailabilityOf } from "./spendClient";
 import type { UsageEndpointState, UsageEndpointStates, UsageFailureClassification } from "./store";
 import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "./store";
@@ -88,6 +98,11 @@ export interface UsageServerRefreshOutcome {
 	 * (resolveOwnedSecrets).
 	 */
 	readonly secretsMismatched?: true | undefined;
+	/**
+	 * The pass never reached the network: a configured key cannot ride its header (usageConnectionFor). The fields
+	 * name which, for the toast; never a value.
+	 */
+	readonly credentialsRefused?: readonly [RejectedCredentialField, ...RejectedCredentialField[]] | undefined;
 }
 
 export interface UsageRefreshOutcome {
@@ -98,7 +113,7 @@ export interface UsageRefreshOutcome {
  * JSON over usageConnectionFor's fixed construction order; the rendering carries secret values, so it stays in memory
  * and is never logged.
  */
-function sameConnection(a: UsageConnection, b: UsageConnection): boolean {
+function sameResolution(a: UsageConnectionResolution, b: UsageConnectionResolution): boolean {
 	return JSON.stringify(a) === JSON.stringify(b);
 }
 
@@ -125,6 +140,13 @@ function actionableFailureText(server: UsageServerRefreshOutcome): string | unde
 	}
 	if (server.secretsMismatched === true) {
 		return `${server.label}: a stored secret belongs to a different server address`;
+	}
+	if (server.credentialsRefused !== undefined) {
+		return l10n.t(
+			"{0}: the stored {1} cannot be sent as an HTTP header",
+			server.label,
+			rejectedCredentialKinds(server.credentialsRefused).display
+		);
 	}
 	const failures = server.failures.filter((failure) => failure.reason !== "unsupported");
 	if (failures.length === 0) {
@@ -451,6 +473,7 @@ export class UsagePoller {
 		let stored: StoredServerSecrets | undefined;
 		let secretsUnreadable = false;
 		let secretsMismatched = false;
+		let credentialsRefused: UsageServerRefreshOutcome["credentialsRefused"];
 		try {
 			// The same ownership check the sync engine applies at its read boundary: a stored value stamped for a
 			// different destination must never ride an authenticated probe to this entry's host.
@@ -476,18 +499,35 @@ export class UsagePoller {
 				error: errorLabel(error),
 			});
 		}
+		let connection: UsageConnection | undefined;
 		if (stored !== undefined) {
-			const connection = usageConnectionFor(entry, stored);
+			const resolution = usageConnectionFor(entry, stored);
 			// The entries were snapshotted at the pass start and this entry's secrets read just now, so an edit landing
-			// in between would pair a stale entry with fresh credentials. Re-read the entry immediately before the
-			// authenticated calls and compare the RESOLVED connection (presence alone would still let a re-point send
-			// this credential to the old host); on any difference the server is skipped and the servers-change refresh
-			// probes the true pairing.
+			// in between would pair a stale entry with fresh credentials, or report a stale entry's refusal. Re-read the
+			// entry before anything is probed, written, or reported and compare the host AND the RESOLUTION (a refusal
+			// carries no host, and presence alone would still let a re-point send this credential to the old host); on
+			// any difference the server is skipped and the servers-change refresh probes the true pairing.
 			const fresh = acceptedEntry(this.env.readServersSetting(), entry.label);
-			if (fresh === undefined || !sameConnection(usageConnectionFor(fresh.entry, stored), connection)) {
+			if (
+				fresh === undefined ||
+				fresh.entry.baseUrl !== entry.baseUrl ||
+				!sameResolution(usageConnectionFor(fresh.entry, stored), resolution)
+			) {
 				return undefined;
 			}
-
+			if (resolution.kind === "resolved") {
+				connection = resolution.connection;
+			} else {
+				// Skipped like a mismatched stamp: a keyless probe would only manufacture a 401 to render, and the sync
+				// engine's view carries the actionable text.
+				credentialsRefused = resolution.fields;
+				this.env.log("A configured key cannot be sent as an HTTP header; usage refresh skipped", {
+					label: entry.label,
+					fields: resolution.fields,
+				});
+			}
+		}
+		if (connection !== undefined) {
 			if (this.shouldAttempt(entry.label, "keyInfo", endpoints.keyInfo)) {
 				try {
 					key = await this.env.client.fetchKeyInfo(connection, this.abort.signal);
@@ -624,6 +664,7 @@ export class UsagePoller {
 			succeededAny,
 			...(secretsUnreadable ? { secretsUnreadable: true } : {}),
 			...(secretsMismatched ? { secretsMismatched: true } : {}),
+			...(credentialsRefused !== undefined ? { credentialsRefused } : {}),
 		};
 	}
 

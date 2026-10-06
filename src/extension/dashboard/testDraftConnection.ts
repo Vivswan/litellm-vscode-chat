@@ -6,7 +6,11 @@
 import * as l10n from "@vscode/l10n";
 import type { RequestPayload } from "../../dashboard/endpoints";
 import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery";
-import { parseGroupConfiguration } from "../../provider/catalog/groupModels";
+import {
+	parseGroupConfiguration,
+	refusedCredentialFields,
+	rejectedCredentialKinds,
+} from "../../provider/catalog/groupModels";
 import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/auth";
 import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
@@ -140,12 +144,19 @@ export async function applyTestServerDraft(
 		throw new DashboardValidationError(l10n.t("The draft's credentials do not form a valid server entry"));
 	}
 	// The credentials narrowed exactly as a sync pass bakes them into the group (entryCredentials.ts takes the same
-	// route), so the probe sends what a save would send: a key or virtual key the platform's Headers would refuse is
-	// dropped here too, never quoted back by the probe's error.
-	const groupServer = parseGroupConfiguration(buildGroupArgs(parsed.entry, secureValues));
-	if (groupServer === undefined) {
+	// route), so the probe sends what a save would send, and refuses what a save's requests would refuse: a key or
+	// virtual key the platform's Headers would refuse names its field here, never its value.
+	const group = parseGroupConfiguration(buildGroupArgs(parsed.entry, secureValues));
+	if (group === undefined) {
 		throw new DashboardValidationError(l10n.t("The draft's credentials do not form a valid server entry"));
 	}
+	const refused = refusedCredentialFields(group.rejections);
+	if (refused !== undefined) {
+		throw new DashboardValidationError(
+			l10n.t("The draft's {0} cannot be sent as an HTTP header", rejectedCredentialKinds(refused).display)
+		);
+	}
+	const groupServer = group.server;
 	// The probe hits the spelling the save will store, so its error text names the URL the entry will show; the intent
 	// validation already refused anything canonicalUrl refuses.
 	const baseUrl = canonicalBaseUrl(intent.server.baseUrl);

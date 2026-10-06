@@ -1,8 +1,9 @@
 import * as l10n from "@vscode/l10n";
 import { featureDisplayName, featureEnglishName, featureLogSurface } from "../../dashboard/featureNames";
+import { rejectedCredentialKinds } from "../../provider/catalog/groupModels";
 import type { FeatureModelId } from "../../shared/config/settingSpec";
 import { localizedError, type MirroredError } from "../../shared/mirroredError";
-import type { EntryConnectionRefusal } from "../servers/entryConnection";
+import type { EntryConnectionRefused } from "../servers/entryConnection";
 import { featureModelSettingId } from "./featureGate";
 
 /**
@@ -14,10 +15,10 @@ import { featureModelSettingId } from "./featureGate";
 export function configuredServerUnavailable(
 	feature: FeatureModelId,
 	serverLabel: string,
-	reason: EntryConnectionRefusal
+	refusal: EntryConnectionRefused
 ): MirroredError {
 	const settingId = featureModelSettingId(feature);
-	switch (reason) {
+	switch (refusal.kind) {
 		case "noEntry":
 			return localizedError(
 				l10n.t(
@@ -50,5 +51,18 @@ export function configuredServerUnavailable(
 				`The ${featureEnglishName(feature)} model setting names server "${serverLabel}", but reading its stored secrets failed. Try again.`,
 				`${featureLogSurface(feature)}(stored secrets unreadable)`
 			);
+		case "credentialsRefused": {
+			const kinds = rejectedCredentialKinds(refusal.fields);
+			return localizedError(
+				l10n.t(
+					'The {0} model setting names server "{1}", but its {2} cannot be sent as an HTTP header, so nothing was sent. Enter the value again from the server row on the dashboard.',
+					featureDisplayName(feature, "sentence"),
+					serverLabel,
+					kinds.display
+				),
+				`The ${featureEnglishName(feature)} model setting names server "${serverLabel}", but its ${kinds.english} cannot be sent as an HTTP header, so nothing was sent. Enter the value again from the server row on the dashboard.`,
+				`${featureLogSurface(feature)}(configured credential cannot be sent as a header)`
+			);
+		}
 	}
 }

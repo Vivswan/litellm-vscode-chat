@@ -54,7 +54,7 @@ function makeHost() {
 			if (taken.has(args.name ?? "")) {
 				throw new Error(`Language model group with name ${args.name} already exists for vendor litellm`);
 			}
-			const server = parseGroupConfiguration(args);
+			const server = parseGroupConfiguration(args)?.server;
 			assert.ok(server !== undefined);
 			const serverId = groupClientId(server);
 			servers.set(serverId, server);

@@ -13,8 +13,10 @@ import {
 	ServerSyncEngine,
 } from "../../../extension/servers/serverSync";
 import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
+import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
 import { canonicalEntryBaseUrls, removalOutcome } from "../../../extension/servers/serverSync/vscodeEnv";
 import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
+import type { RejectedCredentialField } from "../../../provider/catalog/groupModels";
 import { groupClientId } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import {
@@ -70,6 +72,38 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				]
 			);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints).sort(), ["A", "B"]);
+		});
+
+		test("a stored key the header rule refuses is the entry's sync failure, with the field as its detail", async () => {
+			// The group itself syncs (the host stores the raw value); the failure is the request path's refusal, so the
+			// dashboard row shows it without a round trip instead of the server's 401 after one.
+			const cases: {
+				field: RejectedCredentialField;
+				setting: unknown;
+				secrets: Record<string, StoredServerSecrets>;
+			}[] = [
+				{ field: "apiKey", setting: [{ label: "A", baseUrl: "http://a.test" }], secrets: { A: { apiKey: "sk-a\nb" } } },
+				{
+					field: "virtualKeyValue",
+					setting: [{ label: "A", baseUrl: "http://a.test", auth: { virtualKey: { header: "x-vk" } } }],
+					secrets: { A: { virtualKeyValue: "vk-a\nb" } },
+				},
+			];
+			for (const { field, setting, secrets } of cases) {
+				const recorded = makeSyncEnv(setting, secrets);
+				const engine = new ServerSyncEngine(recorded.env);
+				await engine.syncNow();
+
+				const view = expectDefined(engine.getDeclared()[0]);
+				assert.strictEqual(view.syncFailure?.class, "credentialsRefused", field);
+				assert.strictEqual(
+					view.syncFailure.message,
+					"A configured API key or virtual key for this entry cannot be sent as an HTTP header, so requests to it are refused. See the Diagnostics tab for the field, then enter the value again.",
+					field
+				);
+				assert.deepStrictEqual(view.rejectedCredentials, [field]);
+				assert.strictEqual(recorded.upserts.length, 1, `${field}: the group add itself still lands`);
+			}
 		});
 
 		test("a mid-pass settings edit skips the add: a stale entry never pairs with fresh secrets", async () => {

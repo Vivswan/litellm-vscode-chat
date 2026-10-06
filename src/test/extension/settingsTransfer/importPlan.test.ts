@@ -18,6 +18,7 @@ import {
 	resolveImportPlan,
 	suggestRenamedLabel,
 } from "../../../extension/settingsTransfer/importPlan";
+import type { RejectedCredentialField } from "../../../provider/catalog/groupModels";
 import { SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
 
 function server(label: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -309,6 +310,40 @@ suite("extension/settingsTransfer/importPlan", () => {
 			];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
 			assert.strictEqual(plan.secretFieldCount, 3);
+		});
+
+		test("a header-borne secret the request path could not send is refused by field and never stored", () => {
+			// The interior newline survives the strip's edge trim; stored, it would have reached SecretStorage and every
+			// request to the entry would have been refused until the user found and replaced it.
+			const cases: { field: RejectedCredentialField; kind: string; entry: Record<string, unknown> }[] = [
+				{ field: "apiKey", kind: "API key", entry: server("A", { auth: { apiKey: "sk-a\nb" } }) },
+				{
+					field: "virtualKeyValue",
+					kind: "virtual key",
+					entry: server("A", { auth: { virtualKey: { header: "x-vk", value: "vk-a\nb" } } }),
+				},
+				// An entry the parser rejects still lands labeled (its problems ride the preview); its secrets are narrowed
+				// alone, so the unsendable key is refused here too and never reaches SecretStorage.
+				{ field: "apiKey", kind: "API key", entry: server("A", { auth: { apiKey: "sk-a\nb", unknown: true } }) },
+			];
+			for (const { field, kind, entry } of cases) {
+				const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [entry] }, undefined);
+				const incoming = plan.incomingServers[0];
+				assert.strictEqual(incoming?.skipped, false, `${field}: the entry still lands without the value`);
+				assert.ok(
+					incoming.report.problems.some((problem) => problem.includes(kind)),
+					`${field}: the preview names the field: ${incoming.report.problems.join(" | ")}`
+				);
+				assert.strictEqual(plan.secretFieldCount, 0, field);
+
+				const application = resolveImportPlan(plan, {});
+				assert.deepStrictEqual(application.secretWrites, [{ label: "A", secrets: {}, owners: {} }], field);
+				const written = JSON.stringify(application.serversValue);
+				assert.ok(
+					!written.includes("sk-a") && !written.includes("vk-a"),
+					`${field}: the value never lands in the file`
+				);
+			}
 		});
 	});
 
