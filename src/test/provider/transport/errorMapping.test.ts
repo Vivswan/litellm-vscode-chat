@@ -1041,11 +1041,11 @@ suite("provider/transport/errorMapping", () => {
 				"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server." +
 				"\n\nDetails: Connection to http://litellm.test closed mid-response: other side closed [redacted]";
 			// A value with a line break in the deepest link: masked at the reader, the whitespace collapse works on the
-			// marker; the socket-failure path quotes the deepest link after the SDK's own first link.
+			// marker; the socket-failure path starts at the SDK error's cause ("fetch failed") and quotes the deepest link.
 			const collapsed = mapSdkError(connectionError(new Error("rejected two\nlines-zq7w")), chatCtx);
 			const collapsedExpected =
 				"Could not reach http://litellm.test. Check your network, VPN, or proxy settings, and that the server is up." +
-				"\n\nDetails: Connection error (cause: rejected [redacted])";
+				"\n\nDetails: fetch failed (cause: rejected [redacted])";
 			assert.deepStrictEqual(
 				{
 					stripped: stripped.message,
