@@ -40,8 +40,11 @@ const DOORS = [
 		doors: ["src/extension/ui/clipboard.ts"],
 		properties: [],
 		// The webview copies a model id through navigator.clipboard; that is browser API over pushed state, not an exit.
+		// Both member names match as identifiers and as literal keys, so clipboard["writeText"] is a hit too.
 		selectors: [
-			'MemberExpression[property.name="writeText"][object.property.name="clipboard"]:not([object.object.name="navigator"])',
+			'MemberExpression:matches([property.name="writeText"], [property.value="writeText"])' +
+				':matches([object.property.name="clipboard"], [object.property.value="clipboard"])' +
+				':not([object.object.name="navigator"])',
 		],
 		message:
 			"The clipboard is written through copyToClipboard in src/extension/ui/clipboard.ts, which masks credentials " +
@@ -54,6 +57,7 @@ const DOORS = [
 		properties: [],
 		selectors: [
 			'NewExpression[callee.property.name="LanguageModelTextPart"]',
+			'NewExpression[callee.property.value="LanguageModelTextPart"]',
 			'NewExpression[callee.name="LanguageModelTextPart"]',
 		],
 		message:
