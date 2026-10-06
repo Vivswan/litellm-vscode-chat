@@ -15,6 +15,7 @@ import {
 	featureNoModelMessage,
 	featureNoModelMessageEnglish,
 } from "../featureGate";
+import { preparedInvocation, toolResult } from "../modelFacingExit";
 import { withProbeToken } from "../probeToken";
 import type { ConsultTokenizationOptions, ConsultToolInput } from "./invocation";
 import {
@@ -140,11 +141,11 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 	 */
 	prepareInvocation(): vscode.PreparedToolInvocation {
 		const ref = getFeatureModelRef("consultTool");
-		return {
-			invocationMessage: Logger.redact(
+		return preparedInvocation(
+			Logger.redact(
 				ref === undefined ? l10n.t("Consulting another model...") : l10n.t('Consulting "{0}"...', ref.model)
-			),
-		};
+			)
+		);
 	}
 
 	async invoke(
@@ -197,9 +198,7 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 			);
 			throw error;
 		}
-		return new vscode.LanguageModelToolResult([
-			new vscode.LanguageModelTextPart(await this.fitReply(reply, options.tokenizationOptions, token)),
-		]);
+		return toolResult(await this.fitReply(reply, options.tokenizationOptions, token));
 	}
 
 	/**

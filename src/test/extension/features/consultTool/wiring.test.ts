@@ -454,7 +454,7 @@ suite("extension/features/consultTool wiring", () => {
 					{ input: { question: "q" } },
 					new vscode.CancellationTokenSource().token
 				) as vscode.PreparedToolInvocation;
-				assert.ok(String(prepared.invocationMessage).includes(MODEL_REF.model));
+				assert.strictEqual(prepared.invocationMessage, `Consulting "${MODEL_REF.model}"...`);
 				// Read-only tool: a confirmation prompt would interrupt every agent turn for nothing.
 				assert.strictEqual(prepared.confirmationMessages, undefined);
 			});
