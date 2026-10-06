@@ -13,7 +13,7 @@ import {
 	ServerSyncEngine,
 } from "../../../extension/servers/serverSync";
 import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
-import { removalOutcome } from "../../../extension/servers/serverSync/vscodeEnv";
+import { canonicalEntryBaseUrls, removalOutcome } from "../../../extension/servers/serverSync/vscodeEnv";
 import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
 import { groupClientId } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
@@ -497,6 +497,17 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine2.syncNow();
 			// Nothing this session saw Old accepted, so no identity ties New to it: a removal, never a rename by URL.
 			assert.deepStrictEqual(recordedEvents(coldRename), [
+				{ kind: "removed", label: "Old", baseUrl: "http://host.test" },
+			]);
+
+			// A ledger an older version wrote as the user typed the URL reads in the one spelling (the real env's
+			// canonicalEntryBaseUrls), so the removal it resolves names the URL the provider reports the group at.
+			const typedLedger = makeSyncEnv([{ label: "New", baseUrl: "HTTP://Host.test/" }]);
+			typedLedger.fingerprints = { Old: "pre-ledger-record" };
+			typedLedger.env.getEntryBaseUrls = () => canonicalEntryBaseUrls({ Old: "HTTP://Host.test", Junk: "localhost" });
+			const engine3 = new ServerSyncEngine(typedLedger.env);
+			await engine3.syncNow();
+			assert.deepStrictEqual(recordedEvents(typedLedger), [
 				{ kind: "removed", label: "Old", baseUrl: "http://host.test" },
 			]);
 		});

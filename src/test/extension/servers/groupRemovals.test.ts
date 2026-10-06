@@ -197,6 +197,22 @@ suite("extension/servers/groupRemovals", () => {
 			);
 		});
 
+		test("a tombstone an older version stored as typed still hides the group the provider now reports canonically", () => {
+			const { store } = makeStore({
+				[REMOVED_GROUP_TOMBSTONES_KEY]: {
+					version: "1",
+					records: [
+						{ label: "Prod", baseUrl: "HTTP://Prod.test:80/" },
+						{ label: "Junk", baseUrl: "localhost:4000" },
+					],
+				},
+			});
+			assert.deepStrictEqual(store.tombstones(), [{ by: "status", label: "Prod", baseUrl: "http://prod.test" }]);
+			const group = { groupId: "group:p", label: "Prod", entryLabel: undefined, baseUrl: "http://prod.test" };
+			assert.strictEqual(store.isTombstoned(group), true);
+			assert.strictEqual(store.hasTombstone("Prod", "HTTP://Prod.test"), true, "the query side canonicalizes too");
+		});
+
 		test("adding an existing identity is a no-op and fires no change", async () => {
 			const { store, changes } = makeStore();
 			await store.addTombstone({ by: "entry", label: "Prod", baseUrl: "http://prod.test" });

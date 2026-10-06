@@ -13,6 +13,7 @@ import { RequestError } from "../../provider/transport/errorMapping";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import type { NonChatMode, SecretFieldId } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { canonicalBaseUrl } from "../../shared/util/baseUrl";
 import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
 import { recordFromKeys } from "../../shared/util/json";
 import { buildGroupArgs } from "../servers/serverSync/engine";
@@ -145,6 +146,12 @@ export async function applyTestServerDraft(
 	if (groupServer === undefined) {
 		throw new DashboardValidationError(l10n.t("The draft's credentials do not form a valid server entry"));
 	}
+	// The probe hits the spelling the save will store, so its error text names the URL the entry will show; the intent
+	// validation already refused anything canonicalUrl refuses.
+	const baseUrl = canonicalBaseUrl(intent.server.baseUrl);
+	if (baseUrl === undefined) {
+		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
+	}
 
 	// Header values normalized to strings as the setting parser stores them.
 	const draftHeaders: Readonly<Record<string, string>> = Object.fromEntries(
@@ -153,7 +160,7 @@ export async function applyTestServerDraft(
 
 	const usableLabel = usableHttpText(intent.server.label);
 	const connection: DraftConnection = {
-		baseUrl: trimHttpWhitespace(intent.server.baseUrl),
+		baseUrl,
 		...(usableLabel !== undefined ? { label: usableLabel } : {}),
 		...(intent.server.apiVersion !== undefined ? { apiVersion: trimHttpWhitespace(intent.server.apiVersion) } : {}),
 		apiKey: groupServer.apiKey,

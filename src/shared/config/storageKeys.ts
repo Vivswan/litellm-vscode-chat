@@ -112,9 +112,9 @@ export function apiKeySecret(serverId: string): string {
 export const SERVER_SYNC_FINGERPRINTS_KEY = "litellm.serverSyncFingerprints";
 
 /**
- * globalState: label -> normalized base URL for the entries the sync engine saw declared, written every pass. The
- * removal path's identity ledger: when a label leaves the setting (possibly while VS Code was closed), this is what
- * still knows which host its provider group pointed at.
+ * globalState: label -> base URL (one spelling, serverSync/vscodeEnv.ts canonicalEntryBaseUrls on read) for the
+ * entries the sync engine saw declared, written every pass. The removal path's identity ledger: when a label leaves
+ * the setting (possibly while VS Code was closed), this is what still knows which host its provider group pointed at.
  */
 export const SYNCED_ENTRY_BASE_URLS_KEY = "litellm.syncedEntryBaseUrls";
 

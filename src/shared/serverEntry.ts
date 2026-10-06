@@ -7,7 +7,7 @@
  */
 
 import type { ModelRecordMap } from "./config/modelMatcher";
-import { normalizeBaseUrl } from "./util/baseUrl";
+import { canonicalStoredBaseUrl, canonicalUrl, normalizeBaseUrl } from "./util/baseUrl";
 
 /**
  * THE ORDER IS LOAD-BEARING while migrations/fingerprintProjection.ts lives: buildGroupArgs emits the provider-group
@@ -85,8 +85,8 @@ export type SecretLocation = "settings" | "secure" | "none";
  * through l10n.
  *
  *   key                 -> base URL, normalized (the transport treats a trailing slash there as insignificant)
- *   OAuth client secret -> { tokenUrl, clientId }: the token URL VERBATIM (the exchange fetches it exactly, so /token
- *                          and /token/ differ) and the client whose secret it is
+ *   OAuth client secret -> { tokenUrl, clientId }: the token URL in its one spelling, trailing slash kept (the exchange
+ *                          fetches it exactly, so /token and /token/ differ) and the client whose secret it is
  *   no token URL        -> {}, a real stamp, so gaining a token URL later still needs a deliberate re-pairing
  */
 export function secretDestination(entry: SecretDestinationEntry, field: SecretFieldId): SecretOwner {
@@ -123,11 +123,20 @@ export function sameSecretDestination(a: SecretOwner, b: SecretOwner): boolean {
 
 /**
  * The one decoder of a persisted stamp (a SecretStorage blob's `_owner` value, a snapshot's `owners` value): a string
- * ("" included) or an OAuth destination object with no other key; anything else is no stamp.
+ * ("" included) or an OAuth destination object with no other key; anything else is no stamp. URLs are read in their
+ * one spelling, because a stamp written as the user typed the URL must keep pairing with the entry the parser now
+ * reads canonically; a string with no canonical spelling stays as stored, a mismatch under both rules.
+ *
+ *   `field` other than the OAuth client secret -> the string is a base URL stamp (canonicalStoredBaseUrl)
+ *   the OAuth client secret                     -> a string is the pre-structured token URL stamp (canonicalUrl), the
+ *                                                  object's tokenUrl likewise
  */
-export function parseSecretOwner(raw: unknown): SecretOwner | undefined {
+export function parseSecretOwner(raw: unknown, field: SecretFieldId): SecretOwner | undefined {
 	if (typeof raw === "string") {
-		return raw;
+		if (raw === "") {
+			return raw;
+		}
+		return (field === "oauthClientSecret" ? canonicalUrl(raw) : canonicalStoredBaseUrl(raw)) ?? raw;
 	}
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
 		return undefined;
@@ -142,7 +151,10 @@ export function parseSecretOwner(raw: unknown): SecretOwner | undefined {
 	) {
 		return undefined;
 	}
-	return { ...(tokenUrl !== undefined ? { tokenUrl } : {}), ...(clientId !== undefined ? { clientId } : {}) };
+	return {
+		...(tokenUrl !== undefined ? { tokenUrl: canonicalUrl(tokenUrl) ?? tokenUrl } : {}),
+		...(clientId !== undefined ? { clientId } : {}),
+	};
 }
 
 /**

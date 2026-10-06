@@ -20,6 +20,7 @@ import {
 	sameSecretDestination,
 	secretDestination,
 } from "../shared/serverEntry";
+import { canonicalUrl, normalizeBaseUrl } from "../shared/util/baseUrl";
 import { parseDecimalText } from "../shared/util/decimalText";
 import type { HeaderScalar } from "../shared/util/headers";
 import { isValidHeaderName, sendableHeaderValue, trimHttpWhitespace } from "../shared/util/headers";
@@ -175,7 +176,8 @@ export type ServerFormProblems = Partial<Record<ServerFormField, string>>;
  * on an edit that blocks is worse.
  *
  *   text and secret fields                        -> compare what Save would write
- *   compare what Save would write                 -> padding or an inactive form's leftover never counts
+ *   compare what Save would write                 -> padding, an inactive form's leftover, or a URL's spelling never
+ *                                                    counts
  *   text Save would refuse                        -> still counts, by its trimmed form
  *   authForm                                      -> raw draft
  *   switching it can leave every directive "keep" -> raw draft
@@ -191,11 +193,19 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 		if (field === "apiKey" || field === "oauthClientSecret" || field === "virtualKeyValue") {
 			return !sameSecretDirective(nowSecrets[field].directive, wasSecrets[field].directive);
 		}
+		if (field === "oauthTokenUrl") {
+			return (usableHttpUrl(nowText[field]) ?? nowText[field]) !== (usableHttpUrl(wasText[field]) ?? wasText[field]);
+		}
 		if (isNonSecretOptionalField(field)) {
 			return nowText[field] !== wasText[field];
 		}
-		if (field === "label" || field === "baseUrl") {
-			return trimHttpWhitespace(draft[field]) !== trimHttpWhitespace(baseline[field]);
+		if (field === "baseUrl") {
+			const now = trimHttpWhitespace(draft.baseUrl);
+			const was = trimHttpWhitespace(baseline.baseUrl);
+			return (savedBaseUrl(now) ?? now) !== (savedBaseUrl(was) ?? was);
+		}
+		if (field === "label") {
+			return trimHttpWhitespace(draft.label) !== trimHttpWhitespace(baseline.label);
 		}
 		if (field === "apiVersion") {
 			// Save reads the custom text only in custom mode, so another mode's leftover text never counts; a mode
@@ -250,15 +260,23 @@ function sameSecretDirective(a: SecretDirective, b: SecretDirective): boolean {
 	}
 }
 
-/** Whether the text parses as an http(s) URL with a host; the form's and the intent's shared rule. */
+/**
+ * The canonical http(s) spelling of the text (canonicalUrl), or undefined: the form's and the intent's shared rule,
+ * and the spelling the form's intents carry so the stale-key question and the save judge the stored text.
+ */
+function usableHttpUrl(text: string): string | undefined {
+	const url = canonicalUrl(text);
+	return url !== undefined && (url.startsWith("http://") || url.startsWith("https://")) ? url : undefined;
+}
+
 export function isUsableHttpUrl(text: string): boolean {
-	let parsed: URL;
-	try {
-		parsed = new URL(text);
-	} catch {
-		return false;
-	}
-	return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.hostname.length > 0;
+	return usableHttpUrl(text) !== undefined;
+}
+
+/** The base URL Save writes for the text: its canonical http(s) spelling under the identity rule, or undefined. */
+function savedBaseUrl(text: string): string | undefined {
+	const url = usableHttpUrl(text);
+	return url === undefined ? undefined : normalizeBaseUrl(url);
 }
 
 /**
@@ -352,8 +370,9 @@ function parseSecrets(draft: ServerFormDraft): Record<SecretFieldId, SecretParse
 }
 
 /**
- * The four optional auth texts as Save reads them: trimmed, and zeroed on any form that does not send them - the same
- * activity selection the secret parses use, so a collapsed form's leftover text never saves and never counts.
+ * The four optional auth texts of the active form: trimmed, and zeroed on any form that does not send them - the same
+ * activity selection the secret parses use, so a collapsed form's leftover text never saves and never counts. The
+ * token URL gets its saved spelling where Save and the dirty count read it.
  */
 function activeOptionalText(draft: ServerFormDraft): Readonly<Record<NonSecretOptionalFieldId, string>> {
 	const active = authFormActivity(draft.authForm);
@@ -388,7 +407,8 @@ function sameBudget(a: BudgetParse, b: BudgetParse): boolean {
  * The MCP control parsed once: off clears (null), on with no URL publishes the derived endpoint (true), on with a
  * usable http(s) URL publishes that URL, and anything else blocks while keeping its trimmed text.
  *
- *   The URL rule -> is the form's, not the settings parser's
+ *   The http(s) rule -> is the form's, not the settings parser's: the setting keeps any scheme with a host and
+ *                       reports the rest, like `baseUrl`; the guided path refuses one it can see is broken
  */
 type McpParse = { readonly ok: true; readonly value: McpOptIn | null } | { readonly ok: false; readonly text: string };
 
@@ -400,7 +420,8 @@ function parseMcpDraft(draft: McpDraft): McpParse {
 	if (url.length === 0) {
 		return { ok: true, value: true };
 	}
-	return isUsableHttpUrl(url) ? { ok: true, value: { url } } : { ok: false, text: url };
+	const canonical = usableHttpUrl(url);
+	return canonical !== undefined ? { ok: true, value: { url: canonical } } : { ok: false, text: url };
 }
 
 function sameMcp(a: McpParse, b: McpParse): boolean {
@@ -615,10 +636,11 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		// the extension refuses it too (adds keep their replace-by-label upsert).
 		problems.label = l10n.t("An entry with this label already exists");
 	}
-	const baseUrl = trimHttpWhitespace(draft.baseUrl);
-	if (baseUrl.length === 0) {
+	const baseUrlText = trimHttpWhitespace(draft.baseUrl);
+	const baseUrl = savedBaseUrl(baseUrlText);
+	if (baseUrlText.length === 0) {
 		problems.baseUrl = l10n.t("Enter the server URL");
-	} else if (!isUsableHttpUrl(baseUrl)) {
+	} else if (baseUrl === undefined) {
 		problems.baseUrl = l10n.t("Must be a usable http(s) URL, e.g. http://localhost:4000");
 	}
 
@@ -735,10 +757,11 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	}
 
 	// Only the active form's text fields reach the payload: an inactive form's leftover text is excluded exactly like
-	// an empty input.
+	// an empty input. The token URL goes in its canonical spelling (it validated above, so one exists).
 	const optionalText: { -readonly [K in NonSecretOptionalFieldId]?: string } = {};
 	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
-		const value = activeText[field];
+		const value =
+			field === "oauthTokenUrl" ? (usableHttpUrl(activeText[field]) ?? activeText[field]) : activeText[field];
 		if (value.length > 0) {
 			optionalText[field] = value;
 		}
@@ -749,6 +772,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		groupsParse.ok &&
 		capabilitiesParse.ok &&
 		headersParse.ok &&
+		baseUrl !== undefined &&
 		!Object.values(problems).some((problem) => problem !== undefined)
 	) {
 		return {
@@ -779,7 +803,9 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	// headers is a connection field, so a clean connection implies clean header rows; the narrowing states the half the
 	// type system cannot see.
 	const connection =
-		headersParse.ok && !Object.values(connectionProblems).some((problem) => problem !== undefined)
+		headersParse.ok &&
+		baseUrl !== undefined &&
+		!Object.values(connectionProblems).some((problem) => problem !== undefined)
 			? {
 					blocked: false as const,
 					values: {

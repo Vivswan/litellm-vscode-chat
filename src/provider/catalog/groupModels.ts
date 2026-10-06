@@ -17,7 +17,7 @@ import {
 	SECRET_FIELD_IDS,
 } from "../../shared/serverEntry";
 import type { NormalizedBaseUrl } from "../../shared/util/baseUrl";
-import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { canonicalBaseUrl, canonicalUrl } from "../../shared/util/baseUrl";
 import { displayUrl } from "../../shared/util/displayUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { HEADER_NAME_PATTERN, sendableHeaderValue, usableHttpText } from "../../shared/util/headers";
@@ -238,11 +238,14 @@ function usableNonSecretFields(raw: RawOptionalFields): NonSecretOptionalFields 
 function narrowOAuth(raw: RawOptionalFields): OAuthConfig | undefined {
 	const fields = usableNonSecretFields(raw);
 	const carriers = presentCarriers("oauthClientSecret", fields);
-	if (carriers === undefined) {
+	// The token URL in its one spelling, like baseUrl: the credential fingerprint hashes it, so a host group created
+	// under the user's spelling must mint the identity the canonical entry expects.
+	const tokenUrl = carriers === undefined ? undefined : canonicalUrl(carriers.oauthTokenUrl);
+	if (carriers === undefined || tokenUrl === undefined) {
 		return undefined;
 	}
 	return {
-		tokenUrl: carriers.oauthTokenUrl,
+		tokenUrl,
 		clientId: carriers.oauthClientId,
 		clientSecret: typeof raw.oauthClientSecret === "string" ? raw.oauthClientSecret : "",
 		...(fields.oauthScopes !== undefined ? { scopes: fields.oauthScopes } : {}),
@@ -406,9 +409,11 @@ export function parseGroupConfiguration(
 	if (!isRecord(configuration)) {
 		return undefined;
 	}
+	// The host hands back whatever spelling created the group (older versions wrote the user's text), so this boundary
+	// canonicalizes too: a group created at "HTTP://Host" is the entry now declared at "http://host".
 	const rawBaseUrl = usableHttpText(configuration.baseUrl);
-	const baseUrl = rawBaseUrl === undefined ? undefined : normalizeBaseUrl(rawBaseUrl);
-	if (baseUrl === undefined || baseUrl.length === 0) {
+	const baseUrl = rawBaseUrl === undefined ? undefined : canonicalBaseUrl(rawBaseUrl);
+	if (baseUrl === undefined) {
 		return undefined;
 	}
 	// The entry label the sync engine stamps into the configuration; not an OPTIONAL_ENTRY_FIELDS member because it is

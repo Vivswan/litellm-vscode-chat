@@ -7,6 +7,7 @@ import * as l10n from "@vscode/l10n";
 import type { ReplacedEntryIdentity, RequestPayload, SecretDirective } from "../../dashboard/endpoints";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS, sameSecretDestination } from "../../shared/serverEntry";
+import { canonicalBaseUrl, canonicalUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { recordFromKeys } from "../../shared/util/json";
@@ -232,11 +233,17 @@ export async function applySaveServerSetting(
 
 	const plans = secretPlans(intent.secrets, showing, storedOld);
 
+	// Written in the one spelling the parser reads back, so the stored text equals the text every reader uses; the
+	// intent validation already refused anything canonicalUrl refuses, so this throw is unreachable by the wire.
+	const baseUrl = canonicalBaseUrl(intent.server.baseUrl);
+	if (baseUrl === undefined) {
+		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
+	}
 	// The final entry, needed for the pairing checks below. This rebuild is the whole entry: any payload field not
 	// copied here is silently DELETED by the save.
 	const newEntry: Record<string, unknown> = {
 		label,
-		baseUrl: trimHttpWhitespace(intent.server.baseUrl),
+		baseUrl,
 	};
 	// "" is a real apiVersion (append nothing), so it is written; only absent (auto) omits the key. Trimmed like the
 	// setting parser reads it.
@@ -280,7 +287,8 @@ export async function applySaveServerSetting(
 	}
 	// `true` and `{ url }` are both real opt-ins; only null omits the key.
 	if (intent.server.mcp !== null) {
-		newEntry.mcp = intent.server.mcp;
+		const mcpUrl = intent.server.mcp === true ? undefined : canonicalUrl(intent.server.mcp.url ?? "");
+		newEntry.mcp = mcpUrl === undefined ? true : { url: mcpUrl };
 	}
 
 	// The entry's auth object, assembled once by the shared assembler: pairing (OAuth as one unit, the virtual key pair
@@ -294,8 +302,10 @@ export async function applySaveServerSetting(
 			inlineValues[field] = plan.value;
 		}
 	}
+	const optionalFields = pickNonSecretOptionalFields(intent.server);
+	const tokenUrl = optionalFields.oauthTokenUrl === undefined ? undefined : canonicalUrl(optionalFields.oauthTokenUrl);
 	const assembled = assembleEntryAuth(
-		{ ...pickNonSecretOptionalFields(intent.server), ...inlineValues },
+		{ ...optionalFields, ...(tokenUrl !== undefined ? { oauthTokenUrl: tokenUrl } : {}), ...inlineValues },
 		recordFromKeys(SECRET_FIELD_IDS, (field) => planResolves(plans[field]))
 	);
 	if (assembled.failure !== undefined) {
@@ -309,8 +319,7 @@ export async function applySaveServerSetting(
 	// the entry as the parser will read it back (the assembler emits only parser-accepted shapes); the raw-field
 	// fallback covers the unreachable parse failure without ever stamping a wrong destination.
 	const intendedEntry = acceptedEntry([newEntry], label)?.entry;
-	const destinationOf = (field: SecretFieldId): SecretOwner =>
-		secretDestination(intendedEntry ?? { baseUrl: trimHttpWhitespace(intent.server.baseUrl) }, field);
+	const destinationOf = (field: SecretFieldId): SecretOwner => secretDestination(intendedEntry ?? { baseUrl }, field);
 
 	// A leftover blob field under the saved label is wiped when no plan can reference it (wiping after a rename's
 	// copy would delete the copied fields, so the two are exclusive).

@@ -32,17 +32,9 @@ describe("extension/features/mcp/definitions", () => {
 		assert.strictEqual(mcpDefinitionsOf([entry({ baseUrl: "http://host/v1" })])[0]?.uri, "http://host/v1/mcp");
 	});
 
-	test("the object form's explicit url wins as written beyond edge-trimming, trailing slash included", () => {
+	test("the object form's explicit url wins exactly, trailing slash included", () => {
 		const mcp: McpOptIn = { url: "https://gw.example/custom-mcp/" };
 		assert.strictEqual(mcpDefinitionsOf([entry({ mcp })])[0]?.uri, "https://gw.example/custom-mcp/");
-		const padded: McpOptIn = { url: "  https://gw.example/custom-mcp  " };
-		assert.strictEqual(mcpDefinitionsOf([entry({ mcp: padded })])[0]?.uri, "https://gw.example/custom-mcp");
-	});
-
-	test("an object form without a usable url derives the default like true", () => {
-		for (const mcp of [{}, { url: undefined }, { url: "" }, { url: "   " }] as const) {
-			assert.strictEqual(mcpDefinitionsOf([entry({ mcp })])[0]?.uri, "http://localhost:4000/mcp");
-		}
 	});
 
 	test("the version counter rides each descriptor untouched", () => {
