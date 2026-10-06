@@ -8,7 +8,6 @@ import { REPO_ROOT } from "../../../util/repoRoot";
 RuleTester.afterAll = afterAll;
 RuleTester.describe = describe;
 RuleTester.it = it;
-RuleTester.itOnly = it.only;
 
 const FIXTURE = "src/test/bun/scripts/lint/outputChannelWritesFixture.ts";
 
