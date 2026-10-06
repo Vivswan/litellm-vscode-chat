@@ -11,6 +11,7 @@ import type {
 } from "../../../provider/catalog/groupModels";
 import { publicErrorText } from "../../../shared/logger";
 import { MirroredError } from "../../../shared/mirroredError";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { makeSecretStore } from "../../extension/servers/serverSyncHelpers";
 import {
 	CHAT_COMPLETIONS_URL,
@@ -54,7 +55,7 @@ suite("provider credential overlay", () => {
 		const provider = makeProvider(undefined, "unused", undefined, {
 			resolveEntryCredentials: async (label, baseUrl) => {
 				resolved.push([label, baseUrl]);
-				return { kind: "resolved", credentials: { apiKey: "sk-rotated" } };
+				return { kind: "resolved", credentials: { apiKey: fixedHeaderValue("sk-rotated") } };
 			},
 		});
 		const captured = capturingDiscovery();
@@ -97,7 +98,7 @@ suite("provider credential overlay", () => {
 		const provider = makeProvider(undefined, "unused", undefined, {
 			resolveEntryCredentials: async () => {
 				calls += 1;
-				return { kind: "resolved", credentials: { apiKey: "sk-never" } };
+				return { kind: "resolved", credentials: { apiKey: fixedHeaderValue("sk-never") } };
 			},
 		});
 		const captured = capturingDiscovery();
@@ -196,7 +197,7 @@ suite("provider credential overlay", () => {
 		// second entry beside the retired one double-counted the merged status and
 		// rendered as a ghost external row whose Hide tombstoned the label the real
 		// group serves under.
-		let key = "sk-first";
+		let key = fixedHeaderValue("sk-first");
 		const provider = makeProvider(undefined, "unused", undefined, {
 			resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: key } }),
 		});
@@ -206,7 +207,7 @@ suite("provider credential overlay", () => {
 		const firstId = provider.getServerSnapshots()[0]?.status.serverId;
 		assert.ok(firstId !== undefined);
 
-		key = "sk-second";
+		key = fixedHeaderValue("sk-second");
 		await provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
 		const snapshots = provider.getServerSnapshots();
 		assert.strictEqual(snapshots.length, 1, "one logical group, one snapshot");
@@ -217,7 +218,7 @@ suite("provider credential overlay", () => {
 	test("a late pre-rotation discovery completion cannot clobber the rotated identity's record", async () => {
 		// The old-key fetch is still in flight when the new-key serve completes; its late completion must yield the
 		// record instead of restoring the retired identity (arrival order is not credential freshness).
-		let key = "sk-first";
+		let key = fixedHeaderValue("sk-first");
 		let releaseFirst!: () => void;
 		const firstGate = new Promise<void>((resolve) => {
 			releaseFirst = resolve;
@@ -236,7 +237,7 @@ suite("provider credential overlay", () => {
 		const configuration = { baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Default" };
 		const firstServe = provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
 
-		key = "sk-second";
+		key = fixedHeaderValue("sk-second");
 		await provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
 		const rotatedId = provider.getServerSnapshots()[0]?.status.serverId;
 		assert.ok(rotatedId !== undefined);
@@ -263,9 +264,9 @@ suite("provider credential overlay", () => {
 				call += 1;
 				if (call === 1) {
 					await firstGate;
-					return { kind: "resolved", credentials: { apiKey: "sk-first" } };
+					return { kind: "resolved", credentials: { apiKey: fixedHeaderValue("sk-first") } };
 				}
-				return { kind: "resolved", credentials: { apiKey: "sk-second" } };
+				return { kind: "resolved", credentials: { apiKey: fixedHeaderValue("sk-second") } };
 			},
 		});
 		capturingDiscovery();
@@ -287,7 +288,7 @@ suite("provider credential overlay", () => {
 	test("a rotation carries the stale-serve anchor: a failed silent refresh still serves last-known models", async () => {
 		// The stale anchor belongs to the group, not to the client ID: rotating
 		// right before an outage must not vanish the models it was serving.
-		let key = "sk-first";
+		let key = fixedHeaderValue("sk-first");
 		let fail = false;
 		const provider = makeProvider(undefined, "unused", undefined, {
 			resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: key } }),
@@ -300,7 +301,7 @@ suite("provider credential overlay", () => {
 		const healthy = await provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
 		assert.strictEqual(healthy.length, 1);
 
-		key = "sk-second";
+		key = fixedHeaderValue("sk-second");
 		fail = true;
 		const stale = await provider.provideLanguageModelChatInformation(groupOptions(configuration, true), cancellation());
 		assert.strictEqual(stale.length, 1, "the rotated group keeps its stale-serve anchor");
@@ -309,7 +310,7 @@ suite("provider credential overlay", () => {
 
 	test("the overlay replaces the credential set wholesale: a dropped OAuth unit strips the baked one", async () => {
 		const provider = makeProvider(undefined, "unused", undefined, {
-			resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: "sk-only" } }),
+			resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: fixedHeaderValue("sk-only") } }),
 		});
 		const captured = capturingDiscovery();
 
@@ -414,7 +415,7 @@ suite("provider credential overlay", () => {
 		test("a request authenticates with the entry's credentials at request time, not at serve time", async () => {
 			// The model object dates from the serve; a rotation since then must reach the very next request, not wait
 			// out a host re-resolve.
-			let key = "sk-first";
+			let key = fixedHeaderValue("sk-first");
 			const resolved: [string, string][] = [];
 			const provider = makeProvider(undefined, "unused", undefined, {
 				resolveEntryCredentials: async (label, baseUrl) => {
@@ -429,7 +430,7 @@ suite("provider credential overlay", () => {
 				cancellation()
 			);
 
-			key = "sk-rotated";
+			key = fixedHeaderValue("sk-rotated");
 			await sendChat(provider, expectDefined(infos[0]));
 
 			assert.deepStrictEqual(chat.headers, ["Bearer sk-rotated"], "the request authenticates with the current key");
@@ -463,7 +464,7 @@ suite("provider credential overlay", () => {
 					if (serve === 2) {
 						await resolverGate;
 					}
-					return { kind: "resolved", credentials: { apiKey: `sk-${serve}` } };
+					return { kind: "resolved", credentials: { apiKey: fixedHeaderValue(`sk-${serve}`) } };
 				},
 			});
 			mswServer.use(
@@ -525,7 +526,7 @@ suite("provider credential overlay", () => {
 			];
 			for (const { name, configuration } of cases) {
 				const provider = makeProvider(undefined, "unused", undefined, {
-					resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: "k" } }),
+					resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: fixedHeaderValue("k") } }),
 					getEntryDeclaredModels: () => ["declared-model"],
 				});
 				mswServer.use(
@@ -564,7 +565,9 @@ suite("provider credential overlay", () => {
 				let answerRequests = false;
 				const provider = makeProvider(undefined, "unused", undefined, {
 					resolveEntryCredentials: () =>
-						answerRequests ? answer() : Promise.resolve({ kind: "resolved", credentials: { apiKey: "sk-served" } }),
+						answerRequests
+							? answer()
+							: Promise.resolve({ kind: "resolved", credentials: { apiKey: fixedHeaderValue("sk-served") } }),
 				});
 				capturingDiscovery();
 				const chat = capturingChat();

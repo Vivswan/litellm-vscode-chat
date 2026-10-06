@@ -1,5 +1,6 @@
 import { APIConnectionError, APIError } from "openai";
 import * as vscode from "vscode";
+import { fixedHeaderValue, type HeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "./auth";
 import { OAuthTokenSource } from "./auth";
@@ -57,18 +58,20 @@ export interface OneShotConnection {
 	/** Forwarded to apiRootOf; undefined means the auto rule. */
 	readonly apiVersion?: string | undefined;
 	/** Empty string for keyless servers, matching the transport convention. */
-	readonly apiKey: string;
+	readonly apiKey: HeaderValue | "";
 	/** Auth headers win conflicts. */
-	readonly headers: Readonly<Record<string, string>>;
+	readonly headers: Readonly<Record<string, HeaderValue>>;
 	readonly oauth?: OAuthConfig | undefined;
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 }
 
 export interface OneShotClientOptions {
-	readonly userAgent: string;
+	readonly userAgent: HeaderValue;
 	/** The HTTP transport; tests inject a fake here. */
 	readonly fetch?: TransportFetch | undefined;
 }
+
+const JSON_CONTENT_TYPE = fixedHeaderValue("application/json");
 
 export interface OneShotCallOptions {
 	/**
@@ -187,7 +190,7 @@ export class OneShotClient {
 		connection: OneShotConnection,
 		surface: TransportErrorSurface,
 		opts: OneShotCallOptions
-	): Promise<Record<string, string>> {
+	): Promise<Record<string, HeaderValue>> {
 		const cancelController = new AbortController();
 		const cancelListener = opts.token.onCancellationRequested(() => cancelController.abort());
 		try {
@@ -245,7 +248,7 @@ export class OneShotClient {
 				customHeaders: connection.headers,
 			});
 			// Before the overlay, so a virtual key named Content-Type still owns that header.
-			setOwnedHeader(headers, "Content-Type", "application/json");
+			setOwnedHeader(headers, "Content-Type", JSON_CONTENT_TYPE);
 			auth = await applyAuthOverlay(headers, connection, {
 				tokens: this.oauthTokens,
 				surface,

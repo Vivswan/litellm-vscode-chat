@@ -11,6 +11,7 @@ import {
 import { isServerSecretsKey } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { DebouncedAction } from "../../shared/util/debounce";
+import type { HeaderValue } from "../../shared/util/headers";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
@@ -31,7 +32,7 @@ export interface ServersWiring {
 export function wireServers(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	userAgent: string,
+	userAgent: HeaderValue,
 	deps: {
 		fingerprintSalt: FingerprintSaltSession;
 		groupRemovals: GroupRemovalStore;

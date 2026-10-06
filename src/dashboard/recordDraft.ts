@@ -21,7 +21,7 @@ import {
 	wrongTypeDirectives,
 } from "../shared/config/recordResolution";
 import type { HeaderScalar } from "../shared/util/headers";
-import { isValidHeaderName, isValidHeaderValue, trimHttpWhitespace } from "../shared/util/headers";
+import { headerValue, isValidHeaderName, trimHttpWhitespace } from "../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../shared/util/json";
 import { formatHeaderValue, formatJsonValue, parseHeaderValue, parseJsonValue } from "./presenters";
 
@@ -431,7 +431,7 @@ function parseHeaderRowsDetailed(rows: readonly HeaderRow[]): HeaderRowsDetailed
 			return { field: "name", message: l10n.t("Not a valid HTTP header name") };
 		}
 		const value = parseHeaderValue(row.valueText);
-		if (!isValidHeaderValue(String(value))) {
+		if (headerValue(String(value)) === undefined) {
 			return { field: "value", message: l10n.t("This value cannot be sent as an HTTP header") };
 		}
 		headers[name] = value;

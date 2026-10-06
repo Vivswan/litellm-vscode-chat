@@ -50,13 +50,14 @@ import type { RecordChainResolution } from "../../../shared/config/recordResolut
 import { FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE } from "../../../shared/config/recordResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import { getCurrencySymbol } from "../../../shared/config/settings";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { deploymentShape } from "../../pureHelpers";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
-const SERVER = { id: "srv1", label: "Default", baseUrl: "http://a.test", apiKey: "k" };
+const SERVER = { id: "srv1", label: "Default", baseUrl: "http://a.test", apiKey: fixedHeaderValue("k") };
 const SCOPE = "http://a.test";
 
 const FIELD_NAMES = Object.keys(CAPABILITY_FIELDS) as CapabilityFieldName[];

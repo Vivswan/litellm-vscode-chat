@@ -1253,6 +1253,7 @@
 	"fallback/Checkbox label on a capability row; applies the value only where the server reports none.": "後備",
 	"force/Checkbox label on a parameter row; marks the value as forced over runtime options.": "強制",
 	"h/Abbreviation for hours in durations like '1 h 30 min'.": "小時",
+	"the value of \"{0}\" cannot be sent as an HTTP header": "「{0}」的值無法作為 HTTP 標頭傳送",
 	"the {0} cannot be sent as an HTTP header; it is not imported, so enter it again afterwards": "{0}無法作為 HTTP 標頭傳送; 它不會被匯入, 請在匯入後重新輸入",
 	"ignored/Badge word on a record field whose directive key belongs to the other record type.": "已忽略",
 	"images//models table cell: the model accepts image input": "影像",

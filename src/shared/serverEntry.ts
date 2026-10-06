@@ -8,6 +8,7 @@
 
 import type { ModelRecordMap } from "./config/modelMatcher";
 import { canonicalStoredBaseUrl, canonicalUrl, normalizeBaseUrl } from "./util/baseUrl";
+import type { HeaderValue } from "./util/headers";
 
 /**
  * THE ORDER IS LOAD-BEARING while migrations/fingerprintProjection.ts lives: buildGroupArgs emits the provider-group
@@ -318,7 +319,7 @@ type EntryModelRecordMap = ModelRecordMap;
 export interface EntryViewFieldValues {
 	/** What apiRootOf appends to the base URL: "" is a real value (append nothing), absent means auto-detect. */
 	readonly apiVersion: string;
-	readonly headers: Readonly<Record<string, string>>;
+	readonly headers: Readonly<Record<string, HeaderValue>>;
 	readonly modelParameters: EntryModelRecordMap;
 	readonly modelCapabilities: EntryModelRecordMap;
 	readonly expectedFailures: readonly ExpectedFailureCategory[];

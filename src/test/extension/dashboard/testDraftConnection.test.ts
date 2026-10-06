@@ -7,6 +7,7 @@ import * as assert from "node:assert";
 import { http } from "msw";
 import { createDraftConnectionProbe } from "../../../extension/dashboard/testDraftConnection";
 import { RequestError } from "../../../provider/transport/errorMapping";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 
 suite("extension/dashboard/testDraftConnection", () => {
@@ -25,7 +26,7 @@ suite("extension/dashboard/testDraftConnection", () => {
 				return emptyErrorResponse(500);
 			})
 		);
-		const probe = createDraftConnectionProbe("litellm-vscode-chat/0.0.0-test VSCode/test");
+		const probe = createDraftConnectionProbe(fixedHeaderValue("litellm-vscode-chat/0.0.0-test VSCode/test"));
 
 		await assert.rejects(
 			probe({

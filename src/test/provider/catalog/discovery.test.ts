@@ -20,6 +20,7 @@ import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import { CAPABILITY_FLOOR } from "../../../shared/config/capabilityResolution";
 import { publicErrorText } from "../../../shared/logger";
 import type { NonChatMode, SkippedModeCounts } from "../../../shared/serverEntry";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import {
 	discoveryHandlers,
 	emptyErrorResponse,
@@ -36,8 +37,8 @@ function request(log: (message: string, data?: unknown) => void = () => {}, fetc
 		{
 			serverId: "srv1",
 			baseUrl: TEST_BASE_URL,
-			apiKey: "test-key",
-			userAgent: "test-agent",
+			apiKey: fixedHeaderValue("test-key"),
+			userAgent: fixedHeaderValue("test-agent"),
 			customHeaders: {},
 		},
 		fetchImpl
@@ -1009,7 +1010,7 @@ suite("provider/catalog/discovery", () => {
 			);
 
 			const { models } = await fetchModels(request());
-			const server = { id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "test-key" };
+			const server = { id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("test-key") };
 			const infos = buildModelInfos(models, server, 1, () => {}).infos;
 
 			const info = expectDefined(infos.find((i) => i.id === "floor-model"));
@@ -1448,7 +1449,7 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(merged.provider.output_cost_per_token, null);
 			const { infos } = buildModelInfos(
 				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider, limits: merged.limits } }],
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);
@@ -1470,7 +1471,7 @@ suite("provider/catalog/discovery", () => {
 			assert.deepStrictEqual(merged.provider.reasoning_effort_levels, ["low", "high"], "menu order, not arrival order");
 			const { infos } = buildModelInfos(
 				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider, limits: merged.limits } }],
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);
@@ -1504,7 +1505,7 @@ suite("provider/catalog/discovery", () => {
 			]);
 			const { infos } = buildModelInfos(
 				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider, limits: merged.limits } }],
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);
@@ -1561,7 +1562,7 @@ suite("provider/catalog/discovery", () => {
 			);
 			const { infos } = buildModelInfos(
 				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider, limits: merged.limits } }],
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);

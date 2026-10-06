@@ -13,12 +13,14 @@ import { buildDashboardState, type SettingsReader } from "../../../extension/das
 import type { DeclaredServerView, ServerEntryReport } from "../../../extension/servers/serverSync";
 import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
 import { Notifier } from "../../../extension/ui/notifier";
+import type { GroupServer } from "../../../provider/catalog/groupModels";
 import { GroupStatusReporter } from "../../../provider/catalog/statusReporting";
 import { StatusWindow } from "../../../provider/catalog/statusWindow";
 import { markLogSafe } from "../../../shared/logger";
 import type { AggregatedStatus, ServerStatusError } from "../../../shared/servers";
 import { isHiddenGroupServerStatus } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import type { Timer } from "../../../shared/util/timer";
 import type { WindowStateRow } from "../../statusVocabulary";
 import { WINDOW_STATE_ROWS } from "../../statusVocabulary";
@@ -174,7 +176,7 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 	test("the table's totalModels is the merged count reportMerged derives from the window", () => {
 		// The claim asserted against the REAL reporter: record the row's window into a StatusWindow and read the merged
 		// report back, so the table's count can never drift from the reduce reportMerged actually runs.
-		const groupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "" };
+		const groupServer: GroupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "" };
 		const nothingServed = { discovered: [], declared: [] } as const;
 		for (const row of WINDOW_STATE_ROWS) {
 			const window = new StatusWindow(
@@ -261,8 +263,8 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 			servedModelCount: 0,
 		});
 		const nothingServed = { discovered: [], declared: [] } as const;
-		const groupA = { baseUrl: normalizeBaseUrl("http://A.test"), apiKey: "k1", label: "A" };
-		const groupB = { baseUrl: normalizeBaseUrl("http://B.test"), apiKey: "k", label: "B" };
+		const groupA = { baseUrl: normalizeBaseUrl("http://A.test"), apiKey: fixedHeaderValue("k1"), label: "A" };
+		const groupB = { baseUrl: normalizeBaseUrl("http://B.test"), apiKey: fixedHeaderValue("k"), label: "B" };
 		const barError = async () => {
 			reporter.reportMerged(true);
 			await new Promise((resolve) => setImmediate(resolve));
@@ -274,7 +276,7 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 		window.record(failed("b1", "B"), nothingServed, groupB);
 		assert.strictEqual(await barError(), "A failed");
 
-		window.record(failed("a2", "A"), nothingServed, { ...groupA, apiKey: "k2" });
+		window.record(failed("a2", "A"), nothingServed, { ...groupA, apiKey: fixedHeaderValue("k2") });
 		assert.strictEqual(await barError(), "A failed", "the rotation must not move A behind B");
 	});
 

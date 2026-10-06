@@ -3,6 +3,7 @@ import * as assert from "node:assert";
 import { McpVersionCounters, type VersionStore } from "../../../../../extension/features/mcp/versions";
 import type { DeclaredServer } from "../../../../../extension/servers/serverSync/setting";
 import { MCP_ENTRY_VERSIONS_KEY } from "../../../../../shared/config/storageKeys";
+import { fixedHeaderValue } from "../../../../../shared/util/headers";
 
 /**
  * Two things are load-bearing and neither is obvious: a rotation must always be REPORTED (the editor would otherwise
@@ -106,7 +107,7 @@ describe("extension/features/mcp/versions", () => {
 				{ oauthTokenUrl: "https://idp2.test/token" },
 				{ oauthClientId: "client-2" },
 				{ oauthScopes: "read write" },
-				{ headers: { "x-routing-env": "staging" } },
+				{ headers: { "x-routing-env": fixedHeaderValue("staging") } },
 			];
 			const base: Partial<DeclaredServer> = {
 				apiKey: "sk-1",
@@ -114,7 +115,7 @@ describe("extension/features/mcp/versions", () => {
 				oauthTokenUrl: "https://idp.test/token",
 				oauthClientId: "client-1",
 				oauthScopes: "read",
-				headers: { "x-routing-env": "prod" },
+				headers: { "x-routing-env": fixedHeaderValue("prod") },
 			};
 			for (const change of cases) {
 				const counters = new McpVersionCounters(store());

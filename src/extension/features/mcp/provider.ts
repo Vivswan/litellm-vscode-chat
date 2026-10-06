@@ -23,6 +23,7 @@ import type { MirroredError } from "../../../shared/mirroredError";
 import { localizedError } from "../../../shared/mirroredError";
 import type { McpOptIn } from "../../../shared/serverEntry";
 import { displayUrl } from "../../../shared/util/displayUrl";
+import type { HeaderValue } from "../../../shared/util/headers";
 import type { EntryConnectionRefused } from "../../servers/entryConnection";
 import { entryConnectionFor } from "../../servers/entryConnection";
 import type { DeclaredServer } from "../../servers/serverSync/setting";
@@ -215,7 +216,7 @@ export function createMcpServerDefinitionProvider(
 				refuse({ kind: "not-published" });
 			}
 
-			let headers: Record<string, string>;
+			let headers: Record<string, HeaderValue>;
 			let baseUrl: string;
 			try {
 				const entry = currentMcpEntries().find((candidate) => candidate.label === before.label);

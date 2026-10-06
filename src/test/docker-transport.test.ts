@@ -4,6 +4,7 @@ import { createTitleAndDescriptionProvider } from "../extension/features/prGen/p
 import { FIM_MAX_TOKENS, FIM_TIMEOUT_MS } from "../provider/transport/fim";
 import { OneShotClient } from "../provider/transport/oneShotClient";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
+import { fixedHeaderValue } from "../shared/util/headers";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import {
@@ -23,7 +24,7 @@ import { expectDefined } from "./pureHelpers";
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
-const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
+const API_KEY = fixedHeaderValue(process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY);
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 
 /** Raw scenarios register on the fake backend; the proxy leg reaches them through %play like any other scenario. */
@@ -585,7 +586,7 @@ function fimCompletionSuite(): void {
 	suite("Docker FIM completion (proxy end to end)", () => {
 		test("completeFim reaches the completion-mode model through the proxy and nothing extra rides the body", async function () {
 			this.timeout(30000);
-			const client = new OneShotClient({ userAgent: "litellm-vscode-chat-docker-test" });
+			const client = new OneShotClient({ userAgent: fixedHeaderValue("litellm-vscode-chat-docker-test") });
 			const prompt = "function add(a, b) {\n\treturn ";
 			const suffix = ";\n}\n";
 			const text = await client.completeFim(
@@ -623,7 +624,7 @@ function prGenerationSuite(): void {
 	suite("Docker PR generation (proxy end to end)", () => {
 		test("a generated title and description survive the round trip, and nothing extra rides the body", async function () {
 			this.timeout(30000);
-			const client = new OneShotClient({ userAgent: "litellm-vscode-chat-docker-test" });
+			const client = new OneShotClient({ userAgent: fixedHeaderValue("litellm-vscode-chat-docker-test") });
 			const provider = createTitleAndDescriptionProvider((prompt, token) =>
 				client.completeChatOnce(
 					{ baseUrl: BASE_URL, apiKey: API_KEY, headers: {} },

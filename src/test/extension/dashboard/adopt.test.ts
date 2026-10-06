@@ -3,7 +3,9 @@ import type { LiveDeclaration } from "../../../extension/dashboard/adopt";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "../../../extension/dashboard/adopt";
 import type { DashboardStateInputs } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
+import type { GroupServer } from "../../../provider/catalog/groupModels";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { makeServerStatus } from "../../testUtils";
 import { buildState, makeDeclared, makeReader } from "./stateHelpers";
 
@@ -15,12 +17,12 @@ const live = (identities: readonly DeclaredServerView[] = []): LiveDeclaration =
 
 suite("extension/dashboard/adopt", () => {
 	suite("resolveAdoptableCredentials", () => {
-		const groupServers = new Map([
+		const groupServers = new Map<string, GroupServer>([
 			[
 				"group:aaa:http://ext.test",
 				{
 					baseUrl: normalizeBaseUrl("http://ext.test"),
-					apiKey: "sk-one",
+					apiKey: fixedHeaderValue("sk-one"),
 				},
 			],
 			[
@@ -34,7 +36,7 @@ suite("extension/dashboard/adopt", () => {
 						clientSecret: "oauth-secret",
 						scopes: "read",
 					},
-					virtualKey: { header: "x-litellm-api-key", value: "vk-1" },
+					virtualKey: { header: "x-litellm-api-key", value: fixedHeaderValue("vk-1") },
 				},
 			],
 		]);

@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { apiRootOf } from "../../shared/util/baseUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
+import type { HeaderValue } from "../../shared/util/headers";
 import type { TransportFetch } from "./nodeHttpFetch";
 
 export interface ServerClientConfig {
@@ -13,9 +14,9 @@ export interface ServerClientConfig {
 	 */
 	apiVersion?: string | undefined;
 	/** Empty string for keyless servers. */
-	apiKey: string;
-	userAgent: string;
-	customHeaders: Record<string, string>;
+	apiKey: HeaderValue | "";
+	userAgent: HeaderValue;
+	customHeaders: Record<string, HeaderValue>;
 }
 
 /**
@@ -75,8 +76,8 @@ function fingerprintOf(config: ServerClientConfig): string {
  */
 export function buildDefaultHeaders(
 	config: Pick<ServerClientConfig, "apiKey" | "userAgent" | "customHeaders">
-): Record<string, string | null> {
-	const headers: Record<string, string | null> = { ...config.customHeaders, "User-Agent": config.userAgent };
+): Record<string, HeaderValue | null> {
+	const headers: Record<string, HeaderValue | null> = { ...config.customHeaders, "User-Agent": config.userAgent };
 	const hasCustomAuthorization = Object.keys(config.customHeaders).some((key) => key.toLowerCase() === "authorization");
 	if (config.apiKey) {
 		for (const key of Object.keys(headers)) {
@@ -85,8 +86,6 @@ export function buildDefaultHeaders(
 				delete headers[key];
 			}
 		}
-		// Header-legal already: every caller's key came through catalog/groupModels.ts narrowApiKey, which drops anything
-		// else, so the platform's Headers never sees, or quotes, a bad key.
 		headers["X-API-Key"] = config.apiKey;
 	} else if (!hasCustomAuthorization) {
 		headers.Authorization = null;

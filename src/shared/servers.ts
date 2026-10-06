@@ -5,6 +5,7 @@
 
 import type { TransportErrorClassification, UnservedEndpointEvidence } from "./errorClassification";
 import type { LogSafeErrorText } from "./logger";
+import type { HeaderValue } from "./util/headers";
 
 export interface ServerConfig {
 	id: string;
@@ -13,7 +14,8 @@ export interface ServerConfig {
 }
 
 export interface ServerWithKey extends ServerConfig {
-	apiKey: string;
+	/** Empty string for keyless servers. */
+	apiKey: HeaderValue | "";
 }
 
 interface ServerStatusCommon {

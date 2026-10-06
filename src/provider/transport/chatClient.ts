@@ -18,6 +18,7 @@ import type { Logger } from "../../shared/logger";
 import { chatErrorMessage, englishChatErrorMessage, localizedError } from "../../shared/mirroredError";
 import type { NonChatMode } from "../../shared/serverEntry";
 import type { ServerWithKey } from "../../shared/servers";
+import type { HeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
 import type { ExpectedDiscoveryFailures, FetchModelsResult } from "../catalog/discovery";
@@ -65,7 +66,7 @@ export interface ServerConnection extends ServerWithKey {
 }
 
 export interface ChatClientOptions {
-	userAgent: string;
+	userAgent: HeaderValue;
 	logger?: Logger | undefined;
 	/**
 	 * Resolves a declared server entry's per-entry modelParameters at request time, from the entry's label and the
@@ -81,7 +82,7 @@ export interface ChatClientOptions {
 	 * without a provider.
 	 */
 	resolution?: ModelResolutionTable | undefined;
-	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined) | undefined;
+	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, HeaderValue>> | undefined) | undefined;
 	/**
 	 * "" is a real value (append nothing), distinct from undefined (auto). Defaults to none: servers no declared entry
 	 * matches get the auto rule.
@@ -93,13 +94,16 @@ export interface ChatClientOptions {
 
 /** Owns the HTTP-facing side of the provider. */
 export class ChatClient {
-	private readonly userAgent: string;
+	private readonly userAgent: HeaderValue;
 	private readonly logger?: Logger | undefined;
 	private readonly getEntryModelParameters: (
 		label: string,
 		baseUrl: string
 	) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
-	private readonly getEntryHeaders: (label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined;
+	private readonly getEntryHeaders: (
+		label: string,
+		baseUrl: string
+	) => Readonly<Record<string, HeaderValue>> | undefined;
 	private readonly getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
 	private readonly clients: ServerClientCache;
 	private readonly oauthTokens = new OAuthTokenSource();
@@ -127,7 +131,7 @@ export class ChatClient {
 	}
 
 	/** Copied because the client cache expects an owned record. */
-	private customHeadersFor(entryLabel: string | undefined, baseUrl: string): Record<string, string> {
+	private customHeadersFor(entryLabel: string | undefined, baseUrl: string): Record<string, HeaderValue> {
 		const headers = entryLabel !== undefined ? this.getEntryHeaders(entryLabel, baseUrl) : undefined;
 		return headers !== undefined ? { ...headers } : {};
 	}
@@ -189,8 +193,8 @@ export class ChatClient {
 		surface: OAuthErrorSurface,
 		timeout: TimeoutBudget,
 		signal?: AbortSignal
-	): Promise<{ headers: Record<string, string> | undefined; auth: AuthOverlayScope }> {
-		const headers: Record<string, string> = {};
+	): Promise<{ headers: Record<string, HeaderValue> | undefined; auth: AuthOverlayScope }> {
+		const headers: Record<string, HeaderValue> = {};
 		const auth = await applyAuthOverlay(headers, credentials, {
 			tokens: this.oauthTokens,
 			surface,

@@ -5,6 +5,7 @@ import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import { groupClientId } from "../../../provider/catalog/groupModels";
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../../shared/config/storageKeys";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { expectDefined } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 
@@ -203,10 +204,18 @@ suite("extension/servers/groupRemovals", () => {
 			// The canonical group mints a new client id and group records compare by id alone, so the decoder reads a
 			// record whose stored URL text is not canonical by the label and URL it carries. The judgment is the stored
 			// text, never the id: a tab inside the host or userinfo respelled leaves the id's display URL unchanged.
-			const canonical = groupClientId({ baseUrl: normalizeBaseUrl("http://host:4000"), apiKey: "k", label: "Host" });
+			const canonical = groupClientId({
+				baseUrl: normalizeBaseUrl("http://host:4000"),
+				apiKey: fixedHeaderValue("k"),
+				label: "Host",
+			});
 			const group = { groupId: canonical, label: "Host", entryLabel: undefined, baseUrl: "http://host:4000" };
 			for (const stored of ["HTTP://Host:4000", "http://ho\tst:4000", "http://User:Pa ss@host:4000"]) {
-				const typed = groupClientId({ baseUrl: normalizeBaseUrl(stored), apiKey: "k", label: "Host" });
+				const typed = groupClientId({
+					baseUrl: normalizeBaseUrl(stored),
+					apiKey: fixedHeaderValue("k"),
+					label: "Host",
+				});
 				assert.notStrictEqual(typed, canonical, stored);
 				const { store } = makeStore({
 					[REMOVED_GROUP_TOMBSTONES_KEY]: {

@@ -20,6 +20,7 @@ import type { Logger } from "../shared/logger";
 import { localizedError, type MirroredError } from "../shared/mirroredError";
 import type { ExpectedFailureCategory, NonChatMode } from "../shared/serverEntry";
 import type { AggregatedStatus } from "../shared/servers";
+import type { HeaderValue } from "../shared/util/headers";
 import { DiscoveryCache } from "./catalog/discoveryCache";
 import { logFailure } from "./catalog/discoveryLog";
 import type { DiscoveredGroupModels, SuppressedGroupKey } from "./catalog/groupDiscovery";
@@ -68,7 +69,7 @@ export function defaultHostRefreshDeadlineMs(log?: (message: string, data?: unkn
 }
 
 export interface LiteLLMChatModelProviderOptions {
-	userAgent: string;
+	userAgent: HeaderValue;
 	logger?: Logger | undefined;
 	/** Request-time resolver for a declared entry's per-entry modelParameters; see ChatClientOptions. */
 	getEntryModelParameters?:
@@ -83,7 +84,7 @@ export interface LiteLLMChatModelProviderOptions {
 	 * Request- and discovery-time resolver for a declared entry's custom headers, matched like
 	 * getEntryModelCapabilities. Headers live on the entry - there is no global headers setting.
 	 */
-	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined) | undefined;
+	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, HeaderValue>> | undefined) | undefined;
 	/**
 	 * Request- and discovery-time resolver for a declared entry's apiVersion override (what apiRootOf appends to the
 	 * base URL), matched like getEntryHeaders. "" is a real value (append nothing), distinct from undefined

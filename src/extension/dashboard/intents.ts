@@ -47,12 +47,7 @@ import { transportClassificationOf } from "../../shared/errorClassification";
 import { MirroredError } from "../../shared/mirroredError";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import {
-	isValidHeaderName,
-	isValidHeaderValue,
-	sendableHeaderValue,
-	trimHttpWhitespace,
-} from "../../shared/util/headers";
+import { headerValue, isValidHeaderName, trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { TombstoneIdentity, TombstoneRecording } from "../servers/groupRemovals";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
@@ -284,12 +279,12 @@ function validateConnectionFields(
 			return `${field}: an empty value cannot be set; use clear`;
 		}
 	}
-	// The one credential rule (sendableHeaderValue, the request path's own): a value it would drop, or that it trims
-	// to nothing, is refused here before a save stores it or a draft probe sends without it.
+	// The one credential rule (headerValue, the request path's own): a value it would refuse, or that it trims to
+	// nothing, is refused here before a save stores it or a draft probe sends without it.
 	for (const field of ["apiKey", "virtualKeyValue"] as const) {
 		const directive = secrets[field];
 		if (directive.action === "set") {
-			const sendable = sendableHeaderValue(directive.value);
+			const sendable = headerValue(directive.value);
 			if (sendable === undefined || sendable.length === 0) {
 				return `${field}: the value cannot be sent as an HTTP header`;
 			}
@@ -350,7 +345,7 @@ export function validateSaveServerSetting(
 			return `headers: "${name}" repeats an earlier header name (names are case-insensitive)`;
 		}
 		seenLower.add(lower);
-		if (!isValidHeaderValue(String(value))) {
+		if (headerValue(String(value)) === undefined) {
 			return `headers: the value of "${name}" cannot be sent as an HTTP header`;
 		}
 	}

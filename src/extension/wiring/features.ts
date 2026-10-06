@@ -1,6 +1,7 @@
 import type * as vscode from "vscode";
 import { OneShotClient } from "../../provider/transport/oneShotClient";
 import type { Logger } from "../../shared/logger";
+import type { HeaderValue } from "../../shared/util/headers";
 import type { FeatureProbes } from "../dashboard/intents";
 import type { DashboardController } from "../dashboard/panel";
 import type { AgentToolsDeps } from "../features/agentTools/wiring";
@@ -28,7 +29,7 @@ export function wireFeatures(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	deps: {
-		readonly ua: string;
+		readonly ua: HeaderValue;
 		readonly outputChannel: vscode.OutputChannel;
 		readonly getSnapshots: () => readonly SnapshotSource[];
 	}

@@ -3,7 +3,7 @@ import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { displayUrl } from "../../shared/util/displayUrl";
 import { collapseWhitespace } from "../../shared/util/errorText";
 import { fingerprint } from "../../shared/util/fingerprint";
-import { isValidHeaderValue } from "../../shared/util/headers";
+import { type HeaderValue, headerValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { KnownSecrets } from "../../shared/util/knownSecrets";
 import { sleepUnlessAborted } from "../../shared/util/timer";
@@ -25,7 +25,7 @@ export interface OAuthConfig {
 /** A gateway "virtual key" sent in a custom header on every request to the server. */
 export interface VirtualKeyConfig {
 	header: string;
-	value: string;
+	value: HeaderValue;
 }
 
 /**
@@ -71,13 +71,13 @@ const DEFAULT_EXPIRES_IN_SECONDS = 300;
 const RETRY_DELAY_MS = 200;
 
 interface CachedToken {
-	accessToken: string;
+	accessToken: HeaderValue;
 	refreshAtMs: number;
 }
 
 /** The one in-flight exchange for a credential set. It runs exactly as long as at least one caller awaits it. */
 interface SharedExchange {
-	readonly token: Promise<string>;
+	readonly token: Promise<HeaderValue>;
 	readonly abandon: () => void;
 	waiters: number;
 }
@@ -95,7 +95,7 @@ export class OAuthTokenSource {
 		surface: OAuthErrorSurface,
 		budget: TimeoutBudget,
 		signal?: AbortSignal
-	): Promise<string> {
+	): Promise<HeaderValue> {
 		const key = oauthCredentialFingerprint(config);
 		const cached = this.tokens.get(key);
 		if (cached && Date.now() < cached.refreshAtMs) {
@@ -305,7 +305,7 @@ function tokenLifetimeSeconds(parsed: Record<string, unknown>): number {
 	return Number.isFinite(candidate) && candidate > 0 ? candidate : 0;
 }
 
-function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: string; expiresInSeconds: number } {
+function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: HeaderValue; expiresInSeconds: number } {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(payload);
@@ -314,7 +314,10 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 	}
 	// Each malformed shape throws a localized headline over a fixed English detail line; these errors carry no
 	// logClassification, so the byte-faithful English mirror is what the diagnostics surfaces render.
-	if (!isRecord(parsed) || typeof parsed.access_token !== "string" || parsed.access_token.length === 0) {
+	const record = isRecord(parsed) ? parsed : undefined;
+	const rawToken = typeof record?.access_token === "string" ? record.access_token : undefined;
+	const accessToken = rawToken === undefined ? undefined : headerValue(rawToken);
+	if (record === undefined || rawToken === undefined || accessToken?.length === 0) {
 		const detail = `OAuth token endpoint ${displayUrl(tokenUrl)} answered 2xx without JSON containing a non-empty access_token.`;
 		throw new OAuthExchangeFailure((surface) => {
 			const texts = twoPartTexts(
@@ -331,7 +334,7 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 			return new RequestError(texts.message, "http", { englishMessage: texts.englishMessage });
 		});
 	}
-	if (!isValidHeaderValue(parsed.access_token)) {
+	if (accessToken === undefined) {
 		const detail = `OAuth token from ${displayUrl(tokenUrl)} contains characters not allowed in an HTTP header value (control characters or non-Latin-1 text); the token was not sent, and its value is never shown or logged.`;
 		throw new OAuthExchangeFailure((surface) => {
 			const texts = twoPartTexts(
@@ -348,7 +351,7 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 			return new RequestError(texts.message, "http", { englishMessage: texts.englishMessage });
 		});
 	}
-	return { accessToken: parsed.access_token, expiresInSeconds: tokenLifetimeSeconds(parsed) };
+	return { accessToken, expiresInSeconds: tokenLifetimeSeconds(record) };
 }
 
 /**
@@ -358,7 +361,7 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 async function exchangeClientCredentials(
 	config: OAuthConfig,
 	signal: AbortSignal
-): Promise<{ accessToken: string; expiresInSeconds: number }> {
+): Promise<{ accessToken: HeaderValue; expiresInSeconds: number }> {
 	const form = new URLSearchParams({
 		grant_type: "client_credentials",
 		client_id: config.clientId,

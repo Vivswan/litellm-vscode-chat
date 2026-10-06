@@ -223,6 +223,27 @@ suite("extension/dashboard/intents: testServerDraft", () => {
 			assert.deepStrictEqual(recorded.probes[0]?.headers, { "x-cf-access": "token-1" });
 		});
 
+		test("a draft header value rides trimmed; one the header rule refuses names its header before the probe", async () => {
+			// Before, the value went to the SDK's Headers as typed: an interior line break failed the probe with the value
+			// quoted back, and the save validator (names only on this intent) never saw it. The edge newline pins that the
+			// probe sends what a save stores and the wire reads.
+			const recorded = makeEnv([]);
+			recorded.probeResult = ["m1"];
+			await draftTest(recorded, {
+				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", headers: { "x-key": "token-Q7\r\n" } }),
+			});
+			assert.deepStrictEqual(recorded.probes[0]?.headers, { "x-key": "token-Q7" });
+			await assert.rejects(
+				draftTest(recorded, {
+					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", headers: { "x-key": "token\r\nQ7" } }),
+				}),
+				(error: unknown) =>
+					error instanceof DashboardValidationError &&
+					error.message === 'headers: the value of "x-key" cannot be sent as an HTTP header'
+			);
+			assert.strictEqual(recorded.probes.length, 1, "the refused draft never probes");
+		});
+
 		test("an expected modelListing failure reports the declared models instead of failing", async () => {
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			recorded.probeError = new RequestError("404 page not found", "http", {

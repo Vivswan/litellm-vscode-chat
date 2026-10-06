@@ -3,6 +3,7 @@ import { HttpResponse, http } from "msw";
 import type OpenAI from "openai";
 import { createServerClient, ServerClientCache, type ServerClientConfig } from "../../../provider/transport/clients";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { toHeaderMap } from "../../pureHelpers";
 
@@ -10,8 +11,8 @@ function config(overrides: Partial<ServerClientConfig> = {}): ServerClientConfig
 	return {
 		serverId: "srv1",
 		baseUrl: TEST_BASE_URL,
-		apiKey: "sk-k",
-		userAgent: "test-agent",
+		apiKey: fixedHeaderValue("sk-k"),
+		userAgent: fixedHeaderValue("test-agent"),
 		customHeaders: {},
 		...overrides,
 	};
@@ -43,7 +44,10 @@ suite("provider/transport/clients", () => {
 
 	suite("createServerClient", () => {
 		test("keyed client sends both auth headers, the User-Agent, and custom headers", async () => {
-			const client = createServerClient(config({ customHeaders: { "X-Custom": "custom-value" } }), nodeHttpFetch);
+			const client = createServerClient(
+				config({ customHeaders: { "X-Custom": fixedHeaderValue("custom-value") } }),
+				nodeHttpFetch
+			);
 			const { headers } = await captureGet(client);
 			assert.strictEqual(headers.authorization, "Bearer sk-k");
 			assert.strictEqual(headers["x-api-key"], "sk-k");
@@ -60,7 +64,7 @@ suite("provider/transport/clients", () => {
 
 		test("keyless client sends a user-configured Authorization header", async () => {
 			const client = createServerClient(
-				config({ apiKey: "", customHeaders: { Authorization: "Basic dXNlcg==" } }),
+				config({ apiKey: "", customHeaders: { Authorization: fixedHeaderValue("Basic dXNlcg==") } }),
 				nodeHttpFetch
 			);
 			const { headers } = await captureGet(client);
@@ -70,7 +74,9 @@ suite("provider/transport/clients", () => {
 
 		test("the API key wins over conflicting custom auth headers", async () => {
 			const client = createServerClient(
-				config({ customHeaders: { Authorization: "Basic other", "x-api-key": "other-key" } }),
+				config({
+					customHeaders: { Authorization: fixedHeaderValue("Basic other"), "x-api-key": fixedHeaderValue("other-key") },
+				}),
 				nodeHttpFetch
 			);
 			const { headers } = await captureGet(client);
@@ -119,13 +125,13 @@ suite("provider/transport/clients", () => {
 		test("a changed API key produces a new client", () => {
 			const cache = new ServerClientCache(nodeHttpFetch);
 			const first = cache.get(config());
-			assert.notStrictEqual(cache.get(config({ apiKey: "sk-rotated" })), first);
+			assert.notStrictEqual(cache.get(config({ apiKey: fixedHeaderValue("sk-rotated") })), first);
 		});
 
 		test("changed custom headers produce a new client", () => {
 			const cache = new ServerClientCache(nodeHttpFetch);
 			const first = cache.get(config());
-			assert.notStrictEqual(cache.get(config({ customHeaders: { "X-Custom": "added" } })), first);
+			assert.notStrictEqual(cache.get(config({ customHeaders: { "X-Custom": fixedHeaderValue("added") } })), first);
 		});
 
 		test('a changed apiVersion produces a new client, and "" is distinct from unset', () => {

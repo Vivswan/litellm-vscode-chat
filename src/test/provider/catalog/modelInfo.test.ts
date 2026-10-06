@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { expectDefined, toHeaderMap } from "../../pureHelpers";
 import { makeProvider } from "../../testUtils";
@@ -61,7 +62,7 @@ suite("provider/model info and fallback", () => {
 		await makeProvider(TEST_BASE_URL, "test-key", undefined, {
 			getEntryHeaders: (label, headerBaseUrl) =>
 				label === "Default" && headerBaseUrl === TEST_BASE_URL
-					? { "x-litellm-api-key": "proxy-key", "User-Agent": "spoofed-agent" }
+					? { "x-litellm-api-key": fixedHeaderValue("proxy-key"), "User-Agent": fixedHeaderValue("spoofed-agent") }
 					: undefined,
 		}).provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 

@@ -16,10 +16,13 @@ import { attachGroup, groupClientId } from "../../provider/catalog/groupModels";
 import { groupIdentity } from "../../provider/catalog/statusWindow";
 import { OneShotClient } from "../../provider/transport/oneShotClient";
 import { Logger } from "../../shared/logger";
+import { fixedHeaderValue } from "../../shared/util/headers";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
 import { assertOmits, DEFAULT_DISCOVERY_PAYLOAD, makeModelInfo } from "../pureHelpers";
 import { makeExtensionStorage, makeProvider, testGroupServer, userMessage, withConfig } from "../testUtils";
 import { fakeContext, withWiringSpies } from "./features/wiringSpies";
+
+const TEST_AGENT = fixedHeaderValue("test-agent");
 
 const MARKER = "sk-live-MARKER";
 const TOKEN_URL = "http://idp.test/oauth2/token";
@@ -83,7 +86,7 @@ async function consultation(logger: Logger): Promise<void> {
 				servers: [SERVER_ENTRY],
 			},
 			async () => {
-				wireConsultTool(fakeContext(), logger, { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), logger, { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 				const tool = spies.registrations.at(-1)?.tool;
 				assert.ok(tool !== undefined, "the tool is registered");
 				await tool.invoke(
@@ -115,7 +118,7 @@ function commitGeneration(logger: Logger): Promise<void> {
 		},
 		() =>
 			runGenerateCommitMessage(
-				new OneShotClient({ userAgent: "test-agent" }),
+				new OneShotClient({ userAgent: TEST_AGENT }),
 				{
 					secrets: makeExtensionStorage().secrets,
 					logger,
@@ -132,7 +135,7 @@ async function mcpResolve(logger: Logger): Promise<void> {
 	const provider = createMcpServerDefinitionProvider(
 		{
 			secrets: storage.secrets,
-			oneShot: new OneShotClient({ userAgent: "test-agent" }),
+			oneShot: new OneShotClient({ userAgent: TEST_AGENT }),
 			versions: new McpVersionCounters(storage.memento),
 			advisory: () => {},
 			logError: () => {},

@@ -7,6 +7,7 @@ import type { DiscoveredGroupModels } from "../../../provider/catalog/groupDisco
 import type { NonChatMode } from "../../../shared/serverEntry";
 import type { AggregatedStatus } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined } from "../../pureHelpers";
 import { makeProvider, withConfig } from "../../testUtils";
@@ -332,7 +333,7 @@ suite("provider group discovery caching", () => {
 	test("an expired entry is refetched", async () => {
 		const clock = makeClock();
 		const provider = new LiteLLMChatModelProvider({
-			userAgent: "GitHubCopilotChat/test VSCode/test",
+			userAgent: fixedHeaderValue("GitHubCopilotChat/test VSCode/test"),
 			discoveryCache: new DiscoveryCache<DiscoveredGroupModels>(clock.now),
 		});
 		const counter = countingHandlers();
@@ -398,7 +399,7 @@ suite("provider group discovery caching", () => {
 
 	test("a sweep served from the cache keeps every group in the merged status", async () => {
 		const provider = new LiteLLMChatModelProvider({
-			userAgent: "GitHubCopilotChat/test VSCode/test",
+			userAgent: fixedHeaderValue("GitHubCopilotChat/test VSCode/test"),
 		});
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
@@ -429,7 +430,7 @@ suite("provider group discovery caching", () => {
 		// old filtered result until the TTL.
 		const entry = { includeModes: undefined as readonly NonChatMode[] | undefined };
 		const provider = new LiteLLMChatModelProvider({
-			userAgent: "GitHubCopilotChat/test VSCode/test",
+			userAgent: fixedHeaderValue("GitHubCopilotChat/test VSCode/test"),
 			getEntryIncludeModes: () => entry.includeModes,
 		});
 		const counter = countingHandlers();
@@ -451,7 +452,7 @@ suite("provider group discovery caching", () => {
 
 	test("a rotated group key evicts the old credentials' entry once its status ages out", async () => {
 		const provider = new LiteLLMChatModelProvider({
-			userAgent: "GitHubCopilotChat/test VSCode/test",
+			userAgent: fixedHeaderValue("GitHubCopilotChat/test VSCode/test"),
 		});
 		countingHandlers();
 		const oldGroup = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "old-key" };

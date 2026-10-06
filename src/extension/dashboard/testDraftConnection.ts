@@ -18,7 +18,7 @@ import { transportClassificationOf } from "../../shared/errorClassification";
 import type { NonChatMode, SecretFieldId } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { canonicalBaseUrl } from "../../shared/util/baseUrl";
-import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
+import { type HeaderValue, headerValue, trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
 import { recordFromKeys } from "../../shared/util/json";
 import { buildGroupArgs } from "../servers/serverSync/engine";
 import { acceptedEntry } from "../servers/serverSync/setting";
@@ -38,10 +38,10 @@ export interface DraftConnection {
 	 */
 	readonly apiVersion?: string | undefined;
 	/** Empty string for keyless drafts, matching ServerWithKey's convention. */
-	readonly apiKey: string;
+	readonly apiKey: HeaderValue | "";
 	readonly oauth?: OAuthConfig | undefined;
 	readonly virtualKey?: VirtualKeyConfig | undefined;
-	readonly headers?: Readonly<Record<string, string>> | undefined;
+	readonly headers?: Readonly<Record<string, HeaderValue>> | undefined;
 	/**
 	 * The draft's expectedFailures in discovery's per-endpoint shape: expected endpoints probe with a single attempt,
 	 * like production.
@@ -164,10 +164,19 @@ export async function applyTestServerDraft(
 		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
 	}
 
-	// Header values normalized to strings as the setting parser stores them.
-	const draftHeaders: Readonly<Record<string, string>> = Object.fromEntries(
-		Object.entries(intent.server.headers).map(([name, value]) => [name, String(value)])
-	);
+	// The header values minted by the rule the request path sends through (the save validation checks names only on
+	// this intent): a value the rule refuses names its header here, so the probe never hands the platform's Headers a
+	// value it would throw on, quoting it.
+	const draftHeaders: Record<string, HeaderValue> = {};
+	for (const [name, raw] of Object.entries(intent.server.headers)) {
+		const value = headerValue(String(raw));
+		if (value === undefined) {
+			throw new DashboardValidationError(
+				`headers: ${l10n.t('the value of "{0}" cannot be sent as an HTTP header', name)}`
+			);
+		}
+		draftHeaders[name] = value;
+	}
 
 	const usableLabel = usableHttpText(intent.server.label);
 	const connection: DraftConnection = {
@@ -220,7 +229,7 @@ const DRAFT_PROBE_SERVER_ID = "dashboard-draft-probe";
  * and response snippets, which feed the public issue-report buffer.
  */
 export function createDraftConnectionProbe(
-	userAgent: string
+	userAgent: HeaderValue
 ): (connection: DraftConnection) => Promise<readonly string[]> {
 	return async (connection) => {
 		const client = new ChatClient({

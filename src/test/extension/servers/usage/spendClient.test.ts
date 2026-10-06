@@ -14,6 +14,7 @@ import {
 	userInfoUrl,
 } from "../../../../extension/servers/usage";
 import { RequestError } from "../../../../provider/transport/errorMapping";
+import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 
 /** The usage endpoints sit at the server ROOT, not under /v1 like discovery. */
@@ -25,11 +26,11 @@ const TOKEN_URL = "http://idp.test/oauth2/token";
 const WINDOW = { startDate: "2026-07-01", endDate: "2026-07-30" };
 
 function client(overrides: Partial<UsageClientOptions> = {}): UsageClient {
-	return new UsageClient({ userAgent: "test-agent", getTimeoutMs: () => 5000, ...overrides });
+	return new UsageClient({ userAgent: fixedHeaderValue("test-agent"), getTimeoutMs: () => 5000, ...overrides });
 }
 
 function connection(overrides: Partial<UsageConnection> = {}): UsageConnection {
-	return { label: "alpha", baseUrl: TEST_BASE_URL, apiKey: "sk-test", headers: {}, ...overrides };
+	return { label: "alpha", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("sk-test"), headers: {}, ...overrides };
 }
 
 async function expectRequestError(promise: Promise<unknown>, kind: RequestError["kind"]): Promise<RequestError> {
@@ -159,7 +160,7 @@ suite("extension/servers/usage spendClient", () => {
 				connection({
 					apiKey: "",
 					oauth: { tokenUrl: TOKEN_URL, clientId: "client-1", clientSecret: "secret" },
-					virtualKey: { header: "x-litellm-key", value: "vk-1" },
+					virtualKey: { header: "x-litellm-key", value: fixedHeaderValue("vk-1") },
 				})
 			);
 
@@ -184,9 +185,9 @@ suite("extension/servers/usage spendClient", () => {
 			await client().fetchKeyInfo(
 				connection({
 					apiKey: "",
-					headers: { authorization: "custom-token", "X-LiteLLM-Key": "custom-vk" },
+					headers: { authorization: fixedHeaderValue("custom-token"), "X-LiteLLM-Key": fixedHeaderValue("custom-vk") },
 					oauth: { tokenUrl: TOKEN_URL, clientId: "client-1", clientSecret: "secret" },
-					virtualKey: { header: "x-litellm-key", value: "vk-1" },
+					virtualKey: { header: "x-litellm-key", value: fixedHeaderValue("vk-1") },
 				})
 			);
 

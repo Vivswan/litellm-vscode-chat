@@ -1,7 +1,13 @@
 import * as vscode from "vscode";
 import { z } from "zod";
 import type { HeaderScalar } from "../util/headers";
-import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue, trimHttpWhitespace } from "../util/headers";
+import {
+	HEADER_NAME_PATTERN,
+	type HeaderValue,
+	headerValue,
+	isHeaderScalar,
+	trimHttpWhitespace,
+} from "../util/headers";
 import { cloneJson, isUnsafeRecordKey, objectSlot } from "../util/json";
 import type {
 	AgentWriteToolId,
@@ -260,10 +266,10 @@ const headerNameSchema = z.string().regex(HEADER_NAME_PATTERN);
 const headerValueSchema = z.custom<HeaderScalar>(isHeaderScalar).transform((value) => String(value));
 
 /**
- * Values must pass isValidHeaderValue: a value that reached the platform's Headers instead would throw a TypeError
- * embedding the full plaintext value, and these values can be secrets.
+ * Values are minted by the header rule (headerValue): a value that reached the platform's Headers unminted would throw
+ * a TypeError embedding the full plaintext value, and these values can be secrets.
  */
-export function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string, string> {
+export function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string, HeaderValue> {
 	if (raw === undefined) {
 		return {};
 	}
@@ -274,7 +280,7 @@ export function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string
 		return {};
 	}
 
-	const headers: Record<string, string> = {};
+	const headers: Record<string, HeaderValue> = {};
 	const seenLower = new Set<string>();
 	for (const [name, value] of Object.entries(record)) {
 		const parsedName = headerNameSchema.safeParse(trimHttpWhitespace(name));
@@ -296,12 +302,13 @@ export function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string
 			log?.("Ignoring custom header with non-primitive value", { name: parsedName.data });
 			continue;
 		}
-		if (!isValidHeaderValue(parsedValue.data)) {
+		const minted = headerValue(parsedValue.data);
+		if (minted === undefined) {
 			log?.("Ignoring custom header whose value cannot be sent as an HTTP header", { name: parsedName.data });
 			continue;
 		}
 		seenLower.add(lower);
-		headers[parsedName.data] = parsedValue.data;
+		headers[parsedName.data] = minted;
 	}
 
 	return headers;

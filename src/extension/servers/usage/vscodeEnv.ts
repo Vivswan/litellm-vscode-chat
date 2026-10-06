@@ -10,6 +10,7 @@ import {
 	SERVERS_SETTING_KEY,
 } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
+import type { HeaderValue } from "../../../shared/util/headers";
 import { readServerSecretsRecord } from "../serverSync/secrets";
 import type { UsagePollerEnv, UsageRefreshOutcome } from "./poller";
 import { usageRefreshFailureSummary } from "./poller";
@@ -18,7 +19,7 @@ import { UsageClient } from "./spendClient";
 export function createUsagePollerEnv(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	userAgent: string
+	userAgent: HeaderValue
 ): UsagePollerEnv {
 	const log = (message: string, data?: unknown) => logger.log(message, data);
 	// A read that warns differently logs again.

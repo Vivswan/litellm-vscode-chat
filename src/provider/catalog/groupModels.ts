@@ -20,7 +20,7 @@ import type { NormalizedBaseUrl } from "../../shared/util/baseUrl";
 import { canonicalBaseUrl, canonicalUrl } from "../../shared/util/baseUrl";
 import { displayUrl } from "../../shared/util/displayUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
-import { HEADER_NAME_PATTERN, sendableHeaderValue, usableHttpText } from "../../shared/util/headers";
+import { HEADER_NAME_PATTERN, type HeaderValue, headerValue, usableHttpText } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import type { OAuthConfig, VirtualKeyConfig } from "../transport/auth";
 import { oauthCredentialFingerprint } from "../transport/auth";
@@ -34,7 +34,8 @@ import { oauthCredentialFingerprint } from "../transport/auth";
 
 export interface GroupServer {
 	baseUrl: NormalizedBaseUrl;
-	apiKey: string;
+	/** Empty string for keyless groups. */
+	apiKey: HeaderValue | "";
 	/** Non-secret. Part of the group's identity (see groupIdentity and groupClientId). */
 	label?: string;
 	/** Client-credentials authentication; present only when the configuration names a token URL and client ID. */
@@ -358,16 +359,14 @@ export function logCredentialRejections(
 }
 
 /**
- * The key rides two headers (transport/clients.ts buildDefaultHeaders), so a value the platform's Headers would
- * refuse never reaches it: that TypeError quotes the whole value, and it would surface in the chat error, the
- * dashboard row, and the output channel. A pasted trailing newline is the common case and is repaired by trimming;
- * a value still refused has no unambiguous repair and drops the key.
+ * The key rides two headers (transport/clients.ts buildDefaultHeaders). A pasted trailing newline is the common case
+ * and is repaired by trimming; a value still refused has no unambiguous repair and drops the key.
  */
-function narrowApiKey(raw: RawOptionalFields, report?: CredentialRejectionReport): string | undefined {
+function narrowApiKey(raw: RawOptionalFields, report?: CredentialRejectionReport): HeaderValue | undefined {
 	if (typeof raw.apiKey !== "string") {
 		return undefined;
 	}
-	const sendable = sendableHeaderValue(raw.apiKey);
+	const sendable = headerValue(raw.apiKey);
 	if (sendable !== undefined) {
 		return sendable;
 	}
@@ -379,15 +378,15 @@ function narrowApiKey(raw: RawOptionalFields, report?: CredentialRejectionReport
  * A rejection names the header so typos are diagnosable; the value never leaves the narrowing. A header with no value
  * is a missing secret and a value with no header is a dormant one (a stored blob the entry no longer uses); the
  * secret-location view already shows both, so neither is a rejection: a rejection is a unit the entry configured and
- * cannot send. The value is read by the one credential trim rule (sendableHeaderValue), so a pasted newline is
- * repaired and a Latin-1 byte survives, exactly as for the API key.
+ * cannot send. The value is read by the one credential trim rule (headerValue), so a pasted newline is repaired and a
+ * Latin-1 byte survives, exactly as for the API key.
  */
 function narrowVirtualKey(raw: RawOptionalFields, report?: CredentialRejectionReport): VirtualKeyConfig | undefined {
 	if (raw.virtualKeyHeader === undefined && raw.virtualKeyValue === undefined) {
 		return undefined;
 	}
 	const carriers = presentCarriers("virtualKeyValue", usableNonSecretFields(raw));
-	const sendable = typeof raw.virtualKeyValue === "string" ? sendableHeaderValue(raw.virtualKeyValue) : undefined;
+	const sendable = typeof raw.virtualKeyValue === "string" ? headerValue(raw.virtualKeyValue) : undefined;
 	if (
 		carriers !== undefined &&
 		sendable !== undefined &&

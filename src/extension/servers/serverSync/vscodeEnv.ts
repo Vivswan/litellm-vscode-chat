@@ -11,6 +11,7 @@ import type { ExpectedFailureCategory, NonChatMode, SecretFieldId } from "../../
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { canonicalStoredBaseUrl } from "../../../shared/util/baseUrl";
 import { errorLabel } from "../../../shared/util/errorLabel";
+import type { HeaderValue } from "../../../shared/util/headers";
 import { validatedStringRecord } from "../../../shared/util/json";
 import type { FingerprintSaltSession } from "../../fingerprintSalt";
 import type { MessageAction } from "../../ui/notifier";
@@ -419,7 +420,7 @@ export function readEntryIncludeModes(label: string, baseUrl: string): readonly 
 	return entryIncludeModesFor(readRawServersSetting(), label, baseUrl);
 }
 
-export function readEntryHeaders(label: string, baseUrl: string): Readonly<Record<string, string>> | undefined {
+export function readEntryHeaders(label: string, baseUrl: string): Readonly<Record<string, HeaderValue>> | undefined {
 	return entryHeadersFor(readRawServersSetting(), label, baseUrl);
 }
 
