@@ -1,9 +1,15 @@
-import { afterAll, describe, it } from "bun:test";
+import { afterAll, describe, it, setDefaultTimeout } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RuleTester } from "@typescript-eslint/rule-tester";
 import { outputChannelWrites } from "../../../../../scripts/lint/outputChannelWrites";
 import { REPO_ROOT } from "../../../util/repoRoot";
+
+/**
+ * The first case builds the fixture project's TypeScript program, which took six seconds on the macOS CI runner (run
+ * 37507915564) against bun's five-second default; bun charges a hook's time to the hook, so a warm-up would not help.
+ */
+setDefaultTimeout(30_000);
 
 RuleTester.afterAll = afterAll;
 RuleTester.describe = describe;
