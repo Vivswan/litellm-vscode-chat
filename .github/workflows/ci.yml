@@ -208,7 +208,7 @@ jobs:
       group: pages
       cancel-in-progress: true
     permissions:
-      contents: read
+      contents: write
       pages: write
       id-token: write
       issues: write
