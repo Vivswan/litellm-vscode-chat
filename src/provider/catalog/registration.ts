@@ -2,6 +2,7 @@ import type { LanguageModelChatInformation } from "vscode";
 import { getCurrencySymbol } from "../../shared/config/settings";
 import type { ServerWithKey } from "../../shared/servers";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
+import type { DiscoveryLog } from "./discoveryLog";
 import type { PreAttachModelInfo } from "./groupModels";
 import {
 	buildExposedModelId,
@@ -180,7 +181,7 @@ export function buildModelInfos(
 	models: LiteLLMModelItem[],
 	server: ServerWithKey,
 	serverCount: number,
-	log: (message: string) => void
+	log: DiscoveryLog
 ): RegistrationResult {
 	const { detail, namePrefix, tooltip } = serverDisplayContext(server, serverCount);
 	// Read once per build, not per model: every pricing label in one pass carries the same symbol. A change between
@@ -403,9 +404,19 @@ export function buildModelInfos(
 		}
 	}
 
+	// One line per build, with the shape split: a group model with tool-capable providers fans out into cheapest,
+	// fastest, and per-provider entries, which is what a user counting picker entries against the listing needs explained.
+	const shapeCounts: Record<LiteLLMModelItem["shape"]["kind"], number> = { deployment: 0, bare: 0, group: 0 };
 	const infos: PreAttachModelInfo[] = models.flatMap((m) => {
-		log(`Processing model: ${m.id} from server "${server.label}"`);
+		shapeCounts[m.shape.kind] += 1;
 		return entriesForModel(m);
+	});
+	log("Registered models", {
+		modelCount: models.length,
+		entryCount: infos.length,
+		deploymentModels: shapeCounts.deployment,
+		bareModels: shapeCounts.bare,
+		groupModels: shapeCounts.group,
 	});
 
 	return { infos };

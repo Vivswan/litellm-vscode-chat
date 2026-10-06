@@ -360,7 +360,12 @@ export class GroupDiscovery {
 				const { models, observedModelInfoKeys, skippedModeCounts, modelInfoUnsupported } =
 					await this._options.client.fetchModels(server, expectedFailures, includeModes);
 				return {
-					infos: buildModelInfos(models, server, 1, (msg) => this._options.log(msg)).infos,
+					infos: buildModelInfos(
+						models,
+						server,
+						1,
+						discoveryLineWriter((message, line) => this._options.log(message, line))
+					).infos,
 					discoveredRawIds: models.map((model) => model.id),
 					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
 					...(skippedModeCounts !== undefined ? { skippedModeCounts } : {}),
