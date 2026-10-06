@@ -633,6 +633,35 @@ describe("shared/logger redact: the one output door", () => {
 		);
 	});
 
+	test("only a span contained in a marker is protected: a value or userinfo run that merely overlaps one still masks", () => {
+		// A long value whose head reads like its own reveal, its percent spelling, and a userinfo run opening with a
+		// reveal: each overlaps a marker without being inside it, so each is a match; the reveal that results is an
+		// exact marker, so the second pass is a no-op.
+		const dotted = `R6dots...${"Z".repeat(31)}`;
+		const spaced = `K17abc...a b/${"Z".repeat(25)}`;
+		const plain = `K17abc${"X".repeat(34)}`;
+		Logger.registerSecrets([dotted, spaced, plain, "R6dots"]);
+		const once = {
+			dotted: Logger.redact(`key ${dotted}`),
+			encoded: Logger.redact(`q=${encodeURIComponent(spaced)}`),
+			userinfo: Logger.redact("http://K17abc...:newPassword@r7.example/path"),
+		};
+		assert.deepStrictEqual(
+			{
+				once,
+				again: {
+					dotted: Logger.redact(once.dotted),
+					encoded: Logger.redact(once.encoded),
+					userinfo: Logger.redact(once.userinfo),
+				},
+			},
+			{
+				once: { dotted: "key R6dots...", encoded: "q=[redacted]", userinfo: "http://[redacted]@r7.example/path" },
+				again: { dotted: "key R6dots...", encoded: "q=[redacted]", userinfo: "http://[redacted]@r7.example/path" },
+			}
+		);
+	});
+
 	test("the documented cases of @zapier/secret-scrubber mask through this door too, with this door's marker", () => {
 		// Conformance against the README of the library the owner weighed and declined: a quoted password, a
 		// percent-encoded query value, the form-encoded + spelling, and a JSON-escaped value.

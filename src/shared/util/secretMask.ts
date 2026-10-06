@@ -4,9 +4,11 @@
  * so overlapping values leave no tail. Nothing parses a URL and nothing protects a host, so a value that is also a
  * word blanks that word.
  *
- * Masking is idempotent: a span inside an existing marker (REDACTED_MARKER, or the reveal of a registered long value,
- * its first REVEALED_CHARS and "...") is never a match, so text masked where it entered the extension masks to itself
- * again at every exit, and no exit can write "[[redacted]]" or re-mask a reveal once a shorter value joins the set.
+ * Masking is idempotent: a span CONTAINED in an existing marker (REDACTED_MARKER, or the reveal of a registered long
+ * value, its first REVEALED_CHARS and "...") is never a match, so text masked where it entered the extension masks to
+ * itself again at every exit, and no exit can write "[[redacted]]" or re-mask a reveal once a shorter value joins the
+ * set. A span that merely overlaps a marker is still a match: a long value whose own head reads like its reveal, a
+ * userinfo run opening with one, so the mask cannot be defeated by text shaped like a marker.
  */
 
 /**
@@ -154,7 +156,7 @@ function mergedSpans(spans: readonly (Span & { readonly value?: string })[]): Se
 
 /**
  * Every span of `text` the door replaces: each spelling of each known value and each URL userinfo, merged, minus any
- * span that touches an existing marker (the idempotence rule). Value occurrences are searched up to `upTo` only and
+ * span contained in an existing marker (the idempotence rule). Value occurrences are searched up to `upTo` only and
  * userinfo runs only where they start before it (a cut needs nothing past it); a run that starts before the cut is
  * still read to its end, since it may cross the cut.
  */
@@ -167,7 +169,7 @@ export function secretSpans(text: string, values: readonly string[], upTo = text
 		}
 	}
 	const insideMarker = (from: number, to: number): boolean =>
-		markers.some(([markerFrom, markerTo]) => from < markerTo && markerFrom < to);
+		markers.some(([markerFrom, markerTo]) => markerFrom <= from && to <= markerTo);
 	const spans: (Span & { readonly value?: string })[] = [];
 	const searched = upTo < text.length ? text.slice(0, upTo) : text;
 	for (const value of values) {
