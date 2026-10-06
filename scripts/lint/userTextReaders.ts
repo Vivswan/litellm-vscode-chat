@@ -4,82 +4,30 @@
  *
  * src/shared/util/headers.ts is the one trim rule and src/shared/util/decimalText.ts the one decimal grammar for a
  * user's text, so a settings reader that trims, numbers, or coerces a value itself is refused. A call is judged by the
- * lib declaration it resolves to, never by its name, and a type the checker cannot settle is a refusal, never a pass.
+ * lib declaration it resolves to, never by its name. Text is any operand that is not a string literal, number, bigint,
+ * boolean, null, or undefined; a type the checker cannot settle is text, so it is a refusal, never a pass. The reader
+ * modules are the config's `files`, and the two homes stay outside them: every read inside them is the rule itself. A
+ * stale allow row would hide the next read added to its function, so it is refused too.
  *
- *   .trim() .trimStart() .trimEnd() .trimLeft() .trimRight()                               -> refused on every receiver
- *   Number(x) parseFloat(x) parseInt(x, r) new Number(x)                                   -> refused unless every argument is a literal, number, bigint, or boolean
- *   +x -x ~x ++x x++ --x x--, and *, /, -, %, **, |, &, ^, <<, >>, >>> with compound forms -> refused unless every operand is one of those
- *   x < y, <=, >, >=                                                                       -> refused unless both sides are numbers or both are strings
- *   READER_HOMES, an ALLOWED_READS (file, function) pair                                   -> seen, not refused
+ *   .trim() .trimStart() .trimEnd() .trimLeft() .trimRight()             -> refused on every receiver
+ *   Number(x) parseFloat(x) parseInt(x, r) new Number(x)                 -> refused when an argument is text
+ *   unary + - ~ ++ --, postfix ++ --                                     -> refused when the operand is text
+ *   binary * / - % ** | & ^ << >> >>> and their compound assignments     -> refused when an operand is text
+ *   x < y, <=, >, >=                                                     -> refused unless both numbers or both strings
+ *   a read inside an allow row's (file, function)                        -> seen, not refused
+ *   an allow row for this file that matched no read                      -> refused at line 1
  */
 import * as path from "node:path";
+import { ESLintUtils, type TSESTree } from "@typescript-eslint/utils";
 import ts from "typescript";
 
-export interface ReaderRefusal {
-	/** Repository-relative, forward slashes. */
-	readonly file: string;
-	readonly line: number;
-	readonly column: number;
-	/** As reported: `.trim()`, `Number.parseInt()`, `unary +`, `binary *=`, `.trim() on an unresolved receiver`. */
-	readonly shape: string;
-}
-
 export interface AllowedRead {
+	/** Relative to the TypeScript root (the config's tsconfigRootDir), forward slashes. */
 	readonly file: string;
 	/** The nearest named function around the read; a nameless callback belongs to its holder. */
 	readonly function: string;
 	readonly reason: string;
 }
-
-export interface ReaderScan {
-	readonly seen: number;
-	readonly refused: readonly ReaderRefusal[];
-	/** Rows no read matched: a stale row would hide the next read added to that function. */
-	readonly unusedAllowed: readonly AllowedRead[];
-}
-
-export interface ReaderScope {
-	/** A directory prefix (trailing slash) or one file, repository-relative. */
-	readonly modules: readonly string[];
-	readonly allowed: readonly AllowedRead[];
-}
-
-export const TRIM_HOME = "src/shared/util/headers.ts";
-
-export const DECIMAL_HOME = "src/shared/util/decimalText.ts";
-
-/** The two homes; every call inside them is the rule itself. */
-const READER_HOMES: readonly string[] = [TRIM_HOME, DECIMAL_HOME];
-
-const READER_MODULES: readonly string[] = [
-	"src/shared/config/",
-	"src/extension/servers/serverSync/setting.ts",
-	"src/dashboard/",
-	"src/extension/settingsTransfer/",
-	"src/extension/dashboard/state.ts",
-	"src/extension/dashboard/entryAuth.ts",
-	"src/extension/ui/settingsTransferCommands.ts",
-	"src/provider/catalog/groupModels.ts",
-	...READER_HOMES,
-];
-
-const ALLOWED_READS: readonly AllowedRead[] = [
-	{
-		file: "src/shared/config/openRouterCatalog.ts",
-		function: "nonBlankString",
-		reason: "reads a catalog response field, not user text; the one trim rule covers settings values",
-	},
-	{
-		file: "src/dashboard/spendFormat.ts",
-		function: "formatPercentExact",
-		reason: "re-reads the code's own toPrecision output, never user text",
-	},
-	{
-		file: "src/dashboard/presenters.ts",
-		function: "scaledDecimal",
-		reason: "reads a DECIMAL_TEXT_PATTERN capture; the grammar has already judged the text",
-	},
-];
 
 const TRIM_MEMBERS: ReadonlySet<string> = new Set(["trim", "trimStart", "trimEnd", "trimLeft", "trimRight"]);
 
@@ -97,24 +45,6 @@ const NOT_TEXT =
 	ts.TypeFlags.Undefined;
 
 const UNRESOLVED = ts.TypeFlags.Any | ts.TypeFlags.Unknown;
-
-function parseConfig(tsconfigPath: string): ts.ParsedCommandLine {
-	const host: ts.ParseConfigFileHost = {
-		...ts.sys,
-		onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
-			throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
-		},
-	};
-	const config = ts.getParsedCommandLineOfConfigFile(tsconfigPath, {}, host);
-	if (config === undefined) {
-		throw new Error(`Cannot parse ${tsconfigPath}`);
-	}
-	return config;
-}
-
-function isInScope(modules: readonly string[], file: string): boolean {
-	return modules.some((module) => (module.endsWith("/") ? file.startsWith(module) : file === module));
-}
 
 function constituents(checker: ts.TypeChecker, type: ts.Type): readonly ts.Type[] {
 	const constrained = checker.getBaseConstraintOfType(type) ?? type;
@@ -150,6 +80,7 @@ function memberNames(checker: ts.TypeChecker, access: ts.Expression): readonly s
 }
 
 interface Judged {
+	/** As reported: `.trim()`, `Number.parseInt()`, `unary +`, `binary *=`, `.trim() on an unresolved receiver`. */
 	readonly shape: string;
 	readonly refused: boolean;
 }
@@ -228,7 +159,9 @@ function unresolvedReaderName(access: ts.Expression): string | undefined {
 	return name === "Number" || (name !== undefined && NUMBER_PARSERS.has(name)) ? name : undefined;
 }
 
-/** A branded number (`number & { unit: "ms" }`) is still a number, so one member with the flags clears an intersection. */
+/**
+ * A branded number (`number & { unit: "ms" }`) is still a number, so one member with the flags clears an intersection.
+ */
 function hasFlags(type: ts.Type, flags: ts.TypeFlags): boolean {
 	return type.isIntersection() ? type.types.some((member) => hasFlags(member, flags)) : (type.flags & flags) !== 0;
 }
@@ -247,7 +180,9 @@ const NUMERIC =
 	ts.TypeFlags.Null |
 	ts.TypeFlags.Undefined;
 
-/** Undefined when the side may read a number from text: any, a `string | number`, or an object whose valueOf decides. */
+/**
+ * Undefined when the side may read a number from text: any, a `string | number`, or an object whose valueOf decides.
+ */
 function orderingKind(checker: ts.TypeChecker, operand: ts.Expression): "numeric" | "text" | undefined {
 	const parts = constituents(checker, checker.getTypeAtLocation(operand));
 	if (parts.every((part) => hasFlags(part, NUMERIC))) {
@@ -364,41 +299,84 @@ function enclosingFunctionName(node: ts.Node): string | undefined {
 	return undefined;
 }
 
-export function scanUserTextReaders(
-	tsconfigPath: string,
-	fileNames?: readonly string[],
-	scope: ReaderScope = { modules: READER_MODULES, allowed: ALLOWED_READS }
-): ReaderScan {
-	const config = parseConfig(tsconfigPath);
-	const rootDir = path.dirname(tsconfigPath);
-	const program = ts.createProgram(fileNames ?? config.fileNames, config.options);
-	const checker = program.getTypeChecker();
-	let seen = 0;
-	const refused: ReaderRefusal[] = [];
-	const used = new Set<AllowedRead>();
+type Options = [{ readonly allow: readonly AllowedRead[] }];
+type MessageIds = "read" | "staleAllow";
 
-	for (const fileName of program.getRootFileNames()) {
-		const sourceFile = program.getSourceFile(fileName);
-		const file = path.relative(rootDir, fileName).split(path.sep).join("/");
-		if (sourceFile === undefined || sourceFile.isDeclarationFile || !isInScope(scope.modules, file)) {
-			continue;
-		}
-		const visit = (node: ts.Node): void => {
-			const read = readAt(checker, program, node);
-			if (read !== undefined) {
-				seen += 1;
-				const owner = enclosingFunctionName(node);
-				const allowed = scope.allowed.find((row) => row.file === file && row.function === owner);
-				if (allowed !== undefined) {
-					used.add(allowed);
-				} else if (read.refused && !READER_HOMES.includes(file)) {
-					const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-					refused.push({ file, line: line + 1, column: character + 1, shape: read.shape });
-				}
+export const userTextReaders = ESLintUtils.RuleCreator.withoutDocs<Options, MessageIds>({
+	meta: {
+		type: "problem",
+		docs: {
+			description: "A settings reader trims and numbers a user's text only through the two homes.",
+		},
+		messages: {
+			read:
+				"{{shape}} reads user text outside the one rule. Settings readers trim through usableHttpText or " +
+				"trimHttpWhitespace (src/shared/util/headers.ts) and number through parseDecimalText " +
+				"(src/shared/util/decimalText.ts); a read that is not user text is an allow row carrying its reason.",
+			staleAllow: "The allow row for {{function}} matches no trim or number read in this file; delete the row.",
+		},
+		schema: [
+			{
+				type: "object",
+				properties: {
+					allow: {
+						type: "array",
+						items: {
+							type: "object",
+							properties: {
+								file: { type: "string" },
+								function: { type: "string" },
+								reason: { type: "string" },
+							},
+							required: ["file", "function", "reason"],
+							additionalProperties: false,
+						},
+					},
+				},
+				additionalProperties: false,
+			},
+		],
+	},
+	defaultOptions: [{ allow: [] }],
+	create(context, [{ allow }]) {
+		const services = ESLintUtils.getParserServices(context);
+		const checker = services.program.getTypeChecker();
+		// Rows name files relative to the TypeScript root, the identity typescript-eslint itself keys files by; ESLint's
+		// cwd is no anchor, since RuleTester sets it to the filesystem root.
+		const root = context.languageOptions.parserOptions.tsconfigRootDir ?? context.cwd;
+		const file = path.relative(root, context.filename).split(path.sep).join("/");
+		const rows = allow.filter((row) => row.file === file);
+		const unused = new Set(rows);
+		const judge = (node: TSESTree.Node): void => {
+			const tsNode = services.esTreeNodeToTSNodeMap.get(node);
+			const read = readAt(checker, services.program, tsNode);
+			if (read === undefined) {
+				return;
 			}
-			ts.forEachChild(node, visit);
+			const row = rows.find((candidate) => candidate.function === enclosingFunctionName(tsNode));
+			if (row !== undefined) {
+				unused.delete(row);
+			} else if (read.refused) {
+				context.report({ node, messageId: "read", data: { shape: read.shape } });
+			}
 		};
-		visit(sourceFile);
-	}
-	return { seen, refused, unusedAllowed: scope.allowed.filter((row) => !used.has(row)) };
-}
+		return {
+			CallExpression: judge,
+			NewExpression: judge,
+			UnaryExpression: judge,
+			UpdateExpression: judge,
+			BinaryExpression: judge,
+			AssignmentExpression: judge,
+			"Program:exit"(): void {
+				// A stale row belongs to the file, not to its first statement, so it is reported at line 1.
+				for (const row of unused) {
+					context.report({
+						loc: { line: 1, column: 0 },
+						messageId: "staleAllow",
+						data: { function: row.function },
+					});
+				}
+			},
+		};
+	},
+});

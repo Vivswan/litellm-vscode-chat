@@ -1,9 +1,10 @@
 /**
- * Negative control for scripts/ci/user-text-readers.ts: every trim, number read, and coercion the scanner must refuse
- * beside the look-alikes it must ignore. Never imported; the test scans this path as a reader module with two allowlist
- * rows, the function `sanctioned` and the assigned arrow `assigned`, and reads the tags.
+ * Negative control for scripts/lint/userTextReaders.ts: every trim, number read, and coercion the rule must refuse
+ * beside the look-alikes it must ignore. Never imported; the test replays this file through RuleTester with two allow
+ * rows, the function `sanctioned` and the assigned arrow `assigned`, and expects exactly the refused tags; the seen
+ * tags are for the reader.
  *
- *   // refused <shape>          -> the scanner reports this line with that shape, at the line's first non-blank column
+ *   // refused <shape>          -> the rule reports this line with that shape, at the line's first non-blank column
  *   // refused <shape> at <col>  -> the same, at that column (the read starts after a `return` or inside a callback)
  *   // seen                      -> judged and accepted: a non-text operand, or a read inside the allowed function
  *   untagged                     -> not a lib trim, number read, or coercion at all

@@ -1,6 +1,7 @@
 /**
- * Positive control for scripts/ci/user-text-readers.ts: a reader that takes a user's text only through the two homes
- * passes with no allowlist row. Never imported; the test scans this path as a reader module and reads the tags.
+ * Positive control for scripts/lint/userTextReaders.ts: a reader that takes a user's text only through the two homes
+ * passes with no allow row. Never imported; the test replays this file through RuleTester and expects no report. The
+ * tags are for the reader, nothing reads them.
  *
  *   // seen    -> judged and accepted: not a text operand
  *   untagged  -> not a lib trim, number read, or coercion at all
