@@ -22,9 +22,10 @@ import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
 import { recordFromKeys } from "../../shared/util/json";
 import { buildGroupArgs } from "../servers/serverSync/engine";
 import { acceptedEntry } from "../servers/serverSync/setting";
+import { rawServerEntries } from "../servers/serversSettingWrite";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
-import { DashboardValidationError, rawServerEntries } from "./intents";
+import { DashboardValidationError } from "./intents";
 import { planResolves, readKeepSources, requireEntryShownByForm, secretPlans } from "./saveServer";
 
 /** Values exist extension-side only; this shape is never logged. */

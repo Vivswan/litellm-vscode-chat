@@ -9,6 +9,7 @@
  */
 
 import * as os from "node:os";
+import { isDeepStrictEqual } from "node:util";
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { numberContractSentence } from "../../dashboard/presenters";
@@ -41,6 +42,7 @@ import {
 } from "../servers/serverSync/secrets";
 import type { DeclaredServer } from "../servers/serverSync/setting";
 import { acceptedEntry, rawDeclaredLabels } from "../servers/serverSync/setting";
+import { replaceServersSetting } from "../servers/serversSettingWrite";
 import type { SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
 import { parseEnvelope } from "../settingsTransfer/envelope";
@@ -473,20 +475,24 @@ function parseFailureMessage(
 
 /**
  * The apply step's servers unit: each imported label's blob, then the single servers write, with the blobs restored
- * when the setting fails. Order pinned by one input: an unstamped leftover blob under a label the import re-adds, with
- * the blob write failing after the setting landed.
+ * when the setting fails or moved since `plannedOver`. Order pinned by one input: an unstamped leftover blob under a
+ * label the import re-adds, with the blob write failing after the setting landed.
  */
 async function applyServersUnit(
 	env: SettingsTransferEnv,
+	plannedOver: unknown,
 	serversValue: readonly unknown[],
 	secretWrites: readonly SecretWrite[]
-): Promise<"landed" | "rolled-back" | "rollback-failed"> {
+): Promise<"landed" | "stale" | "rolled-back" | "rollback-failed"> {
 	const overwritten: {
 		label: string;
 		field: SecretFieldId;
+		written: string | undefined;
+		writtenOwner: SecretOwner | undefined;
 		previous: string | undefined;
 		previousOwner: SecretOwner | undefined;
 	}[] = [];
+	let step: "landed" | "stale" | { readonly failure: unknown };
 	try {
 		for (const write of secretWrites) {
 			const storedBefore = await env.readServerSecrets(write.label);
@@ -497,23 +503,40 @@ async function applyServersUnit(
 				if (value === undefined && storedBefore.values[field] === undefined) {
 					continue;
 				}
-				await env.updateServerSecret(write.label, field, value, value !== undefined ? write.owners[field] : undefined);
+				const owner = value !== undefined ? write.owners[field] : undefined;
+				await env.updateServerSecret(write.label, field, value, owner);
 				// Recorded only after the write landed: updateServerSecret's read-modify-write leaves the blob
-				// untouched when it throws.
+				// untouched when it throws. The stamp is kept as the record reads it back, since the plan's fallback
+				// stamp for a parser-rejected entry carries the file's spelling.
 				overwritten.push({
 					label: write.label,
 					field,
+					written: value,
+					writtenOwner: parseSecretOwner(owner, field),
 					previous: storedBefore.values[field],
 					previousOwner: storedBefore.owners[field],
 				});
 			}
 		}
-		await env.settings.writeGlobal(SERVERS_SETTING_KEY, serversValue);
-		return "landed";
-	} catch (error) {
+		step = (await replaceServersSetting(env.settings, plannedOver, serversValue)) ? "landed" : "stale";
+	} catch (failure) {
+		step = { failure };
+	}
+	try {
+		if (step === "landed") {
+			return "landed";
+		}
+		// A field is restored only while it still holds what this import wrote, value and stamp: a save that stored
+		// its own in between owns the field now, and the pre-import value must not land over it. Read per field, since
+		// every restore is a yield point.
 		let unrestored = 0;
-		for (const { label, field, previous, previousOwner } of [...overwritten].reverse()) {
+		for (const { label, field, written, writtenOwner, previous, previousOwner } of [...overwritten].reverse()) {
 			try {
+				const record = await env.readServerSecrets(label);
+				if (record.values[field] !== written || !isDeepStrictEqual(record.owners[field], writtenOwner)) {
+					env.log("A stored secret changed under a rolled-back settings import; it was left as it stands", { field });
+					continue;
+				}
 				await env.updateServerSecret(label, field, previous, previousOwner);
 			} catch {
 				unrestored += 1;
@@ -521,11 +544,18 @@ async function applyServersUnit(
 			}
 		}
 		if (unrestored > 0) {
-			env.log("Settings import failed and left a stored secret unrestored", { error: errorLabel(error) });
+			env.log(
+				"Settings import failed and left a stored secret unrestored",
+				step === "stale" ? { reason: "servers setting changed" } : { error: errorLabel(step.failure) }
+			);
 			return "rollback-failed";
 		}
+		if (step === "stale") {
+			env.log("Settings import: the servers setting changed before its write; secret changes were rolled back");
+			return "stale";
+		}
 		env.log("Settings import: the servers write failed; secret changes were rolled back", {
-			error: errorLabel(error),
+			error: errorLabel(step.failure),
 		});
 		return "rolled-back";
 	} finally {
@@ -653,8 +683,9 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 
 		const application = resolveImportPlan(plan, decisions);
 
-		// The merged servers array was computed against the value read before the prompts; a concurrent edit during
-		// those modals would be silently overwritten by the stale merge, so a changed value aborts.
+		// The merged servers array was computed against the value read before the prompts. The write turn refuses a
+		// merge whose base moved (replaceServersSetting); aborting here as well, before the snapshot and the other keys
+		// are written, keeps a run that cannot land a clean no-op.
 		if (
 			application.serversValue !== undefined &&
 			JSON.stringify(env.settings.readGlobal(SERVERS_SETTING_KEY)) !== JSON.stringify(currentServersRaw)
@@ -728,7 +759,9 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			const { serversValue, secretWrites } = application;
 			// The unit is one write to the engine; its toasts wait outside the hold, so the engine runs while they
 			// show.
-			const outcome = await env.withServerSyncHold(() => applyServersUnit(env, serversValue, secretWrites));
+			const outcome = await env.withServerSyncHold(() =>
+				applyServersUnit(env, currentServersRaw, serversValue, secretWrites)
+			);
 			if (outcome === "rollback-failed") {
 				await env.prompts.notify(
 					"error",
@@ -739,16 +772,21 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				);
 				return;
 			}
-			if (outcome === "rolled-back") {
+			if (outcome === "stale" || outcome === "rolled-back") {
 				//   A rollback with no landed settings -> changed nothing
 				if (writtenSettings === 0) {
 					await restorePreviousSlot();
 				}
-				const message = l10n.t(
-					"LiteLLM: The settings import failed while writing the servers setting; server secret changes were rolled back."
-				);
+				const message =
+					outcome === "stale"
+						? l10n.t(
+								"LiteLLM: The servers setting changed while the import was running; no server was imported, and server secret changes were rolled back. Run the import again."
+							)
+						: l10n.t(
+								"LiteLLM: The settings import failed while writing the servers setting; server secret changes were rolled back."
+							);
 				await env.prompts.notify(
-					"error",
+					outcome === "stale" ? "warning" : "error",
 					writtenSettings > 0
 						? `${message} ${l10n.t("Other settings from the file were already written; Undo Import restores the pre-import state.")}`
 						: message,
@@ -1038,10 +1076,15 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		const outcome = await env.withServerSyncHold(
 			async (): Promise<{ kind: "nothing-restored" } | { kind: "restored"; failures: number }> => {
 				try {
+					let restoredServers: boolean;
 					try {
-						await env.settings.writeGlobal(SERVERS_SETTING_KEY, targetServersRaw);
+						restoredServers = await replaceServersSetting(env.settings, currentServersRaw, targetServersRaw);
 					} catch (error) {
 						env.log("Undo import: the servers write failed; nothing was restored", { error: errorLabel(error) });
+						return { kind: "nothing-restored" };
+					}
+					if (!restoredServers) {
+						env.log("Undo import: the servers setting changed after the undo was planned; nothing was restored");
 						return { kind: "nothing-restored" };
 					}
 					let failures = 0;

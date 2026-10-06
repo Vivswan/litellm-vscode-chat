@@ -1,7 +1,7 @@
 /**
- * The one path for a settings write that acts on a displayed row or appends beside one. A row was rendered from an
- * older setting, so every write binds to what the row carried and derives its array from a read made in the same
- * tick as the write.
+ * The dashboard guards for a settings write that acts on a displayed row or appends beside one. A row was rendered from
+ * an older setting, so every guard binds to what the row carried and derives its array from `fresh`, the read
+ * serversSettingWrite.ts's turn made in the same tick as the write it then performs.
  */
 
 import { isDeepStrictEqual } from "node:util";
@@ -18,36 +18,9 @@ import {
 	rawDeclaredLabels,
 	serverSettingReports,
 } from "../servers/serverSync/setting";
-import type { IntentEnvironment } from "./intents";
-import { DashboardValidationError, rawServerEntries } from "./intents";
-
-/** The write IntentEnvironment.writeServersSetting accepts: one a guard in this module produced, and nothing else. */
-const MINT = Symbol("mint");
-
-class ValidatedServersWrite {
-	readonly #entries: readonly unknown[];
-	constructor(entries: readonly unknown[], key: symbol) {
-		if (key !== MINT) {
-			throw new TypeError("ValidatedServersWrite is minted by rowBoundWrite.ts only");
-		}
-		this.#entries = entries;
-	}
-	static entriesOf(write: ValidatedServersWrite): readonly unknown[] {
-		return write.#entries;
-	}
-}
-Object.freeze(ValidatedServersWrite);
-
-export type { ValidatedServersWrite };
-
-function mint(entries: readonly unknown[]): ValidatedServersWrite {
-	return new ValidatedServersWrite(entries, MINT);
-}
-
-/** The guarded array behind a token; a TypeError for an object this module never minted, whatever its shape. */
-export function entriesOf(write: ValidatedServersWrite): readonly unknown[] {
-	return ValidatedServersWrite.entriesOf(write);
-}
+import type { ServersSettingStore } from "../servers/serversSettingWrite";
+import { rawServerEntries } from "../servers/serversSettingWrite";
+import { DashboardValidationError } from "./intents";
 
 export interface RowIdentity {
 	readonly label: string;
@@ -129,8 +102,11 @@ export function requireLabelFree(entries: readonly unknown[], label: string): vo
  *   same entries, an array or unset          -> unchanged
  *   different entries, or a malformed value  -> changed; a container turning non-array counts
  */
-export function requireSettingUnchanged(env: IntentEnvironment, setting: unknown): void {
-	const current = env.readServersSetting();
+export function requireSettingUnchanged(
+	store: Pick<ServersSettingStore, "readServersSetting">,
+	setting: unknown
+): void {
+	const current = store.readServersSetting();
 	const unchanged =
 		(current === undefined || Array.isArray(current)) &&
 		isDeepStrictEqual(rawServerEntries(current), rawServerEntries(setting));
@@ -139,9 +115,9 @@ export function requireSettingUnchanged(env: IntentEnvironment, setting: unknown
 	}
 }
 
-export function appendFree(fresh: readonly unknown[], label: string, entry: unknown): ValidatedServersWrite {
+export function appendFree(fresh: readonly unknown[], label: string, entry: unknown): unknown[] {
 	requireLabelFree(fresh, label);
-	return mint([...fresh, entry]);
+	return [...fresh, entry];
 }
 
 /** `shown` is the element the form displayed and the plans resolved against; a rename also needs its new label free. */
@@ -151,7 +127,7 @@ export function replaceShown(
 	shown: unknown,
 	entry: unknown,
 	renamedTo?: string
-): ValidatedServersWrite {
+): unknown[] {
 	if (renamedTo !== undefined) {
 		requireLabelFree(fresh, renamedTo);
 	}
@@ -162,19 +138,19 @@ export function replaceShown(
 	}
 	const next = [...fresh];
 	next[index] = entry;
-	return mint(next);
+	return next;
 }
 
-export function removeRow(fresh: readonly unknown[], row: RowIdentity): ValidatedServersWrite {
+export function removeRow(fresh: readonly unknown[], row: RowIdentity): unknown[] {
 	const carriers = new Set(carriersOfRow(fresh, row));
-	return mint(fresh.filter((_, index) => !carriers.has(index)));
+	return fresh.filter((_, index) => !carriers.has(index));
 }
 
 export function patchRow(
 	fresh: readonly unknown[],
 	row: RowIdentity,
 	patch: (rawEntry: Record<string, unknown>) => Record<string, unknown> | undefined
-): ValidatedServersWrite | undefined {
+): unknown[] | undefined {
 	const accepted = acceptedEntryOfRow(fresh, row);
 	const rawEntry = fresh[accepted.index];
 	if (!isRecord(rawEntry)) {
@@ -186,30 +162,5 @@ export function patchRow(
 	}
 	const next = [...fresh];
 	next[accepted.index] = patched;
-	return mint(next);
-}
-
-/**
- * The lock every dashboard writer of the servers array takes, its read of the current value inside it, so two
- * writers cannot interleave with one landing an entry the other's precomputed array then drops.
- */
-let serversWriteTurn: Promise<unknown> = Promise.resolve();
-function withServersSettingWrite<T>(run: () => Promise<T>): Promise<T> {
-	const turn = serversWriteTurn.then(run, run);
-	serversWriteTurn = turn.catch(() => undefined);
-	return turn;
-}
-
-export function writeServersSettingFrom(
-	env: IntentEnvironment,
-	next: (fresh: readonly unknown[]) => ValidatedServersWrite | undefined
-): Promise<boolean> {
-	return withServersSettingWrite(async () => {
-		const write = next(rawServerEntries(env.readServersSetting()));
-		if (write === undefined) {
-			return false;
-		}
-		await env.writeServersSetting(write);
-		return true;
-	});
+	return next;
 }

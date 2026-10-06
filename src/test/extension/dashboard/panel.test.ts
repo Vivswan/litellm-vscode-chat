@@ -9,7 +9,6 @@ import {
 	declaredViewsFromSetting,
 	entryParametersResolver,
 } from "../../../extension/dashboard/panel";
-import { entriesOf } from "../../../extension/dashboard/rowBoundWrite";
 import type {
 	DeclaredServersInput,
 	EntryCapabilitiesRecord,
@@ -18,8 +17,10 @@ import type {
 } from "../../../extension/dashboard/state";
 import { EMPTY_CATALOG_STATUS, EMPTY_USAGE_VIEW } from "../../../extension/dashboard/state";
 import { entryModelParametersFor, parseServersSetting } from "../../../extension/servers/serverSync";
+import { rawServerEntries, settingValueOf } from "../../../extension/servers/serversSettingWrite";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
+import type { SecretOwner } from "../../../shared/serverEntry";
 import { ENTRY_VIEW_FIELD_IDS } from "../../../shared/serverEntry";
 import { makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";
@@ -133,6 +134,11 @@ function makeHarness(): Harness {
 	const commands: [string, ...unknown[]][] = [];
 	const serverWrites: unknown[][] = [];
 	const secretOps: [string, string, string | undefined][] = [];
+	// The secret store the env reads back, so a rollback compares against what was stored, as the real one does.
+	const storedSecrets = new Map<
+		string,
+		{ values: { [field: string]: string }; owners: { [field: string]: SecretOwner } }
+	>();
 	const loggedErrors: unknown[] = [];
 	const loggedMessages: [string, unknown][] = [];
 	const settingsValues: Record<string, unknown> = {};
@@ -191,16 +197,37 @@ function makeHarness(): Harness {
 			// Simulate the real store plus latency: a concurrent second intent that read before this write would lose
 			// the update.
 			await new Promise((resolve) => setTimeout(resolve, 0));
-			harness.serversSetting = [...entriesOf(write)];
-			serverWrites.push([...entriesOf(write)]);
+			const written = rawServerEntries(settingValueOf(write));
+			harness.serversSetting = written;
+			serverWrites.push([...written]);
 		},
-		storeServerSecret: async (label, field, value) => {
+		storeServerSecret: async (label, field, value, owner) => {
 			if (value === undefined && harness.failUnstore !== undefined) {
 				throw harness.failUnstore;
 			}
 			secretOps.push([label, field, value]);
+			const record = storedSecrets.get(label) ?? { values: {}, owners: {} };
+			const values = { ...record.values };
+			const owners = { ...record.owners };
+			if (value === undefined) {
+				delete values[field];
+				delete owners[field];
+			} else {
+				values[field] = value;
+				if (owner === undefined) {
+					delete owners[field];
+				} else {
+					owners[field] = owner;
+				}
+			}
+			storedSecrets.set(label, { values, owners });
 		},
-		readServerSecrets: async () => ({ values: {}, owners: {} }),
+		readServerSecrets: async (label) => {
+			const record = storedSecrets.get(label);
+			return record === undefined
+				? { values: {}, owners: {} }
+				: { values: { ...record.values }, owners: { ...record.owners } };
+		},
 		deleteServerSecrets: async () => {},
 		requestServerSync: () => {},
 		resolveAdoptionCredentials: async () => ({ source: { credentials: undefined }, setting: harness.serversSetting }),

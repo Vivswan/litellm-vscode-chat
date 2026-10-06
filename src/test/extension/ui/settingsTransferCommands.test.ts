@@ -5,6 +5,7 @@ import { updateServerSecret } from "../../../extension/servers/serverSync";
 import { ServerSyncEngine } from "../../../extension/servers/serverSync/engine";
 import { readServerSecretsRecord, secretDestination } from "../../../extension/servers/serverSync/secrets";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
+import { settingValueOf, writeServersSettingFrom } from "../../../extension/servers/serversSettingWrite";
 import type { SettingsAccess, SettingsInspection } from "../../../extension/settingsAccess";
 import type {
 	ImportPreviewSummary,
@@ -154,33 +155,36 @@ function makeWorld(
 			}
 		},
 	};
+	const writeUserValue = async (key: string, value: unknown): Promise<void> => {
+		world.ops.push(`settings:${key}`);
+		if (failWrites.has(key)) {
+			if (key === SERVERS_SETTING_KEY && world.armSecretFailureOnServersWrite) {
+				secretMutationsFail = true;
+			}
+			if (key === SERVERS_SETTING_KEY && world.armStoreFailureOnServersWrite) {
+				secretStoresFail = true;
+			}
+			throw new Error(`write failed: ${key}`);
+		}
+		if (world.slowWrites) {
+			await macrotask();
+		}
+		if (value === undefined) {
+			settings.delete(key);
+		} else {
+			settings.set(key, value);
+		}
+		if (key === SERVERS_SETTING_KEY) {
+			world.syncEngine?.requestSync();
+		}
+	};
 	const access: SettingsAccess = {
 		readGlobal: (key) => settings.get(key),
 		readEffective: (key) => (workspaceValues.has(key) ? workspaceValues.get(key) : settings.get(key)),
 		inspect: inspectOf,
-		writeGlobal: async (key, value) => {
-			world.ops.push(`settings:${key}`);
-			if (failWrites.has(key)) {
-				if (key === SERVERS_SETTING_KEY && world.armSecretFailureOnServersWrite) {
-					secretMutationsFail = true;
-				}
-				if (key === SERVERS_SETTING_KEY && world.armStoreFailureOnServersWrite) {
-					secretStoresFail = true;
-				}
-				throw new Error(`write failed: ${key}`);
-			}
-			if (world.slowWrites) {
-				await macrotask();
-			}
-			if (value === undefined) {
-				settings.delete(key);
-			} else {
-				settings.set(key, value);
-			}
-			if (key === SERVERS_SETTING_KEY) {
-				world.syncEngine?.requestSync();
-			}
-		},
+		writeGlobal: writeUserValue,
+		readServersSetting: () => settings.get(SERVERS_SETTING_KEY),
+		writeServersSetting: (write) => writeUserValue(SERVERS_SETTING_KEY, settingValueOf(write)),
 		updateAuto: async () => {
 			throw new Error("updateAuto is not part of the transfer flows");
 		},
@@ -337,6 +341,44 @@ function stageImportFile(world: FakeWorld, contents: string): void {
 function stageEnvelope(world: FakeWorld, settings: Record<string, unknown>): void {
 	stageImportFile(world, JSON.stringify({ "litellm-vscode-chat": 1, exportedBy: "1.0.0", settings }));
 }
+
+/**
+ * A dashboard write whose servers-setting write is held until `release`: the turn read the setting and is waiting on
+ * the host, the window in which a flow's own write used to land over a stale read.
+ */
+function heldDashboardAppend(world: FakeWorld, entry: unknown): { turn: Promise<boolean>; release: () => void } {
+	const original = world.env.settings.writeServersSetting;
+	let release: () => void = () => undefined;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let holdNext = true;
+	world.env.settings.writeServersSetting = async (write) => {
+		if (holdNext) {
+			holdNext = false;
+			await held;
+		}
+		await original(write);
+	};
+	const turn = writeServersSettingFrom(world.env.settings, (fresh) => [...fresh, entry]);
+	return { turn, release };
+}
+
+function serversWriteCount(world: FakeWorld): number {
+	return world.ops.filter((op) => op === `settings:${SERVERS_SETTING_KEY}`).length;
+}
+
+// The servers key is refused by every keyed writer at the type level; the store methods are the one path. Each
+// directive turns unused and fails the typecheck if a signature widens.
+function directServersWritesDoNotCompile(settings: SettingsAccess): void {
+	// @ts-expect-error the servers key is not a keyed write
+	void settings.writeGlobal(SERVERS_SETTING_KEY, []);
+	// @ts-expect-error the servers key is not a keyed write
+	void settings.updateAuto(SERVERS_SETTING_KEY, []);
+	// @ts-expect-error the servers key is not a keyed removal
+	void settings.removeConfigured(SERVERS_SETTING_KEY);
+}
+void directServersWritesDoNotCompile;
 
 function writtenExport(world: FakeWorld): string {
 	const target = expectDefined(world.saveTarget, "the test staged no save target");
@@ -1103,6 +1145,83 @@ suite("settingsTransferCommands import flow", () => {
 		await runImportSettingsFlow(world.env);
 		assert.match(onlyNotification(world).message, /Workspace settings override chat\.timeout/);
 	});
+
+	test("an import racing a dashboard write turn lands behind it and refuses its stale merge instead of dropping an entry", async () => {
+		// Both planned over [a]: the dashboard's append is waiting on the host when the import reaches its write. The
+		// import's merge is derived from a read the dashboard's write invalidates, so writing it would lose one of
+		// the two entries, whichever landed last.
+		const a = { label: "a", baseUrl: "http://a:4000" };
+		const b = { label: "b", baseUrl: "http://b:4000" };
+		const world = makeWorld({ servers: [a] });
+		stageEnvelope(world, { servers: [{ label: "c", baseUrl: "http://c:4000" }] });
+		const dashboard = heldDashboardAppend(world, b);
+		const imported = runImportSettingsFlow(world.env);
+		await macrotask();
+		dashboard.release();
+		await Promise.all([dashboard.turn, imported]);
+
+		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [a, b], "the dashboard's entry stands");
+		const note = onlyNotification(world);
+		assert.strictEqual(note.kind, "warning", "the import must report the changed setting, not a success");
+		assert.match(note.message, /changed while the import was running/);
+		assert.strictEqual(serversWriteCount(world), 1, "the merge over the stale read is never written");
+		assert.strictEqual(world.snapshotSlot, undefined, "a run that changed nothing leaves no undo snapshot");
+	});
+
+	const importsKI = { label: "a", baseUrl: "http://new:4000", auth: { apiKey: "KI" } };
+	for (const c of [
+		{
+			name: "leaves a different key a concurrent save stored",
+			imported: importsKI,
+			saved: { value: "KD", owner: undefined },
+			blob: { apiKey: "KD" },
+			owners: {},
+		},
+		{
+			name: "leaves the same key a concurrent save stamped for its own destination",
+			imported: importsKI,
+			saved: { value: "KI", owner: "http://old:4000" },
+			blob: { apiKey: "KI" },
+			owners: { apiKey: "http://old:4000" },
+		},
+		{
+			// A parser-rejected entry's stamp is the file's spelling; the stored record reads it back canonical.
+			name: "restores its own key under a parser-rejected entry whose stamp carries the file's spelling",
+			imported: { label: "a", baseUrl: "HTTP://NEW:4000", auth: { oauth: { clientId: "client-a" }, apiKey: "KI" } },
+			saved: undefined,
+			blob: { apiKey: "K0" },
+			owners: {},
+		},
+	]) {
+		test(`a stale import's rollback ${c.name}`, async () => {
+			// The import staged KI for a and was then refused, the setting having moved under it. The pre-import key is
+			// restored only over the import's own value and stamp, never over what a save stored in between.
+			const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://old:4000" }] }, { a: { apiKey: "K0" } });
+			stageEnvelope(world, { servers: [c.imported] });
+			world.answers.collisions = { a: "overwrite" };
+			const original = world.env.updateServerSecret;
+			world.env.updateServerSecret = async (label, field, value, owner) => {
+				await original(label, field, value, owner);
+				if (label === "a" && value === "KI") {
+					// The dashboard save: its key (when the case has one), then its setting write through the turn.
+					if (c.saved !== undefined) {
+						await original("a", "apiKey", c.saved.value, c.saved.owner);
+					}
+					await writeServersSettingFrom(world.env.settings, () => [
+						{ label: "a", baseUrl: "http://old:4000", budget: 5 },
+					]);
+				}
+			};
+			await runImportSettingsFlow(world.env);
+
+			assert.deepStrictEqual(blobOf(world, "a"), c.blob, "the field holds what the rollback must leave or restore");
+			assert.deepStrictEqual(ownersOf(world, "a"), c.owners);
+			assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [
+				{ label: "a", baseUrl: "http://old:4000", budget: 5 },
+			]);
+			assert.match(onlyNotification(world).message, /changed while the import was running/);
+		});
+	}
 });
 
 suite("settingsTransferCommands undo flow", () => {
@@ -1610,6 +1729,31 @@ suite("settingsTransferCommands undo flow", () => {
 		await runUndoLastImportFlow(world.env);
 		assert.strictEqual(world.settings.get("chat.timeout"), 9999);
 		assert.strictEqual(world.snapshotSlot, undefined);
+	});
+
+	test("an undo racing a dashboard write turn lands behind it and keeps the snapshot instead of reverting the entry", async () => {
+		// The undo planned its reconnect count over [a, c] while the dashboard's append of b was waiting on the host.
+		// Restoring [a] over the landed [a, c, b] would silently revert the dashboard's write.
+		const a = { label: "a", baseUrl: "http://a:4000" };
+		const b = { label: "b", baseUrl: "http://b:4000" };
+		const c = { label: "c", baseUrl: "http://c:4000" };
+		const world = makeWorld({ servers: [a] });
+		stageEnvelope(world, { servers: [c] });
+		await runImportSettingsFlow(world.env);
+		world.notifications = [];
+		world.ops = [];
+		const dashboard = heldDashboardAppend(world, b);
+		const undone = runUndoLastImportFlow(world.env);
+		await macrotask();
+		dashboard.release();
+		await Promise.all([dashboard.turn, undone]);
+
+		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [a, c, b], "the dashboard's entry stands");
+		assert.notStrictEqual(world.snapshotSlot, undefined, "the snapshot is kept for a retry");
+		const note = onlyNotification(world);
+		assert.strictEqual(note.kind, "warning");
+		assert.match(note.message, /snapshot was kept/);
+		assert.strictEqual(serversWriteCount(world), 1, "the restore over the moved setting is never written");
 	});
 });
 

@@ -6,7 +6,9 @@
 
 import * as vscode from "vscode";
 import type { SettingScope } from "../dashboard/viewModels";
-import { CONFIG_SECTION } from "../shared/config/settingSpec";
+import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../shared/config/settingSpec";
+import type { ServersSettingStore } from "./servers/serversSettingWrite";
+import { settingValueOf } from "./servers/serversSettingWrite";
 
 /** The per-scope values configuration inspection reports; a seam over WorkspaceConfiguration.inspect. */
 export interface SettingsInspection {
@@ -64,17 +66,26 @@ export interface SettingsSnapshotReader {
 }
 
 /**
+ * Any key but the servers setting's: that one is written only through serversSettingWrite.ts's turn, so a keyed
+ * writer called with its literal fails to compile.
+ */
+export type NotServersKey<K extends string> = [K] extends [typeof SERVERS_SETTING_KEY] ? never : K;
+
+/**
  * Every method fetches the live configuration at call time: WorkspaceConfiguration is a snapshot, so a captured one
  * would serve stale values to a read that follows an awaited write. snapshotReader is the deliberate exception.
+ *
+ * The servers setting is machine-scoped, so a workspace cannot re-point a label at another host to harvest its stored
+ * secrets; its store methods read and write the user-scope value.
  */
-export interface SettingsAccess {
+export interface SettingsAccess extends ServersSettingStore {
 	readGlobal(key: string): unknown;
 	readEffective(key: string): unknown;
 	inspect(key: string): SettingsInspection | undefined;
 	/** Write the key's user-scope value; undefined removes it there. */
-	writeGlobal(key: string, value: unknown): Promise<void>;
-	updateAuto(key: string, value: unknown): Promise<void>;
-	removeConfigured(key: string): Promise<void>;
+	writeGlobal<K extends string>(key: NotServersKey<K>, value: unknown): Promise<void>;
+	updateAuto<K extends string>(key: NotServersKey<K>, value: unknown): Promise<void>;
+	removeConfigured<K extends string>(key: NotServersKey<K>): Promise<void>;
 	/** All reads served from one snapshot captured here, so a build over many reads sees one configuration version. */
 	snapshotReader(): SettingsSnapshotReader;
 }
@@ -87,6 +98,10 @@ export function createSettingsAccess(): SettingsAccess {
 		inspect: (key) => config().inspect(key),
 		writeGlobal: async (key, value) => {
 			await config().update(key, value, vscode.ConfigurationTarget.Global);
+		},
+		readServersSetting: () => config().inspect(SERVERS_SETTING_KEY)?.globalValue,
+		writeServersSetting: async (write) => {
+			await config().update(SERVERS_SETTING_KEY, settingValueOf(write), vscode.ConfigurationTarget.Global);
 		},
 		updateAuto: async (key, value) => {
 			const current = config();

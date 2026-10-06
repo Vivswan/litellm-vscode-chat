@@ -426,7 +426,7 @@ const STRUCTURED_SETTING_KEYS = [
  */
 export type SettingId = (typeof STRUCTURED_SETTING_KEYS)[number] | NumberSettingId | BooleanSettingId;
 
-/** Every setting the dashboard writes by key; the servers array is out, written through a rowBoundWrite.ts guard. */
+/** Every setting the dashboard writes by key; the servers array is out, written in serversSettingWrite.ts's turn. */
 export type KeyedSettingId = Exclude<SettingId, typeof SERVERS_SETTING_KEY>;
 
 /** The id doubles as the nls key suffix `litellm.config.section.<id>`. */

@@ -4,7 +4,6 @@ import {
 	MODEL_PARAMETERS_SETTING_KEY,
 	normalizeModelCapabilities,
 	normalizeModelParameters,
-	SERVERS_SETTING_KEY,
 } from "../shared/config/settings";
 import { DEV_SEED_FILENAME, type DevSeed, type DevSeedEntry, type DevSeedModels } from "../shared/devSeed";
 import type { Logger } from "../shared/logger";
@@ -12,6 +11,8 @@ import { errorLabel } from "../shared/util/errorLabel";
 import { trimHttpWhitespace } from "../shared/util/headers";
 import { isRecord } from "../shared/util/json";
 import { updateServerSecret } from "./servers/serverSync";
+import type { ServersSettingStore } from "./servers/serversSettingWrite";
+import { writeServersSettingFrom } from "./servers/serversSettingWrite";
 import { createSettingsAccess } from "./settingsAccess";
 
 /**
@@ -91,9 +92,7 @@ export function parseDevSeed(raw: string): DevSeed | undefined {
 	};
 }
 
-export interface DevSeedEnv {
-	readServersSetting(): unknown;
-	writeServersSetting(value: readonly unknown[]): Thenable<void>;
+export interface DevSeedEnv extends ServersSettingStore {
 	/**
 	 * Deliberately not a write capability: every seed key sits inline in its entry, so the dev path can only remove a
 	 * previous run's leftover, never plant a secure-side secret.
@@ -111,11 +110,8 @@ const RECORD_SETTING_KEYS: Record<DevSeedRecordKind, string> = {
 export function createDevSeedEnv(secrets: vscode.SecretStorage): DevSeedEnv {
 	const settings = createSettingsAccess();
 	return {
-		// The effective value, matching what the sync engine reads: the setting is machine-scoped, so no workspace
-		// value can enter the merge. upsertSeedEntry replaces by label, so writing the merged array back to global is
-		// safe.
-		readServersSetting: () => settings.readEffective(SERVERS_SETTING_KEY),
-		writeServersSetting: (value) => settings.writeGlobal(SERVERS_SETTING_KEY, value),
+		readServersSetting: () => settings.readServersSetting(),
+		writeServersSetting: (write) => settings.writeServersSetting(write),
 		clearApiKey: (label) => updateServerSecret(secrets, label, "apiKey", undefined, undefined),
 		// The GLOBAL value, not the effective one: the record settings are window-scoped and the seed merges what it
 		// reads back into the global scope, so an effective read could copy a workspace value into user settings.
@@ -183,11 +179,13 @@ async function applySeedRecords(records: DevSeedModels | undefined, env: DevSeed
  */
 async function applySeed(seed: DevSeed, env: DevSeedEnv): Promise<void> {
 	const entries = [mainEntryOf(seed), ...(seed.entries ?? [])];
-	let setting = env.readServersSetting();
-	for (const entry of entries) {
-		setting = upsertSeedEntry(setting, entry);
-	}
-	await env.writeServersSetting(setting as readonly unknown[]);
+	await writeServersSettingFrom(env, (fresh) => {
+		let setting: unknown[] = [...fresh];
+		for (const entry of entries) {
+			setting = upsertSeedEntry(setting, entry);
+		}
+		return setting;
+	});
 	await applySeedRecords(seed.records, env);
 	let clearFailure: unknown;
 	for (const entry of entries) {

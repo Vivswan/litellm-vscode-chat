@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { writeServersSettingFrom } from "../../extension/servers/serversSettingWrite";
 import type { SettingsInspection, SettingsSnapshotReader } from "../../extension/settingsAccess";
 import { createSettingsAccess, resolveConfiguredScope, resolveUpdateScope } from "../../extension/settingsAccess";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
@@ -75,13 +76,19 @@ suite("extension/settingsAccess", () => {
 			});
 		});
 
-		test("writeGlobal always targets the user scope, a configured workspace value notwithstanding", async () => {
-			await withRecordedConfig({ servers: { workspaceValue: [] } }, async ({ updates }) => {
-				await createSettingsAccess().writeGlobal("servers", [{ label: "A" }]);
-				assert.deepStrictEqual(updates, [
-					{ key: "servers", value: [{ label: "A" }], target: vscode.ConfigurationTarget.Global },
-				]);
-			});
+		test("writeGlobal and the servers store always target the user scope, a configured workspace value notwithstanding", async () => {
+			await withRecordedConfig(
+				{ "chat.timeout": { workspaceValue: 2000 }, servers: { workspaceValue: [] } },
+				async ({ updates }) => {
+					const access = createSettingsAccess();
+					await access.writeGlobal("chat.timeout", 1000);
+					await writeServersSettingFrom(access, () => [{ label: "A" }]);
+					assert.deepStrictEqual(updates, [
+						{ key: "chat.timeout", value: 1000, target: vscode.ConfigurationTarget.Global },
+						{ key: "servers", value: [{ label: "A" }], target: vscode.ConfigurationTarget.Global },
+					]);
+				}
+			);
 		});
 
 		test("updateAuto writes to the workspace only when it already holds a value, never to a folder", async () => {
@@ -146,7 +153,7 @@ suite("extension/settingsAccess", () => {
 				assert.strictEqual(fetches(), 0, "creation itself fetches nothing");
 				access.readGlobal("servers");
 				access.readEffective("servers");
-				await access.writeGlobal("servers", []);
+				await access.writeGlobal("chat.timeout", 1000);
 				assert.strictEqual(fetches(), 3);
 			});
 		});
