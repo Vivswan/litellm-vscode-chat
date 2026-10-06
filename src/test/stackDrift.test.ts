@@ -7,22 +7,19 @@ import { STACK_DEFAULTS } from "./envFile";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { COPILOT_TOKEN_DIR, REAL_PROVIDERS } from "./fakeStack/proxyConfig";
 import { RuntimeImportGraph, runtimeImports, testFilesUnder } from "./runtimeImportGraph";
+import { REPO_ROOT } from "./util/repoRoot";
 
 /**
  * The TypeScript constants are truth; docker/docker-compose.yml, README.md, docs/development.md, and the workflows
  * cannot import them, so these tests pin the restatements whose drift nothing else would surface. Captured values are
  * compared whole, never as substrings, so a stale number that happens to prefix the live one still fails.
- *
- *   Tests run from out/test  -> the repo root is two levels up
  */
-const repoRoot = path.resolve(__dirname, "..", "..");
-
 const fileCache = new Map<string, string>();
 
 function read(name: string): string {
 	let content = fileCache.get(name);
 	if (content === undefined) {
-		content = fs.readFileSync(path.join(repoRoot, name), "utf8");
+		content = fs.readFileSync(path.join(REPO_ROOT, name), "utf8");
 		fileCache.set(name, content);
 	}
 	return content;
@@ -272,7 +269,7 @@ suite("stack drift guard: test label coverage", () => {
 	 * no label matches (it stops running) and one two labels match (it runs twice).
 	 */
 	test("every compiled test file is matched by exactly one label's files list", async () => {
-		const configUrl = pathToFileURL(path.join(repoRoot, ".vscode-test.mjs")).href;
+		const configUrl = pathToFileURL(path.join(REPO_ROOT, ".vscode-test.mjs")).href;
 		const { default: config } = (await import(configUrl)) as {
 			default: { tests: { label: string; files: string | string[] }[] };
 		};
@@ -292,11 +289,11 @@ suite("stack drift guard: test label coverage", () => {
 				if (entry.isDirectory()) {
 					walk(full);
 				} else if (entry.name.endsWith(".test.js")) {
-					testFiles.push(path.relative(repoRoot, full).split(path.sep).join("/"));
+					testFiles.push(path.relative(REPO_ROOT, full).split(path.sep).join("/"));
 				}
 			}
 		};
-		walk(path.join(repoRoot, "out", "test"));
+		walk(path.join(REPO_ROOT, "out", "test"));
 		assert.ok(testFiles.length > 20, `walking out/test found a real test tree (got ${testFiles.length} files)`);
 		for (const file of testFiles) {
 			const hits = matchers.filter((matcher) => matcher.regex.test(file));
@@ -329,7 +326,7 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		],
 	]);
 
-	const relative = (file: string): string => path.relative(repoRoot, file).split(path.sep).join("/");
+	const relative = (file: string): string => path.relative(REPO_ROOT, file).split(path.sep).join("/");
 	// One parsed graph for both walks (the module says why).
 	const graph = new RuntimeImportGraph();
 
@@ -373,7 +370,7 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 	});
 
 	test("every host-side unit suite needs the host, or documents why it stays", () => {
-		const testDir = path.join(repoRoot, "src", "test");
+		const testDir = path.join(REPO_ROOT, "src", "test");
 		const hostSuites = testFilesUnder(
 			testDir,
 			["bun", "hostFidelity", "activation"].map((dir) => path.join(testDir, dir))
@@ -386,7 +383,7 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 				hostSuites.includes(listed),
 				`${listed} is allow-listed but is no longer a host-side unit suite; drop the stale entry`
 			);
-			const chain = hostMachineryChain(path.join(repoRoot, listed));
+			const chain = hostMachineryChain(path.join(REPO_ROOT, listed));
 			assert.strictEqual(chain, undefined, `${listed} now reaches ${chain}; its allow-list entry is stale, drop it`);
 		}
 		for (const file of hostSuites) {
@@ -394,7 +391,7 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 				continue;
 			}
 			assert.ok(
-				hostMachineryChain(path.join(repoRoot, file)) !== undefined,
+				hostMachineryChain(path.join(REPO_ROOT, file)) !== undefined,
 				`${file} reaches neither vscode nor msw through its runtime imports; move it to src/test/bun/ (mirrored path, bun:test callables) or allow-list it here with a reason`
 			);
 		}
@@ -411,12 +408,12 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		);
 		assert.ok(preloads.length >= 1, "bunfig.toml's preload list names at least one file");
 		for (const file of preloads) {
-			assert.ok(fs.existsSync(path.join(repoRoot, file)), `bunfig.toml preloads ${file}, which does not exist`);
+			assert.ok(fs.existsSync(path.join(REPO_ROOT, file)), `bunfig.toml preloads ${file}, which does not exist`);
 		}
-		const bunSuites = testFilesUnder(path.join(repoRoot, "src", "test", "bun")).map(relative);
+		const bunSuites = testFilesUnder(path.join(REPO_ROOT, "src", "test", "bun")).map(relative);
 		assert.ok(bunSuites.length > 20, `walking src/test/bun found a real bun tree (got ${bunSuites.length} files)`);
 		for (const file of [...preloads, ...bunSuites]) {
-			const chain = hostMachineryChain(path.join(repoRoot, file));
+			const chain = hostMachineryChain(path.join(REPO_ROOT, file));
 			assert.strictEqual(
 				chain,
 				undefined,

@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import * as vscode from "vscode";
 import type { DevSeedEnv } from "../../extension/devSeed";
 import { consumeDevSeed, parseDevSeed } from "../../extension/devSeed";
@@ -10,6 +10,7 @@ import { serverSecretsKey } from "../../shared/config/storageKeys";
 import { DEV_SEED_FILENAME } from "../../shared/devSeed";
 import { makeLogger } from "../pureHelpers";
 import { makeExtensionStorage } from "../testUtils";
+import { REPO_ROOT } from "../util/repoRoot";
 
 /** A DevSeedEnv over in-memory settings and the fake SecretStorage, with the real secret-blob helper in the middle. */
 function makeEnv(initialSetting?: unknown, initialRecords?: { parameters?: unknown; capabilities?: unknown }) {
@@ -387,10 +388,9 @@ suite("extension/devSeed", () => {
 
 	test("the ignore files keep the seed file out of commits and the VSIX", () => {
 		// The seed carries the local stack's master key inline: renaming DEV_SEED_FILENAME must not un-ignore a
-		// secret-bearing file. Tests run from out/test/extension.
-		const repoRoot = resolve(__dirname, "..", "..", "..");
+		// secret-bearing file.
 		for (const ignoreFile of [".gitignore", ".vscodeignore"]) {
-			const lines = fs.readFileSync(join(repoRoot, ignoreFile), "utf8").split(/\r?\n/);
+			const lines = fs.readFileSync(join(REPO_ROOT, ignoreFile), "utf8").split(/\r?\n/);
 			assert.ok(lines.includes(DEV_SEED_FILENAME), `${ignoreFile} ignores ${DEV_SEED_FILENAME}`);
 		}
 	});

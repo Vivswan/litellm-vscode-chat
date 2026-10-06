@@ -9,17 +9,16 @@ import {
 	acknowledgedLogins,
 	extractSubjectCredits,
 } from "./creditConvention";
+import { REPO_ROOT } from "./util/repoRoot";
 
 /**
  * The commit-msg hook catches the crediting commit itself (not yet in `git log` when this runs); this test is the
- * safety net for what slipped past it. Tests run from out/test, so the repo root is two levels up.
+ * safety net for what slipped past it.
  *
  *   every commit subject carrying "(#N, thanks @login)" -> must have a row for that login in ACKNOWLEDGMENTS.md
  */
-const repoRoot = path.resolve(__dirname, "..", "..");
-
 const git = async (...args: string[]): Promise<string> =>
-	(await promisify(execFile)("git", args, { cwd: repoRoot, maxBuffer: 16 * 1024 * 1024 })).stdout;
+	(await promisify(execFile)("git", args, { cwd: REPO_ROOT, maxBuffer: 16 * 1024 * 1024 })).stdout;
 
 suite("credit convention guard: subject grammar", () => {
 	test("the documented convention example extracts its login and issue", () => {
@@ -125,7 +124,7 @@ suite("credit convention guard: git history vs ACKNOWLEDGMENTS.md", () => {
 		const subjects = (await git("log", "--format=%s", boundaryPresent ? `${ACKNOWLEDGMENTS_BOUNDARY}..HEAD` : "HEAD"))
 			.split("\n")
 			.filter((subject) => subject !== "");
-		const rows = acknowledgedLogins(fs.readFileSync(path.join(repoRoot, ACKNOWLEDGMENTS_FILE), "utf8"));
+		const rows = acknowledgedLogins(fs.readFileSync(path.join(REPO_ROOT, ACKNOWLEDGMENTS_FILE), "utf8"));
 		assert.ok(rows.size >= 20, `ACKNOWLEDGMENTS.md parses into real rows (got ${rows.size})`);
 		let credited = 0;
 		for (const subject of subjects) {
