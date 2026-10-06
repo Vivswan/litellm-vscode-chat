@@ -7,6 +7,7 @@ import type {
 	GroupCredentialsResolution,
 	RejectedCredentialField,
 } from "../../../provider/catalog/groupModels";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 
 function makeSecretStore(): SecretStore & { failReads: boolean } {
 	const values = new Map<string, string>();
@@ -51,10 +52,16 @@ suite("extension/servers/serverSync/entryCredentials", () => {
 		];
 		const resolve = resolver(setting, secrets);
 
-		assert.deepStrictEqual(await resolve("Stored", "http://a.test"), resolved({ apiKey: "sk-stored" }));
+		assert.deepStrictEqual(
+			await resolve("Stored", "http://a.test"),
+			resolved({ apiKey: fixedHeaderValue("sk-stored") })
+		);
 		// Inline settings values outrank the label's SecretStorage blob, the
 		// same precedence buildGroupArgs bakes into a fresh group.
-		assert.deepStrictEqual(await resolve("Inline", "http://b.test"), resolved({ apiKey: "sk-inline" }));
+		assert.deepStrictEqual(
+			await resolve("Inline", "http://b.test"),
+			resolved({ apiKey: fixedHeaderValue("sk-inline") })
+		);
 	});
 
 	test("narrows OAuth and virtual-key units exactly like the group-configuration parse", async () => {
@@ -82,7 +89,7 @@ suite("extension/servers/serverSync/entryCredentials", () => {
 			resolved({
 				apiKey: "",
 				oauth: { tokenUrl: "https://idp.test/token", clientId: "cid", clientSecret: "cs-1" },
-				virtualKey: { header: "x-vk", value: "vk-1" },
+				virtualKey: { header: "x-vk", value: fixedHeaderValue("vk-1") },
 			})
 		);
 	});
@@ -93,7 +100,7 @@ suite("extension/servers/serverSync/entryCredentials", () => {
 		const resolve = resolver(setting, secrets);
 
 		// Normalization equivalence still matches (trailing slash).
-		assert.deepStrictEqual(await resolve("A", "http://a.test"), resolved({ apiKey: "sk-a" }));
+		assert.deepStrictEqual(await resolve("A", "http://a.test"), resolved({ apiKey: fixedHeaderValue("sk-a") }));
 		// A leftover group at the entry's OLD host must never receive the
 		// entry's credentials.
 		assert.deepStrictEqual(await resolve("A", "http://old.test"), { kind: "external" });
@@ -144,7 +151,7 @@ suite("extension/servers/serverSync/entryCredentials", () => {
 				"A",
 				"http://a.test"
 			),
-			resolved({ apiKey: "sk-live" })
+			resolved({ apiKey: fixedHeaderValue("sk-live") })
 		);
 	});
 });

@@ -3,6 +3,7 @@ import type { DeclaredServerNotice } from "../../../dashboard/viewModels";
 import type { SettingsReader } from "../../../extension/dashboard/state";
 import { buildDashboardState } from "../../../extension/dashboard/state";
 import type { DeclaredServerView, ServerEntryReport } from "../../../extension/servers/serverSync";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { makeServerStatus } from "../../testUtils";
 
 const MISCONFIGURED_TEXT = "misconfigured entry; not used until its configuration is fixed";
@@ -113,7 +114,7 @@ suite("extension/dashboard/state misconfigured rows", () => {
 			reason: string;
 		}[] = [
 			{
-				override: { headers: { "x-team": "a" } },
+				override: { headers: { "x-team": fixedHeaderValue("a") } },
 				notices: ["entry-headers-inactive"],
 				reason: "custom headers are resolved by label and URL",
 			},
@@ -206,7 +207,7 @@ suite("extension/dashboard/state misconfigured rows", () => {
 						label: "Prod",
 						baseUrl: "http://x.test",
 						expectedClientId: "group:fp-labeled:http://x.test",
-						headers: { "x-team": "a" },
+						headers: { "x-team": fixedHeaderValue("a") },
 						modelParameters: { "gpt-4": { temperature: 0.2 } },
 					}),
 				],

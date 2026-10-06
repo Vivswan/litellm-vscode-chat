@@ -28,6 +28,7 @@ import { Logger } from "../../../shared/logger";
 import { secretDestination } from "../../../shared/serverEntry";
 import { unexpectedFailureCount } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { expectDefined } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } from "../../testUtils";
 import { makeSyncEnv, recordedEvents } from "./serverSyncHelpers";
@@ -1720,7 +1721,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			assert.ok(a !== undefined && b !== undefined);
 			assert.strictEqual(
 				a.expectedClientId,
-				groupClientId({ baseUrl: normalizeBaseUrl("http://x.test"), apiKey: "sk-a", label: "A" }),
+				groupClientId({ baseUrl: normalizeBaseUrl("http://x.test"), apiKey: fixedHeaderValue("sk-a"), label: "A" }),
 				"the same identity the provider stamps on its status snapshots, entry label included"
 			);
 			assert.notStrictEqual(
@@ -1750,7 +1751,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			assert.notStrictEqual(a.expectedClientId, b.expectedClientId, "same connection, distinct entry identities");
 			assert.strictEqual(
 				a.expectedConnectionId,
-				groupClientId({ baseUrl: normalizeBaseUrl("http://x.test"), apiKey: "sk-shared" }),
+				groupClientId({ baseUrl: normalizeBaseUrl("http://x.test"), apiKey: fixedHeaderValue("sk-shared") }),
 				"the connection ID is the label-less identity pre-label groups report under"
 			);
 			assert.strictEqual(a.expectedConnectionId, b.expectedConnectionId, "one connection, one shared connection ID");
@@ -1791,7 +1792,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 					baseUrl: normalizeBaseUrl("http://vk.test"),
 					apiKey: "",
 					label: "VirtualKey",
-					virtualKey: { header: "x-litellm-api-key", value: "vk-1" },
+					virtualKey: { header: "x-litellm-api-key", value: fixedHeaderValue("vk-1") },
 				}),
 				"the virtual-key pair fingerprints like the provider's"
 			);

@@ -4,6 +4,7 @@ import { HttpResponse, http } from "msw";
 import type { KeyUsage, UserUsage } from "../../../../extension/servers/usage";
 import { UsageClient, usageUnavailabilityOf } from "../../../../extension/servers/usage";
 import { RequestError } from "../../../../provider/transport/errorMapping";
+import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 
@@ -23,7 +24,12 @@ const WINDOW = { startDate: "2026-07-01", endDate: "2026-07-30" };
  */
 const MARKER = "sk-hashed-key-material-FUZZ";
 
-const connection = { label: "alpha", baseUrl: TEST_BASE_URL, apiKey: "sk-test", headers: {} } as const;
+const connection = {
+	label: "alpha",
+	baseUrl: TEST_BASE_URL,
+	apiKey: fixedHeaderValue("sk-test"),
+	headers: {},
+} as const;
 
 /**
  * The spend client constructs errors and throws WITHOUT logging (the poller boundary logs one classification), so the
@@ -32,7 +38,7 @@ const connection = { label: "alpha", baseUrl: TEST_BASE_URL, apiKey: "sk-test", 
 function recordingClient(): { client: UsageClient; logs: string[] } {
 	const logs: string[] = [];
 	const client = new UsageClient({
-		userAgent: "test-agent",
+		userAgent: fixedHeaderValue("test-agent"),
 		getTimeoutMs: () => 5000,
 		log: (message, data) => {
 			logs.push(`${message} ${JSON.stringify(data) ?? ""}`);

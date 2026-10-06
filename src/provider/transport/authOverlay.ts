@@ -1,4 +1,4 @@
-import { isValidHeaderValue } from "../../shared/util/headers";
+import { bearerHeaderValue, type HeaderValue } from "../../shared/util/headers";
 import type { OAuthConfig, OAuthErrorSurface, OAuthTokenSource, TimeoutBudget, VirtualKeyConfig } from "./auth";
 import { buildDefaultHeaders } from "./clients";
 import { RequestError } from "./errorMapping";
@@ -48,46 +48,40 @@ export interface AuthOverlayScope {
 /**
  * Set `name` in a plain-object header record, owning the name outright: every existing spelling is removed first (HTTP
  * header names are case-insensitive, and two spellings in a plain-object fetch would COMBINE into "custom, Bearer ..."
- * on the wire instead of replacing). A value isValidHeaderValue rejects is dropped rather than set - fail closed, so
- * the conflicting header it displaced is not resurrected either.
+ * on the wire instead of replacing).
  */
-export function setOwnedHeader(headers: Record<string, string>, name: string, value: string): boolean {
+export function setOwnedHeader(headers: Record<string, HeaderValue>, name: string, value: HeaderValue): void {
 	for (const existing of Object.keys(headers)) {
 		if (existing.toLowerCase() === name.toLowerCase()) {
 			delete headers[existing];
 		}
 	}
-	if (!isValidHeaderValue(value)) {
-		return false;
-	}
 	headers[name] = value;
-	return true;
 }
 
 /**
  * The base header record for a plain-fetch call to a LiteLLM server: the provider's static precedence rule
- * (buildDefaultHeaders) with null-valued entries dropped and every value fail-closed filtered, plus the explicit Bearer
- * Authorization the SDK would add on its own client - no SDK adds one on a plain fetch. X-API-Key already rides in the
- * defaults.
+ * (buildDefaultHeaders) with null-valued entries dropped, plus the explicit Bearer Authorization the SDK would add on
+ * its own client - no SDK adds one on a plain fetch. X-API-Key already rides in the defaults.
  */
 export function plainFetchBaseHeaders(config: {
-	readonly apiKey: string;
-	readonly userAgent: string;
-	readonly customHeaders: Readonly<Record<string, string>>;
-}): Record<string, string> {
+	readonly apiKey: HeaderValue | "";
+	readonly userAgent: HeaderValue;
+	readonly customHeaders: Readonly<Record<string, HeaderValue>>;
+}): Record<string, HeaderValue> {
 	const base = buildDefaultHeaders({
 		apiKey: config.apiKey,
 		userAgent: config.userAgent,
 		customHeaders: { ...config.customHeaders },
 	});
-	const headers: Record<string, string> = {};
+	const headers: Record<string, HeaderValue> = {};
 	for (const [name, value] of Object.entries(base)) {
-		if (value !== null && isValidHeaderValue(value)) {
+		if (value !== null) {
 			headers[name] = value;
 		}
 	}
 	if (config.apiKey) {
-		setOwnedHeader(headers, "Authorization", `Bearer ${config.apiKey}`);
+		setOwnedHeader(headers, "Authorization", bearerHeaderValue(config.apiKey));
 	}
 	return headers;
 }
@@ -98,19 +92,16 @@ export function plainFetchBaseHeaders(config: {
  * it sent, so no caller handles the token value or re-parses the header.
  */
 export async function applyAuthOverlay(
-	headers: Record<string, string>,
+	headers: Record<string, HeaderValue>,
 	credentials: AuthOverlayCredentials,
 	context: AuthOverlayContext
 ): Promise<AuthOverlayScope> {
 	const authorizationOverridden = credentials.virtualKey?.header.toLowerCase() === "authorization";
-	let sentOAuthToken: string | undefined;
+	let sentOAuthToken: HeaderValue | undefined;
 	if (credentials.oauth && !authorizationOverridden) {
 		const token = await context.tokens.getToken(credentials.oauth, context.surface, context.timeout, context.signal);
-		// Captured only when the header really carries it (parseTokenResponse already rejects header-illegal tokens, so
-		// the drop cannot fire today, but the scope's claim stays true by construction).
-		if (setOwnedHeader(headers, "Authorization", `Bearer ${token}`)) {
-			sentOAuthToken = token;
-		}
+		setOwnedHeader(headers, "Authorization", bearerHeaderValue(token));
+		sentOAuthToken = token;
 	}
 	if (credentials.virtualKey) {
 		setOwnedHeader(headers, credentials.virtualKey.header, credentials.virtualKey.value);

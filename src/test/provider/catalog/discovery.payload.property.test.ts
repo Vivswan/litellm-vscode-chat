@@ -18,6 +18,7 @@ import { createServerClient } from "../../../provider/transport/clients";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import type { CostCapabilityField } from "../../../shared/config/capabilityResolution";
 import { consumedFieldsOfKind } from "../../../shared/config/capabilityResolution";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { normalizeCostPerToken } from "../../../shared/util/numbers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
@@ -226,8 +227,8 @@ suite("provider/discovery fetchModels payload properties", () => {
 			{
 				serverId: "srv1",
 				baseUrl: TEST_BASE_URL,
-				apiKey: "test-key",
-				userAgent: "test-agent",
+				apiKey: fixedHeaderValue("test-key"),
+				userAgent: fixedHeaderValue("test-agent"),
 				customHeaders: {},
 			},
 			nodeHttpFetch

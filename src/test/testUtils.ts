@@ -12,6 +12,7 @@ import type { TransportErrorClassification } from "../shared/errorClassification
 import { Logger, markLogSafe, publicErrorText } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 import { normalizeBaseUrl } from "../shared/util/baseUrl";
+import { fixedHeaderValue, type HeaderValue } from "../shared/util/headers";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeLogger, toHeaderMap } from "./pureHelpers";
 
@@ -49,7 +50,7 @@ export async function withConfig<T>(
 /**
  * The group server makeProvider's injected configuration resolves to, mirroring what parseGroupConfiguration produces.
  */
-export function testGroupServer(apiKey = "test-key"): GroupServer {
+export function testGroupServer(apiKey: HeaderValue | "" = fixedHeaderValue("test-key")): GroupServer {
 	return { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey, label: "Default" };
 }
 
@@ -80,7 +81,7 @@ export function makeProvider(
 					})(),
 				};
 	const provider = new LiteLLMChatModelProvider({
-		userAgent: "GitHubCopilotChat/test VSCode/test",
+		userAgent: fixedHeaderValue("GitHubCopilotChat/test VSCode/test"),
 		logger,
 		...uncachedDiscovery,
 		...overrides,

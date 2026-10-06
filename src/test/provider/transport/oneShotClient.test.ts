@@ -5,6 +5,7 @@ import type { TimeoutBudget } from "../../../provider/transport/auth";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import type { OneShotChatMessage, OneShotConnection } from "../../../provider/transport/oneShotClient";
 import { OneShotClient } from "../../../provider/transport/oneShotClient";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import {
 	CHAT_COMPLETIONS_URL,
 	COMPLETIONS_URL,
@@ -18,11 +19,11 @@ import {
 const TOKEN_URL = "http://idp.test/oauth2/token";
 
 function client(): OneShotClient {
-	return new OneShotClient({ userAgent: "test-agent" });
+	return new OneShotClient({ userAgent: fixedHeaderValue("test-agent") });
 }
 
 function connection(overrides: Partial<OneShotConnection> = {}): OneShotConnection {
-	return { baseUrl: TEST_BASE_URL, apiKey: "sk-test", headers: {}, ...overrides };
+	return { baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("sk-test"), headers: {}, ...overrides };
 }
 
 function callOptions(timeoutMs = 5000): { timeout: TimeoutBudget; token: vscode.CancellationToken } {
@@ -252,28 +253,6 @@ suite("provider/transport/oneShotClient", () => {
 		assert.strictEqual(error.englishMessage, error.message);
 	});
 
-	test("a header-illegal virtual-key value is dropped fail-closed, never handed to fetch", async () => {
-		// The platform's Headers would throw a TypeError embedding the plaintext value; the overlay drops the header
-		// instead, so the request still goes out (and fails honestly server-side if the key was required).
-		let seenVirtual: string | null = "unset";
-		mswServer.use(
-			http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
-				seenVirtual = request.headers.get("x-litellm-key");
-				return chatJson("ok");
-			})
-		);
-
-		const result = await client().completeChatOnce(
-			connection({ virtualKey: { header: "x-litellm-key", value: "bad\nvalue" } }),
-			{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
-			"commitGeneration",
-			callOptions()
-		);
-
-		assert.strictEqual(result, "ok", "the request must not die in a header TypeError");
-		assert.strictEqual(seenVirtual, null, "the invalid value must never reach the wire");
-	});
-
 	test("a straggling 401 keyed to an old token never discards the token that replaced it", async () => {
 		let exchanges = 0;
 		mswServer.use(
@@ -333,7 +312,7 @@ suite("provider/transport/oneShotClient", () => {
 		await client().completeChatOnce(
 			connection({
 				oauth: { tokenUrl: TOKEN_URL, clientId: "client-1", clientSecret: "secret-1" },
-				virtualKey: { header: "authorization", value: "vk-value" },
+				virtualKey: { header: "authorization", value: fixedHeaderValue("vk-value") },
 			}),
 			{ model: "gpt-test", messages: [{ role: "user", content: "hi" }] },
 			"commitGeneration",
@@ -594,7 +573,10 @@ suite("provider/transport/oneShotClient", () => {
 			// No msw handler is registered for the server: any request would fail the suite through onUnhandledRequest:
 			// "error".
 			const headers = await client().authHeaders(
-				connection({ headers: { "x-routing-env": "prod" }, virtualKey: { header: "x-litellm-key", value: "vk-1" } }),
+				connection({
+					headers: { "x-routing-env": fixedHeaderValue("prod") },
+					virtualKey: { header: "x-litellm-key", value: fixedHeaderValue("vk-1") },
+				}),
 				"discovery",
 				callOptions()
 			);
@@ -646,7 +628,7 @@ suite("provider/transport/oneShotClient", () => {
 				})
 			);
 			await client().completeChatOnce(
-				connection({ virtualKey: { header: "Content-Type", value: "application/vnd.litellm" } }),
+				connection({ virtualKey: { header: "Content-Type", value: fixedHeaderValue("application/vnd.litellm") } }),
 				{ model: "m", messages: [{ role: "user", content: "hi" }] },
 				"chat",
 				callOptions()

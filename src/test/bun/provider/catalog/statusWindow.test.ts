@@ -11,13 +11,14 @@ import { StatusWindow } from "../../../../provider/catalog/statusWindow";
 import { markLogSafe } from "../../../../shared/logger";
 import type { ServerStatus, ServerStatusError } from "../../../../shared/servers";
 import { normalizeBaseUrl } from "../../../../shared/util/baseUrl";
+import { fixedHeaderValue } from "../../../../shared/util/headers";
 
 const MINUTE_MS = 60_000;
 const DEFAULT_WINDOW_MS = 10 * MINUTE_MS;
 
 const groupServer: GroupServer = {
 	baseUrl: normalizeBaseUrl("http://litellm.test"),
-	apiKey: "k",
+	apiKey: fixedHeaderValue("k"),
 	label: "Default",
 	entryOwned: true,
 };
@@ -187,7 +188,7 @@ describe("provider/catalog/statusWindow: a labeled group's entry keys on its ide
 			}
 		);
 		window.record(okStatus("s1"), served, groupServer, { discoveredRawIds: ["test-model"] });
-		const rotated: GroupServer = { ...groupServer, apiKey: "k2" };
+		const rotated: GroupServer = { ...groupServer, apiKey: fixedHeaderValue("k2") };
 
 		// The failing serve reads the anchor BEFORE its own record lands, under the client ID no report has used yet.
 		clock.nowMs += MINUTE_MS;
@@ -195,7 +196,7 @@ describe("provider/catalog/statusWindow: a labeled group's entry keys on its ide
 		window.record(errorStatus("s2"), NOTHING_SERVED, rotated);
 		expect(window.serverIds()).toEqual(["s2"]);
 		expect(window.getGroupServer("s1")).toBeUndefined();
-		expect(window.getGroupServer("s2")?.apiKey).toBe("k2");
+		expect(window.getGroupServer("s2")?.apiKey).toBe(rotated.apiKey);
 		expect(window.staleServableModels("s2", rotated)?.discoveredRawIds).toEqual(["test-model"]);
 		expect(entered).toBe(1);
 
@@ -219,7 +220,7 @@ describe("provider/catalog/statusWindow: a labeled group's entry keys on its ide
 		window.record(okStatus("a1"), served, groupServer, { discoveredRawIds: ["test-model"] });
 
 		expect(window.beginCycleOnReSight("a2", groupServer)).toBe(false);
-		window.record(errorStatus("a2"), NOTHING_SERVED, { ...groupServer, apiKey: "k2" });
+		window.record(errorStatus("a2"), NOTHING_SERVED, { ...groupServer, apiKey: fixedHeaderValue("k2") });
 		expect(window.serverIds()).toEqual(["a2", "b1"]);
 		expect(window.staleServableModels("b1", other)?.models).toEqual(models);
 	});
@@ -238,17 +239,17 @@ describe("provider/catalog/statusWindow: observed labeled group identities", () 
 		);
 		const oldGroup: GroupServer = {
 			baseUrl: normalizeBaseUrl("http://old.test/"),
-			apiKey: "k",
+			apiKey: fixedHeaderValue("k"),
 			label: "Prod",
 			entryOwned: true,
 		};
 		const newGroup: GroupServer = {
 			baseUrl: normalizeBaseUrl("http://new.test"),
-			apiKey: "k",
+			apiKey: fixedHeaderValue("k"),
 			label: "Prod",
 			entryOwned: true,
 		};
-		const unlabeled: GroupServer = { baseUrl: normalizeBaseUrl("http://bare.test"), apiKey: "k" };
+		const unlabeled: GroupServer = { baseUrl: normalizeBaseUrl("http://bare.test"), apiKey: fixedHeaderValue("k") };
 		window.record(errorStatus("old"), NOTHING_SERVED, oldGroup);
 		window.record(okStatus("new"), served, newGroup, { discoveredRawIds: ["test-model"] });
 		window.record(okStatus("bare"), served, unlabeled, { discoveredRawIds: ["test-model"] });

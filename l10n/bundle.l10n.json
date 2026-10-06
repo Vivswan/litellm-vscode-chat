@@ -1554,6 +1554,7 @@
 	"the settings reference": "the settings reference",
 	"the settings-migration guide": "the settings-migration guide",
 	"the usage and budgets guide": "the usage and budgets guide",
+	"the value of \"{0}\" cannot be sent as an HTTP header": "the value of \"{0}\" cannot be sent as an HTTP header",
 	"the window reports no prompt tokens": "the window reports no prompt tokens",
 	"the {0} cannot be sent as an HTTP header; it is not imported, so enter it again afterwards": "the {0} cannot be sent as an HTTP header; it is not imported, so enter it again afterwards",
 	"the {0} settings": "the {0} settings",

@@ -24,6 +24,7 @@ import type { ReviewThreadsByUri } from "../../../../extension/features/reviewCo
 import { REVIEW_FILE_LIMIT } from "../../../../extension/features/reviewComments/review";
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { MirroredError } from "../../../../shared/mirroredError";
+import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
@@ -157,7 +158,7 @@ suite("extension/features/reviewComments commands", () => {
 		(vscode.window as Record<string, unknown>).showWarningMessage = record("warning");
 		(vscode.window as Record<string, unknown>).showErrorMessage = record("error");
 		deps = {
-			oneShot: new OneShotClient({ userAgent: "test-agent" }),
+			oneShot: new OneShotClient({ userAgent: fixedHeaderValue("test-agent") }),
 			secrets: fakeSecrets(),
 			logger: makeLogger().logger,
 			outputChannel: { show: () => {}, appendLine: () => {} } as unknown as vscode.OutputChannel,

@@ -49,6 +49,7 @@ import type { TransportErrorClassification } from "../../shared/errorClassificat
 import type { Logger } from "../../shared/logger";
 import { pickEntryViewFields, pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
+import type { HeaderValue } from "../../shared/util/headers";
 import {
 	DASHBOARD_BUNDLE_FILENAME,
 	DASHBOARD_STYLESHEET_FILENAME,
@@ -827,7 +828,7 @@ export interface RegisterDashboardOptions {
 	 */
 	readonly getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined;
 	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
-	readonly ua: string;
+	readonly ua: HeaderValue;
 	readonly featureProbes: FeatureProbes;
 }
 
@@ -840,7 +841,7 @@ export interface IntentEnvironmentDeps {
 	readonly secrets: SecretStore;
 	readonly logger: Pick<Logger, "log">;
 	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
-	readonly ua: string;
+	readonly ua: HeaderValue;
 	readonly featureProbes: FeatureProbes;
 	readonly refreshCatalogNow: () => void;
 	readonly refreshUsageNow: () => void;

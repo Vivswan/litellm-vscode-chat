@@ -7,6 +7,7 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import { createCommitProbe } from "../../../../extension/features/commitGen/wiring";
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
+import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
 
@@ -19,7 +20,7 @@ const ENABLED_CONFIG = {
 const MODEL = { server: "alpha", model: "gpt-test" };
 
 function client(): OneShotClient {
-	return new OneShotClient({ userAgent: "test-agent" });
+	return new OneShotClient({ userAgent: fixedHeaderValue("test-agent") });
 }
 
 function fakeSecrets(): Parameters<typeof createCommitProbe>[0] {

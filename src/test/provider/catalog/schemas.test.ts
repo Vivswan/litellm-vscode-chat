@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { buildModelInfos } from "../../../provider/catalog/registration";
 import { supportsTools } from "../../../provider/catalog/schemas";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 
 suite("provider/catalog/schemas", () => {
 	suite("supportsTools", () => {
@@ -32,7 +33,7 @@ suite("provider/catalog/schemas", () => {
 						},
 					},
 				],
-				{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);

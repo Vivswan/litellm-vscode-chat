@@ -14,6 +14,7 @@ import {
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
+import type { HeaderValue } from "../../shared/util/headers";
 import type { FeatureProbes } from "../dashboard/intents";
 import type { DashboardController } from "../dashboard/panel";
 import { registerDashboardCommand } from "../dashboard/panel";
@@ -40,7 +41,7 @@ export function wireDashboard(
 		catalogStore: OpenRouterCatalogStore;
 		usagePoller: UsagePoller;
 		/** The one User-Agent activation composes, for the panel's draft probe. */
-		ua: string;
+		ua: HeaderValue;
 		featureProbes: FeatureProbes;
 	}
 ): DashboardController {

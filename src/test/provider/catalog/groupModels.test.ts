@@ -15,6 +15,7 @@ import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../..
 import { groupIdentity } from "../../../provider/catalog/statusWindow";
 import { type OAuthConfig, oauthCredentialFingerprint } from "../../../provider/transport/auth";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { fixedHeaderValue, type HeaderValue } from "../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { expectDefined, makeModelInfo } from "../../pureHelpers";
 
@@ -271,7 +272,7 @@ suite("provider/catalog/groupModels", () => {
 	});
 
 	suite("groupClientId", () => {
-		const plain: GroupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "k" };
+		const plain: GroupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: fixedHeaderValue("k") };
 
 		test("entries sharing a base URL and every credential get distinct identities from their labels", () => {
 			// Two declared entries, one server, one key. Without the label both
@@ -416,14 +417,13 @@ suite("provider/catalog/groupModels", () => {
 			// component must move it.
 			const baseUrlArb = fc.constantFrom(...["http://a.test", "http://b.test"].map((url) => normalizeBaseUrl(url)));
 			const labelArb = fc.option(fc.constantFrom("Prod", "Staging"), { nil: undefined });
-			const apiKeyArb = fc.constantFrom(
+			const apiKeyArb = fc.constantFrom<HeaderValue | "">(
 				"",
-				"k",
-				"k2",
-				'["http://a.test","Prod","k",null,null]',
-				'["k",null,null,"Prod"]',
-				'["",null,null]',
-				"k\nvirtual-key\nx-vk\nvk-1"
+				fixedHeaderValue("k"),
+				fixedHeaderValue("k2"),
+				fixedHeaderValue('["http://a.test","Prod","k",null,null]'),
+				fixedHeaderValue('["k",null,null,"Prod"]'),
+				fixedHeaderValue('["",null,null]')
 			);
 			const oauthArb = fc.option(
 				fc
@@ -445,7 +445,7 @@ suite("provider/catalog/groupModels", () => {
 			);
 			const virtualKeyArb = fc.option(
 				fc
-					.tuple(fc.constantFrom("x-vk", "x-vk-2"), fc.constantFrom("vk-1", "vk-2"))
+					.tuple(fc.constantFrom("x-vk", "x-vk-2"), fc.constantFrom(fixedHeaderValue("vk-1"), fixedHeaderValue("vk-2")))
 					.map(([header, value]) => ({ header, value })),
 				{ nil: undefined }
 			);

@@ -13,6 +13,7 @@ import { RequestError } from "../../provider/transport/errorMapping";
 import { Logger, publicErrorText } from "../../shared/logger";
 import { MirroredError } from "../../shared/mirroredError";
 import type { AggregatedStatus } from "../../shared/servers";
+import { fixedHeaderValue } from "../../shared/util/headers";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, deploymentShape, expectDefined, makeModelInfo } from "../pureHelpers";
@@ -409,7 +410,7 @@ suite("provider", () => {
 						},
 					},
 				],
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);
@@ -494,7 +495,7 @@ suite("provider", () => {
 						},
 					},
 				],
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);
@@ -632,7 +633,7 @@ suite("provider", () => {
 						},
 					},
 				],
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);
@@ -759,7 +760,7 @@ suite("provider", () => {
 					},
 					{ id: "multi", shape: { kind: "group", providers: [groq, together] } },
 				],
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);
@@ -874,7 +875,7 @@ suite("provider", () => {
 						long_context_output_cost_per_token: 1,
 					}),
 				})),
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);
@@ -933,7 +934,7 @@ suite("provider", () => {
 						}),
 					},
 				],
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);
@@ -976,7 +977,7 @@ suite("provider", () => {
 						}),
 					},
 				],
-				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 				1,
 				() => {}
 			);
@@ -1006,7 +1007,7 @@ suite("provider", () => {
 								}),
 							},
 						],
-						{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+						{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
 						1,
 						() => {}
 					);

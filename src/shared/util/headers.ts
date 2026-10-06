@@ -29,13 +29,21 @@ export function isValidHeaderName(name: string): boolean {
 
 /**
  * Whether a string can travel as an HTTP header value: tab, visible ASCII, and RFC 9110 obs-text; no CR/LF/NUL or other
- * control octets. Empty is legal; callers for whom a value is a credential require non-empty separately.
- *
- *   Values that fail this -> must never reach the platform's Headers
+ * control octets. Empty is legal; callers for whom a value is a credential require non-empty separately. The form
+ * surfaces read this to show an error beside the field; anything that sends reads headerValue instead.
  */
 export function isValidHeaderValue(value: string): boolean {
 	return /^[\t\x20-\x7e\x80-\xff]*$/.test(value);
 }
+
+declare const headerValueBrand: unique symbol;
+
+/**
+ * A string proven to travel as an HTTP header value, minted by headerValue alone. The wire (transport/authOverlay.ts,
+ * transport/clients.ts) accepts nothing else, so a value that would make the platform's Headers throw (quoting the
+ * whole value, which may be a secret) cannot reach it, and no sending code re-checks or drops.
+ */
+export type HeaderValue = string & { readonly [headerValueBrand]: true };
 
 /**
  * Edge HTTP whitespace (tab, space, CR, LF) is exactly what Headers itself strips, so trimming it repairs a pasted
@@ -47,12 +55,30 @@ export function trimHttpWhitespace(value: string): string {
 }
 
 /**
- * A credential as it would travel, or undefined when no repair makes it sendable. Every API-key unit reads through
- * this, so the chat, usage, and draft-probe paths cannot disagree on which keys travel.
+ * The one mint: text as it would travel, or undefined when no repair makes it sendable. Every value that reaches a
+ * request (keys, virtual keys, custom header values, OAuth tokens) is minted here, so the chat, usage, and draft-probe
+ * paths cannot disagree on what travels, and the owner of a refused value names the field instead of sending without.
  */
-export function sendableHeaderValue(value: string): string | undefined {
-	const trimmed = trimHttpWhitespace(value);
-	return isValidHeaderValue(trimmed) ? trimmed : undefined;
+export function headerValue(text: string): HeaderValue | undefined {
+	const trimmed = trimHttpWhitespace(text);
+	return isValidHeaderValue(trimmed) ? (trimmed as HeaderValue) : undefined;
+}
+
+/**
+ * The same rule for text the program composes itself (the User-Agent, a content type, a Bearer line): a refusal there
+ * is a bug, not input, so it throws instead of handing the caller a refusal to route.
+ */
+export function fixedHeaderValue(text: string): HeaderValue {
+	const value = headerValue(text);
+	if (value === undefined) {
+		throw new Error("A header value the program composed is not sendable");
+	}
+	return value;
+}
+
+/** The Authorization line for a bearer credential; the prefix is header-legal, so the composition cannot fail. */
+export function bearerHeaderValue(credential: HeaderValue): HeaderValue {
+	return fixedHeaderValue(`Bearer ${credential}`);
 }
 
 /**

@@ -6,6 +6,7 @@ import { getTokenEstimationMode, isOpenRouterCatalogEnabled } from "../../shared
 import type { Logger } from "../../shared/logger";
 import type { DebouncedAction } from "../../shared/util/debounce";
 import { debounced } from "../../shared/util/debounce";
+import type { HeaderValue } from "../../shared/util/headers";
 import type { DashboardController } from "../dashboard/panel";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import { createOpenRouterCatalogStore } from "../openRouterCatalog";
@@ -44,7 +45,7 @@ export interface ProviderWiring {
 export function wireProvider(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	userAgent: string,
+	userAgent: HeaderValue,
 	deps: {
 		groupRemovals: GroupRemovalStore;
 	}

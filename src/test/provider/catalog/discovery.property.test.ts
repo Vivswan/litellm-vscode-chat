@@ -13,6 +13,7 @@ import type { LiteLLMProvider, ModelInfoFields } from "../../../provider/catalog
 import { supportsTools } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { expectDefined } from "../../pureHelpers";
@@ -83,7 +84,7 @@ suite("provider/discovery deployment merge properties", () => {
 				const first = expectDefined(providers[0]);
 				const { infos } = buildModelInfos(
 					[{ id: "multi", shape: { kind: "group", providers: [first, ...providers.slice(1)] } }],
-					{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" },
+					{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: fixedHeaderValue("k") },
 					1,
 					() => {}
 				);
@@ -137,8 +138,8 @@ suite("provider/discovery expectedFailures retry properties", () => {
 					{
 						serverId: "srv1",
 						baseUrl: TEST_BASE_URL,
-						apiKey: "test-key",
-						userAgent: "test-agent",
+						apiKey: fixedHeaderValue("test-key"),
+						userAgent: fixedHeaderValue("test-agent"),
 						customHeaders: {},
 					},
 					nodeHttpFetch

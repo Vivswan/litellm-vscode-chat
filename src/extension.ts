@@ -14,6 +14,7 @@ import { maybeShowWelcome, wireStatusFanout, wireStatusSurfaces, wireUiCommands 
 import { CMD, VENDOR_ID } from "./shared/config/commandIds";
 import type { DevSeed } from "./shared/devSeed";
 import { Logger } from "./shared/logger";
+import { fixedHeaderValue } from "./shared/util/headers";
 import { KnownSecrets } from "./shared/util/knownSecrets";
 
 /**
@@ -39,7 +40,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	const extVersion: string = context.extension.packageJSON?.version ?? "unknown";
 	const vscodeVersion = vscode.version;
-	const ua = `litellm-vscode-chat/${extVersion} VSCode/${vscodeVersion}`;
+	const ua = fixedHeaderValue(`litellm-vscode-chat/${extVersion} VSCode/${vscodeVersion}`);
 
 	const outputChannel = vscode.window.createOutputChannel("LiteLLM", { log: true });
 	context.subscriptions.push(outputChannel);

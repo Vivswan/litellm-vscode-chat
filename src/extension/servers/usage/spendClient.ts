@@ -27,6 +27,7 @@ import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
 import { normalizeBaseUrl, serverRootOf } from "../../../shared/util/baseUrl";
 import { displayUrl } from "../../../shared/util/displayUrl";
+import type { HeaderValue } from "../../../shared/util/headers";
 import { isRecord } from "../../../shared/util/json";
 import { sleepUnlessAborted } from "../../../shared/util/timer";
 import { buildGroupArgs } from "../serverSync/engine";
@@ -61,9 +62,9 @@ export interface UsageConnection {
 	/** The entry's apiVersion override, forwarded to serverRootOf; see DeclaredServer.apiVersion. */
 	readonly apiVersion?: string | undefined;
 	/** Empty string for keyless servers, matching the transport convention. */
-	readonly apiKey: string;
+	readonly apiKey: HeaderValue | "";
 	/** The entry's custom headers (there is no global headers setting); auth headers win conflicts. */
-	readonly headers: Readonly<Record<string, string>>;
+	readonly headers: Readonly<Record<string, HeaderValue>>;
 	readonly oauth?: OAuthConfig | undefined;
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 }
@@ -337,7 +338,7 @@ function usageHttpError(url: string, status: number): RequestError {
 }
 
 export interface UsageClientOptions {
-	readonly userAgent: string;
+	readonly userAgent: HeaderValue;
 	/** The whole-call timeout read, injectable for tests; the default reads the live discovery.timeout setting. */
 	readonly getTimeoutMs?: () => number;
 	readonly log?: ((message: string, data?: unknown) => void) | undefined;
@@ -389,7 +390,7 @@ export class UsageClient {
 		connection: UsageConnection,
 		timeout: TimeoutBudget,
 		signal: AbortSignal
-	): Promise<{ headers: Record<string, string>; auth: AuthOverlayScope }> {
+	): Promise<{ headers: Record<string, HeaderValue>; auth: AuthOverlayScope }> {
 		const headers = plainFetchBaseHeaders({
 			apiKey: connection.apiKey,
 			userAgent: this.options.userAgent,

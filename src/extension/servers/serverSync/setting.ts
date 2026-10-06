@@ -36,7 +36,13 @@ import {
 	SECRET_FIELD_NESTED_PATHS,
 } from "../../../shared/serverEntry";
 import { canonicalBaseUrl, canonicalUrl, normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { HEADER_NAME_PATTERN, isHeaderScalar, trimHttpWhitespace, usableHttpText } from "../../../shared/util/headers";
+import {
+	HEADER_NAME_PATTERN,
+	type HeaderValue,
+	isHeaderScalar,
+	trimHttpWhitespace,
+	usableHttpText,
+} from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey, objectSlot } from "../../../shared/util/json";
 import type { CollectableEntry } from "../../../shared/util/knownSecrets";
 import { sameGroupIdentity } from "../groupRemovals";
@@ -870,7 +876,7 @@ export function entryHeadersFor(
 	raw: unknown,
 	label: string,
 	baseUrl: string
-): Readonly<Record<string, string>> | undefined {
+): Readonly<Record<string, HeaderValue>> | undefined {
 	return matchedEntryFor(raw, label, baseUrl)?.headers;
 }
 

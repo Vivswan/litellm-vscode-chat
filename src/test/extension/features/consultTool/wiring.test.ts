@@ -20,11 +20,14 @@ import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { CONSULT_TOOL_READY_CONTEXT_KEY, TOOL_NAME } from "../../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../../shared/config/settingSpec";
 import { MirroredError } from "../../../../shared/mirroredError";
+import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
 import { withDisposalCount } from "../disposalCount";
 import type { WiringSpies } from "../wiringSpies";
 import { fakeContext, memorySecretStorage, quietLogger, withWiringSpies } from "../wiringSpies";
+
+const TEST_AGENT = fixedHeaderValue("test-agent");
 
 const MODEL_REF = { server: "alpha", model: "gpt-test" };
 const SERVER_ENTRY = { label: "alpha", baseUrl: TEST_BASE_URL, auth: { apiKey: "sk-test" } };
@@ -74,7 +77,7 @@ suite("extension/features/consultTool wiring", () => {
 	test("disabled registers nothing, whatever the model setting says", async () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig({ ...ENABLED_CONFIG, "consultTool.enabled": false }, () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 			});
 			assert.strictEqual(spies.registrations.length, 0);
 		});
@@ -83,7 +86,7 @@ suite("extension/features/consultTool wiring", () => {
 	test("enabled without a model registers nothing: an agent is never offered a tool with nothing to ask", async () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig({ "consultTool.enabled": true, "consultTool.model": null, servers: [SERVER_ENTRY] }, () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 			});
 			assert.strictEqual(spies.registrations.length, 0);
 		});
@@ -92,7 +95,7 @@ suite("extension/features/consultTool wiring", () => {
 	test("both halves set registers under TOOL_NAME; losing either disposes, restoring re-registers", async () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig(ENABLED_CONFIG, () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 			});
 			assert.strictEqual(spies.registrations.length, 1);
 			assert.strictEqual(spies.registrations[0]?.name, TOOL_NAME);
@@ -120,7 +123,7 @@ suite("extension/features/consultTool wiring", () => {
 	test("the readiness key stays false through the half-configured state", async () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig({ "consultTool.enabled": true, "consultTool.model": null, servers: [SERVER_ENTRY] }, () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 			});
 			assert.deepStrictEqual(readyStates(spies), [false]);
 		});
@@ -130,7 +133,7 @@ suite("extension/features/consultTool wiring", () => {
 		await withWiringSpies(async (spies) => {
 			const context = fakeContext();
 			await withConfig(ENABLED_CONFIG, () => {
-				wireConsultTool(context, quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(context, quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 			});
 			assert.deepStrictEqual(readyStates(spies), [true]);
 			for (const subscription of context.subscriptions) {
@@ -151,7 +154,7 @@ suite("extension/features/consultTool wiring", () => {
 		);
 		await withWiringSpies(async (spies) => {
 			const result = await withConfig(ENABLED_CONFIG, async () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 				return invokeRecorded(spies, { question: "How should I batch these writes?", context: "A busy write path." });
 			});
 			assert.strictEqual(resultText(result), "Use a queue.");
@@ -180,7 +183,7 @@ suite("extension/features/consultTool wiring", () => {
 		};
 		const result = await withWiringSpies(async (spies) =>
 			withConfig(ENABLED_CONFIG, async () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 				return invokeRecorded(spies, { question: "Is this safe?" }, tokenizationOptions);
 			})
 		);
@@ -195,7 +198,7 @@ suite("extension/features/consultTool wiring", () => {
 		mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply(reply)));
 		const result = await withWiringSpies(async (spies) =>
 			withConfig(ENABLED_CONFIG, async () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 				return invokeRecorded(spies, { question: "Is this safe?" });
 			})
 		);
@@ -216,7 +219,7 @@ suite("extension/features/consultTool wiring", () => {
 		const context = "X".repeat(CONSULT_PROMPT_CHAR_LIMIT * 2);
 		await withWiringSpies(async (spies) =>
 			withConfig(ENABLED_CONFIG, async () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 				return invokeRecorded(spies, { question: "Is this safe?", context }, {
 					tokenBudget: 50,
 					countTokens: (text: string) => Promise.resolve(text.length),
@@ -233,7 +236,7 @@ suite("extension/features/consultTool wiring", () => {
 		mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply("the whole answer")));
 		const result = await withWiringSpies(async (spies) =>
 			withConfig(ENABLED_CONFIG, async () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 				return invokeRecorded(spies, { question: "Is this safe?" }, {
 					tokenBudget: 5,
 					countTokens: () => Promise.reject(new Error("tokenizer unavailable")),
@@ -249,7 +252,7 @@ suite("extension/features/consultTool wiring", () => {
 		// "error".
 		await withWiringSpies(async (spies) => {
 			await withConfig({ ...ENABLED_CONFIG, servers: [] }, async () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 				await assert.rejects(invokeRecorded(spies, { question: "anything?" }), (error: unknown) => {
 					assert.ok(error instanceof MirroredError);
 					assert.strictEqual(error.logClassification, "ConsultTool(configured server label matches no entry)");
@@ -334,7 +337,7 @@ suite("extension/features/consultTool wiring", () => {
 			await withWiringSpies(async (spies) => {
 				await withConfig({ ...ENABLED_CONFIG, servers }, async () => {
 					wireConsultTool(fakeContext(secrets), quietLogger(), {
-						oneShot: new OneShotClient({ userAgent: "test-agent" }),
+						oneShot: new OneShotClient({ userAgent: TEST_AGENT }),
 					});
 					const outcome = await invokeRecorded(spies, { question: "anything?" }).then(
 						() => "sent",
@@ -361,7 +364,7 @@ suite("extension/features/consultTool wiring", () => {
 	test("a disable racing an in-flight turn is refused by the invoke itself, not just by registration", async () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig(ENABLED_CONFIG, () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 			});
 			// The registration happened while enabled; the settings then changed under it without the watcher having
 			// run.
@@ -378,7 +381,7 @@ suite("extension/features/consultTool wiring", () => {
 	test("prepareInvocation names the configured model and asks for no confirmation", async () => {
 		await withWiringSpies(async (spies) => {
 			await withConfig(ENABLED_CONFIG, () => {
-				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 				const tool = spies.registrations[0]?.tool;
 				assert.ok(tool?.prepareInvocation !== undefined, "the tool customizes its progress message");
 				const prepared = tool.prepareInvocation(
@@ -449,7 +452,7 @@ suite("extension/features/consultTool wiring", () => {
 			await settled;
 			const context = fakeContext();
 			await withConfig(ENABLED_CONFIG, () => {
-				wireConsultTool(context, quietLogger(), { oneShot: new OneShotClient({ userAgent: "test-agent" }) });
+				wireConsultTool(context, quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 			});
 			disposeWiring = () => {
 				for (const subscription of context.subscriptions) {

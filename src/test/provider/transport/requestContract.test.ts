@@ -13,6 +13,7 @@ import { convertMessages } from "../../../shared/conversion/messages";
 import { estimateWireMessagesTokens } from "../../../shared/conversion/tokenEstimation";
 import type { OpenAIChatMessage } from "../../../shared/conversion/wire";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import {
 	CHAT_COMPLETIONS_URL,
 	discoveryHandlers,
@@ -326,7 +327,7 @@ suite("provider/request contract", () => {
 		/** The declared entry's group, as the host serves it: the entry's label at the test base URL. */
 		const labeledGroup = (label: string): GroupServer => ({
 			baseUrl: normalizeBaseUrl(TEST_BASE_URL),
-			apiKey: "test-key",
+			apiKey: fixedHeaderValue("test-key"),
 			label,
 		});
 
@@ -540,7 +541,7 @@ suite("provider/request contract", () => {
 					return { "test-model": { temperature: 0.1 } };
 				},
 			});
-			const unlabeled: GroupServer = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "test-key" };
+			const unlabeled: GroupServer = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: fixedHeaderValue("test-key") };
 			const body = await withConfig({ "models.parameters": { "test-model": { temperature: 0.8 } } }, () =>
 				captureRequestBody(
 					provider,
@@ -616,10 +617,10 @@ suite("provider/request contract", () => {
 				getEntryHeaders: (label, headerBaseUrl) =>
 					label === "Default" && headerBaseUrl === TEST_BASE_URL
 						? {
-								"x-litellm-api-key": "proxy-key",
-								"x-routing-env": "prod",
-								"Content-Type": "text/plain",
-								"User-Agent": "spoofed-agent",
+								"x-litellm-api-key": fixedHeaderValue("proxy-key"),
+								"x-routing-env": fixedHeaderValue("prod"),
+								"Content-Type": fixedHeaderValue("text/plain"),
+								"User-Agent": fixedHeaderValue("spoofed-agent"),
 							}
 						: undefined,
 			});
@@ -1354,7 +1355,7 @@ suite("provider/request contract", () => {
 		/** The group every mirrored-message request here routes through; the provider resolves it before send. */
 		const MIRROR_SERVER: GroupServer = {
 			baseUrl: normalizeBaseUrl(TEST_BASE_URL),
-			apiKey: "test-key",
+			apiKey: fixedHeaderValue("test-key"),
 			label: "Mirror",
 		};
 
@@ -1377,7 +1378,7 @@ suite("provider/request contract", () => {
 		}
 
 		test("more tools than the cap rejects with the mirrored tools-cap message", async () => {
-			const client = new ChatClient({ userAgent: "test" });
+			const client = new ChatClient({ userAgent: fixedHeaderValue("test") });
 			const model = makeModelInfo();
 			const tools = Array.from({ length: 129 }, (_, i) => ({ name: `tool_${i}`, description: "a tool" }));
 			await assert.rejects(
@@ -1398,7 +1399,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("an over-limit prompt rejects with the mirrored token-limit message", async () => {
-			const client = new ChatClient({ userAgent: "test" });
+			const client = new ChatClient({ userAgent: fixedHeaderValue("test") });
 			const model = makeModelInfo({ maxInputTokens: 10 });
 			await assert.rejects(send(client, model, undefined, [userMessage("x".repeat(4000))]), (e: unknown) => {
 				assert.ok(e instanceof Error);
@@ -1421,7 +1422,7 @@ suite("provider/request contract", () => {
 
 		test("an empty 200 body rejects with the mirrored no-response-body message", async () => {
 			mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => new HttpResponse(null, { status: 200 })));
-			const client = new ChatClient({ userAgent: "test" });
+			const client = new ChatClient({ userAgent: fixedHeaderValue("test") });
 			const model = makeModelInfo();
 			await expectMirroredRejection(
 				send(client, model),

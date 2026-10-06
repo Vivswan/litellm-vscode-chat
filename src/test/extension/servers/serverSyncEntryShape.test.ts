@@ -10,6 +10,7 @@ import {
 	stillDeclaredIn,
 } from "../../../extension/servers/serverSync/setting";
 import { fingerprint } from "../../../shared/util/fingerprint";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import { makeSyncEnv } from "./serverSyncHelpers";
 
 suite("extension/servers/serverSync: the nested entry shape", () => {
@@ -350,7 +351,7 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 			const withFields: DeclaredServer = {
 				...bare,
 				apiVersion: "v2",
-				headers: { "x-env": "prod" },
+				headers: { "x-env": fixedHeaderValue("prod") },
 				declaredModels: ["deepseek-r1"],
 				budget: 50,
 			};

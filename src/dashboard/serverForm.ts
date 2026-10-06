@@ -23,7 +23,7 @@ import {
 import { canonicalUrl, normalizeBaseUrl } from "../shared/util/baseUrl";
 import { parseDecimalText } from "../shared/util/decimalText";
 import type { HeaderScalar } from "../shared/util/headers";
-import { isValidHeaderName, sendableHeaderValue, trimHttpWhitespace } from "../shared/util/headers";
+import { headerValue, isValidHeaderName, trimHttpWhitespace } from "../shared/util/headers";
 import { isUnsafeRecordKey } from "../shared/util/json";
 import type { ReplacedEntryIdentity, SaveServerPayload, SecretDirective } from "./endpoints";
 import type { CapabilityGroupIssues, GroupHints, GroupProblems, HeaderRow, PrefixGroup } from "./recordDraft";
@@ -685,7 +685,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	// A newly entered key the platform's Headers would refuse does not save: the request path would read it as keyless,
 	// so the form says so here, beside the field (a kept stored key is not visible here; the Diagnostics tab reports
 	// that one). Edge whitespace is tolerated (trimmed on the way out), an interior control character is not.
-	if (secrets.apiKey.visibleValue !== undefined && sendableHeaderValue(secrets.apiKey.visibleValue) === undefined) {
+	if (secrets.apiKey.visibleValue !== undefined && headerValue(secrets.apiKey.visibleValue) === undefined) {
 		problems.apiKey = l10n.t("The value cannot be sent as an HTTP header");
 	}
 
@@ -703,7 +703,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		}
 		if (header.length > 0 && !virtualKey.resolves) {
 			problems.virtualKeyValue = l10n.t("Enter the key sent in this header");
-		} else if (virtualKey.visibleValue !== undefined && sendableHeaderValue(virtualKey.visibleValue) === undefined) {
+		} else if (virtualKey.visibleValue !== undefined && headerValue(virtualKey.visibleValue) === undefined) {
 			problems.virtualKeyValue = l10n.t("The value cannot be sent as an HTTP header");
 		}
 	} else if (virtualKey.resolves) {
