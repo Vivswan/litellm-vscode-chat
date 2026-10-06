@@ -77,6 +77,8 @@ const spawnsFromExternal = (specifier: string, name: string): boolean =>
 const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["@happy-dom/global-registrator", "installs the DOM shim in-process"],
 	["@radix-ui/react-dialog", "React components"],
+	["@typescript-eslint/rule-tester", "runs ESLint's Linter in-process over the typescript-eslint parser"],
+	["@typescript-eslint/utils", "typescript-eslint's rule API; in-process"],
 	["@vscode/l10n", "string-table lookup"],
 	["async-mutex", "in-process promise serialization"],
 	["bun:test", "the test runner itself"],

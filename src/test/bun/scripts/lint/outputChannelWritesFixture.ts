@@ -1,8 +1,8 @@
 /**
- * Negative control for scripts/ci/output-channel-writes.ts: every write shape the scanner must refuse beside the
- * look-alikes it must ignore. Never imported; the test hands this path to the scanner and reads the tags.
+ * Negative control for scripts/lint/outputChannelWrites.ts: every write shape the rule must refuse beside the
+ * look-alikes it must ignore. Never imported; the test replays this file through RuleTester and reads the tags.
  *
- *   // refused -> the scanner reports this line
+ *   // refused -> the rule reports this line
  *   // allowed -> a channel member that writes nothing: seen, not reported
  *   untagged  -> not a channel member at all
  */

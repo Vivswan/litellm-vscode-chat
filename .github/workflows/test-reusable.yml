@@ -133,9 +133,6 @@ jobs:
       - name: Set up development environment
         run: bun scripts/env/setup-env.ts
 
-      - name: Lint
-        run: bun run lint
-
       - name: Compile
         run: bun run compile
 

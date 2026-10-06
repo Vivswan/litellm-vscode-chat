@@ -123,10 +123,10 @@ describe("pre-commit bun test selection", () => {
 		const { files } = selectBunTests(REPO_ROOT, [
 			"src/webview/dashboard/styles/dashboard.css",
 			"src/extension/features/gitAccess.ts",
-			"src/test/bun/scripts/ci/outputChannelWritesFixture.ts",
+			"src/test/bun/scripts/ci/userTextReadersFixture.ts",
 		]);
 		expect(files).toContain("./src/test/bun/docs/visualLanguageAnchors.test.ts");
 		expect(files).toContain("./src/test/bun/extension/features/documentLabelGuard.test.ts");
-		expect(files).toContain("./src/test/bun/scripts/ci/output-channel-writes.test.ts");
+		expect(files).toContain("./src/test/bun/scripts/ci/user-text-readers.test.ts");
 	});
 });

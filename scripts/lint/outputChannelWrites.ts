@@ -1,31 +1,13 @@
 /**
- * src/shared/logger.ts is the one place output-channel text is written, so the redaction there covers every line; a
+ * src/shared/logger.ts is the one place output-channel text is written, so the masking there covers every line; a
  * write-shaped member access on vscode's channel types anywhere else is refused. Membership is judged by the vscode
  * declaration a member resolves to, never by its name, so a Map's clear() or a string's replace() is not a hit.
  *
  *   src/shared/logger.ts takes a structural LogSink  -> its info()/error() resolve to logger.ts, never to vscode
- *   src/extension.ts creates the channel             -> the one createOutputChannel call, handed to the Logger
+ *   src/extension.ts creates the channel             -> the one createOutputChannel call, allowed there by option
  */
-import * as path from "node:path";
+import { ESLintUtils, type TSESTree } from "@typescript-eslint/utils";
 import ts from "typescript";
-
-export interface ChannelAccess {
-	/** Repository-relative, forward slashes. */
-	readonly file: string;
-	readonly line: number;
-	readonly column: number;
-	readonly member: string;
-}
-
-export interface ChannelAccessScan {
-	readonly seen: number;
-	readonly refused: readonly ChannelAccess[];
-}
-
-export const LOGGER_FILE = "src/shared/logger.ts";
-
-/** The wiring site may only create the channel; a write there would skip the Logger like a write anywhere else. */
-export const WIRING_FILE = "src/extension.ts";
 
 /** Default-deny: a member vscode adds later is a write until it is listed here; clear() erases, it writes no text. */
 export const NON_WRITING_MEMBERS: ReadonlySet<string> = new Set([
@@ -151,53 +133,54 @@ function channelMembersAt(checker: ts.TypeChecker, node: ts.Node): string[] {
 	return read === undefined ? [] : read.keys.filter((key) => isChannelMember(checker, read.receiver, key));
 }
 
-function parseConfig(tsconfigPath: string): ts.ParsedCommandLine {
-	const host: ts.ParseConfigFileHost = {
-		...ts.sys,
-		onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
-			throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
+type Options = [{ readonly allow: readonly string[] }];
+type MessageIds = "write" | "create";
+
+export const outputChannelWrites = ESLintUtils.RuleCreator.withoutDocs<Options, MessageIds>({
+	meta: {
+		type: "problem",
+		docs: {
+			description: "Output-channel text is written only by the Logger, where the log masking lives.",
 		},
-	};
-	const config = ts.getParsedCommandLineOfConfigFile(tsconfigPath, {}, host);
-	if (config === undefined) {
-		throw new Error(`Cannot parse ${tsconfigPath}`);
-	}
-	return config;
-}
-
-function isAllowed(file: string, member: string): boolean {
-	return (
-		NON_WRITING_MEMBERS.has(member) ||
-		file === LOGGER_FILE ||
-		(file === WIRING_FILE && member === "createOutputChannel")
-	);
-}
-
-export function scanOutputChannelAccess(tsconfigPath: string, fileNames?: readonly string[]): ChannelAccessScan {
-	const config = parseConfig(tsconfigPath);
-	const rootDir = path.dirname(tsconfigPath);
-	const program = ts.createProgram(fileNames ?? config.fileNames, config.options);
-	const checker = program.getTypeChecker();
-	let seen = 0;
-	const refused: ChannelAccess[] = [];
-
-	for (const fileName of program.getRootFileNames()) {
-		const sourceFile = program.getSourceFile(fileName);
-		if (sourceFile === undefined || sourceFile.isDeclarationFile) {
-			continue;
-		}
-		const file = path.relative(rootDir, sourceFile.fileName).split(path.sep).join("/");
-		const visit = (node: ts.Node): void => {
-			for (const member of channelMembersAt(checker, node)) {
-				seen += 1;
-				if (!isAllowed(file, member)) {
-					const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-					refused.push({ file, line: line + 1, column: character + 1, member });
+		messages: {
+			write:
+				"{{member}} writes to the output channel. Output-channel text is written only by src/shared/logger.ts, " +
+				"where the log masking lives; route this through the Logger.",
+			create:
+				"{{member}} makes a second output channel. src/extension.ts creates the one channel and hands it to the " +
+				"Logger.",
+		},
+		schema: [
+			{
+				type: "object",
+				properties: { allow: { type: "array", items: { type: "string" } } },
+				additionalProperties: false,
+			},
+		],
+	},
+	defaultOptions: [{ allow: [] }],
+	create(context, [{ allow }]) {
+		const services = ESLintUtils.getParserServices(context);
+		const checker = services.program.getTypeChecker();
+		const allowed = new Set([...NON_WRITING_MEMBERS, ...allow]);
+		const judge = (node: TSESTree.Node): void => {
+			for (const member of channelMembersAt(checker, services.esTreeNodeToTSNodeMap.get(node))) {
+				if (!allowed.has(member)) {
+					context.report({
+						node,
+						messageId: member === "createOutputChannel" ? "create" : "write",
+						data: { member },
+					});
 				}
 			}
-			ts.forEachChild(node, visit);
 		};
-		visit(sourceFile);
-	}
-	return { seen, refused };
-}
+		// A destructuring declaration's Property is a TS BindingElement; a destructuring assignment's ObjectPattern is
+		// the TS ObjectLiteralExpression on the left of the `=`, so its Property children carry no read of their own.
+		return {
+			MemberExpression: judge,
+			"ObjectPattern > Property": judge,
+			"AssignmentExpression > ObjectPattern.left": judge,
+			CallExpression: judge,
+		};
+	},
+});
