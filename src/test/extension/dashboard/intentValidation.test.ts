@@ -7,8 +7,10 @@ import {
 	validateNumberSetting,
 	validateSaveServerSetting,
 } from "../../../extension/dashboard/intents";
+import { setOwnedHeader } from "../../../provider/transport/authOverlay";
 import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { normalizeCustomHeaders } from "../../../shared/config/settings";
+import type { HeaderValue } from "../../../shared/util/headers";
 import { inlineOnlyIdentity, KEEP_ALL, replaceIdentity, serverPayload } from "./recordedEnv";
 
 suite("extension/dashboard/intents: request validation", () => {
@@ -486,9 +488,11 @@ suite("extension/dashboard/intents: request validation", () => {
 				["token\r\nQ7", undefined],
 			];
 			for (const [typed, sent] of cases) {
+				// The quoted form: parseHeaderValue trims the text around a JSON string but not the string inside it, so
+				// the row validator judges the value with its whitespace intact, exactly as the setting stores it.
 				const shown = JSON.stringify(typed);
 				assert.strictEqual(
-					parseHeaderRows([{ name: "x-key", valueText: typed }]).ok,
+					parseHeaderRows([{ name: "x-key", valueText: shown }]).ok,
 					sent !== undefined,
 					`editor ${shown}`
 				);
@@ -498,11 +502,13 @@ suite("extension/dashboard/intents: request validation", () => {
 					sent !== undefined,
 					`save ${shown}`
 				);
-				assert.deepStrictEqual(
-					normalizeCustomHeaders({ "x-key": typed }),
-					sent === undefined ? {} : { "x-key": sent },
-					`wire ${shown}`
-				);
+				// Through the real sink: the minted value is what setOwnedHeader puts on the request record.
+				const wire: Record<string, HeaderValue> = {};
+				const minted = normalizeCustomHeaders({ "x-key": typed })["x-key"];
+				if (minted !== undefined) {
+					setOwnedHeader(wire, "x-key", minted);
+				}
+				assert.deepStrictEqual(wire, sent === undefined ? {} : { "x-key": sent }, `wire ${shown}`);
 			}
 		});
 
