@@ -37,11 +37,114 @@ export interface CorpusEntry {
 }
 
 /** One full chunk envelope in the shape the generator's chunkOf produces. */
-function chunk(delta: Record<string, unknown>): unknown {
-	return { id: "chatcmpl-fuzz", object: "chat.completion.chunk", choices: [{ index: 0, delta }] };
+function chunk(delta: Record<string, unknown>, finishReason?: string): unknown {
+	return {
+		id: "chatcmpl-fuzz",
+		object: "chat.completion.chunk",
+		choices: [{ index: 0, delta, ...(finishReason ? { finish_reason: finishReason } : {}) }],
+	};
+}
+
+function deltaCallStart(index: number, name: string, args: string): unknown {
+	return chunk({
+		tool_calls: [{ index, id: `call_fuzz_${index}`, type: "function", function: { name, arguments: args } }],
+	});
+}
+
+function deltaCallArgs(index: number, args: string, finishReason?: string): unknown {
+	return chunk({ tool_calls: [{ index, function: { arguments: args } }] }, finishReason);
 }
 
 export const FUZZ_CORPUS: CorpusEntry[] = [
+	{
+		// The #456 shape: a provider's finish_reason arrives while a delta-channel call's arguments are still streaming.
+		// The finish_reason must not finalize the call; each event is one placement of it.
+		name: "issue-456-arguments-after-finish-reason",
+		mode: "both",
+		events: [
+			{
+				label: "split-delta-tool-before-last",
+				deltaToolChannel: true,
+				tools: [{ name: "get_weather", args: { seq: 0, city: "berlin" } }],
+				chunks: [
+					deltaCallStart(0, "get_weather", '{"seq":0,"city":'),
+					chunk({}, "tool_calls"),
+					deltaCallArgs(0, '"berlin"}'),
+				],
+			},
+			{
+				label: "split-delta-tool-same-chunk",
+				deltaToolChannel: true,
+				tools: [{ name: "search_docs", args: { seq: 1, q: "docs" } }],
+				chunks: [deltaCallStart(1, "search_docs", '{"seq":1,"q":'), deltaCallArgs(1, '"docs"}', "tool_calls")],
+			},
+			{
+				label: "split-delta-tool-empty-delta-between",
+				deltaToolChannel: true,
+				tools: [{ name: "run_query", args: { seq: 2 } }],
+				chunks: [deltaCallStart(2, "run_query", '{"seq":2'), chunk({}, "stop"), chunk({}), deltaCallArgs(2, "}")],
+			},
+			{
+				label: "split-delta-tool-text-after",
+				deltaToolChannel: true,
+				text: "done ",
+				tools: [{ name: "get_weather", args: { seq: 3, n: 4 } }],
+				chunks: [
+					deltaCallStart(3, "get_weather", '{"seq":3,"n":'),
+					chunk({}, "tool_calls"),
+					deltaCallArgs(3, "4}"),
+					chunk({ content: "done " }),
+				],
+			},
+		],
+	},
+	{
+		// The #476 shape: a finish_reason placed among an inline call's content chunks, which the text parser's held
+		// call must survive. Same placements as the delta-channel entry.
+		name: "issue-476-inline-call-split-around-finish-reason",
+		mode: "both",
+		events: [
+			{
+				label: "split-inline-tool-before-last",
+				text: "ok ",
+				tools: [{ name: "get_weather", args: { seq: 0, a: 1 } }],
+				chunks: [
+					chunk({ content: 'ok <|tool_call_begin|>get_weather:0<|tool_call_argument_begin|>{"seq":0,"a":' }),
+					chunk({}, "stop"),
+					chunk({ content: "1}<|tool_call_end|>" }),
+				],
+			},
+			{
+				label: "split-inline-tool-same-chunk",
+				tools: [{ name: "run_query", args: { seq: 1, q: "x" } }],
+				chunks: [
+					chunk({ content: '<|tool_call_begin|>run_query:1<|tool_call_argument_begin|>{"seq":1,' }),
+					chunk({ content: '"q":"x"}<|tool_call_end|>' }, "tool_calls"),
+				],
+			},
+			{
+				label: "split-inline-tool-empty-delta-between",
+				tools: [{ name: "search_docs", args: { seq: 2 } }],
+				chunks: [
+					chunk({ content: '<|tool_call_begin|>search_docs:2<|tool_call_argument_begin|>{"seq":2' }),
+					chunk({}, "stop"),
+					chunk({}),
+					chunk({ content: "}<|tool_call_end|>" }),
+				],
+			},
+			{
+				label: "split-inline-tool-text-after",
+				text: " after",
+				tools: [{ name: "get_weather", args: { seq: 3, n: 4 } }],
+				chunks: [
+					chunk({ content: '<|tool_call_begin|>get_weather:3<|tool_call_argument_begin|>{"seq":3,"n":' }),
+					chunk({}, "stop"),
+					chunk({ content: "4}<|tool_call_end|>" }),
+					chunk({ content: " after" }),
+				],
+			},
+		],
+	},
 	{
 		// The #215 guard's false-positive direction: a stream that is nothing but reasoning must resolve cleanly, never
 		// trip the reasoning-only error, and never leak reasoning into visible text. All three delta shapes ride along.
