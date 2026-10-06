@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { MARKER_FILE, reportLines, scanRepositoryPathDerivations } from "../../../../../scripts/ci/repo-root-marker";
+import {
+	MARKER_FILE,
+	reportLines,
+	SCANNED_FILE,
+	scanRepositoryPathDerivations,
+} from "../../../../../scripts/ci/repo-root-marker";
+import { BUN_TEST_FILE } from "../../../runtimeImportGraph";
 
 /** Hand-authored: both derivations beside the look-alikes the scan must ignore (a comment, a string, path.dirname). */
 const FIXTURE = [
@@ -29,5 +35,22 @@ describe("scanRepositoryPathDerivations", () => {
 		[MARKER_FILE, []],
 	])("reports every derivation in %s with the fix line, and nothing for look-alikes", (file, expected) => {
 		expect(reportLines(scanRepositoryPathDerivations(file, FIXTURE))).toEqual(expected);
+	});
+
+	// A suite bun runs that the walk never opens is the bypass the guard exists to close, and the two patterns live in
+	// different files. The first assertion is the control: every name is one bun runs.
+	test("every file name bun runs as a suite is a file name the walk scans", () => {
+		const bunSuites = [
+			"a.test.ts",
+			"a.spec.mts",
+			"a.test.cts",
+			"a.test.js",
+			"a.test.mjs",
+			"a_test.cjs",
+			"a.test.tsx",
+			"a.test.jsx",
+		];
+		expect(bunSuites.filter((name) => BUN_TEST_FILE.test(name))).toEqual(bunSuites);
+		expect(bunSuites.filter((name) => SCANNED_FILE.test(name))).toEqual(bunSuites);
 	});
 });

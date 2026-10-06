@@ -6,16 +6,16 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import * as path from "node:path";
-import { reportLines, scanRepositoryPathDerivations, TEST_TREE } from "./repo-root-marker";
+import { reportLines, SCANNED_FILE, scanRepositoryPathDerivations, TEST_TREE } from "./repo-root-marker";
 
 const repoRoot = path.resolve(__dirname, "../..");
 const testRoot = path.join(repoRoot, TEST_TREE);
 const files = readdirSync(testRoot, { recursive: true, encoding: "utf8" })
-	.filter((entry) => /\.tsx?$/.test(entry))
+	.filter((entry) => SCANNED_FILE.test(entry))
 	.sort();
 
 if (files.length === 0) {
-	process.stderr.write(`No TypeScript file found under ${TEST_TREE} at all: the walk missed the test tree\n`);
+	process.stderr.write(`No source file found under ${TEST_TREE} at all: the walk missed the test tree\n`);
 	process.exit(1);
 }
 const found = files.flatMap((entry) => {

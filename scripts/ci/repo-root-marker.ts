@@ -10,6 +10,9 @@ import ts from "typescript";
 export const MARKER_FILE = "src/test/util/repoRoot.ts";
 export const TEST_TREE = "src/test";
 
+/** Every extension bun runs (BUN_TEST_FILE in src/test/runtimeImportGraph.ts), helpers included, not only suites. */
+export const SCANNED_FILE = /\.(?:[cm]?[jt]s|[jt]sx)$/;
+
 export interface RepositoryPathDerivation {
 	/** Repository-relative, forward slashes. */
 	readonly file: string;
@@ -38,8 +41,7 @@ export function scanRepositoryPathDerivations(file: string, source: string): Rep
 	if (file === MARKER_FILE) {
 		return [];
 	}
-	const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-	const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, kind);
+	const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 	const found: RepositoryPathDerivation[] = [];
 	const visit = (node: ts.Node): void => {
 		const expression = derivationAt(node);
