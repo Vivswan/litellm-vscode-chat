@@ -141,11 +141,13 @@ export type RemovedEntryEvent =
 			readonly label: string;
 			readonly baseUrl: string | undefined;
 			/**
-			 * The one live group the removed entry joined by its last readable identity and no present entry shares
-			 * (ServerSyncEngine.joinedGroupOf): what a pre-label leftover hides by.
+			 * What a leftover of the removed entry hides by: the client and connection IDs its last readable pass
+			 * carried and the live group it joined (ServerSyncEngine.joinedGroupOf), minus any an entry still present
+			 * carries. A pre-label group the host reports only after the removal matches by these on its first
+			 * observation.
 			 */
 			readonly groupIds: readonly string[];
-			/** The live groups the entry joined that an entry still present joins too: kept, not tombstoned. */
+			/** The removed entry's keys an entry still present carries too: kept, not tombstoned. */
 			readonly sharedGroupIds: readonly string[];
 	  }
 	| { readonly kind: "renamed"; readonly oldLabel: string; readonly newLabel: string; readonly baseUrl: string };
@@ -449,6 +451,22 @@ export class ServerSyncEngine implements vscode.Disposable {
 					entryLabel: joined.entryLabel,
 					baseUrl: joined.status.baseUrl,
 				};
+	}
+
+	/**
+	 * The keys a leftover of `identity`'s entry can be hidden by: the client and connection IDs, and the live group
+	 * the identity joins (which may be neither, after a label-URL join). Order fixed, duplicates dropped.
+	 */
+	private identityKeys(
+		identity: DeclaredGroupIdentity | undefined,
+		snapshots: readonly ServerModelsSnapshot[]
+	): string[] {
+		const keys = [
+			identity?.expectedClientId,
+			identity?.expectedConnectionId,
+			this.joinedGroupOf(identity, snapshots)?.groupId,
+		];
+		return [...new Set(keys.filter((key): key is string => key !== undefined))];
 	}
 
 	private liveSnapshots(): readonly ServerModelsSnapshot[] {
@@ -1166,13 +1184,14 @@ export class ServerSyncEngine implements vscode.Disposable {
 			const renamedTo = [...(carried ?? newLabels)].find(
 				([newLabel, url]) => url === baseUrl && sameIdentity(own, this.lastIdentities.get(newLabel))
 			)?.[0];
-			const shared = new Set(
+			// Judged against the entries present at THIS removal: a key shared with an entry removed later is
+			// tombstoned then.
+			const presentKeys = new Set(
 				[...this.lastIdentities].flatMap(([other, ids]) =>
-					present.has(other) ? [this.joinedGroupOf(ids, snapshots)?.groupId] : []
+					present.has(other) ? this.identityKeys(ids, snapshots) : []
 				)
 			);
-			const ownGroup = this.joinedGroupOf(own, snapshots);
-			const isShared = ownGroup !== undefined && shared.has(ownGroup.groupId);
+			const ownKeys = this.identityKeys(own, snapshots);
 			events.push(
 				renamedTo !== undefined
 					? { kind: "renamed", oldLabel: label, newLabel: renamedTo, baseUrl }
@@ -1180,8 +1199,8 @@ export class ServerSyncEngine implements vscode.Disposable {
 							kind: "removed",
 							label,
 							baseUrl,
-							groupIds: ownGroup !== undefined && !isShared ? [ownGroup.groupId] : [],
-							sharedGroupIds: isShared && ownGroup !== undefined ? [ownGroup.groupId] : [],
+							groupIds: ownKeys.filter((key) => !presentKeys.has(key)),
+							sharedGroupIds: ownKeys.filter((key) => presentKeys.has(key)),
 						}
 			);
 		}
