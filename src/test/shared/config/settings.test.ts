@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import * as vscode from "vscode";
 import { WIRE_LIMITS } from "../../../dashboard/endpoints";
 import { parseHeaderValue, parseJsonValue, parseNumberDraft, parseThresholdBox } from "../../../dashboard/presenters";
 import { parseCatalogIdText, parseHeaderRows, parseInheritKeysText } from "../../../dashboard/recordDraft";
@@ -14,6 +15,7 @@ import { parseCapabilityRecord } from "../../../shared/config/capabilityResoluti
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	BOOLEAN_SETTING_SPECS,
+	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_INLINE_LANGUAGE_FILTER,
@@ -44,6 +46,7 @@ import {
 	getInlineLanguageFilter,
 	getMaxToolsPerRequest,
 	getModelCapabilitiesConfig,
+	getModelParametersConfig,
 	getRequestTimeout,
 	getTokenEstimationMode,
 	getUiAccent,
@@ -56,6 +59,7 @@ import {
 	logRecordShapeProblems,
 	MIN_TIMEOUT_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
+	MODEL_PARAMETERS_SETTING_KEY,
 	normalizeAdditionalToolSchemaKeywords,
 	normalizeCommitGenerationPrompt,
 	normalizeCurrencySymbol,
@@ -231,6 +235,32 @@ suite("shared/config/settings normalizeCustomHeaders", () => {
 		assert.deepStrictEqual(normalizeCustomHeaders("not a record"), {});
 		assert.deepStrictEqual(normalizeCustomHeaders(undefined), {});
 	});
+
+	test("a headers slot that is not an object is reported once and reads as empty; an object passes unchanged", () => {
+		// A string where the map belongs used to read as {} with nothing logged; only an absent slot is silent.
+		const cases: { raw: unknown; reported: boolean }[] = [
+			{ raw: "oops", reported: true },
+			{ raw: ["x-team: ops"], reported: true },
+			{ raw: null, reported: true },
+			{ raw: undefined, reported: false },
+		];
+		for (const { raw, reported } of cases) {
+			const logged: { message: string; data?: unknown }[] = [];
+			const headers = normalizeCustomHeaders(raw, (message, data) => logged.push({ message, data }));
+			assert.deepStrictEqual(headers, {}, `${JSON.stringify(raw)}: the slot reads as empty`);
+			assert.deepStrictEqual(
+				logged,
+				reported
+					? [{ message: "Ignoring custom headers that are not an object", data: { configured: typeof raw } }]
+					: [],
+				`${JSON.stringify(raw)}: reported exactly when the slot is present and wrong-shaped`
+			);
+		}
+		assert.deepStrictEqual(
+			normalizeCustomHeaders({ "x-team": "ops" }, () => assert.fail("a well-shaped map reports nothing")),
+			{ "x-team": "ops" }
+		);
+	});
 });
 
 suite("shared/config/settings normalizeModelCapabilities", () => {
@@ -242,6 +272,28 @@ suite("shared/config/settings normalizeModelCapabilities", () => {
 			"http://a.test/claude": { _declare: true },
 		};
 		assert.deepStrictEqual(normalizeModelCapabilities(raw), raw);
+	});
+
+	test("a records entry read from the host survives serialization under a dotted model id", async () => {
+		// The host's clone-on-write proxy re-finds a nested value by its dotted path, which "gpt-5.2-mini" splits, so
+		// the request fingerprint's JSON.stringify used to drop response_format and the chat path then threw. A schema
+		// property named toJSON trips the same proxy on a plain read.
+		const configured = {
+			"gpt-5.2-mini": {
+				response_format: {
+					type: "json_schema",
+					json_schema: { schema: { properties: { toJSON: { type: "string" }, value: { type: "number" } } } },
+				},
+				temperature: 0.25,
+			},
+		};
+		const config = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
+		await config().update(MODEL_PARAMETERS_SETTING_KEY, configured, vscode.ConfigurationTarget.Global);
+		try {
+			assert.deepStrictEqual(JSON.parse(JSON.stringify(getModelParametersConfig())), configured);
+		} finally {
+			await config().update(MODEL_PARAMETERS_SETTING_KEY, undefined, vscode.ConfigurationTarget.Global);
+		}
 	});
 
 	test("one malformed entry drops only itself, named; unsafe and non-record inputs drop entirely, reported", () => {
