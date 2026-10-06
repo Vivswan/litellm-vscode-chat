@@ -12,6 +12,8 @@ declare const text: string;
 declare const maybeText: string | undefined;
 // biome-ignore lint/suspicious/noExplicitAny: the unresolved-receiver shape
 declare const loose: any;
+// biome-ignore lint/suspicious/noExplicitAny: the mutable unresolved-operand shape
+declare let slack: any;
 declare const mystery: unknown;
 declare function readVoid(): void;
 declare const count: number;
@@ -81,6 +83,12 @@ export function reads(): void {
 	count * 2; // seen
 	big * 2n; // seen
 	total -= 1; // seen
+	slack++; // refused postfix ++
+	slack--; // refused postfix --
+	++slack; // refused unary ++
+	--slack; // refused unary --
+	total++; // seen
+	--total; // seen
 	-loose; // refused unary -
 	~loose; // refused unary ~
 	loose | 0; // refused binary |

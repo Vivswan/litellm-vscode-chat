@@ -6,11 +6,11 @@
  * user's text, so a settings reader that trims, numbers, or coerces a value itself is refused. A call is judged by the
  * lib declaration it resolves to, never by its name, and a type the checker cannot settle is a refusal, never a pass.
  *
- *   .trim() .trimStart() .trimEnd() .trimLeft() .trimRight()               -> refused on every receiver
- *   Number(x) parseFloat(x) parseInt(x, r) new Number(x)                   -> refused unless every argument is a literal, number, bigint, or boolean
- *   +x -x ~x, and *, /, -, %, **, |, &, ^, <<, >>, >>> with compound forms -> refused unless every operand is one of those
- *   x < y, <=, >, >=                                                       -> refused unless both sides are numbers or both are strings
- *   READER_HOMES, an ALLOWED_READS (file, function) pair                   -> seen, not refused
+ *   .trim() .trimStart() .trimEnd() .trimLeft() .trimRight()                               -> refused on every receiver
+ *   Number(x) parseFloat(x) parseInt(x, r) new Number(x)                                   -> refused unless every argument is a literal, number, bigint, or boolean
+ *   +x -x ~x ++x x++ --x x--, and *, /, -, %, **, |, &, ^, <<, >>, >>> with compound forms -> refused unless every operand is one of those
+ *   x < y, <=, >, >=                                                                       -> refused unless both sides are numbers or both are strings
+ *   READER_HOMES, an ALLOWED_READS (file, function) pair                                   -> seen, not refused
  */
 import * as path from "node:path";
 import ts from "typescript";
@@ -280,10 +280,13 @@ function numberReadAt(
 		: { shape, refused: (node.arguments ?? []).some((argument) => isText(checker, argument)) };
 }
 
-const COERCING_PREFIXES: ReadonlyMap<ts.SyntaxKind, string> = new Map([
+/** Every unary operator that reads its operand as a number. */
+const COERCING_UNARIES: ReadonlyMap<ts.SyntaxKind, string> = new Map([
 	[ts.SyntaxKind.PlusToken, "+"],
 	[ts.SyntaxKind.MinusToken, "-"],
 	[ts.SyntaxKind.TildeToken, "~"],
+	[ts.SyntaxKind.PlusPlusToken, "++"],
+	[ts.SyntaxKind.MinusMinusToken, "--"],
 ]);
 
 const COERCING_OPERATORS: ReadonlyMap<ts.SyntaxKind, string> = new Map([
@@ -318,11 +321,15 @@ const ORDERING_OPERATORS: ReadonlyMap<ts.SyntaxKind, string> = new Map([
 	[ts.SyntaxKind.GreaterThanEqualsToken, ">="],
 ]);
 
-/** `+x`, `x | 0`, and `x < 20` are Number(x) without the name: "0x10" reads 16 and " " reads 0. */
+/** `+x`, `x++`, `x | 0`, and `x < 20` are Number(x) without the name: "0x10" reads 16 and " " reads 0. */
 function coercionAt(checker: ts.TypeChecker, node: ts.Node): Judged | undefined {
-	if (ts.isPrefixUnaryExpression(node)) {
-		const prefix = COERCING_PREFIXES.get(node.operator);
-		return prefix === undefined ? undefined : { shape: `unary ${prefix}`, refused: isText(checker, node.operand) };
+	if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
+		const unary = COERCING_UNARIES.get(node.operator);
+		if (unary === undefined) {
+			return undefined;
+		}
+		const shape = ts.isPostfixUnaryExpression(node) ? `postfix ${unary}` : `unary ${unary}`;
+		return { shape, refused: isText(checker, node.operand) };
 	}
 	if (!ts.isBinaryExpression(node)) {
 		return undefined;
