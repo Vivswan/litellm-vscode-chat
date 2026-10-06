@@ -24,6 +24,7 @@ import type { GroupServer } from "../../../provider/catalog/groupModels";
 import { groupClientId, groupServerLabel, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
+import { Logger } from "../../../shared/logger";
 import { fixedHeaderValue } from "../../../shared/util/headers";
 import { makeModelInfo } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } from "../../testUtils";
@@ -116,6 +117,8 @@ interface Fixture {
 	secretsSnapshot(): Record<string, unknown>;
 	/** Every SecretStorage store or delete, as "store <label>" or "delete <label>". */
 	secretOps: string[];
+	/** Every text the environment's clipboard door wrote, after the mask. */
+	clipboard: string[];
 }
 
 /** The production intent environment over fakes for the stores, the host, and the removal ledger. */
@@ -151,6 +154,7 @@ function makeFixture(): Fixture {
 		writes,
 		removals: new GroupRemovalStore(makeExtensionStorage().memento, fakeFingerprintSaltSession()),
 		secretOps: [],
+		clipboard: [],
 		currentSetting: effective,
 		secretsSnapshot: () =>
 			Object.fromEntries(
@@ -234,6 +238,11 @@ function makeFixture(): Fixture {
 		featureProbes: {},
 		refreshCatalogNow: () => {},
 		refreshUsageNow: () => {},
+		clipboard: {
+			writeText: async (text) => {
+				fixture.clipboard.push(text);
+			},
+		},
 	});
 	return fixture;
 }
@@ -1022,6 +1031,23 @@ function assertOutcome(
 }
 
 suite("extension/dashboard intents against the live sync truth", () => {
+	// The intents hand clipboard text over whole and the door masks it; only the real environment proves the panel
+	// wires the door in, so a bypass there would pass both unit pins and fail here.
+	test("copyDiagnostics through the real environment reaches the clipboard masked", async () => {
+		const fixture = makeFixture();
+		Logger.registerSecrets(["copy-key-Q7-marker"]);
+		await executeDashboardIntent(
+			{
+				method: "copyDiagnostics",
+				payload: { text: "Prod (http://user:sekret@localhost:4000): 401 for copy-key-Q7-marker at /home/alice" },
+			},
+			fixture.env
+		);
+		assert.deepStrictEqual(fixture.clipboard, [
+			"Prod (http://[redacted]@localhost:4000): 401 for [redacted] at /home/alice",
+		]);
+	});
+
 	for (const [name, scenario] of Object.entries(WINDOWS)) {
 		if (scenario.intents.includes("adopt")) {
 			const outcome =

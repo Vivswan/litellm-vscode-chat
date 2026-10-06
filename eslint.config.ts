@@ -48,8 +48,8 @@ const DOORS = [
 			"once.",
 	},
 	{
-		// A tool exit's text is masked upstream (agentTools/render.ts); the processor masks the parts it builds whole (a
-		// refusal, the Sources trailer), while content deltas arrive in token-sized pieces no mask can judge.
+		// A tool exit's text is masked upstream (agentTools/render.ts); the processor masks the one part it builds whole
+		// (the Sources trailer), while refusal and content deltas arrive in token-sized pieces no mask can judge.
 		doors: ["src/extension/features/modelFacingExit.ts", "src/provider/transport/streaming/processor.ts"],
 		properties: [],
 		selectors: [

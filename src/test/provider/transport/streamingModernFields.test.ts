@@ -22,15 +22,16 @@ suite("provider/streaming refusal and annotations", () => {
 		assert.equal(logs.filter((l) => l.includes("Model refused the request")).length, 1);
 	});
 
-	// The processor is the chat stream's exit door: the parts it builds whole (a refusal, the sources trailer) are
-	// masked there, while content deltas arrive in token-sized pieces no mask can judge.
-	test("a refusal quoting a registered value and a citation URL's userinfo leave masked; content does not change", async () => {
+	// The processor is the chat stream's exit door for the one part it builds whole, the sources trailer; refusal and
+	// content deltas are streamed prose that a chunk boundary can split, so no mask is applied to them.
+	test("a split refusal streams through as prose, while a citation's userinfo and a registered value in its path leave masked", async () => {
 		Logger.registerSecrets(["refusal-Q7-marker", "paren(Q7)marker"]);
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
 
 		await playChunks(stream, [
-			{ choices: [{ delta: { refusal: "I cannot reveal refusal-Q7-marker." } }] },
+			{ choices: [{ delta: { refusal: "I cannot reveal refusal-" } }] },
+			{ choices: [{ delta: { refusal: "Q7-marker." } }] },
 			{
 				choices: [
 					{
@@ -38,8 +39,12 @@ suite("provider/streaming refusal and annotations", () => {
 							content: "The sky is blue.",
 							annotations: [
 								{ type: "url_citation", url_citation: { url: "https://user:sekret@example.test/sky", title: "Sky" } },
-								// Masked before the URL's parens are percent-encoded, or the encoded spelling would slip past.
-								{ type: "url_citation", url_citation: { url: "https://example.test/paren(Q7)marker", title: "Paren" } },
+								// Masked before escaping: the title's brackets and the URL's parens are escaped afterwards, so an
+								// escaped spelling cannot slip past.
+								{
+									type: "url_citation",
+									url_citation: { url: "https://example.test/paren(Q7)marker", title: "Paren paren(Q7)marker" },
+								},
 							],
 						},
 					},
@@ -49,11 +54,11 @@ suite("provider/streaming refusal and annotations", () => {
 		]);
 
 		const text = visibleTextOf(parts);
-		assertContains(text, "I cannot reveal [redacted].", "The refusal passes the door");
+		assertContains(text, "I cannot reveal refusal-Q7-marker.", "The refusal streams through as prose");
 		assertContains(text, "The sky is blue.", "Content is untouched");
 		assertEndsWith(
 			text,
-			"\n\nSources:\n- [Sky](https://[redacted]@example.test/sky)\n- [Paren](https://example.test/[redacted])",
+			"\n\nSources:\n- [Sky](https://[redacted]@example.test/sky)\n- [Paren \\[redacted\\]](https://example.test/[redacted])",
 			"The trailer passes the door"
 		);
 	});

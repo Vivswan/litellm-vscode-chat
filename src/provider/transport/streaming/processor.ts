@@ -294,9 +294,9 @@ export class StreamProcessor {
 				// No content: refusal text can echo user data into issue reports.
 				this._log("Model refused the request");
 			}
-			// Server text that arrives whole, so the door masks it; content deltas arrive in token-sized pieces that split
-			// any value, and masking those would promise what it cannot do (a streaming mask needs a holdback buffer).
-			this.emit(new vscode.LanguageModelTextPart(Logger.redact(delta.refusal)));
+			// Delta text streams as received: a chunk can split a value, so no mask here. The processor masks only the
+			// Sources trailer it builds whole (emitTrailers).
+			this.emit(new vscode.LanguageModelTextPart(delta.refusal));
 			this._req.hasEmittedAssistantText = true;
 			emitted = true;
 		}

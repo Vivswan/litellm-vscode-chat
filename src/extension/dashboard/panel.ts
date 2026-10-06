@@ -823,6 +823,8 @@ export interface IntentEnvironmentDeps {
 	readonly featureProbes: FeatureProbes;
 	readonly refreshCatalogNow: () => void;
 	readonly refreshUsageNow: () => void;
+	/** The clipboard behind the copyToClipboard door; vscode.env.clipboard in production, a recorder in tests. */
+	readonly clipboard: Pick<vscode.Clipboard, "writeText">;
 }
 
 /** The intent half of the controller's environment: every effect executeDashboardIntent can have, over real stores. */
@@ -893,7 +895,7 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 		refreshCatalogNow: deps.refreshCatalogNow,
 		refreshUsageNow: deps.refreshUsageNow,
 		executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
-		writeClipboard: copyToClipboard,
+		writeClipboard: (text) => copyToClipboard(text, deps.clipboard),
 		log: (message, data) => logger.log(message, data),
 	};
 }
@@ -934,6 +936,7 @@ export function registerDashboardCommand(
 			logger,
 			ua,
 			featureProbes: options.featureProbes,
+			clipboard: vscode.env.clipboard,
 			// Fire-and-forget kicks; both push state when they settle. The catalog
 			// row stays toast-free; an explicit usage refresh in which NO server
 			// returned data acknowledges itself with one warning toast (partial
