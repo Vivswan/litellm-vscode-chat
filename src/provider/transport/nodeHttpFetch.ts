@@ -2,6 +2,7 @@ import * as http from "node:http";
 import * as https from "node:https";
 import type { Duplex, Readable } from "node:stream";
 import * as zlib from "node:zlib";
+import { headerNameKey } from "../../shared/util/headers";
 
 /**
  * Node's http client, not fetch: it has no idle clock, so the caller's AbortSignal is the only bound. Undici's fetch
@@ -287,7 +288,7 @@ export async function nodeHttpFetch(input: string | URL, init: RequestInit = {})
 		}
 		if (next.origin !== url.origin) {
 			for (const name of [...headers.keys()]) {
-				if (!CROSS_ORIGIN_HEADERS.has(name.toLowerCase())) {
+				if (!CROSS_ORIGIN_HEADERS.has(headerNameKey(name))) {
 					headers.delete(name);
 				}
 			}

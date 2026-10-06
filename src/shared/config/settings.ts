@@ -4,6 +4,7 @@ import type { HeaderScalar } from "../util/headers";
 import {
 	HEADER_NAME_PATTERN,
 	type HeaderValue,
+	headerNameKey,
 	headerValue,
 	isHeaderScalar,
 	trimHttpWhitespace,
@@ -288,10 +289,9 @@ export function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string
 			log?.("Ignoring invalid custom header name", { name });
 			continue;
 		}
-		const lower = parsedName.data.toLowerCase();
+		const lower = headerNameKey(parsedName.data);
 		if (seenLower.has(lower)) {
-			// Header names are case-insensitive on the wire. Names are user configuration, never response text, so the
-			// collision may be named.
+			// Names are user configuration, never response text, so the collision may be named.
 			log?.("Ignoring a custom header that repeats an earlier name with different casing; the first wins", {
 				name: parsedName.data,
 			});
