@@ -2,14 +2,14 @@
  * Guarantee: this rule catches accidental omissions and analysis gaps in the named reader modules; deliberate hiding
  * (aliasing a method, eval, indirect calls through untyped values) is out of scope.
  *
- * src/shared/util/headers.ts holds the one trim rule and src/shared/util/decimalText.ts the one decimal grammar for a
- * user's text, so a settings reader that trims or numbers a value itself is refused. A call is judged by the lib
- * declaration it resolves to, never by its name, so a class's own trim() is not a hit; a receiver or argument whose
- * type the checker cannot settle is a refusal, never a pass.
+ * src/shared/util/headers.ts is the one trim rule and src/shared/util/decimalText.ts the one decimal grammar for a
+ * user's text, so a settings reader that trims, numbers, or coerces a value itself is refused. A call is judged by the
+ * lib declaration it resolves to, never by its name, and a type the checker cannot settle is a refusal, never a pass.
  *
- *   .trim() .trimStart() .trimEnd() resolving to lib String     -> refused on every receiver
- *   Number(x) parseFloat(x) parseInt(x) new Number(x)           -> refused unless x is a literal, number, bigint, or boolean
- *   READER_HOMES, an ALLOWED_READS (file, function) pair        -> seen, not refused
+ *   .trim() .trimStart() .trimEnd() resolving to lib String   -> refused on every receiver
+ *   Number(x) parseFloat(x) parseInt(x) new Number(x)         -> refused unless x is a literal, number, bigint, or boolean
+ *   +x, and x * y, /, -, %, ** with their compound forms      -> refused unless every operand is one of those
+ *   READER_HOMES, an ALLOWED_READS (file, function) pair      -> seen, not refused
  */
 import * as path from "node:path";
 import ts from "typescript";
@@ -19,7 +19,7 @@ export interface ReaderRefusal {
 	readonly file: string;
 	readonly line: number;
 	readonly column: number;
-	/** As reported: `.trim()`, `Number.parseInt()`, `.trim() on an unresolved receiver`, `Number() unresolved`. */
+	/** As reported: `.trim()`, `Number.parseInt()`, `unary +`, `binary *=`, `.trim() on an unresolved receiver`. */
 	readonly shape: string;
 }
 
@@ -55,6 +55,10 @@ const READER_MODULES: readonly string[] = [
 	"src/extension/servers/serverSync/setting.ts",
 	"src/dashboard/",
 	"src/extension/settingsTransfer/",
+	"src/extension/dashboard/state.ts",
+	"src/extension/dashboard/entryAuth.ts",
+	"src/extension/ui/settingsTransferCommands.ts",
+	"src/provider/catalog/groupModels.ts",
 	...READER_HOMES,
 ];
 
@@ -249,11 +253,38 @@ function numberReadAt(
 	return shape === undefined ? undefined : { shape, refused: isText(checker, node.arguments?.[0]) };
 }
 
+const COERCING_OPERATORS: ReadonlyMap<ts.SyntaxKind, string> = new Map([
+	[ts.SyntaxKind.AsteriskToken, "*"],
+	[ts.SyntaxKind.SlashToken, "/"],
+	[ts.SyntaxKind.MinusToken, "-"],
+	[ts.SyntaxKind.PercentToken, "%"],
+	[ts.SyntaxKind.AsteriskAsteriskToken, "**"],
+	[ts.SyntaxKind.AsteriskEqualsToken, "*="],
+	[ts.SyntaxKind.SlashEqualsToken, "/="],
+	[ts.SyntaxKind.MinusEqualsToken, "-="],
+	[ts.SyntaxKind.PercentEqualsToken, "%="],
+	[ts.SyntaxKind.AsteriskAsteriskEqualsToken, "**="],
+]);
+
+/** `+x` and `x * 1` are Number(x) without the name: "0x10" reads 16 and " " reads 0. */
+function coercionAt(checker: ts.TypeChecker, node: ts.Node): Judged | undefined {
+	if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.PlusToken) {
+		return { shape: "unary +", refused: isText(checker, node.operand) };
+	}
+	if (!ts.isBinaryExpression(node)) {
+		return undefined;
+	}
+	const operator = COERCING_OPERATORS.get(node.operatorToken.kind);
+	return operator === undefined
+		? undefined
+		: { shape: `binary ${operator}`, refused: isText(checker, node.left) || isText(checker, node.right) };
+}
+
 function readAt(checker: ts.TypeChecker, program: ts.Program, node: ts.Node): Judged | undefined {
 	if (ts.isCallExpression(node)) {
 		return trimAt(checker, program, node) ?? numberReadAt(checker, program, node);
 	}
-	return ts.isNewExpression(node) ? numberReadAt(checker, program, node) : undefined;
+	return ts.isNewExpression(node) ? numberReadAt(checker, program, node) : coercionAt(checker, node);
 }
 
 function enclosingFunctionName(node: ts.Node): string | undefined {

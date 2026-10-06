@@ -2,8 +2,8 @@
  * Positive control for scripts/ci/user-text-readers.ts: a reader that takes a user's text only through the two homes
  * passes with no allowlist row. Never imported; the test scans this path as a reader module and reads the tags.
  *
- *   // seen    -> judged and accepted: not a text argument
- *   untagged  -> not a lib trim or number read at all
+ *   // seen    -> judged and accepted: not a text operand
+ *   untagged  -> not a lib trim, number read, or coercion at all
  */
 import { parseDecimalText } from "../../../../shared/util/decimalText";
 import { usableHttpText } from "../../../../shared/util/headers";
@@ -20,6 +20,10 @@ export function readTimeout(value: unknown): number | undefined {
 
 export function readWhole(value: number): number {
 	return Number(Math.round(value)); // seen
+}
+
+export function readSeconds(value: number): number {
+	return value * 1000; // seen
 }
 
 export function readFlag(value: boolean): number {

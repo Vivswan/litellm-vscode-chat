@@ -3,9 +3,10 @@
  * look-alikes it must ignore. Never imported; the test scans this path as a reader module with `sanctioned` as its one
  * allowed function and reads the tags.
  *
- *   // refused <shape>  -> the scanner reports this line with that shape
- *   // seen             -> judged and accepted: a non-text argument, or a read inside the allowed function
- *   untagged            -> not a lib trim or number read at all
+ *   // refused <shape>          -> the scanner reports this line with that shape, at the line's first non-blank column
+ *   // refused <shape> at <col>  -> the same, at that column (the read starts after a `return` or inside a callback)
+ *   // seen                      -> judged and accepted: a non-text operand, or a read inside the allowed function
+ *   untagged                     -> not a lib trim, number read, or coercion at all
  */
 declare const text: string;
 declare const maybeText: string | undefined;
@@ -42,7 +43,7 @@ export function reads(): void {
 	// biome-ignore lint/style/noNonNullAssertion: the asserted-callee shape
 	text.trim!(); // refused .trim()
 	loose.trim(); // refused .trim() on an unresolved receiver
-	[text].map((item) => item.trim()); // refused .trim()
+	[text].map((item) => item.trim()); // refused .trim() at 23
 	Number(text); // refused Number()
 	Number(maybeText); // refused Number()
 	Number(mystery); // refused Number()
@@ -58,6 +59,24 @@ export function reads(): void {
 	const toNumber = Number;
 	toNumber(text); // refused Number()
 	new Number(text); // refused new Number()
+	+text; // refused unary +
+	+loose; // refused unary +
+	loose * 1; // refused binary *
+	2 / loose; // refused binary /
+	loose - 1; // refused binary -
+	loose % 2; // refused binary %
+	loose ** 2; // refused binary **
+	let total = 0;
+	total *= loose; // refused binary *=
+	total /= loose; // refused binary /=
+	total -= loose; // refused binary -=
+	total %= loose; // refused binary %=
+	total **= loose; // refused binary **=
+	+count; // seen
+	count * 2; // seen
+	big * 2n; // seen
+	total -= 1; // seen
+	void total;
 	Number(count); // seen
 	Number(stamped); // seen
 	Number(big); // seen
@@ -74,21 +93,21 @@ export function reads(): void {
 }
 
 export function constrained<Text extends string>(value: Text): string {
-	return value.trim(); // refused .trim()
+	return value.trim(); // refused .trim() at 9
 }
 
 export function sanctioned(value: string): number {
 	const trimmed = value.trim(); // seen
 	[value].map((item) => item.trim()); // seen
 	[value].map(function named(item) {
-		return item.trim(); // refused .trim()
+		return item.trim(); // refused .trim() at 10
 	});
 	const reader = {
 		get normalized() {
-			return value.trim(); // refused .trim()
+			return value.trim(); // refused .trim() at 11
 		},
 		"quoted-name"() {
-			return value.trim(); // refused .trim()
+			return value.trim(); // refused .trim() at 11
 		},
 	};
 	void reader;
