@@ -6,10 +6,10 @@
  * user's text, so a settings reader that trims, numbers, or coerces a value itself is refused. A call is judged by the
  * lib declaration it resolves to, never by its name, and a type the checker cannot settle is a refusal, never a pass.
  *
- *   .trim() .trimStart() .trimEnd() resolving to lib String   -> refused on every receiver
- *   Number(x) parseFloat(x) parseInt(x) new Number(x)         -> refused unless x is a literal, number, bigint, or boolean
- *   +x, and x * y, /, -, %, ** with their compound forms      -> refused unless every operand is one of those
- *   READER_HOMES, an ALLOWED_READS (file, function) pair      -> seen, not refused
+ *   .trim() .trimStart() .trimEnd() .trimLeft() .trimRight() -> refused on every receiver
+ *   Number(x) parseFloat(x) parseInt(x) new Number(x)        -> refused unless x is a literal, number, bigint, or boolean
+ *   +x, and x * y, /, -, %, ** with their compound forms     -> refused unless every operand is one of those
+ *   READER_HOMES, an ALLOWED_READS (file, function) pair     -> seen, not refused
  */
 import * as path from "node:path";
 import ts from "typescript";
@@ -80,7 +80,7 @@ const ALLOWED_READS: readonly AllowedRead[] = [
 	},
 ];
 
-const TRIM_MEMBERS: ReadonlySet<string> = new Set(["trim", "trimStart", "trimEnd"]);
+const TRIM_MEMBERS: ReadonlySet<string> = new Set(["trim", "trimStart", "trimEnd", "trimLeft", "trimRight"]);
 
 const NUMBER_PARSERS: ReadonlySet<string> = new Set(["parseFloat", "parseInt"]);
 

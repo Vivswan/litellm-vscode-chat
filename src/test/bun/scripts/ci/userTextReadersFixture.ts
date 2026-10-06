@@ -28,6 +28,8 @@ export function reads(): void {
 	text.trim(); // refused .trim()
 	text.trimStart(); // refused .trimStart()
 	text.trimEnd(); // refused .trimEnd()
+	text.trimLeft(); // refused .trimLeft()
+	text.trimRight(); // refused .trimRight()
 	maybeText?.trim(); // refused .trim()
 	holder.label.trim(); // refused .trim()
 	`${count}`.trim(); // refused .trim()

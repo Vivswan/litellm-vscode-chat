@@ -1,4 +1,7 @@
 /**
+ * Guarantee: this rule catches accidental omissions and analysis gaps in the named reader modules; deliberate hiding
+ * (aliasing a method, eval, indirect calls through untyped values) is out of scope.
+ *
  * Fails when a settings reader trims, numbers, or coerces a user's text itself instead of reading through the two
  * homes, or when an allowlist row matches no read. .husky/pre-commit (check:static) and the format-check workflow run
  * this one script, so a local green predicts the gate.
