@@ -8,12 +8,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { RejectedCredentialField } from "../../provider/catalog/groupModels";
-import {
-	narrowGroupCredentials,
-	refusedCredentialFields,
-	rejectedCredentialKinds,
-} from "../../provider/catalog/groupModels";
+import { narrowGroupCredentials, refusedCredentialFields } from "../../provider/catalog/groupModels";
 import {
 	ALL_SETTING_KEYS,
 	acceptsNumberSetting,
@@ -25,7 +20,8 @@ import {
 	USAGE_STATUS_BAR_MODES,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settingSpec";
-import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
+import { rejectedCredentialKinds } from "../../shared/failureCause";
+import type { RejectedCredentialField, SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";

@@ -26,6 +26,7 @@ import type {
 	ResolvedCapCell,
 	ResolvedModelRow,
 	RevealableSettingId,
+	VerdictRow,
 } from "../../dashboard/viewModels";
 import {
 	COST_CAPABILITY_FIELDS,
@@ -1012,30 +1013,20 @@ function ResolvedModels({
 }
 
 /**
- * A row's English error mirror substituted for the localized one: the copied block stays English by policy, while
- * the server rows keep the localized error.
- */
-function withEnglishError(server: DashboardServer): DashboardServer {
-	if (server.state !== "unchecked" && server.errorEnglish !== undefined) {
-		return { ...server, error: server.errorEnglish };
-	}
-	return server;
-}
-
-/**
  * The whole report as plain text for Copy diagnostics, composed from pushed state only (no secret values by
  * construction).
  */
 function diagnosticsReportText(
 	servers: readonly DashboardServer[],
+	verdictRows: readonly VerdictRow[],
 	modelCount: number,
-	hiddenGroupCount: number,
 	diagnostics: readonly ConfigDiagnosticView[]
 ): string {
-	const copyServers = servers.map(withEnglishError);
+	// The rows carry their failure cause, which the presenters render in English for this paste.
+	const copyServers = servers;
 	const checkedMs = latestCheckedMs(copyServers);
 	const lines = [
-		overallStatusText(copyServers, modelCount, { hiddenGroupCount }),
+		overallStatusText(verdictRows, modelCount),
 		`Servers configured: ${copyServers.length}`,
 		`Last checked: ${checkedMs === undefined ? "Never" : new Date(checkedMs).toISOString()}`,
 	];
@@ -1051,8 +1042,9 @@ function diagnosticsReportText(
 		lines.push(`  ${englishDiagnosticLine(problem)}`);
 	}
 	// Hidden groups are the one dropped kind with no other route into the paste: they contribute no server row, so a
-	// hidden-only install would otherwise assert a clean setup. The count the shell passed (state.hiddenGroups), so the
-	// headline verdict and this line cannot disagree; never the labels - those are user text.
+	// hidden-only install would otherwise assert a clean setup. Counted from the verdict rows the headline read, so
+	// the two lines cannot disagree; never the labels - those are user text.
+	const hiddenGroupCount = verdictRows.filter((row) => row.hiddenByRemoval === true).length;
 	if (hiddenGroupCount > 0) {
 		lines.push(`Hidden provider groups: ${hiddenGroupCount}`);
 	}
@@ -1078,13 +1070,13 @@ function LinkRow({ href, icon, label }: { href: FeedbackUrl | DocsUrl; icon: Rea
  */
 function DiagnosticsTools({
 	servers,
+	verdictRows,
 	modelCount,
-	hiddenGroupCount,
 	diagnostics,
 }: {
 	servers: readonly DashboardServer[];
+	verdictRows: readonly VerdictRow[];
 	modelCount: number;
-	hiddenGroupCount: number;
 	diagnostics: readonly ConfigDiagnosticView[];
 }) {
 	// A nonce, not a boolean: clicking Copy again while the check mark is showing must restart the flash. Setting
@@ -1102,7 +1094,7 @@ function DiagnosticsTools({
 	}, [copiedAt]);
 	const copyDiagnostics = () => {
 		navigator.clipboard
-			?.writeText(diagnosticsReportText(servers, modelCount, hiddenGroupCount, diagnostics))
+			?.writeText(diagnosticsReportText(servers, verdictRows, modelCount, diagnostics))
 			.catch(() => {});
 		setCopiedAt((current) => current + 1);
 	};
@@ -1160,8 +1152,8 @@ function Support() {
 
 export function DiagnosticsSection({
 	servers,
+	verdictRows,
 	modelCount,
-	hiddenGroupCount,
 	diagnostics,
 	active,
 	stateSeq,
@@ -1169,8 +1161,9 @@ export function DiagnosticsSection({
 	onInspect,
 }: {
 	servers: readonly DashboardServer[];
+	/** The host's published verdict rows (DashboardState.verdictRows): the paste line's headline reads these. */
+	verdictRows: readonly VerdictRow[];
 	modelCount: number;
-	hiddenGroupCount: number;
 	diagnostics: readonly ConfigDiagnosticView[];
 	active: boolean;
 	stateSeq: number;
@@ -1187,12 +1180,7 @@ export function DiagnosticsSection({
 			// The trigger sits at the very top of the document, where a tip placed above it clips.
 			helpBelow
 		>
-			<DiagnosticsTools
-				servers={servers}
-				modelCount={modelCount}
-				hiddenGroupCount={hiddenGroupCount}
-				diagnostics={diagnostics}
-			/>
+			<DiagnosticsTools servers={servers} verdictRows={verdictRows} modelCount={modelCount} diagnostics={diagnostics} />
 			<Support />
 			<ConfigDiagnostics diagnostics={diagnostics} />
 			<ResolvedModels active={active} stateSeq={stateSeq} currencySymbol={currencySymbol} onInspect={onInspect} />

@@ -273,8 +273,10 @@ function ServerRow({
 							{/* The credential kind is the information, so it is the visible text. Badges assert
 							    presence only: both "absent" and the pre-proof "unknown" stay blank here, and the
 							    drawer's Authentication fact tells the two apart. */}
-							{server.hasOAuth || server.credentials === "present" ? (
-								<Badge>{server.hasOAuth ? "OAuth" : l10n.t("API key")}</Badge>
+							{server.credentials === "present" ? (
+								<Badge>
+									{server.hasOAuth ? "OAuth" : server.hasVirtualKey ? l10n.t("Virtual key") : l10n.t("API key")}
+								</Badge>
 							) : null}
 							{/* Provenance is the drawer's Origin fact; a hover tip here would be a focusable wrapper
 							    inside this button. */}

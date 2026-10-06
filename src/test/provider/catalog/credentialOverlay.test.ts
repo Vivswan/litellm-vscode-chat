@@ -4,13 +4,11 @@ import * as vscode from "vscode";
 import { classifyOverall } from "../../../dashboard/presenters";
 import { entryGroupCredentialsFor } from "../../../extension/servers/serverSync/entryCredentials";
 import { readServerSecretsRecord, updateServerSecret } from "../../../extension/servers/serverSync/secrets";
-import type {
-	GroupCredentialsResolution,
-	LiteLLMModelInfo,
-	RejectedCredentialField,
-} from "../../../provider/catalog/groupModels";
+import type { GroupCredentialsResolution, LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
+import { failureTexts } from "../../../shared/failureCause";
 import { publicErrorText } from "../../../shared/logger";
 import { MirroredError } from "../../../shared/mirroredError";
+import type { RejectedCredentialField } from "../../../shared/serverEntry";
 import { fixedHeaderValue } from "../../../shared/util/headers";
 import { makeSecretStore } from "../../extension/servers/serverSyncHelpers";
 import {
@@ -144,6 +142,11 @@ suite("provider credential overlay", () => {
 			assert.strictEqual(statuses.length, 1, `${name}: the failure is recorded under the group's identity`);
 			assert.strictEqual(statuses[0]?.state, "error");
 			assert.strictEqual(statuses[0]?.logSafeError, EXPECTED_CLASSIFICATION, `${name}: the log rendering`);
+			assert.deepStrictEqual(
+				statuses[0]?.state === "error" ? statuses[0].cause : undefined,
+				{ kind: "credentials", reason: "secretsUnreadable" },
+				`${name}: the status carries the cause the overlay records`
+			);
 			assert.strictEqual(statuses[0]?.servedModelCount, 0);
 			assert.strictEqual(classifyOverall(statuses), "error", `${name}: the window is not connected`);
 			// The silent serve, then the throwing one: each logs the whole failure line once, at error level, with no
@@ -399,10 +402,9 @@ suite("provider credential overlay", () => {
 				const status = expectDefined(provider.getServerSnapshots()[0]).status;
 				assert.strictEqual(status.state, "error");
 				assert.strictEqual(status.logSafeError, classification, "the row and the status window carry the refusal");
-				assert.ok(
-					status.error.includes(kind) && !status.error.includes("sk-a") && !status.error.includes("vk-a"),
-					status.error
-				);
+				assert.deepStrictEqual(status.cause, { kind: "credentialsRefused", fields: [field] });
+				const text = failureTexts(status.cause, status.baseUrl).display;
+				assert.ok(text.includes(kind) && !text.includes("sk-a") && !text.includes("vk-a"), text);
 
 				await assert.rejects(
 					sendChat(provider, expectDefined(served[0])),

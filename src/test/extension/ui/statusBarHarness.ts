@@ -6,11 +6,12 @@
 
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
-import type { DeclaredServerView } from "../../../extension/servers/serverSync";
 import type { StatusItemLike, StatusItemView } from "../../../extension/ui/status";
 import { StatusBarManager } from "../../../extension/ui/status";
 import { LAST_CONNECTION_STATUS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
+import type { VerdictSourceOptions } from "./verdictHarness";
+import { fedByWindow, windowVerdict } from "./verdictHarness";
 
 export class RecordingItem implements StatusItemLike {
 	command: string | vscode.Command | undefined = undefined;
@@ -33,11 +34,9 @@ export class RecordingItem implements StatusItemLike {
 
 /** The context is returned so the caller owns disposing its subscriptions. */
 export function createStatusBarManager(
-	options: {
+	options: VerdictSourceOptions & {
 		persistedStatus?: unknown;
 		hasConfiguredServers?: (() => boolean) | undefined;
-		/** The sync engine's declared views for the sync-failure overlay; none by default. */
-		getDeclared?: (() => readonly DeclaredServerView[]) | undefined;
 		recorder?: { appendLog(line: string): void; recordError(source: string, error: unknown): void } | undefined;
 		item?: StatusItemLike | undefined;
 	} = {}
@@ -55,12 +54,18 @@ export function createStatusBarManager(
 			},
 		},
 	} as unknown as vscode.ExtensionContext;
-	const manager = new StatusBarManager(
-		context,
-		new Logger({ info() {}, error() {} }, options.recorder),
-		options.hasConfiguredServers ?? (() => false),
-		options.getDeclared ?? (() => []),
-		options.item ?? new RecordingItem()
+	// The bar's verdict owner reads the window the test hands the bar (fedByWindow), as the provider's window backs
+	// both in production.
+	const window = windowVerdict(options);
+	const manager = fedByWindow(
+		new StatusBarManager(
+			context,
+			new Logger({ info() {}, error() {} }, options.recorder),
+			options.hasConfiguredServers ?? (() => false),
+			window.verdict,
+			options.item ?? new RecordingItem()
+		),
+		window
 	);
 	return { manager, context };
 }

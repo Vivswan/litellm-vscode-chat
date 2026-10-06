@@ -1,12 +1,15 @@
-import * as l10n from "@vscode/l10n";
 import type { LanguageModelChatInformation } from "vscode";
 import { ThemeIcon } from "vscode";
 import { guessedMaxTokensDefault, type ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
-import { localizedError, type MirroredError } from "../../shared/mirroredError";
+import { transportClassificationOf } from "../../shared/errorClassification";
+import type { FailureCause, FailureTexts } from "../../shared/failureCause";
+import { failureTexts } from "../../shared/failureCause";
+import { MirroredError } from "../../shared/mirroredError";
 import type {
 	NonSecretOptionalFieldId,
 	NonSecretOptionalFields,
 	OptionalEntryFieldId,
+	RejectedCredentialField,
 	SecretFieldCarrier,
 	SecretFieldId,
 } from "../../shared/serverEntry";
@@ -106,6 +109,29 @@ export type LiteLLMModelInfo = PreAttachModelInfo | AttachedModelInfo;
 export type GroupCredentials = Pick<GroupServer, "apiKey" | "oauth" | "virtualKey">;
 
 /**
+ * Whether a group authenticates at all: the one "credentials configured" reading, which the status report
+ * (hasApiKey), the dashboard rows, and the issue report's apiKeyConfigured all answer by. A virtual-key header
+ * alone counts; it is the whole authentication of a LiteLLM virtual key behind a gateway.
+ */
+export function groupHasCredentials(server: GroupCredentials): boolean {
+	return server.apiKey.length > 0 || server.oauth !== undefined || server.virtualKey !== undefined;
+}
+
+/**
+ * The primary credential form, by the auth grammar's rank (oauth > apiKey > virtualKey; serverSync/setting.ts): the
+ * kind the status report and the dashboard rows name, so an API key with a virtual-key companion reads "API key".
+ */
+export function groupCredentialKind(server: GroupCredentials): "oauth" | "apiKey" | "virtualKey" | undefined {
+	if (server.oauth !== undefined) {
+		return "oauth";
+	}
+	if (server.apiKey.length > 0) {
+		return "apiKey";
+	}
+	return server.virtualKey !== undefined ? "virtualKey" : undefined;
+}
+
+/**
  * Wholesale, never merged: the entry's resolved credential set is the complete truth, so an entry that dropped its
  * OAuth unit (or virtual key) must strip the baked one rather than keep authenticating with it. The destructure is a
  * canary: when GroupServer grows a field it stops compiling, so the field-by-field copies here and in groupDiscovery's
@@ -125,19 +151,13 @@ function overlayGroupCredentials(server: GroupServer, credentials: GroupCredenti
 }
 
 /**
- * The secret fields that ride an HTTP header, so a value the platform's Headers would refuse is a refusal of the field.
- * The OAuth client secret rides the token request's body (transport/auth.ts) and has no header rule.
- */
-const HEADER_BORNE_SECRET_FIELDS = ["apiKey", "virtualKeyValue"] as const satisfies readonly SecretFieldId[];
-
-export type RejectedCredentialField = (typeof HEADER_BORNE_SECRET_FIELDS)[number];
-
-/**
  * Why a declared entry's credentials did not resolve. secretsUnreadable and secretsMismatched are the sync engine's own
- * skip reasons (syncFailureOf); a refusal carries the fields the user-facing text names, never zero of them.
+ * skip reasons (syncFailureOf); unusable is a configuration the group parser refuses; misconfigured is an entry the
+ * setting still carries in a shape the parser rejects, whose row says it is not used until fixed; a refusal carries
+ * the fields the user-facing text names, never zero of them.
  */
 type CredentialsUnavailable =
-	| { readonly reason: "secretsUnreadable" | "secretsMismatched" | "unusable" }
+	| { readonly reason: "secretsUnreadable" | "secretsMismatched" | "unusable" | "misconfigured" }
 	| {
 			readonly reason: "credentialsRefused";
 			readonly fields: readonly [RejectedCredentialField, ...RejectedCredentialField[]];
@@ -155,28 +175,6 @@ export type GroupCredentialsResolution =
 	| { readonly kind: "resolved"; readonly credentials: GroupCredentials }
 	| ({ readonly kind: "unavailable" } & CredentialsUnavailable);
 
-const REJECTED_FIELD_KIND: Readonly<
-	Record<RejectedCredentialField, { readonly display: () => string; readonly english: string }>
-> = {
-	apiKey: { display: () => l10n.t("API key"), english: "API key" },
-	virtualKeyValue: { display: () => l10n.t("virtual key"), english: "virtual key" },
-};
-
-/**
- * The refused fields as every refusal text names them ("API key", "virtual key"), localized and in English, so the
- * provider, the one-shot features, and the usage surfaces spell the field the same way and none spells the value.
- */
-export function rejectedCredentialKinds(fields: readonly RejectedCredentialField[]): {
-	readonly display: string;
-	readonly english: string;
-} {
-	const kinds = fields.map((field) => REJECTED_FIELD_KIND[field]);
-	return {
-		display: kinds.map((kind) => kind.display()).join(", "),
-		english: kinds.map((kind) => kind.english).join(", "),
-	};
-}
-
 /**
  * The refused fields of a narrowing as the non-empty tuple the unavailable states carry, or undefined when nothing was
  * refused: the one shape every owner (entryCredentials.ts, usage/spendClient.ts) builds its refusal from.
@@ -188,31 +186,41 @@ export function refusedCredentialFields(
 	return first === undefined ? undefined : [first.field, ...rest.map((rejection) => rejection.field)];
 }
 
-/** The one failure a serve or request raises for a declared entry whose credentials did not resolve. */
-function credentialsUnavailableError(unavailable: CredentialsUnavailable): MirroredError {
-	switch (unavailable.reason) {
-		case "secretsUnreadable":
-		case "secretsMismatched":
-		case "unusable":
-			return localizedError(
-				l10n.t(
-					"This server entry's credentials could not be resolved, so its stored copy in VS Code was not used. Check the server row on the dashboard, then run LiteLLM: Sync Models Now."
-				),
-				"entry credentials unavailable",
-				`EntryCredentialsUnavailable(${unavailable.reason})`
-			);
-		case "credentialsRefused": {
-			const kinds = rejectedCredentialKinds(unavailable.fields);
-			return localizedError(
-				l10n.t(
-					"This server entry's {0} cannot be sent as an HTTP header, so no request was made. Enter the value again from the server row on the dashboard.",
-					kinds.display
-				),
-				`This server entry's ${kinds.english} cannot be sent as an HTTP header, so no request was made. Enter the value again from the server row on the dashboard.`,
-				"EntryCredentialsUnavailable(credentialsRefused)"
-			);
-		}
+/** The cause a credentials resolution's unavailable arm names, for the status and the error that carries it. */
+function credentialsCause(unavailable: CredentialsUnavailable): FailureCause {
+	return unavailable.reason === "credentialsRefused"
+		? { kind: "credentialsRefused", fields: unavailable.fields }
+		: { kind: "credentials", reason: unavailable.reason };
+}
+
+/**
+ * The one failure a serve or request raises for a declared entry whose credentials did not resolve: a mirrored error
+ * for the chat surface, carrying the cause the status records instead of the text.
+ */
+class EntryCredentialsUnavailableError extends MirroredError {
+	constructor(
+		readonly failure: FailureCause,
+		texts: FailureTexts,
+		reason: CredentialsUnavailable["reason"]
+	) {
+		super(texts.display, {
+			englishMessage: texts.english,
+			logClassification: `EntryCredentialsUnavailable(${reason})`,
+		});
+		this.name = "EntryCredentialsUnavailableError";
 	}
+}
+
+/**
+ * The cause a failed serve records: a credentials failure carries its own, a transport failure its classification,
+ * anything else is unclassified (the log rendering still names it).
+ */
+export function failureCauseOf(error: unknown): FailureCause {
+	if (error instanceof EntryCredentialsUnavailableError) {
+		return error.failure;
+	}
+	const classification = transportClassificationOf(error);
+	return classification !== undefined ? { kind: "transport", classification } : { kind: "unclassified" };
 }
 
 /** The extension layer's resolver of a declared entry's current credentials; see GroupCredentialsResolution. */
@@ -242,7 +250,14 @@ export async function overlayEntryCredentials(
 		case "resolved":
 			return { server: overlayGroupCredentials(server, resolution.credentials) };
 		case "unavailable":
-			return { server: { ...server, entryOwned: true }, failure: credentialsUnavailableError(resolution) };
+			return {
+				server: { ...server, entryOwned: true },
+				failure: new EntryCredentialsUnavailableError(
+					credentialsCause(resolution),
+					failureTexts(credentialsCause(resolution), server.baseUrl),
+					resolution.reason
+				),
+			};
 	}
 }
 

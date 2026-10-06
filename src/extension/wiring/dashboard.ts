@@ -22,6 +22,7 @@ import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
 import type { ServerSyncEngine } from "../servers/serverSync";
 import { readEntryModelCapabilities } from "../servers/serverSync";
+import type { ServerVerdict } from "../servers/syncFailureOverlay";
 import type { UsagePoller } from "../servers/usage";
 import { StatusItem } from "../ui/status";
 import { UsageAlerts } from "../ui/usageAlerts";
@@ -43,6 +44,8 @@ export function wireDashboard(
 		/** The one User-Agent activation composes, for the panel's draft probe. */
 		ua: HeaderValue;
 		featureProbes: FeatureProbes;
+		/** The owner of the declared set and the verdict rows the hero classifies. */
+		verdict: Pick<ServerVerdict, "declared" | "rows">;
 	}
 ): DashboardController {
 	const dashboard = registerDashboardCommand(context, {
@@ -52,6 +55,7 @@ export function wireDashboard(
 		removals: deps.groupRemovals,
 		catalog: deps.catalogStore,
 		usagePoller: deps.usagePoller,
+		verdict: deps.verdict,
 		getEntryModelCapabilities: readEntryModelCapabilities,
 		ua: deps.ua,
 		featureProbes: deps.featureProbes,

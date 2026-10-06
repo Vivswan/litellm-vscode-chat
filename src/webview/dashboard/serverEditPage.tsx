@@ -360,6 +360,12 @@ export function ServerEditPage({
 	const declaredLabels = servers
 		.filter((server) => server.origin === "declared" || server.origin === "misconfigured")
 		.map((server) => server.label);
+	// The stamps of the external groups: the names the sync engine gave the groups it created, so a label among them
+	// is likely held by the host already (which refuses the add); a group the host named itself can carry any stamp,
+	// so this advises instead of refusing.
+	const liveGroupLabels = servers.flatMap((server) =>
+		server.origin === "external" && server.entryLabel !== undefined ? [server.entryLabel] : []
+	);
 
 	// Memoized so the resolved target is one object for as long as its rows are: a fresh object per render turned the
 	// prefill effect into a render loop.
@@ -491,6 +497,7 @@ export function ServerEditPage({
 			<ServerForm
 				target={target}
 				declaredLabels={declaredLabels}
+				liveGroupLabels={liveGroupLabels}
 				observedModelInfoKeys={liveRowForForm(servers, target)?.observedModelInfoKeys}
 				skippedModeCounts={liveRowForForm(servers, target)?.skippedModeCounts}
 				onDirtyChange={onDirtyChange}
@@ -538,6 +545,7 @@ function resolveEditTarget(
 function ServerForm({
 	target,
 	declaredLabels,
+	liveGroupLabels,
 	observedModelInfoKeys,
 	skippedModeCounts,
 	onDirtyChange,
@@ -546,6 +554,7 @@ function ServerForm({
 }: {
 	target: ServerFormTarget;
 	declaredLabels: readonly string[];
+	liveGroupLabels: readonly string[];
 	/** The edited entry's LIVE observed /model/info key set (liveRowForForm); the capability hints' evidence. */
 	observedModelInfoKeys?: readonly string[] | undefined;
 	/** The edited entry's LIVE per-mode skip counts (liveRowForForm); the include-modes checkboxes' evidence. */
@@ -677,6 +686,7 @@ function ServerForm({
 	const label = trimHttpWhitespace(draft.label);
 	const renaming = target.kind === "edit" && label !== target.original.label;
 	const collides = target.kind === "add" && declaredLabels.includes(label);
+	const heldByGroup = (target.kind === "add" || renaming) && liveGroupLabels.includes(label);
 
 	// A problem is visible once its field was touched or holds content; computed once so the fields and the save
 	// summary always show the same problems.
@@ -980,7 +990,13 @@ function ServerForm({
 				    speaks (visibility keeps the box, removes the words from the accessibility tree):
 				    inserting it on the first renaming keystroke pushed every row below down mid-typing. */}
 				<FieldUnderRow>
-					{target.kind === "edit" ? (
+					{heldByGroup ? (
+						<p className="held-note hint m-0 text-[11.5px]">
+							{l10n.t(
+								"A provider group already appears under this label; if it is this server, adopt it from its row instead - VS Code refuses a second group with one name."
+							)}
+						</p>
+					) : target.kind === "edit" ? (
 						<p
 							className={cn(
 								"rename-note hint m-0 text-[11.5px]",

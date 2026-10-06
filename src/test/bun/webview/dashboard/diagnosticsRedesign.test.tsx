@@ -77,8 +77,8 @@ function mountDiagnostics(options: {
 }) {
 	const props = {
 		servers: [makeDeclaredServer()],
+		verdictRows: [{ state: "ok" as const, servedModelCount: 2 }],
 		modelCount: 2,
-		hiddenGroupCount: 0,
 		diagnostics: options.diagnostics ?? [],
 		active: true,
 		stateSeq: 0,
@@ -95,8 +95,8 @@ describe("Configuration diagnostics", () => {
 			<DiagnosticsSection
 				currencySymbol="$"
 				servers={[]}
+				verdictRows={[]}
 				modelCount={0}
-				hiddenGroupCount={0}
 				diagnostics={diagnostics}
 				active={false}
 				stateSeq={0}
@@ -539,8 +539,8 @@ describe("Resolved models", () => {
 			<DiagnosticsSection
 				currencySymbol="$"
 				servers={[]}
+				verdictRows={[]}
 				modelCount={0}
-				hiddenGroupCount={0}
 				diagnostics={[]}
 				active={false}
 				stateSeq={0}

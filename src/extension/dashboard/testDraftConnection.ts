@@ -6,15 +6,12 @@
 import * as l10n from "@vscode/l10n";
 import type { RequestPayload } from "../../dashboard/endpoints";
 import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery";
-import {
-	parseGroupConfiguration,
-	refusedCredentialFields,
-	rejectedCredentialKinds,
-} from "../../provider/catalog/groupModels";
+import { parseGroupConfiguration, refusedCredentialFields } from "../../provider/catalog/groupModels";
 import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/auth";
 import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { transportClassificationOf } from "../../shared/errorClassification";
+import { rejectedCredentialKinds } from "../../shared/failureCause";
 import type { NonChatMode, SecretFieldId } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { canonicalBaseUrl } from "../../shared/util/baseUrl";

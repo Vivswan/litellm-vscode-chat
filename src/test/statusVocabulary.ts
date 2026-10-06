@@ -11,7 +11,9 @@
 
 import type { OverallVerdict } from "../dashboard/presenters";
 import type { DashboardServer, DeclaredServerNotice } from "../dashboard/viewModels";
-import type { DeclaredServerView } from "../extension/servers/serverSync";
+import type { DeclaredServerView, ServerEntryReport } from "../extension/servers/serverSync";
+import { ServerVerdict } from "../extension/servers/syncFailureOverlay";
+import type { FailureCause, SyncErrorClass } from "../shared/failureCause";
 import { markLogSafe } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 
@@ -41,15 +43,19 @@ export interface WindowStateRow {
 	readonly window: readonly ServerStatus[];
 	/**
 	 * Declared entries whose provider-group sync failed, by entry label: the sync-failure overlay's input beside the
-	 * window. The host suite feeds them to the bar and notifier as declared views carrying syncFailure (whose class
-	 * gates the overlay's no-live-status synthesis).
+	 * window. The host suite feeds them to the bar and notifier as declared views carrying syncFailure; one with no
+	 * live status is synthesized as an error serving nothing, whatever its class.
 	 */
 	readonly syncFailures?: readonly {
 		readonly label: string;
-		readonly message: string;
 		/** Derived from the engine union, so a new class can never leave this registry silently narrower. */
 		readonly failureClass: NonNullable<DeclaredServerView["syncFailure"]>["class"];
 	}[];
+	/**
+	 * The label-agnostic connection ID a declared entry mirrors (DeclaredServerView.expectedConnectionId), by entry
+	 * label: how two entries share one live group whose report carries that ID as its serverId.
+	 */
+	readonly connectionIds?: Readonly<Record<string, string>>;
 	/** The merged count reportMerged would derive from the window (asserted, not assumed). */
 	readonly totalModels: number;
 	/** Whether servers are configured (the bar's and notifier's shared gate); every row but not-configured. */
@@ -57,14 +63,13 @@ export interface WindowStateRow {
 	/** The same state as the dashboard's server rows; the host suite pins this mirror against the REAL builder. */
 	readonly rows: readonly DashboardServer[];
 	/**
-	 * How many provider groups the user's configuration hides (state.hiddenGroups). The hero and paste line read it
-	 * beside the rows; the window carries the same groups as hiddenByRemoval ok statuses, which the host mirror
-	 * tombstones.
+	 * How many provider groups the user's configuration hides (state.hiddenGroups). The window carries the same groups
+	 * as hiddenByRemoval ok statuses, which the host mirror tombstones; the verdict rows count them from the window.
 	 */
 	readonly hiddenGroups?: number;
 	readonly expect: {
 		readonly severityClass: SeverityClass;
-		/** classifyOverall over the rows (and over the window, when the window is non-empty). */
+		/** classifyOverall over the verdict rows (the window joined with the declared views, plus the refused entries). */
 		readonly verdict: OverallVerdict;
 		readonly bar: BarExpectation;
 		/** The dashboard hero's word (English bundle) and tone. */
@@ -79,6 +84,58 @@ export interface WindowStateRow {
 
 const CHECKED_AT = "2026-07-26T00:00:00.000Z";
 
+/**
+ * The row's declared rows as sync-engine views: what the state builder joins and what the bar's and notifier's overlay
+ * reads, with the row's sync failures riding as syncFailure - the same one input on every surface.
+ */
+export function declaredViews(row: WindowStateRow): DeclaredServerView[] {
+	return row.rows
+		.filter((server) => server.origin === "declared")
+		.map((server) => {
+			const failure = row.syncFailures?.find((candidate) => candidate.label === server.label);
+			const connectionId = row.connectionIds?.[server.label];
+			return {
+				label: server.label,
+				baseUrl: server.baseUrl,
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const,
+				expectedClientId: row.window.find((status) => status.label === server.label)?.serverId,
+				...(connectionId !== undefined ? { expectedConnectionId: connectionId } : {}),
+				syncFailure: failure !== undefined ? { class: failure.failureClass } : undefined,
+			};
+		});
+}
+
+/**
+ * The verdict owner over the row's window, views, and refused entries: what the status bar, the notifier, the hero,
+ * and the paste line all classify (the host suite pins the real builder's inputs to these same three).
+ */
+export function rowVerdict(row: WindowStateRow): ServerVerdict {
+	return new ServerVerdict({
+		statuses: () => row.window,
+		declared: () => ({ source: "engine", views: declaredViews(row) }),
+		entryReports: () => rejectedReports(row),
+	});
+}
+
+/**
+ * The row's misconfigured rows as the parser's entry reports: what serverSettingReports hands the state builder for an
+ * entry it refused, so the mirror exercises the builder's misconfigured-row branch rather than assuming the
+ * hand-written literal.
+ */
+export function rejectedReports(row: WindowStateRow): ServerEntryReport[] {
+	return row.rows
+		.filter((server): server is Extract<DashboardServer, { origin: "misconfigured" }> => {
+			return server.origin === "misconfigured";
+		})
+		.map((server, index) => ({
+			index,
+			label: server.label,
+			baseUrl: server.baseUrl,
+			problems: [...server.problems],
+			accepted: false,
+		}));
+}
+
 function okStatus(overrides: { serverId?: string; servedModelCount: number; hiddenByRemoval?: true }): ServerStatus {
 	return {
 		serverId: overrides.serverId ?? "srv1",
@@ -91,19 +148,20 @@ function okStatus(overrides: { serverId?: string; servedModelCount: number; hidd
 	};
 }
 
+/** A failing status: a refused connection unless the test names another cause. */
 function errorStatus(overrides: {
 	serverId?: string;
 	servedModelCount: number;
 	declaredModelCount?: number;
 	expected?: true;
-	error?: string;
+	cause?: FailureCause;
 }): ServerStatus {
 	return {
 		serverId: overrides.serverId ?? "srv1",
 		label: overrides.serverId ?? "srv1",
 		baseUrl: `http://${overrides.serverId ?? "srv1"}.test`,
 		state: "error",
-		error: overrides.error ?? "connection refused",
+		cause: overrides.cause ?? { kind: "transport", classification: { kind: "connection" } },
 		logSafeError: markLogSafe("RequestError(connection)"),
 		servedModelCount: overrides.servedModelCount,
 		...(overrides.declaredModelCount !== undefined ? { declaredModelCount: overrides.declaredModelCount } : {}),
@@ -130,6 +188,7 @@ function declaredRow(status: ServerStatus, notices?: readonly DeclaredServerNoti
 		servedModelCount: status.servedModelCount,
 		credentials: "absent",
 		hasOAuth: false,
+		hasVirtualKey: false,
 		// Mirrors state.ts's checkedAtMs (the push's one ISO-to-epoch-ms owner) without its ""-sentinel branch: every
 		// status here carries a real instant (CHECKED_AT), so a sentinel reaching this mirror fails the host suite's
 		// equality pin loudly instead of mapping to absent.
@@ -142,8 +201,7 @@ function declaredRow(status: ServerStatus, notices?: readonly DeclaredServerNoti
 		: {
 				...base,
 				state: "error",
-				error: status.error,
-				errorEnglish: status.logSafeError,
+				cause: status.cause,
 				...(status.expected === true ? { expected: true } : {}),
 				...(status.declaredModelCount !== undefined ? { declaredModelCount: status.declaredModelCount } : {}),
 			};
@@ -158,6 +216,7 @@ function uncheckedRow(name: string): DashboardServer {
 		servedModelCount: 0,
 		credentials: "absent",
 		hasOAuth: false,
+		hasVirtualKey: false,
 		state: "unchecked",
 		config: { secrets: NO_SECRETS },
 	};
@@ -172,19 +231,19 @@ function misconfiguredRow(name: string): DashboardServer {
 		servedModelCount: 0,
 		credentials: "absent",
 		hasOAuth: false,
+		hasVirtualKey: false,
 		state: "error",
-		error: "misconfigured entry; not used until its configuration is fixed",
-		errorEnglish: "misconfigured entry; not used until its configuration is fixed",
+		cause: { kind: "misconfiguredEntry" },
 		problems: ["auth: configures more than one form"],
 	};
 }
 
 /**
  * A declared row whose provider-group sync failed, mirroring declaredOutcome's sync branch: an error row carrying the
- * sync message, with the live status's served count when a group serves and zero (no lastChecked either) when the entry
- * never reached discovery.
+ * sync failure's class as its cause, with the live status's served count when a group serves and zero (no lastChecked
+ * either) when the entry never reached discovery.
  */
-function syncFailedRow(name: string, message: string, live?: ServerStatus): DashboardServer {
+function syncFailedRow(name: string, failureClass: SyncErrorClass, live?: ServerStatus): DashboardServer {
 	return {
 		origin: "declared",
 		label: name,
@@ -192,14 +251,21 @@ function syncFailedRow(name: string, message: string, live?: ServerStatus): Dash
 		servedModelCount: live?.servedModelCount ?? 0,
 		credentials: "absent",
 		hasOAuth: false,
+		hasVirtualKey: false,
 		...(live !== undefined ? { lastChecked: new Date(live.lastChecked).getTime() } : {}),
 		state: "error",
-		error: message,
+		cause: { kind: "sync", failureClass },
 		config: { secrets: NO_SECRETS },
 	};
 }
 
-const allFailedDeclaredServing = errorStatus({ servedModelCount: 2, declaredModelCount: 2, error: "HTTP 500" });
+const HTTP_500: FailureCause = { kind: "transport", classification: { kind: "http", status: 500 } };
+/** A model listing the entry declares unsupported: the 404 discovery proved, with the hint that the entry can declare it. */
+const LISTING_404: FailureCause = {
+	kind: "transport",
+	classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
+};
+const allFailedDeclaredServing = errorStatus({ servedModelCount: 2, declaredModelCount: 2, cause: HTTP_500 });
 const staleServing = errorStatus({ servedModelCount: 3 });
 const answeredEmpty = okStatus({ servedModelCount: 0 });
 const hiddenGroup = okStatus({ serverId: "ghost", servedModelCount: 0, hiddenByRemoval: true });
@@ -208,39 +274,36 @@ const expectedServing = errorStatus({
 	servedModelCount: 1,
 	declaredModelCount: 1,
 	expected: true,
-	error: "404 on /models",
+	cause: LISTING_404,
 });
 const expectedStaleServing = errorStatus({
 	serverId: "gw",
 	servedModelCount: 2,
 	expected: true,
-	error: "404 on /models",
+	cause: LISTING_404,
 });
 const expectedMixedServing = errorStatus({
 	serverId: "gw",
 	servedModelCount: 5,
 	declaredModelCount: 2,
 	expected: true,
-	error: "404 on /models",
+	cause: LISTING_404,
 });
-const expectedDead = errorStatus({ serverId: "gw", servedModelCount: 0, expected: true, error: "404 on /models" });
-const unexpectedDead = errorStatus({ serverId: "down", servedModelCount: 0, error: "boom" });
+const expectedDead = errorStatus({ serverId: "gw", servedModelCount: 0, expected: true, cause: LISTING_404 });
+const unexpectedDead = errorStatus({ serverId: "down", servedModelCount: 0 });
 const healthy = okStatus({ servedModelCount: 3 });
 const liveBeforeSyncFailure = okStatus({ serverId: "live", servedModelCount: 2 });
+/** A pre-label group answering with an empty listing, reporting under its connection ID. */
+const sharedEmpty = okStatus({ serverId: "shared", servedModelCount: 0 });
 
-/** Sync-failure fixtures: engine-classified texts (the real constants' shape), never host-derived. */
+/** The upsert failure's English rendering (failureTexts), as the paste line and the toast carry it. */
 const UPSERT_FAILED = "The host rejected the provider group upsert";
-const UPDATE_UNAVAILABLE =
-	"A VS Code provider group already uses this name, and VS Code cannot update an existing group.";
 
 /**
  * The never-checked and misconfigured rows have an EMPTY window on purpose, since neither reaches a discovery
- * pass, and the two sync-failure rows pin the applySyncFailures overlay. Two residuals stay, each needing plumbing
- * or a vocabulary ruling of its own:
+ * pass, and the three sync-failure rows pin the applySyncFailures overlay. One residual stays, needing a vocabulary
+ * ruling of its own:
  *
- *   blocked or skipped entry, no live status       -> red dashboard row beside a spinning bar
- *   the overlay synthesizes only for upsertFailed  -> red dashboard row beside a spinning bar
- *   red dashboard row beside a spinning bar        -> persists while secret reads keep failing
  *   sync-failed claimants sharing one snapshot     -> one window status against one row each; zero served beside a
  *                                                     clean claimant reads "error" in the window and "degraded" in the
  *                                                     rows
@@ -393,6 +456,24 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 		},
 	},
 	{
+		name: "only a parser-refused entry, nothing reporting",
+		// The owner's rows hold the refused entry alone: an error on every surface, where an empty window once left the
+		// bar on "connecting" beside a red hero.
+		window: [],
+		totalModels: 0,
+		configured: true,
+		rows: [misconfiguredRow("broken")],
+		expect: {
+			severityClass: "error",
+			verdict: "error",
+			bar: { state: "error", severity: "error" },
+			hero: { word: "Error", tone: "error" },
+			statusLine: "Error: misconfigured entry; not used until its configuration is fixed",
+			notifier: { kind: "error", contains: "misconfigured" },
+			pills: [{ word: "Misconfigured", tone: "error" }],
+		},
+	},
+	{
 		name: "an expected failure serving its declared models alone",
 		window: [expectedServing],
 		totalModels: 1,
@@ -469,8 +550,9 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 			verdict: "error",
 			bar: { state: "error", severity: "error" },
 			hero: { word: "Error", tone: "error" },
-			statusLine: "Error: boom",
-			notifier: { kind: "error", contains: "boom" },
+			// The paste line is the cause's English rendering; the toast its localized one (English here).
+			statusLine: "Error: Could not connect to http://down.test",
+			notifier: { kind: "error", contains: "Could not connect to http://down.test" },
 			pills: [{ word: "Error", tone: "error" }],
 		},
 	},
@@ -495,10 +577,10 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 		// Empty window on purpose: the failed upsert means no group exists to report, so only the overlay can carry the
 		// failure to the bar (upsertFailed is the one class that proves the absence).
 		window: [],
-		syncFailures: [{ label: "pending", message: UPSERT_FAILED, failureClass: "upsertFailed" }],
+		syncFailures: [{ label: "pending", failureClass: "upsertFailed" }],
 		totalModels: 0,
 		configured: true,
-		rows: [syncFailedRow("pending", UPSERT_FAILED)],
+		rows: [syncFailedRow("pending", "upsertFailed")],
 		expect: {
 			severityClass: "error",
 			verdict: "error",
@@ -510,12 +592,36 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 		},
 	},
 	{
+		name: "two entries mirroring one live group by connection, the first one's upsert refused",
+		// One shared snapshot, claimed by both entries through the connection pass: the overlay replaces that one
+		// status with the first entry's failure (the window has nothing else), so the verdict is "error" on every
+		// surface even though the table draws the second claimant's row as connected.
+		window: [sharedEmpty],
+		syncFailures: [{ label: "primary", failureClass: "upsertFailed" }],
+		connectionIds: { primary: "shared", mirror: "shared" },
+		totalModels: 0,
+		configured: true,
+		rows: [syncFailedRow("primary", "upsertFailed", sharedEmpty), { ...declaredRow(sharedEmpty), label: "mirror" }],
+		expect: {
+			severityClass: "error",
+			verdict: "error",
+			bar: { state: "error", severity: "error" },
+			hero: { word: "Error", tone: "error" },
+			statusLine: `Error: ${UPSERT_FAILED}`,
+			notifier: { kind: "error", contains: "rejected the provider group upsert" },
+			pills: [
+				{ word: "Error", tone: "error" },
+				{ word: "Connected", tone: "ok" },
+			],
+		},
+	},
+	{
 		name: "a live group serving models while its entry's sync stays blocked",
 		window: [liveBeforeSyncFailure],
-		syncFailures: [{ label: "live", message: UPDATE_UNAVAILABLE, failureClass: "blocked" }],
+		syncFailures: [{ label: "live", failureClass: "blocked" }],
 		totalModels: 2,
 		configured: true,
-		rows: [syncFailedRow("live", UPDATE_UNAVAILABLE, liveBeforeSyncFailure)],
+		rows: [syncFailedRow("live", "blocked", liveBeforeSyncFailure)],
 		expect: {
 			// Serving through the failed sync: degraded everywhere, never the ok window's "Connected" beside a red
 			// dashboard row.
@@ -526,6 +632,52 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 			statusLine: "Degraded (2 models, some servers failed)",
 			notifier: "none",
 			pills: [{ word: "Sync issue", tone: "warn" }],
+		},
+	},
+	{
+		name: "a healthy group beside an entry whose stored secrets could not be read and whose group never reported",
+		// The skipped entry's group may not exist yet, so only the overlay can carry its failure to the bar; the row the
+		// dashboard draws for it is the same error serving nothing, so the bar reads degraded with the hero.
+		window: [healthy],
+		syncFailures: [{ label: "unread", failureClass: "secretsUnreadable" }],
+		totalModels: 3,
+		configured: true,
+		rows: [declaredRow(healthy), syncFailedRow("unread", "secretsUnreadable")],
+		expect: {
+			severityClass: "warn",
+			verdict: "degraded",
+			bar: { state: "degraded", severity: "warning" },
+			hero: { word: "Degraded", tone: "warn" },
+			statusLine: "Degraded (3 models, some servers failed)",
+			notifier: "none",
+			// The skipped row's pill is red (it serves nothing); row severity may exceed the aggregate, never the reverse.
+			pills: [
+				{ word: "Connected", tone: "ok" },
+				{ word: "Error", tone: "error" },
+			],
+		},
+	},
+	{
+		name: "an entry awaiting its first report beside an entry whose stored secrets could not be read",
+		// An empty window: the bar's verdict row set carries the awaiting entry as an unchecked row (verdictRows), the
+		// set the dashboard draws, so one failure among two entries is degraded on every surface, never error on the
+		// bar alone.
+		window: [],
+		syncFailures: [{ label: "unread", failureClass: "secretsUnreadable" }],
+		totalModels: 0,
+		configured: true,
+		rows: [uncheckedRow("fresh"), syncFailedRow("unread", "secretsUnreadable")],
+		expect: {
+			severityClass: "warn",
+			verdict: "degraded",
+			bar: { state: "degraded", severity: "warning" },
+			hero: { word: "Degraded", tone: "warn" },
+			statusLine: "Degraded (0 models, some servers failed)",
+			notifier: "none",
+			pills: [
+				{ word: "Not checked", tone: "muted" },
+				{ word: "Error", tone: "error" },
+			],
 		},
 	},
 	{

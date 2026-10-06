@@ -15,6 +15,7 @@ const RECORDS_SERVER: DashboardServer = {
 	servedModelCount: 3,
 	credentials: "present",
 	hasOAuth: false,
+	hasVirtualKey: false,
 	state: "ok",
 	lastChecked: minutesAgoMs(2),
 	config: {
@@ -35,6 +36,7 @@ const SANDBOX_SERVER: DashboardServer = {
 	servedModelCount: 1,
 	credentials: "absent",
 	hasOAuth: false,
+	hasVirtualKey: false,
 	state: "ok",
 	lastChecked: minutesAgoMs(2),
 	config: { secrets: NO_SECRETS },

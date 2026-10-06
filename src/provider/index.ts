@@ -13,7 +13,7 @@ import { CancellationError, EventEmitter } from "vscode";
 import type { CapabilityCatalogLookup, ModelCapabilitiesRecord } from "../shared/config/capabilityResolution";
 import { EMPTY_CATALOG_LOOKUP } from "../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../shared/config/resolutionTable";
-import { getDiscoveryStaleServeWindow, getDiscoveryTimeout } from "../shared/config/settings";
+import { getDiscoveryStaleServeWindow } from "../shared/config/settings";
 import { countTextTokens } from "../shared/conversion/textTokens";
 import { estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
 import type { Logger } from "../shared/logger";
@@ -42,18 +42,6 @@ import { ChatClient } from "./transport/chatClient";
 import { toLanguageModelError } from "./transport/errorMapping";
 import type { TransportFetch } from "./transport/nodeHttpFetch";
 
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-const HOST_REFRESH_DEADLINE_FLOOR_MS = 8000;
-
-const HOST_REFRESH_DEADLINE_MARGIN_MS = 2000;
-
-export function hostRefreshDeadlineMs(discoveryTimeoutMs: number): number {
-	return Math.max(HOST_REFRESH_DEADLINE_FLOOR_MS, discoveryTimeoutMs + HOST_REFRESH_DEADLINE_MARGIN_MS);
-}
-
 /** The terse classification keeps the model ID out of public logs. */
 function unroutableModelError(modelId: string, reason: "no group identity" | "group not served"): MirroredError {
 	return localizedError(
@@ -61,11 +49,6 @@ function unroutableModelError(modelId: string, reason: "no group identity" | "gr
 		`Model "${modelId}" is not registered with any configured server. Refresh the model list and try again.`,
 		`RequestRouting(${reason})`
 	);
-}
-
-/** The host pass races discovery fetches, so it reads the DISCOVERY timeout and chat.timeout plays no part. */
-export function defaultHostRefreshDeadlineMs(log?: (message: string, data?: unknown) => void): number {
-	return hostRefreshDeadlineMs(getDiscoveryTimeout(log));
 }
 
 export interface LiteLLMChatModelProviderOptions {
@@ -146,11 +129,9 @@ export interface LiteLLMChatModelProviderOptions {
  */
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteLLMModelInfo> {
 	private readonly _client: ChatClient;
-	// The host re-resolves groups in bursts, so cached sweeps must not hit the network.
-	//
-	// The group identity is stamped onto the stored infos on every read, never cached.
-	//   refreshViaHost clears the cache, and testKnownGroupConnections invalidates each group it probes
-	//     -> Explicit refreshes reach it anyway
+	// The host re-resolves groups in bursts, so cached sweeps must not hit the network; refreshGroups clears it, so
+	// an explicit refresh reaches the network anyway. The group identity is stamped onto the stored infos on every
+	// read, never cached.
 	private readonly _discoveryCache: DiscoveryCache<DiscoveredGroupModels>;
 	private readonly logger?: Logger | undefined;
 	private readonly _statusWindow: StatusWindow;
@@ -158,7 +139,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private readonly _decorator: ServedModelDecorator;
 	private readonly _discovery: GroupDiscovery;
 	private readonly _resolveEntryCredentials?: EntryCredentialsResolver | undefined;
-	private _hasSeenGroupConfiguration = false;
+	private readonly _groupServesInFlight = new Set<Promise<unknown>>();
+	private _refreshPass: Promise<{ readonly refreshedGroups: number }> | undefined;
 	private readonly _onDidChangeEmitter = new EventEmitter<void>();
 	private readonly _onDidObserveGroupEmitter = new EventEmitter<void>();
 	/**
@@ -244,8 +226,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		return this._resolution;
 	}
 
-	hasSeenGroupConfiguration(): boolean {
-		return this._hasSeenGroupConfiguration;
+	/**
+	 * Whether the host handed over a group configuration whose serve is still running: with the status window, the
+	 * configured-servers gate (wiring/provider.ts). The window records a group only when its serve finishes, so this
+	 * is what proves servers exist in between; derived from the running serves, never remembered, so removing every
+	 * server mid-session reads as not configured once the window empties.
+	 */
+	hasGroupServeInFlight(): boolean {
+		return this._groupServesInFlight.size > 0;
 	}
 
 	getGroupServer(serverId: string): GroupServer | undefined {
@@ -290,10 +278,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		_token: CancellationToken
 	): Promise<LiteLLMModelInfo[]> {
 		if (options.configuration !== undefined) {
-			// The host only hands a group configuration for a group that exists, so this is proof the session has
-			// configured servers even before the group's own status report lands.
-			this._hasSeenGroupConfiguration = true;
-			return this.provideGroupModels(options.configuration, options.silent);
+			const serve = this.provideGroupModels(options.configuration, options.silent);
+			this._groupServesInFlight.add(serve);
+			try {
+				return await serve;
+			} finally {
+				this._groupServesInFlight.delete(serve);
+			}
 		}
 
 		// The group-agnostic call serves nothing: every model is served through a per-group refresh, and the host makes
@@ -329,7 +320,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			this.pruneServerCaches([...this._statusWindow.serverIds(), serverId]);
 		}
 
-		const models = await this._discovery.fetchGroupModels(overlaid.server, silent, false, generation, overlaid.failure);
+		const models = await this._discovery.fetchGroupModels(overlaid.server, silent, generation, overlaid.failure);
 		// A rotation's record replaced the group's client ID in the window, so the retired client's caches prune here.
 		this.pruneServerCaches(this._statusWindow.serverIds());
 		return models;
@@ -344,56 +335,82 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	/**
-	 * The wait is bounded and armed only by per-group reports (the groupless report alone proves nothing about
-	 * groups), resolving once group reports have gone quiet for `quietMs`, or at `deadlineMs`. Zero group reports by
-	 * the deadline (the event went nowhere, or the host only made the groupless call) falls back to probing the group
-	 * servers already observed in the status window.
+	 * The explicit refresh (Test Connection, Sync Models Now). One pass at a time: a second caller joins the running
+	 * pass, so two passes cannot claim generations against each other's probes. The pass resolves only when the
+	 * window holds this pass's outcome, so a caller reading the status afterwards reads it; `refreshedGroups` is how
+	 * many group reports landed during the pass, and zero means nothing fresh was read.
+	 *
+	 *   host serves in flight    -> awaited first: a serve loading pre-refresh data still records (clear() only stops
+	 *                               it storing), so it must land before the count starts, and its group is then in the
+	 *                               window to be probed
+	 *   the probes               -> one per windowed group, after clear(), so each reaches the network or joins a load
+	 *                               begun after the clear; the overlay re-runs so a rotation since the group was
+	 *                               recorded probes with current credentials
+	 *   the change event, last   -> only when a probe changed what some group serves or how (its models, or the
+	 *                               outcome the stale marking follows): the host then re-resolves from the cache the
+	 *                               probes filled, and a pass that changed nothing asks no group twice (failed loads
+	 *                               are never cached, so a re-resolve of a failing group is a new attempt)
+	 *   reports landed           -> counted, not the probes: a probe yields its record to a newer serve that recorded
+	 *                               first (groupDiscovery.ts), and that serve's record is the pass's then
 	 */
-	async refreshViaHost(deadlineMs?: number, quietMs = 500): Promise<void> {
-		const deadline = deadlineMs ?? defaultHostRefreshDeadlineMs((message, data) => this.log(message, data));
-		// Every caller wants a real round trip (Test Connection, Sync Models Now), so the discovery cache is dropped
-		// first; clear() detaches in-flight loads, so they cannot re-store pre-drop data.
-		this._discoveryCache.clear();
-		const groupReportsBefore = this._reporter.groupReportCount;
-		this._onDidChangeEmitter.fire();
-
-		const start = Date.now();
-		let lastCount = groupReportsBefore;
-		let lastChangeAt = Date.now();
-		while (Date.now() - start < deadline) {
-			await delay(50);
-			if (this._reporter.groupReportCount !== lastCount) {
-				lastCount = this._reporter.groupReportCount;
-				lastChangeAt = Date.now();
-			} else if (lastCount > groupReportsBefore && Date.now() - lastChangeAt >= quietMs) {
-				return;
-			}
-		}
-		if (lastCount === groupReportsBefore) {
-			this.log("The host did not re-resolve any group after the model-change event; probing known group servers");
-			await this.testKnownGroupConnections();
-		}
+	refreshGroups(): Promise<{ readonly refreshedGroups: number }> {
+		this._refreshPass ??= this.runRefreshPass().finally(() => {
+			this._refreshPass = undefined;
+		});
+		return this._refreshPass;
 	}
 
-	/**
-	 * Fallback for hosts that do not react to the change event; outcomes land in the merged status. Windowed group
-	 * servers were overlaid when they were recorded, but the overlay re-runs here so a rotation since that serve still
-	 * probes with current credentials.
-	 */
-	async testKnownGroupConnections(): Promise<void> {
-		for (const groupServer of this._statusWindow.groupServers()) {
-			try {
-				// Claimed before the overlay's await, like provideGroupModels.
-				const generation = this._discovery.beginServe(groupServer);
-				const overlaid = await overlayEntryCredentials(groupServer, this._resolveEntryCredentials);
-				await this._discovery.fetchGroupModels(overlaid.server, false, true, generation, overlaid.failure);
-			} catch {
-				// Already logged and recorded in the merged status; the remaining group servers still get probed.
-			}
-		}
+	private async runRefreshPass(): Promise<{ readonly refreshedGroups: number }> {
+		// Exactly the serves in flight at pass start: one that starts later records on its own, and waiting for it
+		// would let a host that keeps starting serves hold the pass (and the dashboard's Retry) open forever.
+		await Promise.allSettled([...this._groupServesInFlight]);
+		const reportsBefore = this._reporter.groupReportCount;
+		const servedBefore = this.servedModelsKey();
+		this._discoveryCache.clear();
+		// Only the groups the host served this cycle: a group it deleted is still in the window's one-cycle grace, and
+		// a probe would record it fresh and keep it on every surface for as long as the user keeps syncing.
+		await Promise.all(
+			this._statusWindow.currentCycleGroupServers().map(async (groupServer) => {
+				try {
+					// Claimed before the overlay's await, like provideGroupModels.
+					const generation = this._discovery.beginServe(groupServer);
+					const overlaid = await overlayEntryCredentials(groupServer, this._resolveEntryCredentials);
+					await this._discovery.fetchGroupModels(overlaid.server, false, generation, overlaid.failure);
+				} catch {
+					// Already logged and recorded in the merged status; the other group servers still get probed.
+				}
+			})
+		);
 		// Same lockstep re-derivation as provideGroupModels: a probe's record may have replaced a rotated group's
 		// client ID.
 		this.pruneServerCaches(this._statusWindow.serverIds());
+		if (this.servedModelsKey() !== servedBefore) {
+			this._onDidChangeEmitter.fire();
+		}
+		return { refreshedGroups: this._reporter.groupReportCount - reportsBefore };
+	}
+
+	/**
+	 * What every group serves right now and how, as one comparable key. The window records undecorated models while a
+	 * silent failure hands the host stale-marked ones (groupDiscovery.ts markStale), so the outcome rides beside the
+	 * models: a group that went from healthy to failing, or back, must re-resolve even with the same model list.
+	 */
+	private servedModelsKey(): string {
+		return JSON.stringify(
+			this._statusWindow
+				.snapshots()
+				.map(
+					({ status, models }) =>
+						[
+							status.serverId,
+							status.state,
+							status.state === "error" ? status.cause : undefined,
+							status.servedModelCount,
+							models,
+						] as const
+				)
+				.sort(([a], [b]) => a.localeCompare(b))
+		);
 	}
 
 	async provideLanguageModelChatResponse(

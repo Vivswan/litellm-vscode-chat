@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import { buildDashboardState, resolveDashboardModelParameters } from "../../../extension/dashboard/state";
-import { SALT_UNAVAILABLE_MESSAGE, SECRETS_READ_FAILED_MESSAGE } from "../../../extension/servers/serverSync";
+import type { DeclaredServerView } from "../../../extension/servers/serverSync";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";
@@ -20,12 +20,7 @@ suite("extension/dashboard/state", () => {
 						models: [],
 					},
 					{
-						status: makeServerStatus({
-							serverId: "a",
-							label: "Alpha",
-							state: "error",
-							error: "boom",
-						}),
+						status: makeServerStatus({ serverId: "a", label: "Alpha", state: "error" }),
 						models: [],
 					},
 				],
@@ -37,7 +32,7 @@ suite("extension/dashboard/state", () => {
 				["Alpha", "Zeta"]
 			);
 			assert.strictEqual(state.servers[0]?.state, "error");
-			assert.strictEqual(state.servers[0]?.error, "boom");
+			assert.deepStrictEqual(state.servers[0]?.cause, { kind: "unclassified" });
 			assert.strictEqual(state.servers[0]?.credentials, "absent", "an absent status hasApiKey reads as absent");
 			assert.strictEqual(state.servers[0]?.origin, "external", "live rows without a settings entry are external");
 			assert.strictEqual(state.servers[0]?.config, undefined);
@@ -79,106 +74,65 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(state.servers[1]?.hasOAuth, true, "the report knows the kind; the row must not overwrite it");
 		});
 
-		test("errorEnglish carries the status's log-safe rendering exactly when the display error is the transport error", () => {
-			// The copyable diagnostics block stays English by policy: the webview substitutes errorEnglish there while
-			// the row renders the possibly localized error. A sync error has no mirror, so a row showing one carries
-			// none.
-			const external = buildState(
+		test("an external row carries the group's stamp as entryLabel and a virtual-key kind, both from the report", () => {
+			// The stamp is usually the group's host-side name: the edit form advises before a save collides with it.
+			const state = buildState(
 				[
 					{
-						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
+						status: makeServerStatus({ serverId: "v", label: "Gateway", hasApiKey: true, hasVirtualKey: true }),
 						models: [],
+						entryLabel: "Gateway",
 					},
+					{ status: makeServerStatus({ serverId: "u", label: "prod.test", hasApiKey: false }), models: [] },
 				],
 				makeReader({})
 			);
-			assert.strictEqual(external.servers[0]?.error, "LOCALIZED");
-			assert.strictEqual(external.servers[0]?.errorEnglish, "ENGLISH");
 
-			const declared = buildState(
-				[
-					{
-						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
-						models: [],
-					},
-				],
-				makeReader({}),
-				[makeDeclared()]
-			);
-			assert.strictEqual(declared.servers[0]?.origin, "declared");
-			assert.strictEqual(declared.servers[0]?.error, "LOCALIZED");
-			assert.strictEqual(declared.servers[0]?.errorEnglish, "ENGLISH");
-
-			const synced = buildState(
-				[
-					{
-						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
-						models: [],
-					},
-				],
-				makeReader({}),
-				[makeDeclared({ syncFailure: { class: "upsertFailed", message: "sync failed" } })]
-			);
-			assert.strictEqual(synced.servers[0]?.error, "sync failed", "the sync error still masks the live error");
-			assert.strictEqual(
-				synced.servers[0]?.errorEnglish,
-				undefined,
-				"a masked transport error must not lend its mirror to the sync error"
-			);
+			const stamped = state.servers.find((server) => server.label === "Gateway");
+			assert.ok(stamped?.origin === "external");
+			assert.strictEqual(stamped.entryLabel, "Gateway");
+			assert.strictEqual(stamped.credentials, "present");
+			assert.strictEqual(stamped.hasVirtualKey, true);
+			const unstamped = state.servers.find((server) => server.label === "prod.test");
+			assert.ok(unstamped?.origin === "external");
+			assert.strictEqual(unstamped.entryLabel, undefined, "an unstamped group's name is not knowable");
 		});
 
-		test("classification rides the error row under the same rule as errorEnglish", () => {
-			// The webview maps the setup-hint id to a troubleshooting link; only the classification crosses the
-			// boundary (enum ids, never text).
+		test("a failing row carries the status's cause as its key, on external and declared rows alike", () => {
+			// The row carries no text: the webview renders the cause in its locale and the copyable diagnostics block
+			// renders it in English, so one key serves both. The classification (the setup-hint id the webview maps to
+			// a troubleshooting link) rides inside the cause.
 			const classification = { kind: "connection", setupHint: "proxy-not-running" } as const;
+			const cause = { kind: "transport", classification } as const;
 			const external = buildState(
-				[
-					{
-						status: makeServerStatus({ state: "error", error: "boom", classification }),
-						models: [],
-					},
-				],
+				[{ status: makeServerStatus({ state: "error", classification }), models: [] }],
 				makeReader({})
 			);
 			assert.strictEqual(external.servers[0]?.origin, "external");
-			assert.deepStrictEqual(external.servers[0]?.classification, classification);
+			assert.deepStrictEqual(external.servers[0]?.cause, cause);
 
 			const declared = buildState(
-				[
-					{
-						status: makeServerStatus({ state: "error", error: "boom", classification }),
-						models: [],
-					},
-				],
+				[{ status: makeServerStatus({ state: "error", classification }), models: [] }],
 				makeReader({}),
 				[makeDeclared()]
 			);
 			assert.strictEqual(declared.servers[0]?.origin, "declared");
-			assert.deepStrictEqual(declared.servers[0]?.classification, classification);
+			assert.deepStrictEqual(declared.servers[0]?.cause, cause);
 
-			// An unclassified failure carries no field at all (conditional spread, never an explicit undefined).
-			const unclassified = buildState(
-				[{ status: makeServerStatus({ state: "error", error: "boom" }), models: [] }],
-				makeReader({})
-			);
-			const unclassifiedRow = unclassified.servers[0];
-			assert.ok(unclassifiedRow !== undefined && !("classification" in unclassifiedRow));
+			// A failure nothing classified is the unclassified key, never an absent field or invented text.
+			const unclassified = buildState([{ status: makeServerStatus({ state: "error" }), models: [] }], makeReader({}));
+			assert.deepStrictEqual(unclassified.servers[0]?.cause, { kind: "unclassified" });
+		});
 
-			// A sync error masks the transport error and must not borrow the masked error's classification: the hint
-			// would advise on a failure the row is not displaying.
+		test("a sync failure masks the live cause whole: the row's key is the sync class, never the transport's hint", () => {
+			// The masked transport cause's setup hint would advise on a failure the row is not displaying.
+			const classification = { kind: "connection", setupHint: "proxy-not-running" } as const;
 			const synced = buildState(
-				[
-					{
-						status: makeServerStatus({ state: "error", error: "boom", classification }),
-						models: [],
-					},
-				],
+				[{ status: makeServerStatus({ state: "error", classification }), models: [] }],
 				makeReader({}),
-				[makeDeclared({ syncFailure: { class: "upsertFailed", message: "sync failed" } })]
+				[makeDeclared({ syncFailure: { class: "upsertFailed" } })]
 			);
-			assert.strictEqual(synced.servers[0]?.error, "sync failed");
-			const syncedRow = synced.servers[0];
-			assert.ok(syncedRow !== undefined && !("classification" in syncedRow));
+			assert.deepStrictEqual(synced.servers[0]?.cause, { kind: "sync", failureClass: "upsertFailed" });
 		});
 
 		test("a down server's retained models list under its erroring row without a per-model stale marker", () => {
@@ -188,7 +142,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						status: makeServerStatus({ serverId: "g1", label: "Prod", state: "error", error: "unreachable" }),
+						status: makeServerStatus({ serverId: "g1", label: "Prod", state: "error" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 				],
@@ -219,6 +173,7 @@ suite("extension/dashboard/state", () => {
 						oauthTokenUrl: "https://idp.test/token",
 						oauthClientId: "client",
 						secrets: { apiKey: "secure", oauthClientSecret: "settings", virtualKeyValue: "none" },
+						credentials: { present: true, oauth: true, virtualKey: false },
 					}),
 				]
 			);
@@ -228,7 +183,7 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(server?.origin, "declared");
 			assert.strictEqual(server?.state, "ok");
 			assert.strictEqual(server?.servedModelCount, 4);
-			assert.strictEqual(server?.credentials, "present", "a secure-side key counts");
+			assert.strictEqual(server?.credentials, "present", "the owner's reading counts a secure-side key");
 			assert.strictEqual(server?.hasOAuth, true);
 			assert.deepStrictEqual(server?.config?.secrets, {
 				kind: "proven",
@@ -622,7 +577,7 @@ suite("extension/dashboard/state", () => {
 						label: "Staging",
 						baseUrl: "http://x.test",
 						expectedConnectionId: "group:fp-shared:http://x.test",
-						syncFailure: { class: "upsertFailed", message: "The host rejected the provider group upsert" },
+						syncFailure: { class: "upsertFailed" },
 					}),
 				]
 			);
@@ -638,7 +593,7 @@ suite("extension/dashboard/state", () => {
 				0,
 				"no model row carries the excluded claimant's label, so its row must not claim the shared count"
 			);
-			assert.strictEqual(staging?.error, "The host rejected the provider group upsert");
+			assert.deepStrictEqual(staging?.cause, { kind: "sync", failureClass: "upsertFailed" });
 			const prod = state.servers.find((server) => server.label === "Prod");
 			assert.strictEqual(prod?.servedModelCount, 2, "the serving claimant keeps the live count");
 			assert.strictEqual(state.servedModelCount, 2, "the hero counts the shared snapshot once");
@@ -670,7 +625,7 @@ suite("extension/dashboard/state", () => {
 						label: "Staging",
 						baseUrl: "http://x.test",
 						expectedConnectionId: "group:fp-shared:http://x.test",
-						syncFailure: { class: "blocked", message: "A provider group with this name already exists" },
+						syncFailure: { class: "blocked" },
 					}),
 				]
 			);
@@ -702,7 +657,7 @@ suite("extension/dashboard/state", () => {
 						label: "Prod",
 						baseUrl: "http://x.test",
 						expectedConnectionId: "group:fp-shared:http://x.test",
-						syncFailure: { class: "upsertFailed", message: "The host rejected the provider group upsert" },
+						syncFailure: { class: "upsertFailed" },
 					}),
 				]
 			);
@@ -905,13 +860,13 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(byLabel.get("KeyB")?.state, "unchecked", "a different connection never shares status");
 		});
 
-		test("a declared entry no discovery pass has seen renders unchecked; a sync failure renders as its error", () => {
+		test("a declared entry no discovery pass has seen renders unchecked; a sync failure renders as its cause", () => {
 			const state = buildState([], makeReader({}), [
 				makeDeclared({ label: "New", baseUrl: "http://new.test" }),
 				makeDeclared({
 					label: "Broken",
 					baseUrl: "http://broken.test",
-					syncFailure: { class: "upsertFailed", message: "upsert refused" },
+					syncFailure: { class: "upsertFailed" },
 				}),
 			]);
 
@@ -919,12 +874,12 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(byLabel.get("New")?.state, "unchecked");
 			assert.strictEqual(byLabel.get("New")?.lastChecked, undefined);
 			assert.strictEqual(byLabel.get("Broken")?.state, "error");
-			assert.strictEqual(byLabel.get("Broken")?.error, "upsert refused");
+			assert.deepStrictEqual(byLabel.get("Broken")?.cause, { kind: "sync", failureClass: "upsertFailed" });
 		});
 
 		test("a sync error outranks a reachable group's ok state without erasing the live counts", () => {
 			// The host cannot update the group, so the reachable group runs the entry's OLD configuration: the row is
-			// an error carrying the sync text (the same shape the status bar's overlay judges), while the served count
+			// an error carrying the sync cause (the same shape the status bar's overlay judges), while the served count
 			// keeps the live truth.
 			const state = buildState(
 				[
@@ -938,14 +893,14 @@ suite("extension/dashboard/state", () => {
 					makeDeclared({
 						label: "Prod",
 						baseUrl: "http://prod.test",
-						syncFailure: { class: "blocked", message: "group update unavailable" },
+						syncFailure: { class: "blocked" },
 					}),
 				]
 			);
 
 			assert.strictEqual(state.servers.length, 1);
 			assert.strictEqual(state.servers[0]?.state, "error", "the sync failure outranks the live ok state");
-			assert.strictEqual(state.servers[0]?.error, "group update unavailable");
+			assert.deepStrictEqual(state.servers[0]?.cause, { kind: "sync", failureClass: "blocked" });
 			assert.strictEqual(state.servers[0]?.servedModelCount, 4, "the served count stays the live truth");
 		});
 
@@ -1043,16 +998,78 @@ suite("extension/dashboard/state", () => {
 				assert.strictEqual(declaredRow(state).credentials, "absent");
 			});
 
+			test("presence and kind are the owner's reading, never the row's own judgment of the locations", () => {
+				// The group parser drops a header-illegal virtual-key value, so the owner answers absent while the
+				// locations still say a value is stored; a row judging locations itself would badge a credential the
+				// group does not hold.
+				const build = (credentials: DeclaredServerView["credentials"]) =>
+					buildDashboardState({
+						snapshots: [],
+						reader: makeReader({}),
+						declared: {
+							source: "engine",
+							views: [
+								makeDeclared({
+									virtualKeyHeader: "x-vk",
+									secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "secure" },
+									credentials,
+								}),
+							],
+						},
+					});
+
+				const row = declaredRow(build({ present: true, oauth: false, virtualKey: true }));
+				assert.strictEqual(row.credentials, "present");
+				assert.strictEqual(row.hasVirtualKey, true);
+				assert.strictEqual(row.hasOAuth, false);
+				assert.strictEqual(
+					declaredRow(build({ present: false, oauth: false, virtualKey: false })).credentials,
+					"absent"
+				);
+			});
+
+			test("when the live report is the voice proving presence, the row takes the kind from it too", () => {
+				// The owner could not read the stored virtual key (its reading says absent) while the group's report
+				// proves the key and names it a virtual key; the badge must not say "API key" for that group.
+				const state = buildDashboardState({
+					snapshots: [
+						{
+							status: makeServerStatus({ serverId: "group:v", hasApiKey: true, hasVirtualKey: true }),
+							models: [],
+						},
+					],
+					reader: makeReader({}),
+					declared: {
+						source: "engine",
+						views: [
+							makeDeclared({
+								virtualKeyHeader: "x-vk",
+								secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "secure" },
+								credentials: { present: false, oauth: false, virtualKey: false },
+							}),
+						],
+					},
+				});
+
+				const row = declaredRow(state);
+				assert.strictEqual(row.credentials, "present");
+				assert.strictEqual(row.hasVirtualKey, true);
+				assert.strictEqual(row.hasOAuth, false);
+			});
+
 			test("an inline key vouches for presence even while the row stays unproven", () => {
-				// Inline wins over any blob, so a fallback "settings" location is already fact; only the deny side
-				// waits for proof.
+				// The fallback's owner reading covers the inline fields, so its "present" is fact; only the deny side
+				// waits for a blob read.
 				const state = buildDashboardState({
 					snapshots: [],
 					reader: makeReader({}),
 					declared: {
 						source: "settings-fallback",
 						views: [
-							makeDeclared({ secrets: { apiKey: "settings", oauthClientSecret: "none", virtualKeyValue: "none" } }),
+							makeDeclared({
+								secrets: { apiKey: "settings", oauthClientSecret: "none", virtualKeyValue: "none" },
+								credentials: { present: true, oauth: false, virtualKey: false },
+							}),
 						],
 					},
 				});
@@ -1089,7 +1106,7 @@ suite("extension/dashboard/state", () => {
 						views: [
 							makeDeclared({
 								secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
-								syncFailure: { class: "secretsUnreadable", message: SECRETS_READ_FAILED_MESSAGE },
+								syncFailure: { class: "secretsUnreadable" },
 							}),
 						],
 					},
@@ -1109,7 +1126,7 @@ suite("extension/dashboard/state", () => {
 						views: [
 							makeDeclared({
 								secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
-								syncFailure: { class: "saltUnavailable", message: SALT_UNAVAILABLE_MESSAGE },
+								syncFailure: { class: "saltUnavailable" },
 							}),
 						],
 					},
@@ -1130,7 +1147,7 @@ suite("extension/dashboard/state", () => {
 						views: [
 							makeDeclared({
 								secrets: { apiKey: "settings", oauthClientSecret: "settings", virtualKeyValue: "settings" },
-								syncFailure: { class: "secretsUnreadable", message: SECRETS_READ_FAILED_MESSAGE },
+								syncFailure: { class: "secretsUnreadable" },
 							}),
 							// An upsert failure happens AFTER a successful blob read, so its locations stay proven
 							// facts.
@@ -1138,7 +1155,7 @@ suite("extension/dashboard/state", () => {
 								label: "Upsert",
 								baseUrl: "http://upsert.test",
 								secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
-								syncFailure: { class: "upsertFailed", message: "upsert refused" },
+								syncFailure: { class: "upsertFailed" },
 							}),
 						],
 					},

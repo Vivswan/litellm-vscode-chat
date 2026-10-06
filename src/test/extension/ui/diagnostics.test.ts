@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import { declaredViewsFromSetting } from "../../../extension/dashboard/declaredServers";
 import { buildDiagnosticsSnapshot } from "../../../extension/ui/diagnostics";
 import type { DiagnosticsSnapshot } from "../../../extension/ui/issueReporter";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
@@ -19,20 +20,23 @@ suite("extension/ui/diagnostics", () => {
 
 			// Non-default configuration on every settings-derived field, through the same getConfiguration surface the
 			// snapshot reads (withConfig restores it in its finally): a build that hardcoded the defaults must fail
-			// here. Unset features keep their package.json defaults.
+			// here. Unset features keep their package.json defaults. The declared entries reach the snapshot as the
+			// engine's views, the one reading it has of the servers setting.
+			const servers = [
+				{ label: "Prod", baseUrl: "http://prod.test", mcp: true },
+				{ label: "Plain", baseUrl: "http://plain.test" },
+			];
 			const snapshot = await withConfig(
 				{
 					"commitGeneration.enabled": true,
 					"commitGeneration.model": { server: "Prod", model: "gpt-4" },
 					"chatParticipant.enabled": false,
-					servers: [
-						{ label: "Prod", baseUrl: "http://prod.test", mcp: true },
-						{ label: "Plain", baseUrl: "http://plain.test" },
-					],
+					servers,
 				},
 				() =>
 					buildDiagnosticsSnapshot(
 						{ state: "connected", totalModels: 7, serverStatuses: [] },
+						declaredViewsFromSetting(servers).views,
 						"1.2.3",
 						"9.9.9",
 						reporter
@@ -47,7 +51,11 @@ suite("extension/ui/diagnostics", () => {
 				new Date(latestError.timestamp).toISOString(),
 				"the error timestamp is an ISO 8601 stamp"
 			);
-			assert.ok(latestError.stack?.startsWith("Error: fetch exploded"), "a plain error keeps its own stack");
+			assert.ok(
+				latestError.stack?.startsWith("unclassified\n"),
+				"a plain error keeps its frames under the public word"
+			);
+			assert.ok(latestError.stack?.includes("fetch exploded") !== true, "the thrown message is off the snapshot");
 			const expected: Required<DiagnosticsSnapshot> = {
 				extensionVersion: "1.2.3",
 				vscodeVersion: "9.9.9",
@@ -73,7 +81,7 @@ suite("extension/ui/diagnostics", () => {
 				mcpEntryCount: 1,
 				latestError: {
 					source: "discovery",
-					message: "fetch exploded",
+					message: "unclassified",
 					stack: latestError.stack,
 					timestamp: latestError.timestamp,
 				},
@@ -94,7 +102,8 @@ suite("extension/ui/diagnostics", () => {
 			);
 
 			const snapshot = buildDiagnosticsSnapshot(
-				{ state: "error", error: "boom", logSafeError: markLogSafe("boom") },
+				{ state: "error", cause: { kind: "unclassified" }, logSafeError: markLogSafe("boom") },
+				[],
 				"1.2.3",
 				"9.9.9",
 				reporter
@@ -107,7 +116,8 @@ suite("extension/ui/diagnostics", () => {
 		});
 
 		// The observed statuses empty out during a Test Connection pass, and a report built in that window once denied
-		// a configured server (#389).
+		// a configured server (#389). The entries reach the snapshot as declared views (the settings fallback's, the
+		// same credentials reading the engine publishes); the snapshot itself reads no setting.
 		const presenceCases: readonly {
 			readonly name: string;
 			readonly servers: readonly Record<string, unknown>[];
@@ -163,6 +173,20 @@ suite("extension/ui/diagnostics", () => {
 				],
 				status: { state: "connecting", attention: false },
 				expected: { baseUrlConfigured: true, apiKeyConfigured: true },
+			},
+			{
+				name: "a declared virtual-key header alone counts as configured authentication",
+				servers: [
+					{ label: "Prod", baseUrl: "http://prod.test", auth: { virtualKey: { header: "x-vk", value: "vk-1" } } },
+				],
+				status: { state: "connecting", attention: false },
+				expected: { baseUrlConfigured: true, apiKeyConfigured: true },
+			},
+			{
+				name: "an inline key the group parser refuses proves nothing: the owner's reading, not the field's existence",
+				servers: [{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "bad\nkey" } }],
+				status: { state: "connecting", attention: false },
+				expected: { baseUrlConfigured: true, apiKeyConfigured: "unknown" },
 			},
 			{
 				name: "the declared entry's own keyless report denies the key",
@@ -227,9 +251,13 @@ suite("extension/ui/diagnostics", () => {
 			},
 		];
 		for (const { name, servers, status, expected } of presenceCases) {
-			test(`configuration presence: ${name}`, async () => {
-				const snapshot = await withConfig({ servers }, () =>
-					buildDiagnosticsSnapshot(status, "1.2.3", "9.9.9", new IssueReporter())
+			test(`configuration presence: ${name}`, () => {
+				const snapshot = buildDiagnosticsSnapshot(
+					status,
+					declaredViewsFromSetting(servers).views,
+					"1.2.3",
+					"9.9.9",
+					new IssueReporter()
 				);
 				assert.deepStrictEqual(
 					{ baseUrlConfigured: snapshot.baseUrlConfigured, apiKeyConfigured: snapshot.apiKeyConfigured },

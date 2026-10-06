@@ -11,12 +11,12 @@ import {
 	NUMBER_SETTING_SPECS,
 	numberSettingOffValue,
 } from "../shared/config/settingSpec";
+import { failureTexts } from "../shared/failureCause";
 import { DECIMAL_TEXT_PATTERN, parseDecimalText } from "../shared/util/decimalText";
-import { statusErrorDetail, statusErrorHeadline } from "../shared/util/errorText";
 import type { HeaderScalar } from "../shared/util/headers";
 import { trimHttpWhitespace } from "../shared/util/headers";
 import { nonFiniteNumberPath } from "../shared/util/json";
-import type { DashboardServer, DeclaredServerNotice, SettingScope } from "./viewModels";
+import type { DashboardServer, DeclaredServerNotice, SettingScope, VerdictRow } from "./viewModels";
 
 /**
  * Shared by the hero, the status bar, the notifier, and the Diagnostics tab, so their headline judgement cannot
@@ -24,31 +24,18 @@ import type { DashboardServer, DeclaredServerNotice, SettingScope } from "./view
  */
 export type OverallVerdict = "not-configured" | "error" | "degraded" | "waiting" | "connected" | "needs-declare";
 
-export function classifyOverall(
-	servers: readonly (Pick<DashboardServer, "state" | "expected" | "servedModelCount"> & {
-		readonly origin?: DashboardServer["origin"];
-	})[],
-	context: { readonly hiddenGroupCount?: number } = {}
-): OverallVerdict {
-	// Hidden groups leave the server list, but the status window carries each one as an ok status serving zero models.
-	// Synthesizing the same members here makes the two classifier inputs equal BY CONSTRUCTION, so the rows verdict
-	// cannot diverge from the bar's on any mix of hidden groups with unchecked, failed, or misconfigured rows.
-	const hiddenAsRows = Array.from(
-		{ length: context.hiddenGroupCount ?? 0 },
-		() => ({ state: "ok", servedModelCount: 0, origin: undefined }) as const
-	);
-	const all = [...servers, ...hiddenAsRows];
-	if (all.length === 0) {
+export function classifyOverall(rows: readonly VerdictRow[]): OverallVerdict {
+	if (rows.length === 0) {
 		return "not-configured";
 	}
-	const transport = all.filter((server) => server.origin !== "misconfigured");
+	const transport = rows.filter((row) => row.misconfigured !== true);
 	if (transport.length === 0) {
 		return "error";
 	}
 	// The serving test precedes the all-failed verdict: servedModelCount answers "does this server serve right now" on
 	// every state, so a failure still serving stale or declared models can never read as dead.
-	const serving = transport.some((server) => server.state === "ok" || server.servedModelCount > 0);
-	const errors = transport.filter((server) => server.state === "error" && server.expected !== true).length;
+	const serving = transport.some((row) => row.state === "ok" || row.servedModelCount > 0);
+	const errors = transport.filter((row) => row.state === "error" && row.expected !== true).length;
 	if (errors === transport.length && !serving) {
 		return "error";
 	}
@@ -58,36 +45,28 @@ export function classifyOverall(
 	if (serving) {
 		return "connected";
 	}
-	// Nothing serves and nothing failed unexpectedly: expected failures with no declared models are the actionable
-	// case, plain unchecked entries wait.
-	if (transport.some((server) => server.state === "error")) {
-		return "needs-declare";
+	// Nothing serves and nothing failed unexpectedly: an entry still awaiting its first report keeps the world unknown,
+	// so the set waits; only expected failures with no declared models all round are the actionable case.
+	if (transport.some((row) => row.state === "unchecked")) {
+		return "waiting";
 	}
-	return "waiting";
+	return "needs-declare";
 }
 
 /**
  * The verdict as one sentence, pinned by tests. English by policy: users paste these lines into public issue reports,
  * so localization sweeps must skip this function.
- *
- *   their groups still answer -> Hidden groups claim the connected verdict (through classifyOverall)
  */
-export function overallStatusText(
-	servers: readonly DashboardServer[],
-	modelCount: number,
-	context: { readonly hiddenGroupCount?: number } = {}
-): string {
-	const hiddenGroupCount = context.hiddenGroupCount ?? 0;
-	switch (classifyOverall(servers, { hiddenGroupCount })) {
+export function overallStatusText(rows: readonly VerdictRow[], modelCount: number): string {
+	switch (classifyOverall(rows)) {
 		case "not-configured":
 			return "Not configured";
 		case "error": {
 			// The fallback only satisfies the type checker (the verdict guarantees an error row). A transport failure
 			// outranks a misconfigured row's fixed text: the real outage is the line worth pasting.
-			const errorRows = servers.filter((server) => server.state === "error");
-			const firstError =
-				(errorRows.find((server) => server.origin !== "misconfigured") ?? errorRows[0])?.error ?? "Unknown error";
-			return `Error: ${firstError}`;
+			const errorRows = rows.filter((row) => row.state === "error");
+			const failure = (errorRows.find((row) => row.misconfigured !== true) ?? errorRows[0])?.failure;
+			return `Error: ${failure === undefined ? "Unknown error" : failureTexts(failure.cause, failure.baseUrl).english}`;
 		}
 		case "degraded":
 			return `Degraded (${modelCount} models, some servers failed)`;
@@ -99,12 +78,11 @@ export function overallStatusText(
 			if (modelCount !== 0) {
 				return `Connected (${modelCount} models)`;
 			}
-			// One English detail names the causes, shared with the log rendering (zeroModelEnglishDetail).
-			//
-			//   The zero-model reading -> the same warning every other surface gives this state (see zeroModelJudgment)
+			// One English detail names the causes, shared with the log rendering (zeroModelEnglishDetail): the hidden
+			// groups apart from the servers that answered with an empty listing.
 			return `Connected, but 0 models are served (${zeroModelEnglishDetail(
-				hiddenGroupCount,
-				servers.filter((server) => server.state === "ok").length
+				rows.filter((row) => row.hiddenByRemoval === true).length,
+				rows.filter((row) => row.state === "ok" && row.hiddenByRemoval !== true).length
 			)})`;
 		}
 	}
@@ -219,8 +197,8 @@ export function servedModelsBreakdown(served: number, declared: number): ServedM
 }
 
 /**
- * serverOutcomeText composes exactly these parts, flattening a two-part error's newline to " - " (the presenters suite
- * pins the equality), so the pieces and the copied line cannot drift apart in wording.
+ * serverOutcomeText composes exactly these parts (the presenters suite pins the equality), so the pieces and the copied
+ * line cannot drift apart in wording.
  */
 export interface ServerOutcomeParts {
 	readonly status: "OK" | "Error" | "Misconfigured" | "Not checked yet";
@@ -249,9 +227,7 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 				// Truthful error, expected presentation: the "(expected)" annotation stays English (it lands in issue
 				// reports). A row still serving - declared models, or the stale window's last known list - reads as
 				// OK-with-note, the same quiet verdict the row pill gives it.
-				const detail = statusErrorDetail(server.error);
-				const headline = `${statusErrorHeadline(server.error)} (expected)`;
-				const error = detail === undefined ? headline : `${headline}\n${detail}`;
+				const error = `${failureTexts(server.cause, server.baseUrl).english} (expected)`;
 				const served = server.servedModelCount;
 				if (served > 0) {
 					// The models part always states the served total (the count the row and the merged surfaces show);
@@ -276,9 +252,9 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 			if (server.servedModelCount > 0) {
 				const models =
 					server.servedModelCount === 1 ? "1 model still served" : `${server.servedModelCount} models still served`;
-				return { status: "Error", models, error: server.error, notice };
+				return { status: "Error", models, error: failureTexts(server.cause, server.baseUrl).english, notice };
 			}
-			return { status: "Error", error: server.error, notice };
+			return { status: "Error", error: failureTexts(server.cause, server.baseUrl).english, notice };
 		}
 		case "unchecked":
 			return { status: "Not checked yet", notice };
@@ -294,13 +270,7 @@ export function serverOutcomeText(server: DashboardServer): string {
 	// "OK (2 declared models) - <error (expected)>" vs "Error: <error>": the error joins an OK line as an aside and an
 	// Error line as its object.
 	const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
-	// A two-part error (headline "\n" detail) flattens to one physical line: this is the copy-paste issue-report form.
-	const flatError = parts.error
-		?.split("\n")
-		.map((line) => trimHttpWhitespace(line))
-		.filter((line) => line.length > 0)
-		.join(" - ");
-	const error = flatError === undefined ? "" : parts.status === "OK" ? ` - ${flatError}` : `: ${flatError}`;
+	const error = parts.error === undefined ? "" : parts.status === "OK" ? ` - ${parts.error}` : `: ${parts.error}`;
 	// Notices ride alongside whatever the state line says: a noticed row is usually healthy ("ok"), which is exactly
 	// why it needs calling out.
 	const notice = parts.notice.map((text) => ` - ${text}`).join("");

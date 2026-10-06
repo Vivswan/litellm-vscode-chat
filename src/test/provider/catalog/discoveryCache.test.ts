@@ -167,62 +167,15 @@ suite("provider/catalog/discoveryCache", () => {
 		);
 	});
 
-	test("a load started before invalidate() of its key does not store its result", async () => {
-		const cache = new DiscoveryCache<string>(makeClock().now);
-		let release: (() => void) | undefined;
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-
-		const inFlight = cache.fetch("k", async () => {
-			await gate;
-			return "pre-invalidate";
-		});
-		cache.invalidate("k");
-		expectDefined(release)();
-
-		assert.strictEqual(await inFlight, "pre-invalidate", "the caller of the old load still gets its value");
-		assert.strictEqual(
-			cache.lookup("k", Number.MAX_SAFE_INTEGER),
-			undefined,
-			"a result loaded before the invalidate must not be stored after it"
-		);
-	});
-
-	test("invalidating one key does not discard another key's concurrent load", async () => {
-		const cache = new DiscoveryCache<string>(makeClock().now);
-		let release: (() => void) | undefined;
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-
-		const other = cache.fetch("other", async () => {
-			await gate;
-			return "other-value";
-		});
-		cache.invalidate("k");
-		expectDefined(release)();
-
-		assert.strictEqual(await other, "other-value");
-		assert.strictEqual(
-			cache.lookup("other", Number.MAX_SAFE_INTEGER),
-			"other-value",
-			"an unrelated key's concurrent load must still store its result"
-		);
-	});
-
-	test("keys are independent and invalidate/clear drop stored results", async () => {
+	test("keys are independent and clear drops every stored result", async () => {
 		const cache = new DiscoveryCache<string>(makeClock().now);
 		await cache.fetch("a", async () => "A");
 		await cache.fetch("b", async () => "B");
 		assert.strictEqual(cache.lookup("a", 1000), "A");
 		assert.strictEqual(cache.lookup("b", 1000), "B");
 
-		cache.invalidate("a");
-		assert.strictEqual(cache.lookup("a", 1000), undefined);
-		assert.strictEqual(cache.lookup("b", 1000), "B", "invalidating one key must not touch the others");
-
 		cache.clear();
+		assert.strictEqual(cache.lookup("a", 1000), undefined);
 		assert.strictEqual(cache.lookup("b", 1000), undefined);
 	});
 
@@ -381,15 +334,13 @@ suite("provider group discovery caching", () => {
 		});
 	});
 
-	test("refreshViaHost bypasses the cache and its probe repopulates it", async () => {
+	test("refreshGroups bypasses the cache and its probe repopulates it", async () => {
 		const provider = makeProvider();
 		const counter = countingHandlers();
 		await provider.provideLanguageModelChatInformation(groupOptions(GROUP), cancellation());
 		assert.strictEqual(counter.hits(), 1);
 
-		// This provider is not registered with the host, so the change event goes nowhere and refreshViaHost falls back
-		// to probing the observed group.
-		await provider.refreshViaHost(300, 50);
+		await provider.refreshGroups();
 		assert.strictEqual(counter.hits(), 2, "the explicit refresh must reach the network despite the cached entry");
 
 		const infos = await provider.provideLanguageModelChatInformation(groupOptions(GROUP), cancellation());

@@ -8,7 +8,7 @@ import { classifyOverall } from "../../../../dashboard/presenters";
 import { overallState } from "../../../../webview/dashboard/app";
 import type { ServerPillWord } from "../../../../webview/dashboard/servers";
 import { ServersSection } from "../../../../webview/dashboard/servers";
-import { type ALL_PILL_WORDS, WINDOW_STATE_ROWS } from "../../../statusVocabulary";
+import { type ALL_PILL_WORDS, rowVerdict, WINDOW_STATE_ROWS } from "../../../statusVocabulary";
 import { cleanup, mount } from "../harness";
 
 /**
@@ -38,11 +38,11 @@ afterEach(() => {
 
 test("the hero reads each window state with the table's word and tone", () => {
 	for (const row of WINDOW_STATE_ROWS) {
-		const hiddenGroupCount = row.hiddenGroups ?? 0;
-		expect(classifyOverall(row.rows, { hiddenGroupCount }), row.name).toBe(row.expect.verdict);
-		// The counts the production shell passes: the merged served count (the table's totalModels pins it to the
-		// builder's servedModelCount) and the hidden-groups count.
-		const hero = overallState(row.rows, row.totalModels, hiddenGroupCount);
+		// The owner's rows for the row's window (the host suite pins the real builder to the same owner) and the
+		// merged served count (the table's totalModels pins it to the builder's servedModelCount).
+		const rows = rowVerdict(row).rows();
+		expect(classifyOverall(rows), row.name).toBe(row.expect.verdict);
+		const hero = overallState(rows, row.totalModels);
 		expect(hero.word, `${row.name}: hero word`).toBe(row.expect.hero.word);
 		expect(hero.tone, `${row.name}: hero tone`).toBe(row.expect.hero.tone);
 	}

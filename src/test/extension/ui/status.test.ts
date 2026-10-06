@@ -1,13 +1,26 @@
 import * as assert from "node:assert";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { classifyOverall } from "../../../dashboard/presenters";
+import type { DeclaredServerView, ServerEntryReport } from "../../../extension/servers/serverSync";
 import { detectSetupProblem } from "../../../extension/ui/setupGate";
 import type { StatusBarManager, StatusItemLike } from "../../../extension/ui/status";
 import { LAST_CONNECTION_STATUS_KEY } from "../../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
+import type { FailureCause } from "../../../shared/failureCause";
+import { failureClassification } from "../../../shared/failureCause";
 import { markLogSafe } from "../../../shared/logger";
-import type { ServerStatus } from "../../../shared/servers";
+import type { AggregatedStatus, ServerStatus } from "../../../shared/servers";
+import { displayUrl } from "../../../shared/util/displayUrl";
+import { expectDefined } from "../../pureHelpers";
+import { makeServerStatus } from "../../testUtils";
+import { REPO_ROOT } from "../../util/repoRoot";
 import { createStatusBarManager, RecordingItem } from "./statusBarHarness";
+
+/** A failure nothing classified: the cause every text-free fixture below carries unless the test is about the cause. */
+const UNCLASSIFIED: FailureCause = { kind: "unclassified" };
 
 const createdContexts: vscode.ExtensionContext[] = [];
 
@@ -38,7 +51,7 @@ function expectErrorElement(serverStatuses: readonly ServerStatus[]): ServerStat
  * expectation here.
  */
 function stamped(status: unknown): unknown {
-	return { v: 2, status };
+	return { v: 7, status };
 }
 
 suite("extension/ui/status", () => {
@@ -109,7 +122,7 @@ suite("extension/ui/status", () => {
 				label: "Down",
 				baseUrl: "http://down.test",
 				state: "error",
-				error: "boom",
+				cause: UNCLASSIFIED,
 				logSafeError: markLogSafe("RequestError(connection)"),
 				servedModelCount: 0,
 				lastChecked: new Date().toISOString(),
@@ -128,40 +141,44 @@ suite("extension/ui/status", () => {
 		});
 	});
 
-	test("an all-failed report logs the log-safe rendering, never the display error", () => {
+	test("an all-failed report logs the log-safe rendering and carries the failure's cause, never text", async () => {
 		// The "All servers failed" line lands in the issue-report buffer, which prefills public GitHub issues, so it
-		// must carry logSafeError; the display error (which embeds response bodies) stays on the UI surfaces.
+		// must carry logSafeError; the status carries the cause as a key, and the bar renders it at display time.
 		const bufferLines: string[] = [];
-		const manager = createManager(undefined, () => true, {
-			appendLog: (line) => bufferLines.push(line),
-			recordError: () => {},
-		});
+		const item = new RecordingItem();
+		const manager = createManager(
+			undefined,
+			() => true,
+			{ appendLog: (line) => bufferLines.push(line), recordError: () => {} },
+			item
+		);
+		const cause: FailureCause = { kind: "transport", classification: { kind: "http", status: 502 } };
 		const failed: ServerStatus = {
 			serverId: "srv1",
 			label: "Prod",
 			baseUrl: "http://prod.test",
 			state: "error",
-			error: "LiteLLM API error: 502\n<html>internal-billing-host-MARKER</html>",
+			cause,
 			logSafeError: markLogSafe("RequestError(http, status 502)"),
 			servedModelCount: 0,
 			lastChecked: new Date().toISOString(),
 		};
 
 		manager.handleAggregatedStatus({ serverStatuses: [failed], totalModels: 0, silent: true });
+		await new Promise((resolve) => setImmediate(resolve));
 
 		assert.ok(
 			bufferLines.some((line) => line.includes("All servers failed: RequestError(http, status 502)")),
 			`the buffer must carry the classification; lines: ${bufferLines.join(" | ")}`
 		);
-		assert.ok(
-			bufferLines.every((line) => !line.includes("internal-billing-host-MARKER")),
-			"the display error's body text leaked into the buffer"
-		);
 		const status = manager.connectionStatus;
-		assert.ok(status.state === "error" && status.error.includes("MARKER"), "the display surface keeps the full text");
+		assert.ok(status.state === "error");
+		assert.deepStrictEqual(status.cause, cause);
+		assert.strictEqual(status.baseUrl, "http://prod.test");
+		assert.ok(item.last.tooltip.includes("The server at http://prod.test answered 502"), item.last.tooltip);
 	});
 
-	test("an all-failed report copies the first failure's classification; the zero-models state carries none", async () => {
+	test("an all-failed report copies the first failure's cause; the zero-models state carries none", async () => {
 		const item = new RecordingItem();
 		const manager = createManager(undefined, () => true, undefined, item);
 		const classification: TransportErrorClassification = { kind: "http", status: 404, setupHint: "check-base-url" };
@@ -170,9 +187,8 @@ suite("extension/ui/status", () => {
 			label: "Prod",
 			baseUrl: "http://prod.test",
 			state: "error",
-			error: "answered 404",
+			cause: { kind: "transport", classification },
 			logSafeError: markLogSafe("RequestError(http, status 404, discovery)"),
-			classification,
 			servedModelCount: 0,
 			lastChecked: new Date().toISOString(),
 		};
@@ -180,7 +196,7 @@ suite("extension/ui/status", () => {
 		manager.handleAggregatedStatus({ serverStatuses: [failed], totalModels: 0, silent: true });
 		const allFailed = manager.connectionStatus;
 		assert.ok(allFailed.state === "error");
-		assert.deepStrictEqual(allFailed.classification, classification);
+		assert.deepStrictEqual(failureClassification(allFailed.cause), classification);
 
 		const ok: ServerStatus = {
 			serverId: "srv1",
@@ -300,7 +316,7 @@ suite("extension/ui/status", () => {
 						label: "Down",
 						baseUrl: "http://down.test",
 						state: "error",
-						error: "ECONNREFUSED",
+						cause: UNCLASSIFIED,
 						logSafeError: markLogSafe("RequestError(connection)"),
 						servedModelCount: 0,
 						lastChecked: new Date().toISOString(),
@@ -356,12 +372,221 @@ suite("extension/ui/status", () => {
 			assert.strictEqual(detectSetupProblem(manager.connectionStatus), "hidden-groups");
 		});
 
+		test("causes written in one locale restore rendered in the other: the store carries keys, never text", async () => {
+			// Each case is written under the default (English) bundle, then restored under a swapped bundle; the
+			// complete tooltip must be the swapped bundle's rendering. A store carrying rendered text would restore the
+			// English sentence inside the swapped wrapper.
+			const SWAPPED: Record<string, string> = {
+				"Connection failed\n{0}\nClick for details": "SW-FAILED\n{0}",
+				"A servers entry is misconfigured and is not used until its configuration is fixed": "SW-MISCONFIGURED",
+				"The server at {0} answered {1}": "SW-ANSWERED {1} AT {0}",
+				"No models available\n{0}\nClick for details": "SW-NOMODELS\n{0}",
+				"The server answered but listed no models.": "SW-EMPTY",
+				"A configured API key or virtual key for this entry cannot be sent as an HTTP header, so requests to it are refused. See the Diagnostics tab for the field, then enter the value again.":
+					"SW-REFUSED",
+				"This server entry's stored secrets could not be read, so its stored copy in VS Code was not used. Check the server row on the dashboard, then run LiteLLM: Sync Models Now.":
+					"SW-UNREADABLE",
+				"This server entry's {0} cannot be sent as an HTTP header, so no request was made. Enter the value again from the server row on the dashboard.":
+					"SW-HEADER-REFUSED {0}",
+				"API key": "SW-APIKEY",
+			};
+			const cases: readonly {
+				readonly name: string;
+				readonly entryReports: () => readonly ServerEntryReport[];
+				readonly getDeclared?: () => readonly DeclaredServerView[];
+				readonly report: AggregatedStatus;
+				readonly swapped: string;
+			}[] = [
+				{
+					name: "a sync failure the engine classified (a stored key the header rule refuses)",
+					entryReports: () => [],
+					getDeclared: () => [
+						{
+							label: "A",
+							baseUrl: "http://a.test",
+							secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+							syncFailure: { class: "credentialsRefused" },
+						},
+					],
+					report: { serverStatuses: [], totalModels: 0, silent: true },
+					swapped: "SW-FAILED\nSW-REFUSED",
+				},
+				{
+					name: "only a refused entry",
+					entryReports: () => [
+						{
+							index: 0,
+							label: "x",
+							baseUrl: "http://x.test",
+							problems: ["auth: apiKey must be a string"],
+							accepted: false,
+						},
+					],
+					report: { serverStatuses: [], totalModels: 0, silent: true },
+					swapped: "SW-FAILED\nSW-MISCONFIGURED",
+				},
+				{
+					name: "a classified transport failure",
+					entryReports: () => [],
+					report: {
+						serverStatuses: [
+							makeServerStatus({
+								state: "error",
+								baseUrl: "http://down.test",
+								classification: { kind: "http", status: 404 },
+							}),
+						],
+						totalModels: 0,
+						silent: true,
+					},
+					swapped: `SW-FAILED\nSW-ANSWERED 404 AT ${displayUrl("http://down.test")}`,
+				},
+				{
+					// The sole entry's stored key read fine at sync time; the read throws at serve time, and the overlay
+					// records secretsUnreadable (overlayEntryCredentials) where the sentence used to be stored.
+					name: "a stored credential whose read throws at serve time",
+					entryReports: () => [],
+					report: {
+						serverStatuses: [
+							makeServerStatus({
+								state: "error",
+								baseUrl: "http://a.test",
+								cause: { kind: "credentials", reason: "secretsUnreadable" },
+							}),
+						],
+						totalModels: 0,
+						silent: true,
+					},
+					swapped: "SW-FAILED\nSW-UNREADABLE",
+				},
+				{
+					// A stored key rotated to a value the platform's Headers refuse: the request path records the refused
+					// field, and the field's name is itself a key the restoring locale renders.
+					name: "a stored key rotated to a value the header rule refuses",
+					entryReports: () => [],
+					report: {
+						serverStatuses: [
+							makeServerStatus({
+								state: "error",
+								baseUrl: "http://a.test",
+								cause: { kind: "credentialsRefused", fields: ["apiKey"] },
+							}),
+						],
+						totalModels: 0,
+						silent: true,
+					},
+					swapped: "SW-FAILED\nSW-HEADER-REFUSED SW-APIKEY",
+				},
+				{
+					name: "a zero-model verdict",
+					entryReports: () => [],
+					report: { serverStatuses: [makeServerStatus({ servedModelCount: 0 })], totalModels: 0, silent: true },
+					swapped: "SW-NOMODELS\nSW-EMPTY",
+				},
+			];
+			for (const { name, entryReports, getDeclared, report, swapped } of cases) {
+				const writer = createStatusBarManager({ hasConfiguredServers: () => true, entryReports, getDeclared });
+				createdContexts.push(writer.context);
+				writer.manager.handleAggregatedStatus(report);
+				await new Promise((resolve) => setImmediate(resolve));
+				const persisted: unknown = JSON.parse(
+					JSON.stringify(writer.context.globalState.get(LAST_CONNECTION_STATUS_KEY))
+				);
+				const item = new RecordingItem();
+				l10n.config({ contents: SWAPPED });
+				try {
+					createManager(persisted, () => true, undefined, item);
+				} finally {
+					l10n.config({ contents: {} });
+				}
+				assert.strictEqual(item.last.tooltip, swapped, name);
+			}
+		});
+
+		test("the credential causes written under English restore as the zh-cn bundle's whole tooltip", async () => {
+			// The two inputs that once stored their English sentence: a stored credential whose read throws at serve
+			// time (secretsUnreadable) and a stored key rotated to a value the header rule refuses (credentialsRefused
+			// naming the field). Restored under the shipped zh-cn bundle, the entire tooltip is that bundle's
+			// rendering, field name included, so the store can have carried nothing but keys.
+			const zhCn = JSON.parse(readFileSync(path.join(REPO_ROOT, "l10n", "bundle.l10n.zh-cn.json"), "utf8")) as Record<
+				string,
+				string
+			>;
+			const zh = (key: string, ...args: readonly string[]): string =>
+				args.reduce((text, arg, index) => text.replaceAll(`{${index}}`, arg), expectDefined(zhCn[key], key));
+			const cases: readonly { readonly name: string; readonly cause: FailureCause; readonly detail: string }[] = [
+				{
+					name: "secretsUnreadable",
+					cause: { kind: "credentials", reason: "secretsUnreadable" },
+					detail: zh(
+						"This server entry's stored secrets could not be read, so its stored copy in VS Code was not used. Check the server row on the dashboard, then run LiteLLM: Sync Models Now."
+					),
+				},
+				{
+					name: "rotated key refused",
+					cause: { kind: "credentialsRefused", fields: ["apiKey"] },
+					detail: zh(
+						"This server entry's {0} cannot be sent as an HTTP header, so no request was made. Enter the value again from the server row on the dashboard.",
+						zh("API key")
+					),
+				},
+			];
+			for (const { name, cause, detail } of cases) {
+				const writer = createStatusBarManager({ hasConfiguredServers: () => true });
+				createdContexts.push(writer.context);
+				writer.manager.handleAggregatedStatus({
+					serverStatuses: [makeServerStatus({ state: "error", baseUrl: "http://a.test", cause })],
+					totalModels: 0,
+					silent: true,
+				});
+				await new Promise((resolve) => setImmediate(resolve));
+				const persisted: unknown = JSON.parse(
+					JSON.stringify(writer.context.globalState.get(LAST_CONNECTION_STATUS_KEY))
+				);
+				assert.ok(!JSON.stringify(persisted).includes(detail.slice(0, 8)), `${name}: the store carries no sentence`);
+				const item = new RecordingItem();
+				l10n.config({ contents: zhCn });
+				try {
+					createManager(persisted, () => true, undefined, item);
+				} finally {
+					l10n.config({ contents: {} });
+				}
+				assert.strictEqual(item.last.tooltip, zh("Connection failed\n{0}\nClick for details", detail), name);
+			}
+		});
+
+		test("a sync pass before any report judges a setting whose only entry the parser refused", async () => {
+			// No overlay (nothing declared) but one verdict row: the bar must read the same error the hero shows, not
+			// stay on the restore-less connecting seed.
+			const item = new RecordingItem();
+			const harness = createStatusBarManager({
+				hasConfiguredServers: () => true,
+				entryReports: () => [
+					{
+						index: 0,
+						label: "x",
+						baseUrl: "http://x.test",
+						problems: ["auth: apiKey must be a string"],
+						accepted: false,
+					},
+				],
+				item,
+			});
+			createdContexts.push(harness.context);
+			harness.manager.refreshFromSync();
+			await new Promise((resolve) => setImmediate(resolve));
+			const status = harness.manager.connectionStatus;
+			assert.ok(status.state === "error", `expected error, got ${status.state}`);
+			assert.deepStrictEqual(status.cause, { kind: "misconfiguredEntry" });
+			assert.strictEqual(item.last.severity, "error");
+		});
+
 		test("a restored error that lost its server statuses keeps the connection-failure rendering", async () => {
 			// The restore normalization fails closed on an empty status list: without the statuses there is no proof
 			// the servers answered.
 			const item = new RecordingItem();
 			const manager = createManager(
-				stamped({ state: "error", error: "boom", logSafeError: "RequestError(connection)" }),
+				stamped({ state: "error", cause: UNCLASSIFIED, logSafeError: "RequestError(connection)" }),
 				() => true,
 				undefined,
 				item
@@ -483,7 +708,7 @@ suite("extension/ui/status", () => {
 			label: "Gateway",
 			baseUrl: "http://gw.test",
 			state: "error",
-			error: "discovery down",
+			cause: UNCLASSIFIED,
 			logSafeError: markLogSafe("RequestError(http, status 404)"),
 			expected: true,
 			servedModelCount: declaredModelCount ?? 0,
@@ -503,7 +728,7 @@ suite("extension/ui/status", () => {
 			label: "Down",
 			baseUrl: "http://down.test",
 			state: "error",
-			error: "boom",
+			cause: UNCLASSIFIED,
 			logSafeError: markLogSafe("RequestError(connection)"),
 			servedModelCount: 0,
 			lastChecked: new Date().toISOString(),
@@ -580,7 +805,7 @@ suite("extension/ui/status", () => {
 			manager.handleAggregatedStatus({ serverStatuses: [unexpectedFailure], totalModels: 0, silent: true });
 			const red = manager.connectionStatus;
 			assert.ok(red.state === "error");
-			assert.strictEqual(red.error, "boom");
+			assert.deepStrictEqual(red.cause, UNCLASSIFIED);
 		});
 
 		test("an all-failed window still serving its stale-window models reads degraded, never dead", async () => {
@@ -638,7 +863,7 @@ suite("extension/ui/status", () => {
 							state: "error",
 							label: "Gateway",
 							baseUrl: "http://gw.test",
-							error: "discovery down",
+							cause: UNCLASSIFIED,
 							logSafeError: "RequestError(http, status 404)",
 							expected: true,
 							servedModelCount: 3,
@@ -648,7 +873,7 @@ suite("extension/ui/status", () => {
 							state: "error",
 							label: "Junky",
 							baseUrl: "http://junk.test",
-							error: "boom",
+							cause: UNCLASSIFIED,
 							logSafeError: "RequestError(connection)",
 							expected: "yes",
 							servedModelCount: 0,
@@ -658,7 +883,7 @@ suite("extension/ui/status", () => {
 							state: "error",
 							label: "Dropped",
 							baseUrl: "http://dropped.test",
-							error: "boom",
+							cause: UNCLASSIFIED,
 							logSafeError: "RequestError(connection)",
 							servedModelCount: -1,
 						},
@@ -704,9 +929,16 @@ suite("extension/ui/status", () => {
 				entryLabel: "Down",
 				baseUrl: "http://down.test",
 				state: "error",
-				error: "listing answered 404",
+				cause: {
+					kind: "transport",
+					classification: {
+						kind: "http",
+						status: 404,
+						setupHint: "check-base-url",
+						unsupportedEndpoint: "modelListing",
+					},
+				},
 				logSafeError: markLogSafe("RequestError(http, status 404, discovery)"),
-				classification: { kind: "http", status: 404, setupHint: "check-base-url", unsupportedEndpoint: "modelListing" },
 				expected: true,
 				servedModelCount: 1,
 				declaredModelCount: 1,
@@ -718,15 +950,23 @@ suite("extension/ui/status", () => {
 			await new Promise((resolve) => setImmediate(resolve));
 
 			// Serialized through JSON like the real Memento boundary, so the pin compares persisted DATA, never the
-			// in-memory object graph with itself.
+			// in-memory object graph with itself. The live status carries no rendered text, so the envelope is the
+			// live status field for field (the failed element's cause is its transport key), the restore is the live
+			// status again, and the restored bar renders the whole tooltip the live one did.
 			const persisted: unknown = JSON.parse(JSON.stringify(first.context.globalState.get(LAST_CONNECTION_STATUS_KEY)));
 			assert.deepStrictEqual(
 				persisted,
-				JSON.parse(JSON.stringify({ v: 2, status: first.manager.connectionStatus })),
-				"the on-disk format is the stamped envelope"
+				JSON.parse(JSON.stringify({ v: 7, status: first.manager.connectionStatus })),
+				"the on-disk format is the stamped envelope of keys"
 			);
-			const second = createManager(persisted, () => true);
+			const item = new RecordingItem();
+			const second = createManager(persisted, () => true, undefined, item);
 			assert.deepStrictEqual(second.connectionStatus, first.manager.connectionStatus);
+			assert.deepStrictEqual(item.last, {
+				text: "$(check) LiteLLM",
+				tooltip: "3 models available from 2 servers\nClick for diagnostics",
+				severity: "plain",
+			});
 		});
 
 		test("a restore-less start on a configured install claims connecting, never not-configured", () => {
@@ -770,39 +1010,38 @@ suite("extension/ui/status", () => {
 		}
 
 		test("an error blob without its log rendering is not the current shape and restores as undefined", () => {
-			// The log slot may never be rebuilt from the display message (which can embed response text), and the
-			// current shape always carries it, so a blob without one restores as nothing at all.
-			const manager = createManager(stamped({ state: "error", error: "boom" }));
+			// The log slot may never be rebuilt from the cause (the cause is display vocabulary, the log line is a
+			// classification), and the current shape always carries it, so a blob without one restores as nothing.
+			const manager = createManager(stamped({ state: "error", cause: UNCLASSIFIED }));
 
 			assert.deepStrictEqual(manager.connectionStatus, { state: "not-configured" });
 		});
 
-		test("restores a persisted logSafeError alongside the display message", () => {
-			const manager = createManager(
-				stamped({
-					state: "error",
-					error: "boom body",
-					logSafeError: "RequestError(http, status 502)",
-				})
-			);
+		test("restores a persisted logSafeError alongside the cause", () => {
+			const cause: FailureCause = { kind: "transport", classification: { kind: "http", status: 502 } };
+			const manager = createManager(stamped({ state: "error", cause, logSafeError: "RequestError(http, status 502)" }));
 
 			const status = manager.connectionStatus;
 			assert.ok(status.state === "error");
-			assert.strictEqual(status.error, "boom body");
+			assert.deepStrictEqual(status.cause, cause);
 			assert.strictEqual(status.logSafeError, "RequestError(http, status 502)");
 		});
 
-		suite("error classification", () => {
-			// The persisted shape is enum ids plus an integer status, never message text.
+		suite("the persisted cause", () => {
+			// The persisted shape is enum ids plus an integer status, never message text; the transport classification
+			// rides inside the cause.
 			const classification = { kind: "connection", setupHint: "proxy-not-running" };
-			const errorElement = (elementClassification: unknown) => ({
+			const errorElement = (cause: unknown) => ({
 				label: "Prod",
 				baseUrl: "http://prod.test",
 				state: "error",
-				error: "boom",
+				cause,
 				logSafeError: "RequestError(connection)",
 				servedModelCount: 0,
-				...(elementClassification !== undefined ? { classification: elementClassification } : {}),
+			});
+			const transport = (elementClassification: unknown) => ({
+				kind: "transport",
+				classification: elementClassification,
 			});
 			const fieldDroppingJunk: ReadonlyArray<[string, unknown, unknown]> = [
 				[
@@ -812,19 +1051,23 @@ suite("extension/ui/status", () => {
 				],
 				["a bogus setupHint", { kind: "http", status: 404, setupHint: "reboot" }, { kind: "http", status: 404 }],
 			];
-			const classificationDroppingJunk: ReadonlyArray<[string, unknown]> = [
-				["an unknown kind", { kind: "exploded", status: 404 }],
-				["a non-object value", "check-base-url"],
+			const causeDroppingJunk: ReadonlyArray<[string, unknown]> = [
+				["an unknown transport kind", transport({ kind: "exploded", status: 404 })],
+				["a non-object classification", transport("check-base-url")],
+				["an unknown cause kind", { kind: "text", text: "boom" }],
+				["a sync arm with an unknown class", { kind: "sync", failureClass: "exploded" }],
+				["a refusal naming no field", { kind: "credentialsRefused", fields: [] }],
+				["a non-object cause", "boom"],
 			];
 
 			test("restores at the top level", () => {
 				const manager = createManager(
-					stamped({ state: "error", error: "boom", logSafeError: "RequestError(connection)", classification })
+					stamped({ state: "error", cause: transport(classification), logSafeError: "RequestError(connection)" })
 				);
 
 				const status = manager.connectionStatus;
 				assert.ok(status.state === "error");
-				assert.deepStrictEqual(status.classification, classification);
+				assert.deepStrictEqual(status.cause, transport(classification));
 			});
 
 			test("restores on a nested error element", () => {
@@ -832,42 +1075,50 @@ suite("extension/ui/status", () => {
 					stamped({
 						state: "degraded",
 						totalModels: 0,
-						serverStatuses: [errorElement(classification)],
+						serverStatuses: [errorElement(transport(classification))],
 					})
 				);
 
 				const status = manager.connectionStatus;
 				assert.ok(status.state === "degraded");
 				const element = expectErrorElement(status.serverStatuses);
-				assert.deepStrictEqual(element.classification, classification);
+				assert.deepStrictEqual(element.cause, transport(classification));
 			});
 
-			test("an absent field restores as absent at both sites", () => {
-				const manager = createManager(
-					stamped({
-						state: "error",
-						error: "boom",
-						logSafeError: "RequestError(connection)",
-						serverStatuses: [errorElement(undefined)],
-					})
-				);
-
-				const status = manager.connectionStatus;
-				assert.ok(status.state === "error");
-				assert.ok(!("classification" in status), "the top-level restore must not invent a classification");
-				const element = expectErrorElement(status.serverStatuses ?? []);
-				assert.ok(!("classification" in element), "the element restore must not invent a classification");
+			test("every non-transport arm restores as written, at both sites", () => {
+				const causes: readonly FailureCause[] = [
+					{ kind: "sync", failureClass: "credentialsRefused" },
+					{ kind: "credentials", reason: "secretsUnreadable" },
+					{ kind: "credentialsRefused", fields: ["apiKey", "virtualKeyValue"] },
+					{ kind: "misconfiguredEntry" },
+					{ kind: "unclassified" },
+				];
+				for (const cause of causes) {
+					const manager = createManager(
+						stamped({
+							state: "error",
+							cause,
+							logSafeError: "RequestError(connection)",
+							serverStatuses: [errorElement(cause)],
+						})
+					);
+					const status = manager.connectionStatus;
+					assert.ok(status.state === "error", cause.kind);
+					assert.deepStrictEqual(status.cause, cause, cause.kind);
+					assert.deepStrictEqual(expectErrorElement(status.serverStatuses ?? []).cause, cause, cause.kind);
+					assert.strictEqual(failureClassification(status.cause), undefined, "no transport classification is invented");
+				}
 			});
 
 			for (const [label, junk, preserved] of fieldDroppingJunk) {
 				test(`${label} drops that field and keeps the rest, at the top level`, () => {
 					const manager = createManager(
-						stamped({ state: "error", error: "boom", logSafeError: "RequestError(connection)", classification: junk })
+						stamped({ state: "error", cause: transport(junk), logSafeError: "RequestError(connection)" })
 					);
 
 					const status = manager.connectionStatus;
 					assert.ok(status.state === "error", "the error status itself must survive");
-					assert.deepStrictEqual(status.classification, preserved);
+					assert.deepStrictEqual(status.cause, transport(preserved));
 				});
 
 				test(`${label} drops that field and keeps the rest, on the nested element`, () => {
@@ -875,56 +1126,52 @@ suite("extension/ui/status", () => {
 						stamped({
 							state: "degraded",
 							totalModels: 0,
-							serverStatuses: [errorElement(junk)],
+							serverStatuses: [errorElement(transport(junk))],
 						})
 					);
 
 					const status = manager.connectionStatus;
 					assert.ok(status.state === "degraded");
-					assert.deepStrictEqual(expectErrorElement(status.serverStatuses).classification, preserved);
+					assert.deepStrictEqual(expectErrorElement(status.serverStatuses).cause, transport(preserved));
 				});
 			}
 
-			for (const [label, junk] of classificationDroppingJunk) {
-				test(`${label} drops the whole field but keeps the top-level error`, () => {
+			for (const [label, junk] of causeDroppingJunk) {
+				test(`${label} is not the current shape: the top-level status restores as undefined`, () => {
+					// The cause is the headline's key: without one there is nothing honest to render, and the display
+					// cache restores from scratch rather than guess.
 					const manager = createManager(
-						stamped({ state: "error", error: "boom", logSafeError: "RequestError(connection)", classification: junk })
+						stamped({ state: "error", cause: junk, logSafeError: "RequestError(connection)" })
 					);
 
-					const status = manager.connectionStatus;
-					assert.ok(status.state === "error", "the error status itself must survive");
-					assert.strictEqual(status.error, "boom");
-					assert.ok(!("classification" in status), "junk must drop the field, not poison the status");
+					assert.deepStrictEqual(manager.connectionStatus, { state: "not-configured" });
 				});
 
-				test(`${label} drops the whole field but keeps the nested element`, () => {
+				test(`${label} is not the current shape: the nested element drops`, () => {
 					const manager = createManager(
-						stamped({
-							state: "degraded",
-							totalModels: 0,
-							serverStatuses: [errorElement(junk)],
-						})
+						stamped({ state: "degraded", totalModels: 0, serverStatuses: [errorElement(junk)] })
 					);
 
-					const status = manager.connectionStatus;
-					assert.ok(status.state === "degraded");
-					const element = expectErrorElement(status.serverStatuses);
-					assert.strictEqual(element.error, "boom");
-					assert.ok(!("classification" in element), "junk must drop the field, not the element");
+					assert.deepStrictEqual(manager.connectionStatus, { state: "degraded", totalModels: 0, serverStatuses: [] });
 				});
 			}
 		});
 
-		test("an error blob that lost its message is not the current shape and restores as undefined", () => {
-			// The message cannot be invented, and the live path always writes one, so a message-less error blob
-			// restores as nothing at all.
+		test("an error blob without a cause is not the current shape and restores as undefined", () => {
+			// The cause cannot be invented, and the live path always writes one, so a cause-less error blob restores
+			// as nothing at all.
 			const manager = createManager(stamped({ state: "error", logSafeError: "RequestError(connection)" }));
 
 			assert.deepStrictEqual(manager.connectionStatus, { state: "not-configured" });
 		});
 
-		test("an empty persisted error message counts as lost, not as a message", () => {
-			const manager = createManager(stamped({ state: "error", error: "", logSafeError: "RequestError(connection)" }));
+		test("a previous version's text-bearing envelope restores as undefined, never as text", () => {
+			// Earlier versions stored the rendered sentence; the reader accepts exactly its own version, so such a blob
+			// starts the bar from scratch instead of restoring a sentence written under last session's locale.
+			const manager = createManager({
+				v: 6,
+				status: { state: "error", headline: { kind: "text", text: "boom" }, logSafeError: "RequestError(connection)" },
+			});
 
 			assert.deepStrictEqual(manager.connectionStatus, { state: "not-configured" });
 		});
@@ -973,10 +1220,10 @@ suite("extension/ui/status", () => {
 			});
 		});
 
-		test("an ok element without its served count and an error element without its message slots are malformed", () => {
+		test("an ok element without its served count and an error element without its cause or log slots are malformed", () => {
 			// The shapes the diagnostics renderer refuses to print ("OK (undefined models)", "Error: undefined") never
-			// survive the restore; an empty error message counts as none, and a missing log rendering may never be
-			// rebuilt from the display message.
+			// survive the restore; an empty log rendering counts as none, and a missing one may never be rebuilt from
+			// the cause.
 			const manager = createManager(
 				stamped({
 					state: "connected",
@@ -984,8 +1231,21 @@ suite("extension/ui/status", () => {
 					serverStatuses: [
 						{ label: "Prod", baseUrl: "http://prod.test", state: "ok" },
 						{ label: "Backup", baseUrl: "http://backup.test", state: "error" },
-						{ label: "Blank", baseUrl: "http://blank.test", state: "error", error: "", logSafeError: "x" },
-						{ label: "NoLog", baseUrl: "http://nolog.test", state: "error", error: "boom", servedModelCount: 0 },
+						{
+							label: "Blank",
+							baseUrl: "http://blank.test",
+							state: "error",
+							cause: UNCLASSIFIED,
+							logSafeError: "",
+							servedModelCount: 0,
+						},
+						{
+							label: "NoLog",
+							baseUrl: "http://nolog.test",
+							state: "error",
+							cause: UNCLASSIFIED,
+							servedModelCount: 0,
+						},
 					],
 				})
 			);
@@ -1041,7 +1301,7 @@ suite("extension/ui/status", () => {
 				["the blob has no version stamp (every pre-stamp version's format)", { state: "loading" }],
 				["the stamp is the previous release's version", { v: 1, status: { state: "loading" } }],
 				["the stamp is not a number", { v: "2", status: { state: "loading" } }],
-				["the envelope has no status", { v: 2 }],
+				["the envelope has no status", { v: 6 }],
 				// The status shape gate, inside a current-version envelope.
 				["state is missing", stamped({ totalModels: 5 })],
 				["state is not a known connection state", stamped({ state: "exploded" })],

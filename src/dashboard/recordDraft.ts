@@ -21,7 +21,7 @@ import {
 	wrongTypeDirectives,
 } from "../shared/config/recordResolution";
 import type { HeaderScalar } from "../shared/util/headers";
-import { headerValue, isValidHeaderName, trimHttpWhitespace } from "../shared/util/headers";
+import { headerNameKey, headerValue, isValidHeaderName, trimHttpWhitespace } from "../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../shared/util/json";
 import { formatHeaderValue, formatJsonValue, parseHeaderValue, parseJsonValue } from "./presenters";
 
@@ -415,13 +415,18 @@ type HeaderRowsDetailedParse =
  * "succeed" on a header that would never be sent.
  */
 function parseHeaderRowsDetailed(rows: readonly HeaderRow[]): HeaderRowsDetailedParse {
-	const duplicateNames = duplicates(rows.map((row) => trimHttpWhitespace(row.name)));
+	const names = rows.map((row) => trimHttpWhitespace(row.name));
+	const duplicateKeys = duplicates(names.map(headerNameKey));
+	const duplicateNames = new Set(names.filter((name) => duplicateKeys.has(headerNameKey(name))));
 	const headers: Record<string, HeaderScalar> = Object.create(null) as Record<string, HeaderScalar>;
 	const problems = rows.map((row): RowFieldProblem | undefined => {
 		const name = trimHttpWhitespace(row.name);
 		const problem = keyProblem(
 			name,
-			{ empty: l10n.t("Enter a header name"), duplicate: l10n.t("Duplicate header name") },
+			{
+				empty: l10n.t("Enter a header name"),
+				duplicate: l10n.t("Duplicate header name (names are case-insensitive)"),
+			},
 			duplicateNames
 		);
 		if (problem !== undefined) {

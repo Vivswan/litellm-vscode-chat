@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import type { RejectedCredentialField } from "../../provider/catalog/groupModels";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
+import type { RejectedCredentialField } from "../../shared/serverEntry";
 import type { StoredSecretsRecord } from "./serverSync/secrets";
 import { readServerSecretsRecord, resolveOwnedSecrets } from "./serverSync/secrets";
 import type { DeclaredServer } from "./serverSync/setting";

@@ -26,8 +26,8 @@ import {
 	NEW_MODEL_PARAMETERS_ID,
 } from "../migrations/settingsRedesign/legacyIds";
 import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
+import { rejectsWithOwnRow } from "../servers/serverSync";
 import type { SettingsReader } from "./state";
-import { rejectsWithOwnRow } from "./state";
 
 /** The field under `auth` (or `auth.oauth`) a dropped credential lives in, as the servers setting spells it. */
 const CREDENTIAL_PATHS: Record<CredentialRejection["field"], string> = {

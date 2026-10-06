@@ -101,6 +101,7 @@ async function wireUnderTest(config: Record<string, unknown>, options: HarnessOp
 			inspect: (key) => (Object.hasOwn(settings, key) ? { globalValue: settings[key] } : undefined),
 		},
 		getConnectionStatus: () => ({ state: "not-configured" }),
+		getDeclared: () => [],
 		issueReporter: new IssueReporter(),
 		extVersion: "0.0.0-test",
 		vscodeVersion: "1.0.0-test",

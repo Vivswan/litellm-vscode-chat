@@ -10,6 +10,7 @@ import type { ServerEditRequest } from "../../../../webview/dashboard/serverEdit
 import { ServerEditPage } from "../../../../webview/dashboard/serverEditPage";
 import { ServersSection } from "../../../../webview/dashboard/servers";
 import {
+	CAUSE,
 	declaredWithSecrets,
 	makeDeclaredServer,
 	makeExternalServer,
@@ -421,13 +422,13 @@ test("a Retry in flight busies only the asking row, even when another row wears 
 	// The same collision class as the armed Remove: the "Checking..." relabel and spinner must follow the row identity,
 	// not the display label - the fleet-wide disable is shared on purpose, the busy claim is not.
 	const root = mountSection([
-		makeDeclaredServer({ label: "Prod", baseUrl: "http://a.test", state: "error", error: "refused" }),
+		makeDeclaredServer({ label: "Prod", baseUrl: "http://a.test", state: "error", cause: CAUSE.connection }),
 		makeExternalServer({
 			label: "Prod",
 			baseUrl: "http://b.test",
 			adoptHandle: "handle-prod",
 			state: "error",
-			error: "refused",
+			cause: CAUSE.connection,
 		}),
 	]);
 	const items = [...root.querySelectorAll(".server-item")];
@@ -922,6 +923,7 @@ test("a legacy row carries the badge and the Origin fact, and offers neither Edi
 		servedModelCount: 2,
 		credentials: "present",
 		hasOAuth: false,
+		hasVirtualKey: false,
 		state: "ok",
 	};
 	const root = mountSection([legacyRow, makeExternalServer()]);
@@ -1146,26 +1148,24 @@ test("classified refresh failures carry a Troubleshoot link on their own row; un
 		makeDeclaredServer({
 			label: "Prod",
 			state: "error",
-			error: "unable to connect",
-			classification: { kind: "connection", setupHint: "proxy-not-running" },
+			cause: CAUSE.connection,
 		}),
-		makeDeclaredServer({ label: "Quiet", baseUrl: "http://quiet.test", state: "error", error: "boom" }),
+		makeDeclaredServer({ label: "Quiet", baseUrl: "http://quiet.test", state: "error", cause: CAUSE.unclassified }),
 		makeDeclaredServer({
 			label: "Wrong",
 			baseUrl: "http://wrong.test",
 			state: "error",
-			error: "answered 404",
-			classification: { kind: "http", status: 404, setupHint: "check-base-url" },
+			cause: CAUSE.http404,
 		}),
 	]);
 
 	const lines = [...root.querySelectorAll(".row-diagnostic")];
 	expect(lines.length).toBe(3);
 	expect(lines[0]?.textContent).toContain("Prod");
-	expect(lines[0]?.textContent).toContain("unable to connect");
+	expect(lines[0]?.textContent).toContain("Could not connect to http://localhost:4000");
 	expect(lines[1]?.textContent).toContain("Quiet");
 	expect(lines[1]?.querySelector("a.docs-link")).toBeNull();
-	expect(lines[2]?.textContent).toContain("answered 404");
+	expect(lines[2]?.textContent).toContain("The server at http://wrong.test answered 404");
 
 	const anchors = [...root.querySelectorAll<HTMLAnchorElement>(".row-diagnostic a.docs-link")];
 	expect(anchors.map((anchor) => anchor.getAttribute("href"))).toEqual([
@@ -1183,13 +1183,13 @@ test("classified refresh failures carry a Troubleshoot link on their own row; un
 
 test("without a classification a row's failure line is plain text, with no link", () => {
 	const root = mountSection([
-		makeDeclaredServer({ label: "Prod", state: "error", error: "boom" }),
-		makeDeclaredServer({ label: "Beta", baseUrl: "http://beta.test", state: "error", error: "bang" }),
+		makeDeclaredServer({ label: "Prod", state: "error", cause: CAUSE.unclassified }),
+		makeDeclaredServer({ label: "Beta", baseUrl: "http://beta.test", state: "error", cause: CAUSE.http500 }),
 	]);
 	const lines = [...root.querySelectorAll(".row-diagnostic")];
 	expect(lines.length).toBe(2);
-	expect(lines[0]?.textContent).toContain("boom");
-	expect(lines[1]?.textContent).toContain("bang");
+	expect(lines[0]?.textContent).toContain("Model discovery failed; the output log has the details");
+	expect(lines[1]?.textContent).toContain("The server at http://beta.test answered 500");
 	expect(root.querySelector(".row-diagnostic a.docs-link")).toBeNull();
 });
 
@@ -1198,11 +1198,12 @@ test("a hintless classification renders no troubleshooting link", () => {
 		makeDeclaredServer({
 			label: "Prod",
 			state: "error",
-			error: "LiteLLM API error: 500",
-			classification: { kind: "http", status: 500 },
+			cause: CAUSE.http500,
 		}),
 	]);
-	expect(root.querySelector(".row-diagnostic")?.textContent).toContain("LiteLLM API error: 500");
+	expect(root.querySelector(".row-diagnostic")?.textContent).toContain(
+		"The server at http://localhost:4000 answered 500"
+	);
 	expect(root.querySelector(".row-diagnostic a.docs-link")).toBeNull();
 });
 
@@ -1697,7 +1698,7 @@ test("an expected failure serving declared models reads Connected, and states th
 		makeDeclaredServer({
 			label: "Gateway",
 			state: "error",
-			error: "404 on /models",
+			cause: CAUSE.http404,
 			expected: true,
 			declaredModelCount: 2,
 			servedModelCount: 2,
@@ -1715,7 +1716,7 @@ test("an expected failure serving declared models reads Connected, and states th
 	expect(line?.textContent).toContain("Gateway");
 	expect(line?.classList.contains("tier-advisory")).toBe(true);
 	expect(root.querySelector(".row-diagnostic.tier-error")).toBeNull();
-	expect(line?.textContent).toContain("404 on /models");
+	expect(line?.textContent).toContain("The server at http://localhost:4000 answered 404");
 });
 
 test("an expected failure serving stale AND declared models headlines the served total, declared as qualifier", () => {
@@ -1725,7 +1726,7 @@ test("an expected failure serving stale AND declared models headlines the served
 		makeDeclaredServer({
 			label: "Gateway",
 			state: "error",
-			error: "404 on /models",
+			cause: CAUSE.http404,
 			expected: true,
 			servedModelCount: 5,
 			declaredModelCount: 2,
@@ -1734,7 +1735,7 @@ test("an expected failure serving stale AND declared models headlines the served
 			label: "Edge",
 			baseUrl: "http://edge.test",
 			state: "error",
-			error: "404 on /models",
+			cause: CAUSE.http404,
 			expected: true,
 			servedModelCount: 3,
 			declaredModelCount: 1,
@@ -1753,7 +1754,7 @@ test("an expected failure with nothing declared reads blocking and offers Declar
 		makeDeclaredServer({
 			label: "Gateway",
 			state: "error",
-			error: "404 on /models",
+			cause: CAUSE.http404,
 			expected: true,
 			notices: ["expected-failures-nothing-declared"],
 		}),
@@ -1925,8 +1926,7 @@ test("a models-listing-unserved error offers the declare action writing modelLis
 		makeDeclaredServer({
 			label: "Gateway",
 			state: "error",
-			error: "The models listing failed, but this server answers",
-			classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
+			cause: CAUSE.listing404,
 		}),
 	]);
 	fireClick(buttonByText(root, "Declare expected failure"));
@@ -1942,12 +1942,9 @@ test("a models-listing-unserved error leads bright with the consequence and dims
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Gateway",
+			baseUrl: "https://gateway.example",
 			state: "error",
-			error:
-				"The models listing failed, but this server answers. If it never serves the models listing, declare that on the " +
-				'"Gateway" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".\n' +
-				"GET https://gateway.example/v1/models answered HTTP 404; model info answered",
-			classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
+			cause: CAUSE.listing404,
 		}),
 	]);
 	const headline = root.querySelector(".row-diagnostic-headline")?.textContent ?? "";
@@ -1956,7 +1953,7 @@ test("a models-listing-unserved error leads bright with the consequence and dims
 	expect(headline).not.toContain("expectedFailures");
 	const details = [...root.querySelectorAll(".row-diagnostic-detail")].map((detail) => detail.textContent ?? "");
 	expect(details.some((detail) => detail.includes('"expectedFailures": ["modelListing"]'))).toBe(true);
-	expect(details.some((detail) => detail.includes("GET https://gateway.example/v1/models"))).toBe(true);
+	expect(details.some((detail) => detail.includes("The server at https://gateway.example answers"))).toBe(true);
 });
 
 test("a discovery error without the endpoint classification offers no declare action", () => {
@@ -1964,8 +1961,7 @@ test("a discovery error without the endpoint classification offers no declare ac
 		makeDeclaredServer({
 			label: "Gateway",
 			state: "error",
-			error: "boom",
-			classification: { kind: "http", status: 500 },
+			cause: CAUSE.http500,
 		}),
 	]);
 	expect(root.textContent).not.toContain("Declare expected failure");
@@ -1978,8 +1974,7 @@ test("a models-listing-unserved error withholds the declare action on an unprove
 		makeDeclaredServer({
 			label: "Gateway",
 			state: "error",
-			error: "The models listing failed, but this server answers",
-			classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
+			cause: CAUSE.listing404,
 			entryFieldsInactive: true,
 		}),
 	]);
@@ -2261,7 +2256,7 @@ test("Retry says it is working, and only its own ack releases it - no push, of a
 	const BEFORE = Date.now() - 10 * 60_000;
 	const AFTER = Date.now() - 60_000;
 	const failing = (lastChecked: number) =>
-		makeDeclaredServer({ label: "Prod", state: "error", error: "refused", lastChecked });
+		makeDeclaredServer({ label: "Prod", state: "error", cause: CAUSE.connection, lastChecked });
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [failing(BEFORE)] })));
 
@@ -2313,7 +2308,7 @@ test("a sync that fails still releases the Retry control", () => {
 	// row for the life of the panel.
 	const root = mount(<App />);
 	pushToWebview(
-		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", error: "refused" })] }))
+		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", cause: CAUSE.connection })] }))
 	);
 	resetPosted();
 	fireClick(buttonByText(root, "Retry"));
@@ -2337,8 +2332,8 @@ test("a fleet-wide sync disables every row's Retry, not just the one clicked", (
 		statePush(
 			makeState({
 				servers: [
-					makeDeclaredServer({ label: "Prod", state: "error", error: "a" }),
-					makeDeclaredServer({ label: "Beta", baseUrl: "http://b", state: "error", error: "b" }),
+					makeDeclaredServer({ label: "Prod", state: "error", cause: CAUSE.connection }),
+					makeDeclaredServer({ label: "Beta", baseUrl: "http://b", state: "error", cause: CAUSE.http500 }),
 				],
 			})
 		)
@@ -2359,7 +2354,7 @@ test("pressing Retry keeps the reader's focus on the button", () => {
 	// throwing the keyboard user back to the top of the document with no announcement.
 	const root = mount(<App />);
 	pushToWebview(
-		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", error: "refused" })] }))
+		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", cause: CAUSE.connection })] }))
 	);
 	const button = buttonByText(root, "Retry");
 	button.focus();
@@ -2373,7 +2368,9 @@ test("the list carries one polite live region, so a sync's outcome is announced"
 	// Regression pin: with the role="alert" banners retired and no replacement, a screen reader user got
 	// nothing at all when a sync landed and the rows changed underneath them.
 	const root = mount(<App />);
-	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", error: "x" })] })));
+	pushToWebview(
+		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", cause: CAUSE.connection })] }))
+	);
 
 	const regions = [...root.querySelectorAll("[aria-live]")].filter((el) => el.closest("#panel-overview") !== null);
 	// Two page-level regions, never one per row: the verdict region and the in-flight busy region (text-only,

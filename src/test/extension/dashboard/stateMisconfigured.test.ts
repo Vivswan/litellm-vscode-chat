@@ -6,8 +6,6 @@ import type { DeclaredServerView, ServerEntryReport } from "../../../extension/s
 import { fixedHeaderValue } from "../../../shared/util/headers";
 import { makeServerStatus } from "../../testUtils";
 
-const MISCONFIGURED_TEXT = "misconfigured entry; not used until its configuration is fixed";
-
 const READER: SettingsReader = { get: () => undefined, inspect: () => undefined };
 
 function makeDeclared(overrides: Partial<DeclaredServerView> = {}): DeclaredServerView {
@@ -42,9 +40,8 @@ suite("extension/dashboard/state misconfigured rows", () => {
 		assert.strictEqual(row.state, "error");
 		assert.strictEqual(row.servedModelCount, 0);
 		assert.deepStrictEqual(row.problems, ["auth must pick one form"]);
-		// English by the issue-report policy, on both the display and the mirror.
-		assert.strictEqual(row.error, MISCONFIGURED_TEXT);
-		assert.strictEqual(row.errorEnglish, MISCONFIGURED_TEXT);
+		// The row carries the cause; every surface renders its text from it.
+		assert.deepStrictEqual(row.cause, { kind: "misconfiguredEntry" });
 		assert.strictEqual(row.config, undefined, "the broken shape cannot round-trip through the edit form");
 	});
 

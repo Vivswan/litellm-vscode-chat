@@ -5,18 +5,13 @@ import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import {
 	buildGroupArgs,
 	createServerSyncEnv,
-	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
-	GROUP_UPSERT_FAILED_MESSAGE,
 	parseServersSetting,
-	SALT_UNAVAILABLE_MESSAGE,
-	SECRETS_READ_FAILED_MESSAGE,
 	ServerSyncEngine,
 } from "../../../extension/servers/serverSync";
 import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
 import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
 import { canonicalEntryBaseUrls, removalOutcome } from "../../../extension/servers/serverSync/vscodeEnv";
 import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
-import type { RejectedCredentialField } from "../../../provider/catalog/groupModels";
 import { groupClientId } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 import {
@@ -25,6 +20,7 @@ import {
 	SYNCED_ENTRY_BASE_URLS_KEY,
 } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
+import type { RejectedCredentialField } from "../../../shared/serverEntry";
 import { secretDestination } from "../../../shared/serverEntry";
 import { unexpectedFailureCount } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
@@ -97,11 +93,6 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 
 				const view = expectDefined(engine.getDeclared()[0]);
 				assert.strictEqual(view.syncFailure?.class, "credentialsRefused", field);
-				assert.strictEqual(
-					view.syncFailure.message,
-					"A configured API key or virtual key for this entry cannot be sent as an HTTP header, so requests to it are refused. See the Diagnostics tab for the field, then enter the value again.",
-					field
-				);
 				assert.deepStrictEqual(view.rejectedCredentials, [field]);
 				assert.strictEqual(recorded.upserts.length, 1, `${field}: the group add itself still lands`);
 			}
@@ -125,7 +116,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				recorded.logged.some(([message]) => message.includes("changed mid-pass")),
 				"the skip logs a classification"
 			);
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "a silent skip, not an error state");
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined, "a silent skip, not an error state");
 
 			await engine.syncNow();
 			assert.deepStrictEqual(
@@ -159,7 +150,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				["sk-1"],
 				"the add lands with the pass-start pairing"
 			);
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined);
 
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "the rotation's follow-up pass is in-sync, no re-add");
@@ -207,7 +198,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.secrets = { A: { apiKey: "sk-2" } };
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "a secret change owes the host nothing");
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "and raises no failure");
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined, "and raises no failure");
 
 			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			await engine.syncNow();
@@ -623,7 +614,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.deepStrictEqual(recordedEvents(recorded), []);
 			assert.strictEqual(recorded.upserts.length, 1, "the repaired entry matches its carried fingerprint");
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined);
 		});
 
 		test("a failing pass-end fingerprint write cannot swallow a removal's reconciliation", async () => {
@@ -699,7 +690,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.failLabels.delete("Prod");
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 2, "the restored entry retries the failed add");
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "the retry heals the entry");
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined, "the retry heals the entry");
 		});
 
 		test("a rejected label's carry also accepts another window's store record, presence-only", async () => {
@@ -965,13 +956,13 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			assert.ok(failureLog, "the failure is logged with a classification");
 			assert.ok(!JSON.stringify(recorded.logged).includes("host refused"), "the raw host text stays out of the log");
 			assert.deepStrictEqual(recorded.fingerprints, {});
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPSERT_FAILED_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "upsertFailed");
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "upsertFailed");
 
 			recorded.failLabels.clear();
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "the retry lands");
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "the error clears on success");
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined, "the error clears on success");
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined, "the class clears with it");
 		});
 
@@ -996,7 +987,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow(true);
 
 			assert.strictEqual(
-				engine.getDeclared()[0]?.syncFailure?.message,
+				engine.getDeclared()[0]?.syncFailure?.class,
 				undefined,
 				"an existing unchanged group is in sync"
 			);
@@ -1017,7 +1008,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.setting = [{ label: "A", baseUrl: "http://changed.test" }];
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 			assert.ok(
 				!JSON.stringify(recorded.logged).includes("sk-1"),
@@ -1027,13 +1018,13 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "no add attempts while blocked");
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 
 			// After the user removes the stale group natively, a forced pass recreates it.
 			recorded.duplicateLabels.clear();
 			await engine.syncNow(true);
 			assert.strictEqual(recorded.upserts.length, 2, "the forced retry lands");
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
 		});
 
@@ -1047,7 +1038,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 			assert.deepStrictEqual(
 				Object.keys(recorded.fingerprints),
 				["A"],
@@ -1058,13 +1049,13 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			// content, so the error clears without a host call.
 			recorded.setting = [{ label: "A", baseUrl: "http://a.test" }];
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "the revert unwedges the entry");
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined, "the revert unwedges the entry");
 			assert.strictEqual(recorded.upserts.length, 1, "the revert is a silent no-op, not a retry");
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
 
 			recorded.setting = [{ label: "A", baseUrl: "http://c.test" }];
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 		});
 
 		test("a transient failure on a synced entry keeps last-known-good, so the retry's duplicate reads as in-sync", async () => {
@@ -1077,7 +1068,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			// record must survive: it is the only thing that lets the next duplicate response read as in-sync.
 			recorded.failLabels.add("A");
 			await engine.syncNow(true);
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPSERT_FAILED_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "upsertFailed");
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "last-known-good survives the failure");
 
 			// The next unforced pass retries and gets the healthy group's normal duplicate rejection; misreading it as
@@ -1086,7 +1077,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow();
 			assert.strictEqual(
-				engine.getDeclared()[0]?.syncFailure?.message,
+				engine.getDeclared()[0]?.syncFailure?.class,
 				undefined,
 				"the duplicate is the synced steady state"
 			);
@@ -1104,7 +1095,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.failLabels.add("A");
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPSERT_FAILED_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "upsertFailed");
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "last-known-good survives the failure");
 
 			// The user reverts instead: the entry matches the live group again, and the pending retry concerned a
@@ -1112,7 +1103,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.failLabels.delete("A");
 			recorded.setting = [{ label: "A", baseUrl: "http://a.test" }];
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "the revert lands in sync");
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined, "the revert lands in sync");
 			assert.strictEqual(recorded.upserts.length, 1, "no host call for the revert");
 		});
 
@@ -1126,7 +1117,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 
 			// The user removes the group natively and forces a sync, but the re-add fails transiently. The stale
 			// duplicate knowledge must clear with it, or the blocked shortcut would suppress every retry below.
@@ -1134,15 +1125,15 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.failLabels.add("A");
 			await engine.syncNow(true);
 			assert.strictEqual(
-				engine.getDeclared()[0]?.syncFailure?.message,
-				GROUP_UPSERT_FAILED_MESSAGE,
+				engine.getDeclared()[0]?.syncFailure?.class,
+				"upsertFailed",
 				"the classification follows the latest outcome"
 			);
 
 			recorded.failLabels.delete("A");
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 2, "the unforced retry reaches the host");
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined);
 		});
 
 		test("one entry's secret-read failure neither aborts the pass nor loses another entry's fresh fingerprint", async () => {
@@ -1166,8 +1157,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "A's add survives B's failure");
 			const byLabel = new Map(engine.getDeclared().map((view) => [view.label, view]));
-			assert.strictEqual(byLabel.get("A")?.syncFailure?.message, undefined);
-			assert.strictEqual(byLabel.get("B")?.syncFailure?.message, SECRETS_READ_FAILED_MESSAGE);
+			assert.strictEqual(byLabel.get("A")?.syncFailure?.class, undefined);
+			assert.strictEqual(byLabel.get("B")?.syncFailure?.class, "secretsUnreadable");
 			// The read-failure class stands alone: consumers key on it to mark the view's secret locations unproven,
 			// which the other skip classes (saltUnavailable, secretsMismatched) must never imply.
 			assert.strictEqual(byLabel.get("B")?.syncFailure?.class, "secretsUnreadable");
@@ -1178,8 +1169,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow(true);
 			const after = new Map(engine.getDeclared().map((view) => [view.label, view]));
-			assert.strictEqual(after.get("A")?.syncFailure?.message, undefined);
-			assert.strictEqual(after.get("B")?.syncFailure?.message, undefined);
+			assert.strictEqual(after.get("A")?.syncFailure?.class, undefined);
+			assert.strictEqual(after.get("B")?.syncFailure?.class, undefined);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints).sort(), ["A", "B"]);
 		});
 
@@ -1205,7 +1196,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow(true);
 			assert.strictEqual(
-				engine.getDeclared()[0]?.syncFailure?.message,
+				engine.getDeclared()[0]?.syncFailure?.class,
 				undefined,
 				"the group's duplicate response reads as in-sync, not a name conflict"
 			);
@@ -1220,7 +1211,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 
 			// One pass cannot read the stored secrets; its classification takes over for that pass.
 			const readSecrets = recorded.env.readSecrets;
@@ -1228,13 +1219,13 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				throw new Error("keychain locked");
 			};
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, SECRETS_READ_FAILED_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "secretsUnreadable");
 
 			// The store recovers and the entry still holds the refused configuration: the shortcut must show the
 			// name-conflict text again, not the stale secrets text.
 			recorded.env.readSecrets = readSecrets;
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 			assert.strictEqual(recorded.upserts.length, 1, "the shortcut still avoids hammering the host");
 		});
 
@@ -1244,7 +1235,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 			assert.deepStrictEqual(recorded.fingerprints, {}, "no fingerprint for an entry that never landed");
 		});
 
@@ -1253,13 +1244,13 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.duplicateLabels.add("Taken");
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 
 			// The user deletes the stale group from the models file and runs Sync Models Now: the forced pass retries
 			// the add, and this time it lands.
 			recorded.duplicateLabels.delete("Taken");
 			await engine.syncNow(true);
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined, "the blocked entry heals");
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined, "the blocked entry heals");
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Taken"], "the landed add records its fingerprint");
 		});
 
@@ -1338,7 +1329,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				const healed = outcome === "healed";
 				assert.deepStrictEqual(
 					engine.getDeclared()[0]?.syncFailure,
-					healed ? undefined : { class: "blocked", message: GROUP_UPDATE_UNAVAILABLE_MESSAGE },
+					healed ? undefined : { class: "blocked" },
 					`${observed}: after the host reports`
 				);
 				assert.deepStrictEqual(
@@ -1386,7 +1377,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				await reloaded.syncNow(force);
 				assert.deepStrictEqual(
 					reloaded.getDeclared()[0]?.syncFailure,
-					{ class: "blocked", message: GROUP_UPDATE_UNAVAILABLE_MESSAGE },
+					{ class: "blocked" },
 					`force=${force}: the host's duplicate answer is a conflict while the group serves another URL`
 				);
 				await reloaded.syncNow();
@@ -1442,7 +1433,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "the in-sync entry must not be re-added");
 			assert.strictEqual(
-				engine.getDeclared()[0]?.syncFailure?.message,
+				engine.getDeclared()[0]?.syncFailure?.class,
 				undefined,
 				"no spurious name-conflict classification"
 			);
@@ -1451,7 +1442,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			// state, not a conflict.
 			await engine.syncNow(true);
 			assert.strictEqual(
-				engine.getDeclared()[0]?.syncFailure?.message,
+				engine.getDeclared()[0]?.syncFailure?.class,
 				undefined,
 				"the forced re-add reads as steady state"
 			);
@@ -1466,11 +1457,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 
 			const restarted = new ServerSyncEngine(recorded.env);
 			await restarted.syncNow(true);
-			assert.strictEqual(
-				restarted.getDeclared()[0]?.syncFailure?.message,
-				undefined,
-				"the re-add reads as steady state"
-			);
+			assert.strictEqual(restarted.getDeclared()[0]?.syncFailure?.class, undefined, "the re-add reads as steady state");
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the record survives the restart pass");
 		});
 
@@ -1488,7 +1475,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			};
 			await engine.syncNow();
 
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, SECRETS_READ_FAILED_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "secretsUnreadable");
 			assert.deepStrictEqual(
 				recorded.fingerprints,
 				{ A: "another-windows-record" },
@@ -1508,7 +1495,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.failLabels.add("A");
 			await engine.syncNow();
 
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPSERT_FAILED_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "upsertFailed");
 			assert.deepStrictEqual(
 				recorded.fingerprints,
 				{ A: "another-windows-record" },
@@ -1537,7 +1524,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				"last-known-good carries; the new entry records nothing"
 			);
 			for (const view of engine.getDeclared()) {
-				assert.strictEqual(view.syncFailure?.message, SALT_UNAVAILABLE_MESSAGE);
+				assert.strictEqual(view.syncFailure?.class, "saltUnavailable");
 				assert.strictEqual(view.syncFailure?.class, "saltUnavailable");
 			}
 		});
@@ -1553,7 +1540,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.saltDurable = true;
 			await engine.syncNow(true);
 			assert.strictEqual(recorded.upserts.length, 1, "the next confirmed pass syncs normally");
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, undefined);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
 		});
 
@@ -1575,8 +1562,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			assert.strictEqual(recorded.upserts.length, 1, "only the add confirmed before the mutation lands");
 			assert.strictEqual(recorded.upserts[0]?.label, "A");
 			const views = engine.getDeclared();
-			assert.strictEqual(views[0]?.syncFailure?.message, undefined, "A synced normally");
-			assert.strictEqual(views[1]?.syncFailure?.message, SALT_UNAVAILABLE_MESSAGE, "B is skipped, not added");
+			assert.strictEqual(views[0]?.syncFailure?.class, undefined, "A synced normally");
+			assert.strictEqual(views[1]?.syncFailure?.class, "saltUnavailable", "B is skipped, not added");
 			assert.strictEqual(views[1]?.syncFailure?.class, "saltUnavailable");
 		});
 
@@ -1599,11 +1586,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.duplicateLabels.add("A");
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
-			assert.strictEqual(
-				engine.getDeclared()[0]?.syncFailure?.message,
-				undefined,
-				"the other window's record confirms"
-			);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, undefined, "the other window's record confirms");
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the persist keeps the shared record");
 		});
 
@@ -1622,7 +1605,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			recorded.duplicateLabels.add("A");
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
-			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.message, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 		});
 
 		test("a confirmed fingerprint joins the session map at once, so a later write-through keeps it", async () => {
@@ -1660,7 +1643,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			}
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints).sort(), ["A", "B"], "the final map holds both");
 			assert.ok(
-				engine.getDeclared().every((view) => view.syncFailure?.message === undefined),
+				engine.getDeclared().every((view) => view.syncFailure?.class === undefined),
 				"both entries read as synced"
 			);
 		});

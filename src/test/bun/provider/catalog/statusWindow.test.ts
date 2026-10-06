@@ -38,7 +38,13 @@ function okStatus(serverId = "s1"): Extract<ServerStatus, { state: "ok" }> {
 
 function errorStatus(serverId = "s1"): ServerStatusError {
 	const common = { serverId, label: "Default", baseUrl: "http://litellm.test", lastChecked: "now" };
-	return { ...common, state: "error", error: "boom", logSafeError: markLogSafe("boom"), servedModelCount: 0 };
+	return {
+		...common,
+		state: "error",
+		cause: { kind: "unclassified" },
+		logSafeError: markLogSafe("boom"),
+		servedModelCount: 0,
+	};
 }
 
 function makeWindow(initialWindowMs: number) {

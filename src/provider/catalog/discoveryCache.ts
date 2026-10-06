@@ -5,8 +5,8 @@
 export class DiscoveryCache<T> {
 	private readonly entries = new Map<string, { value: T; storedAt: number }>();
 	/**
-	 * `superseded` is set by invalidate() and clear(): the load still resolves for its callers but never stores, so an
-	 * explicit "sync now" is not answered with pre-sync data for the rest of the TTL.
+	 * `superseded` is set by clear(): the load still resolves for its callers but never stores, so an explicit "sync
+	 * now" is not answered with pre-sync data for the rest of the TTL.
 	 */
 	private readonly inFlight = new Map<string, { promise: Promise<T>; load: { superseded: boolean } }>();
 
@@ -25,7 +25,6 @@ export class DiscoveryCache<T> {
 		return entry.value;
 	}
 
-	/** Callers that just invalidated the key still join a live load; only clear() detaches in-flight loads. */
 	fetch(key: string, loader: () => Promise<T>): Promise<T> {
 		const pending = this.inFlight.get(key);
 		if (pending !== undefined) {
@@ -49,14 +48,6 @@ export class DiscoveryCache<T> {
 		};
 		void promise.then(cleanup, cleanup);
 		return promise;
-	}
-
-	invalidate(key: string): void {
-		this.entries.delete(key);
-		const pending = this.inFlight.get(key);
-		if (pending !== undefined) {
-			pending.load.superseded = true;
-		}
 	}
 
 	/**

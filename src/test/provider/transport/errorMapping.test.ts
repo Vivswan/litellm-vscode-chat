@@ -14,14 +14,16 @@ import {
 	RequestError,
 	type RequestErrorKind,
 	socketFailureRequestError,
-	statusErrorTexts,
+	statusLogSafeError,
 	streamErrorFrame,
 	TRANSPORT_ERROR_SURFACES,
+	thrownErrorDisplayText,
 	timeoutMessage,
 	timeoutRequestError,
 	toLanguageModelError,
 	twoPartTexts,
 } from "../../../provider/transport/errorMapping";
+import { transportClassificationOf } from "../../../shared/errorClassification";
 import { localizedError, MirroredError } from "../../../shared/mirroredError";
 import { DEFAULT_API_VERSION } from "../../../shared/util/baseUrl";
 import { assertShows, assertStartsWith } from "../../pureHelpers";
@@ -348,7 +350,7 @@ suite("provider/transport/errorMapping", () => {
 				assert.strictEqual(mapped.setupHint, "use-bare-localhost");
 				// The classification rides to the status surfaces (toast actions and the dashboard's draft-test footer
 				// branch on it).
-				assert.strictEqual(statusErrorTexts(mapped).classification?.setupHint, "use-bare-localhost");
+				assert.strictEqual(transportClassificationOf(mapped)?.setupHint, "use-bare-localhost");
 				assert.strictEqual(mapped.englishMessage, mapped.message, "English fallback: the two renderings coincide");
 			});
 
@@ -526,10 +528,9 @@ suite("provider/transport/errorMapping", () => {
 					assert.ok(wrapped instanceof LanguageModelError, String(wrapped));
 					assert.strictEqual(wrapped.code, LanguageModelError.NotFound().code);
 					assert.strictEqual(wrapped.message, chatMessage);
-					const texts = statusErrorTexts(chat);
-					assert.strictEqual(texts.error, chatMessage);
-					assert.strictEqual(texts.logSafeError, "RequestError(http, status 404, chat)");
-					assert.deepStrictEqual(texts.classification, { kind: "http", status: 404 });
+					assert.strictEqual(thrownErrorDisplayText(chat), chatMessage);
+					assert.strictEqual(statusLogSafeError(chat), "RequestError(http, status 404, chat)");
+					assert.deepStrictEqual(transportClassificationOf(chat), { kind: "http", status: 404 });
 
 					const discovery = expectRequestError(mapSdkError(err, { ...base, surface: "discovery" }), "http");
 					const discoveryMessage = `${discoveryHeadline}\nLiteLLM 404: rejected ${shown}`;
@@ -553,10 +554,10 @@ suite("provider/transport/errorMapping", () => {
 				assert.ok(chat.message.endsWith("\n\nDetails: LiteLLM 400 https://host.test: denied"), chat.message);
 			});
 
-			test("statusErrorTexts scrubs a credentialed URL quoted by an unclassified error on both renderings", () => {
-				// The status rows and the feature-failure notifications render whatever a feature threw; a platform
-				// error quoting the configured URL reached them whole, a password split by a line break included, and a
-				// thrown string the same way.
+			test("the display rendering of a thrown error scrubs a credentialed URL an unclassified error quotes; the log rendering is the word", () => {
+				// The feature-failure notifications render whatever a feature threw, so a platform error quoting the
+				// configured URL (a password split by a line break included, or a thrown string) must reach them
+				// scrubbed; the serve log carries no thrown text at all for an unclassified value.
 				const shown = "Failed to parse URL from https://host.test/v1";
 				const reasons: [reason: unknown, shown: string][] = [
 					[new Error("Failed to parse URL from https://user:pass@host.test/v1"), shown],
@@ -574,10 +575,9 @@ suite("provider/transport/errorMapping", () => {
 					[new Error("Headline\nDetail line without a URL"), "Headline\nDetail line without a URL"],
 				];
 				for (const [reason, expected] of reasons) {
-					const texts = statusErrorTexts(reason);
-					assert.strictEqual(texts.error, expected);
-					assert.strictEqual(texts.logSafeError, expected);
-					assert.ok(!("classification" in texts));
+					assert.strictEqual(thrownErrorDisplayText(reason), expected);
+					assert.strictEqual(statusLogSafeError(reason), "unclassified", "the log rendering carries no thrown text");
+					assert.strictEqual(transportClassificationOf(reason), undefined);
 				}
 			});
 
@@ -1102,24 +1102,23 @@ suite("provider/transport/errorMapping", () => {
 	});
 
 	suite("classification for status surfaces", () => {
-		test("statusErrorTexts carries a RequestError's classification, present fields only", () => {
-			const withHint = statusErrorTexts(
+		test("a RequestError's classification carries its present fields only", () => {
+			const withHint = transportClassificationOf(
 				new RequestError("guidance", "http", { status: 404, setupHint: "check-base-url", englishMessage: "guidance" })
 			);
-			assert.deepStrictEqual(withHint.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
+			assert.deepStrictEqual(withHint, { kind: "http", status: 404, setupHint: "check-base-url" });
 
-			const bare = statusErrorTexts(new RequestError("timed out", "timeout", { englishMessage: "timed out" }));
-			assert.deepStrictEqual(bare.classification, { kind: "timeout" });
+			const bare = transportClassificationOf(new RequestError("timed out", "timeout", { englishMessage: "timed out" }));
+			assert.deepStrictEqual(bare, { kind: "timeout" });
 			assert.ok(
-				!("status" in (bare.classification ?? {})) && !("setupHint" in (bare.classification ?? {})),
+				!("status" in (bare ?? {})) && !("setupHint" in (bare ?? {})),
 				"absent fields stay absent, not present-as-undefined"
 			);
 		});
 
-		test("statusErrorTexts omits the classification for a plain Error", () => {
-			const texts = statusErrorTexts(new Error("boom"));
-			assert.strictEqual(texts.error, "boom");
-			assert.ok(!("classification" in texts), "unclassified errors must render exactly today's status shape");
+		test("a plain Error has no classification; its display text is its message", () => {
+			assert.strictEqual(thrownErrorDisplayText(new Error("boom")), "boom");
+			assert.strictEqual(transportClassificationOf(new Error("boom")), undefined);
 		});
 
 		test("toLanguageModelError still maps a chat 404 to NotFound", () => {

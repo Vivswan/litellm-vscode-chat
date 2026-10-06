@@ -46,6 +46,7 @@ import {
 import { isRecord, isUnsafeRecordKey, objectSlot } from "../../../shared/util/json";
 import type { CollectableEntry } from "../../../shared/util/knownSecrets";
 import { sameGroupIdentity } from "../groupRemovals";
+import { drawableRejects } from "./rejects";
 
 export type EntryModelParameters = EntryViewFieldValues["modelParameters"];
 
@@ -439,33 +440,13 @@ export function rejectedCarrierInlineSecrets(
 }
 
 /**
- * The rejected entries that stand for a label nothing accepted holds, one per label in setting order. A reject sits
- * in the setting, so it must show somewhere; without a label and a base URL it has no identity to show under.
- *
- *   state.ts rejectsWithOwnRow      -> draws the Misconfigured rows from this, and Configuration diagnostics drop
- *                                      exactly the problems those rows state
- *   rowBoundWrite.ts carriersOfRow  -> the row a removal or declare acts for, when no accepted entry holds the label
+ * Whether the setting gives the dashboard any server row, accepted or Misconfigured: the configured-servers gate the
+ * status bar and the notifier share (wiring/provider.ts) reads this, so a setting whose only entry is rejected is
+ * "configured, not reporting" on those surfaces, never "no servers configured".
  */
-export function drawableRejects(
-	entryReports: readonly ServerEntryReport[],
-	acceptedLabels: ReadonlySet<string>
-): readonly DrawableReject[] {
-	const drawn = new Set<string>();
-	const rows: DrawableReject[] = [];
-	for (const report of entryReports) {
-		if (
-			report.accepted ||
-			report.label === undefined ||
-			report.baseUrl === undefined ||
-			acceptedLabels.has(report.label) ||
-			drawn.has(report.label)
-		) {
-			continue;
-		}
-		drawn.add(report.label);
-		rows.push({ ...report, label: report.label, baseUrl: report.baseUrl });
-	}
-	return rows;
+export function declaresServerRows(raw: unknown): boolean {
+	const reports = serverSettingReports(raw);
+	return reports.some((report) => report.accepted) || drawableRejects(reports, new Set()).length > 0;
 }
 
 export function serverSettingReports(raw: unknown): ServerEntryReport[] {

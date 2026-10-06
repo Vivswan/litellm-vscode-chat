@@ -7,11 +7,11 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
-import { Notifier } from "../../../extension/ui/notifier";
 import { wireStatusFanout } from "../../../extension/wiring/ui";
 import { Logger } from "../../../shared/logger";
 import type { AggregatedStatus } from "../../../shared/servers";
 import { createStatusBarManager, RecordingItem } from "../ui/statusBarHarness";
+import { windowNotifier } from "../ui/verdictHarness";
 
 const UPSERT_FAILED = "The host rejected the provider group upsert";
 
@@ -20,7 +20,7 @@ function failedView(label: string): DeclaredServerView {
 		label,
 		baseUrl: `http://${label}.test`,
 		secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
-		syncFailure: { class: "upsertFailed", message: UPSERT_FAILED },
+		syncFailure: { class: "upsertFailed" },
 	};
 }
 
@@ -55,10 +55,7 @@ suite("extension/wiring statusFanout", () => {
 					},
 				},
 				statusBar: harness.manager,
-				notifier: new Notifier(
-					() => true,
-					() => declared
-				),
+				notifier: windowNotifier(() => true, { getDeclared: () => declared }),
 				dashboard: { refresh: () => {} },
 			});
 			assert.ok(statusCallback !== undefined && syncListener !== undefined, "both legs must wire");
@@ -111,6 +108,37 @@ suite("extension/wiring statusFanout", () => {
 			await new Promise((resolve) => setImmediate(resolve));
 			assert.strictEqual(harness.manager.connectionStatus.state, "error");
 			assert.strictEqual(item.last.severity, "error");
+		} finally {
+			for (const disposable of harness.context.subscriptions) {
+				disposable.dispose();
+			}
+		}
+	});
+
+	test("an entry leaving the awaiting set re-judges the bar: degraded beside it, error once it is gone", async () => {
+		// The overlaid statuses are the same before and after (one synthesized failure); only the verdict rows change,
+		// so the replay guard must key on both.
+		const awaiting: DeclaredServerView = {
+			label: "fresh",
+			baseUrl: "http://fresh.test",
+			secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+		};
+		let declared: readonly DeclaredServerView[] = [awaiting, failedView("unread")];
+		const item = new RecordingItem();
+		const harness = createStatusBarManager({
+			hasConfiguredServers: () => true,
+			getDeclared: () => declared,
+			item,
+		});
+		try {
+			harness.manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
+			await new Promise((resolve) => setImmediate(resolve));
+			assert.strictEqual(harness.manager.connectionStatus.state, "degraded");
+
+			declared = [failedView("unread")];
+			harness.manager.refreshFromSync();
+			await new Promise((resolve) => setImmediate(resolve));
+			assert.strictEqual(harness.manager.connectionStatus.state, "error");
 		} finally {
 			for (const disposable of harness.context.subscriptions) {
 				disposable.dispose();

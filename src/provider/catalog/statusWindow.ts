@@ -280,6 +280,17 @@ export class StatusWindow {
 	}
 
 	/**
+	 * The groups the host served in the current cycle: the refresh probe set. An entry from the previous cycle is
+	 * inside the one-cycle grace, which exists so a sweep's unreached groups stay visible; a group the host no longer
+	 * owns sits in that same grace, and probing it would record it fresh and keep it alive for as long as the user
+	 * keeps refreshing. Left alone, it evicts on the host's next cycle as before; a sweep that served nothing leaves
+	 * nothing to probe.
+	 */
+	currentCycleGroupServers(): GroupServer[] {
+		return [...this.entries.values()].filter((entry) => entry.cycle === this.cycle).map((entry) => entry.groupServer);
+	}
+
+	/**
 	 * Retention anchors to the last SUCCESS, not the last report - failure reports refresh the entry's timestamp, so a
 	 * permanently-down server would otherwise stay selectable forever - and serves from the success bundle, not
 	 * `models`, so an out-of-window failure report cannot destroy what a raised staleServeWindow would still serve.

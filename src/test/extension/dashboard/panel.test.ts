@@ -3,20 +3,22 @@ import * as vscode from "vscode";
 import type { ExtensionToWebviewMessage, ReadMethod } from "../../../dashboard/endpoints";
 import type { CatalogModelSummary } from "../../../dashboard/viewModels";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
+import type { DeclaredServersInput } from "../../../extension/dashboard/declaredServers";
+import { declaredViewsFromSetting } from "../../../extension/dashboard/declaredServers";
 import type { DashboardControllerEnv, DashboardPanel, ServerResolution } from "../../../extension/dashboard/panel";
-import {
-	DashboardController,
-	declaredViewsFromSetting,
-	entryParametersResolver,
-} from "../../../extension/dashboard/panel";
+import { DashboardController, entryParametersResolver } from "../../../extension/dashboard/panel";
 import type {
-	DeclaredServersInput,
 	EntryCapabilitiesRecord,
 	EntryParametersResolution,
 	SettingsReader,
 } from "../../../extension/dashboard/state";
 import { EMPTY_CATALOG_STATUS, EMPTY_USAGE_VIEW } from "../../../extension/dashboard/state";
-import { entryModelParametersFor, parseServersSetting } from "../../../extension/servers/serverSync";
+import {
+	entryModelParametersFor,
+	parseServersSetting,
+	serverSettingReports,
+} from "../../../extension/servers/serverSync";
+import { ServerVerdict } from "../../../extension/servers/syncFailureOverlay";
 import { rawServerEntries, settingValueOf } from "../../../extension/settingsWriteTurn";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
@@ -158,6 +160,14 @@ function makeHarness(): Harness {
 		},
 		getSnapshots: () => harness.snapshots,
 		getDeclaredServers: () => harness.declaredServers,
+		// The owner over the harness's own three sources, as production binds it over the provider, the engine, and
+		// the setting.
+		getVerdictRows: () =>
+			new ServerVerdict({
+				statuses: () => harness.snapshots.map((snapshot) => snapshot.status),
+				declared: () => harness.declaredServers,
+				entryReports: () => serverSettingReports(harness.serversSetting),
+			}).rows(),
 		getSecretHolders: () => new Map(),
 		getRemovedGroups: () => ({ tombstones: [], origins: [] }),
 		serverResolution,

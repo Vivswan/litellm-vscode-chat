@@ -17,17 +17,12 @@ const OLLAMA_ROW: DashboardServer = {
 	servedModelCount: 4,
 	credentials: "absent",
 	hasOAuth: false,
+	hasVirtualKey: false,
 	state: "ok",
 	modelInfoUnsupported: "timeout",
 	lastChecked: Date.now() - 3 * 60 * 1000,
 	config: { secrets: provenSecrets() },
 };
-
-/** The unserved-listing hint as the engine words it, localized and English alike. */
-const BARE_GATEWAY_ERROR =
-	"The models listing failed, but this server answers. If it never serves the models listing, declare that on the " +
-	'"bare-gateway" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".\n' +
-	"GET https://gateway.example.com/v1/models answered HTTP 404; model info answered";
 
 const LISTING_UNSERVED_ROW: DashboardServer = {
 	origin: "declared",
@@ -36,10 +31,10 @@ const LISTING_UNSERVED_ROW: DashboardServer = {
 	servedModelCount: 0,
 	credentials: "present",
 	hasOAuth: false,
+	hasVirtualKey: false,
 	state: "error",
-	error: BARE_GATEWAY_ERROR,
-	errorEnglish: BARE_GATEWAY_ERROR,
-	classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
+	// The unserved-listing cause; the page renders the declaration advice from it.
+	cause: { kind: "transport", classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" } },
 	lastChecked: Date.now() - 60 * 1000,
 	config: { secrets: provenSecrets({ apiKey: "secure" }) },
 };

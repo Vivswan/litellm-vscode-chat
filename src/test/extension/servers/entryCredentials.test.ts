@@ -2,11 +2,8 @@ import * as assert from "node:assert";
 import { entryGroupCredentialsFor } from "../../../extension/servers/serverSync/entryCredentials";
 import type { SecretStore } from "../../../extension/servers/serverSync/secrets";
 import { readServerSecretsRecord, updateServerSecret } from "../../../extension/servers/serverSync/secrets";
-import type {
-	GroupCredentials,
-	GroupCredentialsResolution,
-	RejectedCredentialField,
-} from "../../../provider/catalog/groupModels";
+import type { GroupCredentials, GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
+import type { RejectedCredentialField } from "../../../shared/serverEntry";
 import { fixedHeaderValue } from "../../../shared/util/headers";
 
 function makeSecretStore(): SecretStore & { failReads: boolean } {
@@ -153,5 +150,15 @@ suite("extension/servers/serverSync/entryCredentials", () => {
 			),
 			resolved({ apiKey: fixedHeaderValue("sk-live") })
 		);
+	});
+
+	test("an entry the setting carries in a rejected shape is declared, not external: its baked key must not serve", async () => {
+		// The group was synced from an earlier accepted shape and holds that key; the Misconfigured row for the label
+		// says the entry is not used until fixed, so the overlay must not keep the old key in force.
+		const secrets = makeSecretStore();
+		const resolve = resolver([{ label: "A", baseUrl: "http://a.test", auth: { apiKey: 5 } }], secrets);
+
+		assert.deepStrictEqual(await resolve("A", "http://a.test"), { kind: "unavailable", reason: "misconfigured" });
+		assert.deepStrictEqual(await resolve("B", "http://b.test"), { kind: "external" });
 	});
 });

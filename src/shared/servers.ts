@@ -4,6 +4,8 @@
  */
 
 import type { TransportErrorClassification, UnservedEndpointEvidence } from "./errorClassification";
+import type { FailureCause } from "./failureCause";
+import { failureClassification } from "./failureCause";
 import type { LogSafeErrorText } from "./logger";
 import type { HeaderValue } from "./util/headers";
 
@@ -29,13 +31,17 @@ interface ServerStatusCommon {
 	 * which can collide with a declared entry's label. ui/diagnostics.ts pairs a report with its declared entry on it.
 	 */
 	entryLabel?: string | undefined;
-	/** Whether the configuration carries credentials; the secrets themselves never leave their store. */
+	/**
+	 * Whether the configuration carries credentials of any kind (groupHasCredentials); the values never leave their
+	 * store.
+	 */
 	hasApiKey?: boolean | undefined;
 	/**
-	 * Whether those credentials are OAuth client credentials rather than a static key: the credential-kind display for
-	 * rows with no settings entry reads this, since the group's configuration is its only source.
+	 * The credential kind beside that presence, for rows with no settings entry, whose group configuration is the only
+	 * source: OAuth client credentials, or a virtual-key header, rather than a static key.
 	 */
 	hasOAuth?: boolean | undefined;
+	hasVirtualKey?: boolean | undefined;
 }
 
 interface ServerStatusOk extends ServerStatusCommon {
@@ -57,17 +63,12 @@ interface ServerStatusOk extends ServerStatusCommon {
 export interface ServerStatusError extends ServerStatusCommon {
 	state: "error";
 	/**
-	 * Display rendering for UI surfaces only.
-	 * NEVER interpolate this into a log line, and never rebuild an Error from it (rethrow the original so its
-	 * classification survives) - log lines prefill public GitHub issues.
+	 * Why the serve failed, as a key (shared/failureCause.ts): every surface renders it at display time in the current
+	 * locale, and it is log-legal and protocol-legal because it carries no rendered text.
 	 */
-	error: string;
+	cause: FailureCause;
+	/** The log rendering: a classification, never response-derived text; log lines prefill public GitHub issues. */
 	logSafeError: LogSafeErrorText;
-	/**
-	 * Classification only (enum ids plus an integer status, never message text), so unlike `error` it is log-legal and
-	 * protocol-legal.
-	 */
-	classification?: TransportErrorClassification | undefined;
 	/**
 	 * True when the failure hit a category the entry's expectedFailures declares. The outcome stays a truthful error
 	 * (the stale anchor and failure counting depend on it); presentation derives the "(expected)" downgrade from this
@@ -82,6 +83,11 @@ export interface ServerStatusError extends ServerStatusCommon {
 }
 
 export type ServerStatus = ServerStatusOk | ServerStatusError;
+
+/** The transport classification behind a failing status, when its cause is a transport failure. */
+export function statusClassification(status: ServerStatusError): TransportErrorClassification | undefined {
+	return failureClassification(status.cause);
+}
 
 function isErrorServerStatus(status: ServerStatus): status is ServerStatusError {
 	return status.state === "error";

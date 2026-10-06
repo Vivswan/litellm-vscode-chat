@@ -1,15 +1,16 @@
 import { getDiscoveryCacheTtl } from "../../shared/config/settings";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
+import { failureTexts } from "../../shared/failureCause";
 import { MirroredError } from "../../shared/mirroredError";
 import type { ExpectedFailureCategory, NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { apiRootOf } from "../../shared/util/baseUrl";
 import type { ChatClient, ServerConnection } from "../transport/chatClient";
-import { statusErrorTexts } from "../transport/errorMapping";
+import { statusLogSafeError } from "../transport/errorMapping";
 import type { ExpectedDiscoveryFailures } from "./discovery";
 import type { DiscoveryCache } from "./discoveryCache";
 import { discoveryLineWriter, failureKindOf } from "./discoveryLog";
 import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./groupModels";
-import { attachGroup, groupClientId, groupServerLabel, markStale } from "./groupModels";
+import { attachGroup, failureCauseOf, groupClientId, groupServerLabel, markStale } from "./groupModels";
 import { buildModelInfos } from "./registration";
 import type { ServedModelDecorator } from "./servedModels";
 import type { GroupServeOutcome, GroupStatusReporter } from "./statusReporting";
@@ -174,7 +175,6 @@ export class GroupDiscovery {
 	async fetchGroupModels(
 		groupServer: GroupServer,
 		silent: boolean,
-		bypassCache = false,
 		/** The beginServe claim for this serve; absent for callers with no earlier await. */
 		generation?: number,
 		/**
@@ -289,8 +289,13 @@ export class GroupDiscovery {
 					: (message, line) => this._options.logFailure(message, line, error)
 			);
 			log("Model discovery failed for provider group", { expected, silent, ...failureKindOf(error) });
-			const texts = statusErrorTexts(error);
-			const outcome: FailureServeShape = { state: "error", ...texts, ...(expected ? { expected: true } : {}) };
+			const cause = failureCauseOf(error);
+			const outcome: FailureServeShape = {
+				state: "error",
+				cause,
+				logSafeError: statusLogSafeError(error),
+				...(expected ? { expected: true } : {}),
+			};
 			const decorateFailure = (
 				discovered: Pick<DiscoveredGroupModels, "infos" | "discoveredRawIds">
 			): ServedModelSets => this._options.decorator.decorate(discovered, server, groupServer.label);
@@ -317,9 +322,12 @@ export class GroupDiscovery {
 					stale !== undefined ? markStale(failureServe.discovered, new Date(stale.lastSuccessAt).toLocaleString()) : [];
 				return [...staleServed, ...failureServe.declared];
 			}
-			// A non-Error throw is rebuilt with the status's log-safe rendering as its mirror: the display text can
-			// embed response body and must never reach the log path.
-			throw error instanceof Error ? error : new MirroredError(texts.error, { englishMessage: texts.logSafeError });
+			// A non-Error throw is rebuilt from the cause's rendering, with the status's log-safe rendering as its mirror.
+			if (error instanceof Error) {
+				throw error;
+			}
+			const texts = failureTexts(cause, server.baseUrl);
+			throw new MirroredError(texts.display, { englishMessage: outcome.logSafeError });
 		};
 		if (preflightFailure !== undefined) {
 			return serveFailure(preflightFailure, false);
@@ -331,27 +339,23 @@ export class GroupDiscovery {
 			discovered.modelInfoUnsupported !== undefined && !expectedFailures.modelInfo
 				? { modelInfoUnsupported: discovered.modelInfoUnsupported }
 				: {};
-		if (bypassCache) {
-			this._options.cache.invalidate(cacheKey);
-		} else {
-			const ttl = getDiscoveryCacheTtl((msg, data) => this._options.log(msg, data));
-			const cached = this._options.cache.lookup(cacheKey, ttl);
-			if (cached !== undefined) {
-				const cachedServe = this._options.decorator.decorate(cached, server, groupServer.label);
-				this._options.log("Serving provider group models from the discovery cache", {
-					baseUrl: server.baseUrl,
-					count: cachedServe.discovered.length + cachedServe.declared.length,
-				});
-				return recordAndServe(
-					cachedServe,
-					{ state: "ok", ...probeHint(cached) },
-					{
-						discoveredRawIds: cached.discoveredRawIds,
-						observedModelInfoKeys: cached.observedModelInfoKeys,
-						skippedModeCounts: cached.skippedModeCounts,
-					}
-				).served;
-			}
+		const ttl = getDiscoveryCacheTtl((msg, data) => this._options.log(msg, data));
+		const cached = this._options.cache.lookup(cacheKey, ttl);
+		if (cached !== undefined) {
+			const cachedServe = this._options.decorator.decorate(cached, server, groupServer.label);
+			this._options.log("Serving provider group models from the discovery cache", {
+				baseUrl: server.baseUrl,
+				count: cachedServe.discovered.length + cachedServe.declared.length,
+			});
+			return recordAndServe(
+				cachedServe,
+				{ state: "ok", ...probeHint(cached) },
+				{
+					discoveredRawIds: cached.discoveredRawIds,
+					observedModelInfoKeys: cached.observedModelInfoKeys,
+					skippedModeCounts: cached.skippedModeCounts,
+				}
+			).served;
 		}
 
 		this._options.log("Fetching models for provider group", { baseUrl: server.baseUrl, silent });

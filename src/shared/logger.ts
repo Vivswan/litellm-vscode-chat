@@ -89,12 +89,17 @@ export function markLogSafe(text: string): LogSafeErrorText {
 	return text as LogSafeErrorText;
 }
 
+/** What the public surfaces record for a thrown value that carries neither a classification nor an English mirror. */
+const UNCLASSIFIED = "unclassified";
+
 /**
- * The rendering of a thrown value for public surfaces (the issue-report buffer and the latest-error snapshot, both of
- * which prefill public GitHub issues).
+ * The rendering of a thrown value for public surfaces (the issue-report buffer, the latest-error snapshot, and the
+ * status window, all of which prefill public GitHub issues): the classification, else the English mirror, else the
+ * word "unclassified". A thrown message never reaches them - it may be localized, or a response body - so an
+ * unclassified throw records nothing but the fact of it; the output channel keeps the message (Logger.error).
  */
 export function publicErrorText(error: unknown): LogSafeErrorText {
-	return (classificationOf(error) ?? englishMessageOf(error) ?? errorMessageText(error)) as LogSafeErrorText;
+	return (classificationOf(error) ?? englishMessageOf(error) ?? UNCLASSIFIED) as LogSafeErrorText;
 }
 
 /**
@@ -118,7 +123,10 @@ function sanitizeStack(error: Error, stack: string, firstLine: string): string {
 	return [firstLine, ...frames].join("\n");
 }
 
-/** The public rendering of a thrown value's stack. */
+/**
+ * The public rendering of a thrown value's stack: the frames under the public text (publicErrorText), never under the
+ * thrown message.
+ */
 export function publicErrorStack(error: unknown): string | undefined {
 	try {
 		if (!(error instanceof Error)) {
@@ -130,10 +138,11 @@ export function publicErrorStack(error: unknown): string | undefined {
 		}
 		const classification = classificationOf(error);
 		const english = englishMessageOf(error);
-		if (classification === undefined && english === undefined) {
-			return stack;
-		}
-		return sanitizeStack(error, stack, classification ?? `${error.name}: ${english}`);
+		return sanitizeStack(
+			error,
+			stack,
+			classification ?? (english === undefined ? UNCLASSIFIED : `${error.name}: ${english}`)
+		);
 	} catch {
 		// classificationOf and englishMessageOf are total; a hostile stack/name/message getter loses its frames, never
 		// breaks logging.
@@ -204,8 +213,8 @@ function credentialFreeRecorder(recorder: ErrorRecorder, scrub: (text: string) =
 }
 
 /**
- * The recorder's view of a thrown value. An http RequestError's message (and the copy V8 prefixes onto the stack)
- * embeds the response body, so both degrade to its classification; every other error keeps its text.
+ * The recorder's view of a thrown value: its public renderings (publicErrorText, publicErrorStack) and the transport
+ * classification, never the thrown text. The snapshot prefills public issues.
  */
 export function recordedError(error: unknown): RecordedError {
 	const stack = publicErrorStack(error);
@@ -266,14 +275,24 @@ export class Logger {
 	}
 
 	/**
-	 * An error-level line whose text is the caller's data, for a failure whose own text is response-derived: the channel
-	 * and the buffer get the data, and the recorder's latest-error snapshot takes the error through its public
-	 * renderings. No stack reaches the channel, since its first line would be the error's message.
+	 * An error-level line whose text is the caller's data (the failure's classification), for a failure whose own text
+	 * may be response-derived: the channel and the buffer get the data, and the recorder's latest-error snapshot takes
+	 * the error through its public renderings. A failure with a public rendering (a classification or an English
+	 * mirror) is named by that line and that rendering; an unclassified throw is not, so the PRIVATE channel also takes
+	 * its message and stack, as error() does, while the public sinks keep the word alone - the user can diagnose from
+	 * the output log, and the issue report cannot quote the text.
 	 */
 	failure(message: string, data: unknown, error: unknown): void {
 		const text = `${message}: ${logDataText(data, this.scrub)}`;
 		this.output.error(text);
 		this.recorder?.appendLog(`[${new Date().toISOString()}] ERROR: ${text}`);
+		if (classificationOf(error) === undefined && englishMessageOf(error) === undefined) {
+			this.output.error(`${message}: ${errorMessageText(error)}`);
+			const stack = channelErrorStack(error);
+			if (stack !== undefined) {
+				this.output.error(`Stack trace: ${stack}`);
+			}
+		}
 		this.recorder?.recordError(message, recordedError(error));
 	}
 }

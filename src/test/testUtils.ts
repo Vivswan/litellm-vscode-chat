@@ -9,6 +9,7 @@ import type { GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "../provi
 import { attachGroup, groupClientId } from "../provider/catalog/groupModels";
 import { groupIdentity } from "../provider/catalog/statusWindow";
 import type { TransportErrorClassification } from "../shared/errorClassification";
+import type { FailureCause } from "../shared/failureCause";
 import { Logger, markLogSafe, publicErrorText } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 import { normalizeBaseUrl } from "../shared/util/baseUrl";
@@ -203,7 +204,10 @@ export async function captureRequestBody(
 }
 
 type ServerStatusOverrides = Partial<
-	Pick<ServerStatus, "serverId" | "label" | "entryLabel" | "baseUrl" | "lastChecked" | "hasApiKey" | "hasOAuth">
+	Pick<
+		ServerStatus,
+		"serverId" | "label" | "entryLabel" | "baseUrl" | "lastChecked" | "hasApiKey" | "hasOAuth" | "hasVirtualKey"
+	>
 > &
 	(
 		| {
@@ -214,7 +218,9 @@ type ServerStatusOverrides = Partial<
 		  }
 		| {
 				state: "error";
-				error: string;
+				/** The log rendering's source when no logSafeError is given; never the display text. */
+				error?: string;
+				cause?: FailureCause;
 				logSafeError?: string;
 				classification?: TransportErrorClassification;
 				expected?: boolean;
@@ -232,18 +238,25 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 		lastChecked: overrides.lastChecked ?? "2026-07-26T00:00:00.000Z",
 		...(overrides.hasApiKey !== undefined ? { hasApiKey: overrides.hasApiKey } : {}),
 		...(overrides.hasOAuth !== undefined ? { hasOAuth: overrides.hasOAuth } : {}),
+		...(overrides.hasVirtualKey !== undefined ? { hasVirtualKey: overrides.hasVirtualKey } : {}),
 	};
 	return overrides.state === "error"
 		? {
 				...common,
 				state: "error",
-				error: overrides.error,
+				// A classification given alone is a transport cause; nothing given is an unclassified failure.
+				cause:
+					overrides.cause ??
+					(overrides.classification !== undefined
+						? { kind: "transport", classification: overrides.classification }
+						: { kind: "unclassified" }),
 				// An error still serves its declared models unless the test says otherwise.
 				servedModelCount: overrides.servedModelCount ?? overrides.declaredModelCount ?? 0,
 				// Tests hand plain strings; the helper is the one place that brands them.
 				logSafeError:
-					overrides.logSafeError !== undefined ? markLogSafe(overrides.logSafeError) : publicErrorText(overrides.error),
-				...(overrides.classification !== undefined ? { classification: overrides.classification } : {}),
+					overrides.logSafeError !== undefined
+						? markLogSafe(overrides.logSafeError)
+						: publicErrorText(overrides.error ?? "unclassified failure"),
 				...(overrides.expected !== undefined ? { expected: overrides.expected } : {}),
 				...(overrides.declaredModelCount !== undefined ? { declaredModelCount: overrides.declaredModelCount } : {}),
 			}

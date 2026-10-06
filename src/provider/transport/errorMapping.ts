@@ -3,8 +3,7 @@ import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortEr
 import { CancellationError, LanguageModelError } from "vscode";
 import { manageCommandTitle, syncModelsCommandTitle } from "../../shared/config/commandIds";
 import { CONFIG_SECTION, type FeatureModelId } from "../../shared/config/settingSpec";
-import type { SetupHintKind, TransportErrorClassification, TransportErrorKind } from "../../shared/errorClassification";
-import { transportClassificationOf } from "../../shared/errorClassification";
+import type { SetupHintKind, TransportErrorKind } from "../../shared/errorClassification";
 import type { LogSafeErrorText } from "../../shared/logger";
 import { errorMessageText, markLogSafe, publicErrorText } from "../../shared/logger";
 import {
@@ -123,24 +122,22 @@ export interface MapErrorContext {
 }
 
 /**
- * Both renderings of a failed fetch for the error status, plus the classification when the reason carries one: `error`
- * renders directly in the status bar and toasts, `logSafeError` is what log lines carry. The reason may be anything a
- * feature or the platform threw, so both renderings leave through the module's one credential exit, as the status
- * rows, the tooltip, and the feature-failure notifications' only boundary.
+ * The log rendering of a failed serve: a classification, an English mirror, or "unclassified" (publicErrorText),
+ * never the thrown message. The reason may be anything a feature or the platform threw, so it leaves through the
+ * module's one credential exit; an empty mirror reads as unclassified too.
  */
-export function statusErrorTexts(reason: unknown): {
-	error: string;
-	logSafeError: LogSafeErrorText;
-	classification?: TransportErrorClassification;
-} {
-	const display = credentialFreeText(errorMessageText(reason));
+export function statusLogSafeError(reason: unknown): LogSafeErrorText {
 	const logSafe = credentialFreeText(publicErrorText(reason));
-	const classification = transportClassificationOf(reason);
-	return {
-		error: display.length > 0 ? display : l10n.t("Unknown error"),
-		logSafeError: logSafe.length > 0 ? markLogSafe(logSafe) : markLogSafe("Unknown error"),
-		...(classification !== undefined ? { classification } : {}),
-	};
+	return logSafe.length > 0 ? markLogSafe(logSafe) : markLogSafe("unclassified");
+}
+
+/**
+ * A thrown error's display message for the one-shot notification that shows it (a MirroredError renders its display
+ * text): shown once in the current locale and stored nowhere, through the same credential exit.
+ */
+export function thrownErrorDisplayText(reason: unknown): string {
+	const display = credentialFreeText(errorMessageText(reason));
+	return display.length > 0 ? display : l10n.t("Unknown error");
 }
 
 /**

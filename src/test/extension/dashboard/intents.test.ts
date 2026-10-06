@@ -625,11 +625,25 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.retracted, []);
 		});
 
-		test("hideExternalServer refuses an unusable base URL before any lookup", async () => {
+		test("hideExternalServer hides a group at a scheme-less base URL: the handle binds to the URL as the host holds it", async () => {
+			const recorded = makeEnv();
+			recorded.externalGroup = { by: "group", groupId: "group:local", label: "localhost", baseUrl: "localhost:4000" };
+			await executeDashboardIntent(
+				{ method: "hideExternalServer", payload: { baseUrl: "localhost:4000", sourceHandle: "handle-1" } },
+				recorded.env
+			);
+
+			assert.deepStrictEqual(recorded.externalLookups, [["localhost:4000", "handle-1"]]);
+			assert.deepStrictEqual(recorded.hidden, [
+				{ by: "group", groupId: "group:local", label: "localhost", baseUrl: "localhost:4000" },
+			]);
+		});
+
+		test("hideExternalServer refuses an empty base URL before any lookup", async () => {
 			const recorded = makeEnv();
 			await assert.rejects(
 				executeDashboardIntent(
-					{ method: "hideExternalServer", payload: { baseUrl: "not a url", sourceHandle: "h" } },
+					{ method: "hideExternalServer", payload: { baseUrl: "  ", sourceHandle: "h" } },
 					recorded.env
 				),
 				/baseUrl/

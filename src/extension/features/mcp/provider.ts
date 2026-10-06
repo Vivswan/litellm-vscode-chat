@@ -14,14 +14,13 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { type FailureSink, logFailure } from "../../../provider/catalog/discoveryLog";
-import type { RejectedCredentialField } from "../../../provider/catalog/groupModels";
-import { rejectedCredentialKinds } from "../../../provider/catalog/groupModels";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
+import { rejectedCredentialKinds } from "../../../shared/failureCause";
 import type { MirroredError } from "../../../shared/mirroredError";
 import { localizedError } from "../../../shared/mirroredError";
-import type { McpOptIn } from "../../../shared/serverEntry";
+import type { McpOptIn, RejectedCredentialField } from "../../../shared/serverEntry";
 import { displayUrl } from "../../../shared/util/displayUrl";
 import type { HeaderValue } from "../../../shared/util/headers";
 import type { EntryConnectionRefused } from "../../servers/entryConnection";

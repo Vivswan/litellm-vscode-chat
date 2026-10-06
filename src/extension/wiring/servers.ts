@@ -12,10 +12,17 @@ import { isServerSecretsKey } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { DebouncedAction } from "../../shared/util/debounce";
 import type { HeaderValue } from "../../shared/util/headers";
+import { resolveDeclaredServers } from "../dashboard/declaredServers";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
-import { createServerSyncEnv, registerSetServerSecretCommand, ServerSyncEngine } from "../servers/serverSync";
+import {
+	createServerSyncEnv,
+	registerSetServerSecretCommand,
+	ServerSyncEngine,
+	serverSettingReports,
+} from "../servers/serverSync";
+import { ServerVerdict } from "../servers/syncFailureOverlay";
 import { createUsagePollerEnv, registerRefreshUsageCommand, UsagePoller } from "../servers/usage";
 import { createSettingsTransferEnv, registerSettingsTransferCommands } from "../ui/settingsTransferCommands";
 
@@ -26,6 +33,8 @@ const USAGE_POLL_INTERVAL_SETTING_ID = "usage.pollInterval" satisfies NumberSett
 export interface ServersWiring {
 	readonly syncEngine: ServerSyncEngine;
 	readonly usagePoller: UsagePoller;
+	/** The one owner of the declared set and the verdict rows (status bar, notifier, dashboard, issue report). */
+	readonly verdict: ServerVerdict;
 }
 
 /** (The usage status bar's own configuration reaction lives in wireUsageSurfaces.) */
@@ -59,6 +68,14 @@ export function wireServers(
 		)
 	);
 	const usagePoller = new UsagePoller(createUsagePollerEnv(context, logger, userAgent));
+	// One state for every headline surface: the provider's window, the engine's views (the setting before the first
+	// pass), and the setting's entry reports.
+	const readServersSetting = () => vscode.workspace.getConfiguration(CONFIG_SECTION).get<unknown>(SERVERS_SETTING_KEY);
+	const verdict = new ServerVerdict({
+		statuses: () => deps.observedSnapshots().map((snapshot) => snapshot.status),
+		declared: () => resolveDeclaredServers(syncEngine.getDeclared(), readServersSetting()),
+		entryReports: () => serverSettingReports(readServersSetting()),
+	});
 	context.subscriptions.push(
 		syncEngine,
 		usagePoller,
@@ -116,5 +133,5 @@ export function wireServers(
 	// Refresh Usage Now: the poller's explicit refresh, availability re-probed, working whether or not polling is on.
 	registerRefreshUsageCommand(context, () => usagePoller.refreshNow());
 	usagePoller.start();
-	return { syncEngine, usagePoller };
+	return { syncEngine, usagePoller, verdict };
 }

@@ -88,10 +88,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		observedSnapshots: () => provider.getServerSnapshots(),
 		onDidObserveGroup: provider.onDidObserveGroup,
 	});
-	// After wireServers: both surfaces read the sync engine's declared views for the sync-failure overlay.
-	const { statusBar, notifier } = wireStatusSurfaces(context, logger, hasConfiguredServers, () =>
-		servers.syncEngine.getDeclared()
-	);
+	// After wireServers: both surfaces classify the verdict owner's rows and read its declared set.
+	const { statusBar, notifier } = wireStatusSurfaces(context, logger, hasConfiguredServers, servers.verdict);
 	// Before the dashboard so its test probes reuse the features' exact send pipelines.
 	const features = wireFeatures(context, logger, {
 		ua,
@@ -106,12 +104,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		usagePoller: servers.usagePoller,
 		ua,
 		featureProbes: features.featureProbes,
+		verdict: servers.verdict,
 	});
 	// The agent tools are a client of the dashboard controller, so they wire after it; every write they make joins the
-	// controller's serialized chain.
+	// controller's serialized chain, and their diagnostics judge the owner's declared set like every other surface.
 	wireDashboardClientFeatures(context, logger, {
 		dashboard,
 		getConnectionStatus: () => statusBar.connectionStatus,
+		getDeclared: () => servers.verdict.declared().views,
 		issueReporter,
 		extVersion,
 		vscodeVersion,
@@ -147,9 +147,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		statusBar,
 		outputChannel,
 		syncEngine: servers.syncEngine,
+		getDeclared: () => servers.verdict.declared().views,
 		issueReporter,
 		extVersion,
 		vscodeVersion,
+		hasConfiguredServers,
 	});
 }
 

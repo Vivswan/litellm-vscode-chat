@@ -16,6 +16,7 @@ import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { displayUrl } from "../../../shared/util/displayUrl";
 import { isRecord } from "../../../shared/util/json";
 import type { DashboardController } from "../../dashboard/panel";
+import type { DeclaredServerView } from "../../servers/serverSync";
 import type { SettingsAccess } from "../../settingsAccess";
 import { resolveConfiguredScope } from "../../settingsAccess";
 import { buildDiagnosticsSnapshot } from "../../ui/diagnostics";
@@ -79,6 +80,8 @@ export interface AgentToolsDeps {
 	/** The one settings reader the cards read current values through (the dashboard's own access). */
 	readonly settings: Pick<SettingsAccess, "readEffective" | "inspect">;
 	readonly getConnectionStatus: () => ConnectionStatus;
+	/** The sync engine's declared views: the credential reading the diagnostics tool reports (ui/diagnostics.ts). */
+	readonly getDeclared: () => readonly DeclaredServerView[];
 	readonly issueReporter: IssueReporter;
 	readonly extVersion: string;
 	readonly vscodeVersion: string;
@@ -357,7 +360,13 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 				const input = this.parse("diagnostics", raw);
 				const status = this.deps.getConnectionStatus();
 				return shapeDiagnostics(
-					buildDiagnosticsSnapshot(status, this.deps.extVersion, this.deps.vscodeVersion, this.deps.issueReporter),
+					buildDiagnosticsSnapshot(
+						status,
+						this.deps.getDeclared(),
+						this.deps.extVersion,
+						this.deps.vscodeVersion,
+						this.deps.issueReporter
+					),
 					statusServerStatuses(status),
 					state.diagnostics,
 					redactSecrets,
@@ -365,7 +374,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 				);
 			}
 			case "configuration":
-				return shapeConfiguration(state, this.parse("configuration", raw).sections, redactSecrets);
+				return shapeConfiguration(state, this.parse("configuration", raw).sections);
 			case "inspectModel":
 				return this.execute(planInspectModel(this.parse("inspectModel", raw), state), token);
 			case "searchCatalog":

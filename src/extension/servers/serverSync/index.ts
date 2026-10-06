@@ -19,21 +19,14 @@ export type {
 	ServerSyncEnv,
 	SyncFailure,
 } from "./engine";
-export {
-	buildGroupArgs,
-	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
-	GROUP_UPSERT_FAILED_MESSAGE,
-	IndeterminateServersSettingError,
-	SALT_UNAVAILABLE_MESSAGE,
-	SECRETS_READ_FAILED_MESSAGE,
-	ServerSyncEngine,
-} from "./engine";
+export { buildGroupArgs, declaredCredentials, IndeterminateServersSettingError, ServerSyncEngine } from "./engine";
+export { rejectsWithOwnRow } from "./rejects";
 export type { SecretStore, StoredServerSecrets } from "./secrets";
 export { deleteServerSecrets, inlineSecretValues, secretLocations, updateServerSecret } from "./secrets";
-export type { DeclaredServer, DrawableReject, ServerEntryReport } from "./setting";
+export type { DeclaredServer, ServerEntryReport } from "./setting";
 export {
 	acceptedEntry,
-	drawableRejects,
+	declaresServerRows,
 	entryExpectedFailuresFor,
 	entryIncludeModesFor,
 	entryModelCapabilitiesFor,
@@ -47,6 +40,7 @@ export {
 export {
 	createServerSyncEnv,
 	currentDeclaredServers,
+	currentSettingDeclaresRows,
 	readEntryApiVersion,
 	readEntryCredentials,
 	readEntryDeclaredModels,

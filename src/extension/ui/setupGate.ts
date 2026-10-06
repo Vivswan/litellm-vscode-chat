@@ -7,6 +7,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { SetupHintKind } from "../../shared/errorClassification";
+import { failureClassification } from "../../shared/failureCause";
 import { isHiddenGroupServerStatus } from "../../shared/servers";
 import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import {
@@ -38,7 +39,7 @@ export function detectSetupProblem(status: ConnectionStatus): SetupProblem | und
 		case "not-configured":
 			return "not-configured";
 		case "error":
-			return status.classification?.setupHint;
+			return failureClassification(status.cause)?.setupHint;
 		case "connected": {
 			const whollyExplainedByHidden =
 				status.serverStatuses.some(isHiddenGroupServerStatus) &&

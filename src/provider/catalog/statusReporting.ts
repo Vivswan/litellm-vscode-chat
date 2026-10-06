@@ -1,7 +1,9 @@
-import type { TransportErrorClassification, UnservedEndpointEvidence } from "../../shared/errorClassification";
+import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
+import type { FailureCause } from "../../shared/failureCause";
 import type { LogSafeErrorText } from "../../shared/logger";
 import type { AggregatedStatus, ServerStatus, ServerWithKey } from "../../shared/servers";
 import type { GroupServer } from "./groupModels";
+import { groupCredentialKind, groupHasCredentials } from "./groupModels";
 import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./statusWindow";
 
 export type GroupServeOutcome =
@@ -16,9 +18,9 @@ export type GroupServeOutcome =
 	  }
 	| {
 			state: "error";
-			error: string;
+			/** See ServerStatusError: the cause the surfaces render, never text. */
+			cause: FailureCause;
 			logSafeError: LogSafeErrorText;
-			classification?: TransportErrorClassification;
 			/** See ServerStatusError: the truthful error stays; presentation derives the downgrade. */
 			expected?: boolean;
 			/** See ServerStatusCommon: what the failure still serves (stale-window plus declared models). */
@@ -27,10 +29,6 @@ export type GroupServeOutcome =
 			declaredModelCount?: number;
 	  };
 
-/**
- * Owns the per-group report counter refreshViaHost's settle-wait arms on: per-group reports only, since the groupless
- * report says nothing about whether the host is re-resolving groups.
- */
 export class GroupStatusReporter {
 	private readonly _window: StatusWindow;
 	private _callback?: (status: AggregatedStatus) => void;
@@ -45,6 +43,10 @@ export class GroupStatusReporter {
 		this._callback = callback;
 	}
 
+	/**
+	 * How many group reports have landed in the window, ever; a refresh pass (index.ts refreshGroups) reads the
+	 * difference across its run, so what it counts is what recorded, whichever serve's record stood.
+	 */
 	get groupReportCount(): number {
 		return this._groupReportCount;
 	}
@@ -90,12 +92,11 @@ export class GroupStatusReporter {
 			...(groupServer.label !== undefined ? { entryLabel: groupServer.label } : {}),
 			baseUrl: server.baseUrl,
 			lastChecked: new Date().toISOString(),
-			// Diagnostics reads this as "authentication configured", so OAuth client credentials count the same as a
-			// static key.
-			hasApiKey: groupServer.apiKey.length > 0 || groupServer.oauth !== undefined,
-			// The credential KIND, for the dashboard's external rows: their group configuration is the only place it is
-			// knowable.
-			hasOAuth: groupServer.oauth !== undefined,
+			hasApiKey: groupHasCredentials(groupServer),
+			// The credential KIND (the primary form), for the dashboard's external rows: their group configuration is
+			// the only place it is knowable.
+			hasOAuth: groupCredentialKind(groupServer) === "oauth",
+			hasVirtualKey: groupCredentialKind(groupServer) === "virtualKey",
 			...outcome,
 		};
 		if (status.state === "ok") {

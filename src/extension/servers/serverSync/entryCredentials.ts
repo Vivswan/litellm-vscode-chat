@@ -12,7 +12,7 @@ import { errorLabel } from "../../../shared/util/errorLabel";
 import { buildGroupArgs } from "./engine";
 import type { StoredSecretsRecord } from "./secrets";
 import { resolveOwnedSecrets } from "./secrets";
-import { matchedEntryFor } from "./setting";
+import { matchedEntryFor, rejectedCarrierLabels, serverSettingReports } from "./setting";
 
 /**
  * The match is matchedEntryFor's label AND normalized base URL rule, shared with headers, parameters, and
@@ -23,6 +23,10 @@ import { matchedEntryFor } from "./setting";
  * A credential the narrowing dropped is a refusal here, as it is in usageConnectionFor for the usage and feature paths:
  * the chat and serve paths resolve through this function, so neither sends headerless for an entry that configured a
  * key.
+ *
+ * A label the setting carries only in a shape the parser rejects (a rejected carrier) is declared, not external: its
+ * Misconfigured row says the entry is not used until fixed, so the group baked from its last accepted shape must not
+ * keep serving on the old key.
  */
 export async function entryGroupCredentialsFor(
 	readServersSetting: () => unknown,
@@ -31,9 +35,12 @@ export async function entryGroupCredentialsFor(
 	baseUrl: string,
 	log?: (message: string, data?: unknown) => void
 ): Promise<GroupCredentialsResolution> {
-	const entry = matchedEntryFor(readServersSetting(), label, baseUrl);
+	const setting = readServersSetting();
+	const entry = matchedEntryFor(setting, label, baseUrl);
 	if (entry === undefined) {
-		return { kind: "external" };
+		return rejectedCarrierLabels(serverSettingReports(setting)).includes(label)
+			? { kind: "unavailable", reason: "misconfigured" }
+			: { kind: "external" };
 	}
 	let record: StoredSecretsRecord;
 	try {

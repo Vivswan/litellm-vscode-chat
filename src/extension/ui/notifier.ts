@@ -3,19 +3,16 @@ import * as vscode from "vscode";
 import { classifyOverall } from "../../dashboard/presenters";
 import { CMD } from "../../shared/config/commandIds";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
+import { failureTexts } from "../../shared/failureCause";
 import type { AggregatedStatus } from "../../shared/servers";
-import { unexpectedServerFailures } from "../../shared/servers";
-import { statusErrorHeadline } from "../../shared/util/errorText";
+import { statusClassification, unexpectedServerFailures } from "../../shared/servers";
 import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { Timer } from "../../shared/util/timer";
 import { PendingCall, REAL_TIMER } from "../../shared/util/timer";
-import type { DeclaredServerView } from "../servers/serverSync";
+import type { ServerVerdict } from "../servers/syncFailureOverlay";
 import { applySyncFailures } from "../servers/syncFailureOverlay";
-import { zeroModelJudgment } from "./status";
-
-// The headline extraction lives in shared/util/errorText so the dashboard webview splits messages the same way.
-export { statusErrorHeadline };
+import { zeroModelJudgment, zeroModelTexts } from "./status";
 
 export interface MessageAction {
 	label: string;
@@ -136,10 +133,10 @@ export class Notifier implements vscode.Disposable {
 	constructor(
 		private readonly hasConfiguredServers: () => boolean,
 		/**
-		 * The declared entries as of the last sync pass, for the sync-failure overlay (applySyncFailures) - the same
-		 * input the status bar judges, so the toast can never contradict the bar it points at.
+		 * The one owner of the verdict rows and the declared set the status bar judges too, so the toast can never
+		 * contradict the bar it points at.
 		 */
-		private readonly getDeclared: () => readonly DeclaredServerView[],
+		private readonly verdict: Pick<ServerVerdict, "declared" | "rows">,
 		private readonly graceMs: number = NO_SERVERS_GRACE_MS,
 		timer: Timer = REAL_TIMER
 	) {
@@ -199,7 +196,13 @@ export class Notifier implements vscode.Disposable {
 	 */
 	refreshFromSync(): void {
 		const base = this.lastStatus ?? { serverStatuses: [], totalModels: 0, silent: true };
-		if (this.lastStatus === undefined && applySyncFailures(base.serverStatuses, this.getDeclared()).length === 0) {
+		// Before any report, news is a non-empty overlay or a non-empty row set (a refused entry is a row with no
+		// overlay).
+		if (
+			this.lastStatus === undefined &&
+			applySyncFailures(base.serverStatuses, this.verdict.declared().views).length === 0 &&
+			this.verdict.rows().length === 0
+		) {
 			return;
 		}
 		this.handleAggregatedStatus(base);
@@ -227,14 +230,17 @@ export class Notifier implements vscode.Disposable {
 	private evaluate(status: AggregatedStatus): NotifierOutcome {
 		// The same overlaid window the status bar judges (see applySyncFailures): sync failures never enter the
 		// provider report itself.
-		const serverStatuses = applySyncFailures(status.serverStatuses, this.getDeclared());
-		//   The one verdict pipeline -> classifyOverall owns the branch rules (shared with the status bar and the
-		//       dashboard headline)
-		const verdict = classifyOverall(serverStatuses);
+		const serverStatuses = applySyncFailures(status.serverStatuses, this.verdict.declared().views);
+		//   The one verdict pipeline -> classifyOverall owns the branch rules, over the owner's published rows (shared
+		//       with the status bar and the dashboard headline)
+		const rows = this.verdict.rows();
+		const verdict = classifyOverall(rows);
+		// "waiting" is declared entries with no report yet: the world is not fully known, the same suppression an
+		// empty window gets on a configured install, never a recovery.
+		if (verdict === "waiting" || (verdict === "not-configured" && this.hasConfiguredServers())) {
+			return { tag: "suppressed" };
+		}
 		if (verdict === "not-configured") {
-			if (this.hasConfiguredServers()) {
-				return { tag: "suppressed" };
-			}
 			return {
 				tag: "no-servers",
 				signature: "no-servers",
@@ -246,21 +252,24 @@ export class Notifier implements vscode.Disposable {
 		if (verdict === "error") {
 			const firstFailure = unexpectedServerFailures(serverStatuses)[0];
 			if (firstFailure === undefined) {
-				// Unreachable: a status window carries no misconfigured rows, so the error verdict guarantees an
-				// unexpected failure.
-				return { tag: "recovered" };
+				// Every row is a parser-refused entry: the same error the bar and the hero show, pointing at the fix.
+				return {
+					tag: "all-failed",
+					signature: "all-misconfigured",
+					kind: "error",
+					message: l10n.t("LiteLLM: {0}", failureTexts({ kind: "misconfiguredEntry" }, "").display),
+					actions: [reconfigureAction()],
+				};
 			}
 			return {
 				tag: "all-failed",
-				// The dedup signature is an internal English key, never displayed. It keys on the HEADLINE plus the
-				// setup hint, matching what the toast shows: the detail line's server-derived churn is not new
-				// information, while distinct causes can share a headline (ENOTFOUND and ECONNREFUSED render the same
-				// connection headline over different cause details, but only the latter carries proxy-not-running), so
-				// a failure whose hint changes must re-fire the toast carrying the docs action.
-				signature: `all-failed:${statusErrorHeadline(firstFailure.error)}:${firstFailure.classification?.setupHint ?? ""}`,
+				// The dedup signature is an internal key, never displayed: the cause itself (its classification and
+				// setup hint included), so a failure whose cause changes re-fires the toast, with the docs action when
+				// the new cause carries a hint.
+				signature: `all-failed:${JSON.stringify(firstFailure.cause)}`,
 				kind: "error",
-				message: l10n.t("LiteLLM: {0}", statusErrorHeadline(firstFailure.error)),
-				actions: notifierErrorActions(firstFailure.classification),
+				message: l10n.t("LiteLLM: {0}", failureTexts(firstFailure.cause, firstFailure.baseUrl).display),
+				actions: notifierErrorActions(statusClassification(firstFailure)),
 			};
 		}
 		if (verdict === "needs-declare") {
@@ -278,7 +287,7 @@ export class Notifier implements vscode.Disposable {
 		}
 		// The shared zero-model judgment (zeroModelJudgment owns the gating rule): it stands down on any verdict that
 		// already explains itself, so a degraded window keeps the failure story the other surfaces tell.
-		const zero = zeroModelJudgment(serverStatuses, status.totalModels);
+		const zero = zeroModelJudgment(rows, status.totalModels);
 		if (zero !== undefined) {
 			if (zero.hiddenCount > 0) {
 				// Hidden groups explain the zero models: the toast names the removal and the recovery, sharing its
@@ -291,7 +300,7 @@ export class Notifier implements vscode.Disposable {
 					// cause, not a new one.
 					signature: "no-models-hidden",
 					kind: "warning",
-					message: l10n.t("LiteLLM: {0}", zero.display),
+					message: l10n.t("LiteLLM: {0}", zeroModelTexts(zero).display),
 					actions: [reconfigureAction(l10n.t("Open Dashboard")), reportIssueAction()],
 				};
 			}
@@ -299,10 +308,14 @@ export class Notifier implements vscode.Disposable {
 				tag: "no-models",
 				signature: "no-models",
 				kind: "warning",
-				message: l10n.t("LiteLLM: {0}", zero.display),
+				message: l10n.t("LiteLLM: {0}", zeroModelTexts(zero).display),
 				actions: [testConnectionAction(l10n.t("Check Server")), reconfigureAction(), reportIssueAction()],
 			};
 		}
-		return { tag: "recovered" };
+		// Recovery is something serving: a degraded verdict made of failures beside entries awaiting their first report
+		// has nothing recovered in it, so it is suppressed like any other not-yet-known window.
+		return serverStatuses.some((status) => status.state === "ok" || status.servedModelCount > 0)
+			? { tag: "recovered" }
+			: { tag: "suppressed" };
 	}
 }

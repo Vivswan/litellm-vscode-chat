@@ -11,11 +11,19 @@ import {
 	zeroModelEnglishDetail,
 	zeroModelExplanation,
 } from "../../../dashboard/presenters";
-import type { DashboardServer } from "../../../dashboard/viewModels";
+import type { DashboardServer, VerdictRow } from "../../../dashboard/viewModels";
 import type { CapabilityJsonValue } from "../../../shared/config/capabilityResolution";
 import { capabilityField } from "../../../shared/config/capabilityResolution";
 import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
+import type { FailureCause } from "../../../shared/failureCause";
+
+// Causes as the rows carry them (keys, never text); the pinned lines below are their English renderings.
+const CONNECTION: FailureCause = { kind: "transport", classification: { kind: "connection" } };
+const TIMEOUT: FailureCause = { kind: "transport", classification: { kind: "timeout" } };
+const HTTP_404: FailureCause = { kind: "transport", classification: { kind: "http", status: 404 } };
+const UPSERT_FAILED: FailureCause = { kind: "sync", failureClass: "upsertFailed" };
+const PROD = "http://prod.test";
 
 /**
  * These lines are what users copy out of the Diagnostics tab into issue reports, so the exact text is pinned once here
@@ -32,6 +40,7 @@ function declaredServer(overrides: Partial<DeclaredServer> = {}): DashboardServe
 		servedModelCount: 0,
 		credentials: "absent",
 		hasOAuth: false,
+		hasVirtualKey: false,
 		state: "ok",
 		config: {
 			secrets: { kind: "proven", locations: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } },
@@ -48,144 +57,125 @@ function misconfiguredServer(problems: readonly string[]): DashboardServer {
 		servedModelCount: 0,
 		credentials: "absent",
 		hasOAuth: false,
+		hasVirtualKey: false,
 		state: "error",
 		problems,
-		error: "misconfigured entry; not used until its configuration is fixed",
-		errorEnglish: "misconfigured entry; not used until its configuration is fixed",
+		cause: { kind: "misconfiguredEntry" },
 	};
 }
 
 describe("dashboard/presenters renderers", () => {
 	describe("overallStatusText", () => {
+		// The host's published verdict rows (verdictRows): one per window status, unchecked entry, or refused entry.
+		const row = (overrides: Partial<VerdictRow> = {}): VerdictRow => ({
+			state: "ok",
+			servedModelCount: 0,
+			...overrides,
+		});
+		const failed = (cause: FailureCause, overrides: Partial<VerdictRow> = {}): VerdictRow =>
+			row({ state: "error", failure: { cause, baseUrl: PROD }, ...overrides });
+		const MISCONFIGURED = failed({ kind: "misconfiguredEntry" }, { misconfigured: true });
+
 		test("nothing configured anywhere reads as not configured", () => {
 			assert.strictEqual(overallStatusText([], 0), "Not configured");
 		});
 
 		test("connected with zero models names the empty listings through the one English detail", () => {
-			const servers = [declaredServer({ servedModelCount: 0 })];
 			assert.strictEqual(
-				overallStatusText(servers, 0),
+				overallStatusText([row()], 0),
 				"Connected, but 0 models are served (answered with an empty listing)"
 			);
 		});
 
 		test("hidden groups alone read as the connected zero-model warning, never as not configured", () => {
-			// Hidden groups leave the server list, but they are answering configuration the user chose to silence: the
-			// classifier and the paste line must match the status bar's warning.
-			assert.strictEqual(classifyOverall([], { hiddenGroupCount: 1 }), "connected");
+			// Hidden groups leave the servers table, but they are answering configuration the user chose to silence:
+			// their rows stay in the verdict set, so the hero and the paste line match the status bar's warning.
+			const hidden = row({ hiddenByRemoval: true });
+			assert.strictEqual(classifyOverall([hidden]), "connected");
 			assert.strictEqual(
-				overallStatusText([], 0, { hiddenGroupCount: 1 }),
+				overallStatusText([hidden], 0),
 				"Connected, but 0 models are served (1 hidden by the user's configuration)"
 			);
 			assert.strictEqual(
-				overallStatusText([], 0, { hiddenGroupCount: 2 }),
+				overallStatusText([hidden, hidden], 0),
 				"Connected, but 0 models are served (2 hidden by the user's configuration)"
 			);
 		});
 
 		test("a hidden group beside an empty-listing server names both causes on the paste line", () => {
-			const servers = [declaredServer({ servedModelCount: 0 })];
 			assert.strictEqual(
-				overallStatusText(servers, 0, { hiddenGroupCount: 1 }),
+				overallStatusText([row({ hiddenByRemoval: true }), row()], 0),
 				"Connected, but 0 models are served (1 hidden by the user's configuration; 1 answered with an empty listing)"
 			);
 		});
 
 		test("every server reachable reads as connected with the model count", () => {
-			const servers = [
-				declaredServer({ servedModelCount: 4 }),
-				declaredServer({ label: "Backup", servedModelCount: 2 }),
-			];
-			assert.strictEqual(overallStatusText(servers, 6), "Connected (6 models)");
+			const rows = [row({ servedModelCount: 4 }), row({ servedModelCount: 2 })];
+			assert.strictEqual(overallStatusText(rows, 6), "Connected (6 models)");
 		});
 
 		test("one failing server among reachable ones reads as degraded", () => {
-			const servers = [
-				declaredServer({ servedModelCount: 4 }),
-				declaredServer({ label: "Backup", state: "error", error: "connection refused" }),
-			];
-			assert.strictEqual(overallStatusText(servers, 4), "Degraded (4 models, some servers failed)");
+			const rows = [row({ servedModelCount: 4 }), failed(CONNECTION)];
+			assert.strictEqual(overallStatusText(rows, 4), "Degraded (4 models, some servers failed)");
 		});
 
 		test("every server failing surfaces the first error as the status", () => {
-			const servers = [
-				declaredServer({ state: "error", error: "connection refused" }),
-				declaredServer({ label: "Backup", state: "error", error: "timeout" }),
-			];
-			assert.strictEqual(overallStatusText(servers, 0), "Error: connection refused");
+			const rows = [failed(CONNECTION), failed(TIMEOUT)];
+			assert.strictEqual(overallStatusText(rows, 0), "Error: Could not connect to http://prod.test");
 		});
 
 		test("declared entries no discovery pass has seen read as waiting, never as a failure", () => {
-			const servers = [declaredServer({ state: "unchecked" })];
-			assert.strictEqual(classifyOverall(servers), "waiting");
-			assert.strictEqual(overallStatusText(servers, 0), "Waiting for first sync");
+			const rows = [row({ state: "unchecked" })];
+			assert.strictEqual(classifyOverall(rows), "waiting");
+			assert.strictEqual(overallStatusText(rows, 0), "Waiting for first sync");
 		});
 
 		test("expected failures never count as failures: declared models read as connected", () => {
-			const servers = [
-				declaredServer({ servedModelCount: 4 }),
-				declaredServer({
-					label: "Gateway",
-					state: "error",
-					error: "404 on /models",
-					expected: true,
-					servedModelCount: 2,
-					declaredModelCount: 2,
-				}),
-			];
-			assert.strictEqual(classifyOverall(servers), "connected");
-			assert.strictEqual(overallStatusText(servers, 6), "Connected (6 models)");
+			const rows = [row({ servedModelCount: 4 }), failed(HTTP_404, { expected: true, servedModelCount: 2 })];
+			assert.strictEqual(classifyOverall(rows), "connected");
+			assert.strictEqual(overallStatusText(rows, 6), "Connected (6 models)");
 		});
 
 		test("all-expected failures with nothing declared read as the neutral needs-declare verdict", () => {
-			const servers = [declaredServer({ state: "error", error: "404 on /models", expected: true })];
-			assert.strictEqual(classifyOverall(servers), "needs-declare");
+			const rows = [failed(HTTP_404, { expected: true })];
+			assert.strictEqual(classifyOverall(rows), "needs-declare");
 			assert.strictEqual(
-				overallStatusText(servers, 0),
+				overallStatusText(rows, 0),
 				"Expected discovery failures; no declared models (add IDs to the entry's discovery.declared)"
 			);
 		});
 
+		test("an expected failure beside an entry awaiting its first report waits: not every server has answered", () => {
+			const rows = [failed(HTTP_404, { expected: true }), row({ state: "unchecked" })];
+			assert.strictEqual(classifyOverall(rows), "waiting");
+			assert.strictEqual(overallStatusText(rows, 0), "Waiting for first sync");
+		});
+
 		test("a misconfigured entry beside a healthy server stays neutral: connected, not degraded", () => {
-			// The status bar cannot see misconfigured entries, so counting them here would split the headline from the
-			// bar.
-			const servers = [misconfiguredServer(["auth must pick one form"]), declaredServer({ servedModelCount: 3 })];
-			assert.strictEqual(classifyOverall(servers), "connected");
-			assert.strictEqual(overallStatusText(servers, 3), "Connected (3 models)");
+			// The status bar cannot see refused entries, so counting them here would split the headline from the bar.
+			const rows = [MISCONFIGURED, row({ servedModelCount: 3 })];
+			assert.strictEqual(classifyOverall(rows), "connected");
+			assert.strictEqual(overallStatusText(rows, 3), "Connected (3 models)");
 		});
 
 		test("with every real server down, the headline names the transport failure, not the misconfigured row", () => {
-			// Rows sort by label ("Broken" first); the real outage is the line worth pasting into an issue report.
-			const servers = [
-				misconfiguredServer(["auth must pick one form"]),
-				declaredServer({ state: "error", error: "connection refused" }),
-			];
-			assert.strictEqual(classifyOverall(servers), "error");
-			assert.strictEqual(overallStatusText(servers, 0), "Error: connection refused");
+			// Whatever the row order, the real outage is the line worth pasting into an issue report.
+			const rows = [MISCONFIGURED, failed(CONNECTION)];
+			assert.strictEqual(classifyOverall(rows), "error");
+			assert.strictEqual(overallStatusText(rows, 0), "Error: Could not connect to http://prod.test");
 		});
 
 		test("a configuration of only misconfigured entries is an error, never waiting", () => {
-			const servers = [misconfiguredServer(["auth must pick one form"])];
-			assert.strictEqual(classifyOverall(servers), "error");
+			assert.strictEqual(classifyOverall([MISCONFIGURED]), "error");
 			assert.strictEqual(
-				overallStatusText(servers, 0),
+				overallStatusText([MISCONFIGURED], 0),
 				"Error: misconfigured entry; not used until its configuration is fixed"
 			);
 		});
 
 		test("an unexpected failure beside an expected one still degrades, not errors", () => {
-			const servers = [
-				declaredServer({ state: "error", error: "refused" }),
-				declaredServer({
-					label: "Gateway",
-					state: "error",
-					error: "404 on /models",
-					expected: true,
-					servedModelCount: 1,
-					declaredModelCount: 1,
-				}),
-			];
-			assert.strictEqual(classifyOverall(servers), "degraded");
+			const rows = [failed(CONNECTION), failed(HTTP_404, { expected: true, servedModelCount: 1 })];
+			assert.strictEqual(classifyOverall(rows), "degraded");
 		});
 	});
 
@@ -197,50 +187,45 @@ describe("dashboard/presenters renderers", () => {
 		test("a reachable server whose sync failed reads Error with its still-served count", () => {
 			// declaredOutcome renders a sync failure as an error row keeping the live served count, so the paste line
 			// says both facts.
-			const server = declaredServer({ state: "error", error: "upsert refused", servedModelCount: 2 });
-			assert.strictEqual(serverOutcomeText(server), "Error (2 models still served): upsert refused");
+			const server = declaredServer({ state: "error", cause: UPSERT_FAILED, servedModelCount: 2 });
+			assert.strictEqual(
+				serverOutcomeText(server),
+				"Error (2 models still served): The host rejected the provider group upsert"
+			);
 		});
 
-		test("a failing server reads its error", () => {
-			const server = declaredServer({ state: "error", error: "connection refused" });
-			assert.strictEqual(serverOutcomeText(server), "Error: connection refused");
+		test("a failing server reads its cause, rendered in English", () => {
+			const server = declaredServer({ state: "error", cause: CONNECTION });
+			assert.strictEqual(serverOutcomeText(server), "Error: Could not connect to http://prod.test");
 		});
 
 		test("an unchecked entry reads not checked yet", () => {
 			assert.strictEqual(serverOutcomeText(declaredServer({ state: "unchecked" })), "Not checked yet");
 		});
 
-		test("a two-part error flattens to one physical line in the paste form", () => {
-			// The grid renders headline and detail as separate lines; the copied issue-report line must stay one
-			// physical line per server.
-			const server = declaredServer({
-				state: "error",
-				error: "The server refused this request.\nLiteLLM 403: blocked by policy",
-			});
-			assert.strictEqual(
-				serverOutcomeText(server),
-				"Error: The server refused this request. - LiteLLM 403: blocked by policy"
-			);
-			assert.strictEqual(
-				serverOutcomeParts(server).error,
-				"The server refused this request.\nLiteLLM 403: blocked by policy"
-			);
-		});
-
 		test("an expected failure with declared models reads as OK, annotated (expected)", () => {
 			const server = declaredServer({
 				state: "error",
-				error: "404 on /models",
+				cause: HTTP_404,
 				expected: true,
 				servedModelCount: 2,
 				declaredModelCount: 2,
 			});
-			assert.strictEqual(serverOutcomeText(server), "OK (2 declared models) - 404 on /models (expected)");
+			assert.strictEqual(
+				serverOutcomeText(server),
+				"OK (2 declared models) - The server at http://prod.test answered 404 (expected)"
+			);
 			assert.strictEqual(
 				serverOutcomeText(
-					declaredServer({ state: "error", error: "x", expected: true, servedModelCount: 1, declaredModelCount: 1 })
+					declaredServer({
+						state: "error",
+						cause: HTTP_404,
+						expected: true,
+						servedModelCount: 1,
+						declaredModelCount: 1,
+					})
 				),
-				"OK (1 declared model) - x (expected)"
+				"OK (1 declared model) - The server at http://prod.test answered 404 (expected)"
 			);
 		});
 
@@ -249,12 +234,15 @@ describe("dashboard/presenters renderers", () => {
 			// agree on one number.
 			const server = declaredServer({
 				state: "error",
-				error: "404 on /models",
+				cause: HTTP_404,
 				expected: true,
 				servedModelCount: 5,
 				declaredModelCount: 2,
 			});
-			assert.strictEqual(serverOutcomeText(server), "OK (5 models, 2 declared) - 404 on /models (expected)");
+			assert.strictEqual(
+				serverOutcomeText(server),
+				"OK (5 models, 2 declared) - The server at http://prod.test answered 404 (expected)"
+			);
 		});
 
 		test("servedModelsBreakdown classifies once for both string surfaces", () => {
@@ -273,11 +261,11 @@ describe("dashboard/presenters renderers", () => {
 		test("the models part, when present, always states the server's servedModelCount", () => {
 			const servers: DashboardServer[] = [
 				declaredServer({ servedModelCount: 3 }),
-				declaredServer({ servedModelCount: 2, error: "upsert refused" }),
-				declaredServer({ state: "error", error: "x", servedModelCount: 4 }),
-				declaredServer({ state: "error", error: "x", expected: true, servedModelCount: 5, declaredModelCount: 2 }),
-				declaredServer({ state: "error", error: "x", expected: true, servedModelCount: 2, declaredModelCount: 2 }),
-				declaredServer({ state: "error", error: "x", expected: true, servedModelCount: 3 }),
+				declaredServer({ state: "error", cause: UPSERT_FAILED, servedModelCount: 2 }),
+				declaredServer({ state: "error", cause: HTTP_404, servedModelCount: 4 }),
+				declaredServer({ state: "error", cause: HTTP_404, expected: true, servedModelCount: 5, declaredModelCount: 2 }),
+				declaredServer({ state: "error", cause: HTTP_404, expected: true, servedModelCount: 2, declaredModelCount: 2 }),
+				declaredServer({ state: "error", cause: HTTP_404, expected: true, servedModelCount: 3 }),
 			];
 			for (const server of servers) {
 				const models = serverOutcomeParts(server).models;
@@ -289,22 +277,15 @@ describe("dashboard/presenters renderers", () => {
 			}
 		});
 
-		test("an expected two-part error carries its (expected) annotation on the headline", () => {
+		test("an expected error carries its (expected) annotation on the error part itself", () => {
 			const server = declaredServer({
 				state: "error",
-				error: "Discovery is declared unavailable.\nHTTP 404: not found",
+				cause: HTTP_404,
 				expected: true,
 				servedModelCount: 2,
 				declaredModelCount: 2,
 			});
-			assert.strictEqual(
-				serverOutcomeParts(server).error,
-				"Discovery is declared unavailable. (expected)\nHTTP 404: not found"
-			);
-			assert.strictEqual(
-				serverOutcomeText(server),
-				"OK (2 declared models) - Discovery is declared unavailable. (expected) - HTTP 404: not found"
-			);
+			assert.strictEqual(serverOutcomeParts(server).error, "The server at http://prod.test answered 404 (expected)");
 		});
 
 		test("an ok row with every model skipped by mode names the includeModes fix", () => {
@@ -321,12 +302,12 @@ describe("dashboard/presenters renderers", () => {
 			const line = serverOutcomeText(
 				declaredServer({
 					state: "error",
-					error: "404 on /models",
+					cause: HTTP_404,
 					expected: true,
 					notices: ["expected-failures-nothing-declared"],
 				})
 			);
-			assert.ok(line.startsWith("Error: 404 on /models (expected)"), line);
+			assert.ok(line.startsWith("Error: The server at http://prod.test answered 404 (expected)"), line);
 			assert.ok(line.includes("discovery.declared"), line);
 		});
 
@@ -415,48 +396,32 @@ describe("dashboard/presenters renderers", () => {
 			// Re-deriving one from the other keeps the two surfaces from drifting.
 			const cases: DashboardServer[] = [
 				declaredServer({ servedModelCount: 3 }),
-				declaredServer({ state: "error", error: "upsert refused", servedModelCount: 2 }),
-				declaredServer({ state: "error", error: "connection refused" }),
+				declaredServer({ state: "error", cause: UPSERT_FAILED, servedModelCount: 2 }),
+				declaredServer({ state: "error", cause: CONNECTION }),
 				declaredServer({ state: "unchecked" }),
 				declaredServer({ servedModelCount: 2, notices: ["entry-params-inactive"] }),
 				declaredServer({
 					state: "error",
-					error: "upsert refused",
+					cause: UPSERT_FAILED,
 					servedModelCount: 2,
 					notices: ["entry-params-inactive"],
 				}),
-				declaredServer({ state: "error", error: "connection refused", notices: ["entry-params-inactive"] }),
+				declaredServer({ state: "error", cause: CONNECTION, notices: ["entry-params-inactive"] }),
 				declaredServer({ state: "unchecked", notices: ["entry-params-inactive"] }),
 				declaredServer({ servedModelCount: 2, notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),
-				declaredServer({ state: "error", error: "404", expected: true, servedModelCount: 2, declaredModelCount: 2 }),
-				declaredServer({ state: "error", error: "404", expected: true, servedModelCount: 5, declaredModelCount: 2 }),
+				declaredServer({ state: "error", cause: HTTP_404, expected: true, servedModelCount: 2, declaredModelCount: 2 }),
+				declaredServer({ state: "error", cause: HTTP_404, expected: true, servedModelCount: 5, declaredModelCount: 2 }),
 				declaredServer({
 					state: "error",
-					error: "404",
+					cause: HTTP_404,
 					expected: true,
 					notices: ["expected-failures-nothing-declared"],
-				}),
-				declaredServer({ state: "error", error: "headline\nLiteLLM 403: detail line" }),
-				declaredServer({ state: "error", error: "headline\nHTTP 502: upsert detail", servedModelCount: 2 }),
-				declaredServer({
-					state: "error",
-					error: "headline\nHTTP 404: detail line",
-					expected: true,
-					servedModelCount: 2,
-					declaredModelCount: 2,
 				}),
 			];
 			for (const server of cases) {
 				const parts = serverOutcomeParts(server);
 				const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
-				// The one-line form flattens a two-part error's newline to " - ";
-				// the grid renders parts.error two-part on purpose.
-				const flat = parts.error
-					?.split("\n")
-					.map((line) => line.trim())
-					.filter((line) => line.length > 0)
-					.join(" - ");
-				const error = flat === undefined ? "" : parts.status === "OK" ? ` - ${flat}` : `: ${flat}`;
+				const error = parts.error === undefined ? "" : parts.status === "OK" ? ` - ${parts.error}` : `: ${parts.error}`;
 				const notice = parts.notice.map((text) => ` - ${text}`).join("");
 				assert.strictEqual(serverOutcomeText(server), `${status}${error}${notice}`);
 			}

@@ -29,7 +29,7 @@ beforeEach(resetPosted);
 afterEach(cleanup);
 
 /** One declared server whose label matches the default usage card's. */
-function prodServer(overrides: Partial<Parameters<typeof makeDeclaredServer>[0]> = {}) {
+function prodServer(overrides: Parameters<typeof makeDeclaredServer>[0] = {}) {
 	return makeDeclaredServer({ label: "Prod", baseUrl: "http://localhost:4000", ...overrides });
 }
 
@@ -454,6 +454,7 @@ describe("the drawer", () => {
 						servedModelCount: 2,
 						credentials: "present",
 						hasOAuth: false,
+						hasVirtualKey: false,
 						state: "ok",
 						adoptHandle: "handle-abc",
 					},

@@ -9,6 +9,7 @@ import { DOCS_GETTING_STARTED_URL } from "../../shared/util/links";
 import type { DashboardController } from "../dashboard/panel";
 import { registerManageCommand } from "../servers/serverManagement";
 import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
+import type { ServerVerdict } from "../servers/syncFailureOverlay";
 import {
 	registerHelpAndFeedbackCommand,
 	registerOpenGroupsFileCommand,
@@ -29,13 +30,13 @@ export function wireStatusSurfaces(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	hasConfiguredServers: () => boolean,
-	getDeclared: () => readonly DeclaredServerView[]
+	verdict: Pick<ServerVerdict, "declared" | "rows">
 ): { statusBar: StatusBarManager; notifier: Notifier } {
 	const statusBar = new StatusBarManager(
 		context,
 		logger,
 		hasConfiguredServers,
-		getDeclared,
+		verdict,
 		new StatusItem({
 			slot: "connection",
 			alignment: vscode.StatusBarAlignment.Right,
@@ -44,7 +45,7 @@ export function wireStatusSurfaces(
 			log: (message) => logger.log(message),
 		})
 	);
-	const notifier = new Notifier(hasConfiguredServers, getDeclared);
+	const notifier = new Notifier(hasConfiguredServers, verdict);
 	// Disposal withdraws an armed no-servers claim, so its deferred toast cannot fire from a deactivated extension.
 	context.subscriptions.push(notifier);
 	return { statusBar, notifier };
@@ -137,19 +138,36 @@ export function wireUiCommands(
 		statusBar: StatusBarManager;
 		outputChannel: vscode.OutputChannel;
 		syncEngine: ServerSyncEngine;
+		/** The owner's declared set (ServerVerdict.declared); the issue report judges configuration presence from it. */
+		getDeclared: () => readonly DeclaredServerView[];
 		issueReporter: IssueReporter;
 		extVersion: string;
 		vscodeVersion: string;
+		/** The gate the status bar and notifier share; the two refresh commands read it when nothing was probed. */
+		hasConfiguredServers: () => boolean;
 	}
 ): void {
 	registerManageCommand(context);
 
-	registerTestConnectionCommand(context, deps.provider, deps.statusBar, deps.outputChannel, logger);
+	registerTestConnectionCommand(
+		context,
+		deps.provider,
+		deps.statusBar,
+		deps.outputChannel,
+		logger,
+		deps.hasConfiguredServers
+	);
 
 	//   Sync Models Now -> a forced server sync first (reconciling groups edited natively), then a
 	//       discovery-cache-skipping refetch
-	registerSyncModelsCommand(context, deps.provider, deps.statusBar, deps.outputChannel, logger, () =>
-		deps.syncEngine.syncNow(true)
+	registerSyncModelsCommand(
+		context,
+		deps.provider,
+		deps.statusBar,
+		deps.outputChannel,
+		logger,
+		deps.hasConfiguredServers,
+		() => deps.syncEngine.syncNow(true)
 	);
 
 	registerHelpAndFeedbackCommand(context);
@@ -163,6 +181,7 @@ export function wireUiCommands(
 	registerReportIssueCommand(
 		context,
 		() => deps.statusBar.connectionStatus,
+		deps.getDeclared,
 		deps.extVersion,
 		deps.vscodeVersion,
 		deps.issueReporter

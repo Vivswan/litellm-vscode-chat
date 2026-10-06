@@ -5,6 +5,7 @@ import { liveStatusItemSlots, realStatusItemCreationCount } from "../../../exten
 import { wireUsageSurfaces } from "../../../extension/wiring/dashboard";
 import { wireStatusSurfaces } from "../../../extension/wiring/ui";
 import { Logger } from "../../../shared/logger";
+import { windowVerdict } from "../ui/verdictHarness";
 
 function makeContext(): vscode.ExtensionContext {
 	const store = new Map<string, unknown>();
@@ -50,12 +51,7 @@ suite("extension/wiring statusSlots", () => {
 			// The usage wiring registers openUsage, which the activated dev extension already owns in this host;
 			// capture instead of colliding. Stubbed inside the try so a throw below still restores it.
 			(vscode.commands as Record<string, unknown>).registerCommand = () => ({ dispose() {} });
-			wireStatusSurfaces(
-				context,
-				logger,
-				() => false,
-				() => []
-			);
+			wireStatusSurfaces(context, logger, () => false, windowVerdict().verdict);
 			wireUsageSurfaces(context, logger, {
 				usagePoller: fakePoller,
 				dashboard: { open: () => {}, refresh: () => {} },
