@@ -229,9 +229,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			);
 
 			const viewOfB = engine.getDeclared().find((view) => view.label === "B");
-			assert.ok(viewOfB?.expectedConnectionId !== undefined);
+			assert.ok(viewOfB?.expectedClientId !== undefined && viewOfB.expectedConnectionId !== undefined);
 			// The host serves B's pre-label group (its connection ID, no group under B's own client ID), and B's shape
-			// is refused for one pass before it goes: the removal still names the key B's last accepted view joined by.
+			// is refused for one pass before it goes: the removal still names the keys B's last accepted view carried.
 			recorded.liveSnapshots = [liveGroup(viewOfB.expectedConnectionId)];
 			recorded.setting = [{ label: "A", baseUrl: "http://a.test" }, { label: "B" }];
 			await engine.syncNow();
@@ -242,8 +242,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const removal = recorded.reconciles.flatMap((reconcile) => reconcile.events).find((e) => e.kind === "removed");
 			assert.deepStrictEqual(
 				removal?.kind === "removed" ? removal.groupIds : undefined,
-				[viewOfB.expectedConnectionId],
-				"the removal names the pre-label group B joined by connection ID"
+				[viewOfB.expectedClientId, viewOfB.expectedConnectionId],
+				"the removal names B's client ID and the connection ID its pre-label group carries"
 			);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
 			assert.deepStrictEqual(Object.keys(recorded.entryBaseUrls), ["A"], "the ledger prunes with the entry");
@@ -269,7 +269,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 			const prod = engine.getDeclared().find((view) => view.label === "Prod");
-			assert.ok(prod?.expectedClientId !== undefined);
+			assert.ok(prod?.expectedClientId !== undefined && prod.expectedConnectionId !== undefined);
 			recorded.liveSnapshots = [liveGroup(prod.expectedClientId)];
 
 			recorded.setting = [{ label: "Dev", baseUrl: "http://h.test", auth: { apiKey: "B" } }];
@@ -279,7 +279,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 					kind: "removed",
 					label: "Prod",
 					baseUrl: "http://h.test",
-					groupIds: [prod.expectedClientId],
+					groupIds: [prod.expectedClientId, prod.expectedConnectionId],
 					sharedGroupIds: [],
 				},
 			]);
@@ -292,7 +292,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		});
 
 		test("a removal names only the identities no other entry still shares, as its last readable pass saw them", async () => {
-			// L1 and L2 mirror one connection (same URL, same inline key): the pre-label group under it stays L2's.
+			// L1 and L2 mirror one connection (same URL, same inline key): the pre-label group under it stays L2's,
+			// while L1's own client ID is retained for a stamped leftover reported later.
 			const shared = { baseUrl: "http://h.test", auth: { apiKey: "k" } };
 			const recorded = makeSyncEnv([
 				{ label: "L1", ...shared },
@@ -304,6 +305,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const l1 = views.find((view) => view.label === "L1");
 			const l2 = views.find((view) => view.label === "L2");
 			assert.ok(l1?.expectedConnectionId !== undefined && l1.expectedConnectionId === l2?.expectedConnectionId);
+			assert.ok(l1.expectedClientId !== undefined);
 
 			recorded.liveSnapshots = [liveGroup(l1.expectedConnectionId)];
 			recorded.setting = [{ label: "L2" }];
@@ -315,20 +317,19 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 						kind: "removed",
 						label: "L1",
 						baseUrl: "http://h.test",
-						groupIds: [],
+						groupIds: [l1.expectedClientId],
 						sharedGroupIds: [l1.expectedConnectionId],
 					},
 				],
 				"the pre-label group under the shared connection stays L2's"
 			);
 
-			// With L1's own labeled group live beside it, the connection ID is not L1's identity at all.
+			// With L1's own labeled group live beside it, the connection is still L2's; L1's own group goes.
 			recorded.setting = [
 				{ label: "L1", ...shared },
 				{ label: "L2", ...shared },
 			];
 			await engine.syncNow();
-			assert.ok(l1.expectedClientId !== undefined);
 			recorded.liveSnapshots = [liveGroup(l1.expectedClientId), liveGroup(l1.expectedConnectionId)];
 			recorded.setting = [{ label: "L2", ...shared }];
 			await engine.syncNow();
@@ -340,10 +341,27 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 						label: "L1",
 						baseUrl: "http://h.test",
 						groupIds: [l1.expectedClientId],
-						sharedGroupIds: [],
+						sharedGroupIds: [l1.expectedConnectionId],
 					},
 				],
 				"L1's own group only"
+			);
+
+			// The share is judged at each removal: once L2 goes too, the connection is nobody's and is tombstoned.
+			recorded.setting = [];
+			await engine.syncNow();
+			assert.deepStrictEqual(
+				recorded.reconciles.at(-1)?.events,
+				[
+					{
+						kind: "removed",
+						label: "L2",
+						baseUrl: "http://h.test",
+						groupIds: [l2.expectedClientId, l1.expectedConnectionId],
+						sharedGroupIds: [],
+					},
+				],
+				"the connection shared with an entry removed later is tombstoned at that removal"
 			);
 		});
 
@@ -355,7 +373,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 			const live = engine.getDeclared().find((view) => view.label === "L1");
-			assert.ok(live?.expectedConnectionId !== undefined);
+			assert.ok(live?.expectedClientId !== undefined && live.expectedConnectionId !== undefined);
 
 			recorded.setting = [{ label: "L1", baseUrl: "http://new.test" }];
 			await engine.syncNow();
@@ -368,7 +386,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 					kind: "removed",
 					label: "L1",
 					baseUrl: "http://old.test",
-					groupIds: [live.expectedConnectionId],
+					groupIds: [live.expectedClientId, live.expectedConnectionId],
 					sharedGroupIds: [],
 				},
 			]);
@@ -387,7 +405,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "secretsUnreadable");
 			recorded.env.readSecrets = readSecrets;
-			assert.ok(live?.expectedConnectionId !== undefined);
+			assert.ok(live?.expectedClientId !== undefined && live.expectedConnectionId !== undefined);
 			recorded.liveSnapshots = [liveGroup(live.expectedConnectionId)];
 			recorded.setting = [];
 			await engine.syncNow();
@@ -398,11 +416,11 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 						kind: "removed",
 						label: "L1",
 						baseUrl: "http://h.test",
-						groupIds: [live.expectedConnectionId],
+						groupIds: [live.expectedClientId, live.expectedConnectionId],
 						sharedGroupIds: [],
 					},
 				],
-				"the identity the live group carries, not the credential-less one the failed pass computed"
+				"the identities the live group carries, not the credential-less ones the failed pass computed"
 			);
 		});
 

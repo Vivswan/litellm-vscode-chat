@@ -16,6 +16,7 @@ import { GROUP_UPDATE_UNAVAILABLE_MESSAGE } from "../../../extension/servers/ser
 import type { GroupServer } from "../../../provider/catalog/groupModels";
 import { groupClientId, groupServerLabel, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { StatusWindow } from "../../../provider/catalog/statusWindow";
+import { SYNCED_ENTRY_BASE_URLS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
 import { makeModelInfo } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } from "../../testUtils";
@@ -113,8 +114,8 @@ interface Fixture {
 	pushedState(): DashboardState;
 }
 
-function makeFixture(): Fixture {
-	const storage = makeExtensionStorage();
+function makeFixture(initialMemento?: Record<string, unknown>): Fixture {
+	const storage = makeExtensionStorage(initialMemento);
 	const salt = fakeFingerprintSaltSession("durable");
 	const removals = new GroupRemovalStore(storage.memento, salt);
 	const context = { globalState: storage.memento, secrets: storage.secrets } as unknown as vscode.ExtensionContext;
@@ -268,6 +269,36 @@ suite("extension/servers the observation event schedules the pass that acts on t
 				after.models.map((model) => model.id),
 				["L1-model"]
 			);
+		} finally {
+			engine.dispose();
+		}
+	});
+
+	test("an unstamped group the host reports only after its entry's removal is hidden on that first observation", async () => {
+		// An older build synced L1 (the ledger knows its URL) and left a pre-label group the host has not reported
+		// yet. The user removes L1 before the host does: the removal must retain the keys that group will carry.
+		const fixture = makeFixture({ [SYNCED_ENTRY_BASE_URLS_KEY]: { L1: H } });
+		const { engine, host, removals } = fixture;
+		try {
+			await host.addProviderGroup({ name: "L1", vendor: "litellm", baseUrl: H, apiKey: SECRET });
+			host.taken.add("L1");
+			fixture.declare([L1_INLINE]);
+			await engine.syncNow();
+			fixture.declare([]);
+			await engine.syncNow();
+			assert.deepStrictEqual(
+				removals.tombstones().map((record) => record.by),
+				["entry", "group", "group"],
+				"the removal retains L1's client and connection IDs beside its entry record"
+			);
+
+			host.report("L1");
+			assert.deepStrictEqual(
+				fixture.pushedState().hiddenGroups,
+				[{ label: "L1", baseUrl: H, reason: "removed" }],
+				"hidden on the first report, by the connection ID the pre-label group carries, under the removed label"
+			);
+			assert.deepStrictEqual(fixture.pushedState().models, []);
 		} finally {
 			engine.dispose();
 		}
