@@ -242,8 +242,9 @@ function assignNestedSecrets(auth: Readonly<Record<string, unknown>>, fields: Fl
  * The collectable view of EVERY raw record, over-inclusive by design: every string at every secret position is a
  * value, the one the parser selects and the ones it passes over, in an entry it accepts or rejects (an auth conflict,
  * a bad URL), since a line can quote any of them. SECRET_FIELD_NESTED_PATHS stays the one table of the positions.
- *   URL fields    -> baseUrl, the flat and the nested token URL, mcp.url
- *   secret values -> every flat secret field and every nested position of the table
+ *   secret values -> every flat secret field and every nested position of the table, plus the password of every
+ *                    configured URL (baseUrl, the flat and the nested token URL, mcp.url) as the parser reads it and
+ *                    decoded; never the user name, which is a word elsewhere ("/Users/alice/x")
  *   headers       -> every raw header entry with a scalar value, the normalizer's rejections included
  *   carriers      -> the flat virtualKeyHeader and the header beside each nested virtual-key value
  */
@@ -253,6 +254,22 @@ export function collectableEntries(raw: unknown): CollectableEntry[] {
 	}
 	const strings = (values: readonly unknown[]): string[] =>
 		values.map(usableHttpText).filter((value): value is string => value !== undefined);
+	const passwords = (urls: readonly unknown[]): string[] =>
+		strings(urls).flatMap((url) => {
+			try {
+				const { password } = new URL(url);
+				if (password === "") {
+					return [];
+				}
+				try {
+					return [password, decodeURIComponent(password)];
+				} catch {
+					return [password];
+				}
+			} catch {
+				return [];
+			}
+		});
 	return raw.filter(isRecord).map((record) => {
 		// A null prototype: a raw header named "__proto__" must become an own entry, not reach the inherited setter.
 		const headers: Record<string, string> = Object.create(null);
@@ -264,18 +281,20 @@ export function collectableEntries(raw: unknown): CollectableEntry[] {
 			}
 		}
 		return {
-			urls: strings([
-				record.baseUrl,
-				record.oauthTokenUrl,
-				valueAt(record, ["auth", "oauth", "tokenUrl"]),
-				valueAt(record, ["mcp", "url"]),
-			]),
-			secrets: strings(
-				SECRET_FIELD_IDS.flatMap((id) => [
-					record[id],
-					...SECRET_FIELD_NESTED_PATHS[id].map((path) => valueAt(record, path)),
-				])
-			),
+			secrets: [
+				...strings(
+					SECRET_FIELD_IDS.flatMap((id) => [
+						record[id],
+						...SECRET_FIELD_NESTED_PATHS[id].map((path) => valueAt(record, path)),
+					])
+				),
+				...passwords([
+					record.baseUrl,
+					record.oauthTokenUrl,
+					valueAt(record, ["auth", "oauth", "tokenUrl"]),
+					valueAt(record, ["mcp", "url"]),
+				]),
+			],
 			headers,
 			carriers: strings([
 				record.virtualKeyHeader,

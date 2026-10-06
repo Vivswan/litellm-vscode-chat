@@ -24,7 +24,7 @@ if (refused.length > 0) {
 		);
 	}
 	process.stderr.write(
-		`Output-channel text is written only by ${LOGGER_FILE}, where redaction lives; route these through the ` +
+		`Output-channel text is written only by ${LOGGER_FILE}, where the log masking lives; route these through the ` +
 			`Logger. Members that write nothing (${[...NON_WRITING_MEMBERS].join(", ")}) are allowed anywhere; only ` +
 			`${WIRING_FILE} creates the channel.\n`
 	);

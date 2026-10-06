@@ -6,7 +6,6 @@ import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
 import type { NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { isNonChatMode } from "../../shared/serverEntry";
-import { displayUrl } from "../../shared/util/displayUrl";
 import { isRecord, recordFromKeys } from "../../shared/util/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
 import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
@@ -336,7 +335,7 @@ function parseFailureText(error: unknown): string {
 }
 
 function unparseableModelsResponse(endpointUrl: string, cause: unknown): RequestError {
-	const detail = `Unparseable response from ${displayUrl(endpointUrl)}: ${parseFailureText(cause)}`;
+	const detail = `Unparseable response from ${endpointUrl}: ${parseFailureText(cause)}`;
 	return new RequestError(
 		`${l10n.t(
 			"The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2; LiteLLM's default port is 4000."
@@ -473,7 +472,7 @@ function modelListingUnservedError(mapped: Error, evidence: EndpointFailureEvide
 		namedEntry !== undefined
 			? `The models listing failed, but this server answers. If it never serves the models listing, declare that on the "${namedEntry}" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`
 			: `The models listing failed, but this server answers. If it never serves the models listing, add an entry for it in the "${CONFIG_SECTION}.servers" setting declaring "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`;
-	const detail = `GET ${displayUrl(modelsUrl(ctx.baseUrl, ctx.apiVersion))} ${evidenceText(evidence, ctx.timeoutMs)}; model info ${
+	const detail = `GET ${modelsUrl(ctx.baseUrl, ctx.apiVersion)} ${evidenceText(evidence, ctx.timeoutMs)}; model info ${
 		ctx.modelInfo.answered ? "answered" : "is declared an expected failure"
 	}`;
 	return new RequestError(`${headline}\n${detail}`, kind, {
@@ -496,7 +495,7 @@ function noEndpointServedError(
 	ctx: ModelsFailureContext
 ) {
 	const { kind: errorKind, status, token } = evidenceKind(evidence);
-	const baseUrl = displayUrl(ctx.baseUrl);
+	const { baseUrl } = ctx;
 	// The caller guarantees both evidences share a kind, so the headline must match the detail line right below it,
 	// which names what each GET did.
 	const headline =

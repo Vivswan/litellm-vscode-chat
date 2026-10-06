@@ -7,6 +7,7 @@ import {
 	type TimeoutBudget,
 } from "../../../provider/transport/auth";
 import { RequestError } from "../../../provider/transport/errorMapping";
+import { Logger } from "../../../shared/logger";
 import { mswServer, useMsw } from "../../mocks/handlers";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";
@@ -149,7 +150,7 @@ suite("provider/transport/auth", () => {
 				error.message.includes(`OAuth 401 at ${TOKEN_URL}: invalid_client`),
 				`unexpected message: ${error.message}`
 			);
-			assert.ok(!error.message.includes("secret-1"), "the client secret must never appear in the error message");
+			assert.ok(!error.message.includes("secret-1"), "a body that does not echo the client secret adds nothing of it");
 		});
 
 		test('a chat-triggered failure carries the "Details:" lead-in; a discovery one keeps the plain newline', async () => {
@@ -199,7 +200,8 @@ suite("provider/transport/auth", () => {
 			assert.strictEqual(error.oauthTokenEndpoint, true, "usage-availability classification keys on this flag");
 		});
 
-		test("an error description echoing the client secret is scrubbed before it reaches the message", async () => {
+		test("an error description echoing the client secret shows it masked: the display message passes the door", async () => {
+			Logger.registerSecrets(["secret-1"]);
 			mswServer.use(
 				http.post(TOKEN_URL, () =>
 					HttpResponse.json(
@@ -212,16 +214,21 @@ suite("provider/transport/auth", () => {
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "auth");
 
-			assert.ok(!error.message.includes("secret-1"), `the client secret leaked: ${error.message}`);
-			assert.ok(error.message.includes("the secret [redacted] does not match"), `unexpected message: ${error.message}`);
+			assert.ok(
+				error.message.includes("invalid_client: the secret [redacted] does not match"),
+				`unexpected message: ${error.message}`
+			);
 		});
 
-		test("a secret longer than the detail cap is scrubbed before truncation, so no prefix leaks", async () => {
-			const secret = `superlongsecret-${"x".repeat(300)}`;
+		test("a secret astride the detail cap is masked before the cut, so no head of it leaks", async () => {
+			// The detail is capped at 200 characters; after "invalid_client: " (16), 175 x's put the 40-character secret
+			// across the cap. A cut before the mask would leave "sk-live-A" in the message; masked first, the marker fits.
+			const secret = `sk-live-${"A".repeat(32)}`;
+			Logger.registerSecrets([secret]);
 			mswServer.use(
 				http.post(TOKEN_URL, () =>
 					HttpResponse.json(
-						{ error: "invalid_client", error_description: `the secret ${secret} does not match` },
+						{ error: "invalid_client", error_description: `${"x".repeat(175)}${secret}` },
 						{ status: 401 }
 					)
 				)
@@ -233,31 +240,13 @@ suite("provider/transport/auth", () => {
 				"auth"
 			);
 
-			assert.ok(!error.message.includes("superlongsecret-"), `a prefix of the secret leaked: ${error.message}`);
-			assert.ok(!error.message.includes("x".repeat(20)), `part of the secret leaked: ${error.message}`);
-			assert.ok(error.message.includes("[redacted]"), `unexpected message: ${error.message}`);
-		});
-
-		test("a secret containing whitespace cannot be reassembled by the whitespace collapse", async () => {
-			// The exact-match scrub misses when the IdP echoes the secret with different whitespace, and the detail's
-			// newline collapse would then reconstruct it; the second, post-collapse scrub pass must catch it.
-			mswServer.use(
-				http.post(TOKEN_URL, () =>
-					HttpResponse.json(
-						{ error: "invalid_client", error_description: "the secret alpha\nbeta does not match" },
-						{ status: 401 }
-					)
-				)
+			const expected =
+				"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry." +
+				`\nOAuth 401 at ${TOKEN_URL}: invalid_client: ${"x".repeat(175)}sk-liv...`;
+			assert.deepStrictEqual(
+				{ message: error.message, english: error.englishMessage },
+				{ message: expected, english: expected }
 			);
-			const source = new OAuthTokenSource();
-
-			const error = await expectRequestError(
-				source.getToken(oauthConfig({ clientSecret: "alpha beta" }), "discovery", discoveryBudget()),
-				"auth"
-			);
-
-			assert.ok(!error.message.includes("alpha beta"), `the collapsed secret leaked: ${error.message}`);
-			assert.ok(error.message.includes("[redacted]"), `unexpected message: ${error.message}`);
 		});
 
 		test("a public client's grant omits the client_secret field entirely", async () => {

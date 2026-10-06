@@ -41,6 +41,7 @@ import {
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	isUsableThreshold,
 	LANGUAGE_FILTER_MODES,
+	LOG_REDACTION_SETTING_KEY,
 	MIN_TIMEOUT_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -434,6 +435,10 @@ export function getModelCapabilitiesConfig(log?: LogFn): Record<string, Record<s
 
 export function getMaskSecretInputs(): boolean {
 	return getBooleanSetting("ui.maskSecretInputs");
+}
+
+export function isLogRedactionEnabled(): boolean {
+	return getBooleanSetting(LOG_REDACTION_SETTING_KEY);
 }
 
 /** The OpenRouter catalog opt-out. Explicit `_openrouter_model` directives keep answering from the snapshot. */

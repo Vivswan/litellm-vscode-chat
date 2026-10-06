@@ -583,6 +583,13 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 				label: l10n.t("Mask secret inputs"),
 				description: l10n.t("Hide API keys and other credentials while typing them into configuration prompts."),
 			};
+		case "logs.redactSecrets":
+			return {
+				label: l10n.t("Redact secrets in the log"),
+				description: l10n.t(
+					"Mask configured secret values and URL credentials in the LiteLLM output channel. The issue report always masks them."
+				),
+			};
 		case "models.openRouterCatalog":
 			return {
 				label: l10n.t("OpenRouter catalog"),

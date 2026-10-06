@@ -9,7 +9,6 @@ function env(overrides: Partial<SettingsExportEnv>): SettingsExportEnv {
 		readGlobalSetting: () => undefined,
 		readServerSecrets: () => Promise.resolve({ values: {}, owners: {} }),
 		extensionVersion: "0.4.5",
-		includeSecrets: false,
 		...overrides,
 	};
 }
@@ -31,9 +30,7 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		assert.strictEqual(result.envelope.exportedBy, "0.4.5");
 		assert.strictEqual(result.settingCount, 3);
 		assert.strictEqual(result.serverCount, 0);
-		assert.strictEqual(result.secretFieldCount, 0);
 		assert.strictEqual(result.unmaterializedSecretCount, 0);
-		assert.strictEqual(result.omittedUnsanitizableCount, 0);
 	});
 
 	test("an entirely unset configuration exports an empty settings record", async () => {
@@ -42,43 +39,13 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		assert.strictEqual(result.settingCount, 0);
 	});
 
-	test("excluding secrets strips every object entry, unlabeled ones included, with no placeholders", async () => {
+	test("the file is the stored configuration: blobs land at their fields, URLs and inline values ride unchanged", async () => {
 		const servers = [
-			{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-inline" } },
-			// No usable label, but its inline secret must still never leak.
-			{ baseUrl: "http://b.test", auth: { apiKey: "sk-unlabeled" } },
-			// Not a record: no sanitizer for its shape, so it must not ride out.
-			["junk-element", { auth: { apiKey: "sk-nested" } }],
-		];
-		let secretReads = 0;
-		const result = await buildSettingsExport(
-			env({
-				readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }),
-				readServerSecrets: () => {
-					secretReads += 1;
-					return Promise.resolve({ values: { apiKey: "from-storage" }, owners: {} });
-				},
-			})
-		);
-		assert.deepStrictEqual(result.envelope.settings[SERVERS_SETTING_KEY], [
-			{ label: "A", baseUrl: "http://a.test" },
-			{ baseUrl: "http://b.test" },
-		]);
-		assert.strictEqual(secretReads, 0, "an exclude-secrets export must never consult SecretStorage");
-		assert.strictEqual(result.serverCount, 2);
-		assert.strictEqual(result.secretFieldCount, 0);
-		assert.strictEqual(result.omittedUnsanitizableCount, 1, "the dropped non-record element is reported, not silent");
-		const rendered = JSON.stringify(result.envelope);
-		for (const sentinel of ["sk-inline", "sk-unlabeled", "sk-nested"]) {
-			assert.ok(!rendered.includes(sentinel), `${sentinel} leaked into a no-secrets export`);
-		}
-	});
-
-	test("including secrets materializes each labeled entry's blob and counts every value in the file", async () => {
-		const servers = [
-			{ label: "A", baseUrl: "http://a.test" },
+			{ label: "A", baseUrl: "http://user:pass@a.test" },
 			{ label: "B", baseUrl: "http://b.test", auth: { apiKey: "sk-b-inline" } },
 			{ baseUrl: "http://c.test", auth: { apiKey: "sk-c-inline" } },
+			// Not a record: nothing to place, so it rides as stored.
+			["junk-element", { auth: { apiKey: "sk-nested" } }],
 		];
 		const blobs: Record<string, StoredServerSecrets> = {
 			A: { apiKey: "sk-a-stored", oauthClientSecret: "cs-a-stored" },
@@ -87,7 +54,6 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		const readLabels: string[] = [];
 		const result = await buildSettingsExport(
 			env({
-				includeSecrets: true,
 				readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }),
 				readServerSecrets: (label) => {
 					readLabels.push(label);
@@ -97,16 +63,16 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		);
 		assert.deepStrictEqual(readLabels, ["A", "B"], "only labeled entries have a SecretStorage key to read");
 		assert.deepStrictEqual(result.envelope.settings[SERVERS_SETTING_KEY], [
-			// A's stored apiKey materializes; its clientSecret has no oauth home.
-			{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-a-stored" } },
+			// A's stored apiKey materializes beside its credentialed URL; its clientSecret has no oauth home.
+			{ label: "A", baseUrl: "http://user:pass@a.test", auth: { apiKey: "sk-a-stored" } },
 			// B's inline value wins over its stored one.
 			{ label: "B", baseUrl: "http://b.test", auth: { apiKey: "sk-b-inline" } },
-			// The unlabeled entry rides as-is; its inline value counts as kept.
 			{ baseUrl: "http://c.test", auth: { apiKey: "sk-c-inline" } },
+			["junk-element", { auth: { apiKey: "sk-nested" } }],
 		]);
-		assert.strictEqual(result.secretFieldCount, 3);
 		assert.strictEqual(result.unmaterializedSecretCount, 1);
-		assert.strictEqual(result.serverCount, 3);
+		assert.strictEqual(result.serverCount, 4);
+		assert.strictEqual(result.settingCount, 1);
 	});
 
 	test("a stored value stamped for another destination never materializes into the file", async () => {
@@ -115,7 +81,6 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		const servers = [{ label: "A", baseUrl: "http://a.test" }];
 		const result = await buildSettingsExport(
 			env({
-				includeSecrets: true,
 				readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }),
 				readServerSecrets: () =>
 					Promise.resolve({
@@ -142,65 +107,13 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		assert.ok(!JSON.stringify(result.envelope).includes("cs-old"), "an inert stale value never rides either");
 	});
 
-	test("a non-array servers value rides only into a with-secrets export; a no-secrets one omits it", async () => {
+	test("a non-array servers value rides as stored and counts as a setting, not a server", async () => {
 		const corrupted = { auth: { apiKey: "sk-corrupt" } };
-		const withSecrets = await buildSettingsExport(
-			env({ includeSecrets: true, readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: corrupted }) })
-		);
-		assert.strictEqual(withSecrets.envelope.settings[SERVERS_SETTING_KEY], corrupted);
-		assert.strictEqual(withSecrets.serverCount, 0);
-		assert.strictEqual(withSecrets.settingCount, 1);
-		assert.strictEqual(withSecrets.omittedUnsanitizableCount, 0);
-
-		const withoutSecrets = await buildSettingsExport(
+		const result = await buildSettingsExport(
 			env({ readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: corrupted }) })
 		);
-		assert.ok(!(SERVERS_SETTING_KEY in withoutSecrets.envelope.settings));
-		assert.strictEqual(withoutSecrets.settingCount, 0);
-		assert.strictEqual(withoutSecrets.omittedUnsanitizableCount, 1);
-		assert.ok(!JSON.stringify(withoutSecrets.envelope).includes("sk-corrupt"));
-	});
-
-	test("an entry whose auth shape cannot be certified secret-free is omitted from a no-secrets export", async () => {
-		const servers = [
-			{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-a" } },
-			// A malformed auth container the strip cannot walk; the secret inside it must not ride out of an
-			// exclude-secrets export.
-			{ label: "B", baseUrl: "http://b.test", auth: [{ apiKey: "sk-hidden" }] },
-		];
-		const withoutSecrets = await buildSettingsExport(
-			env({ readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }) })
-		);
-		assert.deepStrictEqual(withoutSecrets.envelope.settings[SERVERS_SETTING_KEY], [
-			{ label: "A", baseUrl: "http://a.test" },
-		]);
-		assert.strictEqual(withoutSecrets.serverCount, 1);
-		assert.strictEqual(withoutSecrets.omittedUnsanitizableCount, 1, "the omitted entry is reported, not silent");
-		assert.ok(!JSON.stringify(withoutSecrets.envelope).includes("sk-hidden"));
-
-		const withSecrets = await buildSettingsExport(
-			env({ includeSecrets: true, readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }) })
-		);
-		assert.strictEqual(withSecrets.serverCount, 2);
-		assert.strictEqual(withSecrets.omittedUnsanitizableCount, 0);
-		assert.ok(JSON.stringify(withSecrets.envelope).includes("sk-hidden"));
-	});
-
-	test("an entry carrying the pre-redesign flat credential shape exports with the secret stripped", async () => {
-		// A flat top-level apiKey maps 1:1 onto the blob's field id, so the no-secrets export keeps the entry and
-		// removes the value - the same lossless take the import relies on for old-format files.
-		const servers = [
-			{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-a" } },
-			{ label: "B", baseUrl: "http://b.test", apiKey: "sk-test-flat" },
-		];
-		const withoutSecrets = await buildSettingsExport(
-			env({ readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }) })
-		);
-		assert.deepStrictEqual(withoutSecrets.envelope.settings[SERVERS_SETTING_KEY], [
-			{ label: "A", baseUrl: "http://a.test" },
-			{ label: "B", baseUrl: "http://b.test" },
-		]);
-		assert.strictEqual(withoutSecrets.omittedUnsanitizableCount, 0);
-		assert.ok(!JSON.stringify(withoutSecrets.envelope).includes("sk-test-flat"));
+		assert.strictEqual(result.envelope.settings[SERVERS_SETTING_KEY], corrupted);
+		assert.strictEqual(result.serverCount, 0);
+		assert.strictEqual(result.settingCount, 1);
 	});
 });

@@ -611,6 +611,7 @@ export class DashboardController implements vscode.Disposable {
 		unhideServer: (payload) => executeDashboardIntent({ method: "unhideServer", payload }, this.env),
 		manageHiddenGroup: (payload) => executeDashboardIntent({ method: "manageHiddenGroup", payload }, this.env),
 		executeCommand: (payload) => executeDashboardIntent({ method: "executeCommand", payload }, this.env),
+		copyDiagnostics: (payload) => executeDashboardIntent({ method: "copyDiagnostics", payload }, this.env),
 		syncModels: (payload) => executeDashboardIntent({ method: "syncModels", payload }, this.env),
 	};
 
@@ -891,6 +892,7 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 		refreshCatalogNow: deps.refreshCatalogNow,
 		refreshUsageNow: deps.refreshUsageNow,
 		executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
+		writeClipboard: (text) => vscode.env.clipboard.writeText(text),
 		log: (message, data) => logger.log(message, data),
 	};
 }

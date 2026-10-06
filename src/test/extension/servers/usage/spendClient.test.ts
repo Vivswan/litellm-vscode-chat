@@ -195,15 +195,14 @@ suite("extension/servers/usage spendClient", () => {
 			assert.strictEqual(seenVirtual, "vk-1");
 		});
 
-		test("a credentialed base URL never echoes its userinfo in usage error messages", async () => {
+		test("a credentialed base URL is echoed with its host and without its userinfo in usage error messages", async () => {
 			// fetch itself refuses credentialed URLs, so every attempt throws and the failure surfaces as the network
-			// tail; the echoed URL must carry no userinfo whichever error shape renders it.
+			// tail; the echoed URL passes the output door with the message.
 			const error = await expectRequestError(
 				client().fetchKeyInfo(connection({ baseUrl: "http://user:sekret@usage.test:4000" })),
 				"network"
 			);
-			assert.ok(!error.message.includes("sekret"), error.message);
-			assert.ok(error.message.includes("http://usage.test:4000/key/info"), error.message);
+			assert.ok(error.message.includes("http://[redacted]@usage.test:4000/key/info"), error.message);
 		});
 	});
 

@@ -11,7 +11,7 @@ import { LAST_CONNECTION_STATUS_KEY } from "../../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
 import type { FailureCause } from "../../../shared/failureCause";
 import { failureClassification } from "../../../shared/failureCause";
-import { markLogSafe } from "../../../shared/logger";
+import { Logger, markLogSafe } from "../../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../../shared/servers";
 import { displayUrl } from "../../../shared/util/displayUrl";
 import { expectDefined } from "../../pureHelpers";
@@ -304,6 +304,29 @@ suite("extension/ui/status", () => {
 			});
 			await new Promise((resolve) => setImmediate(resolve));
 			assert.ok(item.last.tooltip.includes("Your servers answered but listed no models."), item.last.tooltip);
+		});
+
+		test("the tooltip masks the rendered cause: a registered value in the configured URL shows its reveal", async () => {
+			const key = `Q17key${"X".repeat(34)}`;
+			Logger.registerSecrets([key]);
+			const item = new RecordingItem();
+			const manager = createManager(undefined, () => true, undefined, item);
+			manager.handleAggregatedStatus({
+				serverStatuses: [
+					makeServerStatus({
+						state: "error",
+						baseUrl: `http://host.test/${key}`,
+						cause: { kind: "transport", classification: { kind: "connection" } },
+					}),
+				],
+				totalModels: 0,
+				silent: true,
+			});
+			await new Promise((resolve) => setImmediate(resolve));
+			assert.strictEqual(
+				item.last.tooltip,
+				"Connection failed\nCould not connect to http://host.test/Q17key...\nClick for details"
+			);
 		});
 
 		test("a genuine all-failed report keeps the connection-failure wording", async () => {

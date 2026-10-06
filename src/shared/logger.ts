@@ -1,10 +1,6 @@
 import type { TransportErrorClassification } from "./errorClassification";
 import { transportClassificationOf } from "./errorClassification";
-import { urlScrubbingReplacer } from "./util/displayUrl";
-import { KnownSecrets } from "./util/knownSecrets";
-
-/** A stack or a body past this is cut before redaction, so one emission never scans megabytes. */
-const TEXT_BUDGET = 65536;
+import { REDACTED_MARKER, revealOf, safeCut, secretSpans } from "./util/secretMask";
 
 /**
  * Leveled sink, structurally satisfied by vscode.LogOutputChannel. The host adds timestamps and level tags to channel
@@ -15,10 +11,7 @@ export interface LogSink {
 	error(message: string): void;
 }
 
-/**
- * What a recorder receives for a thrown value: its public renderings, never the value itself. The Logger scrubs every
- * field before the recorder sees it, so a recorder cannot rebuild a line from an unscrubbed message or stack.
- */
+/** What a recorder receives for a thrown value: its public renderings, never the value itself. */
 export interface RecordedError {
 	readonly message: string;
 	readonly stack?: string | undefined;
@@ -26,9 +19,13 @@ export interface RecordedError {
 	readonly classification?: TransportErrorClassification | undefined;
 }
 
-/** Structurally matched by IssueReporter; kept as an interface so unit tests can omit it. */
+/**
+ * Structurally matched by IssueReporter; kept as an interface so unit tests can omit it. `appendLog` is for a recorder
+ * that also wants every report line as it is written (the session log tee); the report itself reads the Logger's
+ * history (reportLines).
+ */
 export interface ErrorRecorder {
-	appendLog(line: string): void;
+	appendLog?(line: string): void;
 	recordError(source: string, error: RecordedError): void;
 }
 
@@ -173,43 +170,45 @@ function channelErrorStack(error: unknown): string | undefined {
 	}
 }
 
-/**
- * Circular or otherwise unserializable data degrades to its object tag instead of throwing inside logging. Every
- * string is scrubbed as it serializes: the line-level scrub below cannot see a field boundary.
- */
-function logDataText(data: unknown, scrub: (text: string) => string): string {
+/** Circular or otherwise unserializable data degrades to its object tag instead of throwing inside logging. */
+function logDataText(data: unknown): string {
 	try {
-		return JSON.stringify(data, urlScrubbingReplacer(scrub), 2) ?? objectTag(data);
+		return JSON.stringify(data, null, 2) ?? objectTag(data);
 	} catch {
 		return objectTag(data);
 	}
 }
 
 /**
- * Callers interpolate configured URLs (a baseUrl, an OAuth tokenUrl, an MCP uri) that may carry user:pass@, and only
- * the known values can catch a credential the URL cut cannot read, so the floor wraps the sinks, where no caller can
- * skip it.
- *   Failed to fetch models for provider group at http://user:pass@host:4000 -> ... at http://host:4000
- *   answered 403 for key sk-live-Q7, the configured key                      -> ... for key [redacted]
- *   a 1 MB stack                                                             -> its first TEXT_BUDGET characters
+ * What replay restores after a logs.redactSecrets flip: the channel's own history, held raw. The line and character
+ * bounds evict channel-only entries (advisory lines, stack prints), oldest first, so a run of stack prints cannot pin
+ * hundreds of megabytes in the extension host; a single line past CHANNEL_LINE_CHARS is cut at write, with a marker,
+ * since neither the channel nor the replay can use it whole. The raw cut never splits a value the door would replace
+ * (safeCut), so the kept prefix masks the same in either mode; a report rendering is cut and charged the same way,
+ * since the report masks it later. The masked rendering masks FIRST and cuts the masked text plainly, so a value
+ * astride the bound is masked whole, never cut.
  */
-function credentialFreeSink(output: LogSink, scrub: (text: string) => string): LogSink {
-	return {
-		info: (message) => output.info(scrub(message)),
-		error: (message) => output.error(scrub(message)),
-	};
+const CHANNEL_HISTORY_LINES = 200;
+const CHANNEL_HISTORY_CHARS = 1_048_576;
+const CHANNEL_LINE_CHARS = 262_144;
+/**
+ * The issue report's share of the same history: the entries that carry a report rendering, capped by their own count
+ * so channel-only traffic never evicts the errors a report exists to carry.
+ */
+const REPORT_LOG_LINES = 50;
+
+/** A text cut at `at` with a marker saying how much went; the identity when nothing is past `at`. */
+function cutAt(text: string, at: number): string {
+	return text.length <= at ? text : `${text.slice(0, at)} [${text.length - at} more characters cut]`;
 }
 
-function credentialFreeRecorder(recorder: ErrorRecorder, scrub: (text: string) => string): ErrorRecorder {
-	return {
-		appendLog: (line) => recorder.appendLog(scrub(line)),
-		recordError: (source, error) =>
-			recorder.recordError(scrub(source), {
-				...error,
-				message: scrub(error.message),
-				...(error.stack !== undefined ? { stack: scrub(error.stack) } : {}),
-			}),
-	};
+function cutPlainly(text: string): string {
+	return cutAt(text, CHANNEL_LINE_CHARS);
+}
+
+/** The replacement for one merged span: a long single value keeps its first six characters, everything else goes whole. */
+function replacementFor(value: string | undefined): string {
+	return (value === undefined ? undefined : revealOf(value)) ?? REDACTED_MARKER;
 }
 
 /**
@@ -227,49 +226,170 @@ export function recordedError(error: unknown): RecordedError {
 }
 
 /**
- * The single logging implementation for the extension.
- * Channel output is not readable back, so the buffer keeps its own [ISO] lines.
+ * One channel line as remembered: its level, its channel text, and the [ISO] line the issue report shows for it. The
+ * report rendering is dropped on its own once REPORT_LOG_LINES newer ones exist; the channel text stays until the
+ * channel bounds evict it.
+ */
+interface HistoryEntry {
+	readonly level: keyof LogSink;
+	readonly text: string;
+	report?: string | undefined;
+}
+
+/**
+ * The single logging implementation for the extension, and the owner of the one output door: the store of every
+ * configured credential value and the one masking rule every surface applies to text that leaves the extension.
+ * Channel output is not readable back, so the Logger keeps the one history of what it wrote: every line raw, with
+ * the [ISO] rendering the issue report shows where a line has one. Replay reads the whole history, the report its
+ * REPORT_LOG_LINES report-bearing entries; the channel write passes through the door only while logs.redactSecrets
+ * is on, every other door always.
  */
 export class Logger {
-	private readonly output: LogSink;
-	private readonly recorder: ErrorRecorder | undefined;
-	private readonly scrub: (text: string) => string;
+	/** Every configured credential value the collector has published this session (wiring/knownSecrets.ts). */
+	private static secrets: readonly string[] = [];
+	private readonly history: HistoryEntry[] = [];
+	private historyChars = 0;
+	private reportCount = 0;
 
-	/** `knownSecrets` is read at every emission, so the list the extension refreshes is the one in force. */
-	constructor(
-		output: LogSink,
-		recorder?: ErrorRecorder,
-		knownSecrets: Pick<KnownSecrets, "redact"> = new KnownSecrets()
-	) {
-		this.scrub = (text) => knownSecrets.redact(text, [], TEXT_BUDGET);
-		this.output = credentialFreeSink(output, this.scrub);
-		this.recorder = recorder === undefined ? undefined : credentialFreeRecorder(recorder, this.scrub);
-	}
-
-	log(message: string, data?: unknown): void {
-		const text = data !== undefined ? `${message}: ${logDataText(data, this.scrub)}` : message;
-		this.output.info(text);
-		this.recorder?.appendLog(`[${new Date().toISOString()}] ${text}`);
+	/**
+	 * The set only grows within a session: the history and the latest error keep raw lines that may quote a value the
+	 * collector has since retired (a rotated key).
+	 */
+	static registerSecrets(values: readonly string[]): void {
+		Logger.secrets = [...new Set([...Logger.secrets, ...values])];
 	}
 
 	/**
-	 * The buffer is a small ring, and informational lines that recur on every serve pass would evict the real errors an
-	 * issue report exists to carry. The channel is still user-pasteable, so the classification-only rule is unchanged:
-	 * keys and classifications, never response-derived text.
+	 * The one masking rule for text that leaves the extension: every registered value in the spellings a line can
+	 * carry it, and every URL userinfo, replaced once per merged span. A value of REVEAL_FROM_LENGTH or more keeps
+	 * its first REVEALED_CHARS ("sk-liv..."), a shorter value and any userinfo go whole. Hosts, paths, and every
+	 * other word stay.
+	 */
+	static redact(text: string): string {
+		let out = "";
+		let cursor = 0;
+		for (const { from, to, value } of secretSpans(text, Logger.secrets)) {
+			out += `${text.slice(cursor, from)}${replacementFor(value)}`;
+			cursor = to;
+		}
+		return out + text.slice(cursor);
+	}
+
+	/** `redactionEnabled` is the logs.redactSecrets setting, read at every channel write. */
+	constructor(
+		private readonly output: LogSink,
+		private readonly recorder?: ErrorRecorder,
+		private readonly redactionEnabled: () => boolean = () => false
+	) {}
+
+	/**
+	 * The channel rendering of a line under the mode of the moment: masked, the door runs over the whole text FIRST
+	 * and the masked text is cut plainly (a cut through a marker is harmless); raw, the text is cut where no value is
+	 * split. `kept` is the raw text already cut that way, which replay renders without cutting again.
+	 */
+	private rendered(text: string, kept: string): string {
+		return this.redactionEnabled() ? cutPlainly(Logger.redact(text)) : kept;
+	}
+
+	/** A text past CHANNEL_LINE_CHARS cut where no value is split, with a marker saying how much went. */
+	private bounded(text: string): string {
+		if (text.length <= CHANNEL_LINE_CHARS) {
+			return text;
+		}
+		return cutAt(text, safeCut(text, CHANNEL_LINE_CHARS, Logger.secrets));
+	}
+
+	/**
+	 * The one channel write: every line the channel shows is remembered raw (cut where no value is split), so replay
+	 * restores it under the mode of the moment. A report rendering leaves only when REPORT_LOG_LINES newer ones exist,
+	 * and its channel text stays; the channel bounds evict entries without a report rendering, oldest first, and stop
+	 * when none is left.
+	 */
+	private write(level: keyof LogSink, text: string, reportText?: string): void {
+		const kept = this.bounded(text);
+		const report = reportText === undefined ? undefined : this.bounded(reportText);
+		this.history.push({ level, text: kept, report });
+		this.historyChars += kept.length + (report?.length ?? 0);
+		if (report !== undefined) {
+			this.reportCount += 1;
+			if (this.reportCount > REPORT_LOG_LINES) {
+				this.dropOldestReport();
+			}
+		}
+		while (
+			(this.history.length > CHANNEL_HISTORY_LINES || this.historyChars > CHANNEL_HISTORY_CHARS) &&
+			this.evict((entry) => entry.report === undefined)
+		) {
+			// Each pass drops the oldest channel-only entry.
+		}
+		this.output[level](this.rendered(text, kept));
+		if (report !== undefined) {
+			this.recorder?.appendLog?.(report);
+		}
+	}
+
+	/** The oldest report rendering goes; its entry stays in the channel history as a channel-only line. */
+	private dropOldestReport(): void {
+		const entry = this.history.find((candidate) => candidate.report !== undefined);
+		if (entry?.report !== undefined) {
+			this.historyChars -= entry.report.length;
+			this.reportCount -= 1;
+			entry.report = undefined;
+		}
+	}
+
+	/** Drops the oldest entry `pick` accepts; false when there is none. */
+	private evict(pick: (entry: HistoryEntry) => boolean): boolean {
+		const index = this.history.findIndex(pick);
+		if (index === -1) {
+			return false;
+		}
+		const [dropped] = this.history.splice(index, 1) as [HistoryEntry];
+		this.historyChars -= dropped.text.length + (dropped.report?.length ?? 0);
+		if (dropped.report !== undefined) {
+			this.reportCount -= 1;
+		}
+		return true;
+	}
+
+	/** The issue report's lines: the report renderings in the history, oldest first. */
+	reportLines(): string[] {
+		return this.history.flatMap((entry) => (entry.report === undefined ? [] : [entry.report]));
+	}
+
+	/**
+	 * The channel's history (its last CHANNEL_HISTORY_LINES lines within CHANNEL_HISTORY_CHARS) written again under the
+	 * mask now in force, at their levels, for the caller that has cleared the channel on a logs.redactSecrets flip.
+	 */
+	replay(): void {
+		for (const { level, text } of this.history) {
+			// The remembered text is already cut where no value is split, so the mask applies to it whole.
+			this.output[level](this.redactionEnabled() ? Logger.redact(text) : text);
+		}
+	}
+
+	log(message: string, data?: unknown): void {
+		const text = data !== undefined ? `${message}: ${logDataText(data)}` : message;
+		this.write("info", text, `[${new Date().toISOString()}] ${text}`);
+	}
+
+	/**
+	 * A channel-only line: informational lines that recur on every serve pass would evict the real errors an issue
+	 * report exists to carry, so they get no report rendering. The channel is still user-pasteable, so the
+	 * classification-only rule is unchanged: keys and classifications, never response-derived text.
 	 */
 	advisory(message: string, data?: unknown): void {
-		this.output.info(data !== undefined ? `${message}: ${logDataText(data, this.scrub)}` : message);
+		this.write("info", data !== undefined ? `${message}: ${logDataText(data)}` : message);
 	}
 
 	error(message: string, error: unknown): void {
 		// The channel stays English by policy and keeps the full message; the buffer opens public issues, so it takes
 		// the classification when there is one.
 		const text = `${message}: ${englishMessageOf(error) ?? errorMessageText(error)}`;
-		this.output.error(text);
-		this.recorder?.appendLog(`[${new Date().toISOString()}] ERROR: ${message}: ${publicErrorText(error)}`);
+		this.write("error", text, `[${new Date().toISOString()}] ERROR: ${message}: ${publicErrorText(error)}`);
 		const stack = channelErrorStack(error);
 		if (stack !== undefined) {
-			this.output.error(`Stack trace: ${stack}`);
+			this.write("error", `Stack trace: ${stack}`);
 		}
 		this.recorder?.recordError(message, recordedError(error));
 	}
@@ -283,14 +403,14 @@ export class Logger {
 	 * the output log, and the issue report cannot quote the text.
 	 */
 	failure(message: string, data: unknown, error: unknown): void {
-		const text = `${message}: ${logDataText(data, this.scrub)}`;
-		this.output.error(text);
-		this.recorder?.appendLog(`[${new Date().toISOString()}] ERROR: ${text}`);
+		const text = `${message}: ${logDataText(data)}`;
+		this.write("error", text, `[${new Date().toISOString()}] ERROR: ${text}`);
 		if (classificationOf(error) === undefined && englishMessageOf(error) === undefined) {
-			this.output.error(`${message}: ${errorMessageText(error)}`);
+			// Channel-only lines, through the one channel write like every other, so they mask under the setting too.
+			this.write("error", `${message}: ${errorMessageText(error)}`);
 			const stack = channelErrorStack(error);
 			if (stack !== undefined) {
-				this.output.error(`Stack trace: ${stack}`);
+				this.write("error", `Stack trace: ${stack}`);
 			}
 		}
 		this.recorder?.recordError(message, recordedError(error));

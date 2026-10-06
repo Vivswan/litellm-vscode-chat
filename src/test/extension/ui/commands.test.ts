@@ -509,6 +509,28 @@ suite("extension/ui/commands", () => {
 				});
 			}
 
+			test("the connection toast masks the rendered cause: a registered value in the configured URL shows its reveal", async () => {
+				const key = `Q17key${"X".repeat(34)}`;
+				Logger.registerSecrets([key]);
+				const mapped = causes["proxy-not-running"].buildError();
+				const statusBar = makeStatusBar({ state: "not-configured" });
+				const provider = {
+					refreshGroups: async () => {
+						await statusBar.updateStatusBar({ ...failedStatus(mapped), baseUrl: `http://host.test/${key}` });
+						return { refreshedGroups: 1 };
+					},
+				};
+
+				const toasts = await withToasts(() =>
+					runConnectionTest(provider, statusBar, outputChannel, logger, CONFIGURED)
+				);
+
+				assert.strictEqual(
+					expectDefined(toasts[0]).message,
+					"LiteLLM: Connection failed - Could not connect to http://host.test/Q17key..."
+				);
+			});
+
 			test("the Troubleshooting Docs action opens the cause's docs deep link", async () => {
 				const mapped = mapSdkError(
 					new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()),
@@ -950,13 +972,16 @@ suite("extension/ui/commands", () => {
 	// The Report Issue command's setup gate: setup-shaped diagnostics get one non-modal offer of the faster fix before
 	// GitHub opens. The verdict comes from the CURRENT connection status only, never the historical latestError.
 	suite("runReportIssue", () => {
-		function makeReporter(openedIssueUrls: string[]): IssueReporter {
-			return new IssueReporter({
-				writeClipboard: async () => {},
-				openExternal: async (url) => {
-					openedIssueUrls.push(url);
+		function makeReporter(openedIssueUrls: string[], recentLogs: readonly string[] = []): IssueReporter {
+			return new IssueReporter(
+				{
+					writeClipboard: async () => {},
+					openExternal: async (url) => {
+						openedIssueUrls.push(url);
+					},
 				},
-			});
+				() => recentLogs
+			);
 		}
 
 		const freshMemento = () => makeExtensionStorage().memento;
@@ -1267,8 +1292,7 @@ suite("extension/ui/commands", () => {
 			test("the first report opens without a prompt and stores a text-free fingerprint", async () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
-				const reporter = makeReporter(openedIssueUrls);
-				reporter.appendLog("log-line-MARKER");
+				const reporter = makeReporter(openedIssueUrls, ["log-line-MARKER"]);
 				reporter.recordError(
 					"discovery",
 					recordedError(
@@ -1316,6 +1340,63 @@ suite("extension/ui/commands", () => {
 				} finally {
 					mocks.restore();
 				}
+			});
+
+			test("a failing Open Existing Issues or Report Anyway toasts the thrown text through the door", async () => {
+				const key = `sk-live-${"A".repeat(32)}`;
+				Logger.registerSecrets([key]);
+				const storage = makeExtensionStorage();
+				const openedIssueUrls: string[] = [];
+				// The first report opens and is remembered; the second attempt's opener is down.
+				const reporter = new IssueReporter(
+					{
+						writeClipboard: async () => {},
+						openExternal: async (url) => {
+							if (openedIssueUrls.length > 0) {
+								throw new Error(`opener down for ${key} at http://bob:pw@hub.test`);
+							}
+							openedIssueUrls.push(url);
+						},
+					},
+					() => []
+				);
+				const errorToasts: string[] = [];
+				const origError = vscode.window.showErrorMessage;
+				(vscode.window as Record<string, unknown>).showErrorMessage = async (message: string) => {
+					errorToasts.push(message);
+					return undefined;
+				};
+				try {
+					const first = mockHint(undefined);
+					try {
+						await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
+					} finally {
+						first.restore();
+					}
+					const anyway = mockHint("Report Anyway");
+					try {
+						await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
+						await waitFor(() => errorToasts.length === 1, "the failing report to toast");
+					} finally {
+						anyway.restore();
+					}
+					const existing = mockHint("Open Existing Issues");
+					(vscode.commands as Record<string, unknown>).executeCommand = async () => {
+						throw new Error(`no opener for ${key}`);
+					};
+					try {
+						await runReportIssue(() => healthy, NO_DECLARED, "1.2.3", "9.9.9", reporter, storage.memento);
+						await waitFor(() => errorToasts.length === 2, "the failing issues list to toast");
+					} finally {
+						existing.restore();
+					}
+				} finally {
+					(vscode.window as Record<string, unknown>).showErrorMessage = origError;
+				}
+				assert.deepStrictEqual(errorToasts, [
+					"LiteLLM: Could not open the issue report - opener down for sk-liv... at http://[redacted]@hub.test",
+					"LiteLLM: Could not open the issues list - no opener for sk-liv...",
+				]);
 			});
 
 			test("Report Anyway opens the issue and refreshes the stored fingerprint", async () => {
@@ -1682,9 +1763,7 @@ suite("extension/ui/commands", () => {
 	});
 
 	suite("SessionLogTee", () => {
-		test("the tee's line stream carries only what the Logger handed it: no credential reaches readSince", () => {
-			// The tee once rebuilt its line from the thrown value itself, so litellm._test.getSessionLogs returned the
-			// password the channel and buffer had already lost.
+		test("the tee's line stream carries what the Logger handed it: the buffer line, then its own snapshot line", () => {
 			const reporter = new IssueReporter();
 			const tee = new SessionLogTee(reporter);
 			const logger = new Logger({ info: () => {}, error: () => {} }, tee);
@@ -1693,7 +1772,7 @@ suite("extension/ui/commands", () => {
 
 			logger.error("failure", err);
 
-			// The tee carries the buffer line first, then its own [error] snapshot line; the stamp is the only variable.
+			// The buffer holds every line raw; the stamp is the only variable.
 			assert.deepStrictEqual(
 				tee.readSince(0).lines.map((line) => line.replace(/^\[\d{4}-\d{2}-\d{2}T[^\]]+\]/, "[T]")),
 				["[T] ERROR: failure: unclassified", "[error] failure: unclassified\nunclassified\n    at real (x.ts:1:1)"]

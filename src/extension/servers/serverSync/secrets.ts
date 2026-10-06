@@ -130,15 +130,14 @@ function serializedWrite<T>(label: string, task: () => Promise<T>): Promise<T> {
 	return run;
 }
 
-type WrittenListener = (values: readonly string[], landed: Promise<void>) => void;
+type WrittenListener = (values: readonly string[]) => void;
 
 const writtenListeners = new Set<WrittenListener>();
 
 /**
- * Hear every value this window writes into a blob, before the write lands, with the promise of its landing.
- * SecretStorage's own change event carries no value and the blob read behind it is asynchronous, so the Logger's
- * known values would otherwise learn a freshly saved secret only after a line could already have quoted it; and a
- * read that began before the landing may not hold the value yet, so a listener retires it only after `landed`.
+ * Hear every value this window writes into a blob, before the write lands. SecretStorage's own change event carries
+ * no value and the blob read behind it is asynchronous, so the output door would otherwise learn a freshly saved
+ * secret only after a line could already have quoted it.
  */
 export function onServerSecretWritten(listener: WrittenListener): { dispose(): void } {
 	writtenListeners.add(listener);
@@ -151,12 +150,8 @@ async function writeRecord(secrets: SecretStore, label: string, record: StoredSe
 		values.length === 0
 			? secrets.delete(serverSecretsKey(label))
 			: secrets.store(serverSecretsKey(label), serializeRecord(record));
-	const landed = Promise.resolve(write).then(
-		() => undefined,
-		() => undefined
-	);
 	for (const listener of writtenListeners) {
-		listener(values, landed);
+		listener(values);
 	}
 	await write;
 }
@@ -278,7 +273,7 @@ export interface OwnedSecretsResolution {
 	readonly refused: readonly SecretFieldId[];
 	/**
 	 * Every stored field the stamp mismatch dropped with nothing standing in (no inline value): `refused` plus the
-	 * inert fields the entry cannot send. The with-secrets export reads this superset for its accounting, so a value
+	 * inert fields the entry cannot send. The export reads this superset for its accounting, so a value
 	 * left out of the file is never a silent omission; the pairing gates (the sync engine, the usage poller,
 	 * entryConnection.ts) read `refused`.
 	 */
@@ -288,7 +283,7 @@ export interface OwnedSecretsResolution {
 /**
  *   THE ownership check -> for every consumer that pairs a blob with an entry
  *   `refused` -> the verdict a pairing gate (the sync pass, the usage poller, entryConnection.ts) stops on instead of
- *                proceeding without the credential; the with-secrets export only accounts for it
+ *                proceeding without the credential; the export only accounts for it
  *   stamp mismatch, entry would send it, no inline winner -> refused
  *   stamp mismatch, entry cannot send it                  -> dropped but kept under its old stamp
  *   kept under its old stamp                              -> refusal waits until the entry could send it

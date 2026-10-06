@@ -44,6 +44,7 @@ import {
 } from "../../shared/config/settings";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import { transportClassificationOf } from "../../shared/errorClassification";
+import { Logger } from "../../shared/logger";
 import { MirroredError } from "../../shared/mirroredError";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
@@ -121,6 +122,8 @@ export interface IntentEnvironment extends ServersSettingStore {
 	/** Read one litellm-vscode-chat.* setting's effective (scope-merged) value, reflecting landed writes. */
 	readSetting(key: string): unknown;
 	executeCommand(command: string, ...args: readonly unknown[]): Thenable<unknown>;
+	/** The system clipboard; the text has passed the output door before it arrives here. */
+	writeClipboard(text: string): Thenable<void>;
 	/**
 	 * Write one secure-side secret field for a label; undefined deletes it. `owner` is the ownership stamp - the
 	 * destination the value is being paired with (secretDestination), or undefined only when deleting or restoring a
@@ -805,6 +808,12 @@ export async function executeDashboardIntent(
 		case "executeCommand": {
 			const { command, args } = COMMANDS_BY_ID[intent.payload.command];
 			await env.executeCommand(command, ...args);
+			return undefined;
+		}
+		case "copyDiagnostics": {
+			// Composed in the webview from pushed state, which carries no secret values but may quote a configured
+			// URL's userinfo or a server's error text; the one output door runs here, where the known values are.
+			await env.writeClipboard(Logger.redact(intent.payload.text));
 			return undefined;
 		}
 		case "syncModels": {

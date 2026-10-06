@@ -1,4 +1,5 @@
 import * as l10n from "@vscode/l10n";
+import { Logger } from "./logger";
 
 /**
  * Compose a two-part error message for surfaces that flatten newlines (GitHub Copilot Chat's error block, VS Code
@@ -34,11 +35,16 @@ export class MirroredError extends Error {
 	readonly englishMessage?: string;
 	readonly logClassification?: string;
 
+	/**
+	 * Both texts pass the one output door here, once: the display message is user-facing (chat errors, status rows,
+	 * tooltips, toasts read it) and the English mirror is its byte-for-byte twin under an English host, so the two
+	 * mask alike wherever either is shown.
+	 */
 	constructor(message: string, options: EnglishRendering & { readonly cause?: unknown }) {
-		super(message, { cause: options.cause });
+		super(Logger.redact(message), { cause: options.cause });
 		this.name = "MirroredError";
 		if (options.englishMessage !== undefined) {
-			this.englishMessage = options.englishMessage;
+			this.englishMessage = Logger.redact(options.englishMessage);
 		}
 		if (options.logClassification !== undefined) {
 			this.logClassification = options.logClassification;

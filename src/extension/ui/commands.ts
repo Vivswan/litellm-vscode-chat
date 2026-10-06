@@ -1,10 +1,11 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../provider/catalog/groupModels";
+import { thrownErrorDisplayText } from "../../provider/transport/errorMapping";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { failureClassification, failureTexts } from "../../shared/failureCause";
-import type { ErrorRecorder, Logger, RecordedError } from "../../shared/logger";
+import { type ErrorRecorder, Logger, type RecordedError } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
@@ -204,7 +205,10 @@ export async function runConnectionTest(
 				// only adds the docs action.
 				void showActionableMessage(
 					"error",
-					l10n.t("LiteLLM: Connection failed - {0}", failureTexts(outcome.cause, outcome.baseUrl ?? "").display),
+					l10n.t(
+						"LiteLLM: Connection failed - {0}",
+						Logger.redact(failureTexts(outcome.cause, outcome.baseUrl ?? "").display)
+					),
 					commandErrorActions(failureClassification(outcome.cause), outputChannel)
 				);
 				break;
@@ -337,7 +341,10 @@ async function runModelSyncPass(
 				logger.log(`Model sync failed: ${outcome.logSafeError}`);
 				void showActionableMessage(
 					"error",
-					l10n.t("LiteLLM: Model sync failed - {0}", failureTexts(outcome.cause, outcome.baseUrl ?? "").display),
+					l10n.t(
+						"LiteLLM: Model sync failed - {0}",
+						Logger.redact(failureTexts(outcome.cause, outcome.baseUrl ?? "").display)
+					),
 					commandErrorActions(failureClassification(outcome.cause), outputChannel)
 				);
 				break;
@@ -458,7 +465,7 @@ async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promi
 		try {
 			await openUrl(GITHUB_OPEN_BUG_ISSUES_URL);
 		} catch (error) {
-			const detail = error instanceof Error ? error.message : String(error);
+			const detail = thrownErrorDisplayText(error);
 			void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the issues list - {0}", detail));
 		}
 		return;
@@ -467,7 +474,7 @@ async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promi
 		try {
 			await reportAnyway();
 		} catch (error) {
-			const detail = error instanceof Error ? error.message : String(error);
+			const detail = thrownErrorDisplayText(error);
 			void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the issue report - {0}", detail));
 		}
 	}
@@ -626,7 +633,6 @@ export class SessionLogTee implements ErrorRecorder {
 	constructor(private readonly inner: ErrorRecorder) {}
 
 	appendLog(line: string): void {
-		this.inner.appendLog(line);
 		this.push(line);
 	}
 

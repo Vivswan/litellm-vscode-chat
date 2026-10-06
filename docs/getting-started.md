@@ -250,7 +250,7 @@ All seven are user settings: a workspace cannot turn them on, and the set-settin
 
 **The read tools** answer from what the extension already knows and touch none of your servers. Each also takes a single prompt through its `#` handle:
 
-- `litellm_diagnostics` (`#litellmDiagnostics`): connection state, one row per server (label, base URL, state, error classification, served model count), the configuration problems, the latest error, and on request the recent log lines. Log and error text pass through the same redaction the issue report uses.
+- `litellm_diagnostics` (`#litellmDiagnostics`): connection state, one row per server (label, base URL, state, error classification, served model count), the configuration problems, the latest error, and on request the recent log lines, with configured credential values and URL credentials masked.
 - `litellm_configuration` (`#litellmConfiguration`): everything the dashboard shows - servers with their settings and where each secret is stored (never the value), the settings with the scope each is configured in, the models, hidden groups, the catalog status, and usage. An optional list of sections keeps the answer small.
 - `litellm_inspect_model` (`#litellmInspectModel`): one model's effective capabilities and parameters, each value tagged with where it came from - the server's report, the catalog, your record, or the floor.
 - `litellm_search_catalog` (`#litellmSearchCatalog`): a search over the bundled OpenRouter catalog.
@@ -279,7 +279,7 @@ With `agentTools.secretValues.enabled` on, tool input may carry the value itself
 
 A kept secret never follows a changed host. Moving an entry to another base URL while keeping its key is refused, and the key must be set again.
 
-**The agent decides when to call a tool**, as with the consult tool above, so weigh what leaves the machine. A read tool's output - server labels, base URLs, model IDs, redacted logs - goes to whatever model the agent runs on: a cloud model, or one of your own LiteLLM models if the picker names one.
+**The agent decides when to call a tool**, as with the consult tool above, so weigh what leaves the machine. A read tool's output - server labels, base URLs, model IDs, log lines, with configured credentials masked - goes to whatever model the agent runs on: a cloud model, or one of your own LiteLLM models if the picker names one.
 
 A repository's files can try to steer that agent, which is why the write switches stay off on a machine where you do not want an agent changing settings.
 
@@ -368,7 +368,7 @@ Everything the extension can do on demand is a Command Palette command (`Ctrl+Sh
 | LiteLLM: Set Server Secret | Stores a server's API key, OAuth client secret, or virtual key in [secret storage](servers.md#secrets-and-secret-storage) |
 | LiteLLM: Refresh Usage Now | Fetches spend and budget data immediately, regardless of the polling interval |
 | LiteLLM: Refresh OpenRouter Catalog | Refreshes the capability catalog on demand ([Models](models.md#capabilities)) |
-| LiteLLM: Export Settings... | Saves the extension's settings to a JSON file, with an explicit choice to include or exclude stored secrets |
+| LiteLLM: Export Settings... | Saves the extension's settings to a JSON file, stored secrets included, with a warning that the file holds credentials |
 | LiteLLM: Import Settings... | Merges a previously exported settings file, with a prompt per colliding server |
 | LiteLLM: Undo Last Settings Import | Restores settings and secrets to their state before the last import |
 | LiteLLM: Generate Commit Message | Drafts a commit message from your staged changes into the Source Control input (opt-in; see the [recipe](#generate-commit-messages-with-your-own-model)) |

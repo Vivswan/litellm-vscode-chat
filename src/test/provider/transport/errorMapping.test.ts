@@ -24,6 +24,7 @@ import {
 	twoPartTexts,
 } from "../../../provider/transport/errorMapping";
 import { transportClassificationOf } from "../../../shared/errorClassification";
+import { Logger } from "../../../shared/logger";
 import { localizedError, MirroredError } from "../../../shared/mirroredError";
 import { DEFAULT_API_VERSION } from "../../../shared/util/baseUrl";
 import { assertShows, assertStartsWith } from "../../pureHelpers";
@@ -432,161 +433,100 @@ suite("provider/transport/errorMapping", () => {
 			});
 		});
 
-		suite("userinfo in the configured URL never renders", () => {
-			test("a connection error echoes the base URL without its credentials", () => {
-				const err = connectionError(new Error("connect ECONNREFUSED 127.0.0.1:4000"));
-				const mapped = expectRequestError(
-					mapSdkError(err, { surface: "chat", baseUrl: "http://user:sekret@litellm.test:4000", timeoutMs: 5000 }),
-					"connection"
-				);
-				assert.ok(mapped.message.includes("http://litellm.test:4000"), mapped.message);
-				assert.ok(!mapped.message.includes("sekret"), mapped.message);
-				assert.ok(!mapped.message.includes("user:"), mapped.message);
-				assert.ok(!mapped.englishMessage?.includes("sekret"), mapped.englishMessage ?? "");
-			});
-
-			test("the bare-localhost correction strips credentials from both echoed URLs", () => {
-				// Before the display pipeline, the one headline echoed the userinfo TWICE: once in the configured URL
-				// and once in the corrected one.
-				const err = connectionError(
-					Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" })
-				);
-				const mapped = expectRequestError(
-					mapSdkError(err, { surface: "chat", baseUrl: "http://user:sekret@www.localhost:8001", timeoutMs: 5000 }),
-					"connection"
-				);
-				assertStartsWith(
-					mapped.message,
-					"Connection Error: Try http://localhost:8001 instead of http://www.localhost:8001 - subdomains of localhost usually do not resolve."
-				);
-				assert.strictEqual(mapped.setupHint, "use-bare-localhost");
-				assert.ok(!mapped.message.includes("sekret"), mapped.message);
-				assert.ok(!mapped.message.includes("@"), mapped.message);
-			});
-
-			test("the certificate detail line echoes the URL without its credentials", () => {
-				const err = connectionError(new Error("unable to verify the first certificate"));
-				const mapped = expectRequestError(
-					mapSdkError(err, { surface: "chat", baseUrl: "https://user:sekret@litellm.test", timeoutMs: 5000 }),
-					"certificate"
-				);
-				assert.ok(mapped.message.includes("SSL certificate error for https://litellm.test"), mapped.message);
-				assert.ok(!mapped.message.includes("sekret"), mapped.message);
-			});
-
-			test("the OAuth token endpoint connection headline strips credentials too", () => {
-				const mapped = socketFailureRequestError(
-					new Error("connect ECONNREFUSED 127.0.0.1:8080"),
-					undefined,
-					{ endpoint: "oauthToken", surface: "chat", url: "http://user:sekret@idp.test:8080/token" },
-					() => timeoutRequestError(chatCtx, undefined)
-				);
-				assert.ok(mapped.message.includes("http://idp.test:8080/token"), mapped.message);
-				assert.ok(!mapped.message.includes("sekret"), mapped.message);
-			});
-
-			test("a cause-chain message quoting a credentialed URL is scrubbed on the detail line", () => {
-				// Node and undici quote the offending URL verbatim in some failure messages; the chain-derived detail
-				// must not re-leak what the headline stripped.
-				const err = connectionError(new Error("Failed to parse URL from http://user:sekret@litellm.test:4000/v1"));
-				const mapped = expectRequestError(
-					mapSdkError(err, { surface: "chat", baseUrl: "http://user:sekret@litellm.test:4000", timeoutMs: 5000 }),
-					"network"
-				);
-				assert.ok(!mapped.message.includes("sekret"), mapped.message);
-				assert.ok(mapped.message.includes("Failed to parse URL from http://litellm.test:4000/v1"), mapped.message);
-				assert.ok(!mapped.englishMessage?.includes("sekret"), mapped.englishMessage ?? "");
-			});
-
-			test("a 404 body quoting the credentialed base URL is scrubbed on the detail line, classification intact", () => {
-				// A proxy echoes the URL it was asked for; the headline stripped the userinfo while the detail quoted the
-				// body verbatim into the chat error, the NotFound wrapper, and the status texts. The parser drops a line
-				// break or a tab wherever it sits, so a password or a host split by one is still the configured URL.
-				const base = { baseUrl: "https://user:pass@host.test", timeoutMs: 5000 };
-				const chatHeadline =
-					"The server did not recognize this request - the model may have been removed from the proxy. " +
-					'Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base ' +
-					"URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).";
-				const discoveryHeadline =
-					"Failed to fetch LiteLLM models: the server at https://host.test answered 404 - it responded, but does " +
-					"not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL " +
-					"already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.";
-				const spellings: [quoted: string, shown: string][] = [
-					["https://user:pass@host.test", "https://host.test"],
-					["https://user:\npass@host.test", "https://host.test"],
-					["https://user:pass@[::\t1]/v1", "https://[::1]/v1"],
-				];
-				for (const [quoted, shown] of spellings) {
-					const err = APIError.generate(404, { error: { message: `rejected ${quoted}` } }, undefined, new Headers());
-					const chat = expectRequestError(mapSdkError(err, { ...base, surface: "chat" }), "http");
-					const chatMessage = `${chatHeadline}\n\nDetails: LiteLLM 404: rejected ${shown}`;
-					assert.strictEqual(chat.message, chatMessage);
-					assert.strictEqual(chat.englishMessage, chatMessage);
-					assert.strictEqual(chat.status, 404);
-					assert.strictEqual(chat.logClassification, "RequestError(http, status 404, chat)");
-					const wrapped = toLanguageModelError(chat);
-					assert.ok(wrapped instanceof LanguageModelError, String(wrapped));
-					assert.strictEqual(wrapped.code, LanguageModelError.NotFound().code);
-					assert.strictEqual(wrapped.message, chatMessage);
-					assert.strictEqual(thrownErrorDisplayText(chat), chatMessage);
-					assert.strictEqual(statusLogSafeError(chat), "RequestError(http, status 404, chat)");
-					assert.deepStrictEqual(transportClassificationOf(chat), { kind: "http", status: 404 });
-
-					const discovery = expectRequestError(mapSdkError(err, { ...base, surface: "discovery" }), "http");
-					const discoveryMessage = `${discoveryHeadline}\nLiteLLM 404: rejected ${shown}`;
-					assert.strictEqual(discovery.message, discoveryMessage);
-					assert.strictEqual(discovery.englishMessage, discoveryMessage);
-					assert.strictEqual(discovery.setupHint, "check-base-url");
-				}
-			});
-
-			test("the envelope's failure marks classify as sent even when the rendered type is scrubbed", () => {
-				// The scrub changes text, never a classification: a type field spelled as a credentialed URL still
-				// carries its budget mark to the classifier while the detail renders it without the credential.
-				const err = APIError.generate(
-					400,
-					{ error: { message: "denied", type: "https://budget_exceeded:pass@host.test" } },
-					undefined,
-					new Headers()
-				);
-				const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
-				assert.strictEqual(chat.logClassification, "RequestError(http, status 400, budget_exceeded)");
-				assert.ok(chat.message.endsWith("\n\nDetails: LiteLLM 400 https://host.test: denied"), chat.message);
-			});
-
-			test("the display rendering of a thrown error scrubs a credentialed URL an unclassified error quotes; the log rendering is the word", () => {
-				// The feature-failure notifications render whatever a feature threw, so a platform error quoting the
-				// configured URL (a password split by a line break included, or a thrown string) must reach them
-				// scrubbed; the serve log carries no thrown text at all for an unclassified value.
-				const shown = "Failed to parse URL from https://host.test/v1";
-				const reasons: [reason: unknown, shown: string][] = [
-					[new Error("Failed to parse URL from https://user:pass@host.test/v1"), shown],
-					[new Error("Failed to parse URL from https://user:\npass@host.test/v1"), shown],
-					["Failed to parse URL from https://user:pass@host.test/v1", shown],
-					[
-						new Error("Failed https://user:pass@one.test/v1\nhttps://other:secret@two.test/v1"),
-						"Failed https://one.test/v1\nhttps://two.test/v1",
-					],
-					[
-						new Error("Failed https://user:pass@one.test/v1 and https://other:secret@[::\t1]/v1"),
-						"Failed https://one.test/v1 and https://[::1]/v1",
-					],
-					[new Error("Failed https://user:\npass@[::\t1]/v1"), "Failed https://[::1]/v1"],
-					[new Error("Headline\nDetail line without a URL"), "Headline\nDetail line without a URL"],
-				];
-				for (const [reason, expected] of reasons) {
-					assert.strictEqual(thrownErrorDisplayText(reason), expected);
-					assert.strictEqual(statusLogSafeError(reason), "unclassified", "the log rendering carries no thrown text");
-					assert.strictEqual(transportClassificationOf(reason), undefined);
-				}
-			});
-
-			test("the anonymous tail scrubs a credentialed URL quoted in arbitrary error text", () => {
-				const mapped = mapSdkError(new Error("boom while probing http://user:sekret@x.test/v1"), chatCtx);
-				assert.ok(mapped instanceof MirroredError, mapped.message);
-				assert.ok(!mapped.message.includes("sekret"), mapped.message);
-				assert.ok(mapped.message.includes("http://x.test/v1"), mapped.message);
-			});
+		test("a configured URL keeps its host and loses its userinfo on every surface that echoes it", () => {
+			// The one output door runs where a MirroredError's display message is built and where
+			// thrownErrorDisplayText renders a raw throw, so chat errors and toasts are covered once; the serve log's
+			// rendering (statusLogSafeError) carries a classification or the word, never thrown text.
+			const base = "http://user:sekret@litellm.test:4000";
+			const shown = "http://[redacted]@litellm.test:4000";
+			const notFound = APIError.generate(404, { error: { message: `rejected ${base}` } }, undefined, new Headers());
+			const surfaces: readonly [name: string, rendered: string, expected: string][] = [
+				[
+					"connection headline",
+					expectRequestError(
+						mapSdkError(connectionError(new Error("connect ECONNREFUSED 127.0.0.1:4000")), {
+							surface: "chat",
+							baseUrl: base,
+							timeoutMs: 5000,
+						}),
+						"connection"
+					).message,
+					shown,
+				],
+				[
+					"bare-localhost correction, both URLs",
+					expectRequestError(
+						mapSdkError(
+							connectionError(Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" })),
+							{ surface: "chat", baseUrl: "http://user:sekret@www.localhost:8001", timeoutMs: 5000 }
+						),
+						"connection"
+					).message,
+					"Connection Error: Try http://[redacted]@localhost:8001 instead of http://[redacted]@www.localhost:8001",
+				],
+				[
+					"certificate detail",
+					expectRequestError(
+						mapSdkError(connectionError(new Error("unable to verify the first certificate")), {
+							surface: "chat",
+							baseUrl: "https://user:sekret@litellm.test",
+							timeoutMs: 5000,
+						}),
+						"certificate"
+					).message,
+					"SSL certificate error for https://[redacted]@litellm.test",
+				],
+				[
+					"OAuth token endpoint connection headline",
+					socketFailureRequestError(
+						new Error("connect ECONNREFUSED 127.0.0.1:8080"),
+						undefined,
+						{ endpoint: "oauthToken", surface: "chat", url: "http://user:sekret@idp.test:8080/token" },
+						() => timeoutRequestError(chatCtx, undefined)
+					).message,
+					"http://[redacted]@idp.test:8080/token",
+				],
+				[
+					"cause-chain detail",
+					expectRequestError(
+						mapSdkError(connectionError(new Error(`Failed to parse URL from ${base}/v1`)), {
+							surface: "chat",
+							baseUrl: base,
+							timeoutMs: 5000,
+						}),
+						"network"
+					).message,
+					`Failed to parse URL from ${shown}/v1`,
+				],
+				[
+					"404 body detail",
+					expectRequestError(mapSdkError(notFound, { surface: "chat", baseUrl: base, timeoutMs: 5000 }), "http")
+						.message,
+					`Details: LiteLLM 404: rejected ${shown}`,
+				],
+				[
+					"display text of an unclassified error",
+					thrownErrorDisplayText(new Error(`Failed to parse URL from ${base}/v1`)),
+					`Failed to parse URL from ${shown}/v1`,
+				],
+				[
+					"anonymous tail",
+					mapSdkError(new Error(`boom while probing ${base}/v1`), chatCtx).message,
+					`boom while probing ${shown}/v1`,
+				],
+			];
+			for (const [name, rendered, expected] of surfaces) {
+				assert.ok(rendered.includes(expected), `${name}: ${rendered}`);
+			}
+			const unclassified = new Error(`Failed to parse URL from ${base}/v1`);
+			assert.strictEqual(statusLogSafeError(unclassified), "unclassified", "the log rendering carries no thrown text");
+			assert.strictEqual(transportClassificationOf(unclassified), undefined);
+			assert.strictEqual(
+				statusLogSafeError(
+					expectRequestError(mapSdkError(notFound, { surface: "chat", baseUrl: base, timeoutMs: 5000 }), "http")
+				),
+				"RequestError(http, status 404, chat)"
+			);
 		});
 
 		test("expired certificate in the cause chain maps to the SSL-expired message", () => {
@@ -1075,6 +1015,80 @@ suite("provider/transport/errorMapping", () => {
 			assert.ok(!err.message.includes('{"error"'), "the envelope is never re-serialized");
 			// mapSdkError must hand it through untouched on the way out of send().
 			assert.strictEqual(mapSdkError(err, chatCtx), err);
+		});
+
+		test("a value astride the stream detail's 300-character cap is masked before the cut", () => {
+			// 275 x's put the 40-character key across the cap: cut first, "sk-live-AAAAAAAAAAAAAAAAA" would stay.
+			const key = `sk-live-${"A".repeat(32)}`;
+			Logger.registerSecrets([key]);
+			const err = streamErrorFrame({ message: `${"x".repeat(275)}${key}` });
+			const expected =
+				"The server reported an error while it was streaming this reply, so the response was interrupted. This is often temporary - trying again may work; if it repeats, the detail below shows what the server said." +
+				`\n\nDetails: LiteLLM stream error: ${"x".repeat(275)}sk-liv...`;
+			assert.deepStrictEqual(
+				{ message: err.message, english: err.englishMessage },
+				{ message: expected, english: expected }
+			);
+		});
+
+		test("a cause-chain message masks where it is read, before the punctuation strip and the collapse", () => {
+			// A registered value that ends in a period, as the first chain link: the detail strips a trailing period from
+			// that link, which would otherwise respell the value ("key-zq7w") past the exit's reach; masked at the chain
+			// reader, the strip finds no period. The dropped-stream branch is the one whose first link is outside text.
+			Logger.registerSecrets(["key-zq7w.", "two\nlines-zq7w"]);
+			const stripped = mapSdkError(new Error("other side closed key-zq7w."), chatCtx);
+			const strippedExpected =
+				"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server." +
+				"\n\nDetails: Connection to http://litellm.test closed mid-response: other side closed [redacted]";
+			// A value with a line break in the deepest link: masked at the reader, the whitespace collapse works on the
+			// marker; the socket-failure path starts at the SDK error's cause ("fetch failed") and quotes the deepest link.
+			const collapsed = mapSdkError(connectionError(new Error("rejected two\nlines-zq7w")), chatCtx);
+			const collapsedExpected =
+				"Could not reach http://litellm.test. Check your network, VPN, or proxy settings, and that the server is up." +
+				"\n\nDetails: fetch failed (cause: rejected [redacted])";
+			assert.deepStrictEqual(
+				{
+					stripped: stripped.message,
+					strippedEnglish: (stripped as MirroredError).englishMessage,
+					collapsed: collapsed.message,
+					collapsedEnglish: (collapsed as MirroredError).englishMessage,
+				},
+				{
+					stripped: strippedExpected,
+					strippedEnglish: strippedExpected,
+					collapsed: collapsedExpected,
+					collapsedEnglish: collapsedExpected,
+				}
+			);
+		});
+
+		test("masking is idempotent across the doors: a value inside a marker is no match, so no exit writes [[redacted]]", () => {
+			// "acted]" stands in for a registered word that is also inside the marker (the fixture avoids registering
+			// "redacted" itself, which would blank the word across every later test).
+			Logger.registerSecrets(["acted]"]);
+			const err = streamErrorFrame({ message: "Denied acted]" });
+			assert.ok(err.message.endsWith("\n\nDetails: LiteLLM stream error: Denied [redacted]"), err.message);
+			assert.ok(
+				err.englishMessage?.endsWith("\n\nDetails: LiteLLM stream error: Denied [redacted]"),
+				err.englishMessage ?? "no English mirror"
+			);
+			assert.strictEqual(
+				thrownErrorDisplayText(new MirroredError("Denied acted]", { englishMessage: "Denied acted]" })),
+				"Denied [redacted]"
+			);
+		});
+
+		test("thrownErrorDisplayText renders a raw throw through the door whole, and a MirroredError's text as built", () => {
+			const key = `sk-live-${"A".repeat(32)}`;
+			Logger.registerSecrets([key]);
+			assert.deepStrictEqual(
+				[
+					thrownErrorDisplayText(new Error(`failed for ${key} at http://bob:pw@hub.test/v1`)),
+					thrownErrorDisplayText(`failed for ${key}`),
+					thrownErrorDisplayText(new MirroredError(`failed for ${key}`, { englishMessage: `failed for ${key}` })),
+				],
+				["failed for sk-liv... at http://[redacted]@hub.test/v1", "failed for sk-liv...", "failed for sk-liv..."]
+			);
 		});
 
 		test("a message-less stream error frame still surfaces its type and code", () => {

@@ -4,26 +4,12 @@ import type { FeatureId } from "../../shared/config/settingSpec";
 import { FEATURE_IDS } from "../../shared/config/settingSpec";
 import { LAST_ISSUE_REPORT_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
-import type { RecordedError } from "../../shared/logger";
-import { redactUrlCredentials } from "../../shared/util/displayUrl";
+import { Logger, type RecordedError } from "../../shared/logger";
 import { GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 
-const MAX_LOG_ENTRIES = 50;
 const MAX_URL_LENGTH = 8000;
 const COMPACT_STACK_LINES = 8;
-/**
- * The account name under a home directory root, on every platform's spelling. A name may hold spaces and punctuation
- * and Node quotes a path without escaping it, so a later separator or closing quote on the line ends the name, never
- * the first space.
- *   at run (C:\\Users\\Bob O'Brien, Jr\\x.js:3:4)  -> at run (C:\\Users\\[REDACTED]\\x.js:3:4)
- *   scandir '\\?\C:\Users\Bob O' Brien'          -> scandir '\\?\C:\Users\[REDACTED]'
- *   open '/Users/alice'                          -> open '/Users/[REDACTED]'
- *   GET /home/health returned 404                -> GET /home/[REDACTED] returned 404
- *   mkdir /Users/alice then /tmp/x                -> mkdir /Users/[REDACTED]/tmp/x
- */
-const HOME_DIRECTORY_NAME =
-	/([\\/](?:Users|home)[\\/]+)(?:[^\\/\n\r]+?(?=[\\/])|(?<='[^'\n\r]*)[^\n\r]+(?=')|(?<="[^"\n\r]*)[^\n\r]+(?=")|[^\\/\s"'()[\]]+)/gi;
 
 export interface ErrorContext {
 	source: string;
@@ -236,16 +222,39 @@ export function createIssueReporterEnv(diagnosticsDirectory: vscode.Uri): IssueR
 }
 
 export class IssueReporter {
-	private _logBuffer: string[] = [];
 	private _latestError?: ErrorContext;
 
-	constructor(private readonly env: IssueReporterEnv = defaultIssueReporterEnv) {}
+	/** `recentLogs` is the Logger's history (Logger.reportLines), the one record of what the channel showed. */
+	constructor(
+		private readonly env: IssueReporterEnv = defaultIssueReporterEnv,
+		private readonly recentLogs: () => readonly string[] = () => []
+	) {}
 
-	appendLog(message: string): void {
-		this._logBuffer.push(message);
-		if (this._logBuffer.length > MAX_LOG_ENTRIES) {
-			this._logBuffer.shift();
-		}
+	/**
+	 * Every string of the snapshot through the one output door, once and whole before any split, cut, or compaction
+	 * (a value may span lines). The report redacts nothing else: hosts, paths, and account names stay.
+	 */
+	private redacted(snapshot: DiagnosticsSnapshot): DiagnosticsSnapshot {
+		const redact = Logger.redact;
+		const error = snapshot.latestError;
+		return {
+			...snapshot,
+			extensionVersion: redact(snapshot.extensionVersion),
+			vscodeVersion: redact(snapshot.vscodeVersion),
+			platform: redact(snapshot.platform),
+			connectionState: redact(snapshot.connectionState),
+			recentLogs: snapshot.recentLogs.map(redact),
+			latestError:
+				error === undefined
+					? undefined
+					: {
+							...error,
+							source: redact(error.source),
+							message: redact(error.message),
+							timestamp: redact(error.timestamp),
+							...(error.stack !== undefined ? { stack: redact(error.stack) } : {}),
+						},
+		};
 	}
 
 	recordError(source: string, error: RecordedError): void {
@@ -263,99 +272,19 @@ export class IssueReporter {
 	}
 
 	getRecentLogs(): string[] {
-		return [...this._logBuffer];
+		return [...this.recentLogs()];
 	}
 
 	buildIssueUrl(snapshot: DiagnosticsSnapshot): string {
 		return this.buildIssuePayload(snapshot).url;
 	}
 
-	buildTitle(snapshot: DiagnosticsSnapshot): string {
-		if (snapshot.latestError) {
-			const firstLine = redactSecrets(snapshot.latestError.message.split("\n")[0] ?? "").slice(0, 80);
-			return `[Bug] ${redactSecrets(snapshot.latestError.source)}: ${firstLine}`;
-		}
-		return "[Bug] Issue report from diagnostics";
+	buildTitle(rawSnapshot: DiagnosticsSnapshot): string {
+		return titleOf(this.redacted(rawSnapshot));
 	}
 
-	buildBody(snapshot: DiagnosticsSnapshot, variant: BodyVariant = { kind: "full" }): string {
-		const sections: string[] = [];
-		const recentLogs =
-			variant.kind === "compact-logs" ? snapshot.recentLogs.slice(variant.omittedLogCount) : snapshot.recentLogs;
-
-		sections.push("## What happened\n\n<!-- Describe what happened -->\n");
-		sections.push("## Expected behavior\n\n<!-- What did you expect to happen? -->\n");
-		sections.push("## Steps to reproduce\n\n1. \n2. \n3. \n");
-
-		sections.push(
-			[
-				"## Environment",
-				"",
-				`- Extension version: ${snapshot.extensionVersion}`,
-				`- VS Code version: ${snapshot.vscodeVersion}`,
-				`- Platform: ${snapshot.platform}`,
-				"",
-			].join("\n")
-		);
-
-		const diagLines = [
-			"## Diagnostics",
-			"",
-			`- Connection state: ${snapshot.connectionState}`,
-			snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
-			`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
-			`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
-			`- MCP-enabled server entries: ${snapshot.mcpEntryCount}`,
-			...featureFlagLines(snapshot.featureFlags),
-		].filter((l): l is string => l !== null);
-
-		if (snapshot.latestError) {
-			diagLines.push(...latestErrorLines(snapshot.latestError));
-			diagLines.push(`- Message: ${bulletContinuation(redactSecrets(snapshot.latestError.message))}`);
-		}
-		diagLines.push("");
-		sections.push(diagLines.join("\n"));
-
-		if (recentLogs.length > 0 || variant.kind === "compact-logs") {
-			const logLines = recentLogs.map((l) => redactSecrets(l));
-			if (variant.kind === "compact-logs") {
-				const omitted = variant.omittedLogCount;
-				logLines.unshift(`... (${omitted} older log line${omitted === 1 ? "" : "s"} omitted; ${variant.hint})`);
-			}
-			sections.push(
-				[
-					"## Recent logs",
-					"",
-					"<details><summary>Last log entries</summary>",
-					"",
-					"```",
-					...logLines,
-					"```",
-					"",
-					"</details>",
-					"",
-				].join("\n")
-			);
-		}
-
-		if (snapshot.latestError?.stack) {
-			const stack =
-				variant.kind === "full" ? snapshot.latestError.stack : compactStack(snapshot.latestError.stack, variant.hint);
-			sections.push(
-				[
-					`<details><summary>${variant.kind === "full" ? "Stack trace" : "Stack trace (trimmed)"}</summary>`,
-					"",
-					"```",
-					redactSecrets(stack),
-					"```",
-					"",
-					"</details>",
-					"",
-				].join("\n")
-			);
-		}
-
-		return sections.join("\n");
+	buildBody(rawSnapshot: DiagnosticsSnapshot, variant: BodyVariant = { kind: "full" }): string {
+		return bodyOf(this.redacted(rawSnapshot), variant);
 	}
 
 	async openIssue(snapshot: DiagnosticsSnapshot): Promise<void> {
@@ -375,23 +304,27 @@ export class IssueReporter {
 		}
 	}
 
-	private buildIssuePayload(snapshot: DiagnosticsSnapshot, sink: CompactedDiagnosticsSink = "unknown"): IssuePayload {
+	private buildIssuePayload(
+		rawSnapshot: DiagnosticsSnapshot,
+		sink: CompactedDiagnosticsSink = "unknown"
+	): IssuePayload {
+		const snapshot = this.redacted(rawSnapshot);
 		const { hint } = SINK_TEXT[sink];
-		const title = this.buildTitle(snapshot);
-		const fullBody = this.buildBody(snapshot);
+		const title = titleOf(snapshot);
+		const fullBody = bodyOf(snapshot, { kind: "full" });
 		const fullUrl = createIssueUrl(title, fullBody);
 		if (fullUrl.length <= MAX_URL_LENGTH) {
 			return { url: fullUrl, fullBody, compacted: false };
 		}
 
-		const compactStackBody = this.buildBody(snapshot, { kind: "compact-stack", hint });
+		const compactStackBody = bodyOf(snapshot, { kind: "compact-stack", hint });
 		const compactStackUrl = createIssueUrl(title, compactStackBody);
 		if (compactStackUrl.length <= MAX_URL_LENGTH) {
 			return { url: compactStackUrl, fullBody, compacted: true };
 		}
 
 		for (let omitted = 1; omitted <= snapshot.recentLogs.length; omitted++) {
-			const body = this.buildBody(snapshot, { kind: "compact-logs", hint, omittedLogCount: omitted });
+			const body = bodyOf(snapshot, { kind: "compact-logs", hint, omittedLogCount: omitted });
 			const url = createIssueUrl(title, body);
 			if (url.length <= MAX_URL_LENGTH) {
 				return { url, fullBody, compacted: true };
@@ -407,6 +340,95 @@ export class IssueReporter {
 	}
 }
 
+/** `snapshot` is the redacted one (IssueReporter.redacted); nothing below masks again. */
+function titleOf(snapshot: DiagnosticsSnapshot): string {
+	const { latestError } = snapshot;
+	if (latestError) {
+		const firstLine = (latestError.message.split("\n")[0] ?? "").slice(0, 80);
+		return `[Bug] ${latestError.source}: ${firstLine}`;
+	}
+	return "[Bug] Issue report from diagnostics";
+}
+
+function bodyOf(snapshot: DiagnosticsSnapshot, variant: BodyVariant): string {
+	const sections: string[] = [];
+	const recentLogs =
+		variant.kind === "compact-logs" ? snapshot.recentLogs.slice(variant.omittedLogCount) : snapshot.recentLogs;
+
+	sections.push("## What happened\n\n<!-- Describe what happened -->\n");
+	sections.push("## Expected behavior\n\n<!-- What did you expect to happen? -->\n");
+	sections.push("## Steps to reproduce\n\n1. \n2. \n3. \n");
+
+	sections.push(
+		[
+			"## Environment",
+			"",
+			`- Extension version: ${snapshot.extensionVersion}`,
+			`- VS Code version: ${snapshot.vscodeVersion}`,
+			`- Platform: ${snapshot.platform}`,
+			"",
+		].join("\n")
+	);
+
+	const diagLines = [
+		"## Diagnostics",
+		"",
+		`- Connection state: ${snapshot.connectionState}`,
+		snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
+		`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
+		`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
+		`- MCP-enabled server entries: ${snapshot.mcpEntryCount}`,
+		...featureFlagLines(snapshot.featureFlags),
+	].filter((l): l is string => l !== null);
+
+	if (snapshot.latestError) {
+		diagLines.push(...latestErrorLines(snapshot.latestError));
+		diagLines.push(`- Message: ${bulletContinuation(snapshot.latestError.message)}`);
+	}
+	diagLines.push("");
+	sections.push(diagLines.join("\n"));
+
+	if (recentLogs.length > 0 || variant.kind === "compact-logs") {
+		const logLines = [...recentLogs];
+		if (variant.kind === "compact-logs") {
+			const omitted = variant.omittedLogCount;
+			logLines.unshift(`... (${omitted} older log line${omitted === 1 ? "" : "s"} omitted; ${variant.hint})`);
+		}
+		sections.push(
+			[
+				"## Recent logs",
+				"",
+				"<details><summary>Last log entries</summary>",
+				"",
+				"```",
+				...logLines,
+				"```",
+				"",
+				"</details>",
+				"",
+			].join("\n")
+		);
+	}
+
+	if (snapshot.latestError?.stack) {
+		const { stack } = snapshot.latestError;
+		sections.push(
+			[
+				`<details><summary>${variant.kind === "full" ? "Stack trace" : "Stack trace (trimmed)"}</summary>`,
+				"",
+				"```",
+				variant.kind === "full" ? stack : compactStack(stack, variant.hint),
+				"```",
+				"",
+				"</details>",
+				"",
+			].join("\n")
+		);
+	}
+
+	return sections.join("\n");
+}
+
 /**
  * The Latest-error section's cause line: enum ids and an integer only, English by policy (the issue body is diagnostics
  * text), never anything response-derived.
@@ -417,16 +439,12 @@ function classificationLine(classification: TransportErrorClassification): strin
 	return `- Classification: ${classification.kind}${status}${setupHint}`;
 }
 
-/**
- * The source is the log message the Logger recorded the error under, which may name a configured URL, so it is
- * redacted like the message beneath it.
- */
 function latestErrorLines(error: ErrorContext): string[] {
 	return [
 		"",
 		"### Latest error",
 		"",
-		`- Source: ${redactSecrets(error.source)}`,
+		`- Source: ${error.source}`,
 		`- Time: ${error.timestamp}`,
 		...(error.classification !== undefined ? [classificationLine(error.classification)] : []),
 	];
@@ -485,7 +503,7 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, sink: Compact
 
 	if (snapshot.latestError) {
 		lines.push(...latestErrorLines(snapshot.latestError));
-		lines.push(`- Message: ${shortenLine(redactSecrets(snapshot.latestError.message.split(/\r?\n/)[0] ?? ""), 500)}`);
+		lines.push(`- Message: ${shortenLine(snapshot.latestError.message.split(/\r?\n/)[0] ?? "", 500)}`);
 	}
 
 	lines.push("", `Full redacted diagnostics were too large to prefill in GitHub. ${capitalizeFirst(hint)}. ${action}`);
@@ -503,44 +521,4 @@ function shortenLine(text: string, maxLength: number): string {
 	}
 
 	return `${text.slice(0, maxLength)}...`;
-}
-
-export function redactSecrets(text: string): string {
-	return (
-		// URL-embedded credentials go first, through the one shared scrub (scheme-agnostic, greedy to the run's last
-		// "@"): the host rule below reparses each URL, and userinfo left in place - or a bracketed marker put in its
-		// place - would split that match and leak the host past [REDACTED_HOST]. Its localhost carve-out is also why
-		// the credential must already be gone.
-		redactUrlCredentials(text)
-			// JSON-encoded auth headers. The value pattern consumes escaped sequences so an escaped quote inside the
-			// secret cannot end the match early.
-			.replace(/("(?:Authorization|X-API-Key)":\s*")((?:Bearer\s+)?)(?:\\.|[^"\\])*(")/gi, "$1$2[REDACTED]$3")
-			// JSON-encoded OAuth material: "client_secret": "xxx" or "access_token": "xxx"
-			.replace(/("(?:client[_-]?secret|access[_-]?token)":\s*")(?:\\.|[^"\\])*(")/gi, "$1[REDACTED]$2")
-			// Bare auth header values
-			.replace(/(Bearer\s+)\S+/gi, "$1[REDACTED]")
-			.replace(/(X-API-Key:\s*)\S+/gi, "$1[REDACTED]")
-			.replace(/(Authorization:\s*)\S+/gi, "$1[REDACTED]")
-			.replace(/(api[_-]?key[=:\s]+)\S+/gi, "$1[REDACTED]")
-			// Bare OAuth material: client_secret=xxx, access_token: xxx
-			.replace(/(client[_-]?secret[=:\s]+)\S+/gi, "$1[REDACTED]")
-			.replace(/(access[_-]?token[=:\s]+)\S+/gi, "$1[REDACTED]")
-			// sk- prefixed API keys
-			.replace(/(sk-[a-zA-Z0-9]{4})[a-zA-Z0-9]+/g, "$1[REDACTED]")
-			.replace(HOME_DIRECTORY_NAME, "$1[REDACTED]")
-			// Full http(s) URLs: replace host+path with just the scheme and a placeholder
-			.replace(/https?:\/\/[^\s"')>\]]+/gi, (match) => {
-				try {
-					const u = new URL(match);
-					const host = u.hostname;
-					// Keep localhost/127.0.0.1 as-is since they aren't sensitive
-					if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
-						return match;
-					}
-					return `${u.protocol}//[REDACTED_HOST]${u.pathname}`;
-				} catch {
-					return "[REDACTED_URL]";
-				}
-			})
-	);
 }

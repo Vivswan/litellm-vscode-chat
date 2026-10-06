@@ -4,6 +4,7 @@ import { classifyOverall } from "../../dashboard/presenters";
 import { CMD } from "../../shared/config/commandIds";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import { failureTexts } from "../../shared/failureCause";
+import { Logger } from "../../shared/logger";
 import type { AggregatedStatus } from "../../shared/servers";
 import { statusClassification, unexpectedServerFailures } from "../../shared/servers";
 import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
@@ -257,7 +258,7 @@ export class Notifier implements vscode.Disposable {
 					tag: "all-failed",
 					signature: "all-misconfigured",
 					kind: "error",
-					message: l10n.t("LiteLLM: {0}", failureTexts({ kind: "misconfiguredEntry" }, "").display),
+					message: l10n.t("LiteLLM: {0}", Logger.redact(failureTexts({ kind: "misconfiguredEntry" }, "").display)),
 					actions: [reconfigureAction()],
 				};
 			}
@@ -268,7 +269,7 @@ export class Notifier implements vscode.Disposable {
 				// the new cause carries a hint.
 				signature: `all-failed:${JSON.stringify(firstFailure.cause)}`,
 				kind: "error",
-				message: l10n.t("LiteLLM: {0}", failureTexts(firstFailure.cause, firstFailure.baseUrl).display),
+				message: l10n.t("LiteLLM: {0}", Logger.redact(failureTexts(firstFailure.cause, firstFailure.baseUrl).display)),
 				actions: notifierErrorActions(statusClassification(firstFailure)),
 			};
 		}

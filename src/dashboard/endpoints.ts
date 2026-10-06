@@ -70,6 +70,8 @@ export const WIRE_LIMITS = {
 	/** The non-secret free-text entry fields (client ID, scopes, header name). */
 	textField: 2048,
 	secretValue: 8192,
+	/** The Copy diagnostics text the webview composes from pushed state. */
+	copyText: 1_048_576,
 	/** Matcher keys in a record map. */
 	recordKey: 512,
 	recordFieldName: 256,
@@ -261,6 +263,11 @@ export const DASHBOARD_ENDPOINTS = {
 	readResolvedModels: { outcome: "read", channel: "concurrent" },
 	searchCatalog: { outcome: "read", channel: "concurrent" },
 	executeCommand: { outcome: "fire-and-forget", channel: "chained", fail: "pane-top" },
+	/**
+	 * The webview cannot see the known credential values and they never cross the wire, so the text it composed is
+	 * redacted and written to the clipboard on the extension side.
+	 */
+	copyDiagnostics: { outcome: "fire-and-forget", channel: "chained", fail: "pane-top" },
 } as const satisfies Record<string, DashboardEndpointSpec>;
 
 export type DashboardMethod = keyof typeof DASHBOARD_ENDPOINTS;
@@ -439,6 +446,7 @@ interface DashboardEndpointIO {
 		response: { readonly results: readonly CatalogModelSummary[] };
 	};
 	executeCommand: { request: { readonly command: DashboardCommandId } };
+	copyDiagnostics: { request: { readonly text: string } };
 	/** No parameters: the sync is fleet-wide, exactly as the command palette runs it. */
 	syncModels: { request: null };
 }

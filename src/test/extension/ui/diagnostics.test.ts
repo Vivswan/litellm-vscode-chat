@@ -13,9 +13,7 @@ import { makeServerStatus, withConfig } from "../../testUtils";
 suite("extension/ui/diagnostics", () => {
 	suite("buildDiagnosticsSnapshot", () => {
 		test("collects environment, connection, and reporter data", async () => {
-			const reporter = new IssueReporter();
-			reporter.appendLog("first log line");
-			reporter.appendLog("second log line");
+			const reporter = new IssueReporter(undefined, () => ["first log line", "second log line"]);
 			reporter.recordError("discovery", recordedError(new Error("fetch exploded")));
 
 			// Non-default configuration on every settings-derived field, through the same getConfiguration surface the

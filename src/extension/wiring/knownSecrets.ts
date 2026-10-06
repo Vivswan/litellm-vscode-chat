@@ -1,99 +1,68 @@
 import * as vscode from "vscode";
-import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { CONFIG_SECTION, LOG_REDACTION_SETTING_KEY } from "../../shared/config/settingSpec";
 import { SERVERS_SETTING_KEY } from "../../shared/config/settings";
 import { isServerSecretsKey } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
-import { type CollectableEntry, collectKnownSecretValues } from "../../shared/util/knownSecrets";
-import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
+import { collectKnownSecretValues } from "../../shared/util/knownSecrets";
 import { onServerSecretWritten, readServerSecretsRecord } from "../servers/serverSync/secrets";
 import { collectableEntries, declaredEntryLabel } from "../servers/serverSync/setting";
 
 /**
- * Keep the Logger's known-secret list current from every raw record read by the parser's own readers (accepted or
- * not, so a rejected entry's credentials count) plus each declared label's SecretStorage blob, so a key just typed
- * into the setting ("new-key-Q7") is known to the first line that quotes it.
- *   activation                                 -> awaited until the latest refresh has published
- *   a servers-setting edit                     -> the setting's values publish before the listener returns, with
- *                                                 the last blob read's values still in force; the fresh blobs follow
- *   a server-secret change                     -> the same two publishes
- *   a value this window writes into a blob     -> known at once; retired only by a refresh begun after it landed
- *   an older read resolving after a newer one  -> only the latest refresh publishes the blob values (the ordinal)
- *   one blob read failing                      -> a logged error; the set never shrinks: the previous blob values
- *                                                 stay in force until a read of every label lands
+ * Publish every credential value the configuration holds to the output door, which keeps their union for the session:
+ * the raw servers setting's values (accepted or not, so a rejected entry's credentials count), each declared label's
+ * SecretStorage blob, and every value this window writes into a blob, so a key just typed into the setting is known
+ * to the first line that quotes it.
+ *   activation                -> awaited until the setting's values and the blobs read at activation have published
+ *   a servers-setting edit    -> the setting's values publish before the listener returns; the blobs follow
+ *   a server-secret change    -> the same two publishes
+ *   a value this window writes -> published from the write itself; the change event behind it carries no value
+ *   one blob read failing     -> a logged error, the other blobs' values publish
  */
 export async function wireKnownSecrets(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	publish: (values: readonly string[]) => void
 ): Promise<void> {
-	let latest = 0;
-	let pending: Promise<void> = Promise.resolve();
-	let stored: readonly (string | undefined)[] = [];
-	let written: readonly { readonly value: string; landedUnder: number | undefined }[] = [];
-	let entries: readonly CollectableEntry[] = [];
-	const knownNow = (): readonly string[] =>
-		collectKnownSecretValues(entries, [...stored, ...written.map((w) => w.value)]);
-	const readBlob = async (label: string): Promise<StoredSecretsRecord | undefined> => {
+	const readBlob = async (label: string): Promise<readonly string[]> => {
 		try {
-			return await readServerSecretsRecord(context.secrets, label);
+			const record = await readServerSecretsRecord(context.secrets, label);
+			return record === undefined ? [] : Object.values(record.values);
 		} catch (error) {
 			logger.error("Known-secret blob read failed", error);
-			return undefined;
+			return [];
 		}
 	};
 	const refresh = async (): Promise<void> => {
-		const ordinal = ++latest;
 		const raw = vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
-		entries = collectableEntries(raw);
-		publish(knownNow());
+		publish(collectKnownSecretValues(collectableEntries(raw), []));
 		const rawRecords: readonly unknown[] = Array.isArray(raw) ? raw : [];
 		const declared = rawRecords.map(declaredEntryLabel).filter((label): label is string => label !== undefined);
-		const labels = [...new Set(declared)];
-		const records = await Promise.all(labels.map(readBlob));
-		if (ordinal === latest) {
-			const read = records.flatMap((record) => (record === undefined ? [] : Object.values(record.values)));
-			if (records.includes(undefined)) {
-				stored = [...new Set([...stored, ...read])];
-			} else {
-				stored = read;
-				// A write that landed before this refresh began is in these blobs; a pending one, or one that landed under
-				// this refresh, may have missed the read.
-				written = written.filter((entry) => entry.landedUnder === undefined || entry.landedUnder >= ordinal);
-			}
-			publish(knownNow());
-		}
-	};
-	const schedule = (): void => {
-		pending = refresh();
+		const stored = await Promise.all([...new Set(declared)].map(readBlob));
+		publish(collectKnownSecretValues([], stored.flat()));
 	};
 	context.subscriptions.push(
-		onServerSecretWritten((values, landed) => {
-			const entries = values.map((value) => ({ value, landedUnder: undefined as number | undefined }));
-			// The entries are mutated when the write lands; the list itself is replaced, never mutated.
-			written = [...written, ...entries];
-			publish(knownNow());
-			void landed.then(() => {
-				for (const entry of entries) {
-					entry.landedUnder = latest;
-				}
-			});
-		}),
+		onServerSecretWritten((values) => publish(collectKnownSecretValues([], values))),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration(`${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`)) {
-				schedule();
+				void refresh();
 			}
 		}),
 		context.secrets.onDidChange((event) => {
 			if (isServerSecretsKey(event.key)) {
-				schedule();
+				void refresh();
 			}
 		})
 	);
-	schedule();
-	// A refresh superseded while awaited publishes no blob values, so wait until the newest one has run.
-	let awaited: Promise<void>;
-	do {
-		awaited = pending;
-		await awaited;
-	} while (awaited !== pending);
+	await refresh();
+}
+
+/** A logs.redactSecrets flip re-renders the channel from the buffer under the mode now in force. */
+export function onLogRedactionToggled(context: vscode.ExtensionContext, replay: () => void): void {
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if (event.affectsConfiguration(`${CONFIG_SECTION}.${LOG_REDACTION_SETTING_KEY}`)) {
+				replay();
+			}
+		})
+	);
 }

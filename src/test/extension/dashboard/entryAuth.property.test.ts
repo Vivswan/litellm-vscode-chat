@@ -126,7 +126,7 @@ suite("extension/dashboard/entryAuth: assemble -> parse round trip", () => {
 				for (const field of SECRET_FIELD_IDS) {
 					const secret = expected[field];
 					if (secret !== undefined) {
-						assert.ok(!rendered.includes(secret), `a no-secrets export must not carry ${field}`);
+						assert.ok(!rendered.includes(secret), `the import's strip must remove ${field}`);
 						assert.strictEqual(stripped.secrets[field], secret, `the blob must hold ${field}`);
 					}
 				}

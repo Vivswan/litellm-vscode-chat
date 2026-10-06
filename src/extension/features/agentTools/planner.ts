@@ -46,6 +46,7 @@ import { displayUrl } from "../../../shared/util/displayUrl";
 import { usableHttpText } from "../../../shared/util/headers";
 import { isRecord, recordFromKeys } from "../../../shared/util/json";
 import type { AgentSecretDirective, AgentToolInput } from "./inputSchema";
+import { CREDENTIAL_HEADER_PLACEHOLDER } from "./render";
 
 /** The dashboard methods an agent tool may address; the excluded four are unrepresentable, not refused. */
 type AgentReachableMethod = Exclude<
@@ -73,6 +74,7 @@ export type RefusalReason =
 	| "hidden-group-not-found"
 	| "secret-locations-unproven"
 	| "secret-value-refused"
+	| "credential-header-placeholder"
 	| "kept-secret-destination-change"
 	| "base-url-required"
 	| "feature-model-not-set"
@@ -233,10 +235,7 @@ function isPlan(value: EditableDashboardServer | ToolPlan): value is ToolPlan {
 	return "kind" in value;
 }
 
-/**
- * The agent only ever sees URLs with their credentials removed (render.ts), so the URL it hands back must match the
- * stored one this way.
- */
+/** A URL the agent hands back may lack the stored one's credentials, so the comparison ignores them. */
 function sameHost(a: string, b: string): boolean {
 	return displayUrl(normalizeBaseUrl(a)) === displayUrl(normalizeBaseUrl(b));
 }
@@ -452,6 +451,16 @@ export function planSaveServer(
 	if (secrets.refusedValues.length > 0) {
 		return refused("secret-value-refused", { fields: secrets.refusedValues.join(", ") });
 	}
+	// The configuration read shows the placeholder where a credential header's value is; echoed back, it would be stored
+	// as the header's value. The placeholder is a sentinel no header legitimately carries, so it is refused under ANY
+	// name: a save that also renames the carrier would otherwise land it as the old header's plain value.
+	const virtualKeyHeader = edited(base?.virtualKeyHeader, input.virtualKeyHeader);
+	const placeholders = Object.entries(isRecord(input.headers) ? input.headers : {})
+		.filter(([, value]) => value === CREDENTIAL_HEADER_PLACEHOLDER)
+		.map(([name]) => name);
+	if (placeholders.length > 0) {
+		return refused("credential-header-placeholder", { label: input.label, headers: placeholders.join(", ") });
+	}
 	const apiVersion = edited(base?.apiVersion, input.apiVersion);
 	const server: ComposedServer = {
 		label: input.label,
@@ -461,7 +470,7 @@ export function planSaveServer(
 			oauthTokenUrl: editedOauthField(base?.oauthTokenUrl, input.oauthTokenUrl),
 			oauthClientId: editedOauthField(base?.oauthClientId, input.oauthClientId),
 			oauthScopes: edited(base?.oauthScopes, input.oauthScopes),
-			virtualKeyHeader: edited(base?.virtualKeyHeader, input.virtualKeyHeader),
+			virtualKeyHeader,
 		}),
 		...fieldOf("modelParameters", input.modelParameters, base?.modelParameters),
 		...fieldOf("modelCapabilities", input.modelCapabilities, base?.modelCapabilities, {}),

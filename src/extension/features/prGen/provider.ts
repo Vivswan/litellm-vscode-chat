@@ -1,4 +1,5 @@
 import type { CancellationToken } from "vscode";
+import { Logger } from "../../../shared/logger";
 import type { TitleAndDescriptionProvider } from "./githubPullRequestsApi";
 import { parseTitleAndDescription } from "./parse";
 import { buildPrPrompt } from "./prompt";
@@ -14,13 +15,15 @@ export type PrGenerationSend = (prompt: string, token: CancellationToken) => Pro
 export function createTitleAndDescriptionProvider(send: PrGenerationSend): TitleAndDescriptionProvider {
 	return {
 		async provideTitleAndDescription(context, token) {
-			const parsed = parseTitleAndDescription(await send(buildPrPrompt(context), token));
+			const parsed = parseTitleAndDescription(Logger.redact(await send(buildPrPrompt(context), token)));
 			if (parsed.kind === "empty") {
 				return undefined;
 			}
+			// The fields leave the extension here (to the GitHub Pull Requests extension), so each passes the door
+			// again: the parse may respell what the reply's own spelling hid from the mask at receipt.
 			return parsed.description === undefined
-				? { title: parsed.title }
-				: { title: parsed.title, description: parsed.description };
+				? { title: Logger.redact(parsed.title) }
+				: { title: Logger.redact(parsed.title), description: Logger.redact(parsed.description) };
 		},
 	};
 }

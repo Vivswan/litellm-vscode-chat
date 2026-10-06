@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import * as fc from "fast-check";
 import type { SaveServerPayload, SecretDirective } from "../../../../../dashboard/endpoints";
+import type { DashboardState } from "../../../../../dashboard/viewModels";
 import { parseDashboardRequest } from "../../../../../extension/dashboard/intentSchema";
 import type { AgentToolInput } from "../../../../../extension/features/agentTools/inputSchema";
 import { parseAgentToolInput } from "../../../../../extension/features/agentTools/inputSchema";
@@ -25,6 +26,7 @@ import {
 	describeServerChange,
 	refusalText,
 	renderJson,
+	shapeConfiguration,
 	shapeSubmission,
 } from "../../../../../extension/features/agentTools/render";
 import {
@@ -444,6 +446,57 @@ describe("agentTools planner save_server", () => {
 		});
 	});
 
+	// Drifts silently: the configuration read shows a placeholder for a credential header's value; a save that echoes
+	// the read back would store the placeholder text as the header, and nothing downstream would notice.
+	test("headers echoed from a configuration read are refused where the read hid a value, naming the headers", () => {
+		const credentialed: DashboardState = {
+			...state,
+			servers: state.servers.map((server) =>
+				server.origin === "declared" && server.label === "Prod"
+					? { ...server, config: { ...server.config, headers: { "X-Team": "platform", Authorization: "Bearer t-Q7" } } }
+					: server
+			),
+		};
+		const read = shapeConfiguration(credentialed, ["servers"]) as {
+			servers: DashboardState["servers"];
+		};
+		const shown = read.servers.find((server) => server.origin === "declared" && server.label === "Prod");
+		const headers = shown?.origin === "declared" ? shown.config.headers : undefined;
+		expect(headers).toEqual({ "X-Team": "platform", Authorization: expect.not.stringContaining("t-Q7") });
+		expect(planSaveServer({ label: "Prod", headers }, credentialed, false)).toEqual({
+			kind: "refused",
+			reason: "credential-header-placeholder",
+			detail: { label: "Prod", headers: "Authorization" },
+		});
+		expect(
+			savePayload(planSaveServer({ label: "Prod", headers: { "X-Team": "platform" } }, credentialed, false)).server
+				.headers
+		).toEqual({
+			"X-Team": "platform",
+		});
+		// A carrier rename in the same save: the old carrier's placeholder would land as a plain header, so the sentinel
+		// is refused under any name.
+		const carried: DashboardState = {
+			...state,
+			servers: state.servers.map((server) =>
+				server.origin === "declared" && server.label === "Prod"
+					? { ...server, config: { ...server.config, virtualKeyHeader: "X-Old", headers: { "X-Old": "vk-Q7" } } }
+					: server
+			),
+		};
+		const carriedRead = shapeConfiguration(carried, ["servers"]) as { servers: DashboardState["servers"] };
+		const carriedRow = carriedRead.servers.find((server) => server.origin === "declared" && server.label === "Prod");
+		const carriedHeaders = carriedRow?.origin === "declared" ? carriedRow.config.headers : undefined;
+		expect(carriedHeaders).toEqual({ "X-Old": expect.not.stringContaining("vk-Q7") });
+		expect(
+			planSaveServer({ label: "Prod", virtualKeyHeader: "X-New", headers: carriedHeaders }, carried, false)
+		).toEqual({
+			kind: "refused",
+			reason: "credential-header-placeholder",
+			detail: { label: "Prod", headers: "X-Old" },
+		});
+	});
+
 	// Drifts silently: two external groups can share a base URL; a URL-only match would adopt (or hide) the first one's
 	// handle under the other's label.
 	test.each([
@@ -506,8 +559,8 @@ describe("agentTools planner empty patches", () => {
 });
 
 describe("agentTools planner external groups by the URL the agent sees", () => {
-	// Drifts silently: results render a URL without its userinfo, so an agent that hands that URL back must still find
-	// the group whose stored URL has it.
+	// Drifts silently: an agent may name a group by its credential-free URL (a user pastes it that way), and the plan
+	// must still find the group whose stored URL carries the credentials.
 	test("adopting and hiding a credentialed external group works with the displayed URL and keeps the stored one", () => {
 		const adopted = planSaveServer(
 			{ label: "Imported", adoptFrom: { label: "Cred", baseUrl: CRED_DISPLAY_URL } },
@@ -623,7 +676,6 @@ describe("agentTools planner secrets never reach rendered text", () => {
 		maxLength: 64,
 	});
 	const fieldArb = fc.constantFrom<SecretFieldId>("apiKey", "oauthClientSecret", "virtualKeyValue");
-	const identity = (text: string): string => text;
 
 	// Drifts silently: a card, a refusal detail, or a submission echo that spreads the payload's `secrets` instead of
 	// the location summary.
@@ -680,27 +732,19 @@ describe("agentTools planner secrets never reach rendered text", () => {
 				}
 
 				const submissions = [
-					shapeSubmission(
-						typed,
-						{ outcome: "ok", reply: { kind: "ack", id: "x", method: "saveServerSetting" } },
-						identity
-					),
-					shapeSubmission(
-						typed,
-						{
-							outcome: "validation-error",
-							reply: {
-								kind: "fail",
-								id: "x",
-								method: "saveServerSetting",
-								message: "The change was not applied.",
-								failureKind: "validation",
-							},
-							issues: [{ path: "server.label", code: "too_big", message: "too long" }],
+					shapeSubmission(typed, { outcome: "ok", reply: { kind: "ack", id: "x", method: "saveServerSetting" } }),
+					shapeSubmission(typed, {
+						outcome: "validation-error",
+						reply: {
+							kind: "fail",
+							id: "x",
+							method: "saveServerSetting",
+							message: "The change was not applied.",
+							failureKind: "validation",
 						},
-						identity
-					),
-					shapeSubmission(typed, { outcome: "ignored-malformed", issues: [] }, identity),
+						issues: [{ path: "server.label", code: "too_big", message: "too long" }],
+					}),
+					shapeSubmission(typed, { outcome: "ignored-malformed", issues: [] }),
 				];
 				for (const shaped of submissions) {
 					expect(renderJson(shaped)).not.toContain(secret);

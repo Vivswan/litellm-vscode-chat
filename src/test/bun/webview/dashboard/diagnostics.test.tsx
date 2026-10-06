@@ -46,19 +46,12 @@ function anchorByText(root: ParentNode, text: string): HTMLAnchorElement {
 	return found;
 }
 
+/** The text the Copy button hands the extension, which redacts it and writes the clipboard. */
 function copyDiagnostics(root: ParentNode): string {
-	const written: string[] = [];
-	Object.defineProperty(navigator, "clipboard", {
-		value: {
-			writeText: (text: string) => {
-				written.push(text);
-				return Promise.resolve();
-			},
-		},
-		configurable: true,
-	});
+	resetPosted();
 	fireClick(buttonByText(root, "Copy diagnostics"));
-	return written[0] ?? "";
+	const request = postedCalls().find((call) => call.method === "copyDiagnostics");
+	return (request?.payload as { text: string } | undefined)?.text ?? "";
 }
 
 test("the per-server outcome grid is gone: the server rows own every fact it repeated", () => {
@@ -119,16 +112,14 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 	expect(iconPath()).not.toBe(copyIconPath);
 });
 
-test("Copy diagnostics never carries URL credentials", () => {
-	// The copy block is a paste-into-issues surface: a base URL configured with userinfo must land on the clipboard
-	// without it.
+test("Copy diagnostics posts the composed text to the extension, which owns the redaction and the clipboard", () => {
+	// The webview cannot see the known credential values and they never cross the wire, so the text leaves here as
+	// composed; the intent's pin shows the userinfo and values masked on the other side.
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", baseUrl: "http://user:sekret@localhost:4000", servedModelCount: 1 })],
 		models: [makeModel()],
 	});
-	const text = copyDiagnostics(root);
-	expect(text).not.toContain("sekret");
-	expect(text).toContain("Prod (http://localhost:4000):");
+	expect(copyDiagnostics(root)).toContain("Prod (http://user:sekret@localhost:4000):");
 });
 
 test("Copy diagnostics carries the configuration diagnostics, worst first, in English", () => {
@@ -260,9 +251,7 @@ test("Open output log posts the openOutput command in place of the old output-ch
 	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "openOutput" } }]);
 });
 
-test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped record keys are redacted", () => {
-	// A URL-scoped key IS a base URL and can carry credentials, so the copy keeps the classification and drops the
-	// value.
+test("Copy diagnostics pastes a URL-scoped record key as configured beside its classification", () => {
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 1 })],
 		models: [makeModel()],
@@ -274,8 +263,6 @@ test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped 
 				detail: "models.parameters",
 				severity: "warning",
 			},
-			// A record key can be URL-shaped too - that is exactly what the legacy leftover IS - so the redaction
-			// cannot live only on the legacy arm.
 			{
 				kind: "record",
 				setting: "models.parameters",
@@ -289,14 +276,12 @@ test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped 
 		],
 	});
 	const copied = copyDiagnostics(root);
-	expect(copied).not.toContain("hunter2");
-	expect(copied).not.toContain("litellm.internal");
-	// The classification and the setting survive, which is what makes the line worth pasting at all.
-	expect(copied).toContain("blocking inert-url-scoped-key (models.parameters)");
-	expect(copied).toContain('degraded models.parameters invalid-value <url-scoped key> / "temperature"');
-	// The page itself still shows the real key: local is not a public issue.
-	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;
-	expect(panel.textContent).toContain("litellm.internal");
+	expect(copied).toContain(
+		'blocking inert-url-scoped-key (models.parameters "https://admin:hunter2@litellm.internal/gpt-4")'
+	);
+	expect(copied).toContain(
+		'degraded models.parameters invalid-value "https://admin:hunter2@litellm.internal/gpt-4" / "temperature"'
+	);
 });
 
 test("Copy diagnostics reports an entry whose problems no server row states, and the hidden-group count", () => {

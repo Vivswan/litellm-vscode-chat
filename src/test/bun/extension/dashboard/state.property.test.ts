@@ -219,6 +219,7 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 		secrets: adoptSecrets,
 	}),
 	executeCommand: fc.record({ command: fc.constantFrom(...DASHBOARD_COMMAND_IDS) }),
+	copyDiagnostics: fc.record({ text: fc.string({ maxLength: 200 }) }),
 };
 
 const METHODS = Object.keys(DASHBOARD_ENDPOINTS) as readonly DashboardMethod[];

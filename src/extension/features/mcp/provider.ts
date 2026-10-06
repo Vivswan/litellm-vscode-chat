@@ -1,8 +1,6 @@
 /**
  * The MCP publisher: every servers entry that opts in with `mcp` is published to the editor as an MCP server, so a
  * LiteLLM proxy's own tools reach chat without a second place to configure the same host and the same credentials.
- * URL discipline: a configured URL may embed credentials (`https://u:p@host`), so every echo of one - the log line
- * below is the only one this module makes - goes through the shared displayUrl redaction.
  *
  *   The provide/resolve split is the whole security design -> the types carry it (definitions.ts)
  *   provide runs EAGERLY - the editor calls it before any chat turn, unprompted -> what it returns cannot hold headers
@@ -21,7 +19,6 @@ import { rejectedCredentialKinds } from "../../../shared/failureCause";
 import type { MirroredError } from "../../../shared/mirroredError";
 import { localizedError } from "../../../shared/mirroredError";
 import type { McpOptIn, RejectedCredentialField } from "../../../shared/serverEntry";
-import { displayUrl } from "../../../shared/util/displayUrl";
 import type { HeaderValue } from "../../../shared/util/headers";
 import type { EntryConnectionRefused } from "../../servers/entryConnection";
 import { entryConnectionFor } from "../../servers/entryConnection";
@@ -267,7 +264,7 @@ export function createMcpServerDefinitionProvider(
 			// evict the errors it exists to carry.
 			deps.advisory("MCP server resolved", {
 				label: server.label,
-				uri: displayUrl(after.uri),
+				uri: after.uri,
 				credentialed: Object.keys(headers).length > 0,
 			});
 			return server;

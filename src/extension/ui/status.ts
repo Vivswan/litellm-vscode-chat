@@ -13,8 +13,7 @@ import {
 	MISCONFIGURED_ENTRY_TEXT,
 	SYNC_ERROR_CLASSES,
 } from "../../shared/failureCause";
-import type { Logger, LogSafeErrorText } from "../../shared/logger";
-import { markLogSafe } from "../../shared/logger";
+import { Logger, type LogSafeErrorText, markLogSafe } from "../../shared/logger";
 import { HEADER_BORNE_SECRET_FIELDS } from "../../shared/serverEntry";
 import type { AggregatedStatus, ServerStatus } from "../../shared/servers";
 import { unexpectedFailureCount, unexpectedServerFailures } from "../../shared/servers";
@@ -858,9 +857,10 @@ export class StatusBarManager {
 			case "error":
 				this._statusBarItem.render({
 					text: l10n.t("$(error) LiteLLM"),
+					// The rendered cause leaves the extension here (a configured URL may carry a registered value).
 					tooltip: l10n.t(
 						"Connection failed\n{0}\nClick for details",
-						failureTexts(current.cause, current.baseUrl ?? "").display
+						Logger.redact(failureTexts(current.cause, current.baseUrl ?? "").display)
 					),
 					severity: "error",
 				});

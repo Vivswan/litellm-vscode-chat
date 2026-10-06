@@ -22,7 +22,7 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 - Inline completions: opt-in ghost text from a completions-capable (FIM) model on your own proxy, scoped to the languages you choose ([details](docs/getting-started.md#get-inline-completions-from-a-litellm-model))
 - Agent tools: opt-in tools Copilot's agent can call to read this extension's diagnostics and configuration, and, switch by switch, to change settings after you accept a confirmation card ([details](docs/getting-started.md#let-an-agent-manage-your-litellm-setup))
 - A dashboard panel for servers, models, and settings, with plain VS Code settings behind it
-- Settings export and import: move servers, model records, and (on explicit choice) stored secrets to another machine, with a one-command undo ([details](docs/settings.md#export-and-import))
+- Settings export and import: move servers, model records, and stored secrets to another machine, with a one-command undo ([details](docs/settings.md#export-and-import))
 - Self-hosted or cloud-based deployment options
 
 ## Requirements

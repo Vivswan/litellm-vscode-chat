@@ -1,11 +1,10 @@
 import * as l10n from "@vscode/l10n";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
-import { displayUrl } from "../../shared/util/displayUrl";
+import { Logger } from "../../shared/logger";
 import { collapseWhitespace } from "../../shared/util/errorText";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { type HeaderValue, headerValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
-import { KnownSecrets } from "../../shared/util/knownSecrets";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
 import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartTexts } from "./errorMapping";
@@ -223,8 +222,7 @@ class OAuthExchangeFailure extends Error {
  * choice, and an undefined `setting` (the fixed inline-completion bound) gets none, since advising a setting
  * that cannot extend the bound is a lie.
  */
-function timeoutError(tokenUrl: string, budget: TimeoutBudget, cause?: unknown): RequestError {
-	const url = displayUrl(tokenUrl);
+function timeoutError(url: string, budget: TimeoutBudget, cause?: unknown): RequestError {
 	// English mirrors ride each construction for the output channel and the
 	// issue-report buffer; the display message localizes.
 	switch (budget.setting) {
@@ -267,22 +265,18 @@ function timeoutError(tokenUrl: string, budget: TimeoutBudget, cause?: unknown):
 }
 
 /**
- * Never the raw body: it is untrusted and can be huge. The configured client secret is scrubbed in case the identity
- * provider echoes it back in the description, in its own spelling or with its whitespace collapsed like the detail.
+ * Never the raw body: it is untrusted and can be huge. The IdP's fields enter the extension here, so each is masked
+ * as it is read, again after the collapse (which can respell a value), and only then capped.
  */
-function oauthErrorDetail(payload: string, clientSecret: string): string {
+function oauthErrorDetail(payload: string): string {
 	try {
 		const parsed: unknown = JSON.parse(payload);
 		if (isRecord(parsed)) {
-			const parts = [parsed.error, parsed.error_description].filter(
-				(part): part is string => typeof part === "string" && part.length > 0
-			);
+			const parts = [parsed.error, parsed.error_description]
+				.filter((part): part is string => typeof part === "string" && part.length > 0)
+				.map((part) => Logger.redact(part));
 			if (parts.length > 0) {
-				// Scrub before truncating: a secret crossing the cap must not leak its prefix. This site knows its one
-				// value and the one short text, so the whole-log floor does not apply: "ab" goes too.
-				const known = new KnownSecrets();
-				known.set([clientSecret, collapseWhitespace(clientSecret)], { minLength: 1 });
-				return known.redact(collapseWhitespace(parts.join(": "))).slice(0, 200);
+				return Logger.redact(collapseWhitespace(parts.join(": "))).slice(0, 200);
 			}
 		}
 	} catch {
@@ -318,7 +312,7 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: H
 	const rawToken = typeof record?.access_token === "string" ? record.access_token : undefined;
 	const accessToken = rawToken === undefined ? undefined : headerValue(rawToken);
 	if (record === undefined || rawToken === undefined || accessToken?.length === 0) {
-		const detail = `OAuth token endpoint ${displayUrl(tokenUrl)} answered 2xx without JSON containing a non-empty access_token.`;
+		const detail = `OAuth token endpoint ${tokenUrl} answered 2xx without JSON containing a non-empty access_token.`;
 		throw new OAuthExchangeFailure((surface) => {
 			const texts = twoPartTexts(
 				surface,
@@ -335,7 +329,7 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: H
 		});
 	}
 	if (accessToken === undefined) {
-		const detail = `OAuth token from ${displayUrl(tokenUrl)} contains characters not allowed in an HTTP header value (control characters or non-Latin-1 text); the token was not sent, and its value is never shown or logged.`;
+		const detail = `OAuth token from ${tokenUrl} contains characters not allowed in an HTTP header value (control characters or non-Latin-1 text); the token was not sent, and its value is never shown or logged.`;
 		throw new OAuthExchangeFailure((surface) => {
 			const texts = twoPartTexts(
 				surface,
@@ -401,12 +395,12 @@ async function exchangeClientCredentials(
 			return parseTokenResponse(payload, config.tokenUrl);
 		}
 		const { status } = response;
-		const idpDetail = oauthErrorDetail(payload, config.clientSecret);
+		const idpDetail = oauthErrorDetail(payload);
 		if (status >= 500) {
 			// `idpDetail` quotes the IdP's error/error_description (response-derived), so it rides only the message and
 			// its English mirror; the classification is what public surfaces record.
 			const detailLine = collapseWhitespace(
-				`OAuth token endpoint ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+				`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
 			lastFailure = new OAuthExchangeFailure((surface) => {
 				const texts = twoPartTexts(
@@ -432,7 +426,7 @@ async function exchangeClientCredentials(
 		if (status === 400 || status === 401 || status === 403) {
 			// Same: the IdP detail can carry correlation IDs and tenant text.
 			const detailLine = collapseWhitespace(
-				`OAuth ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+				`OAuth ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
 			throw new OAuthExchangeFailure((surface) => {
 				const texts = twoPartTexts(
@@ -455,7 +449,7 @@ async function exchangeClientCredentials(
 			});
 		}
 		const detailLine = collapseWhitespace(
-			`OAuth token endpoint ${status} at ${displayUrl(config.tokenUrl)}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+			`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 		);
 		throw new OAuthExchangeFailure((surface) => {
 			const texts = twoPartTexts(

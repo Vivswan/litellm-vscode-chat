@@ -6,6 +6,7 @@ import {
 	type GeneratePrDeps,
 	runGeneratePrDescription,
 } from "../../../../extension/features/prGen/generatePrCommand";
+import { Logger } from "../../../../shared/logger";
 import { makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
 
@@ -237,6 +238,35 @@ suite("extension/features/prGen generatePrCommand", () => {
 		assert.strictEqual(copied, "feat: retry uploads\n\nUploads flake, so retry them.");
 		assert.match(shownMessages[0] ?? "", /feat: retry uploads/);
 		assert.match(shownMessages[0] ?? "", /and its description/);
+	});
+
+	test("the clipboard text and the toast pass the output door: a configured value and a URL's userinfo come back masked", async () => {
+		const key = `sk-live-${"A".repeat(32)}`;
+		Logger.registerSecrets([key]);
+		await withConfig(ENABLED_CONFIG, () =>
+			runGeneratePrDescription(
+				() => Promise.resolve(`Title: fix: rotate ${key}\nDescription:\nSeen at http://bob:pw@hub.test with ${key}.`),
+				makeDeps(),
+				undefined,
+				fakeGit(readyRepo())
+			)
+		);
+		assert.strictEqual(copied, "fix: rotate sk-liv...\n\nSeen at http://[redacted]@hub.test with sk-liv....");
+		assert.match(shownMessages[0] ?? "", /Copied "fix: rotate sk-liv\.\.\." and its description/);
+	});
+
+	test("the answer masks as received: a value the markdown strip would respell is masked before the parse", async () => {
+		Logger.registerSecrets(["**secret-zq7w**"]);
+		await withConfig(ENABLED_CONFIG, () =>
+			runGeneratePrDescription(
+				() => Promise.resolve("Title: **secret-zq7w**"),
+				makeDeps(),
+				undefined,
+				fakeGit(readyRepo())
+			)
+		);
+		assert.strictEqual(copied, "[redacted]");
+		assert.match(shownMessages[0] ?? "", /Copied "\[redacted\]" to the clipboard/);
 	});
 
 	test("a runaway title is bounded in the notification, and the clipboard still gets it whole", async () => {

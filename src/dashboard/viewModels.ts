@@ -920,6 +920,7 @@ const SETTING_ROW_PAGES: { readonly [K in SettingRowId]: SettingRowPageId } = {
 	"chat.promptCaching": "settings",
 	"models.openRouterCatalog": "settings",
 	"ui.maskSecretInputs": "settings",
+	"logs.redactSecrets": "settings",
 	"chat.additionalToolSchemaKeywords": "settings",
 	"chat.tokenEstimation": "settings",
 	"usage.alertThresholds": "settings",

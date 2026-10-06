@@ -36,7 +36,6 @@ interface FakeNotification {
 
 /** The per-test prompt script; every field is mutable so a test sets only what it needs. */
 interface PromptAnswers {
-	confirmSecrets: "include" | "exclude" | undefined;
 	confirmImport: boolean | ((summary: ImportPreviewSummary) => boolean);
 	/** The undo confirmation modal's answer; defaults to confirmed. */
 	confirmUndo: boolean;
@@ -97,8 +96,9 @@ interface FakeWorld {
 	renamePrompts: { suggested: string; validate: (candidate: string) => string | undefined }[];
 	/** The snapshot timestamps the undo confirmation modal was shown. */
 	undoConfirmations: string[];
-	confirmSecretsCalls: number;
-	saveDialogDefaults: vscode.Uri[];
+	saveDialogs: { defaultUri: vscode.Uri; title: string }[];
+	/** The export flow's user-visible steps in arrival order: "notify", "save-dialog", "write-file". */
+	events: string[];
 	revealed: string[];
 	logs: string[];
 	syncRequests: number;
@@ -207,10 +207,6 @@ function makeWorld(
 		snapshotReader: () => ({ get: (key) => settings.get(key), inspect: inspectOf }),
 	};
 	const prompts: SettingsTransferPrompts = {
-		confirmSecrets: async () => {
-			world.confirmSecretsCalls += 1;
-			return world.answers.confirmSecrets;
-		},
 		confirmImport: async (summary) => {
 			world.summaries.push(summary);
 			return typeof world.answers.confirmImport === "function"
@@ -232,6 +228,7 @@ function makeWorld(
 			return world.answers.confirmUndo;
 		},
 		notify: async (kind, message, actions = []) => {
+			world.events.push("notify");
 			world.notifications.push({
 				kind,
 				message,
@@ -244,7 +241,6 @@ function makeWorld(
 	};
 	Object.assign(world, {
 		answers: {
-			confirmSecrets: undefined,
 			confirmImport: true,
 			confirmUndo: true,
 			collisions: {},
@@ -272,8 +268,8 @@ function makeWorld(
 		collisionPrompts: [],
 		renamePrompts: [],
 		undoConfirmations: [],
-		confirmSecretsCalls: 0,
-		saveDialogDefaults: [],
+		saveDialogs: [],
+		events: [],
 		revealed: [],
 		logs: [],
 		syncRequests: 0,
@@ -294,14 +290,16 @@ function makeWorld(
 		clearSnapshotSlot: async () => {
 			world.snapshotSlot = undefined;
 		},
-		showSaveDialog: async (defaultUri) => {
-			world.saveDialogDefaults.push(defaultUri);
+		showSaveDialog: async (defaultUri, title) => {
+			world.events.push("save-dialog");
+			world.saveDialogs.push({ defaultUri, title });
 			return world.saveTarget;
 		},
 		showOpenDialog: async () => world.openTarget,
 		fileSize: async (uri) => world.sizeOverride ?? world.files.get(uri.toString())?.byteLength ?? 0,
 		readFile: async (uri) => expectDefined(world.files.get(uri.toString()), "no fake file at the opened uri"),
 		writeFile: async (uri, contents) => {
+			world.events.push("write-file");
 			if (world.failFileWrite) {
 				throw new Error("file write failed");
 			}
@@ -466,99 +464,86 @@ const hostAdd = (baseUrl: string, credentials: Record<string, string>) => ({
 });
 
 suite("settingsTransferCommands export flow", () => {
-	test("nothing configured stops with an info toast before the secrets prompt", async () => {
+	const CREDENTIALS_WARNING_KEY = "The file contains your server credentials in plain text, so keep it private.";
+
+	test("nothing configured stops with an info toast before the save dialog", async () => {
 		const world = makeWorld();
 		await runExportSettingsFlow(world.env);
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "info");
 		assert.match(note.message, /nothing to export/);
-		assert.strictEqual(world.confirmSecretsCalls, 0);
+		assert.deepStrictEqual(world.saveDialogs, []);
 		assert.strictEqual(world.files.size, 0);
 	});
 
-	test("dismissing the secrets prompt aborts silently", async () => {
+	test("the warning shows before the save dialog: a dismissed dialog has seen it, and nothing else follows", async () => {
+		// macOS shows no title on a save dialog, so the notice is the one warning a user there sees, and it must come
+		// before the file exists.
 		const world = makeWorld({ "chat.timeout": 5000 });
-		world.answers.confirmSecrets = undefined;
-		await runExportSettingsFlow(world.env);
-		assert.strictEqual(world.confirmSecretsCalls, 1);
-		assert.strictEqual(world.files.size, 0);
-		assert.deepStrictEqual(world.notifications, []);
-	});
-
-	test("dismissing the save dialog aborts silently", async () => {
-		const world = makeWorld({ "chat.timeout": 5000 });
-		world.answers.confirmSecrets = "exclude";
 		world.saveTarget = undefined;
 		await runExportSettingsFlow(world.env);
 		assert.strictEqual(world.files.size, 0);
-		assert.deepStrictEqual(world.notifications, []);
+		assert.deepStrictEqual(
+			{ notes: world.notifications.map((note) => [note.kind, note.message]), events: world.events },
+			{ notes: [["info", CREDENTIALS_WARNING_KEY]], events: ["notify", "save-dialog"] }
+		);
 	});
 
-	test("the save dialog defaults to litellm-settings.json in the home directory", async () => {
+	test("the save dialog defaults to litellm-settings.json in the home directory and carries the warning", async () => {
 		const world = makeWorld({ "chat.timeout": 5000 });
-		world.answers.confirmSecrets = "exclude";
 		await runExportSettingsFlow(world.env);
-		assert.strictEqual(expectDefined(world.saveDialogDefaults[0]).path, "/home/fake/litellm-settings.json");
+		const dialog = expectDefined(world.saveDialogs[0]);
+		assert.strictEqual(dialog.defaultUri.path, "/home/fake/litellm-settings.json");
+		assert.strictEqual(dialog.title, CREDENTIALS_WARNING_KEY);
 	});
 
-	test("exclude strips inline secrets with no placeholders and writes tab-indented JSON", async () => {
-		const world = makeWorld({
-			"chat.timeout": 5000,
-			servers: [{ label: "a", baseUrl: "http://x:4000", auth: { apiKey: "INLINE-SECRET" } }],
-		});
-		world.answers.confirmSecrets = "exclude";
+	test("the file is the stored configuration, stored key at its field and URL unchanged; the warning precedes the counts", async () => {
+		const world = makeWorld(
+			{
+				"chat.timeout": 5000,
+				servers: [{ label: "a", baseUrl: "http://user:pass@x:4000" }],
+			},
+			{ a: { apiKey: "BLOB-SECRET" } }
+		);
 		await runExportSettingsFlow(world.env);
 		const contents = writtenExport(world);
-		assert.ok(!contents.includes("INLINE-SECRET"));
-		assert.ok(!contents.includes("apiKey"), "no placeholder may remain for a stripped secret");
 		assert.ok(contents.endsWith("\n"));
 		assert.ok(contents.includes("\n\t"));
 		const parsed = JSON.parse(contents) as { settings: Record<string, unknown> };
-		assert.deepStrictEqual(parsed.settings.servers, [{ label: "a", baseUrl: "http://x:4000" }]);
-		const note = onlyNotification(world);
+		assert.deepStrictEqual(parsed.settings, {
+			"chat.timeout": 5000,
+			servers: [{ label: "a", baseUrl: "http://user:pass@x:4000", auth: { apiKey: "BLOB-SECRET" } }],
+		});
+		assert.deepStrictEqual(
+			{
+				warned: world.notifications.map((note) => note.message.includes(CREDENTIALS_WARNING_KEY)),
+				events: world.events,
+			},
+			{ warned: [true, false], events: ["notify", "save-dialog", "write-file", "notify"] }
+		);
+		const note = expectDefined(world.notifications[1]);
+		assert.strictEqual(note.kind, "info");
 		assert.match(note.message, /2 settings/);
 		assert.match(note.message, /1 server\b/);
-		assert.ok(!note.message.includes("plaintext"));
 		assert.deepStrictEqual(note.actions, ["Reveal File"]);
 	});
 
-	test("include materializes the stored blob and appends the plaintext reminder", async () => {
-		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://x:4000" }] }, { a: { apiKey: "BLOB-SECRET" } });
-		world.answers.confirmSecrets = "include";
-		await runExportSettingsFlow(world.env);
-		const parsed = JSON.parse(writtenExport(world)) as { settings: { servers: [{ auth: { apiKey: string } }] } };
-		assert.strictEqual(parsed.settings.servers[0].auth.apiKey, "BLOB-SECRET");
-		const note = onlyNotification(world);
-		assert.match(note.message, /plaintext/);
-	});
-
-	test("unmaterialized secrets are counted in the include summary", async () => {
+	test("unmaterialized secrets are counted in the summary", async () => {
 		// An oauthClientSecret has no legal home in an entry without an oauth shape.
 		const world = makeWorld(
 			{ servers: [{ label: "a", baseUrl: "http://x:4000" }] },
 			{ a: { oauthClientSecret: "HOMELESS-SECRET" } }
 		);
-		world.answers.confirmSecrets = "include";
 		await runExportSettingsFlow(world.env);
 		assert.ok(!writtenExport(world).includes("HOMELESS-SECRET"));
-		assert.match(onlyNotification(world).message, /1 stored secret had no place/);
-	});
-
-	test("unsanitizable shapes are omitted from a no-secrets export and counted", async () => {
-		const world = makeWorld({ servers: [42, { label: "a", baseUrl: "http://x:4000" }] });
-		world.answers.confirmSecrets = "exclude";
-		await runExportSettingsFlow(world.env);
-		const parsed = JSON.parse(writtenExport(world)) as { settings: { servers: unknown[] } };
-		assert.deepStrictEqual(parsed.settings.servers, [{ label: "a", baseUrl: "http://x:4000" }]);
-		assert.match(onlyNotification(world).message, /1 unrecognized part/);
+		assert.match(expectDefined(world.notifications[1]).message, /1 stored secret had no place/);
 	});
 
 	test("a write failure logs a classification and shows a localized error", async () => {
 		const world = makeWorld({ "chat.timeout": 5000 });
-		world.answers.confirmSecrets = "exclude";
 		world.failFileWrite = true;
 		await runExportSettingsFlow(world.env);
-		const note = onlyNotification(world);
+		const note = expectDefined(world.notifications[1]);
 		assert.strictEqual(note.kind, "error");
 		assert.match(note.message, /export failed/);
 		assert.ok(world.logs.some((line) => line.startsWith("Settings export failed")));
@@ -1835,7 +1820,6 @@ suite("settingsTransferCommands secret hygiene", () => {
 			{ servers: [{ label: "a", baseUrl: "http://x:4000", auth: { apiKey: SENTINEL } }] },
 			{ a: { virtualKeyValue: SENTINEL } }
 		);
-		world.answers.confirmSecrets = "include";
 		await runExportSettingsFlow(world.env);
 		assert.ok(!visibleSurfaces(world).includes(SENTINEL));
 	});

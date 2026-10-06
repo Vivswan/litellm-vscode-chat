@@ -29,10 +29,10 @@ function gatedSecrets(blob: string): { secrets: vscode.SecretStorage; open(): vo
 }
 
 suite("extension/wiring knownSecrets", () => {
-	test("a key typed into the setting, or written into a blob, is known before any read lands", async () => {
+	test("a key typed into the setting, or written into a blob, is published before any read lands", async () => {
 		// The blob reads are asynchronous; a line quoting the new key between the setting change and their return
 		// would otherwise reach the channel and the issue report with the key in it. A value this window writes is
-		// known from the write itself: SecretStorage's change event carries no value.
+		// published from the write itself: SecretStorage's change event carries no value. The door keeps the union.
 		const origGet = vscode.workspace.getConfiguration;
 		const origOn = vscode.workspace.onDidChangeConfiguration;
 		let raw: unknown = [{ label: "Fast", baseUrl: "http://fast.test", auth: { apiKey: "old-key-Q7" } }];
@@ -58,8 +58,6 @@ suite("extension/wiring knownSecrets", () => {
 				affectsConfiguration: () => true,
 			} as unknown as vscode.ConfigurationChangeEvent);
 			const atReturn = published.length;
-			// A write whose store is still pending while the refresh's read lands: the refresh began before the landing,
-			// so it must not retire the value; the next refresh, begun after the landing, may.
 			const memory = new Map<string, string>();
 			let landStore = (): void => {};
 			const storeGate = new Promise<void>((resolve) => {
@@ -77,30 +75,17 @@ suite("extension/wiring knownSecrets", () => {
 			};
 			const write = updateServerSecret(store, "Other", "apiKey", "written-Q7", undefined);
 			await new Promise((resolve) => setTimeout(resolve, 0));
-			gated.open();
-			await new Promise((resolve) => setTimeout(resolve, 0));
 			const whilePending = published.length;
+			gated.open();
 			landStore();
 			await write;
-			(listener as (event: vscode.ConfigurationChangeEvent) => void)({
-				affectsConfiguration: () => true,
-			} as unknown as vscode.ConfigurationChangeEvent);
-			gated.open();
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			assert.deepStrictEqual(
 				{ atReturn, whilePending, published },
 				{
 					atReturn: 3,
-					whilePending: 5,
-					published: [
-						["old-key-Q7"],
-						["old-key-Q7", "stored-Q7"],
-						["new-key-Q7", "stored-Q7"],
-						["new-key-Q7", "stored-Q7", "written-Q7"],
-						["new-key-Q7", "stored-Q7", "written-Q7"],
-						["new-key-Q7", "stored-Q7", "written-Q7"],
-						["new-key-Q7", "stored-Q7"],
-					],
+					whilePending: 4,
+					published: [["old-key-Q7"], ["stored-Q7"], ["new-key-Q7"], ["written-Q7"], ["stored-Q7"]],
 				}
 			);
 		} finally {

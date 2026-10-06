@@ -2,7 +2,7 @@ import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
-import type { Logger } from "../../../shared/logger";
+import { Logger } from "../../../shared/logger";
 import { truncateKeepingHead } from "../../../shared/util/text";
 import { openSettingsAction, showActionableMessage } from "../../ui/notifier";
 import { reportCommandFailure } from "../commandFailure";
@@ -124,12 +124,15 @@ export async function runGeneratePrDescription(
 		switch (outcome.kind) {
 			case "generated": {
 				const copy = deps.copy ?? ((text: string) => vscode.env.clipboard.writeText(text));
-				await copy(clipboardText(outcome.result.title, outcome.result.description));
+				// Model output onto the clipboard and into the toast: through the one output door like a tool result, and
+				// before the toast's cut so the cut never falls inside a value.
+				await copy(Logger.redact(clipboardText(outcome.result.title, outcome.result.description)));
+				const notified = notifiedTitle(Logger.redact(outcome.result.title));
 				await showActionableMessage(
 					"info",
 					outcome.result.description === undefined
-						? l10n.t('Copied "{0}" to the clipboard.', notifiedTitle(outcome.result.title))
-						: l10n.t('Copied "{0}" and its description to the clipboard.', notifiedTitle(outcome.result.title)),
+						? l10n.t('Copied "{0}" to the clipboard.', notified)
+						: l10n.t('Copied "{0}" and its description to the clipboard.', notified),
 					[]
 				);
 				return;

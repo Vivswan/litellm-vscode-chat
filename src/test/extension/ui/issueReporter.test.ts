@@ -5,12 +5,11 @@ import type { DiagnosticsSnapshot } from "../../../extension/ui/issueReporter";
 import {
 	IssueReporter,
 	readLastIssueReport,
-	redactSecrets,
 	rememberIssueReport,
 	reportFingerprint,
 } from "../../../extension/ui/issueReporter";
 import { mapSdkError, RequestError } from "../../../provider/transport/errorMapping";
-import { recordedError } from "../../../shared/logger";
+import { Logger, recordedError } from "../../../shared/logger";
 import { GITHUB_REPO_URL } from "../../../shared/util/links";
 import { assertContains, assertOmits, assertStartsWith, expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage } from "../../testUtils";
@@ -47,14 +46,6 @@ suite("IssueReporter", () => {
 		return new URL(url).searchParams.get("body") ?? "";
 	}
 
-	/**
-	 * The host rides a parameter so a hostname literal never sits at an includes() call, the shape CodeQL reads as
-	 * URL-sanitization-by-substring (js/incomplete-url-substring-sanitization).
-	 */
-	function assertHostRedacted(text: string, host: string): void {
-		assert.ok(!text.includes(host), "Should not leak hostname");
-	}
-
 	test("buildIssueUrl produces valid GitHub URL with query params", () => {
 		const reporter = new IssueReporter();
 		const url = reporter.buildIssueUrl(makeSnapshot());
@@ -70,20 +61,19 @@ suite("IssueReporter", () => {
 		assert.ok(body.includes("API key configured: Unknown (key presence not yet determined)"), body);
 	});
 
-	test("buildTitle sanitizes error message secrets", () => {
+	test("buildTitle keeps the host: only credential values and URL userinfo are redacted anywhere", () => {
 		const reporter = new IssueReporter();
 		const snapshot = makeSnapshot({
 			latestError: {
 				source: "fetchModels",
-				message: "Failed to connect to https://internal.corp.com:4000/v1/models",
+				message: "Failed to connect to https://user:pass@internal.corp.com:4000/v1/models",
 				timestamp: "2026-01-01T00:00:00.000Z",
 			},
 		});
-		const title = reporter.buildTitle(snapshot);
-		assert.ok(title.includes("[Bug]"));
-		assert.ok(title.includes("fetchModels"));
-		assertHostRedacted(title, "internal.corp.com");
-		assert.ok(title.includes("[REDACTED_HOST]"));
+		assert.strictEqual(
+			reporter.buildTitle(snapshot),
+			"[Bug] fetchModels: Failed to connect to https://[redacted]@internal.corp.com:4000/v1/models"
+		);
 	});
 
 	test("buildTitle includes error source and message when error exists", () => {
@@ -285,79 +275,107 @@ suite("IssueReporter", () => {
 		assert.ok(!body.includes("- Classification:"), body);
 	});
 
-	test("the latest error's source passes through the report redaction in the title and both bodies", () => {
+	test("the latest error's source passes through the output door in the title and both bodies", () => {
 		// The Logger names the failing server in the recorder's source ("Failed to fetch models for provider group at
-		// <baseUrl>"), and the title, the Source line, and the clipboard fallback rendered it raw while the message
-		// beside it went through redactSecrets.
+		// <baseUrl>"), and the title, the Source line, and the clipboard fallback rendered it raw.
 		const reporter = new IssueReporter();
-		const host = "private.example";
 		const latestError = {
-			source: `Failed at http://${host}:4000`,
+			source: "Failed at http://user:pass@private.example:4000",
 			message: "failed",
 			timestamp: "2026-01-01T00:00:00.000Z",
 		};
-		assert.strictEqual(
-			reporter.buildTitle(makeSnapshot({ latestError })),
-			"[Bug] Failed at http://[REDACTED_HOST]/: failed"
-		);
-		const body = reporter.buildBody(makeSnapshot({ latestError }));
-		assertContains(body, "- Source: Failed at http://[REDACTED_HOST]/\n");
-		assertHostRedacted(body, host);
+		const shown = "Failed at http://[redacted]@private.example:4000";
+		assert.strictEqual(reporter.buildTitle(makeSnapshot({ latestError })), `[Bug] ${shown}: failed`);
+		assertContains(reporter.buildBody(makeSnapshot({ latestError })), `- Source: ${shown}\n`);
 		const fallback = getIssueBody(
 			reporter.buildIssueUrl(makeSnapshot({ latestError: { ...latestError, message: `failed ${"x".repeat(30000)}` } }))
 		);
 		assertContains(fallback, "Full redacted diagnostics were too large to prefill in GitHub");
-		assertContains(fallback, "- Source: Failed at http://[REDACTED_HOST]/\n");
-		assertHostRedacted(fallback, host);
+		assertContains(fallback, `- Source: ${shown}\n`);
 	});
 
-	test("home-directory names in stack frames and messages never reach the report", () => {
-		// A logged Error's stack names the extension host's install path under the user's home directory; the shape
-		// rules redacted credentials and hosts and left the account name in place on every platform.
+	test("the registered values and URL userinfo are masked in the title, the error, the logs, and the stack", () => {
+		// The buffer and the recorder hold every line raw (the Logger masks the channel by its setting), so the report
+		// is where the registered values go, once over the whole snapshot before the title's first-line cut (a value
+		// may span lines). Hosts and paths stay; a value that is also a word blanks that word.
+		Logger.registerSecrets(["sk-live-Q7", "zq7w", "two\nlines"]);
 		const reporter = new IssueReporter();
-		const body = reporter.buildBody(
-			makeSnapshot({
-				latestError: {
-					source: "activation",
-					message: "ENOENT: no such file or directory, open '/Users/alice/.config/litellm.json'",
-					stack: [
-						"Error: ENOENT: no such file or directory, open '/Users/alice/.config/litellm.json'",
-						"    at Object.openSync (node:fs:581:18)",
-						"    at activate (/Users/alice/.vscode/extensions/ext/dist/extension.js:1:2345)",
-						"    at Object.<anonymous> (/home/Bob O'Brien/work/main.js:1:15)",
-						"    at /home/Bob O' Brien/work/main.js:1:10",
-						"    at /Users/Alice (Smith)/work/main.js:1:10",
-						"    at run (c:\\users\\Bob O'Brien, Jr\\AppData\\Roaming\\Code\\x.js:3:4)",
-						"    at load (C:\\\\Users\\\\Bob O'Brien\\\\AppData\\\\x.js:5:6)",
-						"    at mkdir '/Users/alice'",
-						"    at open '/home/Bob O' Brien/work/main.js'",
-						"    at open '/Users/Pat Quux /missing.json'",
-						"    at open '/Users/Alice (Smith)'",
-						"    at scandir 'C:\\Users\\Bob O'Brien'",
-						"    at scandir '\\\\?\\C:\\Users\\Alice (Smith)'",
-						"    GET http://localhost/home/health returned 404",
-					].join("\n"),
-					timestamp: "2026-01-01T00:00:00.000Z",
-				},
-			})
-		);
-		for (const name of ["alice", "Alice", "Smith", "Bob", "Brien", "Jr", "Pat", "Quux"]) {
-			assertOmits(body, name);
+		const latestError = {
+			source: "Failed at http://user:pass@localhost:4000 for sk-live-Q7",
+			message: "connect ECONNREFUSED http://user:pass@localhost:4000 for key sk-live-Q7 two\nlines",
+			stack: "Error: for key sk-live-Q7\n    at real (x.ts:1:1)",
+			timestamp: "2026-01-01T00:00:00.000Z",
+		};
+		const snapshot = makeSnapshot({
+			latestError,
+			recentLogs: ["[T] GET http://user:pa%20ss@localhost/ sent sk-live-Q7", "[T] GET https://proxy.zq7w.host.test/v1"],
+		});
+		const body = reporter.buildBody(snapshot);
+		const published = `${reporter.buildTitle(snapshot)}\n${body}\n${getIssueBody(reporter.buildIssueUrl(snapshot))}`;
+		for (const value of ["sk-live-Q7", "user:pass", "pa%20ss", "proxy.zq7w", "two\nlines"]) {
+			assertOmits(published, value);
 		}
-		assertContains(body, "open '/Users/[REDACTED]/.config/litellm.json'");
-		assertContains(body, "at activate (/Users/[REDACTED]/.vscode/extensions/ext/dist/extension.js:1:2345)");
-		assertContains(body, "at Object.<anonymous> (/home/[REDACTED]/work/main.js:1:15)");
-		assertContains(body, "at /home/[REDACTED]/work/main.js:1:10");
-		assertContains(body, "at /Users/[REDACTED]/work/main.js:1:10");
-		assertContains(body, "at run (c:\\users\\[REDACTED]\\AppData\\Roaming\\Code\\x.js:3:4)");
-		assertContains(body, "at load (C:\\\\Users\\\\[REDACTED]\\\\AppData\\\\x.js:5:6)");
-		assertContains(body, "at mkdir '/Users/[REDACTED]'\n");
-		assertContains(body, "at open '/home/[REDACTED]/work/main.js'\n");
-		assertContains(body, "at open '/Users/[REDACTED]/missing.json'\n");
-		assertContains(body, "at open '/Users/[REDACTED]'\n");
-		assertContains(body, "at scandir 'C:\\Users\\[REDACTED]'\n");
-		assertContains(body, "at scandir '\\\\?\\C:\\Users\\[REDACTED]'\n");
-		assertContains(body, "GET http://localhost/home/[REDACTED] returned 404\n");
+		// The title cuts the message's first line at 80 characters AFTER the mask, so its cut may fall inside a marker
+		// ("[redact"), never inside a value.
+		assert.ok(
+			reporter
+				.buildTitle(snapshot)
+				.startsWith(
+					"[Bug] Failed at http://[redacted]@localhost:4000 for [redacted]: connect ECONNREFUSED http://[redacted]@localhost:4000 for key [redacted] "
+				),
+			reporter.buildTitle(snapshot)
+		);
+		assert.deepStrictEqual(
+			{
+				source: /- Source: .*/.exec(body)?.[0],
+				message: /- Message: .*/.exec(body)?.[0],
+				logs: body.match(/\[T\] GET .*/g),
+				stack: /Error: for key .*/.exec(body)?.[0],
+			},
+			{
+				source: "- Source: Failed at http://[redacted]@localhost:4000 for [redacted]",
+				message: "- Message: connect ECONNREFUSED http://[redacted]@localhost:4000 for key [redacted] [redacted]",
+				logs: ["[T] GET http://[redacted]@localhost/ sent [redacted]", "[T] GET https://proxy.[redacted].host.test/v1"],
+				stack: "Error: for key [redacted]",
+			}
+		);
+	});
+
+	test("the whole title and body equal those of a snapshot masked by hand", () => {
+		// Every field passes the door once over the whole snapshot: the report of the raw snapshot is byte for byte the
+		// report of the snapshot with each value replaced by hand, so no field and no section is left out of the mask.
+		const key = `sk-live-${"A".repeat(32)}`;
+		Logger.registerSecrets([key]);
+		const raw = makeSnapshot({
+			latestError: {
+				source: `Failed at http://user:pass@localhost:4000 for ${key}`,
+				message: `connect ECONNREFUSED http://user:pass@localhost:4000 for key ${key}`,
+				stack: `Error: for key ${key}\n    at real (x.ts:1:1)`,
+				timestamp: "2026-01-01T00:00:00.000Z",
+			},
+			recentLogs: [`[T] GET http://user:pa%20ss@localhost/ sent ${key}`, "[T] GET https://proxy.host.test/v1"],
+		});
+		const masked = makeSnapshot({
+			latestError: {
+				source: "Failed at http://[redacted]@localhost:4000 for sk-liv...",
+				message: "connect ECONNREFUSED http://[redacted]@localhost:4000 for key sk-liv...",
+				stack: "Error: for key sk-liv...\n    at real (x.ts:1:1)",
+				timestamp: "2026-01-01T00:00:00.000Z",
+			},
+			recentLogs: ["[T] GET http://[redacted]@localhost/ sent sk-liv...", "[T] GET https://proxy.host.test/v1"],
+		});
+		const reporter = new IssueReporter();
+		const rendered = {
+			title: reporter.buildTitle(raw),
+			body: reporter.buildBody(raw),
+			url: getIssueBody(reporter.buildIssueUrl(raw)),
+		};
+		assert.deepStrictEqual(rendered, {
+			title: reporter.buildTitle(masked),
+			body: reporter.buildBody(masked),
+			url: getIssueBody(reporter.buildIssueUrl(masked)),
+		});
+		assert.ok(rendered.body.includes("sk-liv..."), "the masked snapshot's own rendering carries the marker");
 	});
 
 	test("the Classification line survives into the clipboard fallback body", () => {
@@ -380,23 +398,19 @@ suite("IssueReporter", () => {
 		assert.ok(body.includes("- Classification: http 404 (check-base-url)"), body);
 	});
 
-	test("a classified error's redaction stays exactly as before", () => {
-		// The Classification line is enum ids plus an integer; the message and title redaction pipeline must behave as
-		// if the field were not there.
+	test("a classified error keeps its Classification line and its host; the door masks the userinfo alone", () => {
 		const reporter = new IssueReporter();
 		const snapshot = makeSnapshot({
 			latestError: {
 				source: "discovery",
-				message: "Failed to connect to https://internal.corp.com:4000/v1/models",
+				message: "Failed to connect to https://user:pass@internal.corp.com:4000/v1/models",
 				timestamp: "2026-01-01T00:00:00.000Z",
 				classification: { kind: "connection", setupHint: "proxy-not-running" },
 			},
 		});
 		const body = reporter.buildBody(snapshot);
-		assertHostRedacted(body, "internal.corp.com");
-		assert.ok(body.includes("[REDACTED_HOST]"), body);
-		assert.ok(body.includes("- Classification: connection (proxy-not-running)"), body);
-		assertHostRedacted(reporter.buildTitle(snapshot), "internal.corp.com");
+		assertContains(body, "- Message: Failed to connect to https://[redacted]@internal.corp.com:4000/v1/models");
+		assertContains(body, "- Classification: connection (proxy-not-running)");
 	});
 
 	test("buildBody includes recent logs", () => {
@@ -614,17 +628,6 @@ suite("IssueReporter", () => {
 		assert.ok(!body.includes("x".repeat(1000)));
 	});
 
-	test("appendLog maintains rolling buffer", () => {
-		const reporter = new IssueReporter();
-		for (let i = 0; i < 60; i++) {
-			reporter.appendLog(`line ${i}`);
-		}
-		const logs = reporter.getRecentLogs();
-		assert.equal(logs.length, 50);
-		assert.ok(expectDefined(logs[0]).includes("line 10"));
-		assert.ok(expectDefined(logs[49]).includes("line 59"));
-	});
-
 	test("recordError captures an unclassified error as the word and its frames, never its message", () => {
 		// The latest error prefills public issues: a plain throw's message (localized text, a response body) stays
 		// off it.
@@ -647,107 +650,6 @@ suite("IssueReporter", () => {
 		assert.ok(latest);
 		assert.equal(latest.message, "unclassified");
 		assert.equal(latest.stack, undefined);
-	});
-
-	test("redactSecrets removes Bearer tokens", () => {
-		assert.equal(redactSecrets("Bearer sk-abc123xyz"), "Bearer [REDACTED]");
-	});
-
-	test("redactSecrets removes X-API-Key values", () => {
-		assert.equal(redactSecrets("X-API-Key: my-secret-key"), "X-API-Key: [REDACTED]");
-	});
-
-	test("redactSecrets removes sk- prefixed keys", () => {
-		const result = redactSecrets("key is sk-abcd1234567890");
-		assert.ok(result.includes("sk-abcd[REDACTED]"));
-		assert.ok(!result.includes("1234567890"));
-	});
-
-	test("redactSecrets removes credentials from URLs", () => {
-		const result = redactSecrets("https://user:pass@example.com/api");
-		assert.ok(!result.includes("pass"));
-	});
-
-	test("redactSecrets removes username-only URL credentials, localhost carve-out included", () => {
-		// A username-only userinfo has no colon, and the host rule's localhost carve-out keeps the rest of the URL
-		// verbatim - the credential must be gone before that rule runs. The userinfo is dropped, not marked: a
-		// bracketed marker would split the host rule's reparse.
-		const result = redactSecrets("Fetching from: http://tok-secret@localhost:4000/v1/models");
-		assert.ok(!result.includes("tok-secret"), result);
-		assertContains(result, "http://localhost:4000/v1/models");
-	});
-
-	test("redactSecrets composes the userinfo and host rules on non-localhost URLs", () => {
-		const result = redactSecrets("Fetching from: https://user:pass@my-litellm.internal.corp.com:4000/v1/models");
-		assert.ok(!result.includes("pass"), result);
-		assertHostRedacted(result, "my-litellm.internal.corp.com");
-		assert.ok(result.includes("[REDACTED_HOST]"), result);
-	});
-
-	test("redactSecrets matches URL schemes case-insensitively", () => {
-		// HTTP:// is a valid scheme spelling; a case-sensitive rule would let
-		// the credential and the host walk past both URL rules.
-		const local = redactSecrets("Fetching from: HTTP://tok-secret@localhost:4000/v1/models");
-		assert.ok(!local.includes("tok-secret"), local);
-		assertContains(local, "localhost:4000/v1/models");
-		const remote = redactSecrets("Fetching from: HTTPS://user:pass@my-litellm.internal.corp.com:4000/v1/models");
-		assert.ok(!remote.includes("pass"), remote);
-		assertHostRedacted(remote, "my-litellm.internal.corp.com");
-		assert.ok(remote.includes("[REDACTED_HOST]"), remote);
-	});
-
-	test("redactSecrets preserves non-secret text", () => {
-		assert.equal(redactSecrets("Connection refused to localhost:4000"), "Connection refused to localhost:4000");
-	});
-
-	test("redactSecrets redacts full non-localhost URLs", () => {
-		const result = redactSecrets("Fetching from: https://my-litellm.internal.corp.com:4000/v1/models");
-		assertHostRedacted(result, "my-litellm.internal.corp.com");
-		assert.ok(result.includes("[REDACTED_HOST]"));
-		assert.ok(result.includes("/v1/models"), "Should preserve path");
-	});
-
-	test("redactSecrets preserves localhost URLs", () => {
-		const result = redactSecrets("Fetching from: http://localhost:4000/v1/models");
-		assertContains(result, "http://localhost:4000/v1/models");
-	});
-
-	test("redactSecrets handles JSON-encoded auth headers", () => {
-		const json = '{"Authorization": "Bearer sk-abc123", "X-API-Key": "secret-key-value"}';
-		const result = redactSecrets(json);
-		assert.ok(!result.includes("sk-abc123"), "Should not leak Bearer token");
-		assert.ok(!result.includes("secret-key-value"), "Should not leak API key");
-		assert.ok(result.includes("[REDACTED]"));
-	});
-
-	test("redactSecrets removes OAuth client secrets and access tokens", () => {
-		const bare = redactSecrets("token exchange failed: client_secret=oauth-secret-value access_token: tok-value");
-		assert.ok(!bare.includes("oauth-secret-value"), "Should not leak the client secret");
-		assert.ok(!bare.includes("tok-value"), "Should not leak the access token");
-		assert.ok(bare.includes("client_secret=[REDACTED]"));
-		assert.ok(bare.includes("access_token: [REDACTED]"));
-	});
-
-	test("redactSecrets handles JSON-encoded OAuth material", () => {
-		const json = '{"client_secret": "oauth-secret-value", "access_token": "tok-value", "expires_in": 3600}';
-		const result = redactSecrets(json);
-		assert.ok(!result.includes("oauth-secret-value"), "Should not leak the client secret");
-		assert.ok(!result.includes("tok-value"), "Should not leak the access token");
-		assert.ok(result.includes('"expires_in": 3600'), "Non-secret fields survive");
-	});
-
-	test("redactSecrets consumes escaped quotes inside JSON-encoded secrets", () => {
-		const json =
-			'{"Authorization": "Bearer to\\"ken-TAIL", "client_secret": "ab\\"cd-TAIL-\\\\ef", "access_token": "to\\"k-TAIL", "expires_in": 3600}';
-		const result = redactSecrets(json);
-		assert.ok(!result.includes("TAIL"), `An escaped quote ended the match early and leaked the suffix: ${result}`);
-		assert.ok(result.includes('"expires_in": 3600'), "Non-secret fields survive");
-	});
-
-	test("redactSecrets over-redacts bare token mentions, deliberately erring toward safety", () => {
-		// "endpoint" here is prose, not a secret; the bare patterns cannot tell. That is the accepted trade-off: never
-		// weaken them to preserve prose.
-		assert.equal(redactSecrets("access_token endpoint failed"), "access_token [REDACTED] failed");
 	});
 
 	// The repeat-report fingerprint is the diagnostic signature only (enum ids, counts, flags), so nothing

@@ -205,8 +205,7 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 				nonServersStateArb,
 				fc.option(validServersArb, { nil: undefined }),
 				blobsByLabelArb,
-				fc.boolean(),
-				async (nonServers, servers, blobs, includeSecrets) => {
+				async (nonServers, servers, blobs) => {
 					const state: Record<string, unknown> = { ...nonServers };
 					if (servers !== undefined) {
 						state[SERVERS_SETTING_KEY] = servers;
@@ -215,14 +214,12 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 						readGlobalSetting: (key) => state[key],
 						readServerSecrets: (label) => Promise.resolve({ values: blobs[label] ?? {}, owners: {} }),
 						extensionVersion: "9.9.9",
-						includeSecrets,
 					});
 
 					const parsed = parseEnvelope(JSON.stringify(exported.envelope));
 					assert.ok(parsed.ok);
 					assert.deepStrictEqual(parsed.unknownKeys, []);
 					assert.strictEqual(parsed.exportedBy, "9.9.9");
-					assert.strictEqual(exported.omittedUnsanitizableCount, 0, "record-only arrays never omit anything");
 
 					const plan = planSettingsImport(parsed.settings, undefined);
 					assert.deepStrictEqual(plan.skippedKeys, [], "an export of valid values never trips the type gate");
@@ -260,20 +257,7 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 						assert.ok(appliedEntry !== undefined && write !== undefined);
 						const blob = blobs[original.label] ?? {};
 
-						if (!includeSecrets) {
-							// No placeholders, no secrets: the applied entry is the stripped original, and its group
-							// args are the original's minus every secret field.
-							assert.deepStrictEqual(write.secrets, {});
-							const expected = Object.fromEntries(
-								Object.entries(buildGroupArgs(original, {})).filter(
-									([key]) => !(SECRET_FIELD_IDS as readonly string[]).includes(key)
-								)
-							);
-							assert.deepStrictEqual(buildGroupArgs(appliedEntry, {}), expected);
-							continue;
-						}
-
-						// With secrets: the written blob is the original EFFECTIVE value per field (inline, trimmed,
+						// The written blob is the original EFFECTIVE value per field (inline, trimmed,
 						// beats stored) for every field the entry's shape gives a home; homeless stored fields count as
 						// unmaterialized.
 						const legal = (field: (typeof SECRET_FIELD_IDS)[number]): boolean =>
@@ -296,33 +280,25 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 						assert.deepStrictEqual(buildGroupArgs(appliedEntry, write.secrets), buildGroupArgs(original, prunedBlob));
 					}
 
-					if (includeSecrets) {
-						// Every homeless stored field is counted, never guessed in.
-						let expectedUnmaterialized = 0;
-						for (const original of originalParse.entries) {
-							const blob = blobs[original.label] ?? {};
-							if (blob.oauthClientSecret !== undefined && original.oauthTokenUrl === undefined) {
-								expectedUnmaterialized += 1;
-							}
-							if (blob.virtualKeyValue !== undefined && original.virtualKeyHeader === undefined) {
-								expectedUnmaterialized += 1;
-							}
+					// Every homeless stored field is counted, never guessed in.
+					let expectedUnmaterialized = 0;
+					for (const original of originalParse.entries) {
+						const blob = blobs[original.label] ?? {};
+						if (blob.oauthClientSecret !== undefined && original.oauthTokenUrl === undefined) {
+							expectedUnmaterialized += 1;
 						}
-						assert.strictEqual(exported.unmaterializedSecretCount, expectedUnmaterialized);
-					} else {
-						assert.strictEqual(exported.secretFieldCount, 0);
-						const rendered = JSON.stringify(exported.envelope);
-						for (const sentinel of ["stored", "inline", "padded"]) {
-							assert.ok(!rendered.includes(sentinel), `a "${sentinel}" value leaked into a no-secrets export`);
+						if (blob.virtualKeyValue !== undefined && original.virtualKeyHeader === undefined) {
+							expectedUnmaterialized += 1;
 						}
 					}
+					assert.strictEqual(exported.unmaterializedSecretCount, expectedUnmaterialized);
 				}
 			),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
 	});
 
-	test("a with-secrets self-import's collision flags agree with the engine's own args rendering", async () => {
+	test("a self-import's collision flags agree with the engine's own args rendering", async () => {
 		await fc.assert(
 			fc.asyncProperty(validServersArb, blobsByLabelArb, async (servers, blobs) => {
 				if (servers.length === 0) {
@@ -332,7 +308,6 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 					readGlobalSetting: (key) => (key === SERVERS_SETTING_KEY ? servers : undefined),
 					readServerSecrets: (label) => Promise.resolve({ values: blobs[label] ?? {}, owners: {} }),
 					extensionVersion: "9.9.9",
-					includeSecrets: true,
 				});
 				const parsed = parseEnvelope(JSON.stringify(exported.envelope));
 				assert.ok(parsed.ok);

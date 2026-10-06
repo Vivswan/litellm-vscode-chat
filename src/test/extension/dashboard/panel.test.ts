@@ -261,6 +261,7 @@ function makeHarness(): Harness {
 		executeCommand: async (command, ...args) => {
 			commands.push([command, ...args]);
 		},
+		writeClipboard: async () => {},
 		log: (message, data) => {
 			loggedMessages.push([message, data]);
 		},

@@ -7,10 +7,26 @@ import { executeDashboardIntent } from "../../../extension/dashboard/intents";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import { acceptedEntry, parseServersSetting } from "../../../extension/servers/serverSync/setting";
 import { stripEntrySecrets } from "../../../extension/settingsTransfer/secretSurgery";
+import { Logger } from "../../../shared/logger";
 import { isRecord } from "../../../shared/util/json";
 import { makeEnv, type RecordedEnv } from "./recordedEnv";
 
 suite("extension/dashboard/intents", () => {
+	test("copyDiagnostics writes the composed text through the output door: userinfo and registered values masked", async () => {
+		const recorded = makeEnv();
+		Logger.registerSecrets(["copy-key-Q7-marker"]);
+		await executeDashboardIntent(
+			{
+				method: "copyDiagnostics",
+				payload: { text: "Prod (http://user:sekret@localhost:4000): 401 for copy-key-Q7-marker at /home/alice" },
+			},
+			recorded.env
+		);
+		assert.deepStrictEqual(recorded.clipboard, [
+			"Prod (http://[redacted]@localhost:4000): 401 for [redacted] at /home/alice",
+		]);
+	});
+
 	suite("executeDashboardIntent", () => {
 		test("setNumberSetting writes the setting key verbatim", async () => {
 			const recorded = makeEnv();
@@ -303,7 +319,7 @@ suite("extension/dashboard/intents", () => {
 						label: "Adopted",
 						baseUrl: "http://ext.test",
 						// The NESTED auth shape the sync engine parses, secure-routed values omitted: a flat credential
-						// field would sync credential-less and escape the no-secrets export's strip.
+						// field would sync credential-less.
 						auth: {
 							oauth: {
 								tokenUrl: "https://idp.test/token",
@@ -364,9 +380,9 @@ suite("extension/dashboard/intents", () => {
 			assert.strictEqual(args.virtualKeyValue, "vk-live");
 		});
 
-		test("a no-secrets strip of a fully inlined adopted entry certifies and removes every credential", async () => {
-			// The export-hole closure: with every secret routed to settings, the adopted entry holds them all inline -
-			// and the no-secrets export's strip must reach every one, which only the nested auth shape allows.
+		test("the secret strip of a fully inlined adopted entry certifies and removes every credential", async () => {
+			// With every secret routed to settings, the adopted entry holds them all inline, and an import of such an
+			// entry must move every one into SecretStorage, which only the nested auth shape allows.
 			const recorded = makeEnv([]);
 			recorded.adoptionCredentials = FULL_CREDENTIALS;
 
@@ -377,10 +393,10 @@ suite("extension/dashboard/intents", () => {
 			const entry = recorded.serverWrites.at(-1)?.[0];
 			assert.ok(isRecord(entry));
 			const stripped = stripEntrySecrets(entry);
-			assert.strictEqual(stripped.unsanitizable, false, "an adopted entry must be exportable without secrets");
+			assert.strictEqual(stripped.unsanitizable, false, "an adopted entry must import with its secrets moved");
 			const rendered = JSON.stringify(stripped.entry);
 			for (const secret of ["sk-live", "oauth-secret", "vk-live"]) {
-				assert.ok(!rendered.includes(secret), `the no-secrets export must not carry ${secret}`);
+				assert.ok(!rendered.includes(secret), `the import's strip must remove ${secret}`);
 			}
 			assert.deepStrictEqual(stripped.secrets, {
 				apiKey: "sk-live",

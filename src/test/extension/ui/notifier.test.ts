@@ -8,7 +8,7 @@ import { mapSdkError } from "../../../provider/transport/errorMapping";
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
 import { transportClassificationOf } from "../../../shared/errorClassification";
 import { failureTexts } from "../../../shared/failureCause";
-import { publicErrorText } from "../../../shared/logger";
+import { Logger, publicErrorText } from "../../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../../shared/servers";
 import type { Timer } from "../../../shared/util/timer";
 import { expectDefined } from "../../pureHelpers";
@@ -156,6 +156,18 @@ suite("extension/ui/notifier", () => {
 		const toast = expectDefined(toasts[1]);
 		assert.strictEqual(toast.kind, "error");
 		assert.strictEqual(toast.message, "LiteLLM: Could not connect to http://litellm.test");
+	});
+
+	test("the failure toast masks the rendered cause: a registered value in the configured URL shows its reveal", () => {
+		const key = `Q17key${"X".repeat(34)}`;
+		Logger.registerSecrets([key]);
+		const notifier = windowNotifier(() => false);
+		const failed = allFailed("ECONNREFUSED", true, { kind: "connection" });
+		notifier.handleAggregatedStatus({
+			...failed,
+			serverStatuses: failed.serverStatuses.map((server) => ({ ...server, baseUrl: `http://host.test/${key}` })),
+		});
+		assert.strictEqual(expectDefined(toasts[0]).message, "LiteLLM: Could not connect to http://host.test/Q17key...");
 	});
 
 	test("a different failure cause counts as a new condition; the same cause with another log rendering does not", () => {

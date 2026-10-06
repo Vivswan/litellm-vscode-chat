@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CancellationToken } from "vscode";
 import type { TitleAndDescriptionContext } from "../../../../../extension/features/prGen/prompt";
 import { createTitleAndDescriptionProvider } from "../../../../../extension/features/prGen/provider";
+import { Logger } from "../../../../../shared/logger";
 
 const TOKEN = {
 	isCancellationRequested: false,
@@ -41,6 +42,19 @@ describe("extension/features/prGen createTitleAndDescriptionProvider", () => {
 	test("an unusable answer maps to undefined - the upstream 'provider could not' value", async () => {
 		const provider = createTitleAndDescriptionProvider(() => Promise.resolve("```\n\n```"));
 		expect(await provider.provideTitleAndDescription(context(), TOKEN)).toBeUndefined();
+	});
+
+	test("the returned fields pass the door again: a spelling the parse respells is masked on the way out", async () => {
+		// The reply spells the value with CRLF, which the mask at receipt does not match; the parse normalizes line
+		// endings, so the description then carries the registered spelling and the exit masks it.
+		Logger.registerSecrets(["alpha\nbeta-r6pr"]);
+		const provider = createTitleAndDescriptionProvider(() =>
+			Promise.resolve("Title: Rotate the key\r\nDescription:\r\nalpha\r\nbeta-r6pr")
+		);
+		expect(await provider.provideTitleAndDescription(context(), TOKEN)).toEqual({
+			title: "Rotate the key",
+			description: "[redacted]",
+		});
 	});
 
 	test("failures from send propagate uncaught to the calling extension", async () => {

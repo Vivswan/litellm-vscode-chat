@@ -27,11 +27,12 @@ export const LOGGER_FILE = "src/shared/logger.ts";
 /** The wiring site may only create the channel; a write there would skip the Logger like a write anywhere else. */
 export const WIRING_FILE = "src/extension.ts";
 
-/** Default-deny: a member vscode adds later is a write until it is listed here. */
+/** Default-deny: a member vscode adds later is a write until it is listed here; clear() erases, it writes no text. */
 export const NON_WRITING_MEMBERS: ReadonlySet<string> = new Set([
 	"name",
 	"show",
 	"hide",
+	"clear",
 	"dispose",
 	"logLevel",
 	"onDidChangeLogLevel",

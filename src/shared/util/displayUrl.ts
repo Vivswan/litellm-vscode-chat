@@ -1,29 +1,18 @@
 /**
- * The one URL-credential scrub for every surface that echoes a configured URL: userinfo (user:pass@) is cut from the
- * original text wherever the WHATWG URL parser reads a URL with userinfo, so every spelling the transport would
- * request is caught by the parser the transport uses.
- *   toasts, chat errors, the dashboard, English mirrors -> displayUrl where the message is built
- *   every log line and log data field                   -> KnownSecrets.redact (knownSecrets.ts), which takes the
- *                                                            cuts from urlCuts and the known values in one pass
- *   agent-tool results                                   -> urlScrubbingReplacer with its default, the cuts alone
- *   the issue report                                     -> redactSecrets, which starts from redactUrlCredentials
- *   the known-value collector                            -> configuredUserinfo, the same finder and parser
+ * The parser-based reading of a configured URL without its userinfo, for the provider-group identities: a stable key
+ * for a configured URL (groupModels.ts, statusWindow.ts, the planner's compare), never shown. Userinfo (user:pass@) is
+ * found wherever the WHATWG URL parser reads a URL with it, so every spelling the transport would request is caught by
+ * the parser the transport uses. Text that leaves the extension masks userinfo by its shape instead (secretMask.ts).
  */
-
-import { URL_FIELD_KEYS } from "../serverEntry";
 
 const SPECIAL_SCHEMES = new Set(["http", "https", "ws", "wss", "ftp", "file"]);
 /**
  * A host with its userinfo never runs this long, so a span stops growing when its authority does; a long path never
  * refuses a cut, and a run of credential-shaped words never grows without bound.
  */
-export const MAX_AUTHORITY_LENGTH = 8192;
-/** The known-value redaction's marker (knownSecrets.ts). */
-export const REDACTED = "[redacted]";
+const MAX_AUTHORITY_LENGTH = 8192;
 /** What a refused URL with an "@" and nothing after its last "@" is shown as. */
 const UNPARSEABLE = "[unparseable URL]";
-/** A refused URL yields at most this many userinfo candidates (one per "@"); a configured value never has more. */
-const MAX_USERINFO_CANDIDATES = 64;
 /** Punctuation that may follow a URL in text without belonging to it; dropped as a second end for each candidate. */
 const CLOSERS = new Set([")", ",", ".", ";", ":", ">", "]"]);
 /** Brackets that may precede a URL in text; skipped as a second start for each candidate. */
@@ -119,47 +108,6 @@ function authorityOf(span: string): { scheme: number; start: number; end: number
 	return { scheme, start, end, at: at < start ? -1 : at };
 }
 
-/** A userinfo text whole, and its user and password split at the first ":"; empty parts are no values. */
-function userinfoCandidates(userinfo: string): string[] {
-	const colon = userinfo.indexOf(":");
-	const split = colon === -1 ? [] : [userinfo.slice(0, colon), userinfo.slice(colon + 1)];
-	return [userinfo, ...split].filter((part) => part !== "");
-}
-
-/**
- * The userinfo of one configured URL as a line may echo it (the spellings are the matcher's). Read by the parser,
- * with the leading and trailing whitespace and the tabs and newlines it drops: the user and the password as it reads
- * them, plus as written in the setting. Refused by the parser ("http://user:pa?ss/extra@host"), no request carries
- * the text, but a message quoting the setting does: the text from the scheme separator up to EACH "@" before the end
- * of the value is a candidate, whole and split (whitespace and quotes are part of a typed value), deduplicated and
- * capped at MAX_USERINFO_CANDIDATES. An opaque URL ("mailto:admin@example.test") has no userinfo to the parser and
- * yields nothing.
- */
-export function configuredUserinfo(url: string): string[] {
-	const text = url.trim();
-	const whole = parsedUrl(text.replace(IGNORED, ""));
-	const { scheme, start, at } = authorityOf(text);
-	if (whole !== undefined) {
-		if (whole.username === "" && whole.password === "") {
-			return [];
-		}
-		const read = [whole.username, whole.password].filter((part) => part !== "");
-		return [...read, ...(at === -1 ? [] : userinfoCandidates(text.slice(start, at)))];
-	}
-	if (scheme === 0 && !text.startsWith("//")) {
-		return [];
-	}
-	const parts = new Set<string>();
-	let mark = text.indexOf("@", start);
-	for (let candidates = 0; mark !== -1 && candidates < MAX_USERINFO_CANDIDATES; candidates++) {
-		for (const part of userinfoCandidates(text.slice(start, mark))) {
-			parts.add(part);
-		}
-		mark = text.indexOf("@", mark + 1);
-	}
-	return [...parts];
-}
-
 /**
  * The span with its userinfo cut out of the original text, the slashes normalized to "//" and the characters the
  * parser drops dropped. Cutting the original keeps anything the parser folded into the path, such as a second URL.
@@ -174,7 +122,7 @@ function cutUserinfo(span: string): { replacement: string; authorityEnd: number 
 }
 
 /** One cut: the text from `from` to `resumeAt` of the original is shown as `replacement`. */
-export interface Cut {
+interface Cut {
 	readonly from: number;
 	readonly replacement: string;
 	readonly resumeAt: number;
@@ -352,7 +300,7 @@ function scanCuts(text: string, floor: number, cuts: Cut[]): void {
  *   "https://u:p@one.test/a https://x:s@two.test/b"   -> "https://one.test/a https://two.test/b"
  *   "Note: contact admin@example.test"                -> unchanged, an opaque "note:" URL has no userinfo
  */
-export function urlCuts(text: string): Cut[] {
+function urlCuts(text: string): Cut[] {
 	const cuts: Cut[] = [];
 	if (!text.includes("@")) {
 		return cuts;
@@ -366,8 +314,8 @@ export function urlCuts(text: string): Cut[] {
 	return cuts;
 }
 
-/** Strip URL-embedded credentials from a text: the cuts of urlCuts applied, nothing else. */
-export function redactUrlCredentials(text: string): string {
+/** A text with the cuts of urlCuts applied, nothing else; displayUrl's step for a URL the parser reads. */
+function redactUrlCredentials(text: string): string {
 	let out = "";
 	let cursor = 0;
 	for (const cut of urlCuts(text)) {
@@ -377,29 +325,10 @@ export function redactUrlCredentials(text: string): string {
 	return out + text.slice(cursor);
 }
 
-/** A configured URL field fails closed (displayUrl); any other string is free text under the parser-based scrub. */
-function scrubByKey(key: string, value: string): string {
-	return URL_FIELD_KEYS.has(key) ? displayUrl(value) : redactUrlCredentials(value);
-}
-
 /**
- * A JSON.stringify replacer under which every serialized string is scrubbed: by default a URL field fails closed and
- * any other string takes the free-text scrub (scrubByKey); the Logger passes its one-pass redaction for every string.
- * A replacer rather than a scrubbed copy of the tree: a Date or a URL value still serializes through its own toJSON,
- * and the scrub runs per string, never over the text, where a pass would run from one field's "//" to the next
- * field's "@".
- */
-export function urlScrubbingReplacer(scrub?: (text: string) => string): (key: string, value: unknown) => unknown {
-	return (key, value) =>
-		typeof value === "string" ? (scrub === undefined ? scrubByKey(key, value) : scrub(value)) : value;
-}
-
-/**
- * The display form of one CONFIGURED value (a URL field, a card's string). A URL without userinfo passes through
- * byte-identical, so pinned message texts never change for the common case; tabs and newlines go first, since the
- * parser ignores them wherever they sit. A value the parser refuses that holds an "@" anywhere fails closed: only what
- * follows its last "@" is shown. Free text (a log line) takes redactUrlCredentials instead, where an "@" is prose
- * until the parser reads a URL around it.
+ * The identity form of one CONFIGURED URL (a provider-group key). A URL without userinfo passes through byte-identical;
+ * tabs and newlines go first, since the parser ignores them wherever they sit. A value the parser refuses that holds
+ * an "@" anywhere fails closed: only what follows its last "@" is kept.
  *   "http://user:pass@host:bad"  -> "host:bad"
  *   "//user:pass@"               -> "[unparseable URL]"
  */

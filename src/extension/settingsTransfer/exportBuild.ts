@@ -1,6 +1,7 @@
 /**
- * Shapes the sanitizer does not recognize (a non-array servers value, non-record elements, entries the strip cannot
- * certify secret-free) are omitted from a no-secrets export rather than trusted.
+ * The export writes the stored configuration as it is, every SecretStorage value placed at its inline field, so the
+ * file is complete on its own. Only a value the entry could not use on the wire stays out of it (see
+ * mismatchedSecretCount); the save flow tells the user the file carries the credentials.
  */
 
 import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
@@ -12,25 +13,18 @@ import { resolveOwnedSecrets } from "../servers/serverSync/secrets";
 import { acceptedEntry, declaredEntryLabel } from "../servers/serverSync/setting";
 import type { SettingsExportEnvelope } from "./envelope";
 import { buildEnvelope } from "./envelope";
-import { materializeEntrySecrets, stripEntrySecrets } from "./secretSurgery";
+import { materializeEntrySecrets } from "./secretSurgery";
 
 export interface SettingsExportEnv {
 	readonly readGlobalSetting: (key: string) => unknown;
 	readonly readServerSecrets: (label: string) => Promise<StoredSecretsRecord>;
 	readonly extensionVersion: string;
-	/** The user's explicit per-export choice; true writes secret values into the file in plaintext. */
-	readonly includeSecrets: boolean;
 }
 
 export interface SettingsExportResult {
 	readonly envelope: SettingsExportEnvelope;
 	readonly settingCount: number;
 	readonly serverCount: number;
-	/**
-	 * Secret values riding in the file: materialized blob fields plus inline ones kept (0 when includeSecrets is
-	 * false).
-	 */
-	readonly secretFieldCount: number;
 	/** Blob secret fields with no legal inline position in their entry; reported in the success note when nonzero. */
 	readonly unmaterializedSecretCount: number;
 	/**
@@ -40,71 +34,30 @@ export interface SettingsExportResult {
 	 * since inline values bypass the ownership check. Reported so the omission is never silent.
 	 */
 	readonly mismatchedSecretCount: number;
-	/**
-	 * Server shapes a no-secrets export omitted as unsanitizable: a non-array servers value, each non-record element,
-	 * each entry the strip cannot certify secret-free. Always 0 when includeSecrets is true; reported so the omission
-	 * is never silent.
-	 */
-	readonly omittedUnsanitizableCount: number;
 }
 
 export async function buildSettingsExport(env: SettingsExportEnv): Promise<SettingsExportResult> {
 	const settings: Record<string, unknown> = {};
 	let settingCount = 0;
 	let serverCount = 0;
-	let secretFieldCount = 0;
 	let unmaterializedSecretCount = 0;
 	let mismatchedSecretCount = 0;
-	let omittedUnsanitizableCount = 0;
 
 	for (const key of ALL_SETTING_KEYS) {
 		const value = env.readGlobalSetting(key);
 		if (value === undefined) {
 			continue;
 		}
-		if (key !== SERVERS_SETTING_KEY) {
-			settings[key] = value;
-			settingCount += 1;
-			continue;
-		}
-		if (!Array.isArray(value)) {
-			// A non-array servers value cannot be sanitized entry-by-entry, so a no-secrets export omits it rather than
-			// risk a secret riding out in an unrecognized shape.
-			if (env.includeSecrets) {
-				settings[key] = value;
-				settingCount += 1;
-			} else {
-				omittedUnsanitizableCount += 1;
-			}
-			continue;
-		}
 		settingCount += 1;
+		if (key !== SERVERS_SETTING_KEY || !Array.isArray(value)) {
+			settings[key] = value;
+			continue;
+		}
 		const exported: unknown[] = [];
 		for (const rawEntry of value) {
-			if (!isRecord(rawEntry)) {
-				// Same rule per element: only the record shape has a sanitizer.
-				if (env.includeSecrets) {
-					exported.push(rawEntry);
-				} else {
-					omittedUnsanitizableCount += 1;
-				}
-				continue;
-			}
-			if (!env.includeSecrets) {
-				// Every object entry is stripped, labeled or not: an unlabeled entry can still carry inline secret
-				// text.
-				const stripped = stripEntrySecrets(rawEntry);
-				if (stripped.unsanitizable) {
-					omittedUnsanitizableCount += 1;
-					continue;
-				}
-				exported.push(stripped.entry);
-				continue;
-			}
-			const label = declaredEntryLabel(rawEntry);
-			if (label === undefined) {
-				// No label means no SecretStorage key: the entry rides as-is, its inline values counted as kept.
-				secretFieldCount += Object.keys(stripEntrySecrets(rawEntry).secrets).length;
+			const label = isRecord(rawEntry) ? declaredEntryLabel(rawEntry) : undefined;
+			if (!isRecord(rawEntry) || label === undefined) {
+				// No label means no SecretStorage key, so there is nothing to place.
 				exported.push(rawEntry);
 				continue;
 			}
@@ -137,7 +90,6 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 			}
 			const materialized = materializeEntrySecrets(rawEntry, usable);
 			unmaterializedSecretCount += materialized.unmaterialized;
-			secretFieldCount += Object.keys(stripEntrySecrets(materialized.entry).secrets).length;
 			exported.push(materialized.entry);
 		}
 		serverCount = exported.length;
@@ -148,9 +100,7 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 		envelope: buildEnvelope(settings, env.extensionVersion),
 		settingCount,
 		serverCount,
-		secretFieldCount,
 		unmaterializedSecretCount,
 		mismatchedSecretCount,
-		omittedUnsanitizableCount,
 	};
 }

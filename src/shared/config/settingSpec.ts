@@ -296,6 +296,7 @@ export const BOOLEAN_SETTING_SPECS = {
 	"chat.promptCaching": { default: true },
 	"models.openRouterCatalog": { default: true },
 	"ui.maskSecretInputs": { default: true },
+	"logs.redactSecrets": { default: true },
 	"inlineCompletions.enabled": { default: false },
 	"commitGeneration.enabled": { default: false },
 	"prGeneration.enabled": { default: false },
@@ -351,6 +352,9 @@ export const AGENT_TOOL_TOGGLE_KEYS = {
 
 /** Whether agent tool input may carry a secret's value; off, the user types it into a masked input box instead. */
 export const AGENT_TOOLS_SECRET_VALUES_KEY = "agentTools.secretValues.enabled" satisfies BooleanSettingId;
+
+/** Whether the output channel masks known secret values and URL userinfo; the issue report always does. */
+export const LOG_REDACTION_SETTING_KEY = "logs.redactSecrets" satisfies BooleanSettingId;
 
 /**
  * Any key of the agentTools family; the set_setting tool refuses these at the type level, so an agent cannot flip its
@@ -462,6 +466,7 @@ const SECTIONS = [
 		],
 	},
 	{ id: "ui", settings: ["ui.maskSecretInputs", UI_THEME_SETTING_KEY, UI_ACCENT_SETTING_KEY] },
+	{ id: "logs", settings: [LOG_REDACTION_SETTING_KEY] },
 	{
 		id: "inlineCompletions",
 		settings: [
@@ -541,7 +546,8 @@ const WINDOW_PLAIN: SettingPresentation = { scope: "window", description: "plain
 
 /**
  * Load-bearing tiers: the enable booleans and model refs decide whether requests happen and where they go, and the
- * catalog toggle causes OpenRouter fetches, so they are machine-overridable; `servers` and the agentTools family are
+ * catalog toggle causes OpenRouter fetches, and the log masking is a per-machine choice about the channel's text, so
+ * they are machine-overridable; `servers` and the agentTools family are
  * machine scope, user settings only, because an agent's write access to servers and keys is granted by the user alone,
  * never by a checked-in workspace file; the two model record settings are restricted because they shape what goes to
  * the user's server and compile user regex matchers.
@@ -569,6 +575,7 @@ export const SETTING_PRESENTATION: Readonly<Record<SettingId, SettingPresentatio
 	"ui.maskSecretInputs": WINDOW_PLAIN,
 	"ui.theme": { scope: "window", description: "plain", enumDescriptions: true },
 	"ui.accent": WINDOW_PLAIN,
+	"logs.redactSecrets": { scope: "machine-overridable", description: "plain" },
 	"inlineCompletions.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"inlineCompletions.model": MACHINE_OVERRIDABLE_MARKDOWN,
 	"inlineCompletions.languageFilter": { scope: "window", description: "markdown" },
