@@ -80,6 +80,8 @@ CLAUDE.local.md
 /results.sarif
 /trivy_envs.txt
 /typos-v*.tar.gz
+# fleet-ci.yml checks repo-platform out here at its own commit; its exclude line covers the runs before this syncs.
+/.repo-platform-checkout/
 
 ## Windows (github/gitignore Global/Windows.gitignore)
 # Windows thumbnail cache files
