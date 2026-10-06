@@ -213,6 +213,49 @@ suite("extension/features/mcp", () => {
 			assert.strictEqual(resolved.uri.toString(), "https://elsewhere.example/mcp", "it is still published");
 		});
 
+		test("an endpoint on another origin still starts when the entry's own key is refused: nothing of it rides", async () => {
+			// The credential never travels to another origin, so a key the header rule refuses has nothing to refuse
+			// there; the refusal belongs to the entry's own host.
+			const servers = [entry({ mcp: { url: "https://elsewhere.example/mcp" } })];
+			const blobs = new Map<string, string>();
+			const store: vscode.SecretStorage = {
+				get: async (key: string) => blobs.get(key),
+				store: async (key: string, value: string) => {
+					blobs.set(key, value);
+				},
+				delete: async (key: string) => {
+					blobs.delete(key);
+				},
+				onDidChange: () => new vscode.Disposable(() => {}),
+			} as unknown as vscode.SecretStorage;
+			await updateServerSecret(store, "Main", "apiKey", "sk-a\nb", TEST_BASE_URL);
+			let requests = 0;
+			mswServer.use(
+				http.all("*", () => {
+					requests += 1;
+					return HttpResponse.json({});
+				})
+			);
+			const provider = createMcpServerDefinitionProvider(
+				{
+					secrets: store,
+					oneShot: new OneShotClient({ userAgent: "test-agent" }),
+					versions: new McpVersionCounters(memento()),
+					advisory: () => {},
+					logError: () => {},
+					logFailure: () => {},
+				},
+				new vscode.EventEmitter<void>().event
+			);
+			const [definition] = await withConfig({ servers }, () => provide(provider));
+			assert.ok(definition);
+			const resolved = await withConfig({ servers }, () => resolve(provider, definition));
+
+			assert.deepStrictEqual(resolved.headers, {}, "bare, as every other-origin endpoint");
+			assert.strictEqual(resolved.uri.toString(), "https://elsewhere.example/mcp");
+			assert.strictEqual(requests, 0);
+		});
+
 		test("a junk explicit url publishes nothing: the derived endpoint would admit the entry's credentials", async () => {
 			const servers = [entry({ mcp: { url: "not a url" }, auth: { apiKey: SECRET_VALUES.apiKey } })];
 			const provider = makeProvider();

@@ -219,20 +219,24 @@ export function createMcpServerDefinitionProvider(
 			let baseUrl: string;
 			try {
 				const entry = currentMcpEntries().find((candidate) => candidate.label === before.label);
-				const resolved = entry === undefined ? undefined : await entryConnectionFor(deps.secrets, before.label);
-				if (entry === undefined || resolved === undefined) {
+				if (entry === undefined) {
 					refuse({ kind: "not-published" });
 				}
-				if (resolved.kind !== "resolved") {
-					refuse(mcpRefusalOf(resolved));
-				}
 				baseUrl = entry.baseUrl;
-				headers = sameOrigin(before.uri, baseUrl)
-					? await deps.oneShot.authHeaders(resolved.connection, MCP_AUTH_SURFACE, {
-							timeout: { ms: getDiscoveryTimeout(), setting: "discovery.timeout" },
-							token,
-						})
-					: {};
+				// Credentials ride only to the entry's own origin, so they are resolved only there: an endpoint on another
+				// origin is published bare, and a stale, unreadable, or refused credential has nothing to refuse for it.
+				if (sameOrigin(before.uri, baseUrl)) {
+					const resolved = await entryConnectionFor(deps.secrets, before.label);
+					if (resolved.kind !== "resolved") {
+						refuse(mcpRefusalOf(resolved));
+					}
+					headers = await deps.oneShot.authHeaders(resolved.connection, MCP_AUTH_SURFACE, {
+						timeout: { ms: getDiscoveryTimeout(), setting: "discovery.timeout" },
+						token,
+					});
+				} else {
+					headers = {};
+				}
 			} catch (error) {
 				// This feature is its own logging boundary (the one-shot callers' convention): the editor renders the
 				// failure to the user, but without this the output channel and the issue-report buffer stay silent
