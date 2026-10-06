@@ -28,10 +28,13 @@ const FILES: Record<string, string> = {
 	"tests/transitive.test.ts": 'import { helper } from "../src/helper";\nexport const t = helper;\n',
 	"tests/typeOnly.test.ts": 'import type { thing } from "../src/thing";\nexport type T = typeof thing;\n',
 	"tests/unrelated.test.ts": 'import { other } from "../src/other";\nexport const u = other;\n',
+	"tests/newBehavior.spec.ts": 'import { other } from "../src/other";\nexport const s = other;\n',
+	"tests/odd.spec.mtsx": 'import { other } from "../src/other";\nexport const o = other;\n',
 	"docs/guide.md": "# guide\n",
 };
 const ALL = [
 	"./tests/direct.test.ts",
+	"./tests/newBehavior.spec.ts",
 	"./tests/transitive.test.ts",
 	"./tests/typeOnly.test.ts",
 	"./tests/unrelated.test.ts",
@@ -62,6 +65,11 @@ describe("pre-commit bun test selection", () => {
 		{
 			staged: ["docs/guide.md", "src/unused.ts"],
 			files: [],
+		},
+		// bun test discovers .spec files and the other script extensions too, not only .test.ts; .mtsx is not one of them.
+		{
+			staged: ["src/other.ts"],
+			files: ["./tests/newBehavior.spec.ts", "./tests/unrelated.test.ts"],
 		},
 		{
 			staged: ["src/salt.ts"],
