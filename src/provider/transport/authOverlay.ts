@@ -1,4 +1,4 @@
-import { bearerHeaderValue, type HeaderValue } from "../../shared/util/headers";
+import { bearerHeaderValue, type HeaderValue, headerNameKey } from "../../shared/util/headers";
 import type { OAuthConfig, OAuthErrorSurface, OAuthTokenSource, TimeoutBudget, VirtualKeyConfig } from "./auth";
 import { buildDefaultHeaders } from "./clients";
 import { RequestError } from "./errorMapping";
@@ -52,7 +52,7 @@ export interface AuthOverlayScope {
  */
 export function setOwnedHeader(headers: Record<string, HeaderValue>, name: string, value: HeaderValue): void {
 	for (const existing of Object.keys(headers)) {
-		if (existing.toLowerCase() === name.toLowerCase()) {
+		if (headerNameKey(existing) === headerNameKey(name)) {
 			delete headers[existing];
 		}
 	}
@@ -96,7 +96,7 @@ export async function applyAuthOverlay(
 	credentials: AuthOverlayCredentials,
 	context: AuthOverlayContext
 ): Promise<AuthOverlayScope> {
-	const authorizationOverridden = credentials.virtualKey?.header.toLowerCase() === "authorization";
+	const authorizationOverridden = headerNameKey(credentials.virtualKey?.header ?? "") === "authorization";
 	let sentOAuthToken: HeaderValue | undefined;
 	if (credentials.oauth && !authorizationOverridden) {
 		const token = await context.tokens.getToken(credentials.oauth, context.surface, context.timeout, context.signal);

@@ -8,7 +8,7 @@
 
 import type { ModelRecordMap } from "./config/modelMatcher";
 import { canonicalStoredBaseUrl, canonicalUrl, normalizeBaseUrl } from "./util/baseUrl";
-import type { HeaderValue } from "./util/headers";
+import { type HeaderValue, headerNameKey } from "./util/headers";
 
 /**
  * THE ORDER IS LOAD-BEARING while migrations/fingerprintProjection.ts lives: buildGroupArgs emits the provider-group
@@ -191,9 +191,9 @@ const CREDENTIAL_HEADER_WORDS = new Set([
  *   Content-Type, X-Request-Id, X-Monkey, X-Hockey-Team   -> not
  */
 export function isCredentialHeader(name: string, carriers: Iterable<string> = []): boolean {
-	const lower = name.trim().toLowerCase();
+	const lower = headerNameKey(name.trim());
 	for (const carrier of carriers) {
-		if (carrier.trim().toLowerCase() === lower) {
+		if (headerNameKey(carrier.trim()) === lower) {
 			return true;
 		}
 	}

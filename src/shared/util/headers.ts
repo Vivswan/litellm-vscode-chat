@@ -28,8 +28,8 @@ export function isValidHeaderName(name: string): boolean {
 }
 
 /**
- * Header names compare case-insensitively (RFC 9110), so two rows differing only in case are one header; the form's
- * duplicate check and the save intent's refusal (extension/dashboard/intents.ts) both key on this.
+ * Header names compare case-insensitively (RFC 9110), so two spellings are one header: this is the one case-fold rule
+ * every header-name comparison reads (the form's duplicate check, the settings parser, the transport's header precedence).
  */
 export function headerNameKey(name: string): string {
 	return name.toLowerCase();

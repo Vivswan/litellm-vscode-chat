@@ -16,7 +16,7 @@ import { parseParameterRecord } from "../../../shared/config/parameterResolution
 import { canonicalFieldKey } from "../../../shared/config/recordResolution";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { HEADER_NAME_PATTERN, usableHttpText } from "../../../shared/util/headers";
+import { HEADER_NAME_PATTERN, headerNameKey, usableHttpText } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 import { LEGACY_ENTRY_AUTH_FIELD_IDS, LEGACY_ENTRY_FIELD_IDS, type LegacyEntryAuthFieldId } from "./legacyIds";
 import type { EntryRecordTransform, RecordKind, ScopedMoveTarget } from "./records";
@@ -449,17 +449,14 @@ export function withEntryDeclares(entry: Record<string, unknown>, ids: readonly 
 	return { ...entry, discovery: { ...discovery, declared } };
 }
 
-/**
- * Copy global header names into one entry's `headers`; existing entry names win case-insensitively (HTTP header
- * names compare that way).
- */
+/** Copy global header names into one entry's `headers`; existing entry names win (keyed by headerNameKey). */
 export function withEntryHeaders(
 	entry: Record<string, unknown>,
 	headers: Record<string, unknown>
 ): Record<string, unknown> {
 	const existing = isRecord(entry.headers) ? entry.headers : {};
-	const existingNames = new Set(Object.keys(existing).map((name) => name.toLowerCase()));
-	const missing = Object.entries(headers).filter(([name]) => !existingNames.has(name.toLowerCase()));
+	const existingNames = new Set(Object.keys(existing).map(headerNameKey));
+	const missing = Object.entries(headers).filter(([name]) => !existingNames.has(headerNameKey(name)));
 	if (missing.length === 0) {
 		return entry;
 	}

@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { apiRootOf } from "../../shared/util/baseUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
-import type { HeaderValue } from "../../shared/util/headers";
+import { type HeaderValue, headerNameKey } from "../../shared/util/headers";
 import type { TransportFetch } from "./nodeHttpFetch";
 
 export interface ServerClientConfig {
@@ -78,10 +78,12 @@ export function buildDefaultHeaders(
 	config: Pick<ServerClientConfig, "apiKey" | "userAgent" | "customHeaders">
 ): Record<string, HeaderValue | null> {
 	const headers: Record<string, HeaderValue | null> = { ...config.customHeaders, "User-Agent": config.userAgent };
-	const hasCustomAuthorization = Object.keys(config.customHeaders).some((key) => key.toLowerCase() === "authorization");
+	const hasCustomAuthorization = Object.keys(config.customHeaders).some(
+		(key) => headerNameKey(key) === "authorization"
+	);
 	if (config.apiKey) {
 		for (const key of Object.keys(headers)) {
-			const lower = key.toLowerCase();
+			const lower = headerNameKey(key);
 			if (lower === "authorization" || lower === "x-api-key") {
 				delete headers[key];
 			}
