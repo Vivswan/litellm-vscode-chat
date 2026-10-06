@@ -41,11 +41,14 @@ export interface CommentSpies {
 
 export interface FakeReviewContext extends vscode.ExtensionContext {
 	readonly writes: unknown[];
+	/** Settles on the first workspaceState write; the prune that produces it runs off the critical path. */
+	readonly firstWrite: Promise<void>;
 }
 
 export function fakeReviewContext(state: Readonly<Record<string, unknown>> = {}): FakeReviewContext {
 	const store = new Map<string, unknown>(Object.entries(state));
 	const writes: unknown[] = [];
+	const firstWrite = Promise.withResolvers<void>();
 	return {
 		subscriptions: [] as vscode.Disposable[],
 		secrets: { get: async () => undefined, store: async () => {}, delete: async () => {} },
@@ -54,11 +57,13 @@ export function fakeReviewContext(state: Readonly<Record<string, unknown>> = {})
 			update: (key: string, value: unknown) => {
 				store.set(key, value);
 				writes.push(value);
+				firstWrite.resolve();
 				return Promise.resolve();
 			},
 			keys: () => [...store.keys()],
 		},
 		writes,
+		firstWrite: firstWrite.promise,
 	} as unknown as FakeReviewContext;
 }
 
@@ -160,4 +165,28 @@ export async function withCommentSpies<T>(fn: (spies: CommentSpies) => T | Promi
 
 export function liveThreads(controller: FakeController | undefined): readonly FakeThread[] {
 	return (controller?.threads ?? []).filter((thread) => !thread.disposed);
+}
+
+/**
+ * A request held open so the test can act mid-request. The arrival is awaited with no cap: the action lands
+ * mid-request on the slowest host too, and a run that never sends fails by the mocha timeout, never by a count taken
+ * before the run got there.
+ */
+export interface RequestHold {
+	readonly arrived: Promise<void>;
+	hold(): Promise<void>;
+	release(): void;
+}
+
+export function requestHold(): RequestHold {
+	const arrived = Promise.withResolvers<void>();
+	const released = Promise.withResolvers<void>();
+	return {
+		arrived: arrived.promise,
+		hold: () => {
+			arrived.resolve();
+			return released.promise;
+		},
+		release: released.resolve,
+	};
 }

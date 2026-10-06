@@ -28,7 +28,7 @@ import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../..
 import { makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
 import type { FakeController } from "./commentHarness";
-import { liveThreads, withCommentSpies } from "./commentHarness";
+import { liveThreads, requestHold, withCommentSpies } from "./commentHarness";
 
 const ENABLED_CONFIG = {
 	"reviewComments.enabled": true,
@@ -480,12 +480,10 @@ suite("extension/features/reviewComments commands", () => {
 	test("a review landing after the feature was disabled writes nothing at all", async () => {
 		// The dangerous shape: the callback still holds the controller, so an unguarded apply would save an emptied
 		// snapshot over the whole store.
-		let release: (() => void) | undefined;
+		const held = requestHold();
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, async () => {
-				await new Promise<void>((resolve) => {
-					release = resolve;
-				});
+				await held.hold();
 				return chatReply("LINE 1: too late");
 			})
 		);
@@ -496,13 +494,11 @@ suite("extension/features/reviewComments commands", () => {
 			]);
 			await openActive("alpha\nbeta");
 			const pending = withConfig(ENABLED_CONFIG, () => runReviewFile(deps));
-			for (let attempt = 0; attempt < 100 && release === undefined; attempt += 1) {
-				await new Promise((resolve) => setTimeout(resolve, 5));
-			}
+			await held.arrived;
 			const writesBefore = saved.length;
 			const shownBefore = shown.length;
 			live.dispose();
-			release?.();
+			held.release();
 			await pending;
 
 			assert.strictEqual(saved.length, writesBefore, "a disposed controller must not persist anything");
@@ -512,12 +508,10 @@ suite("extension/features/reviewComments commands", () => {
 	});
 
 	test("a file edited while its review was in flight keeps its old comments and says so", async () => {
-		let release: (() => void) | undefined;
+		const held = requestHold();
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, async () => {
-				await new Promise<void>((resolve) => {
-					release = resolve;
-				});
+				await held.hold();
 				return chatReply("LINE 2: stale finding");
 			})
 		);
@@ -525,15 +519,13 @@ suite("extension/features/reviewComments commands", () => {
 			liveController();
 			const document = await openActive("alpha\nbeta\ngamma");
 			const pending = withConfig(ENABLED_CONFIG, () => runReviewFile(deps));
-			for (let attempt = 0; attempt < 100 && release === undefined; attempt += 1) {
-				await new Promise((resolve) => setTimeout(resolve, 5));
-			}
+			await held.arrived;
 			// The document moves under the request: the answer describes a revision that no longer exists, so anchoring
 			// it would land on the wrong lines.
 			const edit = new vscode.WorkspaceEdit();
 			edit.insert(document.uri, new vscode.Position(0, 0), "inserted\n");
 			await vscode.workspace.applyEdit(edit);
-			release?.();
+			held.release();
 			await pending;
 
 			assert.strictEqual(liveThreads(spies.controllers[0] as FakeController).length, 0, "nothing was anchored");
@@ -707,15 +699,14 @@ suite("extension/features/reviewComments commands", () => {
 	test("a second reply typed while the first is in flight waits its turn, in order", async () => {
 		// Appending it immediately would put the user's second question ABOVE the answer to their first, and that
 		// out-of-order thread is what gets replayed to the model on the next turn.
-		const release: (() => void)[] = [];
+		const firstHold = requestHold();
+		const secondHold = requestHold();
 		let requests = 0;
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, async () => {
 				requests += 1;
 				const answer = `answer ${requests}`;
-				await new Promise<void>((resolve) => {
-					release.push(resolve);
-				});
+				await (requests === 1 ? firstHold : secondHold).hold();
 				return chatReply(answer);
 			})
 		);
@@ -732,20 +723,16 @@ suite("extension/features/reviewComments commands", () => {
 			// scope would restore the settings out from under the queued turn.
 			await withConfig(ENABLED_CONFIG, async () => {
 				const first = runReviewReply(deps, { thread: hostThread, text: "first" });
-				for (let attempt = 0; attempt < 100 && release.length === 0; attempt += 1) {
-					await new Promise((resolve) => setTimeout(resolve, 5));
-				}
+				await firstHold.arrived;
 				const second = runReviewReply(deps, { thread: hostThread, text: "second" });
 				assert.deepStrictEqual(
 					thread.comments.map((comment) => comment.body),
 					["a finding", "first"],
 					"the queued turn does not jump ahead of the answer it would follow"
 				);
-				release[0]?.();
-				for (let attempt = 0; attempt < 100 && release.length < 2; attempt += 1) {
-					await new Promise((resolve) => setTimeout(resolve, 5));
-				}
-				release[1]?.();
+				firstHold.release();
+				await secondHold.arrived;
+				secondHold.release();
 				await Promise.all([first, second]);
 			});
 
@@ -767,8 +754,15 @@ suite("extension/features/reviewComments commands", () => {
 			shown.push({ level: "warning", message });
 			return new Promise<undefined>(() => {});
 		};
-		// The first reply gets an empty answer, which is a warning notification.
-		mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply("   ")));
+		// The first reply gets an empty answer, which is a warning notification. Its request is held so that the handler
+		// swap below cannot reach it: the swap waits for the request to arrive, not for the warning to show.
+		const held = requestHold();
+		mswServer.use(
+			http.post(CHAT_COMPLETIONS_URL, async () => {
+				await held.hold();
+				return chatReply("   ");
+			})
+		);
 		await withCommentSpies(async (spies) => {
 			const live = liveController();
 			live.replaceFileThreads(vscode.Uri.parse("file:///workspace/a.ts"), [
@@ -781,16 +775,14 @@ suite("extension/features/reviewComments commands", () => {
 			await withConfig(ENABLED_CONFIG, async () => {
 				// Deliberately NOT awaited: its notification never settles.
 				void runReviewReply(deps, { thread: hostThread, text: "first" });
-				for (let attempt = 0; attempt < 100 && shown.length === 0; attempt += 1) {
-					await new Promise((resolve) => setTimeout(resolve, 5));
-				}
-				assert.strictEqual(shown.length, 1, "the first reply reached its warning");
-
+				await held.arrived;
 				mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply("A real answer.")));
-				// This resolves only if the tail was released before that warning.
+				held.release();
+				// Queued behind the first turn; this resolves only if its undismissed toast does not hold the queue.
 				await runReviewReply(deps, { thread: hostThread, text: "second" });
 			});
 
+			assert.strictEqual(shown.length, 1, "the first reply ended in its warning, still undismissed");
 			assert.deepStrictEqual(
 				thread.comments.map((comment) => comment.body),
 				["a finding", "first", "second", "A real answer."],
@@ -802,8 +794,13 @@ suite("extension/features/reviewComments commands", () => {
 	test("an undismissed no-model warning cannot block the next reply either", async () => {
 		// The other notification inside the queued section. Same rule, different path: the advice is handed back as a
 		// thunk, not awaited in the tail.
+		const firstWarning = Promise.withResolvers<void>();
+		const secondWarning = Promise.withResolvers<void>();
+		let warnings = 0;
 		(vscode.window as Record<string, unknown>).showWarningMessage = (message: string) => {
 			shown.push({ level: "warning", message });
+			warnings += 1;
+			(warnings === 1 ? firstWarning : secondWarning).resolve();
 			return new Promise<undefined>(() => {});
 		};
 		await withCommentSpies(async (spies) => {
@@ -817,16 +814,13 @@ suite("extension/features/reviewComments commands", () => {
 
 			await withConfig({ ...ENABLED_CONFIG, "reviewComments.model": null }, async () => {
 				// NEITHER is awaited: each ends by showing its own warning, and those never settle. What must still
-				// happen is the SECOND turn's append - it only runs once the first released the thread's queue.
+				// happen is the SECOND turn's append - it only runs once the first released the thread's queue - and
+				// each turn's warning is shown only after its append.
 				void runReviewReply(deps, { thread: hostThread, text: "first" });
-				for (let attempt = 0; attempt < 100 && shown.length === 0; attempt += 1) {
-					await new Promise((resolve) => setTimeout(resolve, 5));
-				}
+				await firstWarning.promise;
 				assert.strictEqual(shown.length, 1, "the first reply reached its warning");
 				void runReviewReply(deps, { thread: hostThread, text: "second" });
-				for (let attempt = 0; attempt < 100 && thread.comments.length < 3; attempt += 1) {
-					await new Promise((resolve) => setTimeout(resolve, 5));
-				}
+				await secondWarning.promise;
 			});
 
 			assert.deepStrictEqual(
@@ -864,14 +858,12 @@ suite("extension/features/reviewComments commands", () => {
 		// An unusable answer never reaches applyFindings, which is the other place disposal is noticed; without the
 		// loop's own check the run would keep sending files for a feature that is off.
 		let requests = 0;
-		let release: (() => void) | undefined;
+		const held = requestHold();
 		mswServer.use(
 			http.post(CHAT_COMPLETIONS_URL, async () => {
 				requests += 1;
 				if (requests === 1) {
-					await new Promise<void>((resolve) => {
-						release = resolve;
-					});
+					await held.hold();
 				}
 				// Prose, not a review: the unusable path.
 				return chatReply("Looks fine to me.");
@@ -892,12 +884,10 @@ suite("extension/features/reviewComments commands", () => {
 				const pending = withConfig(ENABLED_CONFIG, () =>
 					runReviewChanges({ ...deps, resolveGit: () => Promise.resolve(fakeGit(repo)) }, undefined)
 				);
-				for (let attempt = 0; attempt < 100 && release === undefined; attempt += 1) {
-					await new Promise((resolve) => setTimeout(resolve, 5));
-				}
+				await held.arrived;
 				const shownBefore = shown.length;
 				live.dispose();
-				release?.();
+				held.release();
 				await pending;
 
 				assert.strictEqual(requests, 1, "the run stopped instead of walking the remaining files");

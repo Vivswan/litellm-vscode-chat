@@ -47,13 +47,6 @@ function wire(context: vscode.ExtensionContext) {
 	});
 }
 
-/** Wait for a fire-and-forget effect, or give up; the prune runs off the critical path on purpose. */
-async function eventually(predicate: () => boolean): Promise<void> {
-	for (let attempt = 0; attempt < 50 && !predicate(); attempt += 1) {
-		await new Promise((resolve) => setTimeout(resolve, 5));
-	}
-}
-
 suite("extension/features/reviewComments wiring", () => {
 	test("disabled creates no controller, restores nothing, and still registers every command", async () => {
 		await withCommentSpies(async (spies: CommentSpies) => {
@@ -194,7 +187,7 @@ suite("extension/features/reviewComments wiring", () => {
 				});
 				const controller = spies.controllers[0];
 				assert.strictEqual(controller?.threads.length, 2, "both restore before the prune has run");
-				await eventually(() => context.writes.length > 0);
+				await context.firstWrite;
 				assert.strictEqual(
 					controller?.threads.filter((thread) => !thread.disposed).length,
 					1,
