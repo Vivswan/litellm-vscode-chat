@@ -44,6 +44,7 @@ A VS Code extension that puts LiteLLM behind GitHub Copilot Chat through the Lan
 - **Chat completions never retry; discovery GETs do.** Transport throws without logging, `src/provider/index.ts` is the provider's one logging boundary, and cancellation is `vscode.CancellationError`, never logged.
 - **Logs carry classifications, never response-derived text.** They feed the public issue report. `console.*` is banned in `src/` outside tests, and a localized error that can reach a log carries an English mirror (`MirroredError`).
 - **Secrets never cross the dashboard wire.** State pushes carry secret locations, not values; every Memento and SecretStorage key lives in `src/shared/config/storageKeys.ts`.
+- **Credentials are masked wherever text leaves the extension, nothing else is redacted**: the Logger owns the registered values and the one rule (`Logger.redact`: configured secret values and URL userinfo), every output door calls it (the channel behind `logs.redactSecrets`, the issue report, error text, Copy diagnostics, model-facing text), hosts and paths stay, and the export is written as stored.
 - **One l10n shape**: `import * as l10n from "@vscode/l10n"` and `l10n.t(...)`, resolved at call time, `{0}` interpolation. Logger output, the issue report, model-facing prompt text, and protocol terms stay English.
 
 ### Decisions a reader would otherwise reverse

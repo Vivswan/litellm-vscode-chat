@@ -102,7 +102,10 @@ const serverLabel = label.describe("The entry's label (its identity; the model p
  */
 export const AGENT_TOOL_INPUT_SCHEMAS = {
 	diagnostics: z.strictObject({
-		includeLogs: z.boolean().optional().describe("Include the recent log lines (redacted). Default false."),
+		includeLogs: z
+			.boolean()
+			.optional()
+			.describe("Include the recent log lines (configured credentials masked). Default false."),
 	}),
 	configuration: z.strictObject({
 		sections: z
@@ -282,7 +285,7 @@ export const AGENT_TOOL_MODEL_DESCRIPTIONS = {
 	diagnostics: [
 		"Read the LiteLLM extension's health: connection state, each configured LiteLLM server (label, base",
 		"URL, state, error classification, served model count, whether a key is configured), configuration",
-		"problems, the latest error, and optionally the recent log lines with secrets redacted. Call it first",
+		"problems, the latest error, and optionally the recent log lines. Call it first",
 		"when a user reports LiteLLM models missing, failing, or answering empty. Read-only.",
 	].join(" "),
 	configuration: [

@@ -19,12 +19,10 @@ import type { HeaderValue } from "./util/headers";
  *   secret ones flagged -> inline storage is legal for those; a SecretStorage blob is the alternative
  *   the current "i1:" fingerprint reads only the identity projection (serverSync/engine.ts groupIdentityArgs) -> is
  *     order-free
- *   a URL field (format "uri") names its nested key too -> URL_FIELD_KEYS derives every key a configured URL is
- *     serialized under
  */
 export const OPTIONAL_ENTRY_FIELDS = [
 	{ id: "apiKey", secret: true },
-	{ id: "oauthTokenUrl", secret: false, format: "uri", nestedKey: "tokenUrl" },
+	{ id: "oauthTokenUrl", secret: false, format: "uri" },
 	{ id: "oauthClientId", secret: false },
 	{ id: "oauthClientSecret", secret: true },
 	{ id: "oauthScopes", secret: false },
@@ -33,19 +31,6 @@ export const OPTIONAL_ENTRY_FIELDS = [
 ] as const;
 
 type OptionalEntryField = (typeof OPTIONAL_ENTRY_FIELDS)[number];
-
-/**
- * The keys a configured URL is serialized under, for a reader that must fail closed on a URL the parser refuses
- * (displayUrl's JSON replacer) and treat any other string as text: the required `baseUrl`, every optional field of
- * format "uri" with its nested key, and McpOptIn's one key.
- */
-export const URL_FIELD_KEYS: ReadonlySet<string> = new Set([
-	"baseUrl",
-	...OPTIONAL_ENTRY_FIELDS.flatMap((field) =>
-		"format" in field && field.format === "uri" ? [field.id, field.nestedKey] : []
-	),
-	"url",
-]);
 
 export type OptionalEntryFieldId = OptionalEntryField["id"];
 
@@ -200,9 +185,8 @@ const CREDENTIAL_HEADER_WORDS = new Set([
 
 /**
  * The ONE "this header carries a credential" judgment by NAME, for every reader that must treat a configured header
- * value as a secret (the known-value collector, model-facing output). Trimmed: the entry's own
- * virtual-key carriers, and any name one of whose words (split at non-alphanumerics) says so. The issue report's
- * redactSecrets keeps its own textual patterns: it finds header VALUES inside free text by shape, not names.
+ * value as a secret (the known-value collector, the agent tools' configuration read). Trimmed: the entry's own
+ * virtual-key carriers, and any name one of whose words (split at non-alphanumerics) says so.
  *   Authorization, Authentication, X-API-Key, X-Gateway-Token, " Cookie " -> credential
  *   Content-Type, X-Request-Id, X-Monkey, X-Hockey-Team   -> not
  */

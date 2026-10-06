@@ -94,8 +94,6 @@ export interface ImportPreviewSummary {
 
 /** Every dialog the flows show; fully fakeable, and dismissals map to undefined/false. */
 export interface SettingsTransferPrompts {
-	/** The export-time include/exclude-secrets modal; undefined on dismissal (silent abort). */
-	confirmSecrets(): Promise<"include" | "exclude" | undefined>;
 	/** The import preview modal; false on dismissal (silent abort, nothing written). */
 	confirmImport(summary: ImportPreviewSummary): Promise<boolean>;
 	/** One label's collision prompt; undefined on dismissal aborts the whole import. */
@@ -128,7 +126,8 @@ export interface SettingsTransferEnv {
 	readSnapshotSlot(): Promise<string | undefined>;
 	writeSnapshotSlot(serialized: string): Promise<void>;
 	clearSnapshotSlot(): Promise<void>;
-	showSaveDialog(defaultUri: vscode.Uri): Promise<vscode.Uri | undefined>;
+	/** `title` is the credentials warning; macOS shows no title on save dialogs, so the notice before it carries it. */
+	showSaveDialog(defaultUri: vscode.Uri, title: string): Promise<vscode.Uri | undefined>;
 	showOpenDialog(): Promise<vscode.Uri | undefined>;
 	fileSize(uri: vscode.Uri): Promise<number>;
 	readFile(uri: vscode.Uri): Promise<Uint8Array>;
@@ -220,22 +219,6 @@ export function renderImportPreview(summary: ImportPreviewSummary): string {
 /** The real dialogs; l10n resolves at call time (no module-level localized constants). */
 function createSettingsTransferPrompts(): SettingsTransferPrompts {
 	return {
-		confirmSecrets: async () => {
-			const include = l10n.t("Include Secrets");
-			const exclude = l10n.t("Exclude Secrets");
-			const choice = await vscode.window.showWarningMessage(
-				l10n.t("Include secret values in the exported file?"),
-				{
-					modal: true,
-					detail: l10n.t(
-						"Included secrets (API keys, client secrets, virtual key values) are written into the file in plaintext. Custom header values are exported as plain configuration either way."
-					),
-				},
-				include,
-				exclude
-			);
-			return choice === include ? "include" : choice === exclude ? "exclude" : undefined;
-		},
 		confirmImport: async (summary) => {
 			const proceed = l10n.t("Import");
 			const choice = await vscode.window.showInformationMessage(
@@ -310,7 +293,8 @@ export function createSettingsTransferEnv(
 		readSnapshotSlot: async () => context.secrets.get(PRE_IMPORT_SNAPSHOT_SECRET),
 		writeSnapshotSlot: async (serialized) => context.secrets.store(PRE_IMPORT_SNAPSHOT_SECRET, serialized),
 		clearSnapshotSlot: async () => context.secrets.delete(PRE_IMPORT_SNAPSHOT_SECRET),
-		showSaveDialog: async (defaultUri) => vscode.window.showSaveDialog({ defaultUri, filters: { JSON: ["json"] } }),
+		showSaveDialog: async (defaultUri, title) =>
+			vscode.window.showSaveDialog({ defaultUri, title, filters: { JSON: ["json"] } }),
 		showOpenDialog: async () => {
 			const picks = await vscode.window.showOpenDialog({
 				canSelectFiles: true,
@@ -339,7 +323,7 @@ function undoImportAction(env: SettingsTransferEnv): MessageAction {
 	return { label: l10n.t("Undo Import"), run: () => runUndoLastImportFlow(env) };
 }
 
-/** LiteLLM: Export Settings... - secrets modal, save dialog, tab-indented JSON write, counts toast. */
+/** LiteLLM: Export Settings... - the credentials warning, the save dialog, a tab-indented JSON write, a counts toast. */
 export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<void> {
 	try {
 		const probe = env.settings.snapshotReader();
@@ -350,12 +334,12 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			);
 			return;
 		}
-		const secretsChoice = await env.prompts.confirmSecrets();
-		if (secretsChoice === undefined) {
-			return;
-		}
+		// Shown before the dialog: macOS shows no title on a save dialog, and a warning after the write is too late.
+		const credentialsWarning = l10n.t("The file contains your server credentials in plain text, so keep it private.");
+		await env.prompts.notify("info", credentialsWarning);
 		const target = await env.showSaveDialog(
-			vscode.Uri.joinPath(vscode.Uri.file(env.homeDir()), "litellm-settings.json")
+			vscode.Uri.joinPath(vscode.Uri.file(env.homeDir()), "litellm-settings.json"),
+			credentialsWarning
 		);
 		if (target === undefined) {
 			return;
@@ -366,7 +350,6 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			readGlobalSetting: (key) => reader.inspect(key)?.globalValue,
 			readServerSecrets: (label) => env.readServerSecrets(label),
 			extensionVersion: env.extensionVersion,
-			includeSecrets: secretsChoice === "include",
 		});
 		await env.writeFile(target, Buffer.from(`${JSON.stringify(result.envelope, null, "\t")}\n`, "utf8"));
 
@@ -380,9 +363,6 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 					)
 				: l10n.t("LiteLLM: Exported {0}.", settingsPart),
 		];
-		if (secretsChoice === "include") {
-			notes.push(l10n.t("The file contains secret values in plaintext; store and share it carefully."));
-		}
 		if (result.unmaterializedSecretCount > 0) {
 			notes.push(
 				result.unmaterializedSecretCount === 1
@@ -403,23 +383,11 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 						)
 			);
 		}
-		if (result.omittedUnsanitizableCount > 0) {
-			notes.push(
-				result.omittedUnsanitizableCount === 1
-					? l10n.t("1 unrecognized part of the servers setting was omitted because it cannot be checked for secrets.")
-					: l10n.t(
-							"{0} unrecognized parts of the servers setting were omitted because they cannot be checked for secrets.",
-							result.omittedUnsanitizableCount
-						)
-			);
-		}
 		env.log("Settings export written", {
 			settings: result.settingCount,
 			servers: result.serverCount,
-			includeSecrets: secretsChoice === "include",
 			unmaterialized: result.unmaterializedSecretCount,
 			mismatched: result.mismatchedSecretCount,
-			omitted: result.omittedUnsanitizableCount,
 		});
 		await env.prompts.notify("info", notes.join(" "), [
 			{ label: l10n.t("Reveal File"), run: () => env.revealFile(target) },

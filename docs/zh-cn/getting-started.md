@@ -250,7 +250,7 @@ Copilot 的代理模式也可以读取并修改这个扩展自身的设置, 通�
 
 **读取工具**从扩展已经知道的内容作答, 不会触碰你的任何服务器。每个也可以在提示中通过它的 `#` 句柄单独调用:
 
-- `litellm_diagnostics` (`#litellmDiagnostics`): 连接状态、每个服务器一行 (label、base URL、状态、错误分类、提供的模型数)、配置问题、最新的错误, 以及按需提供的最近日志行。日志和错误文本经过与问题报告相同的脱敏处理。
+- `litellm_diagnostics` (`#litellmDiagnostics`): 连接状态、每个服务器一行 (label、base URL、状态、错误分类、提供的模型数)、配置问题、最新的错误, 以及按需提供的最近日志行, 已配置的凭据值和 URL 凭据会被遮盖。
 - `litellm_configuration` (`#litellmConfiguration`): 仪表板显示的一切 - 服务器及其设置和每个密钥存储在哪里 (绝不是值)、各设置及其所配置的作用域、模型、隐藏的组、目录状态和用量。可选的区块列表能让答案保持精简。
 - `litellm_inspect_model` (`#litellmInspectModel`): 一个模型的有效能力和参数, 每个值都标注来源 - 服务器报告、目录、你的记录, 或底线值。
 - `litellm_search_catalog` (`#litellmSearchCatalog`): 搜索内置的 OpenRouter 目录。
@@ -279,7 +279,7 @@ Copilot 的代理模式也可以读取并修改这个扩展自身的设置, 通�
 
 保留的密钥绝不跟随改变的主机。把条目移到另一个 base URL 同时保留其密钥会被拒绝, 密钥必须重新设置。
 
-**由代理决定何时调用工具**, 与上面的咨询工具一样, 所以要权衡离开机器的内容。读取工具的输出 - 服务器 label、base URL、模型 ID、脱敏后的日志 - 会发给代理所运行的模型: 云端模型, 或者选择器指向的你自己的某个 LiteLLM 模型。
+**由代理决定何时调用工具**, 与上面的咨询工具一样, 所以要权衡离开机器的内容。读取工具的输出 - 服务器 label、base URL、模型 ID、已遮盖凭据的日志行 - 会发给代理所运行的模型: 云端模型, 或者选择器指向的你自己的某个 LiteLLM 模型。
 
 仓库中的文件可能试图操纵这个代理, 这也是为什么在你不希望代理修改设置的机器上, 写入开关应保持关闭。
 
@@ -368,7 +368,7 @@ after:  {"context_length":200000}
 | LiteLLM: Set Server Secret | 把服务器的 API 密钥、OAuth 客户端密钥或虚拟密钥存入[密钥存储](servers.md#密钥与密钥存储) |
 | LiteLLM: Refresh Usage Now | 立即获取支出和预算数据, 不受轮询间隔约束 |
 | LiteLLM: Refresh OpenRouter Catalog | 按需刷新能力目录 ([模型](models.md#能力)) |
-| LiteLLM: Export Settings... | 把扩展的设置保存为 JSON 文件, 明确选择包含还是不含存储的密钥 |
+| LiteLLM: Export Settings... | 把扩展的设置保存为 JSON 文件, 包含存储的密钥, 并提醒该文件携带凭据 |
 | LiteLLM: Import Settings... | 合并之前导出的设置文件, 每个冲突的服务器都会询问 |
 | LiteLLM: Undo Last Settings Import | 把设置和密钥恢复到上次导入前的状态 |
 | LiteLLM: Generate Commit Message | 根据你已暂存的更改起草提交消息并填入源代码管理输入框 (选择加入; 见[配方](#用你自己的模型生成提交消息)) |

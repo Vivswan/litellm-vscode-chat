@@ -1,13 +1,15 @@
 /**
- * Pinned as whole outputs, because a shaped reply that drops a section or echoes an unredacted response body fails only
- * in the agent's context window, where no test would notice.
+ * Pinned as whole outputs, because a shaped reply that drops a section fails only in the agent's context window, where
+ * no test would notice.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import * as l10n from "@vscode/l10n";
+import type { DashboardState } from "../../../../../dashboard/viewModels";
 import type { AgentRequest } from "../../../../../extension/features/agentTools/planner";
 import {
+	CREDENTIAL_HEADER_PLACEHOLDER,
 	describeAdoption,
 	describeRecordChange,
 	describeServerChange,
@@ -29,8 +31,7 @@ const state = agentToolsState();
 const NO_SECRETS = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const;
 
 // A marker, not a key shape: the leak scanner must not trip on the test fixture itself.
-const LEAKED_MARKER = "bearer-marker-9f8e7d";
-const redact = (text: string): string => text.replaceAll(LEAKED_MARKER, "[redacted]");
+const BODY_MARKER = "bearer-marker-9f8e7d";
 
 describe("agentTools render", () => {
 	// The rows carry a failure as a cause key and no text; the agent reads the English rendering beside the key, so the
@@ -51,30 +52,65 @@ describe("agentTools render", () => {
 		]);
 	});
 
-	// Drifts silently: a probe failure's message carries the transport error, so a fail reply echoed verbatim hands the
-	// agent the response body.
-	test("a fail reply's message is redacted by shapeSubmission", () => {
+	// Drifts silently: the configuration read lands in the agent's context window, where no dashboard test would notice
+	// a header value leaving.
+	test("a configuration read hides every credential-bearing header value behind the placeholder, nothing else", () => {
+		const headers = {
+			"X-Team": "platform",
+			Authorization: "Bearer header-marker-Q7",
+			"X-Monkey": "tenant-marker-Q8",
+		};
+		const credentialed: DashboardState = {
+			...state,
+			servers: state.servers.map((server) =>
+				server.origin === "declared" && server.label === "Prod"
+					? { ...server, config: { ...server.config, virtualKeyHeader: "X-Monkey", headers } }
+					: server
+			),
+		};
+		const shaped = shapeConfiguration(credentialed, ["servers"]);
+		expect(shaped).toEqual({
+			servers: credentialed.servers.map((server) =>
+				server.origin === "declared" && server.label === "Prod"
+					? {
+							...server,
+							config: {
+								...server.config,
+								headers: {
+									"X-Team": "platform",
+									Authorization: CREDENTIAL_HEADER_PLACEHOLDER,
+									"X-Monkey": CREDENTIAL_HEADER_PLACEHOLDER,
+								},
+							},
+						}
+					: server
+			),
+			servedModelCount: credentialed.servedModelCount,
+		});
+		const rendered = renderJson(shaped);
+		expect(rendered).not.toContain("header-marker-Q7");
+		expect(rendered).not.toContain("tenant-marker-Q8");
+		expect(rendered).toContain("platform");
+	});
+
+	test("a fail reply's message comes out of shapeSubmission as the dashboard sent it", () => {
 		const request: AgentRequest = { method: "testServerDraft", payload: null };
-		const shaped = shapeSubmission(
-			request,
-			{
-				outcome: "validation-error",
-				reply: {
-					kind: "fail",
-					id: "x",
-					method: "testServerDraft",
-					message: `Probe failed: Authorization: Bearer ${LEAKED_MARKER}`,
-					failureKind: "operation",
-					classification: { kind: "auth", status: 401 },
-				},
+		const shaped = shapeSubmission(request, {
+			outcome: "validation-error",
+			reply: {
+				kind: "fail",
+				id: "x",
+				method: "testServerDraft",
+				message: `Probe failed: Authorization: Bearer ${BODY_MARKER}`,
+				failureKind: "operation",
+				classification: { kind: "auth", status: 401 },
 			},
-			redact
-		);
+		});
 		expect(shaped).toEqual({
 			method: "testServerDraft",
 			ok: false,
 			failureKind: "operation",
-			message: "Probe failed: Authorization: Bearer [redacted]",
+			message: `Probe failed: Authorization: Bearer ${BODY_MARKER}`,
 			classification: { kind: "auth", status: 401 },
 		});
 	});
@@ -100,12 +136,12 @@ describe("agentTools render", () => {
 		mcpEntryCount: 1,
 		latestError: {
 			source: "discovery",
-			message: `401 for ${LEAKED_MARKER}`,
-			stack: `stack ${LEAKED_MARKER}`,
+			message: `401 for ${BODY_MARKER}`,
+			stack: `stack ${BODY_MARKER}`,
 			timestamp: "2026-09-14T00:00:00Z",
 			classification: { kind: "auth", status: 401 },
 		},
-		recentLogs: [`sent ${LEAKED_MARKER}`, "plain line"],
+		recentLogs: [`sent ${BODY_MARKER}`, "plain line"],
 	};
 	const servers: readonly ServerStatus[] = [
 		{
@@ -135,67 +171,59 @@ describe("agentTools render", () => {
 		},
 	];
 
-	//   Drifts silently -> a response-derived string (latest error, log line) reaching the agent without the issue
-	//                      reporter's redaction, or the stack; a server row carries its cause, which renders in English
+	//   Drifts silently -> the stack reaching the agent, or the log lines riding along unasked; a server row carries
+	//                      its cause, which renders in English beside the row
 	test.each([
-		["with logs", true, 2],
-		["without logs", false, 1],
-	])(
-		"shapeDiagnostics %s redacts every response-derived string and carries no stack",
-		(_name, includeLogs, redactions) => {
-			const shaped = shapeDiagnostics(snapshot, servers, state.diagnostics, redact, includeLogs);
-			const text = JSON.stringify(shaped);
-			expect(text).not.toContain(LEAKED_MARKER);
-			expect(text).not.toContain("stack");
-			expect(text.split("[redacted]").length - 1).toBe(redactions);
-			expect("recentLogs" in shaped).toBe(includeLogs);
-			expect(shaped.servers).toEqual([
-				{
-					label: "Prod",
-					baseUrl: "http://prod.test",
-					state: "ok",
-					servedModelCount: 2,
-					lastChecked: "t1",
-					hasApiKey: true,
-					hasOAuth: undefined,
-					hasVirtualKey: undefined,
-					hiddenByRemoval: false,
-					modelInfoUnsupported: undefined,
-				},
-				{
-					label: "Dev",
-					baseUrl: "http://dev.test",
-					state: "error",
-					servedModelCount: 1,
-					lastChecked: "t2",
-					hasApiKey: true,
-					hasOAuth: undefined,
-					hasVirtualKey: true,
-					error: "Authentication failed for http://dev.test",
-					classification: { kind: "auth", status: 401 },
-					expected: false,
-					declaredModelCount: 1,
-				},
-			]);
-			expect(shaped.latestError).toEqual({
-				source: "discovery",
-				timestamp: "2026-09-14T00:00:00Z",
+		["with logs", true],
+		["without logs", false],
+	])("shapeDiagnostics %s carries the texts as logged, the cause rendered, and no stack", (_name, includeLogs) => {
+		const shaped = shapeDiagnostics(snapshot, servers, state.diagnostics, includeLogs);
+		const text = JSON.stringify(shaped);
+		expect(text).not.toContain("stack");
+		expect(shaped.recentLogs).toEqual(includeLogs ? snapshot.recentLogs : undefined);
+		expect(shaped.servers).toEqual([
+			{
+				label: "Prod",
+				baseUrl: "http://prod.test",
+				state: "ok",
+				servedModelCount: 2,
+				lastChecked: "t1",
+				hasApiKey: true,
+				hasOAuth: undefined,
+				hasVirtualKey: undefined,
+				hiddenByRemoval: false,
+				modelInfoUnsupported: undefined,
+			},
+			{
+				label: "Dev",
+				baseUrl: "http://dev.test",
+				state: "error",
+				servedModelCount: 1,
+				lastChecked: "t2",
+				hasApiKey: true,
+				hasOAuth: undefined,
+				hasVirtualKey: true,
+				error: "Authentication failed for http://dev.test",
 				classification: { kind: "auth", status: 401 },
-				message: "401 for [redacted]",
-			});
-		}
-	);
+				expected: false,
+				declaredModelCount: 1,
+			},
+		]);
+		expect(shaped.latestError).toEqual({
+			source: "discovery",
+			timestamp: "2026-09-14T00:00:00Z",
+			classification: { kind: "auth", status: 401 },
+			message: `401 for ${BODY_MARKER}`,
+		});
+	});
 
-	// Drifts silently: the dashboard accepts "http://alice:pw@host" as a base URL, so a configuration read or a save
-	// card would hand the agent the password with no error anywhere.
-	test("a base URL's userinfo never reaches a rendered result or card", () => {
-		// A password with a space defeats the text scrub (it stops at whitespace); the URL fields are rebuilt from
-		// parsed components instead.
-		const secret = "url secret 57";
-		const withCredentials = `http://alice:${secret}@localhost:4000`;
-		const tokenUrl = `https://bob:${secret}@idp.test/token`;
-		// Nested as a declared row's config nests them: the token URL and the MCP URL sit below the row, where a
-		// top-level field scrub would miss them.
+	// Drifts silently: a result or card reaches the agent's context window alone, where no test looks; every exit
+	// passes the one output door, so the userinfo goes and the host stays.
+	test("a base URL keeps its host and loses its userinfo in every result and card", () => {
+		const withCredentials = "http://alice:url-secret-57@localhost:4000";
+		const tokenUrl = "https://bob:url-secret-57@idp.test/token";
+		const shownBase = "http://[redacted]@localhost:4000";
+		const shownToken = "https://[redacted]@idp.test/token";
 		const credState = makeState({
 			servers: [
 				makeExternalServer({ label: "Cred", baseUrl: withCredentials }),
@@ -210,75 +238,33 @@ describe("agentTools render", () => {
 				}),
 			],
 		});
-		const configuration = renderJson(shapeConfiguration(credState, ["servers"]));
-		expect(configuration).not.toContain(secret);
-		expect(configuration).toContain("http://localhost:4000");
-		expect(configuration).toContain("https://idp.test/token");
-		const card = describeServerChange(
-			"Cred",
-			{ baseUrl: "http://old.test" },
-			{ baseUrl: withCredentials, oauthTokenUrl: tokenUrl, mcp: { url: tokenUrl } },
-			[],
-			[]
-		);
-		expect(card).not.toContain(secret);
-		expect(card).toContain("//localhost:4000");
-		// Dropping the credentials is itself a change: both sides display the same host, and the card must still list
-		// the field.
-		const dropCredentials = describeServerChange(
-			"Cred",
-			{ baseUrl: withCredentials },
-			{ baseUrl: "http://localhost:4000" },
-			[],
-			[]
-		);
-		expect(dropCredentials).toContain("baseUrl:");
-		expect(dropCredentials).toMatch(
-			/baseUrl: "http:\/\/localhost:4000" \(carries text the card does not show[^\n]*-> "http:\/\/localhost:4000"/
-		);
-		// A value that stores credentials the card cannot show is annotated on every card kind, so accepting it is an
-		// informed choice.
-		const recordCard = describeRecordChange(
-			"parameters",
-			"m",
-			undefined,
-			{ webhook: withCredentials },
-			"global settings"
-		);
-		expect(recordCard).toContain("(carries text the card does not show, such as URL credentials)");
-		expect(recordCard).not.toContain(secret);
-		const settingCard = describeSettingChange("usage.currencySymbol", "$", withCredentials, null);
-		expect(settingCard).toContain("(carries text the card does not show, such as URL credentials)");
-		const adoption = describeAdoption({ label: "Cred", baseUrl: withCredentials }, "Imported", {});
-		expect(adoption).toContain("the stored URL carries credentials the card does not show");
-		expect(adoption).not.toContain(secret);
-		expect(describeAdoption({ label: "Plain", baseUrl: "http://plain.test" }, "Imported", {})).not.toContain(
-			"carries credentials"
-		);
-		expect(dropCredentials).not.toContain("(no field changes)");
-		expect(dropCredentials).not.toContain(secret);
-		// One password replaced by another renders alike on both sides; the card still says the hidden text changed.
-		const rotated = describeServerChange(
-			"Cred",
-			{ baseUrl: withCredentials },
-			{ baseUrl: "http://alice:new-pass-99@localhost:4000" },
-			[],
-			[]
-		);
-		expect(rotated).toContain("(the hidden text changed)");
-		expect(rotated).not.toContain("new-pass-99");
-		expect(rotated).not.toContain(secret);
-		// The rebuild is per string: a text-level pass over the serialized card ran from one field's "//" to the next
-		// field's "@" and ate the JSON between, showing the wrong webhook and hiding the email.
-		const neighbours = describeRecordChange(
-			"parameters",
-			"m",
-			undefined,
-			{ webhook: "https://hooks.example", email: "user@example.com" },
-			"global settings"
-		);
-		expect(neighbours).toContain('"webhook":"https://hooks.example"');
-		expect(neighbours).toContain('"email":"user@example.com"');
+		const surfaces: readonly [name: string, rendered: string, expected: string][] = [
+			["configuration read", renderJson(shapeConfiguration(credState, ["servers"])), shownBase],
+			["configuration read, nested", renderJson(shapeConfiguration(credState, ["servers"])), shownToken],
+			[
+				"server card",
+				describeServerChange("Cred", { baseUrl: "http://old.test" }, { baseUrl: withCredentials }, [], []),
+				`baseUrl: "http://old.test" -> "${shownBase}"`,
+			],
+			[
+				"record card",
+				describeRecordChange("parameters", "m", undefined, { webhook: withCredentials }, "global settings"),
+				`{"webhook":"${shownBase}"}`,
+			],
+			[
+				"setting card",
+				describeSettingChange("usage.currencySymbol", "$", withCredentials, null),
+				`after:  "${shownBase}"`,
+			],
+			[
+				"adoption card",
+				describeAdoption({ label: "Cred", baseUrl: withCredentials }, "Imported", {}),
+				`adopt provider group "Cred" at ${shownBase} as servers entry "Imported"`,
+			],
+		];
+		for (const [name, rendered, expected] of surfaces) {
+			expect(rendered, name).toContain(expected);
+		}
 	});
 
 	// Drifts silently: a record key is agent-written text; three backticks in it would close a fixed fence and let the

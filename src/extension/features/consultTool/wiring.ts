@@ -6,7 +6,7 @@ import { CONSULT_TOOL_READY_CONTEXT_KEY, TOOL_NAME } from "../../../shared/confi
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getFeatureModelRef, isFeatureEnabled } from "../../../shared/config/settings";
-import type { Logger } from "../../../shared/logger";
+import { Logger } from "../../../shared/logger";
 import { localizedError } from "../../../shared/mirroredError";
 import { featureChatSend } from "../featureChatSend";
 import {
@@ -199,16 +199,16 @@ class ConsultTool implements vscode.LanguageModelTool<ConsultToolInput> {
 	}
 
 	/**
-	 * A counting failure must not fail the consultation, since the answer is already in hand, and its log line
-	 * is a fixed classification because the counter's own message is the one error on this path that could
-	 * quote the text it was counting.
+	 * The reply passes the output door before the budget cut, so a cut never falls inside a value. A counting failure
+	 * must not fail the consultation, since the answer is already in hand, and its log line is a fixed classification
+	 * because the counter's own message is the one error on this path that could quote the text it was counting.
 	 */
 	private async fitReply(
 		reply: string,
 		options: vscode.LanguageModelToolTokenizationOptions | undefined,
 		token: vscode.CancellationToken
 	): Promise<string> {
-		const shaped = shapeConsultResult(reply).value;
+		const shaped = Logger.redact(shapeConsultResult(reply).value);
 		const tokenization = boundTokenization(options, token);
 		if (tokenization === undefined) {
 			return shaped;

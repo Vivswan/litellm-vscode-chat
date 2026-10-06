@@ -108,6 +108,8 @@ export interface RecordedEnv {
 	/** The visible litellm-vscode-chat.* values; reads reflect landed writes like the real configuration. */
 	settingValues: Map<string, unknown>;
 	commands: [string, ...unknown[]][];
+	/** Every text handed to the clipboard, after the output door. */
+	clipboard: string[];
 	/** Every writeServersSetting call, whole arrays. */
 	serverWrites: unknown[][];
 	/** Every storeServerSecret call: label, field, value. */
@@ -194,6 +196,7 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		removals: [],
 		settingValues: new Map(),
 		commands: [],
+		clipboard: [],
 		serverWrites: [],
 		secretOps: [],
 		secretOwners: [],
@@ -236,6 +239,9 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			readSetting: (key) => recorded.settingValues.get(key),
 			executeCommand: async (command, ...args) => {
 				recorded.commands.push([command, ...args]);
+			},
+			writeClipboard: async (text) => {
+				recorded.clipboard.push(text);
 			},
 			readServersSetting: () => currentSetting,
 			writeServersSetting: async (write) => {

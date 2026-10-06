@@ -667,9 +667,7 @@ suite("extension/features/mcp", () => {
 			});
 		});
 
-		test("the log line redacts URL-embedded credentials", async () => {
-			// A configured URL may embed userinfo, and log lines feed public issue reports; the redaction is enforced
-			// in the code, not promised in prose.
+		test("the log line carries the URL as configured; the Logger's channel mask is the one redaction", async () => {
 			const logged: [string, unknown?][] = [];
 			const provider = makeProvider({ logged });
 			const servers = [entry({ mcp: { url: "https://user:hunter2@gw.example/mcp" } })];
@@ -677,9 +675,7 @@ suite("extension/features/mcp", () => {
 			assert.ok(definition);
 			await withConfig({ servers }, () => resolve(provider, definition));
 
-			const rendered = JSON.stringify(logged);
-			assert.ok(!rendered.includes("hunter2"), "no log line carries the embedded credential");
-			assert.ok(rendered.includes("gw.example/mcp"), "the endpoint itself still identifies the server");
+			assert.ok(JSON.stringify(logged).includes("https://user:hunter2@gw.example/mcp"), JSON.stringify(logged));
 		});
 	});
 

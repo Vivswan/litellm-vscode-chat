@@ -1,6 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../provider/catalog/groupModels";
+import { thrownErrorDisplayText } from "../../provider/transport/errorMapping";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { failureClassification, failureTexts } from "../../shared/failureCause";
@@ -458,7 +459,7 @@ async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promi
 		try {
 			await openUrl(GITHUB_OPEN_BUG_ISSUES_URL);
 		} catch (error) {
-			const detail = error instanceof Error ? error.message : String(error);
+			const detail = thrownErrorDisplayText(error);
 			void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the issues list - {0}", detail));
 		}
 		return;
@@ -467,7 +468,7 @@ async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promi
 		try {
 			await reportAnyway();
 		} catch (error) {
-			const detail = error instanceof Error ? error.message : String(error);
+			const detail = thrownErrorDisplayText(error);
 			void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the issue report - {0}", detail));
 		}
 	}
@@ -626,7 +627,6 @@ export class SessionLogTee implements ErrorRecorder {
 	constructor(private readonly inner: ErrorRecorder) {}
 
 	appendLog(line: string): void {
-		this.inner.appendLog(line);
 		this.push(line);
 	}
 

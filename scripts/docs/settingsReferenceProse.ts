@@ -153,6 +153,11 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		zhCn: "在输入框提示中输入凭据值时进行遮盖。仪表板的密钥字段始终遮盖, 各带自己的「显示」开关, 与此设置无关",
 		zhTw: "在輸入方塊提示中輸入認證值時進行遮罩。儀表板的祕密欄位始終遮罩, 各帶自己的「顯示」切換, 與此設定無關",
 	},
+	"logs.redactSecrets": {
+		en: "Mask configured secret values and URL credentials in the LiteLLM output channel; the issue report masks them regardless. Off, the channel shows each line as logged",
+		zhCn: "在 LiteLLM 输出通道中遮盖已配置的密钥值和 URL 凭据; 问题报告无论如何都会遮盖。关闭后, 通道按原样显示每一行",
+		zhTw: "在 LiteLLM 輸出通道中遮罩已設定的密鑰值與 URL 認證; 問題回報無論如何都會遮罩。關閉後, 通道按原樣顯示每一行",
+	},
 	"ui.theme": {
 		en: 'How the dashboard colors itself: `"auto"` follows your VS Code theme, `"light"` and `"dark"` hold still while the editor changes around them. [Appearance notes below](#appearance)',
 		zhCn: '仪表板如何着色: `"auto"` 跟随你的 VS Code 主题, `"light"` 和 `"dark"` 在编辑器变化时保持不动。[外观说明见下](#外观)',
@@ -260,11 +265,11 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 	"agentTools.enabled": {
 		en:
 			"Registers the read tools Copilot's agent can call: diagnostics, servers, models, effective capabilities and " +
-			"parameters, recent logs with secrets redacted. Off by default; each tool that changes something has its own " +
+			"parameters, recent logs. Off by default; each tool that changes something has its own " +
 			"switch below. Recipe: [Let an agent manage your LiteLLM " +
 			"setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
-		zhCn: "注册 Copilot 的代理可以调用的读取工具: 诊断、服务器、模型、有效的能力和参数、已脱敏密钥的近期日志。默认关闭; 每个会做出更改的工具在下方都有自己的开关。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
-		zhTw: "註冊 Copilot 的代理可以呼叫的讀取工具: 診斷、伺服器、模型、有效的能力和參數、已遮蔽密鑰的近期日誌。預設關閉; 每個會做出變更的工具在下方都有自己的開關。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+		zhCn: "注册 Copilot 的代理可以调用的读取工具: 诊断、服务器、模型、有效的能力和参数、近期日志。默认关闭; 每个会做出更改的工具在下方都有自己的开关。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "註冊 Copilot 的代理可以呼叫的讀取工具: 診斷、伺服器、模型、有效的能力和參數、近期日誌。預設關閉; 每個會做出變更的工具在下方都有自己的開關。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
 	},
 	"agentTools.setSetting.enabled": {
 		en:

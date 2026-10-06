@@ -229,6 +229,7 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	readResolvedModels: z.null(),
 	searchCatalog: z.strictObject({ query: z.string().max(200) }),
 	executeCommand: z.strictObject({ command: asEnum(DASHBOARD_COMMAND_IDS) }),
+	copyDiagnostics: z.strictObject({ text: z.string().max(WIRE_LIMITS.copyText) }),
 	syncModels: z.null(),
 };
 
@@ -285,6 +286,7 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	readResolvedModels: requestSchema("readResolvedModels"),
 	searchCatalog: requestSchema("searchCatalog"),
 	executeCommand: requestSchema("executeCommand"),
+	copyDiagnostics: requestSchema("copyDiagnostics"),
 	syncModels: requestSchema("syncModels"),
 };
 

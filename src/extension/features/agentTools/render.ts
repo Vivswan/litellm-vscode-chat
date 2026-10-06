@@ -1,10 +1,11 @@
 import * as l10n from "@vscode/l10n";
-import type { DashboardState } from "../../../dashboard/viewModels";
+import type { DashboardServer, DashboardState } from "../../../dashboard/viewModels";
 import type { DashboardSubmission } from "../../../extension/dashboard/panel";
 import { failureTexts } from "../../../shared/failureCause";
+import { Logger } from "../../../shared/logger";
+import { isCredentialHeader } from "../../../shared/serverEntry";
 import type { ServerStatus } from "../../../shared/servers";
 import { statusClassification } from "../../../shared/servers";
-import { displayUrl, urlScrubbingReplacer } from "../../../shared/util/displayUrl";
 import type { DiagnosticsSnapshot } from "../../ui/issueReporter";
 import type { ConfigurationSection } from "./inputSchema";
 import type { AgentRequest, RefusalReason, SecretPrompt } from "./planner";
@@ -17,25 +18,20 @@ const AGENT_RESULT_CHAR_LIMIT = 60_000;
 
 const TRUNCATION_MARKER = '\n... [truncated: ask for fewer "sections", or inspect one model at a time]';
 
-/**
- * JSON for the model, cut at the bound with a visible marker. A base URL is user configuration and may carry
- * `user:password@`, so every string is scrubbed as it serializes (urlScrubbingReplacer, per string and never over the
- * text, where a pass would run from one field's "//" to the next field's "@").
- */
+/** JSON for the model, through the one output door, cut at the bound with a visible marker. */
 export function renderJson(value: unknown): string {
-	const text = JSON.stringify(value, urlScrubbingReplacer(), 2) ?? "null";
+	const text = Logger.redact(JSON.stringify(value, null, 2) ?? "null");
 	if (text.length <= AGENT_RESULT_CHAR_LIMIT) {
 		return text;
 	}
 	return `${text.slice(0, AGENT_RESULT_CHAR_LIMIT - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
 }
 
-/** The diagnostics read: the report's snapshot plus the per-server rows the report withholds, logs redacted. */
+/** The diagnostics read: the report's snapshot plus the per-server rows the report withholds. */
 export function shapeDiagnostics(
 	snapshot: DiagnosticsSnapshot,
 	servers: readonly ServerStatus[],
 	problems: DashboardState["diagnostics"],
-	redact: (text: string) => string,
 	includeLogs: boolean
 ): Record<string, unknown> {
 	return {
@@ -72,13 +68,37 @@ export function shapeDiagnostics(
 						source: snapshot.latestError.source,
 						timestamp: snapshot.latestError.timestamp,
 						classification: snapshot.latestError.classification,
-						message: redact(snapshot.latestError.message),
+						message: snapshot.latestError.message,
 					},
-		...(includeLogs ? { recentLogs: snapshot.recentLogs.map(redact) } : {}),
+		...(includeLogs ? { recentLogs: snapshot.recentLogs } : {}),
 	};
 }
 
-/** A failing row's cause renders in English for the model beside the row (the rows themselves carry no text). */
+/**
+ * What a configuration read shows in place of a credential-bearing custom header's value: the header's name is the
+ * agent's to see (it edits the entry), its value is not. A header is a credential by isCredentialHeader, the entry's
+ * own carrier included.
+ */
+export const CREDENTIAL_HEADER_PLACEHOLDER = "<redacted header value>";
+
+function withCredentialHeaderValuesHidden(server: DashboardServer): DashboardServer {
+	if (server.origin !== "declared" || server.config.headers === undefined) {
+		return server;
+	}
+	const carriers = typeof server.config.virtualKeyHeader === "string" ? [server.config.virtualKeyHeader] : [];
+	const headers = Object.fromEntries(
+		Object.entries(server.config.headers).map(([name, value]) => [
+			name,
+			isCredentialHeader(name, carriers) ? CREDENTIAL_HEADER_PLACEHOLDER : value,
+		])
+	);
+	return { ...server, config: { ...server.config, headers } };
+}
+
+/**
+ * The read hides credential header values by structure (withCredentialHeaderValuesHidden) and renders a failing
+ * row's cause in English beside the row (the rows themselves carry no text); every other text is as held.
+ */
 export function shapeConfiguration(
 	state: DashboardState,
 	sections: readonly ConfigurationSection[] | undefined
@@ -87,7 +107,9 @@ export function shapeConfiguration(
 		sections ?? ["servers", "settings", "models", "hiddenGroups", "catalog", "usage"]
 	);
 	const servers = state.servers.map((server) =>
-		server.state === "error" ? { ...server, error: failureTexts(server.cause, server.baseUrl).english } : server
+		withCredentialHeaderValuesHidden(
+			server.state === "error" ? { ...server, error: failureTexts(server.cause, server.baseUrl).english } : server
+		)
 	);
 	return {
 		...(wanted.has("servers") ? { servers, servedModelCount: state.servedModelCount } : {}),
@@ -99,14 +121,7 @@ export function shapeConfiguration(
 	};
 }
 
-/**
- * A failure message can carry a probe's transport error, so it is redacted like the configuration rows.
- */
-export function shapeSubmission(
-	request: AgentRequest,
-	submission: DashboardSubmission,
-	redact: (text: string) => string
-): Record<string, unknown> {
+export function shapeSubmission(request: AgentRequest, submission: DashboardSubmission): Record<string, unknown> {
 	switch (submission.outcome) {
 		case "ok": {
 			const reply = submission.reply;
@@ -124,7 +139,7 @@ export function shapeSubmission(
 				method: request.method,
 				ok: false,
 				failureKind: submission.reply.failureKind,
-				message: redact(submission.reply.message),
+				message: submission.reply.message,
 				...(submission.reply.classification !== undefined ? { classification: submission.reply.classification } : {}),
 				...(submission.issues !== undefined ? { issues: submission.issues } : {}),
 			};
@@ -151,9 +166,9 @@ export function refusalText(reason: RefusalReason, detail: Readonly<Record<strin
 		case "server-not-declared":
 			return `"${detail.label}" is a provider group outside the servers setting; call litellm_remove_server with action "hide" and its baseUrl.`;
 		case "external-group-not-found":
-			return `No external provider group is at "${displayUrl(detail.baseUrl ?? "")}"${detail.label !== undefined ? ` labeled "${detail.label}"` : ""}.`;
+			return `No external provider group is at "${detail.baseUrl ?? ""}"${detail.label !== undefined ? ` labeled "${detail.label}"` : ""}.`;
 		case "hidden-group-not-found":
-			return `No removed group is labeled "${detail.label}" at "${displayUrl(detail.baseUrl ?? "")}". Read the configuration tool's "hiddenGroups" section; only groups with reason "removed" can be unhidden.`;
+			return `No removed group is labeled "${detail.label}" at "${detail.baseUrl ?? ""}". Read the configuration tool's "hiddenGroups" section; only groups with reason "removed" can be unhidden.`;
 		case "secret-locations-unproven":
 			return `The entry "${detail.label}" has not finished loading its secret locations; call again in a moment.`;
 		case "secret-value-refused":
@@ -166,6 +181,8 @@ export function refusalText(reason: RefusalReason, detail: Readonly<Record<strin
 			);
 		case "base-url-required":
 			return `"${detail.label}" needs a baseUrl.`;
+		case "credential-header-placeholder":
+			return `headers ${detail.headers} of "${detail.label}" carry the placeholder the configuration read shows for a credential header; re-enter the value, the configuration read hides header values.`;
 		case "feature-model-not-set":
 			return `No model is picked for ${detail.feature}; set "${detail.feature}.model" first.`;
 		case "model-not-found":
@@ -183,9 +200,19 @@ export function refusalText(reason: RefusalReason, detail: Readonly<Record<strin
 // Confirmation cards: what the user sees before a write runs
 // ---------------------------------------------------------------------------
 
-/** The fence outruns every backtick run in the content, so an agent-written key cannot close the card early. */
+/** A confirmation card: its title through the one output door here, its body through fenced by its describe* function. */
+export function confirmationCard(title: string, message: string): ConfirmationCard {
+	return { title: Logger.redact(title), message };
+}
+
+export interface ConfirmationCard {
+	readonly title: string;
+	readonly message: string;
+}
+
+/** A confirmation card's body, through the one output door, inside a fence no backtick run in it can close. */
 function fenced(lines: readonly string[]): string {
-	const body = lines.join("\n");
+	const body = Logger.redact(lines.join("\n"));
 	let longestRun = 0;
 	for (const run of body.matchAll(/`+/g)) {
 		longestRun = Math.max(longestRun, run[0].length);
@@ -194,16 +221,8 @@ function fenced(lines: readonly string[]): string {
 	return `${fence}\n${body}\n${fence}`;
 }
 
-/** Card values are scrubbed as results are. */
-function json(value: unknown): string {
-	return JSON.stringify(value, urlScrubbingReplacer()) ?? "undefined";
-}
-
 function shown(value: unknown): string {
-	const rendered = json(value);
-	return rendered === (JSON.stringify(value) ?? "undefined")
-		? rendered
-		: `${rendered} ${l10n.t("(carries text the card does not show, such as URL credentials)")}`;
+	return JSON.stringify(value) ?? "undefined";
 }
 
 function valueLabels(): { readonly before: string; readonly after: string } {
@@ -257,15 +276,10 @@ export function describeServerChange(
 	for (const key of [...keys].sort()) {
 		const previous = before?.[key];
 		const next = after[key];
-		// Compared raw, rendered through shown(): dropping or replacing a URL's credentials is a change the card must
-		// list, and the side that carries them says so.
 		if (JSON.stringify(previous) !== JSON.stringify(next)) {
 			const shownPrevious = previous === undefined ? l10n.t("(absent)") : shown(previous);
 			const shownNext = next === undefined ? l10n.t("(absent)") : shown(next);
-			// Both sides can render alike when only the hidden text changed (one password replaced by another), so that
-			// case is named too.
-			const hiddenChanged = shownPrevious === shownNext ? ` ${l10n.t("(the hidden text changed)")}` : "";
-			lines.push(`${key}: ${shownPrevious} -> ${shownNext}${hiddenChanged}`);
+			lines.push(`${key}: ${shownPrevious} -> ${shownNext}`);
 		}
 	}
 	for (const line of secrets) {
@@ -286,12 +300,8 @@ export function describeAdoption(
 	label: string,
 	locations: Readonly<Partial<Record<string, "settings" | "secure">>>
 ): string {
-	const shownUrl = displayUrl(source.baseUrl);
-	const heading = l10n.t('adopt provider group "{0}" at {1} as servers entry "{2}"', source.label, shownUrl, label);
 	const lines = [
-		shownUrl === source.baseUrl
-			? heading
-			: `${heading} ${l10n.t("(the stored URL carries credentials the card does not show; they are copied as-is)")}`,
+		l10n.t('adopt provider group "{0}" at {1} as servers entry "{2}"', source.label, source.baseUrl, label),
 	];
 	for (const field of ["apiKey", "oauthClientSecret", "virtualKeyValue"]) {
 		lines.push(l10n.t("{0}: copied to {1} storage if the group holds one", field, locations[field] ?? "secure"));

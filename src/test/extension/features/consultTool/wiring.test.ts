@@ -19,6 +19,7 @@ import { updateServerSecret } from "../../../../extension/servers/serverSync/sec
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { CONSULT_TOOL_READY_CONTEXT_KEY, TOOL_NAME } from "../../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../../shared/config/settingSpec";
+import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";
 import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
@@ -191,6 +192,41 @@ suite("extension/features/consultTool wiring", () => {
 		assert.ok(text.length <= 400, `the emitted result fits the budget the host advertised: ${text.length}`);
 		assert.ok(text.includes(REPLY_TRUNCATION_MARKER), "the cut is marked so the caller knows the answer is partial");
 		assert.ok(text.startsWith("RRR"), "the answer is cut from the end, keeping its opening");
+	});
+
+	test("the reply passes the output door before the budget cut, so a value astride the cut leaves no head", async () => {
+		// 275 x's put the 40-character key across the 352-character budget: cut first, its head would stay in the part.
+		const key = `sk-live-${"A".repeat(32)}`;
+		Logger.registerSecrets([key]);
+		mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply(`${"x".repeat(275)}${key}${"y".repeat(100)}`)));
+		const tokenizationOptions: vscode.LanguageModelToolTokenizationOptions = {
+			tokenBudget: 352,
+			countTokens: (text: string) => Promise.resolve(text.length),
+		};
+		const result = await withWiringSpies(async (spies) =>
+			withConfig(ENABLED_CONFIG, async () => {
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
+				return invokeRecorded(spies, { question: "Is this safe?" }, tokenizationOptions);
+			})
+		);
+		const text = resultText(result);
+		assert.ok(text.length <= 352, `the emitted result fits the budget: ${text.length}`);
+		assert.ok(text.includes(`${"x".repeat(275)}sk-liv...y`), `the marker stands whole before the cut: ${text}`);
+		assert.ok(!text.includes("sk-live-A"), `the head of the key leaked: ${text}`);
+		assert.ok(text.includes(REPLY_TRUNCATION_MARKER), "the cut is marked");
+	});
+
+	test("the whole reply passes the output door: a configured value and a URL's userinfo come back masked", async () => {
+		const key = `sk-live-${"A".repeat(32)}`;
+		Logger.registerSecrets([key]);
+		mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply(`Use ${key} at http://bob:pw@hub.test/v1.`)));
+		const result = await withWiringSpies(async (spies) =>
+			withConfig(ENABLED_CONFIG, async () => {
+				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
+				return invokeRecorded(spies, { question: "Which key?" });
+			})
+		);
+		assert.strictEqual(resultText(result), "Use sk-liv... at http://[redacted]@hub.test/v1.");
 	});
 
 	test("no tokenization options means no known budget: the reply travels whole rather than under a guessed one", async () => {

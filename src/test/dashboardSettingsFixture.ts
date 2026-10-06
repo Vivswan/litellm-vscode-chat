@@ -26,6 +26,7 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 		booleans: {
 			"chat.promptCaching": true,
 			"ui.maskSecretInputs": true,
+			"logs.redactSecrets": true,
 			"models.openRouterCatalog": true,
 			"inlineCompletions.enabled": false,
 			"commitGeneration.enabled": false,
@@ -57,6 +58,7 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 			booleans: {
 				"chat.promptCaching": null,
 				"ui.maskSecretInputs": null,
+				"logs.redactSecrets": null,
 				"models.openRouterCatalog": null,
 				"inlineCompletions.enabled": null,
 				"commitGeneration.enabled": null,

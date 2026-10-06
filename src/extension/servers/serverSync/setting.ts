@@ -242,7 +242,6 @@ function assignNestedSecrets(auth: Readonly<Record<string, unknown>>, fields: Fl
  * The collectable view of EVERY raw record, over-inclusive by design: every string at every secret position is a
  * value, the one the parser selects and the ones it passes over, in an entry it accepts or rejects (an auth conflict,
  * a bad URL), since a line can quote any of them. SECRET_FIELD_NESTED_PATHS stays the one table of the positions.
- *   URL fields    -> baseUrl, the flat and the nested token URL, mcp.url
  *   secret values -> every flat secret field and every nested position of the table
  *   headers       -> every raw header entry with a scalar value, the normalizer's rejections included
  *   carriers      -> the flat virtualKeyHeader and the header beside each nested virtual-key value
@@ -264,12 +263,6 @@ export function collectableEntries(raw: unknown): CollectableEntry[] {
 			}
 		}
 		return {
-			urls: strings([
-				record.baseUrl,
-				record.oauthTokenUrl,
-				valueAt(record, ["auth", "oauth", "tokenUrl"]),
-				valueAt(record, ["mcp", "url"]),
-			]),
 			secrets: strings(
 				SECRET_FIELD_IDS.flatMap((id) => [
 					record[id],

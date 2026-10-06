@@ -13,7 +13,6 @@ import type { Logger } from "../../../shared/logger";
 import { localizedError } from "../../../shared/mirroredError";
 import type { SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
-import { displayUrl } from "../../../shared/util/displayUrl";
 import { isRecord } from "../../../shared/util/json";
 import type { DashboardController } from "../../dashboard/panel";
 import type { DeclaredServerView } from "../../servers/serverSync";
@@ -21,7 +20,6 @@ import type { SettingsAccess } from "../../settingsAccess";
 import { resolveConfiguredScope } from "../../settingsAccess";
 import { buildDiagnosticsSnapshot } from "../../ui/diagnostics";
 import type { IssueReporter } from "../../ui/issueReporter";
-import { redactSecrets } from "../../ui/issueReporter";
 import type { ConnectionStatus } from "../../ui/status";
 import { statusServerStatuses } from "../../ui/status";
 import { featureDisabledMessage, featureDisabledMessageEnglish } from "../featureGate";
@@ -42,6 +40,8 @@ import {
 	withSecretValues,
 } from "./planner";
 import {
+	type ConfirmationCard,
+	confirmationCard,
 	describeAction,
 	describeAdoption,
 	describeRecordChange,
@@ -176,7 +176,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 				};
 	}
 
-	private confirmationCard(raw: unknown): { readonly title: string; readonly message: string } | undefined {
+	private confirmationCard(raw: unknown): ConfirmationCard | undefined {
 		const state = this.deps.dashboard.readState();
 		switch (this.id) {
 			case "setSetting": {
@@ -191,15 +191,15 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					return undefined;
 				}
 				const inspection = this.deps.settings.inspect(setting);
-				return {
-					title: l10n.t("Change the LiteLLM setting {0}?", setting),
-					message: describeSettingChange(
+				return confirmationCard(
+					l10n.t("Change the LiteLLM setting {0}?", setting),
+					describeSettingChange(
 						setting,
 						this.deps.settings.readEffective(setting),
 						value,
 						inspection === undefined ? null : resolveConfiguredScope(inspection)
-					),
-				};
+					)
+				);
 			}
 			case "editModelRecords": {
 				const parsed = parseAgentToolInput("editModelRecords", raw);
@@ -229,10 +229,10 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 									: state.settings.modelParameters.editScope
 							)
 						: l10n.t('servers entry "{0}"', input.server);
-				return {
-					title: l10n.t("Edit the LiteLLM model record {0}?", input.key),
-					message: describeRecordChange(input.kind, input.key, current[input.key], patched[input.key], target),
-				};
+				return confirmationCard(
+					l10n.t("Edit the LiteLLM model record {0}?", input.key),
+					describeRecordChange(input.kind, input.key, current[input.key], patched[input.key], target)
+				);
 			}
 			case "saveServer": {
 				const parsed = parseAgentToolInput("saveServer", raw);
@@ -244,33 +244,29 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					return undefined;
 				}
 				if ("adoptFrom" in input) {
-					// The card describes the STORED group (the plan accepted, so it resolves): the agent only ever saw
-					// its URL without credentials.
+					// The card describes the STORED group (the plan accepted, so it resolves), whichever spelling of its
+					// URL the agent named it by.
 					const source = externalRow(state, input.adoptFrom.label, input.adoptFrom.baseUrl) ?? input.adoptFrom;
-					return {
-						title: l10n.t(
-							"Adopt the provider group {0} as the LiteLLM server {1}?",
-							input.adoptFrom.label,
-							input.label
-						),
-						message: describeAdoption(source, input.label, input.secretLocations ?? {}),
-					};
+					return confirmationCard(
+						l10n.t("Adopt the provider group {0} as the LiteLLM server {1}?", input.adoptFrom.label, input.label),
+						describeAdoption(source, input.label, input.secretLocations ?? {})
+					);
 				}
 				const plan = planSaveServer(input, state, agentToolsAcceptSecretValues());
 				const payload = plan.kind === "requests" ? plan.requests[0]?.payload : undefined;
 				const prompts = plan.kind === "requests" ? plan.prompts : [];
 				const existing = declaredRow(state, input.renameFrom ?? input.label);
 				const after = isRecord(payload) && isRecord(payload.server) ? payload.server : { label: input.label };
-				return {
-					title: l10n.t("Save the LiteLLM server {0}?", input.label),
-					message: describeServerChange(
+				return confirmationCard(
+					l10n.t("Save the LiteLLM server {0}?", input.label),
+					describeServerChange(
 						input.label,
 						existing === undefined ? undefined : { ...savePayloadFromRow(existing) },
 						after,
 						secretSummary(payload),
 						prompts
-					),
-				};
+					)
+				);
 			}
 			case "removeServer": {
 				const parsed = parseAgentToolInput("removeServer", raw);
@@ -283,12 +279,11 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 				}
 				// A hide or unhide is identified by label AND base URL (two groups can share a label), so the card
 				// names both.
-				const target =
-					input.action === "remove" ? input.label : l10n.t("{0} at {1}", input.label, displayUrl(input.baseUrl));
-				return {
-					title: l10n.t("{0} the LiteLLM server {1}?", input.action, input.label),
-					message: describeAction(input.action, target),
-				};
+				const target = input.action === "remove" ? input.label : l10n.t("{0} at {1}", input.label, input.baseUrl);
+				return confirmationCard(
+					l10n.t("{0} the LiteLLM server {1}?", input.action, input.label),
+					describeAction(input.action, target)
+				);
 			}
 			case "runAction": {
 				const parsed = parseAgentToolInput("runAction", raw);
@@ -304,14 +299,14 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					"label" in input
 						? row === undefined
 							? input.label
-							: l10n.t("{0} at {1}", input.label, displayUrl(row.baseUrl))
+							: l10n.t("{0} at {1}", input.label, row.baseUrl)
 						: "feature" in input
 							? input.feature
 							: undefined;
-				return {
-					title: l10n.t("Run the LiteLLM action {0}?", input.action),
-					message: describeAction(input.action, target),
-				};
+				return confirmationCard(
+					l10n.t("Run the LiteLLM action {0}?", input.action),
+					describeAction(input.action, target)
+				);
 			}
 			default:
 				return undefined;
@@ -369,7 +364,6 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 					),
 					statusServerStatuses(status),
 					state.diagnostics,
-					redactSecrets,
 					input.includeLogs === true
 				);
 			}
@@ -428,7 +422,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 			}
 			const request = values === undefined ? planned : withSecretValues(planned, values);
 			const submission = await this.deps.dashboard.submit(frame(request));
-			results.push(shapeSubmission(request, submission, redactSecrets));
+			results.push(shapeSubmission(request, submission));
 			if (submission.outcome !== "ok") {
 				// Classification only: the method and the verdict.
 				this.log("Agent tool request refused by the dashboard", {

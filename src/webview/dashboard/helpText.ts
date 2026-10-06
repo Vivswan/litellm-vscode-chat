@@ -41,7 +41,7 @@ export function helpFeaturesSection(): string {
 
 export function helpImportExportGroup(): string {
 	return l10n.t(
-		"Move your setup to another machine: Export writes your settings to a JSON file, and Import merges such a file back. Export includes secrets only if you ask it to."
+		"Move your setup to another machine: Export writes your settings to a JSON file, server credentials included, and Import merges such a file back."
 	);
 }
 
@@ -431,7 +431,7 @@ const SETTING_ROW_HELP: Readonly<Record<SettingRowHelpId, () => string>> = {
 		l10n.t("Type @litellm in chat; it answers with the model the picker has selected, and bills like chat."),
 	"agentTools.enabled": () =>
 		l10n.t(
-			"The agent decides when to call a tool. Read output (labels, base URLs, model IDs, redacted logs) goes to the model the agent runs on; a server edit triggers the usual discovery and usage requests to that host."
+			"The agent decides when to call a tool. Read output (labels, base URLs, model IDs, log lines) goes to the model the agent runs on; a server edit triggers the usual discovery and usage requests to that host."
 		),
 	"agentTools.secretValues.enabled": () =>
 		l10n.t(

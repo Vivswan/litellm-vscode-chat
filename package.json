@@ -277,7 +277,7 @@
 				"toolReferenceName": "litellmDiagnostics",
 				"displayName": "%litellm.tool.diagnostics.displayName%",
 				"userDescription": "%litellm.tool.diagnostics.userDescription%",
-				"modelDescription": "Read the LiteLLM extension's health: connection state, each configured LiteLLM server (label, base URL, state, error classification, served model count, whether a key is configured), configuration problems, the latest error, and optionally the recent log lines with secrets redacted. Call it first when a user reports LiteLLM models missing, failing, or answering empty. Read-only.",
+				"modelDescription": "Read the LiteLLM extension's health: connection state, each configured LiteLLM server (label, base URL, state, error classification, served model count, whether a key is configured), configuration problems, the latest error, and optionally the recent log lines. Call it first when a user reports LiteLLM models missing, failing, or answering empty. Read-only.",
 				"canBeReferencedInPrompt": true,
 				"icon": "$(pulse)",
 				"when": "config.litellm-vscode-chat.agentTools.enabled",
@@ -285,7 +285,7 @@
 					"type": "object",
 					"properties": {
 						"includeLogs": {
-							"description": "Include the recent log lines (redacted). Default false.",
+							"description": "Include the recent log lines (configured credentials masked). Default false.",
 							"type": "boolean"
 						}
 					},
@@ -1822,6 +1822,17 @@
 						],
 						"default": "blue",
 						"description": "%litellm.config.ui.accent.description%"
+					}
+				}
+			},
+			{
+				"title": "%litellm.config.section.logs%",
+				"properties": {
+					"litellm-vscode-chat.logs.redactSecrets": {
+						"type": "boolean",
+						"scope": "machine-overridable",
+						"default": true,
+						"description": "%litellm.config.logs.redactSecrets.description%"
 					}
 				}
 			},

@@ -6,16 +6,16 @@ import { registerTestCommands, SessionLogTee } from "./extension/ui/commands";
 import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
 import { wireDashboard, wireGroupRemovalReactions, wireUsageSurfaces } from "./extension/wiring/dashboard";
 import { wireDashboardClientFeatures, wireFeatures } from "./extension/wiring/features";
-import { wireKnownSecrets } from "./extension/wiring/knownSecrets";
+import { onLogRedactionToggled, wireKnownSecrets } from "./extension/wiring/knownSecrets";
 import { wireCatalogRefresh, wireProvider, wireTokenCounting } from "./extension/wiring/provider";
 import { wireServers } from "./extension/wiring/servers";
 import { wireStorage } from "./extension/wiring/storage";
 import { maybeShowWelcome, wireStatusFanout, wireStatusSurfaces, wireUiCommands } from "./extension/wiring/ui";
 import { CMD, VENDOR_ID } from "./shared/config/commandIds";
+import { isLogRedactionEnabled } from "./shared/config/settings";
 import type { DevSeed } from "./shared/devSeed";
 import { Logger } from "./shared/logger";
 import { fixedHeaderValue } from "./shared/util/headers";
-import { KnownSecrets } from "./shared/util/knownSecrets";
 
 /**
  * The ordering constraints activate() owns are commented at their call sites: l10n configuration first, the state
@@ -45,14 +45,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const outputChannel = vscode.window.createOutputChannel("LiteLLM", { log: true });
 	context.subscriptions.push(outputChannel);
 
-	const issueReporter = new IssueReporter(createIssueReporterEnv(context.globalStorageUri));
+	// The reporter reads the Logger's history and the Logger records errors into the reporter, so the reader binds
+	// late: the history is read at report time, after both exist.
+	let logger: Logger;
+	const issueReporter = new IssueReporter(createIssueReporterEnv(context.globalStorageUri), () => logger.reportLines());
 	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
 	const sessionLogTee = testMode ? new SessionLogTee(issueReporter) : undefined;
-	const knownSecrets = new KnownSecrets();
-	const logger = new Logger(outputChannel, sessionLogTee ?? issueReporter, knownSecrets);
+	logger = new Logger(outputChannel, sessionLogTee ?? issueReporter, isLogRedactionEnabled);
 	logger.log(`LiteLLM Extension activated (v${extVersion})`);
 	// Awaited so no server work logs before the configured secret values are known.
-	await wireKnownSecrets(context, logger, (values) => knownSecrets.set(values));
+	await wireKnownSecrets(context, logger, (values) => Logger.registerSecrets(values));
+	onLogRedactionToggled(context, () => {
+		outputChannel.clear();
+		logger.replay();
+	});
 
 	const storage = await wireStorage(context, logger);
 	// Token estimation serves the request path from the first request: mode applied now, tokenizer loads settle off the

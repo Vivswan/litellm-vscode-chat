@@ -950,13 +950,16 @@ suite("extension/ui/commands", () => {
 	// The Report Issue command's setup gate: setup-shaped diagnostics get one non-modal offer of the faster fix before
 	// GitHub opens. The verdict comes from the CURRENT connection status only, never the historical latestError.
 	suite("runReportIssue", () => {
-		function makeReporter(openedIssueUrls: string[]): IssueReporter {
-			return new IssueReporter({
-				writeClipboard: async () => {},
-				openExternal: async (url) => {
-					openedIssueUrls.push(url);
+		function makeReporter(openedIssueUrls: string[], recentLogs: readonly string[] = []): IssueReporter {
+			return new IssueReporter(
+				{
+					writeClipboard: async () => {},
+					openExternal: async (url) => {
+						openedIssueUrls.push(url);
+					},
 				},
-			});
+				() => recentLogs
+			);
 		}
 
 		const freshMemento = () => makeExtensionStorage().memento;
@@ -1267,8 +1270,7 @@ suite("extension/ui/commands", () => {
 			test("the first report opens without a prompt and stores a text-free fingerprint", async () => {
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
-				const reporter = makeReporter(openedIssueUrls);
-				reporter.appendLog("log-line-MARKER");
+				const reporter = makeReporter(openedIssueUrls, ["log-line-MARKER"]);
 				reporter.recordError(
 					"discovery",
 					recordedError(
@@ -1682,9 +1684,7 @@ suite("extension/ui/commands", () => {
 	});
 
 	suite("SessionLogTee", () => {
-		test("the tee's line stream carries only what the Logger handed it: no credential reaches readSince", () => {
-			// The tee once rebuilt its line from the thrown value itself, so litellm._test.getSessionLogs returned the
-			// password the channel and buffer had already lost.
+		test("the tee's line stream carries what the Logger handed it: the buffer line, then its own snapshot line", () => {
 			const reporter = new IssueReporter();
 			const tee = new SessionLogTee(reporter);
 			const logger = new Logger({ info: () => {}, error: () => {} }, tee);
@@ -1693,7 +1693,7 @@ suite("extension/ui/commands", () => {
 
 			logger.error("failure", err);
 
-			// The tee carries the buffer line first, then its own [error] snapshot line; the stamp is the only variable.
+			// The buffer holds every line raw; the stamp is the only variable.
 			assert.deepStrictEqual(
 				tee.readSince(0).lines.map((line) => line.replace(/^\[\d{4}-\d{2}-\d{2}T[^\]]+\]/, "[T]")),
 				["[T] ERROR: failure: unclassified", "[error] failure: unclassified\nunclassified\n    at real (x.ts:1:1)"]

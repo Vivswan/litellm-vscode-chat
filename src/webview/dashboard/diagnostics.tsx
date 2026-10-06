@@ -1,6 +1,6 @@
 /**
- * The connection facts survive only in Copy diagnostics, composed from pushed state (no secret values by construction)
- * and English by policy - destined for public issue reports. The Resolved-models view is request/response-fed
+ * The connection facts survive only in Copy diagnostics, composed from pushed state and English by policy - destined
+ * for public issue reports. The Resolved-models view is request/response-fed
  * (readResolvedModels), re-requested per push while visible, and local to the dashboard by design - never in issue
  * reports.
  *
@@ -35,7 +35,6 @@ import {
 } from "../../shared/config/capabilityDisplay";
 import type { RecordDiagnostic } from "../../shared/config/recordResolution";
 import { numberSettingBoundText } from "../../shared/config/settingSpec";
-import { displayUrl } from "../../shared/util/displayUrl";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { DOCS_GETTING_STARTED_URL } from "../../shared/util/links";
 import type { DocsUrl } from "./docsLinks";
@@ -212,15 +211,6 @@ function problemSeverity(diagnostic: PageConfigDiagnostic): DiagnosticSeverity {
 }
 
 /**
- * A key containing "://" is the removed server-scoped grammar, so the key IS a base URL whose userinfo may carry
- * credentials into public GitHub issues. The substring test repeats migrations/settingsRedesign/records.ts
- * isUrlScopedKey because the webview tree cannot reach src/extension.
- */
-function copySafeKey(key: string): string {
-	return key.includes("://") ? "<url-scoped key>" : `"${key}"`;
-}
-
-/**
  * English by construction, not translation, because every part is a classification or a structural key the user
  * typed, so the block stays English under a Chinese UI and carries no server-derived text.
  */
@@ -233,10 +223,7 @@ function englishDiagnosticLine(diagnostic: PageConfigDiagnostic): string {
 				diagnostic.entryLabel !== undefined
 					? `${diagnostic.setting} (entry "${diagnostic.entryLabel}")`
 					: diagnostic.setting;
-			const keys =
-				lint.key === lint.recordKey
-					? copySafeKey(lint.recordKey)
-					: `${copySafeKey(lint.recordKey)} / ${copySafeKey(lint.key)}`;
+			const keys = lint.key === lint.recordKey ? `"${lint.recordKey}"` : `"${lint.recordKey}" / "${lint.key}"`;
 			return `${tier} ${where} ${lint.kind} ${keys}`;
 		}
 		case "entry": {
@@ -244,10 +231,8 @@ function englishDiagnosticLine(diagnostic: PageConfigDiagnostic): string {
 			return `${tier} servers entry ${name}: ${diagnostic.problems.join("; ")}`;
 		}
 		case "legacy":
-			// The classification and the setting it sits in, nothing else: `oldKey` on a URL-scoped hint IS a base URL
-			// (hints.ts: local-dashboard-only). Every branch yields a setting id, never user text.
 			return `${tier} ${diagnostic.hint} (${
-				diagnostic.hint === "inert-url-scoped-key" ? diagnostic.detail : diagnostic.oldKey
+				diagnostic.hint === "inert-url-scoped-key" ? `${diagnostic.detail} "${diagnostic.oldKey}"` : diagnostic.oldKey
 			})`;
 		case "thresholds":
 			return `${tier} usage.alertThresholds: ${diagnostic.dropped} dropped`;
@@ -256,7 +241,7 @@ function englishDiagnosticLine(diagnostic: PageConfigDiagnostic): string {
 		case "setting-shape":
 			return diagnostic.key === undefined
 				? `${tier} ${diagnostic.setting}: not an object; reads as empty`
-				: `${tier} ${diagnostic.setting}.${copySafeKey(diagnostic.key)}: ${
+				: `${tier} ${diagnostic.setting}."${diagnostic.key}": ${
 						diagnostic.reason === "reserved-name" ? "reserved name" : "not an object"
 					}; reads as absent`;
 		case "credential":
@@ -1031,7 +1016,7 @@ function diagnosticsReportText(
 		`Last checked: ${checkedMs === undefined ? "Never" : new Date(checkedMs).toISOString()}`,
 	];
 	for (const server of copyServers) {
-		lines.push(`${server.label} (${displayUrl(server.baseUrl)}): ${serverOutcomeText(server)}`);
+		lines.push(`${server.label} (${server.baseUrl}): ${serverOutcomeText(server)}`);
 	}
 	// Worst first, the order the page renders them in, so the paste reads the way the reader's screen did.
 	const problems = [...pageConfigDiagnostics(diagnostics)].sort(
@@ -1087,15 +1072,14 @@ function DiagnosticsTools({
 		if (copiedAt === 0) {
 			return;
 		}
-		// The check mark is the only feedback a fire-and-forget clipboard write gets. The timer is cleaned up on
+		// The check mark is the only feedback a fire-and-forget copy request gets. The timer is cleaned up on
 		// unmount, so a flash interrupted by a navigation cannot set state on a component that is gone.
 		const timer = setTimeout(() => setCopiedAt(0), 1500);
 		return () => clearTimeout(timer);
 	}, [copiedAt]);
 	const copyDiagnostics = () => {
-		navigator.clipboard
-			?.writeText(diagnosticsReportText(servers, verdictRows, modelCount, diagnostics))
-			.catch(() => {});
+		// The extension redacts the text and writes the clipboard: the known credential values live there alone.
+		sendRequest("copyDiagnostics", { text: diagnosticsReportText(servers, verdictRows, modelCount, diagnostics) });
 		setCopiedAt((current) => current + 1);
 	};
 	const copied = copiedAt > 0;

@@ -3,7 +3,7 @@ import { inlineSecretValues } from "../../../extension/servers/serverSync/secret
 import { collectableEntries, parseServersSetting } from "../../../extension/servers/serverSync/setting";
 import { Logger } from "../../../shared/logger";
 import { SECRET_FIELD_IDS, SECRET_FIELD_NESTED_PATHS } from "../../../shared/serverEntry";
-import { collectKnownSecretValues, KnownSecrets } from "../../../shared/util/knownSecrets";
+import { collectKnownSecretValues } from "../../../shared/util/knownSecrets";
 
 /** A raw entry that is a valid form around `path`, with `value` placed at the path's end. */
 function entryWithSecretAt(path: readonly string[], value: string): Record<string, unknown> {
@@ -49,7 +49,7 @@ suite("shared/serverEntry SECRET_FIELD_NESTED_PATHS", () => {
 		});
 	});
 
-	test("every raw record is read through the parser's readers: trimmed names, nested values, every URL", () => {
+	test("every raw record is read through the parser's readers: trimmed names, nested values; URLs are no values", () => {
 		// A raw ' X-Tenant ' reads as the carrier 'X-Tenant' the transport sends, and the value under a padded
 		// custom-header key is the value under its normalized name.
 		const entries = collectableEntries([
@@ -69,13 +69,6 @@ suite("shared/serverEntry SECRET_FIELD_NESTED_PATHS", () => {
 		]);
 		assert.deepStrictEqual(collectKnownSecretValues(entries, ["stored-Q7"]), [
 			"Bearer vk-Q7",
-			"user",
-			"base-Q7",
-			"user:base-Q7",
-			"token-Q7",
-			"u:token-Q7",
-			"mcp-Q7",
-			"u:mcp-Q7",
 			"gateway-Q7",
 			"tenant-Q7",
 			"stored-Q7",
@@ -107,10 +100,9 @@ suite("shared/serverEntry SECRET_FIELD_NESTED_PATHS", () => {
 			"spaced-Q7",
 			"crlf\r\n-Q7",
 		]);
-		const secrets = new KnownSecrets();
-		secrets.set(collectKnownSecretValues(collectableEntries(raw), []));
+		Logger.registerSecrets(collectKnownSecretValues(collectableEntries(raw), []));
 		assert.strictEqual(
-			secrets.redact("configured baseUrl plain-key-Q7 beside nested-key-Q7, second-Q7 and spaced-Q7"),
+			Logger.redact("configured baseUrl plain-key-Q7 beside nested-key-Q7, Bearer second-Q7 and spaced-Q7"),
 			"configured baseUrl [redacted] beside [redacted], [redacted] and [redacted]"
 		);
 	});
@@ -122,28 +114,19 @@ suite("shared/serverEntry SECRET_FIELD_NESTED_PATHS", () => {
 				'"headers":{"__proto__":"plain-proto-key-Q8"}}]'
 		);
 		const values = collectKnownSecretValues(collectableEntries(raw), []);
-		const secrets = new KnownSecrets();
-		secrets.set(values);
+		Logger.registerSecrets(values);
 		assert.deepStrictEqual(
-			{ values, rendered: secrets.redact("baseUrl: plain-proto-key-Q8") },
+			{ values, rendered: Logger.redact("baseUrl: plain-proto-key-Q8") },
 			{ values: ["plain-proto-key-Q8"], rendered: "baseUrl: [redacted]" }
 		);
 	});
 
 	test("a rejected entry's credentials are known: the parser refuses it, its readers still read the values", () => {
 		// An apiKey beside auth.oauth is an auth conflict the parser rejects; the key is in the setting all the same,
-		// and the first line that quotes it must not show it.
+		// and the first channel line that quotes it must not show it.
 		const rejected = [{ label: "Prod", baseUrl: "plain-key-Q7", auth: { apiKey: "plain-key-Q7", oauth: {} } }];
 		assert.deepStrictEqual(parseServersSetting(rejected).entries, []);
-		const secrets = new KnownSecrets();
-		secrets.set(collectKnownSecretValues(collectableEntries(rejected), []));
-		const lines: string[] = [];
-		const error = new Error("boom");
-		error.stack = "Error: boom\n    at real (x.ts:1:1)";
-		new Logger({ info: (m) => lines.push(m), error: (m) => lines.push(m) }, undefined, secrets).error(
-			"rejected plain-key-Q7",
-			error
-		);
-		assert.deepStrictEqual(lines, ["rejected [redacted]: boom", "Stack trace: Error: boom\n    at real (x.ts:1:1)"]);
+		Logger.registerSecrets(collectKnownSecretValues(collectableEntries(rejected), []));
+		assert.strictEqual(Logger.redact("rejected plain-key-Q7: boom"), "rejected [redacted]: boom");
 	});
 });

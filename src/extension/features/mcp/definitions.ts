@@ -1,9 +1,3 @@
-/**
- * The pure mapping from MCP-opted-in server entries to the definition descriptors a provide pass publishes. The URI is
- * identity data, not a credential channel, but like any configured URL it may embed credentials (canonical spelling
- * keeps userinfo) - echoes of it belong in the shared URL redaction pipeline, never raw in logs or reports.
- */
-
 import type { McpOptIn } from "../../../shared/serverEntry";
 import { mcpEndpointOf } from "../../../shared/util/baseUrl";
 

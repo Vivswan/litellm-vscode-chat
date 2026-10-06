@@ -17,13 +17,14 @@ import {
 	AGENT_TOOLS_SECRET_VALUES_KEY,
 	CONFIG_SECTION,
 } from "../../../../shared/config/settingSpec";
+import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";
 import {
 	agentToolsState,
 	COPILOT_BASE_URL,
 	CRED_DISPLAY_URL,
 } from "../../../bun/extension/features/agentTools/fixture";
-import { assertOmits, makeLogger } from "../../../pureHelpers";
+import { assertContains, assertOmits, makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
 import type { WiringSpies } from "../wiringSpies";
 import { fakeContext, withWiringSpies } from "../wiringSpies";
@@ -386,6 +387,19 @@ suite("extension/features/agentTools wiring", () => {
 		});
 	});
 
+	test("a card's title passes the output door like its body: a label that is a configured value is masked in both", async () => {
+		const key = `sk-live-${"A".repeat(32)}`;
+		Logger.registerSecrets([key]);
+		await withWiringSpies(async (spies) => {
+			await wireUnderTest(ALL_WRITES);
+			await withConfig(ALL_WRITES, () => {
+				const prepared = prepareLive(spies, "saveServer", { label: key, baseUrl: "http://new.test" });
+				assert.strictEqual(String(prepared.confirmationMessages?.title), "Save the LiteLLM server sk-liv...?");
+				assertContains(cardText(prepared), 'new servers entry "sk-liv..."');
+			});
+		});
+	});
+
 	test("a valueless set directive prompts once; the typed value lands, a cancel lands nothing and logs nothing", async () => {
 		const input = { ...NEW_SERVER, secrets: { apiKey: { action: "set", location: "secure" } } };
 		const expectedPrompt = { prompt: { field: "apiKey", location: "secure" }, label: "New" };
@@ -591,16 +605,18 @@ suite("extension/features/agentTools wiring", () => {
 				assert.match(card, /apiKey: copied to settings storage/);
 				// The fields the agent did not place take the secure default.
 				assert.match(card, /oauthClientSecret: copied to secure storage/);
-				// A stored URL with credentials: the agent only saw the credential-free form, so the card resolves the
-				// stored group and says what it carries.
+				// A group named by its credential-free URL: the card resolves the stored group and shows its URL
+				// through the output door, host kept, userinfo gone.
 				const credentialed = cardText(
 					prepareLive(spies, "saveServer", {
 						label: "Imported2",
 						adoptFrom: { label: "Cred", baseUrl: CRED_DISPLAY_URL },
 					})
 				);
-				assert.match(credentialed, /the stored URL carries credentials the card does not show/);
-				assert.doesNotMatch(credentialed, /old-pass/);
+				assertContains(
+					credentialed,
+					'adopt provider group "Cred" at http://[redacted]@cred.example:4000 as servers entry "Imported2"'
+				);
 				// A source the planner cannot find gets no card: the refusal reaches the agent without asking the user
 				// to approve nothing.
 				const missing = prepareLive(spies, "saveServer", {

@@ -19,7 +19,7 @@ export function writes(): void {
 	channel.appendLine("text"); // refused
 	channel.append("text"); // refused
 	channel.replace("text"); // refused
-	channel.clear(); // refused
+	channel.clear(); // allowed
 	log.info("text"); // refused
 	log.error("text"); // refused
 	maybeLog?.warn("text"); // refused
@@ -28,7 +28,7 @@ export function writes(): void {
 	channel["appendLine"]("text"); // refused
 	const key = "appendLine";
 	channel[key]("text"); // refused
-	const { clear } = channel; // refused
+	const { clear } = channel; // allowed
 	clear();
 	// biome-ignore lint/complexity/useLiteralKeys: the computed-key destructuring shape
 	const { ["replace"]: computed } = channel; // refused

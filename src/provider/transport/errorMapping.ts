@@ -5,7 +5,7 @@ import { manageCommandTitle, syncModelsCommandTitle } from "../../shared/config/
 import { CONFIG_SECTION, type FeatureModelId } from "../../shared/config/settingSpec";
 import type { SetupHintKind, TransportErrorKind } from "../../shared/errorClassification";
 import type { LogSafeErrorText } from "../../shared/logger";
-import { errorMessageText, markLogSafe, publicErrorText } from "../../shared/logger";
+import { errorMessageText, Logger, markLogSafe, publicErrorText } from "../../shared/logger";
 import {
 	chatErrorMessage,
 	type EnglishRendering,
@@ -13,7 +13,6 @@ import {
 	localizedError,
 	MirroredError,
 } from "../../shared/mirroredError";
-import { displayUrl, redactUrlCredentials } from "../../shared/util/displayUrl";
 import { collapseWhitespace } from "../../shared/util/errorText";
 
 /**
@@ -123,20 +122,21 @@ export interface MapErrorContext {
 
 /**
  * The log rendering of a failed serve: a classification, an English mirror, or "unclassified" (publicErrorText),
- * never the thrown message. The reason may be anything a feature or the platform threw, so it leaves through the
- * module's one credential exit; an empty mirror reads as unclassified too.
+ * never the thrown message. A mirror passed the output door where its error was built; an empty one reads as
+ * unclassified too.
  */
 export function statusLogSafeError(reason: unknown): LogSafeErrorText {
-	const logSafe = credentialFreeText(publicErrorText(reason));
-	return logSafe.length > 0 ? markLogSafe(logSafe) : markLogSafe("unclassified");
+	const logSafe = publicErrorText(reason);
+	return logSafe.length > 0 ? logSafe : markLogSafe("unclassified");
 }
 
 /**
- * A thrown error's display message for the one-shot notification that shows it (a MirroredError renders its display
- * text): shown once in the current locale and stored nowhere, through the same credential exit.
+ * A thrown error's display message for the one-shot notification that shows it (a MirroredError's display text
+ * passed the door where it was built): shown once in the current locale and stored nowhere, so a raw throw's text
+ * passes the one output door here.
  */
 export function thrownErrorDisplayText(reason: unknown): string {
-	const display = credentialFreeText(errorMessageText(reason));
+	const display = Logger.redact(errorMessageText(reason));
 	return display.length > 0 ? display : l10n.t("Unknown error");
 }
 
@@ -280,26 +280,9 @@ function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
 	return compactText(joined, 300);
 }
 
-/**
- * The one credential exit for text this module did not write: response bodies, envelope fields, cause-chain messages,
- * arbitrary thrown text, and the status renderings all leave through it. A proxy echoes the URL it was asked for. The
- * parser ignores a tab inside a host ("[::\t1]"), and reads a password split by a line break as one URL, while the
- * shared cut never crosses a line break: hence the second spelling. It is returned only when it carried a credential
- * the written one did not, so a status message keeps the "\n" the dashboard splits on.
- */
-function credentialFreeText(text: string): string {
-	const asWritten = redactUrlCredentials(text);
-	const collapsed = collapseWhitespace(asWritten.replace(/\t/g, ""));
-	const collapsedScrubbed = redactUrlCredentials(collapsed);
-	return collapsedScrubbed === collapsed ? asWritten : collapsedScrubbed;
-}
-
-/**
- * The scrub runs before the cap: a cut inside the password would leave its head with no "@" for a later pass to
- * find.
- */
+/** Masked before the cap: a value astride the cut would otherwise leave its head in the detail. */
 function compactText(text: string, cap: number): string {
-	const collapsed = collapseWhitespace(credentialFreeText(text));
+	const collapsed = collapseWhitespace(Logger.redact(text));
 	return collapsed.length > cap ? `${collapsed.slice(0, cap)}...` : collapsed;
 }
 
@@ -319,10 +302,7 @@ interface ErrorEnvelope {
 	message: string | undefined;
 	type: string | undefined;
 	code: string | undefined;
-	/**
-	 * The type and code as the server sent them, for classifyEnvelope alone and never rendered: the rendered fields
-	 * above are scrubbed, and a scrub must change the text, never the classification.
-	 */
+	/** The type and code as the server sent them, for classifyEnvelope alone: the rendered fields above are capped. */
 	marks: string;
 }
 
@@ -445,7 +425,7 @@ interface LocalizedText {
 }
 
 interface NotFoundCopy {
-	/** `url` is the display form of the base URL (credentials already stripped); non-discovery headlines ignore it. */
+	/** `url` is the base URL as configured; non-discovery headlines ignore it. */
 	readonly headline: (url: string) => LocalizedText;
 	/** Only where the advice is certain (discovery's check-the-base-URL); a hint that can be wrong stays unset. */
 	readonly setupHint?: SetupHintKind;
@@ -879,8 +859,7 @@ function surfaceCopy(surface: TransportErrorSurface): SurfaceCopy {
  * Free of mapSdkError's socket-signature tokens, and it passes the mapping catch unchanged (mirrored errors are never
  * re-wrapped).
  */
-export function bodylessResponseError(surface: TransportErrorSurface, status: number, baseUrl: string): MirroredError {
-	const url = displayUrl(baseUrl);
+export function bodylessResponseError(surface: TransportErrorSurface, status: number, url: string): MirroredError {
 	const headline: LocalizedText = {
 		display: l10n.t(
 			"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server."
@@ -1132,7 +1111,7 @@ interface SocketFailureContext {
 }
 
 function expiredCertificateHeadline(ctx: SocketFailureContext): LocalizedText {
-	const url = displayUrl(ctx.url);
+	const { url } = ctx;
 	if (ctx.endpoint === "oauthToken") {
 		return {
 			display: l10n.t(
@@ -1204,7 +1183,7 @@ function bareLocalhostUrl(url: string): string | undefined {
  *     the headline, leading the sentence
  */
 function connectionHeadline(ctx: SocketFailureContext, suggestedUrl?: string): LocalizedText {
-	const url = displayUrl(ctx.url);
+	const { url } = ctx;
 	if (ctx.endpoint === "oauthToken") {
 		return {
 			display: l10n.t(
@@ -1234,7 +1213,7 @@ function connectionHeadline(ctx: SocketFailureContext, suggestedUrl?: string): L
 }
 
 function unreachableHeadline(ctx: SocketFailureContext): LocalizedText {
-	const url = displayUrl(ctx.url);
+	const { url } = ctx;
 	if (ctx.endpoint === "oauthToken") {
 		return {
 			display: l10n.t(
@@ -1303,7 +1282,7 @@ export function socketFailureRequestError(
 		const certMessage = compactText(certLink?.message ?? "", 300);
 		const certCode = certLink?.code !== undefined ? compactText(certLink.code, 80) : "";
 		const certText = certMessage !== "" ? `${certMessage}${certCode !== "" ? ` (${certCode})` : ""}` : certCode;
-		const detail = `SSL certificate error for ${displayUrl(ctx.url)}${certText !== "" ? `: ${certText}` : ""}`;
+		const detail = `SSL certificate error for ${ctx.url}${certText !== "" ? `: ${certText}` : ""}`;
 		const texts = twoPartTexts(ctx.surface, unverifiedCertificateHeadline(ctx), detail);
 		return new RequestError(texts.message, "certificate", {
 			cause,
@@ -1316,15 +1295,12 @@ export function socketFailureRequestError(
 	const detail = chainDetail(chain, "");
 	if (haystack.includes("ENOTFOUND") || haystack.includes("ECONNREFUSED")) {
 		// At the token endpoint the stopped process would be the identity provider, not the proxy, and a plain-host
-		// ENOTFOUND is just DNS (the process may run fine behind a mistyped hostname) - so no hint. The correction
-		// derives from the display form of the URL, so it can never carry userinfo the headline just stripped.
+		// ENOTFOUND is just DNS (the process may run fine behind a mistyped hostname) - so no hint.
 		//
 		//   A *.localhost host that failed to RESOLVE -> the corrected URL is the certain advice there
 		//   ECONNREFUSED                              -> it keeps "is the proxy running?" even for the family
 		const suggestedUrl =
-			ctx.endpoint !== "oauthToken" && haystack.includes("ENOTFOUND")
-				? bareLocalhostUrl(displayUrl(ctx.url))
-				: undefined;
+			ctx.endpoint !== "oauthToken" && haystack.includes("ENOTFOUND") ? bareLocalhostUrl(ctx.url) : undefined;
 		const texts = twoPartTexts(ctx.surface, connectionHeadline(ctx, suggestedUrl), detail);
 		const setupHint =
 			suggestedUrl !== undefined
@@ -1369,7 +1345,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		const envelope = errorEnvelopeOf(err.error);
 		if (err.status === 404) {
 			const copy = surfaceCopy(ctx.surface).notFound;
-			const texts = twoPartTexts(ctx.surface, copy.headline(displayUrl(ctx.baseUrl)), copy.detail(err, envelope));
+			const texts = twoPartTexts(ctx.surface, copy.headline(ctx.baseUrl), copy.detail(err, envelope));
 			return new RequestError(texts.message, "http", {
 				status: 404,
 				cause: err,
@@ -1464,7 +1440,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		if (socketSignature || undiciTermination) {
 			const chainText = chainDetail(chain, topMessage);
 			const copy = surfaceCopy(ctx.surface).dropped;
-			const url = displayUrl(ctx.baseUrl);
+			const url = ctx.baseUrl;
 			const texts = twoPartTexts(ctx.surface, copy.headline(url), copy.detail(url, chainText));
 			return new RequestError(texts.message, "network", {
 				cause: err,
@@ -1485,7 +1461,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	}
 	const rawText = errorMessageText(err);
 	const text = compactText(typeof rawText === "string" ? rawText : "", 300);
-	const detail = `Unexpected ${name} during the ${surfaceCopy(ctx.surface).phrase} request to ${displayUrl(ctx.baseUrl)}${text !== "" ? `: ${text}` : ""}`;
+	const detail = `Unexpected ${name} during the ${surfaceCopy(ctx.surface).phrase} request to ${ctx.baseUrl}${text !== "" ? `: ${text}` : ""}`;
 	const tailHeadline: LocalizedText = {
 		display: l10n.t(
 			"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it."

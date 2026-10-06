@@ -145,6 +145,8 @@
 	"litellm.config.ui.theme.light": "永遠淺色",
 	"litellm.config.ui.theme.dark": "永遠深色",
 	"litellm.config.ui.accent.description": "儀表板用於主要按鈕、選取項目、焦點與連結的強調色。狀態顏色不受影響。",
+	"litellm.config.section.logs": "記錄",
+	"litellm.config.logs.redactSecrets.description": "在 LiteLLM 輸出通道中遮罩已設定的密鑰值 (API 金鑰、用戶端密鑰、標頭值、URL 認證)。關閉後, 通道按原樣顯示每一行。問題回報無論如何都會遮罩它們。",
 	"litellm.config.inlineCompletions.enabled.description": "選擇啟用由 LiteLLM 模型提供的內嵌 (幽靈文字) 補全。預設關閉。啟用前不註冊任何內容、不送出任何要求, 儀表板中明確的「測試模型」按鈕是唯一的例外。在 `#litellm-vscode-chat.inlineCompletions.model#` 指定模型之前此功能保持閒置。",
 	"litellm.config.inlineCompletions.model.description": "提供內嵌補全的模型。寫法如 `{ \"server\": \"Team proxy\", \"model\": \"gpt-4o-mini\" }`。server 是某個 `#litellm-vscode-chat.servers#` 項目的 label。model 是該伺服器的一個原始模型 ID。`null` 表示未選擇模型、功能保持閒置。",
 	"litellm.config.inlineCompletions.languageFilter.description": "內嵌補全的執行範圍。例如 `{ \"mode\": \"block\", \"languages\": [\"markdown\"] }` 表示除 markdown 外到處執行。mode 為 `\"block\"` 時補全在列出的 VS Code 語言 ID (精確比對) 之外的所有語言中執行。`\"allow\"` 時僅在列出的語言中執行 (清單為空則不在任何語言中執行)。",

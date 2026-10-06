@@ -5,8 +5,9 @@
  * blob's ids when no record-shaped auth object outranks them (see StrippedEntry.secrets). So a stored value with
  * whitespace padding round-trips to its trimmed form.
  *
- *   the inline settings grammar trims, so the trimmed text IS the value the file carries -> Strip trims what it takes
- *   buildGroupArgs sends stored strings untouched -> materialize places stored values verbatim
+ *   the inline settings grammar trims, so the trimmed text IS the value the file carries -> the import's strip trims
+ *       what it takes
+ *   buildGroupArgs sends stored strings untouched -> the export's materialize places stored values verbatim
  */
 
 import type { SecretFieldId } from "../../shared/serverEntry";
@@ -26,10 +27,8 @@ export interface StrippedEntry {
 	 */
 	readonly secrets: StoredServerSecrets;
 	/**
-	 * Textless scalars are mere misconfiguration and stay sanitizable.
-	 *
-	 *   A no-secrets export -> omits such an entry rather than trust it
-	 *   the import          -> skips it rather than land unmovable credential text
+	 * True when text the walk cannot reach may hide a credential; the import skips such an entry rather than land
+	 * unmovable credential text. Textless scalars are mere misconfiguration and stay sanitizable.
 	 */
 	readonly unsanitizable: boolean;
 }

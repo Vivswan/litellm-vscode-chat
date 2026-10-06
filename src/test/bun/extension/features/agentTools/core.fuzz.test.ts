@@ -235,7 +235,7 @@ describe("agentTools core fuzz", () => {
 						} else {
 							expect(parsed.frame?.method).toBe(planned.method);
 						}
-						expect(() => renderJson(shapeSubmission(filled, { outcome: "ok" }, (text) => text))).not.toThrow();
+						expect(() => renderJson(shapeSubmission(filled, { outcome: "ok" }))).not.toThrow();
 					}
 				}),
 				{ seed: SEED, numRuns: NUM_RUNS }

@@ -250,7 +250,7 @@ Copilot 的代理模式也可以讀取並變更這個延伸模組自身的設定
 
 **讀取工具**從延伸模組已經知道的內容作答, 不會觸碰您的任何伺服器。每個也可以在提示中透過它的 `#` 句柄單獨呼叫:
 
-- `litellm_diagnostics` (`#litellmDiagnostics`): 連線狀態、每個伺服器一列 (label、base URL、狀態、錯誤分類、提供的模型數)、設定問題、最新的錯誤, 以及按需提供的最近日誌行。日誌和錯誤文字經過與問題回報相同的遮蔽處理。
+- `litellm_diagnostics` (`#litellmDiagnostics`): 連線狀態、每個伺服器一列 (label、base URL、狀態、錯誤分類、提供的模型數)、設定問題、最新的錯誤, 以及按需提供的最近日誌行, 已設定的認證值與 URL 認證會被遮罩。
 - `litellm_configuration` (`#litellmConfiguration`): 儀表板顯示的一切 - 伺服器及其設定和每個祕密儲存在哪裡 (絕不是值)、各設定及其所設定的範圍、模型、隱藏的群組、目錄狀態和用量。選用的區段清單能讓答案保持精簡。
 - `litellm_inspect_model` (`#litellmInspectModel`): 一個模型的有效能力和參數, 每個值都標註來源 - 伺服器回報、目錄、您的記錄, 或底線值。
 - `litellm_search_catalog` (`#litellmSearchCatalog`): 搜尋內建的 OpenRouter 目錄。
@@ -279,7 +279,7 @@ Copilot 的代理模式也可以讀取並變更這個延伸模組自身的設定
 
 保留的祕密絕不跟隨變更的主機。把項目移到另一個 base URL 同時保留其金鑰會被拒絕, 金鑰必須重新設定。
 
-**由代理決定何時呼叫工具**, 與上面的諮詢工具一樣, 所以要權衡離開機器的內容。讀取工具的輸出 - 伺服器 label、base URL、模型 ID、遮蔽後的日誌 - 會傳給代理所執行的模型: 雲端模型, 或者選擇器指向的您自己的某個 LiteLLM 模型。
+**由代理決定何時呼叫工具**, 與上面的諮詢工具一樣, 所以要權衡離開機器的內容。讀取工具的輸出 - 伺服器 label、base URL、模型 ID、已遮罩認證的日誌行 - 會傳給代理所執行的模型: 雲端模型, 或者選擇器指向的您自己的某個 LiteLLM 模型。
 
 儲存庫中的檔案可能試圖操縱這個代理, 這也是為什麼在您不希望代理變更設定的機器上, 寫入開關應保持關閉。
 
@@ -368,7 +368,7 @@ after:  {"context_length":200000}
 | LiteLLM: Set Server Secret | 把伺服器的 API 金鑰、OAuth 用戶端密碼或虛擬金鑰存入[祕密儲存體](servers.md#祕密與祕密儲存體) |
 | LiteLLM: Refresh Usage Now | 立即擷取支出與預算資料, 不受輪詢間隔約束 |
 | LiteLLM: Refresh OpenRouter Catalog | 隨選重新整理能力目錄 ([模型](models.md#能力)) |
-| LiteLLM: Export Settings... | 把延伸模組的設定儲存為 JSON 檔案, 明確選擇包含還是不含儲存的祕密 |
+| LiteLLM: Export Settings... | 把延伸模組的設定儲存為 JSON 檔案, 包含儲存的祕密, 並提醒該檔案攜帶認證 |
 | LiteLLM: Import Settings... | 合併之前匯出的設定檔案, 每個衝突的伺服器都會詢問 |
 | LiteLLM: Undo Last Settings Import | 把設定與祕密還原到上次匯入前的狀態 |
 | LiteLLM: Generate Commit Message | 依您已暫存的變更草擬提交訊息並填入原始檔控制輸入框 (選擇加入; 見[配方](#用您自己的模型產生提交訊息)) |

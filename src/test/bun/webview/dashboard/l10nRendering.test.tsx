@@ -9,7 +9,7 @@ import { App } from "../../../../webview/dashboard/app";
 import { bootstrapL10n } from "../../../../webview/dashboard/l10nBootstrap";
 import { ModelsSection } from "../../../../webview/dashboard/models";
 import { makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
-import { buttonByText, cleanup, fireClick, mount, pushToWebview, resetPosted } from "../harness";
+import { buttonByText, cleanup, fireClick, mount, postedCalls, pushToWebview, resetPosted } from "../harness";
 
 // The exact composite keys the call sites mint (message + "/" + joined comment); a drifted spelling on either side
 // makes the marker not render. "{0} min ago" doubles as the Diagnostics tracer: its marker must show on screen and
@@ -47,15 +47,6 @@ test("the pricing column resolves the composite in/out keys with {0} substituted
 });
 
 test("Copy diagnostics stays English under a configured bundle while the server row renders the translated relative time", () => {
-	const written: string[] = [];
-	const clipboard = {
-		writeText: (text: string) => {
-			written.push(text);
-			return Promise.resolve();
-		},
-	};
-	Object.defineProperty(navigator, "clipboard", { value: clipboard, configurable: true });
-
 	const lastChecked = Date.now() - 5 * 60 * 1000;
 	const root = mount(<App />);
 	pushToWebview(
@@ -80,13 +71,17 @@ test("Copy diagnostics stays English under a configured bundle while the server 
 
 	fireClick(root.querySelector("#tab-diagnostics") as HTMLElement);
 
-	// The copied block is fully English by policy: the plain ISO instant, no localized relative echo.
+	// The copied block is fully English by policy: the plain ISO instant, no localized relative echo. The text goes
+	// to the extension, which redacts it and writes the clipboard.
+	resetPosted();
 	fireClick(buttonByText(root, "Copy diagnostics"));
-	expect(written[0]).toContain(`Last checked: ${new Date(lastChecked).toISOString()}`);
-	expect(written[0]).not.toContain("AGO[");
+	const request = postedCalls().find((call) => call.method === "copyDiagnostics");
+	const copied = (request?.payload as { text: string } | undefined)?.text ?? "";
+	expect(copied).toContain(`Last checked: ${new Date(lastChecked).toISOString()}`);
+	expect(copied).not.toContain("AGO[");
 	// The configuration lines are composed from classifications and structural keys rather than translated from the
 	// on-screen sentence: the page shows the translated marker, the paste does not.
 	expect((root.querySelector("#panel-diagnostics") as HTMLElement).textContent).toContain("MATCHER[gpt*5]");
-	expect(written[0]).not.toContain("MATCHER[");
-	expect(written[0]).toContain('blocking models.parameters invalid-matcher "gpt*5"');
+	expect(copied).not.toContain("MATCHER[");
+	expect(copied).toContain('blocking models.parameters invalid-matcher "gpt*5"');
 });

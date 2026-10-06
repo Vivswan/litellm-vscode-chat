@@ -22,7 +22,7 @@
 
 設定同步有意跳過這裡最要緊的部分 - `servers` 是機器範圍的, 功能開關與模型選擇是機器可覆寫的, 祕密儲存體中的值也從不同步 - 所以把配置搬到另一台機器有自己的一對命令。儀表板的設定區段以「匯入與匯出」按鈕承載它們; 命令或按鈕, 流程相同。
 
-- **"LiteLLM: Export Settings..."** 把您在使用者設定中設定過的每個 `litellm-vscode-chat.*` 設定寫入一個 JSON 檔案 (預設 `~/litellm-settings.json`)。先有一個關於祕密的提問: 「包含祕密」把祕密儲存體中的值複製進各自的伺服器項目, 檔案因此完整 - 但這些認證以明文寫入檔案, 請謹慎保存與分享; 「不含祕密」則剝除每個祕密值, 行內的也一樣, 檔案不攜帶任何認證 (自訂[標頭](servers.md#自訂標頭)值是一般設定, 不是祕密, 會留在檔案裡; 匯入後重新輸入認證)。
+- **"LiteLLM: Export Settings..."** 把您在使用者設定中設定過的每個 `litellm-vscode-chat.*` 設定寫入一個 JSON 檔案 (預設 `~/litellm-settings.json`)。檔案就是您儲存的設定: 祕密儲存體中的值被複製進各自的伺服器項目, URL 按設定原樣寫入, 檔案因此自身完整 - 但它以明文攜帶您的伺服器認證, 儲存對話框與確認提示都會說明這一點, 請妥善保密 (自訂[標頭](servers.md#自訂標頭)值是一般設定, 不是祕密)。
 - **"LiteLLM: Import Settings..."** 把這樣的檔案合併回來。在您確認預覽之前什麼都不寫 (哪些設定會被寫入、多少伺服器衝突、檔案攜帶多少祕密值); 每個已存在的伺服器標籤都會詢問怎麼辦:
   - 「覆寫」就地取代項目及其儲存的祕密 - 當這改變連線設定 (基底 URL、認證) 時, 已同步的提供者群組無法就地接收它們, 伺服器在儀表板中的列會顯示重連步驟 ([生命週期](servers.md#生命週期-重新命名移除與隱藏的群組)), 預覽也會提前標出這類覆寫。
   - 「略過」保留您的項目, 「重新命名後匯入」以新標籤加入傳入的項目。
@@ -67,6 +67,7 @@
 | `litellm-vscode-chat.ui.maskSecretInputs` | `true` | 在輸入方塊提示中輸入認證值時進行遮罩。儀表板的祕密欄位始終遮罩, 各帶自己的「顯示」切換, 與此設定無關 |
 | `litellm-vscode-chat.ui.theme` | `"auto"` | 儀表板如何著色: `"auto"` 跟隨您的 VS Code 佈景主題, `"light"` 與 `"dark"` 在編輯器變化時保持不動。[外觀說明見下](#外觀) |
 | `litellm-vscode-chat.ui.accent` | `"blue"` | 儀表板的強調色: `"blue"`、`"violet"`、`"teal"`、`"amber"`。它標記主要動作、選取、焦點與連結, 僅此而已 - 狀態色保持綠、黃、紅。[外觀說明見下](#外觀) |
+| `litellm-vscode-chat.logs.redactSecrets` | `true` | 在 LiteLLM 輸出通道中遮罩已設定的密鑰值與 URL 認證; 問題回報無論如何都會遮罩。關閉後, 通道按原樣顯示每一行 |
 | `litellm-vscode-chat.inlineCompletions.enabled` | `false` | 選擇啟用由 LiteLLM 模型提供的內嵌(幽靈文字)補全, 隨內嵌補全功能一起交付。預設關閉: 啟用前不註冊任何內容、不送出任何要求, 儀表板中明確的「測試模型」按鈕除外; 只啟用而不設定 `inlineCompletions.model` 時功能保持閒置 |
 | `litellm-vscode-chat.inlineCompletions.model` | `null` | 提供內嵌補全的模型: `{ "server": "<項目 label>", "model": "<原始模型 ID>" }`, 指向一個 `servers` 項目及其一個模型 ID。模型永遠由你明確選擇 - 從不自動挑選; `null` 使功能保持閒置 |
 | `litellm-vscode-chat.inlineCompletions.languageFilter` | `{"mode":"block","languages":[]}` | 內嵌補全的執行範圍: mode 為 `"block"` 時在列出的 VS Code 語言 ID (精確比對) 之外的所有語言中執行, `"allow"` 時僅在列出的語言中執行 (允許清單為空則不在任何語言中執行), 例如 `{ "mode": "block", "languages": ["markdown", "plaintext"] }`。預設不封鎖任何語言 |
@@ -82,7 +83,7 @@
 | `litellm-vscode-chat.reviewComments.enabled` | `false` | 選擇啟用對變更的 AI 審查評論。預設關閉; 啟用前不存在任何審查討論串, 也不會送出任何審查請求, 儀表板中明確的「測試模型」按鈕除外 ([配方](getting-started.md#讓模型審查您的程式碼)) |
 | `litellm-vscode-chat.reviewComments.model` | `null` | 撰寫審查評論的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
 | `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟 |
-| `litellm-vscode-chat.agentTools.enabled` | `false` | 註冊 Copilot 的代理可以呼叫的讀取工具: 診斷、伺服器、模型、有效的能力和參數、已遮蔽密鑰的近期日誌。預設關閉; 每個會做出變更的工具在下方都有自己的開關。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
+| `litellm-vscode-chat.agentTools.enabled` | `false` | 註冊 Copilot 的代理可以呼叫的讀取工具: 診斷、伺服器、模型、有效的能力和參數、近期日誌。預設關閉; 每個會做出變更的工具在下方都有自己的開關。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
 | `litellm-vscode-chat.agentTools.setSetting.enabled` | `false` | 允許代理經儀表板的驗證變更標量設定 (逾時、開關、功能模型); 絕不包括 `servers`、模型記錄設定或代理工具自身的開關。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
 | `litellm-vscode-chat.agentTools.editModelRecords.enabled` | `false` | 允許代理編輯 `models.capabilities` 和 `models.parameters`, 一次一個比對器鍵, 可在全域或某個 servers 項目上。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
 | `litellm-vscode-chat.agentTools.saveServer.enabled` | `false` | 允許代理新增、編輯、重新命名或採納 `servers` 項目。密鑰值由您在輸入框中輸入, 該輸入框預設遮罩顯示 (由 `ui.maskSecretInputs` 控制) 且值絕不進入聊天, 除非 `agentTools.secretValues.enabled` 允許代理傳遞; 保留的密鑰絕不會跟隨變更了的主機。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |

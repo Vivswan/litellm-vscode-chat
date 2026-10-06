@@ -166,8 +166,7 @@ export async function applyAdoptServer(
 	const { credentials } = source;
 	// The adopted entry assembles through the shared assembler into the NESTED auth object the sync engine parses:
 	// secrets the user routed to settings join the inline fields; secure-routed values stay out of the entry and land
-	// in SecretStorage below. Writing any flat credential field here would sync credential-less and escape the
-	// no-secrets export's auth-subtree strip.
+	// in SecretStorage below. Writing any flat credential field here would sync credential-less.
 	const inlineFields: { -readonly [K in OptionalEntryFieldId]?: string | undefined } = {
 		...pickNonSecretOptionalFields(credentials ?? {}),
 	};

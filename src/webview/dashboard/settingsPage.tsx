@@ -109,6 +109,7 @@ const SETTING_GROUPS: readonly {
 		booleans: [],
 	},
 	{ title: () => l10n.t("UI"), numbers: [], booleans: ["ui.maskSecretInputs"] },
+	{ title: () => l10n.t("Logs"), numbers: [], booleans: ["logs.redactSecrets"] },
 ];
 
 /**

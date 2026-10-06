@@ -124,7 +124,7 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 
 		test("shapes that could hide secret text flag unsanitizable; textless ones do not", () => {
 			// Text (or a text-capable container) anywhere but the grammar's known non-secret positions: the malformed
-			// shape could BE (or contain) the secret, so a no-secrets export must not trust it.
+			// shape could BE (or contain) the secret, so the import must not land it.
 			for (const raw of [
 				entryWith("sk-in-a-bare-auth-string"),
 				entryWith([{ apiKey: "sk-in-an-array" }]),
