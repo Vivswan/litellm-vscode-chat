@@ -342,8 +342,12 @@ export const userTextReaders = ESLintUtils.RuleCreator.withoutDocs<Options, Mess
 		const services = ESLintUtils.getParserServices(context);
 		const checker = services.program.getTypeChecker();
 		// Rows name files relative to the TypeScript root, the identity typescript-eslint itself keys files by; ESLint's
-		// cwd is no anchor, since RuleTester sets it to the filesystem root.
-		const root = context.languageOptions.parserOptions.tsconfigRootDir ?? context.cwd;
+		// cwd is no anchor, since RuleTester sets it to the filesystem root. Without a root every row would silently match
+		// nothing, so the config error is named instead.
+		const root = context.languageOptions.parserOptions.tsconfigRootDir;
+		if (root === undefined) {
+			throw new Error("litellm/user-text-readers needs parserOptions.tsconfigRootDir to match its allow rows by file");
+		}
 		const file = path.relative(root, context.filename).split(path.sep).join("/");
 		const rows = allow.filter((row) => row.file === file);
 		const unused = new Set(rows);
