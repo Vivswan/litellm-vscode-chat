@@ -339,6 +339,23 @@ export type EntryViewFieldId = keyof typeof ENTRY_VIEW_FIELD_SET;
 
 export const ENTRY_VIEW_FIELD_IDS = Object.keys(ENTRY_VIEW_FIELD_SET) as readonly EntryViewFieldId[];
 
+/**
+ * The keys a servers entry may carry at its top level. The parser reads exactly these (a key outside them is never
+ * read, so it reports nothing), the manifest schema's items.properties are gated to equal them, and the settings
+ * import names any other key on an entry it keeps.
+ */
+export const SERVER_ENTRY_KEYS: readonly string[] = [
+	"label",
+	"baseUrl",
+	"apiVersion",
+	"auth",
+	"headers",
+	"models",
+	"discovery",
+	"budget",
+	"mcp",
+];
+
 /** The extension-side fields as parsed entries and views carry them: present only with usable content. */
 export type EntryViewFields = { readonly [K in EntryViewFieldId]?: EntryViewFieldValues[K] | undefined };
 

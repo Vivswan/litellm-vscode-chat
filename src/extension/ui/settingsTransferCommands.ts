@@ -47,7 +47,7 @@ import type { KeyedSettingsWriters, SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
 import { parseEnvelope } from "../settingsTransfer/envelope";
 import { buildSettingsExport } from "../settingsTransfer/exportBuild";
-import type { CollisionDecision, SecretWrite, SettingWrite } from "../settingsTransfer/importPlan";
+import type { CollisionDecision, EntryRemark, SecretWrite, SettingWrite } from "../settingsTransfer/importPlan";
 import {
 	connectionChangedLabels,
 	planSettingsImport,
@@ -64,7 +64,7 @@ const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 
 /** The preview modal's list caps: modal detail space is bounded. */
 const PREVIEW_KEY_CAP = 8;
-const PREVIEW_PROBLEM_CAP = 5;
+const PREVIEW_REMARK_CAP = 5;
 
 /** What the import preview modal states; lists arrive pre-capped, the counts carry the totals. */
 export interface ImportPreviewSummary {
@@ -72,7 +72,7 @@ export interface ImportPreviewSummary {
 	readonly settingCount: number;
 	/** The first settingCount keys, capped at PREVIEW_KEY_CAP. */
 	readonly settingKeys: readonly string[];
-	/** Distinct importable server labels in the file (collisions included). */
+	/** Kept server entries in the file (collisions included). */
 	readonly serverCount: number;
 	/** Incoming labels already present in the current setting. */
 	readonly collisionCount: number;
@@ -80,16 +80,18 @@ export interface ImportPreviewSummary {
 	readonly connectionChangedCount: number;
 	/** Inline secret values that will move into VS Code secret storage. */
 	readonly secretFieldCount: number;
-	/** English parser problem lines per entry, capped at PREVIEW_PROBLEM_CAP. */
-	readonly problemLines: readonly string[];
-	/** Total problem lines before the cap. */
-	readonly problemCount: number;
+	/** The dropped entries' sentences, capped at PREVIEW_REMARK_CAP. */
+	readonly droppedLines: readonly string[];
+	/** Total dropped entries before the cap. */
+	readonly droppedCount: number;
+	/** The kept entries' note sentences, capped at PREVIEW_REMARK_CAP. */
+	readonly noteLines: readonly string[];
+	/** Total notes before the cap. */
+	readonly noteCount: number;
 	/** Keys the scalar gate skips, in file order: each is named in the preview with the contract it failed. */
 	readonly skippedKeys: readonly string[];
 	/** File keys outside the setting vocabulary, ignored. */
 	readonly unknownKeyCount: number;
-	/** Server entries that cannot import (no usable label, or shadowed same-label siblings). */
-	readonly skippedServerCount: number;
 }
 
 /** Every dialog the flows show; fully fakeable, and dismissals map to undefined/false. */
@@ -199,17 +201,21 @@ export function renderImportPreview(summary: ImportPreviewSummary): string {
 				: l10n.t("{0} unknown keys will be ignored.", summary.unknownKeyCount)
 		);
 	}
-	if (summary.skippedServerCount > 0) {
+	if (summary.droppedCount > 0) {
 		lines.push(
-			summary.skippedServerCount === 1
-				? l10n.t("1 server entry cannot be imported and will be skipped.")
-				: l10n.t("{0} server entries cannot be imported and will be skipped.", summary.skippedServerCount)
+			summary.droppedCount === 1
+				? l10n.t("1 server entry will not be imported:")
+				: l10n.t("{0} server entries will not be imported:", summary.droppedCount)
 		);
+		lines.push(...summary.droppedLines);
+		if (summary.droppedCount > summary.droppedLines.length) {
+			lines.push("...");
+		}
 	}
-	if (summary.problemLines.length > 0) {
-		lines.push(l10n.t("Entry problems:"));
-		lines.push(...summary.problemLines);
-		if (summary.problemCount > summary.problemLines.length) {
+	if (summary.noteCount > 0) {
+		lines.push(l10n.t("Notes on the imported servers:"));
+		lines.push(...summary.noteLines);
+		if (summary.noteCount > summary.noteLines.length) {
 			lines.push("...");
 		}
 	}
@@ -415,6 +421,22 @@ function skippedKeyLine(key: string): string {
 	return l10n.t("{0} has a value its key does not accept; it will be skipped.", key);
 }
 
+/** One remark as a sentence: the parser's lines predicate the subject (`"prod" has a baseUrl that ...`). */
+function remarkSentence(remark: EntryRemark): string {
+	return `${remark.subject} ${remark.text}.`;
+}
+
+/** The completion notice's dropped sentence, or undefined when nothing dropped. */
+function droppedSentence(dropped: readonly EntryRemark[]): string | undefined {
+	if (dropped.length === 0) {
+		return undefined;
+	}
+	const list = dropped.map(remarkSentence).join(" ");
+	return dropped.length === 1
+		? l10n.t("1 server entry was not imported: {0}", list)
+		: l10n.t("{0} server entries were not imported: {1}", dropped.length, list);
+}
+
 /** The localized parse-failure message for one ParseEnvelopeResult verdict. */
 function parseFailureMessage(
 	verdict:
@@ -481,8 +503,8 @@ async function applyServersUnit(
 				const owner = value !== undefined ? write.owners[field] : undefined;
 				await env.updateServerSecret(write.label, field, value, owner);
 				// Recorded only after the write landed: updateServerSecret's read-modify-write leaves the blob
-				// untouched when it throws. The stamp is kept as the record reads it back, since the plan's fallback
-				// stamp for a parser-rejected entry carries the file's spelling.
+				// untouched when it throws. The stamp is recorded as the record reads it back, so the rollback compares
+				// it with the stored one in the same parsed form.
 				overwritten.push({
 					label: write.label,
 					field,
@@ -604,42 +626,39 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		}
 		const plan = planSettingsImport(parsed.settings, currentServersRaw, storedSecrets);
 
-		const importableLabels = new Set<string>();
-		for (const incoming of plan.incomingServers) {
-			if (!incoming.skipped && incoming.report.label !== undefined) {
-				importableLabels.add(incoming.report.label);
-			}
-		}
-		// Everything beyond one entry per distinct label cannot land: unlabeled or reserved-label entries, and shadowed
-		// same-label siblings alike.
-		const unimportableServers = plan.incomingServers.length - importableLabels.size;
-		if (plan.settingsWrites.length === 0 && importableLabels.size === 0) {
-			await env.prompts.notify("info", l10n.t("LiteLLM: The file contains no importable settings."));
+		const kept = plan.incomingServers.filter((incoming) => incoming.kept);
+		// The whole file is refused only here: nothing in it validates. The refusal names what each entry failed on, so
+		// the user fixes the file rather than guessing.
+		if (plan.settingsWrites.length === 0 && kept.length === 0) {
+			env.log("Settings import rejected: nothing in the file can be imported", {
+				dropped: plan.dropped.length,
+				skippedKeys: plan.skippedKeys.length,
+			});
+			const dropped = droppedSentence(plan.dropped);
+			await env.prompts.notify(
+				"error",
+				[
+					l10n.t("LiteLLM: Nothing in this file can be imported."),
+					...(dropped === undefined ? [] : [dropped]),
+					...plan.skippedKeys.map((skipped) => skippedKeyLine(skipped.key)),
+				].join(" ")
+			);
 			return;
 		}
 
-		const problemLines: string[] = [];
-		let problemCount = 0;
-		for (const incoming of plan.incomingServers) {
-			for (const problem of incoming.report.problems) {
-				problemCount += 1;
-				if (problemLines.length < PREVIEW_PROBLEM_CAP) {
-					problemLines.push(`${incoming.report.label ?? `entry ${incoming.report.index + 1}`}: ${problem}`);
-				}
-			}
-		}
 		const summary: ImportPreviewSummary = {
 			settingCount: plan.settingsWrites.length,
 			settingKeys: plan.settingsWrites.slice(0, PREVIEW_KEY_CAP).map((write) => write.key),
-			serverCount: importableLabels.size,
+			serverCount: kept.length,
 			collisionCount: plan.collisions.length,
 			connectionChangedCount: plan.collisions.filter((collision) => collision.connectionChanged).length,
 			secretFieldCount: plan.secretFieldCount,
-			problemLines,
-			problemCount,
+			droppedLines: plan.dropped.slice(0, PREVIEW_REMARK_CAP).map(remarkSentence),
+			droppedCount: plan.dropped.length,
+			noteLines: plan.notes.slice(0, PREVIEW_REMARK_CAP).map(remarkSentence),
+			noteCount: plan.notes.length,
 			skippedKeys: plan.skippedKeys.map((skipped) => skipped.key),
 			unknownKeyCount: parsed.unknownKeys.length,
-			skippedServerCount: unimportableServers,
 		};
 		if (!(await env.prompts.confirmImport(summary))) {
 			return;
@@ -649,6 +668,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		// zero writes.
 		const decisions: Record<string, CollisionDecision> = {};
 		const currentLabels = rawDeclaredLabels(currentServersRaw);
+		const keptLabels = new Set(kept.map((incoming) => incoming.label));
 		const renameTargets = new Set<string>();
 		for (const collision of plan.collisions) {
 			const choice = await env.prompts.resolveCollision(collision.label, collision.connectionChanged);
@@ -659,7 +679,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				decisions[collision.label] = { action: choice };
 				continue;
 			}
-			const taken = new Set<string>([...currentLabels, ...importableLabels, ...renameTargets]);
+			const taken = new Set<string>([...currentLabels, ...keptLabels, ...renameTargets]);
 			const validate = (candidate: string): string | undefined => {
 				const trimmed = trimHttpWhitespace(candidate);
 				if (trimmed.length === 0) {
@@ -841,6 +861,23 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				)
 			);
 		}
+		// The one warning about the file's own content: what dropped and why, what a kept entry carries that will not
+		// take effect, and the keys outside the setting vocabulary. Each line names a field or key, never a value.
+		const dropped = droppedSentence(application.dropped);
+		if (dropped !== undefined) {
+			notes.push(dropped);
+		}
+		if (application.notes.length > 0) {
+			notes.push(l10n.t("Notes on the imported servers: {0}", application.notes.map(remarkSentence).join(" ")));
+		}
+		if (parsed.unknownKeys.length > 0) {
+			notes.push(
+				parsed.unknownKeys.length === 1
+					? l10n.t("1 unknown key was ignored: {0}.", parsed.unknownKeys.join(", "))
+					: l10n.t("{0} unknown keys were ignored: {1}.", parsed.unknownKeys.length, parsed.unknownKeys.join(", "))
+			);
+		}
+		const fileRemarks = application.dropped.length + application.notes.length + parsed.unknownKeys.length;
 		env.log("Settings import applied", {
 			settings: writtenSettings,
 			failedSettings: failedKeys.length,
@@ -848,11 +885,13 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			overwritten: counts.overwritten,
 			renamed: counts.renamed,
 			skipped: counts.skipped,
+			dropped: application.dropped.length,
+			notes: application.notes.length,
 			secretWrites: application.secretWrites.length,
 		});
 		// No snapshot guards a run that wrote nothing (or landed nothing), so it has no undo.
 		await env.prompts.notify(
-			failedKeys.length > 0 ? "warning" : "info",
+			failedKeys.length > 0 || fileRemarks > 0 ? "warning" : "info",
 			notes.join(" "),
 			writesNothing || !landedAnything ? [] : [undoImportAction(env)]
 		);

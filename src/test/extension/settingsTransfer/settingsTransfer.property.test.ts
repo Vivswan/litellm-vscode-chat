@@ -3,6 +3,7 @@ import * as fc from "fast-check";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
 import {
+	acceptedEntries,
 	acceptedEntry,
 	parseServersSetting,
 	respellEntryUrls,
@@ -417,11 +418,10 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 	}
 
 	/**
-	 * The documented resolution rules restated from the RAW incoming array, independently of resolveImportPlan and
-	 * serverSettingReports: per label, the parser's claimant (first element with a usable label AND baseUrl) lands, or
-	 * the first labeled element when nothing claims; collisions follow the decisions; invalid rename targets, shadowed
-	 * siblings, and uncertifiable auth shapes drop. Landing labels carry their source index so the assertions can pin
-	 * WHICH element landed.
+	 * The documented resolution rules restated from the RAW incoming array, independently of resolveImportPlan: the
+	 * elements the servers parser accepts within the whole array (its first-wins rule included) land unless their auth
+	 * text cannot be certified; the rest drop. Collisions follow the decisions; invalid rename targets skip. Landing
+	 * labels carry their source index so the assertions can pin WHICH element landed.
 	 *
 	 *   Shares no resolution code with the implementation -> the two cannot drift together
 	 */
@@ -433,64 +433,45 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 		appended: { label: string; index: number }[];
 		overwritten: { label: string; index: number }[];
 		skipped: number;
+		dropped: number;
 	} {
-		const hasUsableBaseUrl = (element: unknown): boolean =>
-			isRecord(element) && typeof element.baseUrl === "string" && element.baseUrl.trim().length > 0;
 		const unplaceable = (element: unknown): boolean => isRecord(element) && stripEntrySecrets(element).unsanitizable;
-		const representative = new Map<string, number>();
-		const fallback = new Map<string, number>();
-		incoming.forEach((element, index) => {
-			const label = rawLabelOf(element);
-			if (label === undefined || unplaceable(element)) {
-				return;
-			}
-			if (hasUsableBaseUrl(element) && !representative.has(label)) {
-				representative.set(label, index);
-			}
-			if (!fallback.has(label)) {
-				fallback.set(label, index);
-			}
-		});
-		for (const [label, index] of fallback) {
-			if (!representative.has(label)) {
-				representative.set(label, index);
-			}
-		}
+		const kept = acceptedEntries(incoming).filter(({ index }) => !unplaceable(incoming[index]));
 
 		const landed = new Set<string>();
 		const appended: { label: string; index: number }[] = [];
 		const overwritten: { label: string; index: number }[] = [];
 		let skipped = 0;
-		incoming.forEach((element, index) => {
-			const label = rawLabelOf(element);
-			if (label === undefined || unplaceable(element) || representative.get(label) !== index || landed.has(label)) {
+		for (const { index, entry } of kept) {
+			const label = entry.label;
+			if (landed.has(label)) {
 				skipped += 1;
-				return;
+				continue;
 			}
 			if (!baseLabels.has(label)) {
 				landed.add(label);
 				appended.push({ label, index });
-				return;
+				continue;
 			}
 			const decision = Object.hasOwn(decisions, label) ? decisions[label] : undefined;
 			if (decision === undefined || decision.action === "skip") {
 				skipped += 1;
-				return;
+				continue;
 			}
 			if (decision.action === "overwrite") {
 				landed.add(label);
 				overwritten.push({ label, index });
-				return;
+				continue;
 			}
 			const target = decision.newLabel.trim();
 			if (target.length === 0 || isUnsafeRecordKey(target) || landed.has(target) || baseLabels.has(target)) {
 				skipped += 1;
-				return;
+				continue;
 			}
 			landed.add(target);
 			appended.push({ label: target, index });
-		});
-		return { appended, overwritten, skipped };
+		}
+		return { appended, overwritten, skipped, dropped: incoming.length - kept.length };
 	}
 
 	test("resolveImportPlan holds the in-place/append/untouched invariants under arbitrary decisions", () => {
@@ -545,24 +526,24 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 					assert.strictEqual(application.counts.imported + application.counts.renamed, expected.appended.length);
 					assert.strictEqual(application.counts.overwritten, expected.overwritten.length);
 					assert.strictEqual(application.counts.skipped, expected.skipped);
+					assert.strictEqual(application.dropped.length, expected.dropped);
 
-					// The entry and secrets a landing label carries are the oracle's representative element, stripped and
-					// (for an entry the parser accepts) in the parser's one URL spelling - pinned by content so a resolver
-					// picking the wrong same-label element cannot pass on counts alone.
+					// The entry and secrets a landing label carries are the oracle's element, stripped and in the parser's
+					// one URL spelling - pinned by content so a resolver picking the wrong same-label element cannot pass
+					// on counts alone.
 					const expectedLanding = (label: string, index: number) => {
 						const raw = incoming[index];
 						assert.ok(isRecord(raw));
 						const relabeled = rawLabelOf(raw) === label ? raw : { ...raw, label };
 						const stripped = stripEntrySecrets(relabeled);
-						const accepted = acceptedEntry([stripped.entry], label) !== undefined;
-						return {
-							secrets: stripped.secrets,
-							entry: accepted ? respellEntryUrls(stripped.entry).record : stripped.entry,
-						};
+						return { secrets: stripped.secrets, entry: respellEntryUrls(stripped.entry).record };
 					};
 
 					const landed = application.counts.imported + application.counts.overwritten + application.counts.renamed;
-					assert.strictEqual(landed + application.counts.skipped, plan.incomingServers.length);
+					assert.strictEqual(
+						landed + application.counts.skipped + application.dropped.length,
+						plan.incomingServers.length
+					);
 					assert.strictEqual(application.serversValue === undefined, landed === 0);
 					assert.strictEqual(application.secretWrites.length, landed);
 					assert.deepStrictEqual(

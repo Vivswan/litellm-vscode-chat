@@ -708,21 +708,6 @@ export function acceptedEntries(raw: unknown): { index: number; entry: DeclaredS
 }
 
 /**
- * The URL field of a raw entry the parser refuses, when there is one: usable text with no canonical spelling. The
- * settings import skips such an entry by this judgment instead of landing it, so a working entry under the label is
- * never overwritten by one the parser would reject.
- */
-export function refusedUrlField(raw: Readonly<Record<string, unknown>>): "baseUrl" | "auth.oauth.tokenUrl" | undefined {
-	const baseUrlText = usableHttpText(raw.baseUrl);
-	if (baseUrlText !== undefined && canonicalBaseUrl(baseUrlText) === undefined) {
-		return "baseUrl";
-	}
-	const tokenUrlText =
-		isRecord(raw.auth) && isRecord(raw.auth.oauth) ? usableHttpText(raw.auth.oauth.tokenUrl) : undefined;
-	return tokenUrlText !== undefined && canonicalUrl(tokenUrlText) === undefined ? "auth.oauth.tokenUrl" : undefined;
-}
-
-/**
  * A raw entry with its URL fields in the one spelling the parser reads, every other byte untouched: what a settings
  * import writes and what the one-time migration rewrites, so a stored entry reads back as itself. `oldBaseUrl` is the
  * trimmed spelling the base URL had when it changed: the one field the sync fingerprint hashes (engine.ts

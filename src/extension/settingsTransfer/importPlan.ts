@@ -5,6 +5,11 @@
  * reach vscode at load time in the host - which is why this core sits in extension/ rather than dashboard/.
  *
  *   the split -> keeps every prompt between the two steps fakeable
+ *
+ * A file is something the import only reads, so nothing in it is repaired by guessing: judgeEntry keeps an entry the
+ * servers parser accepts (the one definition of a valid entry the dashboard and the sync engine share) and drops the
+ * rest with the parser's first line as the reason. The one spelling respellEntryUrls settles is a spelling, not a
+ * repair.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -22,7 +27,7 @@ import {
 } from "../../shared/config/settingSpec";
 import { rejectedCredentialKinds } from "../../shared/failureCause";
 import type { RejectedCredentialField, SecretFieldId, SecretOwner } from "../../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS, SERVER_ENTRY_KEYS } from "../../shared/serverEntry";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { restructureServers } from "../migrations/settingsRedesign/entries";
@@ -31,10 +36,10 @@ import type { StoredSecretOwners, StoredServerSecrets } from "../servers/serverS
 import { secretDestination } from "../servers/serverSync/secrets";
 import type { DeclaredServer, ServerEntryReport } from "../servers/serverSync/setting";
 import {
+	acceptedEntries,
 	acceptedEntry,
 	declaredEntryLabel,
 	rawDeclaredLabels,
-	refusedUrlField,
 	respellEntryUrls,
 	serverSettingReports,
 } from "../servers/serverSync/setting";
@@ -60,23 +65,45 @@ export interface SkippedKey {
 	readonly reason: "wrong-type";
 }
 
-/** One entry of the file's servers array, with its acceptance verdict for the preview. */
-export interface IncomingServer {
-	/**
-	 * The entry as the import would write it: the file's entry normalized to the current settings shape (the
-	 * settings-redesign restructure, so a pre-redesign flat export lands working entries instead of waiting for the
-	 * next activation's migration), inline secret values still in place. It must never cross the webview boundary or
-	 * reach the log buffer; the preview surfaces render the report beside it, not the entry itself.
-	 */
-	readonly raw: unknown;
-	/** The entry's verdict, from the same serverSettingReports pass the dashboard diagnostics run. */
-	readonly report: ServerEntryReport;
-	/**
-	 * True when the entry cannot import at all: no usable label, a reserved one (no SecretStorage key is possible for
-	 * either), or an auth shape the secret surgery cannot certify - landing that entry would write presumed credential
-	 * text into the settings file, breaking the secrets-go-to-secure-storage promise.
-	 */
-	readonly skipped: boolean;
+/**
+ * One entry of the file's servers array under the import's one judgment. A kept entry is one the parser accepted,
+ * whose auth text the secret surgery could move; its label is therefore usable and unique within the file. Neither
+ * variant's entry text may cross the webview boundary or reach the log buffer; the preview surfaces render the
+ * remarks beside it, never the entry itself.
+ */
+export type IncomingServer =
+	| {
+			readonly kept: true;
+			readonly label: string;
+			/**
+			 * The entry as it lands before respellEntryUrls: the file's entry normalized to the current settings shape (the
+			 * settings-redesign restructure, so a pre-redesign flat export lands working entries instead of waiting for the
+			 * next activation's migration), secret values stripped out.
+			 */
+			readonly entry: Readonly<Record<string, unknown>>;
+			/** The stripped secret values that will be stored: a value the request path could not send is already gone. */
+			readonly secrets: StoredServerSecrets;
+			/** The parser's verdict, from the same serverSettingReports pass the dashboard diagnostics run. */
+			readonly report: ServerEntryReport;
+			/**
+			 * What the entry carries that will not take effect, each line naming a field and never a value: the parser's
+			 * ignored diagnostics, a credential the request path would refuse, a key outside the entry vocabulary.
+			 */
+			readonly notes: readonly string[];
+	  }
+	| {
+			readonly kept: false;
+			readonly raw: unknown;
+			readonly report: ServerEntryReport;
+			/** The first line the entry failed on, naming the field and never a value. */
+			readonly reason: string;
+	  };
+
+/** One line about one entry, as the preview and the completion notice state it: `subject text`. */
+export interface EntryRemark {
+	/** The quoted label, or `entry N` (1-based) when the entry has no usable one; the parser's lines predicate it. */
+	readonly subject: string;
+	readonly text: string;
 }
 
 /** One label collision between the file and the current setting's raw labels. */
@@ -101,11 +128,13 @@ export interface ImportPlan {
 	readonly skippedKeys: readonly SkippedKey[];
 	/** The file's servers array, one verdict per entry; empty when the file carries no servers key. */
 	readonly incomingServers: readonly IncomingServer[];
-	/** Importable incoming labels already present in the current setting (vs rawDeclaredLabels), in file order. */
+	/** The dropped entries' first reasons, in file order. */
+	readonly dropped: readonly EntryRemark[];
+	/** Every note on a kept entry, in file order. */
+	readonly notes: readonly EntryRemark[];
+	/** Kept incoming labels already present in the current setting (vs rawDeclaredLabels), in file order. */
 	readonly collisions: readonly ServerCollision[];
-	/**
-	 * Inline secret values across the entries that would land (one representative per label; see resolveImportPlan).
-	 */
+	/** Inline secret values across the kept entries that will move into secret storage. */
 	readonly secretFieldCount: number;
 	/** The current servers setting's raw user-scope value, carried verbatim for resolveImportPlan's merge. */
 	readonly currentServersRaw: unknown;
@@ -176,67 +205,67 @@ export function connectionChangedLabels(
 	return changed;
 }
 
-/**
- * When no element claims, the first labeled element stands in, so a lone fragment still imports.
- *
- *   the parser's claim rule -> the first element with a usable label AND baseUrl claims the label; a baseUrl-less
- *       fragment claims nothing
- */
-function representativeIndices(incomingServers: readonly IncomingServer[]): ReadonlyMap<string, number> {
-	const claimants = new Map<string, number>();
-	const fallbacks = new Map<string, number>();
-	incomingServers.forEach((incoming, index) => {
-		const label = incoming.report.label;
-		if (incoming.skipped || label === undefined) {
-			return;
-		}
-		if (incoming.report.baseUrl !== undefined && !claimants.has(label)) {
-			claimants.set(label, index);
-		}
-		if (!fallbacks.has(label)) {
-			fallbacks.set(label, index);
-		}
-	});
-	return new Map([...fallbacks].map(([label, index]) => [label, claimants.get(label) ?? index]));
-}
-
 function refusedSecretProblem(field: RejectedCredentialField): string {
 	return l10n.t(
-		"the {0} cannot be sent as an HTTP header; it is not imported, so enter it again afterwards",
+		"has {0} text that cannot be sent as an HTTP header; it is not imported, so enter it again afterwards",
 		rejectedCredentialKinds([field]).display
 	);
 }
 
 /**
- * The import's one reading of an entry's secrets, judged by the same narrowing every request path narrows by: a
- * configured key the narrowing rejects is refused by field and never stored, and the entry still lands without it. An
- * entry the parser does not accept has no carriers to judge a virtual key by, so its secrets are narrowed alone: the
- * API key is still judged, the virtual key value reads as dormant.
+ * The import's one judgment of a file entry. `parsed` is the parser's accepted reading of this element within the
+ * whole file array (so a repeated label is the parser's rejection, not a second rule here); undefined means rejected,
+ * and the parser's first line is the reason. An accepted entry still drops when text the secret surgery cannot reach
+ * may hide a credential: landing it would write presumed credential text into the settings file. A kept entry's
+ * secrets are judged by the same narrowing every request path narrows by, so a configured key the narrowing rejects
+ * is never stored and the entry lands without it, noted by field.
  */
-function importableSecrets(
-	raw: Readonly<Record<string, unknown>>,
-	label: string | undefined
-): {
-	readonly entry: Readonly<Record<string, unknown>>;
-	readonly secrets: StoredServerSecrets;
-	readonly refused: readonly RejectedCredentialField[];
-	readonly unsanitizable: boolean;
-} {
+function judgeEntry(raw: unknown, report: ServerEntryReport, parsed: DeclaredServer | undefined): IncomingServer {
+	if (parsed === undefined || !isRecord(raw)) {
+		return { kept: false, raw, report, reason: report.problems[0] ?? "is not a server entry" };
+	}
 	const stripped = stripEntrySecrets(raw);
-	const entry = label === undefined ? undefined : acceptedEntry([stripped.entry], label)?.entry;
-	const fields = entry === undefined ? stripped.secrets : buildGroupArgs(entry, stripped.secrets);
-	const refused = refusedCredentialFields(narrowGroupCredentials(fields).rejections) ?? [];
+	if (stripped.unsanitizable) {
+		return { kept: false, raw, report, reason: "carries credential text the import cannot move into secret storage" };
+	}
+	const refused =
+		refusedCredentialFields(narrowGroupCredentials(buildGroupArgs(parsed, stripped.secrets)).rejections) ?? [];
 	const secrets: { -readonly [K in SecretFieldId]?: string } = { ...stripped.secrets };
 	for (const field of refused) {
 		delete secrets[field];
 	}
-	return { entry: stripped.entry, secrets, refused, unsanitizable: stripped.unsanitizable };
+	const unknownKeys = Object.keys(raw).filter((key) => !SERVER_ENTRY_KEYS.includes(key));
+	return {
+		kept: true,
+		label: parsed.label,
+		entry: stripped.entry,
+		secrets,
+		report,
+		notes: [
+			...report.problems,
+			...refused.map(refusedSecretProblem),
+			...unknownKeys.map((key) => l10n.t('has an unknown key "{0}", ignored', key)),
+		],
+	};
+}
+
+function labelSubject(label: string): string {
+	return `"${label}"`;
+}
+
+function remarkSubject(incoming: IncomingServer): string {
+	if (incoming.kept) {
+		return labelSubject(incoming.label);
+	}
+	return incoming.report.label !== undefined
+		? labelSubject(incoming.report.label)
+		: `entry ${incoming.report.index + 1}`;
 }
 
 /**
  * `storedSecrets` is the host's pre-fetched SecretStorage blobs by label; when provided, each collision's
  * connectionChanged compares the current side's effective secret material instead of inline text alone. Pure and
- * synchronous either way; the incoming side never has a blob.
+ * synchronous either way; the incoming side's material is the kept entry's own stripped secrets.
  *
  *   Absent -> resolution is inline-only
  */
@@ -267,40 +296,10 @@ export function planSettingsImport(
 			const restructured = restructureServers(value).value;
 			const incoming: readonly unknown[] = Array.isArray(restructured) ? restructured : value;
 			const reports = serverSettingReports(incoming);
+			const accepted = new Map(acceptedEntries(incoming).map(({ index, entry }) => [index, entry]));
 			incoming.forEach((raw: unknown, index) => {
 				const report = reports[index] ?? { index, problems: [], accepted: false };
-				const secrets = isRecord(raw) ? importableSecrets(raw, report.label) : undefined;
-				// An uncertifiable shape must not land in the settings file (its text is presumed to be a credential);
-				// the entry skips with the reason beside the parser's own problem lines.
-				if (secrets?.unsanitizable) {
-					incomingServers.push({
-						raw,
-						report: {
-							...report,
-							accepted: false,
-							problems: [...report.problems, "carries credential text the import cannot move into secret storage"],
-						},
-						skipped: true,
-					});
-					return;
-				}
-				// An entry the parser refuses for a URL is never written: landing it could overwrite a working entry under
-				// the label with one the parser rejects.
-				const refusedUrl = isRecord(raw) ? refusedUrlField(raw) : undefined;
-				if (refusedUrl !== undefined) {
-					incomingServers.push({
-						raw,
-						report: {
-							...report,
-							accepted: false,
-							problems: [...report.problems, `is not imported: its ${refusedUrl} is not a URL with a host`],
-						},
-						skipped: true,
-					});
-					return;
-				}
-				const problems = [...report.problems, ...(secrets?.refused ?? []).map(refusedSecretProblem)];
-				incomingServers.push({ raw, report: { ...report, problems }, skipped: report.label === undefined });
+				incomingServers.push(judgeEntry(raw, report, accepted.get(index)));
 			});
 			continue;
 		}
@@ -312,40 +311,44 @@ export function planSettingsImport(
 	}
 
 	const currentLabels = rawDeclaredLabels(currentServersRaw);
-	// Skipped entries stay out of the fingerprint parse: a skipped first element under a label would otherwise shadow
-	// the valid same-label element resolution actually lands, misreading its connection fingerprint.
-	const incomingArray = incomingServers.filter((incoming) => !incoming.skipped).map((incoming) => incoming.raw);
-	const representatives = representativeIndices(incomingServers);
-	let secretFieldCount = 0;
-	for (const index of representatives.values()) {
-		const incoming = incomingServers[index];
-		if (incoming !== undefined && isRecord(incoming.raw)) {
-			secretFieldCount += Object.keys(importableSecrets(incoming.raw, incoming.report.label).secrets).length;
-		}
-	}
+	const dropped: EntryRemark[] = [];
+	const notes: EntryRemark[] = [];
 	const collisions: ServerCollision[] = [];
-	const collided = new Set<string>();
+	let secretFieldCount = 0;
 	for (const incoming of incomingServers) {
-		const label = incoming.report.label;
-		if (incoming.skipped || label === undefined) {
+		if (!incoming.kept) {
+			dropped.push({ subject: remarkSubject(incoming), text: incoming.reason });
 			continue;
 		}
-		if (!currentLabels.has(label) || collided.has(label)) {
+		const subject = remarkSubject(incoming);
+		notes.push(...incoming.notes.map((text) => ({ subject, text })));
+		secretFieldCount += Object.keys(incoming.secrets).length;
+		if (!currentLabels.has(incoming.label)) {
 			continue;
 		}
-		collided.add(label);
 		// hasOwn: labels like "toString" must not read Object.prototype.
 		const currentBlob =
-			storedSecrets !== undefined && Object.hasOwn(storedSecrets, label) ? storedSecrets[label] : undefined;
-		const current = connectionFingerprint(acceptedEntry(currentServersRaw, label)?.entry, currentBlob ?? {});
-		const imported = connectionFingerprint(acceptedEntry(incomingArray, label)?.entry, {});
+			storedSecrets !== undefined && Object.hasOwn(storedSecrets, incoming.label)
+				? storedSecrets[incoming.label]
+				: undefined;
+		const current = connectionFingerprint(acceptedEntry(currentServersRaw, incoming.label)?.entry, currentBlob ?? {});
+		const imported = connectionFingerprint(acceptedEntry([incoming.entry], incoming.label)?.entry, incoming.secrets);
 		//   A side neither parses is a side whose connection material is unknowable -> one parsed side against an
 		//       unparseable one flags (the overwrite turns a dead entry live or vice versa)
 		const connectionChanged = current === undefined && imported === undefined ? false : current !== imported;
-		collisions.push({ label, connectionChanged });
+		collisions.push({ label: incoming.label, connectionChanged });
 	}
 
-	return { settingsWrites, skippedKeys, incomingServers, collisions, secretFieldCount, currentServersRaw };
+	return {
+		settingsWrites,
+		skippedKeys,
+		incomingServers,
+		dropped,
+		notes,
+		collisions,
+		secretFieldCount,
+		currentServersRaw,
+	};
 }
 
 /** The user's answer to one collision prompt. */
@@ -395,13 +398,20 @@ export interface ImportApplication {
 	 * blobs.
 	 */
 	readonly touchedLabels: readonly string[];
+	/** The plan's dropped entries, passed through for the completion notice. */
+	readonly dropped: readonly EntryRemark[];
+	/**
+	 * The notes of the entries that landed, under the label each landed as: a renamed entry's notes name the new
+	 * label, a skipped entry's notes are not carried (nothing to re-enter). The plan's notes stay the preview's.
+	 */
+	readonly notes: readonly EntryRemark[];
 	/** The summary notification's counts. */
 	readonly counts: {
 		/** New entries appended under their own label. */
 		readonly imported: number;
 		readonly overwritten: number;
 		readonly renamed: number;
-		/** Skip decisions plus the plan's unimportable entries. */
+		/** Skip decisions, plus a rename whose target the flow should have refused. */
 		readonly skipped: number;
 	};
 }
@@ -418,58 +428,52 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 	});
 
 	const collisionLabels = new Set(plan.collisions.map((collision) => collision.label));
-	const representatives = representativeIndices(plan.incomingServers);
 	const appended: unknown[] = [];
 	const secretWrites: SecretWrite[] = [];
 	const touchedLabels: string[] = [];
-	const touched = new Set<string>();
-	// Labels this import has already placed (rename targets included): the parser's first-entry-wins rule means a
-	// second entry under one could never take effect, so it drops into the skipped count.
+	const notes: EntryRemark[] = [];
+	// Labels this import has already placed: kept labels are unique within the file, so only a rename target can
+	// repeat one, and a second entry under it could never take effect under the parser's first-entry-wins rule.
 	const landedLabels = new Set<string>();
 	let imported = 0;
 	let overwritten = 0;
 	let renamed = 0;
 	let skipped = 0;
 
-	const land = (label: string, rawEntry: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
-		const stripped = importableSecrets(rawEntry, label);
-		// The stamp target is the entry as it will be written and parsed back;
-		// see SecretWrite.owners for the fail-closed fallback.
-		const parsed = acceptedEntry([stripped.entry], label)?.entry;
-		// What lands is the entry in the one spelling the parser reads (respellEntryUrls), never the file's.
-		const written = parsed === undefined ? stripped.entry : respellEntryUrls(stripped.entry).record;
-		const target = parsed ?? {
-			baseUrl: typeof rawEntry.baseUrl === "string" ? trimHttpWhitespace(rawEntry.baseUrl) : "",
-		};
+	// Reached only for a label landedLabels does not hold yet, so the label is new to every list it joins.
+	const land = (label: string, incoming: IncomingServer & { readonly kept: true }): unknown => {
+		const entry = incoming.label === label ? incoming.entry : { ...incoming.entry, label };
+		// What lands is the entry in the one spelling the parser reads (respellEntryUrls), never the file's; the
+		// ownership stamp targets that written entry as the parser reads it back (the import IS the deliberate pairing).
+		const written = respellEntryUrls(entry).record;
+		const target = acceptedEntry([written], label)?.entry;
+		if (target === undefined) {
+			throw new Error("settings import: a kept entry stopped parsing at landing");
+		}
 		const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = {};
 		for (const field of SECRET_FIELD_IDS) {
-			if (stripped.secrets[field] !== undefined) {
+			if (incoming.secrets[field] !== undefined) {
 				owners[field] = secretDestination(target, field);
 			}
 		}
-		secretWrites.push({ label, secrets: stripped.secrets, owners });
-		if (!touched.has(label)) {
-			touched.add(label);
-			touchedLabels.push(label);
-		}
+		secretWrites.push({ label, secrets: incoming.secrets, owners });
+		landedLabels.add(label);
+		touchedLabels.push(label);
+		notes.push(...incoming.notes.map((text) => ({ subject: labelSubject(label), text })));
 		return written;
 	};
 
-	for (const [index, incoming] of plan.incomingServers.entries()) {
-		const label = incoming.report.label;
-		if (incoming.skipped || label === undefined || !isRecord(incoming.raw)) {
-			skipped += 1;
+	for (const incoming of plan.incomingServers) {
+		if (!incoming.kept) {
 			continue;
 		}
-		//   shadowed same-label siblings drop rather than landing dead weight or clobbering the representative's blob
-		//     -> Only the label's representative lands
-		if (representatives.get(label) !== index || landedLabels.has(label)) {
+		const { label } = incoming;
+		if (landedLabels.has(label)) {
 			skipped += 1;
 			continue;
 		}
 		if (!collisionLabels.has(label)) {
-			landedLabels.add(label);
-			appended.push(land(label, incoming.raw));
+			appended.push(land(label, incoming));
 			imported += 1;
 			continue;
 		}
@@ -483,13 +487,12 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 			continue;
 		}
 		if (decision.action === "overwrite") {
-			landedLabels.add(label);
 			const overwriteIndex = indexByLabel.get(label);
-			const entry = land(label, incoming.raw);
+			const landed = land(label, incoming);
 			if (overwriteIndex !== undefined) {
-				base[overwriteIndex] = entry;
+				base[overwriteIndex] = landed;
 			} else {
-				appended.push(entry);
+				appended.push(landed);
 			}
 			overwritten += 1;
 			continue;
@@ -507,8 +510,7 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 			skipped += 1;
 			continue;
 		}
-		landedLabels.add(newLabel);
-		appended.push(land(newLabel, { ...incoming.raw, label: newLabel }));
+		appended.push(land(newLabel, incoming));
 		renamed += 1;
 	}
 
@@ -518,6 +520,8 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 		serversValue: landed > 0 ? [...base, ...appended] : undefined,
 		secretWrites,
 		touchedLabels,
+		dropped: plan.dropped,
+		notes,
 		counts: { imported, overwritten, renamed, skipped },
 	};
 }
