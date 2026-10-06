@@ -377,11 +377,37 @@ export function normalizeModelParameters(
 	return normalizePrefixKeyedRecords(raw, report);
 }
 
+/**
+ * The value each records setting was last reported under. The getters below run per chat request, per inline
+ * completion, and per serve, so a wrong-shaped slot would otherwise put the same line in the channel on every one of
+ * them; a value already reported reads silently until the user changes the setting. Problems are a function of the
+ * value, so the value is the whole identity. A read with no sink never claims a value.
+ */
+const reportedRecordValues = new Map<RecordSettingKey, string>();
+
+/** Test hook: lets a value the session already reported report again. */
+export function resetRecordShapeReports(): void {
+	reportedRecordValues.clear();
+}
+
+function readRecordsSetting(
+	setting: RecordSettingKey,
+	log: LogFn | undefined
+): Record<string, Record<string, unknown>> {
+	const raw = getConfig().get<unknown>(setting, {});
+	if (log === undefined) {
+		return normalizePrefixKeyedRecords(raw);
+	}
+	const value = JSON.stringify(cloneJson(raw)) ?? "";
+	if (reportedRecordValues.get(setting) === value) {
+		return normalizePrefixKeyedRecords(raw);
+	}
+	reportedRecordValues.set(setting, value);
+	return normalizePrefixKeyedRecords(raw, logRecordShapeProblems(setting, log));
+}
+
 export function getModelParametersConfig(log?: LogFn): Record<string, Record<string, unknown>> {
-	return normalizeModelParameters(
-		getConfig().get<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY, {}),
-		log === undefined ? undefined : logRecordShapeProblems(MODEL_PARAMETERS_SETTING_KEY, log)
-	);
+	return readRecordsSetting(MODEL_PARAMETERS_SETTING_KEY, log);
 }
 
 /**
@@ -396,10 +422,7 @@ export function normalizeModelCapabilities(
 }
 
 export function getModelCapabilitiesConfig(log?: LogFn): Record<string, Record<string, unknown>> {
-	return normalizeModelCapabilities(
-		getConfig().get<Record<string, unknown>>(MODEL_CAPABILITIES_SETTING_KEY, {}),
-		log === undefined ? undefined : logRecordShapeProblems(MODEL_CAPABILITIES_SETTING_KEY, log)
-	);
+	return readRecordsSetting(MODEL_CAPABILITIES_SETTING_KEY, log);
 }
 
 export function getMaskSecretInputs(): boolean {

@@ -70,6 +70,7 @@ import {
 	normalizeTokenEstimationMode,
 	normalizeUiAccent,
 	normalizeUiTheme,
+	resetRecordShapeReports,
 } from "../../../shared/config/settings";
 import { usableHttpText } from "../../../shared/util/headers";
 import { normalizePositiveNumber } from "../../../shared/util/numbers";
@@ -264,6 +265,9 @@ suite("shared/config/settings normalizeCustomHeaders", () => {
 });
 
 suite("shared/config/settings normalizeModelCapabilities", () => {
+	// The getters report a setting value once per session; each test here starts the session over.
+	setup(() => resetRecordShapeReports());
+
 	test("keeps the record-of-records shape and stays vocabulary-blind", () => {
 		// Shape only, deliberately: unknown keys and invalid values survive here so parseCapabilityRecord (the one
 		// vocabulary boundary) can diagnose them instead of them silently vanishing.
@@ -334,6 +338,31 @@ suite("shared/config/settings normalizeModelCapabilities", () => {
 		assert.deepStrictEqual(logged, [
 			{ msg: "Invalid models.capabilities configuration, reading it as empty", data: undefined },
 		]);
+	});
+
+	test("a wrong-shaped records slot is reported once per distinct setting value, not once per read", async () => {
+		// The getter runs per chat request, per inline completion, and per serve, so one misconfigured entry used to
+		// put a line naming it in the channel on every request. A read with no sink leaves the gate alone: the first
+		// read that can report still does.
+		const logged: { msg: string; data?: unknown }[] = [];
+		const log = (msg: string, data?: unknown) => logged.push({ msg, data });
+		const entryLine = {
+			msg: "Ignoring models.parameters entry whose value is not an object",
+			data: { model: "gpt-4" },
+		};
+		await withConfig({ [MODEL_PARAMETERS_SETTING_KEY]: { "gpt-4": "fast" } }, () => {
+			assert.deepStrictEqual(getModelParametersConfig(), {});
+			for (let read = 0; read < 3; read++) {
+				assert.deepStrictEqual(getModelParametersConfig(log), {});
+			}
+		});
+		assert.deepStrictEqual(logged, [entryLine]);
+		await withConfig({ [MODEL_PARAMETERS_SETTING_KEY]: { "gpt-4": "fast", o3: { temperature: 1 } } }, () => {
+			for (let read = 0; read < 3; read++) {
+				assert.deepStrictEqual(getModelParametersConfig(log), { o3: { temperature: 1 } });
+			}
+		});
+		assert.deepStrictEqual(logged, [entryLine, entryLine]);
 	});
 });
 
