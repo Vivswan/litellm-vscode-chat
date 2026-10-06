@@ -837,6 +837,28 @@ suite("extension/servers/serverSync", () => {
 	});
 
 	suite("Set Server Secret palette", () => {
+		test("the entry picker shows each configured URL through the output door: userinfo masked, host kept", async () => {
+			const original = vscode.window.showQuickPick;
+			const shown: { label: string; description?: string }[][] = [];
+			(vscode.window as Record<string, unknown>).showQuickPick = async (
+				items: { label: string; description?: string }[]
+			) => {
+				shown.push(items);
+				return undefined;
+			};
+			try {
+				await withConfig({ servers: [{ label: "Picker Probe", baseUrl: "http://user:pw@pick.test" }] }, async () => {
+					await vscode.commands.executeCommand(CMD.setServerSecret);
+				});
+			} finally {
+				(vscode.window as Record<string, unknown>).showQuickPick = original;
+			}
+			assert.deepStrictEqual(
+				shown.map((items) => items.map(({ label, description }) => ({ label, description }))),
+				[[{ label: "Picker Probe", description: "http://[redacted]@pick.test" }]]
+			);
+		});
+
 		test("warns that the stored secret stays dormant when the entry holds an inline value", async () => {
 			const original = {
 				showQuickPick: vscode.window.showQuickPick,

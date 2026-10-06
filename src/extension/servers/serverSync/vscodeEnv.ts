@@ -6,7 +6,7 @@ import { CMD, HOST_CMD, INTERNAL_CMD } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getMaskSecretInputs, SERVERS_SETTING_KEY } from "../../../shared/config/settings";
 import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../../shared/config/storageKeys";
-import type { Logger } from "../../../shared/logger";
+import { Logger } from "../../../shared/logger";
 import type { ExpectedFailureCategory, NonChatMode, SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { canonicalStoredBaseUrl } from "../../../shared/util/baseUrl";
@@ -469,7 +469,8 @@ export function registerSetServerSecretCommand(
 				return;
 			}
 			const entryPick = await vscode.window.showQuickPick(
-				entries.map((entry) => ({ label: entry.label, description: entry.baseUrl, entry })),
+				// The configured URL leaves the extension here; the host alone still names the server.
+				entries.map((entry) => ({ label: entry.label, description: Logger.redact(entry.baseUrl), entry })),
 				{ title: l10n.t("LiteLLM: Set Server Secret"), placeHolder: l10n.t("Which server?") }
 			);
 			if (entryPick === undefined) {
