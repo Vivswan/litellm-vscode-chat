@@ -49,9 +49,10 @@ suite("shared/serverEntry SECRET_FIELD_NESTED_PATHS", () => {
 		});
 	});
 
-	test("every raw record is read through the parser's readers: trimmed names, nested values; URLs are no values", () => {
+	test("every raw record is read through the parser's readers: trimmed names, nested values, every URL's password", () => {
 		// A raw ' X-Tenant ' reads as the carrier 'X-Tenant' the transport sends, and the value under a padded
-		// custom-header key is the value under its normalized name.
+		// custom-header key is the value under its normalized name. A configured URL's password is a credential value
+		// (so its JSON, percent, and form spellings mask too); its user name is not, since it is a word elsewhere.
 		const entries = collectableEntries([
 			{
 				label: "T",
@@ -69,10 +70,18 @@ suite("shared/serverEntry SECRET_FIELD_NESTED_PATHS", () => {
 		]);
 		assert.deepStrictEqual(collectKnownSecretValues(entries, ["stored-Q7"]), [
 			"Bearer vk-Q7",
+			"base-Q7",
+			"token-Q7",
+			"mcp-Q7",
 			"gateway-Q7",
 			"tenant-Q7",
 			"stored-Q7",
 		]);
+		Logger.registerSecrets(collectKnownSecretValues(entries, []));
+		assert.strictEqual(
+			Logger.redact('open /Users/user/x; {"url":"http:\\/\\/user:base-Q7@one.test"}'),
+			'open /Users/user/x; {"url":"http:\\/\\/user:[redacted]@one.test"}'
+		);
 	});
 
 	test("every string at every secret position is a value: position losers and discarded headers included", () => {
