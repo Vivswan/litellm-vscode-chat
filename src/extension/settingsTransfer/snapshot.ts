@@ -6,6 +6,7 @@
  *   One slot -> replaced per import
  */
 
+import type { KeyedSettingId, SettingId } from "../../shared/config/settingSpec";
 import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { isUnsafeRecordKey } from "../../shared/util/json";
 import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
@@ -28,7 +29,7 @@ export type SnapshotBlobEntry =
 /** Everything undo needs to put the world back exactly as it was before the import. */
 export interface PreImportSnapshot {
 	/** Every litellm-vscode-chat.* key's user-scope value at snapshot time, keyed without the section prefix. */
-	readonly settings: Readonly<Record<string, SnapshotEntry<unknown>>>;
+	readonly settings: Readonly<Partial<Record<SettingId, SnapshotEntry<unknown>>>>;
 	/** The previous blob of every label the import touches (overwritten, renamed-to, appended). */
 	readonly blobs: Readonly<Record<string, SnapshotBlobEntry>>;
 	/**
@@ -46,7 +47,7 @@ export async function buildPreImportSnapshot(
 	readServerSecrets: (label: string) => Promise<StoredSecretsRecord>,
 	touchedLabels: readonly string[]
 ): Promise<PreImportSnapshot> {
-	const settings: Record<string, SnapshotEntry<unknown>> = {};
+	const settings: Partial<Record<SettingId, SnapshotEntry<unknown>>> = {};
 	for (const key of ALL_SETTING_KEYS) {
 		const value = readGlobalSetting(key);
 		settings[key] = value === undefined ? { present: false } : { present: true, value };
@@ -78,9 +79,9 @@ export interface SnapshotRestore {
 	 */
 	readonly serversValue: unknown;
 	/** The other keys to write back to the user scope with their recorded values. */
-	readonly settingWrites: readonly { readonly key: string; readonly value: unknown }[];
+	readonly settingWrites: readonly { readonly key: KeyedSettingId; readonly value: unknown }[];
 	/** The other keys recorded absent, to remove from the user scope. */
-	readonly settingRemovals: readonly string[];
+	readonly settingRemovals: readonly KeyedSettingId[];
 	/** Labels whose recorded blob is written back whole, ownership stamps included. */
 	readonly blobWrites: readonly {
 		readonly label: string;
@@ -98,10 +99,11 @@ export interface SnapshotRestore {
 export function planSnapshotRestore(snapshot: PreImportSnapshot): SnapshotRestore {
 	const serversEntry = snapshot.settings[SERVERS_SETTING_KEY];
 	const serversValue = serversEntry?.present === true ? serversEntry.value : undefined;
-	const settingWrites: { key: string; value: unknown }[] = [];
-	const settingRemovals: string[] = [];
-	for (const [key, entry] of Object.entries(snapshot.settings)) {
-		if (key === SERVERS_SETTING_KEY) {
+	const settingWrites: { key: KeyedSettingId; value: unknown }[] = [];
+	const settingRemovals: KeyedSettingId[] = [];
+	for (const key of ALL_SETTING_KEYS) {
+		const entry = snapshot.settings[key];
+		if (key === SERVERS_SETTING_KEY || entry === undefined) {
 			continue;
 		}
 		if (entry.present) {

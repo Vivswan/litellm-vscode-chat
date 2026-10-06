@@ -631,6 +631,7 @@
 	"LiteLLM: Sync Models Now": "LiteLLM: Sync Models Now",
 	"LiteLLM: The file contains no importable settings.": "LiteLLM: The file contains no importable settings.",
 	"LiteLLM: The import was cancelled because the undo snapshot could not be saved; nothing was changed.": "LiteLLM: The import was cancelled because the undo snapshot could not be saved; nothing was changed.",
+	"LiteLLM: The servers setting changed while the import was running; no server was imported, and server secret changes were rolled back. Run the import again.": "LiteLLM: The servers setting changed while the import was running; no server was imported, and server secret changes were rolled back. Run the import again.",
 	"LiteLLM: The servers setting changed while the import was waiting for confirmation; nothing was changed. Run the import again.": "LiteLLM: The servers setting changed while the import was waiting for confirmation; nothing was changed. Run the import again.",
 	"LiteLLM: The settings export failed; the file was not written.": "LiteLLM: The settings export failed; the file was not written.",
 	"LiteLLM: The settings import failed while writing the servers setting; server secret changes were rolled back.": "LiteLLM: The settings import failed while writing the servers setting; server secret changes were rolled back.",
@@ -882,7 +883,6 @@
 	"Origin": "Origin",
 	"Other": "Other",
 	"Other fields": "Other fields",
-	"Other settings from the file were already written; Undo Import restores the pre-import state.": "Other settings from the file were already written; Undo Import restores the pre-import state.",
 	"Output limit": "Output limit",
 	"Output tokens": "Output tokens",
 	"Output/Pricing row label: cost of output tokens": {

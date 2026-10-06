@@ -18,6 +18,7 @@ import {
 	ALL_SETTING_KEYS,
 	acceptsNumberSetting,
 	BOOLEAN_SETTING_SPECS,
+	type KeyedSettingId,
 	NUMBER_SETTING_SPECS,
 	type NumberSettingId,
 	SERVERS_SETTING_KEY,
@@ -45,7 +46,7 @@ import { stripEntrySecrets } from "./secretSurgery";
 
 /** One non-servers key the plan writes to the user scope. */
 export interface SettingWrite {
-	readonly key: string;
+	readonly key: KeyedSettingId;
 	readonly value: unknown;
 }
 

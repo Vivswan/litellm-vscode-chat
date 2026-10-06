@@ -21,9 +21,6 @@
  * it, and the new print is computed under that same salt.
  */
 
-import { isDeepStrictEqual } from "node:util";
-import * as vscode from "vscode";
-import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { SERVER_SYNC_FINGERPRINTS_KEY } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import { errorLabel } from "../../shared/util/errorLabel";
@@ -31,21 +28,18 @@ import { isRecord, validatedStringRecord } from "../../shared/util/json";
 import { buildGroupArgs, groupArgsFingerprint } from "../servers/serverSync/engine";
 import type { DeclaredServer } from "../servers/serverSync/setting";
 import { acceptedEntries, respellEntryUrls } from "../servers/serverSync/setting";
+import { createSettingsAccess } from "../settingsAccess";
+import type { ServersSettingStore } from "../settingsWriteTurn";
+import { replaceServersSetting } from "../settingsWriteTurn";
 import type { FingerprintMemento } from "./fingerprintProjection";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
-/** The user-scope servers value: what the parser reads for a machine-scope setting, and the only scope written. */
-export interface UrlSpellingSettings {
-	read(): unknown;
-	write(value: readonly unknown[]): Thenable<void>;
-}
-
 export async function canonicalizeUrlSpellingsFor(
-	settings: UrlSpellingSettings,
+	settings: ServersSettingStore,
 	globalState: FingerprintMemento,
 	logger: Logger
 ): Promise<MigrationOutcome> {
-	const value = settings.read();
+	const value = settings.readServersSetting();
 	const raw: readonly unknown[] = Array.isArray(value) ? value : [];
 	// The accepted carrier of each label, by raw index: the only entries whose spelling and record move.
 	const carriers = new Map<number, DeclaredServer>(acceptedEntries(raw).map(({ index, entry }) => [index, entry]));
@@ -90,42 +84,41 @@ export async function canonicalizeUrlSpellingsFor(
 	}
 
 	if (respelled.some((item) => item.changed)) {
-		// The setting is written only while it still reads as this pass read it: an edit landing during the awaits
-		// above (another window, the user) must not be overwritten by the pass-start snapshot.
-		if (!isDeepStrictEqual(settings.read(), value)) {
-			logger.log("The servers setting changed during the canonical URL spelling rewrite; retrying on next activation");
-			return "in-progress";
-		}
+		// Written only while the setting still reads as this pass read it (the write turn checks in the same tick): an
+		// edit landing during the awaits above (another window, the user) must not be overwritten by the pass-start
+		// snapshot.
+		let written: boolean;
 		try {
-			await settings.write(respelled.map((item) => item.record));
-			rewrites += 1;
+			written = await replaceServersSetting(
+				settings,
+				value,
+				respelled.map((item) => item.record)
+			);
 		} catch (error) {
 			logger.log("Rewriting the servers setting to the canonical URL spelling failed; retrying on next activation", {
 				error: errorLabel(error),
 			});
 			return "in-progress";
 		}
+		if (!written) {
+			logger.log("The servers setting changed during the canonical URL spelling rewrite; retrying on next activation");
+			return "in-progress";
+		}
+		rewrites += 1;
 	}
 	return rewrites > 0 ? "migrated" : "nothing-to-do";
 }
 
 /**
  * Runs before the sync engine's first pass, so an entry whose spelling changed reads as in-sync on that pass instead
- * of degrading to a re-add.
+ * of degrading to a re-add. The write turn it takes is module state, alive from the moment the module loads, and the
+ * migration is awaited before the import commands and the dashboard register, so no other writer exists yet.
  */
 export const canonicalUrlSpellingsMigration: ExtensionMigration<"uncanonical-url-spellings"> = {
 	state: "uncanonical-url-spellings",
 	description: "Rewrote server URLs to their canonical spelling and carried their group identities across",
 	sourceRelease: "0.6.7",
 	run(ctx: MigrationContext): Promise<MigrationOutcome> {
-		const configuration = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
-		return canonicalizeUrlSpellingsFor(
-			{
-				read: () => configuration().inspect(SERVERS_SETTING_KEY)?.globalValue,
-				write: (value) => configuration().update(SERVERS_SETTING_KEY, value, vscode.ConfigurationTarget.Global),
-			},
-			ctx.globalState,
-			ctx.logger
-		);
+		return canonicalizeUrlSpellingsFor(createSettingsAccess(), ctx.globalState, ctx.logger);
 	},
 };

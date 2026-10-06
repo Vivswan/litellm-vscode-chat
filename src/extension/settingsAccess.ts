@@ -6,7 +6,10 @@
 
 import * as vscode from "vscode";
 import type { SettingScope } from "../dashboard/viewModels";
-import { CONFIG_SECTION } from "../shared/config/settingSpec";
+import type { KeyedSettingId } from "../shared/config/settingSpec";
+import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../shared/config/settingSpec";
+import type { ServersSettingStore, SettingsWriteTurn } from "./settingsWriteTurn";
+import { inSettingsWriteTurn, settingValueOf } from "./settingsWriteTurn";
 
 /** The per-scope values configuration inspection reports; a seam over WorkspaceConfiguration.inspect. */
 export interface SettingsInspection {
@@ -63,28 +66,40 @@ export interface SettingsSnapshotReader {
 	inspect(key: string): SettingsInspection | undefined;
 }
 
+/** The writers by key: the closed vocabulary minus the servers setting, so no string can name that one here. */
+export interface KeyedSettingsWriters {
+	/** Write the key's user-scope value; undefined removes it there. */
+	writeGlobal(key: KeyedSettingId, value: unknown): Promise<void>;
+	updateAuto(key: KeyedSettingId, value: unknown): Promise<void>;
+	removeConfigured(key: KeyedSettingId): Promise<void>;
+}
+
 /**
  * Every method fetches the live configuration at call time: WorkspaceConfiguration is a snapshot, so a captured one
  * would serve stale values to a read that follows an awaited write. snapshotReader is the deliberate exception.
+ *
+ * Every write takes the one settings write turn (settingsWriteTurn.ts): the keyed writers one write per turn, the
+ * servers store through the token a turn minted. The servers setting is machine-scoped (a workspace cannot re-point a
+ * label at another host to harvest its stored secrets), so its store reads and writes the user-scope value.
  */
-export interface SettingsAccess {
+export interface SettingsAccess extends ServersSettingStore, KeyedSettingsWriters {
 	readGlobal(key: string): unknown;
 	readEffective(key: string): unknown;
 	inspect(key: string): SettingsInspection | undefined;
-	/** Write the key's user-scope value; undefined removes it there. */
-	writeGlobal(key: string, value: unknown): Promise<void>;
-	updateAuto(key: string, value: unknown): Promise<void>;
-	removeConfigured(key: string): Promise<void>;
+	/**
+	 * Several writes as one turn, for a flow that judges its plan against a same-turn read first (the settings import
+	 * and its undo). `apply` writes through the un-turned writers it is handed and mints servers values with `turn`.
+	 */
+	writeTurn<T>(
+		apply: (writers: KeyedSettingsWriters & ServersSettingStore, turn: SettingsWriteTurn) => Promise<T>
+	): Promise<T>;
 	/** All reads served from one snapshot captured here, so a build over many reads sees one configuration version. */
 	snapshotReader(): SettingsSnapshotReader;
 }
 
 export function createSettingsAccess(): SettingsAccess {
 	const config = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
-	return {
-		readGlobal: (key) => config().inspect(key)?.globalValue,
-		readEffective: (key) => config().get<unknown>(key),
-		inspect: (key) => config().inspect(key),
+	const raw: KeyedSettingsWriters & ServersSettingStore = {
 		writeGlobal: async (key, value) => {
 			await config().update(key, value, vscode.ConfigurationTarget.Global);
 		},
@@ -97,6 +112,21 @@ export function createSettingsAccess(): SettingsAccess {
 			const scope = resolveConfiguredScope(current.inspect(key)) ?? "global";
 			await current.update(key, undefined, RESET_TARGET_BY_SCOPE[scope]);
 		},
+		readServersSetting: () => config().inspect(SERVERS_SETTING_KEY)?.globalValue,
+		writeServersSetting: async (write) => {
+			await config().update(SERVERS_SETTING_KEY, settingValueOf(write), vscode.ConfigurationTarget.Global);
+		},
+	};
+	return {
+		readGlobal: (key) => config().inspect(key)?.globalValue,
+		readEffective: (key) => config().get<unknown>(key),
+		inspect: (key) => config().inspect(key),
+		writeGlobal: (key, value) => inSettingsWriteTurn(() => raw.writeGlobal(key, value)),
+		updateAuto: (key, value) => inSettingsWriteTurn(() => raw.updateAuto(key, value)),
+		removeConfigured: (key) => inSettingsWriteTurn(() => raw.removeConfigured(key)),
+		readServersSetting: raw.readServersSetting,
+		writeServersSetting: raw.writeServersSetting,
+		writeTurn: (apply) => inSettingsWriteTurn((turn) => apply(raw, turn)),
 		snapshotReader: () => {
 			const current = config();
 			return {

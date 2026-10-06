@@ -3,10 +3,16 @@
  * failure-safe order. Split out of intents.ts for its size; executeDashboardIntent is the only caller.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import * as l10n from "@vscode/l10n";
 import type { ReplacedEntryIdentity, RequestPayload, SecretDirective } from "../../dashboard/endpoints";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
-import { pickNonSecretOptionalFields, SECRET_FIELD_IDS, sameSecretDestination } from "../../shared/serverEntry";
+import {
+	parseSecretOwner,
+	pickNonSecretOptionalFields,
+	SECRET_FIELD_IDS,
+	sameSecretDestination,
+} from "../../shared/serverEntry";
 import { canonicalBaseUrl, canonicalUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { trimHttpWhitespace } from "../../shared/util/headers";
@@ -16,10 +22,11 @@ import { acceptedEntry, inlineSecretValues, secretLocations } from "../servers/s
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 import { resolveOwnedSecrets, secretDestination } from "../servers/serverSync/secrets";
 import { declaredEntryLabel, nonSecretIdentityMatches, stillDeclaredIn } from "../servers/serverSync/setting";
+import { rawServerEntries, writeServersSettingFrom } from "../settingsWriteTurn";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
-import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
-import { appendFree, replaceShown, requireLabelFree, writeServersSettingFrom } from "./rowBoundWrite";
+import { DashboardOperationError, DashboardValidationError } from "./intents";
+import { appendFree, replaceShown, requireLabelFree } from "./rowBoundWrite";
 
 /**
  * Computed once so the pairing checks, the guarded apply, and the cleanup agree on it. Either rename branch leaves
@@ -28,6 +35,9 @@ import { appendFree, replaceShown, requireLabelFree, writeServersSettingFrom } f
  *   rename, willCopy (the owned view holds values) -> the copy replaces the new label's blob
  *   rename, !willCopy                              -> the new label's leftover fields are wiped
  */
+/** One secure field's value and ownership stamp, as a save's rollback reads and restores them. */
+type StagedSecret = { readonly value: string | undefined; readonly owner: SecretOwner | undefined };
+
 type SaveMode =
 	| { kind: "create" }
 	| { kind: "upsert"; index: number }
@@ -324,7 +334,25 @@ export async function applySaveServerSetting(
 	// A leftover blob field under the saved label is wiped when no plan can reference it (wiping after a rename's
 	// copy would delete the copied fields, so the two are exclusive).
 	const wipesLeftovers = showing === undefined || (mode.kind === "rename" && !mode.willCopy);
-	const overwritten = new Map<SecretFieldId, { value: string | undefined; owner: SecretOwner | undefined }>();
+	// Every secure write of this save, recorded once it landed: what the field held before the save first wrote it,
+	// and what the save last wrote there, the stamp as the record reads it back. The rollback undoes exactly these.
+	const staged = new Map<SecretFieldId, { previous: StagedSecret; written: StagedSecret }>();
+	const stage = async (
+		field: SecretFieldId,
+		previous: StagedSecret,
+		value: string | undefined,
+		owner: SecretOwner | undefined
+	) => {
+		await env.storeServerSecret(label, field, value, owner);
+		staged.set(field, {
+			previous: staged.get(field)?.previous ?? previous,
+			written: { value, owner: parseSecretOwner(owner, field) },
+		});
+	};
+	const heldByNew = (field: SecretFieldId): StagedSecret => ({
+		value: storedNewRecord.values[field],
+		owner: storedNewRecord.owners[field],
+	});
 	try {
 		if (mode.kind === "rename" && mode.willCopy) {
 			// The rename's copy writes the SNAPSHOT the plans resolved from, field by field, never the source blob as
@@ -338,9 +366,9 @@ export async function applySaveServerSetting(
 			//     -> fields neither side held are skipped
 			for (const field of SECRET_FIELD_IDS) {
 				if (storedOld[field] !== undefined || storedNewRecord.values[field] !== undefined) {
-					await env.storeServerSecret(
-						label,
+					await stage(
 						field,
+						heldByNew(field),
 						storedOld[field],
 						storedOld[field] !== undefined ? destinationOf(field) : undefined
 					);
@@ -351,8 +379,7 @@ export async function applySaveServerSetting(
 			const plan = plans[field];
 			const keptOwner = storedOldRecord.owners[field];
 			if (plan.kind === "set-secure") {
-				overwritten.set(field, { value: storedNewRecord.values[field], owner: storedNewRecord.owners[field] });
-				await env.storeServerSecret(label, field, plan.value, destinationOf(field));
+				await stage(field, heldByNew(field), plan.value, destinationOf(field));
 			} else if (
 				plan.kind === "stored" &&
 				mode.kind === "edit" &&
@@ -361,11 +388,14 @@ export async function applySaveServerSetting(
 				// A kept stored value under an edit that changed its destination (or one that predates stamping) is
 				// re-stamped: the user saw the field as "stored in secure storage" and saved the entry around it, which
 				// is exactly the deliberate pairing a stamp records. Value unchanged.
-				overwritten.set(field, { value: storedOldRecord.values[field], owner: storedOldRecord.owners[field] });
-				await env.storeServerSecret(label, field, storedOld[field], destinationOf(field));
+				await stage(
+					field,
+					{ value: storedOldRecord.values[field], owner: storedOldRecord.owners[field] },
+					storedOld[field],
+					destinationOf(field)
+				);
 			} else if (wipesLeftovers && storedNewRecord.values[field] !== undefined) {
-				overwritten.set(field, { value: storedNewRecord.values[field], owner: storedNewRecord.owners[field] });
-				await env.storeServerSecret(label, field, undefined, undefined);
+				await stage(field, heldByNew(field), undefined, undefined);
 			}
 		}
 		// Re-read at write time, after the awaited secret operations, so the pass-start array cannot revert a sibling
@@ -379,26 +409,18 @@ export async function applySaveServerSetting(
 				: replaceShown(fresh, indexOfTarget(fresh), entries[mode.index], newEntry, renaming ? label : undefined)
 		);
 	} catch (error) {
-		// The setting still resolves what it resolved before, so the secure side must too. A rename's copy replaced the
-		// new label's whole blob, so that blob is restored to its pre-copy state (deleting fields it never held), which
-		// also undoes any set-secure write on top of the copy; otherwise only the overwritten fields are touched,
-		// values and stamps alike.
-		//
-		//   "restoring" one is a no-op delete whose failure must not report a secret as changed
-		//     -> Fields no side ever held are skipped
-		const restores: [SecretFieldId, { value: string | undefined; owner: SecretOwner | undefined }][] =
-			mode.kind === "rename" && mode.willCopy
-				? SECRET_FIELD_IDS.filter(
-						(field) =>
-							overwritten.has(field) || storedOld[field] !== undefined || storedNewRecord.values[field] !== undefined
-					).map((field): [SecretFieldId, { value: string | undefined; owner: SecretOwner | undefined }] => [
-						field,
-						{ value: storedNewRecord.values[field], owner: storedNewRecord.owners[field] },
-					])
-				: [...overwritten];
+		// The setting still resolves what it resolved before, so the secure side must too: every staged field goes
+		// back to what it held before this save, value and stamp alike (after a rename's copy, the new label's blob
+		// returns to its pre-copy state). A field is restored only while it still holds what this save wrote: a writer
+		// that stored its own in between owns it now.
 		const restoreFailures: SecretFieldId[] = [];
-		for (const [field, previous] of restores) {
+		for (const [field, { previous, written }] of [...staged].reverse()) {
 			try {
+				const live = await env.readServerSecrets(label);
+				if (live.values[field] !== written.value || !isDeepStrictEqual(live.owners[field], written.owner)) {
+					env.log("A secure value changed under a failed save's rollback; it was left as it stands", { field });
+					continue;
+				}
 				await env.storeServerSecret(label, field, previous.value, previous.owner);
 			} catch {
 				restoreFailures.push(field);

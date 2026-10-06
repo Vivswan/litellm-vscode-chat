@@ -6,12 +6,12 @@
 import type { ReplacedEntryIdentity, SaveServerPayload } from "../../../dashboard/endpoints";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
-import { entriesOf } from "../../../extension/dashboard/rowBoundWrite";
 import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";
 import type { TombstoneIdentity } from "../../../extension/servers/groupRemovals";
 import type { DeclaredServer } from "../../../extension/servers/serverSync";
 import { acceptedEntry, inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync";
 import { resolveOwnedSecrets } from "../../../extension/servers/serverSync/secrets";
+import { rawServerEntries, settingValueOf } from "../../../extension/settingsWriteTurn";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import type { NonSecretOptionalFields, SecretOwner } from "../../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
@@ -242,9 +242,9 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 				if (recorded.failWrites !== undefined) {
 					throw recorded.failWrites;
 				}
-				recorded.serverWrites.push([...entriesOf(write)]);
+				const visible = rawServerEntries(settingValueOf(write));
+				recorded.serverWrites.push([...visible]);
 				recorded.ops.push("write");
-				const visible = [...entriesOf(write)];
 				currentSetting = visible;
 				recorded.afterWrite?.(visible);
 			},

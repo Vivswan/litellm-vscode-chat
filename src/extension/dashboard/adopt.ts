@@ -20,12 +20,13 @@ import type { TombstoneIdentity } from "../servers/groupRemovals";
 import type { DeclaredIdentities } from "../servers/serverSync";
 import { secretDestination } from "../servers/serverSync/secrets";
 import { acceptedEntry } from "../servers/serverSync/setting";
+import { rawServerEntries, writeServersSettingFrom } from "../settingsWriteTurn";
 import { adoptSourceHandle } from "./adoptHandle";
 import { labeledSnapshots, resolveGroupOwnership, secretValueHolders } from "./declaredJoin";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
-import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
-import { appendFree, requireLabelFree, requireSettingUnchanged, writeServersSettingFrom } from "./rowBoundWrite";
+import { DashboardOperationError, DashboardValidationError } from "./intents";
+import { appendFree, requireLabelFree, requireSettingUnchanged } from "./rowBoundWrite";
 
 /**
  * A live group's connection material flattened to servers-setting field names, for the adopt action. Values exist

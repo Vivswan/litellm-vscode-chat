@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 import type { DevSeedEnv } from "../../extension/devSeed";
 import { consumeDevSeed, parseDevSeed } from "../../extension/devSeed";
 import { updateServerSecret } from "../../extension/servers/serverSync";
+import { rawServerEntries, settingValueOf } from "../../extension/settingsWriteTurn";
 import { serverSecretsKey } from "../../shared/config/storageKeys";
 import { DEV_SEED_FILENAME } from "../../shared/devSeed";
 import { makeLogger } from "../pureHelpers";
@@ -21,7 +22,8 @@ function makeEnv(initialSetting?: unknown, initialRecords?: { parameters?: unkno
 	const recordWrites: { kind: string; value: unknown }[] = [];
 	const env: DevSeedEnv = {
 		readServersSetting: () => setting,
-		writeServersSetting: async (value) => {
+		writeServersSetting: async (write) => {
+			const value = rawServerEntries(settingValueOf(write));
 			writes.push([...value]);
 			setting = value;
 		},
@@ -163,9 +165,9 @@ suite("extension/devSeed", () => {
 		// effect.
 		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-previous-run", undefined);
 		const originalWrite = fake.env.writeServersSetting;
-		fake.env.writeServersSetting = async (value) => {
+		fake.env.writeServersSetting = async (write) => {
 			assert.ok(await seedFileGone(dir), "the file must be deleted before anything acts on the seed");
-			await originalWrite(value);
+			await originalWrite(write);
 		};
 
 		const seed = await consumeDevSeed(dir, fake.env, makeLogger().logger);

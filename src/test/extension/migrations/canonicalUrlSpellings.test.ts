@@ -1,9 +1,10 @@
 import * as assert from "node:assert";
-import type { UrlSpellingSettings } from "../../../extension/migrations/canonicalUrlSpellings";
 import { canonicalizeUrlSpellingsFor } from "../../../extension/migrations/canonicalUrlSpellings";
 import { buildGroupArgs, groupArgsFingerprint, ServerSyncEngine } from "../../../extension/servers/serverSync/engine";
 import { readServerSecretsRecord, updateServerSecret } from "../../../extension/servers/serverSync/secrets";
 import { parseServersSetting } from "../../../extension/servers/serverSync/setting";
+import type { ServersSettingStore } from "../../../extension/settingsWriteTurn";
+import { settingValueOf } from "../../../extension/settingsWriteTurn";
 import { VENDOR_ID } from "../../../shared/config/commandIds";
 import { SERVER_SYNC_FINGERPRINTS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
@@ -45,7 +46,7 @@ function makeMemento(initial: Record<string, unknown>): FakeMemento {
 	return memento;
 }
 
-interface FakeSettings extends UrlSpellingSettings {
+interface FakeSettings extends ServersSettingStore {
 	value: unknown;
 	writes: number;
 }
@@ -54,10 +55,10 @@ function makeSettings(value: unknown): FakeSettings {
 	const settings: FakeSettings = {
 		value,
 		writes: 0,
-		read: () => settings.value,
-		write: async (next) => {
+		readServersSetting: () => settings.value,
+		writeServersSetting: async (write) => {
 			settings.writes += 1;
-			settings.value = next;
+			settings.value = settingValueOf(write);
 		},
 	};
 	return settings;

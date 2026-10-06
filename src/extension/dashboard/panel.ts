@@ -88,7 +88,6 @@ import {
 	readInlineSecretValues,
 } from "./intents";
 import { buildResolvedModelsView, resolveModelRecordChains } from "./resolvedModels";
-import { entriesOf } from "./rowBoundWrite";
 import type {
 	DeclaredServersInput,
 	EntryCapabilitiesRecord,
@@ -868,11 +867,8 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 		// The effective (scope-merged) value, matching what the state pushes
 		// show and what a fresh getter would read after the awaited write.
 		readSetting: (key) => settingsAccess.readEffective(key),
-		// The servers setting is machine-scoped: workspaces cannot re-point a
-		// label at another host to harvest its stored secrets, and reads and
-		// writes always target the user-scope value.
-		readServersSetting: () => settingsAccess.readGlobal(SERVERS_SETTING_KEY),
-		writeServersSetting: (write) => settingsAccess.writeGlobal(SERVERS_SETTING_KEY, entriesOf(write)),
+		readServersSetting: () => settingsAccess.readServersSetting(),
+		writeServersSetting: (write) => settingsAccess.writeServersSetting(write),
 		storeServerSecret: (label, field, value, owner) => updateServerSecret(secrets, label, field, value, owner),
 		readServerSecrets: (label) => readServerSecretsRecord(secrets, label),
 		deleteServerSecrets: (label) => deleteServerSecrets(secrets, label),

@@ -10,9 +10,9 @@ import {
 	readInlineSecretValues,
 } from "../../../extension/dashboard/intents";
 import { declaredViewsFromSetting } from "../../../extension/dashboard/panel";
-import { appendFree, entriesOf, writeServersSettingFrom } from "../../../extension/dashboard/rowBoundWrite";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
+import { writeServersSettingFrom } from "../../../extension/settingsWriteTurn";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { ENTRY_VIEW_FIELD_IDS, pickNonSecretOptionalFields } from "../../../shared/serverEntry";
 import {
@@ -666,6 +666,32 @@ suite("extension/dashboard/intents: the servers setting", () => {
 			assert.strictEqual(recorded.syncRequests, 0, "a clean rollback changes nothing durable, so no sync");
 		});
 
+		test("a failed save's rollback leaves a secure value a concurrent writer stored meanwhile", async () => {
+			// The save staged sk-new for Prod; before its settings write failed, another writer stored sk-theirs there.
+			// Restoring sk-old would lose that write, so the field is left as it stands.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-old" });
+			recorded.env.writeServersSetting = async () => {
+				recorded.storedSecrets.set("Prod", { apiKey: "sk-theirs" });
+				recorded.storedOwners.set("Prod", {});
+				throw new Error("disk full");
+			};
+			await assert.rejects(
+				save(recorded, {
+					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-new" } },
+					replace: await displayedReplace(recorded, "Prod"),
+				}),
+				/disk full/
+			);
+
+			assert.strictEqual(
+				recorded.storedSecrets.get("Prod")?.apiKey,
+				"sk-theirs",
+				"the concurrent value stands; sk-old is not restored over it"
+			);
+			assert.deepStrictEqual(recorded.ops, ["store:Prod.apiKey"], "the save's own store, and no restore");
+		});
+
 		test("a failed settings write also removes a secure value that had no predecessor", async () => {
 			// The unchanged entry resolves the label's blob, so a freshly stored value must not survive the failed
 			// write as its new secret.
@@ -907,6 +933,36 @@ suite("extension/dashboard/intents: the servers setting", () => {
 			assert.deepStrictEqual(recorded.storedSecrets.get("New"), { apiKey: "sk-old" }, "the orphan does not survive");
 		});
 
+		test("a rename whose copy fails on its first field leaves the fields it never reached as they stand", async () => {
+			// The copy writes apiKey first and fails there; meanwhile another writer stored its own virtual key under
+			// New. The rollback undoes only what the copy wrote, so nothing restores the orphan over that value.
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Old", { apiKey: "sk-old" });
+			recorded.storedSecrets.set("New", { virtualKeyValue: "vk-orphan" });
+			const originalStore = recorded.env.storeServerSecret;
+			recorded.env.storeServerSecret = async (label, field, value, owner) => {
+				if (label === "New" && field === "apiKey") {
+					recorded.storedSecrets.set("New", { virtualKeyValue: "vk-theirs" });
+					throw new Error("keychain locked");
+				}
+				await originalStore(label, field, value, owner);
+			};
+			await assert.rejects(
+				save(recorded, {
+					server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
+					replace: await displayedReplace(recorded, "Old"),
+				}),
+				/keychain locked/
+			);
+
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("New"),
+				{ virtualKeyValue: "vk-theirs" },
+				"a field the copy never wrote is not restored"
+			);
+			assert.deepStrictEqual(recorded.ops, [], "no restore ran: nothing of this save landed");
+		});
+
 		test("a rename with an empty source blob restores the wiped orphan when the settings write fails", async () => {
 			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
 			recorded.storedSecrets.set("New", { apiKey: "sk-orphan" });
@@ -1135,7 +1191,17 @@ suite("extension/dashboard/intents: the servers setting", () => {
 					recorded.onSecretsRead = undefined;
 				}
 			};
-			recorded.failStoreField = "oauthClientSecret";
+			// The set-secure store lands, the settings write fails, and the restore fails too (the keychain locked
+			// meanwhile): the new client secret is stranded under the standing entry.
+			const originalStore = recorded.env.storeServerSecret;
+			let stores = 0;
+			recorded.env.storeServerSecret = async (storeLabel, field, value, owner) => {
+				if (stores++ > 0) {
+					throw new Error("keychain locked");
+				}
+				await originalStore(storeLabel, field, value, owner);
+			};
+			recorded.failWrites = new Error("disk full");
 			await assert.rejects(
 				save(recorded, {
 					server: serverPayload({
@@ -1450,28 +1516,19 @@ suite("extension/dashboard/intents: the servers setting", () => {
 			});
 		}
 
-		// The brand is the guard: an entries-shaped object is what would compile without it, and these directives then
-		// turn unused and fail the typecheck. An object the module never minted has no entries to resolve either.
+		// The brand is the guard: a value-shaped object is what would compile without it, and these directives then
+		// turn unused and fail the typecheck. The derivation hands the turn an array, never a token of its own.
 		function rawServersWritesDoNotCompile(env: IntentEnvironment): void {
-			// @ts-expect-error an entries object nobody guarded is not a ValidatedServersWrite
-			void env.writeServersSetting({ entries: [] });
-			// @ts-expect-error the derivation must mint a ValidatedServersWrite
-			void writeServersSettingFrom(env, () => ({ entries: [] }));
+			// @ts-expect-error a value object the turn never minted is not a ServersSettingWrite
+			void env.writeServersSetting({ value: [] });
+			// @ts-expect-error the derivation returns the array; the turn mints the write
+			void writeServersSettingFrom(env, () => ({ value: [] }));
 			// @ts-expect-error the servers array is not a keyed setting
 			void env.updateSetting("servers", []);
 			// @ts-expect-error the servers array is not a keyed setting
 			void env.removeSetting("servers");
 		}
 		void rawServersWritesDoNotCompile;
-
-		test("a write the module never minted resolves no entries, whatever shape it carries", () => {
-			assert.throws(() => entriesOf(Object.create(null, { entries: { value: [] } })), TypeError);
-			const seed = appendFree([], "Seed", { label: "Seed", baseUrl: "http://seed.test" });
-			const Token = seed.constructor as new (...args: unknown[]) => unknown;
-			assert.throws(() => Reflect.construct(Token, [[]]), TypeError, "a token's constructor mints nothing");
-			assert.throws(() => Object.assign(Token, { entriesOf: () => [] }), TypeError, "the frozen class takes no patch");
-			assert.deepStrictEqual(entriesOf(seed), [{ label: "Seed", baseUrl: "http://seed.test" }]);
-		});
 
 		test("removeServerSetting still removes a parser-rejected carrier by the raw base URL its row shows", async () => {
 			// An OAuth block without its client id is refused whole; the row shows the raw base URL as written.

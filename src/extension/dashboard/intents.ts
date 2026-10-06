@@ -54,10 +54,11 @@ import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 import { nonSecretIdentityMatches } from "../servers/serverSync/setting";
+import type { ServersSettingStore } from "../settingsWriteTurn";
+import { writeServersSettingFrom } from "../settingsWriteTurn";
 import type { AdoptionResolution, ExternalGroupResolution } from "./adopt";
 import { applyAdoptServer } from "./adopt";
-import type { ValidatedServersWrite } from "./rowBoundWrite";
-import { patchRow, removeRow, requireSettingUnchanged, writeServersSettingFrom } from "./rowBoundWrite";
+import { patchRow, removeRow, requireSettingUnchanged } from "./rowBoundWrite";
 import { applySaveServerSetting } from "./saveServer";
 import type { DraftConnection } from "./testDraftConnection";
 import { applyTestServerDraft } from "./testDraftConnection";
@@ -108,19 +109,18 @@ export type FeatureProbes = Readonly<
 	Partial<Record<FeatureModelId, (model: FeatureModelRef) => Promise<string | undefined>>>
 >;
 
-/** The effects an intent can have; injected so intents are testable without vscode. */
-export interface IntentEnvironment {
-	/** Write one litellm-vscode-chat.* setting by key; the servers array is no key here, rowBoundWrite.ts writes it. */
+/**
+ * The effects an intent can have; injected so intents are testable without vscode. The servers setting is written
+ * only through settingsWriteTurn.ts's turn, which is why the environment is its store.
+ */
+export interface IntentEnvironment extends ServersSettingStore {
+	/** Write one litellm-vscode-chat.* setting by key; the servers array is no key here. */
 	updateSetting(key: KeyedSettingId, value: unknown): Promise<void>;
 	/** Remove one keyed setting from the highest-precedence scope that sets it (resolveConfiguredScope). */
 	removeSetting(key: KeyedSettingId): Promise<void>;
 	/** Read one litellm-vscode-chat.* setting's effective (scope-merged) value, reflecting landed writes. */
 	readSetting(key: string): unknown;
 	executeCommand(command: string, ...args: readonly unknown[]): Thenable<unknown>;
-	/** The servers array a write would replace (the user-scope value; the setting is machine-scoped). */
-	readServersSetting(): unknown;
-	/** Write the servers array one of rowBoundWrite.ts's guards derived; no other value is writable from an intent. */
-	writeServersSetting(write: ValidatedServersWrite): Promise<void>;
 	/**
 	 * Write one secure-side secret field for a label; undefined deletes it. `owner` is the ownership stamp - the
 	 * destination the value is being paired with (secretDestination), or undefined only when deleting or restoring a
@@ -374,15 +374,6 @@ export function validateTestServerDraft(
 	secrets: Readonly<Record<SecretFieldId, SecretDirective>>
 ): string | undefined {
 	return validateConnectionFields(server, secrets);
-}
-
-/**
- * The servers-setting array as a mutable copy, entries preserved verbatim: junk siblings (non-objects, entries without
- * labels) must survive a rewrite untouched so a save never deletes what the user typed by hand. Non-arrays read as
- * empty so a save can still land.
- */
-export function rawServerEntries(raw: unknown): unknown[] {
-	return Array.isArray(raw) ? [...raw] : [];
 }
 
 /**
