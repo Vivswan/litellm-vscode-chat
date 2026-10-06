@@ -256,6 +256,58 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(connection.apiKey, "sk-for-two");
 	});
 
+	/**
+	 * The read returns the OLD entry's unsendable stored key while the edit has already re-pointed the label; recording
+	 * the refusal would write one.test into the store (and, with a valid key at the new host, toast a refusal the
+	 * current entry does not have).
+	 */
+	const STALE_REFUSALS = [
+		{
+			name: "re-pointed to a host with a valid inline key",
+			edited: { label: "alpha", baseUrl: "http://two.test", auth: { apiKey: "sk-valid" } },
+			followUpKey: "sk-valid",
+		},
+		{
+			name: "re-pointed to a host that still refuses the same stored key",
+			edited: { label: "alpha", baseUrl: "http://two.test" },
+			followUpKey: undefined,
+		},
+	] as const;
+	for (const stale of STALE_REFUSALS) {
+		test(`a servers edit landing mid-pass (${stale.name}) drops the stale refusal: nothing written or reported`, async () => {
+			let h: Harness | undefined;
+			const readSecrets = async () => {
+				h?.setServers([stale.edited]);
+				return { values: { apiKey: "sk-a\nb" }, owners: {} };
+			};
+			h = makeHarness({ intervalMs: 0, servers: [{ label: "alpha", baseUrl: "http://one.test" }], readSecrets });
+
+			const outcome = await h.poller.refreshNow();
+			assert.ok(outcome !== undefined);
+			assert.strictEqual(h.client.calls.keyInfo, 0, "a skipped pass probes nothing");
+			assert.strictEqual(h.poller.store.get("alpha"), undefined, "the skipped pass stores nothing");
+			assert.strictEqual(usageRefreshFailureSummary(outcome), undefined, "a stale refusal is not reported");
+			assert.ok(
+				!outcome.servers.some((server) => server.credentialsRefused !== undefined),
+				"a stale refusal is dropped like a stale connection"
+			);
+
+			await h.poller.refreshNow();
+			if (stale.followUpKey === undefined) {
+				assert.strictEqual(h.client.calls.keyInfo, 0, "the current entry refuses the same key; still no probe");
+				assert.strictEqual(
+					h.poller.store.get("alpha")?.baseUrl,
+					"http://two.test",
+					"the refusal is recorded at the current host"
+				);
+			} else {
+				assert.strictEqual(h.client.calls.keyInfo, 1, "the follow-up refresh probes the current pairing");
+				assert.strictEqual(h.client.keyConnections[0]?.baseUrl, "http://two.test");
+				assert.strictEqual(h.client.keyConnections[0]?.apiKey, stale.followUpKey);
+			}
+		});
+	}
+
 	test("start() schedules an initial pass, and each pass reschedules at the interval", async () => {
 		const h = makeHarness({ intervalMs: 300_000 });
 

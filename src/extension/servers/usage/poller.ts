@@ -23,7 +23,14 @@ import { resolveOwnedSecrets } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "../serverSync/setting";
 import { newlyCrossedThresholds, resolveBudget } from "./budget";
-import type { ActivityWindow, DailyUsage, KeyUsage, UsageConnection, UserUsage } from "./spendClient";
+import type {
+	ActivityWindow,
+	DailyUsage,
+	KeyUsage,
+	UsageConnection,
+	UsageConnectionResolution,
+	UserUsage,
+} from "./spendClient";
 import { activityWindow, usageConnectionFor, usageUnavailabilityOf } from "./spendClient";
 import type { UsageEndpointState, UsageEndpointStates, UsageFailureClassification } from "./store";
 import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "./store";
@@ -106,7 +113,7 @@ export interface UsageRefreshOutcome {
  * JSON over usageConnectionFor's fixed construction order; the rendering carries secret values, so it stays in memory
  * and is never logged.
  */
-function sameConnection(a: UsageConnection, b: UsageConnection): boolean {
+function sameResolution(a: UsageConnectionResolution, b: UsageConnectionResolution): boolean {
 	return JSON.stringify(a) === JSON.stringify(b);
 }
 
@@ -495,17 +502,20 @@ export class UsagePoller {
 		let connection: UsageConnection | undefined;
 		if (stored !== undefined) {
 			const resolution = usageConnectionFor(entry, stored);
+			// The entries were snapshotted at the pass start and this entry's secrets read just now, so an edit landing
+			// in between would pair a stale entry with fresh credentials, or report a stale entry's refusal. Re-read the
+			// entry before anything is probed, written, or reported and compare the host AND the RESOLUTION (a refusal
+			// carries no host, and presence alone would still let a re-point send this credential to the old host); on
+			// any difference the server is skipped and the servers-change refresh probes the true pairing.
+			const fresh = acceptedEntry(this.env.readServersSetting(), entry.label);
+			if (
+				fresh === undefined ||
+				fresh.entry.baseUrl !== entry.baseUrl ||
+				!sameResolution(usageConnectionFor(fresh.entry, stored), resolution)
+			) {
+				return undefined;
+			}
 			if (resolution.kind === "resolved") {
-				// The entries were snapshotted at the pass start and this entry's secrets read just now, so an edit
-				// landing in between would pair a stale entry with fresh credentials. Re-read the entry immediately
-				// before the authenticated calls and compare the RESOLVED connection (presence alone would still let a
-				// re-point send this credential to the old host); on any difference the server is skipped and the
-				// servers-change refresh probes the true pairing.
-				const fresh = acceptedEntry(this.env.readServersSetting(), entry.label);
-				const current = fresh === undefined ? undefined : usageConnectionFor(fresh.entry, stored);
-				if (current?.kind !== "resolved" || !sameConnection(current.connection, resolution.connection)) {
-					return undefined;
-				}
 				connection = resolution.connection;
 			} else {
 				// Skipped like a mismatched stamp: a keyless probe would only manufacture a 401 to render, and the sync
