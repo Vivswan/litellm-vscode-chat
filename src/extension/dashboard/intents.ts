@@ -47,7 +47,7 @@ import { transportClassificationOf } from "../../shared/errorClassification";
 import { MirroredError } from "../../shared/mirroredError";
 import type { SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import { headerValue, isValidHeaderName, isValidHeaderValue, trimHttpWhitespace } from "../../shared/util/headers";
+import { headerValue, isValidHeaderName, trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { TombstoneIdentity, TombstoneRecording } from "../servers/groupRemovals";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
@@ -345,7 +345,7 @@ export function validateSaveServerSetting(
 			return `headers: "${name}" repeats an earlier header name (names are case-insensitive)`;
 		}
 		seenLower.add(lower);
-		if (!isValidHeaderValue(String(value))) {
+		if (headerValue(String(value)) === undefined) {
 			return `headers: the value of "${name}" cannot be sent as an HTTP header`;
 		}
 	}

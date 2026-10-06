@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { normalizeCustomHeaders } from "../../../shared/config/settings";
-import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../../../shared/util/headers";
+import { HEADER_NAME_PATTERN, headerValue } from "../../../shared/util/headers";
 import { isUnsafeRecordKey } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
@@ -57,7 +57,7 @@ suite("shared/config/settings normalizeCustomHeaders properties", () => {
 					assert.ok(HEADER_NAME_PATTERN.test(name), `name "${name}" must be an RFC 9110 token`);
 					assert.ok(!isUnsafeRecordKey(name), `name "${name}" must not be a reserved record key`);
 					assert.strictEqual(typeof value, "string");
-					assert.ok(isValidHeaderValue(value), `value of "${name}" must be sendable`);
+					assert.strictEqual(headerValue(value), value, `value of "${name}" must be sendable as stored`);
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }

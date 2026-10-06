@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import { parseHeaderRows } from "../../../dashboard/recordDraft";
 import { parseDashboardRequest } from "../../../extension/dashboard/intentSchema";
 import {
 	readInlineSecretValues,
@@ -7,6 +8,7 @@ import {
 	validateSaveServerSetting,
 } from "../../../extension/dashboard/intents";
 import type { NumberSettingId } from "../../../shared/config/settingSpec";
+import { normalizeCustomHeaders } from "../../../shared/config/settings";
 import { inlineOnlyIdentity, KEEP_ALL, replaceIdentity, serverPayload } from "./recordedEnv";
 
 suite("extension/dashboard/intents: request validation", () => {
@@ -472,6 +474,36 @@ suite("extension/dashboard/intents: request validation", () => {
 				}),
 				undefined
 			);
+		});
+
+		test("header values: the editor, the save, and the wire read one trim rule", () => {
+			// Edge HTTP whitespace is what the platform's Headers strips, so every surface repairs it alike; an interior
+			// line break has no repair, so every surface refuses it alike. With two rules the form refused a value the
+			// wire would have sent.
+			const cases: readonly (readonly [string, string | undefined])[] = [
+				[" token-Q7 ", "token-Q7"],
+				["token-Q7\r\n", "token-Q7"],
+				["token\r\nQ7", undefined],
+			];
+			for (const [typed, sent] of cases) {
+				const shown = JSON.stringify(typed);
+				assert.strictEqual(
+					parseHeaderRows([{ name: "x-key", valueText: typed }]).ok,
+					sent !== undefined,
+					`editor ${shown}`
+				);
+				const server = serverPayload({ label: "Prod", baseUrl: "http://x", headers: { "x-key": typed } });
+				assert.strictEqual(
+					validateSaveServerSetting(server, KEEP_ALL) === undefined,
+					sent !== undefined,
+					`save ${shown}`
+				);
+				assert.deepStrictEqual(
+					normalizeCustomHeaders({ "x-key": typed }),
+					sent === undefined ? {} : { "x-key": sent },
+					`wire ${shown}`
+				);
+			}
 		});
 
 		test("validateSaveServerSetting messages never repeat the entered values", () => {

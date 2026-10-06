@@ -190,7 +190,7 @@ export class OneShotClient {
 		connection: OneShotConnection,
 		surface: TransportErrorSurface,
 		opts: OneShotCallOptions
-	): Promise<Record<string, string>> {
+	): Promise<Record<string, HeaderValue>> {
 		const cancelController = new AbortController();
 		const cancelListener = opts.token.onCancellationRequested(() => cancelController.abort());
 		try {

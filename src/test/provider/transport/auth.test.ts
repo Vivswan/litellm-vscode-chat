@@ -441,6 +441,16 @@ suite("provider/transport/auth", () => {
 			assert.ok(!error.message.includes("Injected"), "the invalid token value must not appear in the message");
 		});
 
+		test("an access token that is only whitespace is refused as missing, never sent as an empty bearer", async () => {
+			// The header rule trims edge whitespace, so this token trims to nothing; before the mint it failed the
+			// charset check on its CR/LF instead. Either way nothing may go out as "Authorization: Bearer".
+			mswServer.use(http.post(TOKEN_URL, () => HttpResponse.json({ access_token: " \t\r\n " })));
+			const source = new OAuthTokenSource();
+
+			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "http");
+			assert.ok(error.message.includes("didn't return a usable access token"), `unexpected message: ${error.message}`);
+		});
+
 		test("the timeout is a hard bound on the exchange", async () => {
 			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
 			const source = new OAuthTokenSource();

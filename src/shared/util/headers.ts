@@ -29,10 +29,10 @@ export function isValidHeaderName(name: string): boolean {
 
 /**
  * Whether a string can travel as an HTTP header value: tab, visible ASCII, and RFC 9110 obs-text; no CR/LF/NUL or other
- * control octets. Empty is legal; callers for whom a value is a credential require non-empty separately. The form
- * surfaces read this to show an error beside the field; anything that sends reads headerValue instead.
+ * control octets. Empty is legal; callers for whom a value is a credential require non-empty separately. Private on
+ * purpose: every surface, the form included, reads headerValue, so no two readers can disagree on the trim.
  */
-export function isValidHeaderValue(value: string): boolean {
+function isValidHeaderValue(value: string): boolean {
 	return /^[\t\x20-\x7e\x80-\xff]*$/.test(value);
 }
 
