@@ -17,8 +17,8 @@ export const MIN_SECRET_LENGTH = 4;
 /** What a masked span becomes, unless the value is long enough to reveal (revealOf). */
 export const REDACTED_MARKER = "[redacted]";
 /** A configured value this long shows its first REVEALED_CHARS so the user can tell which key a message is about. */
-export const REVEAL_FROM_LENGTH = 20;
-export const REVEALED_CHARS = 6;
+const REVEAL_FROM_LENGTH = 20;
+const REVEALED_CHARS = 6;
 
 /** The reveal marker of a long value ("sk-liv..."), or undefined for a value too short to reveal. */
 export function revealOf(value: string): string | undefined {
