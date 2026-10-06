@@ -14,10 +14,11 @@ import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { numberContractSentence } from "../../dashboard/presenters";
 import { CMD } from "../../shared/config/commandIds";
-import type { NumberSettingId } from "../../shared/config/settingSpec";
+import type { KeyedSettingId, NumberSettingId, SettingId } from "../../shared/config/settingSpec";
 import {
 	ALL_SETTING_KEYS,
 	BOOLEAN_SETTING_SPECS,
+	isSettingId,
 	NUMBER_SETTING_SPECS,
 	SERVERS_SETTING_KEY,
 	USAGE_STATUS_BAR_MODES,
@@ -739,30 +740,36 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			}
 		}
 
-		// Non-servers writes, per key: failures are collected, the rest attempted.
-		const failedKeys: string[] = [];
-		for (const write of application.settingsWrites) {
-			try {
-				await env.settings.writeGlobal(write.key, write.value);
-			} catch {
-				failedKeys.push(write.key);
+		// Per key, failures collected and the rest attempted. On the servers path they run only once the unit landed,
+		// so a refused or failed servers write leaves nothing committed.
+		const writeScalars = async (): Promise<KeyedSettingId[]> => {
+			const failed: KeyedSettingId[] = [];
+			for (const write of application.settingsWrites) {
+				try {
+					await env.settings.writeGlobal(write.key, write.value);
+				} catch {
+					failed.push(write.key);
+				}
 			}
-		}
-		if (failedKeys.length > 0) {
-			env.log("Settings import: some setting writes failed", { keys: failedKeys });
-		}
-		const writtenSettings = application.settingsWrites.length - failedKeys.length;
+			if (failed.length > 0) {
+				env.log("Settings import: some setting writes failed", { keys: failed });
+			}
+			return failed;
+		};
 
+		let failedKeys: readonly KeyedSettingId[];
 		if (application.serversValue === undefined) {
+			failedKeys = await writeScalars();
 			env.requestServerSync();
 		} else {
 			const { serversValue, secretWrites } = application;
-			// The unit is one write to the engine; its toasts wait outside the hold, so the engine runs while they
-			// show.
-			const outcome = await env.withServerSyncHold(() =>
-				applyServersUnit(env, currentServersRaw, serversValue, secretWrites)
-			);
-			if (outcome === "rollback-failed") {
+			// One hold for the unit and the scalars behind it, so the engine runs once everything landed; the toasts
+			// wait outside the hold.
+			const applied = await env.withServerSyncHold(async () => {
+				const outcome = await applyServersUnit(env, currentServersRaw, serversValue, secretWrites);
+				return { outcome, failedKeys: outcome === "landed" ? await writeScalars() : [] };
+			});
+			if (applied.outcome === "rollback-failed") {
 				await env.prompts.notify(
 					"error",
 					`${l10n.t("LiteLLM: The settings import failed, and some stored server secrets could not be restored.")}\n${l10n.t(
@@ -772,29 +779,24 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				);
 				return;
 			}
-			if (outcome === "stale" || outcome === "rolled-back") {
-				//   A rollback with no landed settings -> changed nothing
-				if (writtenSettings === 0) {
-					await restorePreviousSlot();
-				}
-				const message =
-					outcome === "stale"
+			if (applied.outcome === "stale" || applied.outcome === "rolled-back") {
+				// Nothing landed, so the previous import's undo slot comes back.
+				await restorePreviousSlot();
+				await env.prompts.notify(
+					applied.outcome === "stale" ? "warning" : "error",
+					applied.outcome === "stale"
 						? l10n.t(
 								"LiteLLM: The servers setting changed while the import was running; no server was imported, and server secret changes were rolled back. Run the import again."
 							)
 						: l10n.t(
 								"LiteLLM: The settings import failed while writing the servers setting; server secret changes were rolled back."
-							);
-				await env.prompts.notify(
-					outcome === "stale" ? "warning" : "error",
-					writtenSettings > 0
-						? `${message} ${l10n.t("Other settings from the file were already written; Undo Import restores the pre-import state.")}`
-						: message,
-					writtenSettings > 0 ? [undoImportAction(env)] : []
+							)
 				);
 				return;
 			}
+			failedKeys = applied.failedKeys;
 		}
+		const writtenSettings = application.settingsWrites.length - failedKeys.length;
 
 		//   Nothing survived -> same as a no-op run
 		const landedAnything = writtenSettings > 0 || application.serversValue !== undefined;
@@ -802,7 +804,9 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			await restorePreviousSlot();
 		}
 
-		const writtenKeys = application.settingsWrites.map((write) => write.key).filter((key) => !failedKeys.includes(key));
+		const writtenKeys: string[] = application.settingsWrites
+			.map((write) => write.key)
+			.filter((key) => !failedKeys.includes(key));
 		if (application.serversValue !== undefined) {
 			writtenKeys.push(SERVERS_SETTING_KEY);
 		}
@@ -888,11 +892,11 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 	if (!isRecord(parsed) || !isRecord(parsed.settings) || !isRecord(parsed.blobs) || typeof parsed.at !== "string") {
 		return undefined;
 	}
-	const settings: Record<string, SnapshotEntry<unknown>> = {};
+	const settings: Partial<Record<SettingId, SnapshotEntry<unknown>>> = {};
 	for (const [key, entry] of Object.entries(parsed.settings)) {
-		// The builder walks ALL_SETTING_KEYS exclusively; a key outside the vocabulary would drive writeGlobal on a key
-		// VS Code does not know.
-		if (!ALL_SETTING_KEYS.includes(key) || !isRecord(entry) || typeof entry.present !== "boolean") {
+		// The builder walks the vocabulary exclusively; a key outside it would drive writeGlobal on a key VS Code does
+		// not know.
+		if (!isSettingId(key) || !isRecord(entry) || typeof entry.present !== "boolean") {
 			return undefined;
 		}
 		// A present entry always carries its value and an absent one never does;

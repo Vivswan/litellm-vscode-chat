@@ -377,6 +377,9 @@ function directServersWritesDoNotCompile(settings: SettingsAccess): void {
 	void settings.updateAuto(SERVERS_SETTING_KEY, []);
 	// @ts-expect-error the servers key is not a keyed removal
 	void settings.removeConfigured(SERVERS_SETTING_KEY);
+	const widened: string = SERVERS_SETTING_KEY;
+	// @ts-expect-error a string is not a setting id either; the writers take the closed vocabulary
+	void settings.writeGlobal(widened, []);
 }
 void directServersWritesDoNotCompile;
 
@@ -931,14 +934,13 @@ suite("settingsTransferCommands import flow", () => {
 		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "OLD-KEY", virtualKeyValue: "OLD-VK" });
 		assert.deepStrictEqual(blobOf(world, "added"), {});
 		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "a", baseUrl: "http://old:4000" }]);
-		// The non-servers write already landed; the snapshot and Undo action cover it.
-		assert.strictEqual(world.settings.get("chat.timeout"), 60000);
-		assert.notStrictEqual(world.snapshotSlot, undefined);
+		// The scalar waits behind the servers unit, so the failed write leaves it unwritten and no snapshot to undo.
+		assert.strictEqual(world.settings.get("chat.timeout"), undefined);
+		assert.strictEqual(world.snapshotSlot, undefined);
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "error");
 		assert.match(note.message, /rolled back/);
-		assert.match(note.message, /Other settings from the file were already written/);
-		assert.deepStrictEqual(note.actions, ["Undo Import"]);
+		assert.deepStrictEqual(note.actions, []);
 		assert.ok(world.syncRequests >= 1);
 	});
 
@@ -1149,11 +1151,11 @@ suite("settingsTransferCommands import flow", () => {
 	test("an import racing a dashboard write turn lands behind it and refuses its stale merge instead of dropping an entry", async () => {
 		// Both planned over [a]: the dashboard's append is waiting on the host when the import reaches its write. The
 		// import's merge is derived from a read the dashboard's write invalidates, so writing it would lose one of
-		// the two entries, whichever landed last.
+		// the two entries, whichever landed last. The refusal is a whole no-op: the file's scalar stays unwritten too.
 		const a = { label: "a", baseUrl: "http://a:4000" };
 		const b = { label: "b", baseUrl: "http://b:4000" };
-		const world = makeWorld({ servers: [a] });
-		stageEnvelope(world, { servers: [{ label: "c", baseUrl: "http://c:4000" }] });
+		const world = makeWorld({ servers: [a], "chat.timeout": 5000 });
+		stageEnvelope(world, { servers: [{ label: "c", baseUrl: "http://c:4000" }], "chat.timeout": 60000 });
 		const dashboard = heldDashboardAppend(world, b);
 		const imported = runImportSettingsFlow(world.env);
 		await macrotask();
@@ -1161,9 +1163,11 @@ suite("settingsTransferCommands import flow", () => {
 		await Promise.all([dashboard.turn, imported]);
 
 		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [a, b], "the dashboard's entry stands");
+		assert.strictEqual(world.settings.get("chat.timeout"), 5000, "no scalar lands under a refused servers write");
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "warning", "the import must report the changed setting, not a success");
 		assert.match(note.message, /changed while the import was running/);
+		assert.deepStrictEqual(note.actions, [], "nothing to undo");
 		assert.strictEqual(serversWriteCount(world), 1, "the merge over the stale read is never written");
 		assert.strictEqual(world.snapshotSlot, undefined, "a run that changed nothing leaves no undo snapshot");
 	});

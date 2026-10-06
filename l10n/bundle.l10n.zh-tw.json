@@ -772,7 +772,6 @@
 	"Origin": "來源",
 	"Other": "其他",
 	"Other fields": "其他欄位",
-	"Other settings from the file were already written; Undo Import restores the pre-import state.": "檔案中的其他設定已被寫入; 「復原匯入」可還原到匯入前的狀態。",
 	"Output limit": "輸出上限",
 	"Output tokens": "輸出 token",
 	"Output/Pricing row label: cost of output tokens": "輸出",

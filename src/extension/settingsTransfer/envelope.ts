@@ -6,7 +6,7 @@
  *       hand-rolled, not zod
  */
 
-import { ALL_SETTING_KEYS, CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { CONFIG_SECTION, isSettingId } from "../../shared/config/settingSpec";
 import { isRecord, nonFiniteNumberPath } from "../../shared/util/json";
 
 /** The format version this build writes and the highest one it can read. */
@@ -74,7 +74,7 @@ export function parseEnvelope(raw: string): ParseEnvelopeResult {
 	const settings: Record<string, unknown> = {};
 	const unknownKeys: string[] = [];
 	for (const key of Object.keys(rawSettings)) {
-		if (ALL_SETTING_KEYS.includes(key)) {
+		if (isSettingId(key)) {
 			settings[key] = rawSettings[key];
 		} else {
 			unknownKeys.push(key);

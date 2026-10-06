@@ -420,10 +420,7 @@ const STRUCTURED_SETTING_KEYS = [
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 ] as const;
 
-/**
- * Every setting key as a literal union, for the surfaces that must be TOTAL over the vocabulary: ALL_SETTING_KEYS is
- * the same set widened to strings for the ones that merely iterate it.
- */
+/** Every setting key as a literal union, for the surfaces that must be TOTAL over the vocabulary. */
 export type SettingId = (typeof STRUCTURED_SETTING_KEYS)[number] | NumberSettingId | BooleanSettingId;
 
 /** Every setting the dashboard writes by key; the servers array is out, written in serversSettingWrite.ts's turn. */
@@ -505,11 +502,16 @@ export const CONFIGURATION_SECTIONS: [UnsectionedSettingId] extends [never]
 /**
  * Every litellm-vscode-chat.* setting key, in manifest order: the sections table flattened. The settings transfer
  * surfaces (export, import plan, pre-import snapshot) iterate this list, and the generators render the sections table
- * itself, so a setting cannot escape any of them: it is in a section or it does not compile.
+ * itself, so a setting cannot escape any of them: it is in a section or it does not compile. Membership of foreign
+ * text (a file's key, a stored record's key) goes through isSettingId, which narrows it to the union.
  */
-export const ALL_SETTING_KEYS: readonly string[] = CONFIGURATION_SECTIONS.flatMap(
+export const ALL_SETTING_KEYS: readonly SettingId[] = CONFIGURATION_SECTIONS.flatMap(
 	(section): readonly SettingId[] => section.settings
 );
+
+export function isSettingId(key: string): key is SettingId {
+	return (ALL_SETTING_KEYS as readonly string[]).includes(key);
+}
 
 /**
  * Where a setting may be set: "window" is the default user/workspace setting; "machine" is user settings only, never a

@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { KeyedSettingId } from "../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -102,7 +103,7 @@ export interface DevSeedEnv extends ServersSettingStore {
 	writeModelRecords(kind: DevSeedRecordKind, value: Readonly<Record<string, unknown>>): Thenable<void>;
 }
 
-const RECORD_SETTING_KEYS: Record<DevSeedRecordKind, string> = {
+const RECORD_SETTING_KEYS: Record<DevSeedRecordKind, KeyedSettingId> = {
 	parameters: MODEL_PARAMETERS_SETTING_KEY,
 	capabilities: MODEL_CAPABILITIES_SETTING_KEY,
 };

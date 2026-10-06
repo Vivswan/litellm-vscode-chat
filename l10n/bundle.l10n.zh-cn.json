@@ -772,7 +772,6 @@
 	"Origin": "来源",
 	"Other": "其他",
 	"Other fields": "其他字段",
-	"Other settings from the file were already written; Undo Import restores the pre-import state.": "文件中的其他设置已被写入; 「撤销导入」可恢复到导入前的状态。",
 	"Output limit": "输出上限",
 	"Output tokens": "输出 token 数",
 	"Output/Pricing row label: cost of output tokens": "输出",

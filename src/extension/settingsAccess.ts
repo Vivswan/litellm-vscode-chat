@@ -6,6 +6,7 @@
 
 import * as vscode from "vscode";
 import type { SettingScope } from "../dashboard/viewModels";
+import type { KeyedSettingId } from "../shared/config/settingSpec";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../shared/config/settingSpec";
 import type { ServersSettingStore } from "./servers/serversSettingWrite";
 import { settingValueOf } from "./servers/serversSettingWrite";
@@ -66,26 +67,21 @@ export interface SettingsSnapshotReader {
 }
 
 /**
- * Any key but the servers setting's: that one is written only through serversSettingWrite.ts's turn, so a keyed
- * writer called with its literal fails to compile.
- */
-type NotServersKey<K extends string> = [K] extends [typeof SERVERS_SETTING_KEY] ? never : K;
-
-/**
  * Every method fetches the live configuration at call time: WorkspaceConfiguration is a snapshot, so a captured one
  * would serve stale values to a read that follows an awaited write. snapshotReader is the deliberate exception.
  *
- * The servers setting is machine-scoped, so a workspace cannot re-point a label at another host to harvest its stored
- * secrets; its store methods read and write the user-scope value.
+ * The keyed writers take the closed vocabulary minus the servers setting, so no string can name it there. That one is
+ * machine-scoped (a workspace cannot re-point a label at another host to harvest its stored secrets) and is written
+ * only through serversSettingWrite.ts's turn, by the store methods, in the user scope.
  */
 export interface SettingsAccess extends ServersSettingStore {
 	readGlobal(key: string): unknown;
 	readEffective(key: string): unknown;
 	inspect(key: string): SettingsInspection | undefined;
 	/** Write the key's user-scope value; undefined removes it there. */
-	writeGlobal<K extends string>(key: NotServersKey<K>, value: unknown): Promise<void>;
-	updateAuto<K extends string>(key: NotServersKey<K>, value: unknown): Promise<void>;
-	removeConfigured<K extends string>(key: NotServersKey<K>): Promise<void>;
+	writeGlobal(key: KeyedSettingId, value: unknown): Promise<void>;
+	updateAuto(key: KeyedSettingId, value: unknown): Promise<void>;
+	removeConfigured(key: KeyedSettingId): Promise<void>;
 	/** All reads served from one snapshot captured here, so a build over many reads sees one configuration version. */
 	snapshotReader(): SettingsSnapshotReader;
 }
