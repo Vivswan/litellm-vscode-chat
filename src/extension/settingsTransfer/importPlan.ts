@@ -213,7 +213,8 @@ function refusedSecretProblem(field: RejectedCredentialField): string {
 /**
  * The import's one reading of an entry's secrets, judged by the same narrowing every request path narrows by: a
  * configured key the narrowing rejects is refused by field and never stored, and the entry still lands without it. An
- * entry the parser does not accept configures no unit, so nothing of it is refused here.
+ * entry the parser does not accept has no carriers to judge a virtual key by, so its secrets are narrowed alone: the
+ * API key is still judged, the virtual key value reads as dormant.
  */
 function importableSecrets(
 	raw: Readonly<Record<string, unknown>>,
@@ -226,10 +227,8 @@ function importableSecrets(
 } {
 	const stripped = stripEntrySecrets(raw);
 	const entry = label === undefined ? undefined : acceptedEntry([stripped.entry], label)?.entry;
-	const refused =
-		entry === undefined
-			? []
-			: (refusedCredentialFields(narrowGroupCredentials(buildGroupArgs(entry, stripped.secrets)).rejections) ?? []);
+	const fields = entry === undefined ? stripped.secrets : buildGroupArgs(entry, stripped.secrets);
+	const refused = refusedCredentialFields(narrowGroupCredentials(fields).rejections) ?? [];
 	const secrets: { -readonly [K in SecretFieldId]?: string } = { ...stripped.secrets };
 	for (const field of refused) {
 		delete secrets[field];

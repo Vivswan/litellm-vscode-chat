@@ -322,6 +322,9 @@ suite("extension/settingsTransfer/importPlan", () => {
 					kind: "virtual key",
 					entry: server("A", { auth: { virtualKey: { header: "x-vk", value: "vk-a\nb" } } }),
 				},
+				// An entry the parser rejects still lands labeled (its problems ride the preview); its secrets are narrowed
+				// alone, so the unsendable key is refused here too and never reaches SecretStorage.
+				{ field: "apiKey", kind: "API key", entry: server("A", { auth: { apiKey: "sk-a\nb", unknown: true } }) },
 			];
 			for (const { field, kind, entry } of cases) {
 				const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [entry] }, undefined);
