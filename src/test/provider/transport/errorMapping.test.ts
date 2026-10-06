@@ -1032,13 +1032,34 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("a cause-chain message masks where it is read, before the punctuation strip and the collapse", () => {
-			// 'key-zq7w.' with 'key-zq7w' registered: the detail line strips the trailing period, which would otherwise
-			// leave 'key-zq7w' unmatched; masked at the chain reader, the strip works on the marker.
-			Logger.registerSecrets(["key-zq7w", "two\nlines-zq7w"]);
-			const stripped = mapSdkError(connectionError(new Error("key-zq7w.")), chatCtx);
-			assert.ok(stripped.message.endsWith("\n\nDetails: [redacted]"), stripped.message);
+			// A registered value that ends in a period, as the first chain link: the detail strips a trailing period from
+			// that link, which would otherwise respell the value ("key-zq7w") past the exit's reach; masked at the chain
+			// reader, the strip finds no period. The dropped-stream branch is the one whose first link is outside text.
+			Logger.registerSecrets(["key-zq7w.", "two\nlines-zq7w"]);
+			const stripped = mapSdkError(new Error("other side closed key-zq7w."), chatCtx);
+			const strippedExpected =
+				"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server." +
+				"\n\nDetails: Connection to http://litellm.test closed mid-response: other side closed [redacted]";
+			// A value with a line break in the deepest link: masked at the reader, the whitespace collapse works on the
+			// marker; the socket-failure path quotes the deepest link after the SDK's own first link.
 			const collapsed = mapSdkError(connectionError(new Error("rejected two\nlines-zq7w")), chatCtx);
-			assert.ok(collapsed.message.endsWith("\n\nDetails: rejected [redacted]"), collapsed.message);
+			const collapsedExpected =
+				"Could not reach http://litellm.test. Check your network, VPN, or proxy settings, and that the server is up." +
+				"\n\nDetails: Connection error (cause: rejected [redacted])";
+			assert.deepStrictEqual(
+				{
+					stripped: stripped.message,
+					strippedEnglish: (stripped as MirroredError).englishMessage,
+					collapsed: collapsed.message,
+					collapsedEnglish: (collapsed as MirroredError).englishMessage,
+				},
+				{
+					stripped: strippedExpected,
+					strippedEnglish: strippedExpected,
+					collapsed: collapsedExpected,
+					collapsedEnglish: collapsedExpected,
+				}
+			);
 		});
 
 		test("masking is idempotent across the doors: a value inside a marker is no match, so no exit writes [[redacted]]", () => {
