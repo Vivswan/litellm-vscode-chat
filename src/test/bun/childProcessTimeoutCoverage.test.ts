@@ -4,10 +4,27 @@
  * positive is loud and names its site, while a spawn deliberately hidden from it is out of scope.
  */
 import { expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
+
+const parsed = new Map<string, ts.SourceFile>();
+
+/** One parse per module for the whole audit; JSDoc and parent pointers are skipped since nothing here reads them. */
+function parsedSource(file: string): ts.SourceFile {
+	let sourceFile = parsed.get(file);
+	if (sourceFile === undefined) {
+		sourceFile = ts.createSourceFile(
+			file,
+			readFileSync(file, "utf8"),
+			{ languageVersion: ts.ScriptTarget.Latest, jsDocParsingMode: ts.JSDocParsingMode.ParseNone },
+			false
+		);
+		parsed.set(file, sourceFile);
+	}
+	return sourceFile;
+}
 
 const BUN_TREE = path.resolve(import.meta.dir);
 const REPO_ROOT = path.resolve(BUN_TREE, "../../..");
@@ -234,6 +251,18 @@ function listRoots(problems: string[]): string[] {
 	return [...new Set(roots)].sort();
 }
 
+const fileKinds = new Map<string, boolean>();
+
+/** One stat per candidate path: discovery, the import table, and every dynamic load resolve the same specifiers. */
+function isFile(candidate: string): boolean {
+	let known = fileKinds.get(candidate);
+	if (known === undefined) {
+		known = statSync(candidate, { throwIfNoEntry: false })?.isFile() ?? false;
+		fileKinds.set(candidate, known);
+	}
+	return known;
+}
+
 function resolveRelative(from: string, specifier: string, problems: string[]): string | undefined {
 	const base = path.resolve(path.dirname(from), specifier);
 	const candidates = [
@@ -244,7 +273,7 @@ function resolveRelative(from: string, specifier: string, problems: string[]): s
 		path.join(base, "index.tsx"),
 	];
 	for (const candidate of candidates) {
-		if (existsSync(candidate) && statSync(candidate).isFile()) {
+		if (isFile(candidate)) {
 			const extension = path.extname(candidate);
 			if (PARSED_EXTENSIONS.has(extension)) {
 				return candidate;
@@ -257,7 +286,7 @@ function resolveRelative(from: string, specifier: string, problems: string[]): s
 			return undefined;
 		}
 	}
-	if (existsSync(`${base}.d.ts`)) {
+	if (isFile(`${base}.d.ts`)) {
 		return undefined;
 	}
 	problems.push(`${rel(from)}: cannot resolve import "${specifier}"`);
@@ -314,8 +343,7 @@ function discoverModules(roots: readonly string[], problems: string[]): string[]
 	const seen = new Set<string>(roots);
 	const queue = [...roots];
 	for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
-		const sf = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, false);
-		for (const target of loadedTargets(sf, problems)) {
+		for (const target of loadedTargets(parsedSource(file), problems)) {
 			if (!seen.has(target)) {
 				seen.add(target);
 				queue.push(target);
@@ -444,18 +472,6 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 	const testNamespaces = new Set<string>();
 	const spawnImports: { readonly local: string; readonly description: string }[] = [];
 	let namesChildProcess = false;
-	const scanLiterals = (node: ts.Node): void => {
-		if (ts.isStringLiteralLike(node) && CHILD_PROCESS_SPECIFIER.test(node.text)) {
-			namesChildProcess = true;
-		}
-		ts.forEachChild(node, scanLiterals);
-	};
-	scanLiterals(sf);
-	if (namesChildProcess) {
-		for (const name of CHILD_PROCESS_ONLY_MEMBERS) {
-			spawnLocals.add(name);
-		}
-	}
 	for (const statement of sf.statements) {
 		if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) {
 			continue;
@@ -527,9 +543,12 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 	};
 	// A stored alias of a registration function (`const t = test`, `const each = test.each(rows)`) registers under its
 	// own name; found to a fixpoint so an alias of an alias counts too.
-	for (let grew = true; grew; ) {
+	for (let grew = true, first = true; grew; first = false) {
 		grew = false;
 		const scanAliases = (node: ts.Node): void => {
+			if (first && ts.isStringLiteralLike(node) && CHILD_PROCESS_SPECIFIER.test(node.text)) {
+				namesChildProcess = true;
+			}
 			if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
 				const found = calleeRoot(node.initializer);
 				const fromRunner =
@@ -554,6 +573,11 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 			ts.forEachChild(node, scanAliases);
 		};
 		scanAliases(sf);
+	}
+	if (namesChildProcess) {
+		for (const name of CHILD_PROCESS_ONLY_MEMBERS) {
+			spawnLocals.add(name);
+		}
 	}
 
 	// Pass two: declarations, exports, registrations, and every identifier and spawn site under its enclosing scopes.
@@ -1172,7 +1196,7 @@ function audit(): { readonly problems: string[]; readonly spawningRegistrations:
 		problems.push(`no test files found under ${BUN_TREE}`);
 	}
 	const files = discoverModules(roots, problems);
-	const program = ts.createProgram(files, {
+	const options: ts.CompilerOptions = {
 		noResolve: true,
 		noLib: true,
 		types: [],
@@ -1180,7 +1204,16 @@ function audit(): { readonly problems: string[]; readonly spawningRegistrations:
 		jsx: ts.JsxEmit.Preserve,
 		target: ts.ScriptTarget.ESNext,
 		module: ts.ModuleKind.ESNext,
-	});
+	};
+	// The program only reports parse errors, over the same source files the walk reads; handed those, it parses nothing
+	// a second time.
+	const host = ts.createCompilerHost(options);
+	const discovered = new Set(files);
+	host.getSourceFile = (fileName) => {
+		const file = path.resolve(fileName);
+		return discovered.has(file) ? parsedSource(file) : undefined;
+	};
+	const program = ts.createProgram(files, options, host);
 	for (const diagnostic of program.getSyntacticDiagnostics()) {
 		const where = diagnostic.file === undefined ? "?" : rel(path.resolve(diagnostic.file.fileName));
 		problems.push(`${where}: parse error: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`);
@@ -1190,11 +1223,7 @@ function audit(): { readonly problems: string[]; readonly spawningRegistrations:
 	let parsedDeclarations = 0;
 	const unregistered: string[] = [];
 	for (const file of files) {
-		const sf = program.getSourceFile(file);
-		if (sf === undefined) {
-			problems.push(`${rel(file)}: the program did not parse this file (looked it up as ${file})`);
-			continue;
-		}
+		const sf = parsedSource(file);
 		const module = analyzeModule(sf, context);
 		graph.modules.set(file, module);
 		const control = topLevelDeclarationControl(sf, module);
@@ -1220,10 +1249,7 @@ function audit(): { readonly problems: string[]; readonly spawningRegistrations:
 	let spawningRegistrations = 0;
 	let sitesFound = 0;
 	for (const module of graph.modules.values()) {
-		const sf = program.getSourceFile(module.file);
-		if (sf === undefined) {
-			continue;
-		}
+		const sf = parsedSource(module.file);
 		const declared = [...module.decls.values()].flat();
 		sitesFound += [...declared, ...module.registrations, module.moduleScope].reduce(
 			(count, scope) => count + scope.sites.length,

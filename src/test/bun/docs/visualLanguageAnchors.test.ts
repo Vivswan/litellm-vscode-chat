@@ -147,7 +147,7 @@ function anchorResolves(citedPath: string, anchor: string, source: string): bool
 		const normalized = anchor.replace(/\s+/g, " ");
 		return cssPreludes(source).some((prelude) => hasTokenBoundaries(prelude, normalized));
 	}
-	return hasTokenBoundaries(stripTsComments(path.basename(citedPath), source), anchor);
+	return hasTokenBoundaries(source, anchor);
 }
 
 test("every charter citation resolves against today's source", () => {
@@ -159,6 +159,8 @@ test("every charter citation resolves against today's source", () => {
 	expect(citations.length).toBeGreaterThan(0);
 	const failures: string[] = [];
 	const sources = new Map<string, string | undefined>();
+	// Built on the first anchored citation of a file: a bare file citation never transpiles, so a .d.ts stays citable.
+	const anchorTexts = new Map<string, string>();
 	for (const citation of citations) {
 		const citedPath = resolveCitedFile(citation.file);
 		if (!sources.has(citedPath)) {
@@ -169,7 +171,15 @@ test("every charter citation resolves against today's source", () => {
 			failures.push(`charter line ${citation.line}: \`${citation.span}\` cites ${citation.file}, which does not exist`);
 			continue;
 		}
-		if (citation.anchor !== undefined && !anchorResolves(citedPath, citation.anchor, source)) {
+		if (citation.anchor === undefined) {
+			continue;
+		}
+		let anchorText = anchorTexts.get(citedPath);
+		if (anchorText === undefined) {
+			anchorText = citedPath.endsWith(".css") ? source : stripTsComments(path.basename(citedPath), source);
+			anchorTexts.set(citedPath, anchorText);
+		}
+		if (!anchorResolves(citedPath, citation.anchor, anchorText)) {
 			failures.push(
 				citedPath.endsWith(".css")
 					? `charter line ${citation.line}: \`${citation.anchor}\` is not a selector in ${citation.file}`
