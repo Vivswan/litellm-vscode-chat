@@ -2204,6 +2204,8 @@
 		"@types/react": "^19.2.18",
 		"@types/react-dom": "^19.3.0",
 		"@types/vscode": "1.136.0",
+		"@typescript-eslint/rule-tester": "8.69.0",
+		"@typescript-eslint/utils": "8.69.0",
 		"@vscode/l10n-dev": "^0.0.35",
 		"@vscode/test-cli": "^0.0.15",
 		"@vscode/test-electron": "^3.1.0",

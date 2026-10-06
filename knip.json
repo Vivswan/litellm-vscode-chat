@@ -9,6 +9,7 @@
 		"src/test/capture-server.ts",
 		"src/test/util/fingerprintSalt.ts",
 		"src/test/util/buildDefines.ts",
+		"src/test/bun/scripts/lint/outputChannelWritesFixture.ts",
 		"src/test/bun/scripts/ci/userTextReadersFixture.ts",
 		"src/test/bun/scripts/ci/userTextReadersCleanFixture.ts",
 		"src/test/bun/scripts/ci/userTextReadersBlindFixture.ts",
