@@ -4,8 +4,9 @@
  * so overlapping values leave no tail. Nothing parses a URL and nothing protects a host, so a value that is also a
  * word blanks that word.
  *
- * Masking is idempotent: a span inside an existing REDACTED_MARKER is never a match, so text masked where it entered
- * the extension masks to itself again at every exit, and no exit can write "[[redacted]]".
+ * Masking is idempotent: a span inside an existing marker (REDACTED_MARKER, or the reveal of a registered long value,
+ * its first REVEALED_CHARS and "...") is never a match, so text masked where it entered the extension masks to itself
+ * again at every exit, and no exit can write "[[redacted]]" or re-mask a reveal once a shorter value joins the set.
  */
 
 /**
@@ -13,8 +14,16 @@
  * "chat").
  */
 export const MIN_SECRET_LENGTH = 4;
-/** What a masked span becomes (the Logger's reveal of a long value is the other replacement). */
+/** What a masked span becomes, unless the value is long enough to reveal (revealOf). */
 export const REDACTED_MARKER = "[redacted]";
+/** A configured value this long shows its first REVEALED_CHARS so the user can tell which key a message is about. */
+export const REVEAL_FROM_LENGTH = 20;
+export const REVEALED_CHARS = 6;
+
+/** The reveal marker of a long value ("sk-liv..."), or undefined for a value too short to reveal. */
+export function revealOf(value: string): string | undefined {
+	return value.length >= REVEAL_FROM_LENGTH ? `${value.slice(0, REVEALED_CHARS)}...` : undefined;
+}
 /**
  * URL userinfo by shape alone: everything from the scheme's "//" to the last "@" before the path, query, or fragment,
  * so a user with or without a password goes, a password that itself holds an "@" goes whole, and an address in a
@@ -151,6 +160,12 @@ function mergedSpans(spans: readonly (Span & { readonly value?: string })[]): Se
  */
 export function secretSpans(text: string, values: readonly string[], upTo = text.length): SecretSpan[] {
 	const markers = occurrences(text, REDACTED_MARKER, false);
+	for (const value of values) {
+		const reveal = revealOf(value);
+		if (reveal !== undefined) {
+			markers.push(...occurrences(text, reveal, false));
+		}
+	}
 	const insideMarker = (from: number, to: number): boolean =>
 		markers.some(([markerFrom, markerTo]) => from < markerTo && markerFrom < to);
 	const spans: (Span & { readonly value?: string })[] = [];

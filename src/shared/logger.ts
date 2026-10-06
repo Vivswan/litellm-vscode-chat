@@ -1,6 +1,6 @@
 import type { TransportErrorClassification } from "./errorClassification";
 import { transportClassificationOf } from "./errorClassification";
-import { REDACTED_MARKER, safeCut, secretSpans } from "./util/secretMask";
+import { REDACTED_MARKER, revealOf, safeCut, secretSpans } from "./util/secretMask";
 
 /**
  * Leveled sink, structurally satisfied by vscode.LogOutputChannel. The host adds timestamps and level tags to channel
@@ -197,10 +197,6 @@ const CHANNEL_LINE_CHARS = 262_144;
  */
 const REPORT_LOG_LINES = 50;
 
-/** A configured value this long shows its first REVEALED_CHARS so the user can tell which key a message is about. */
-const REVEAL_FROM_LENGTH = 20;
-const REVEALED_CHARS = 6;
-
 /** A text cut at `at` with a marker saying how much went; the identity when nothing is past `at`. */
 function cutAt(text: string, at: number): string {
 	return text.length <= at ? text : `${text.slice(0, at)} [${text.length - at} more characters cut]`;
@@ -212,9 +208,7 @@ function cutPlainly(text: string): string {
 
 /** The replacement for one merged span: a long single value keeps its first six characters, everything else goes whole. */
 function replacementFor(value: string | undefined): string {
-	return value !== undefined && value.length >= REVEAL_FROM_LENGTH
-		? `${value.slice(0, REVEALED_CHARS)}...`
-		: REDACTED_MARKER;
+	return (value === undefined ? undefined : revealOf(value)) ?? REDACTED_MARKER;
 }
 
 /**

@@ -509,6 +509,28 @@ suite("extension/ui/commands", () => {
 				});
 			}
 
+			test("the connection toast masks the rendered cause: a registered value in the configured URL shows its reveal", async () => {
+				const key = `Q17key${"X".repeat(34)}`;
+				Logger.registerSecrets([key]);
+				const mapped = causes["proxy-not-running"].buildError();
+				const statusBar = makeStatusBar({ state: "not-configured" });
+				const provider = {
+					refreshGroups: async () => {
+						await statusBar.updateStatusBar({ ...failedStatus(mapped), baseUrl: `http://host.test/${key}` });
+						return { refreshedGroups: 1 };
+					},
+				};
+
+				const toasts = await withToasts(() =>
+					runConnectionTest(provider, statusBar, outputChannel, logger, CONFIGURED)
+				);
+
+				assert.strictEqual(
+					expectDefined(toasts[0]).message,
+					"LiteLLM: Connection failed - Could not connect to http://host.test/Q17key..."
+				);
+			});
+
 			test("the Troubleshooting Docs action opens the cause's docs deep link", async () => {
 				const mapped = mapSdkError(
 					new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()),

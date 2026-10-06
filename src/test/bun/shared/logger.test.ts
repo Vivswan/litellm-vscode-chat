@@ -620,6 +620,19 @@ describe("shared/logger redact: the one output door", () => {
 		}
 	});
 
+	test("a reveal is a marker: a shorter value that joins the set later never re-masks it, so a second pass is a no-op", () => {
+		// The set only grows within a session. Masked once to "K17abc...", the text must survive the registration of
+		// "K17abc" (its revealed head) or "abc..." (a tail of the reveal) unchanged, like a "[redacted]" marker does.
+		const long = `K17abc${"Z".repeat(34)}`;
+		Logger.registerSecrets([long]);
+		const once = Logger.redact(`key ${long} sent`);
+		Logger.registerSecrets(["K17abc", "abc..."]);
+		assert.deepStrictEqual(
+			{ once, again: Logger.redact(once), fresh: Logger.redact(`key ${long} sent`) },
+			{ once: "key K17abc... sent", again: "key K17abc... sent", fresh: "key [redacted] sent" }
+		);
+	});
+
 	test("the documented cases of @zapier/secret-scrubber mask through this door too, with this door's marker", () => {
 		// Conformance against the README of the library the owner weighed and declined: a quoted password, a
 		// percent-encoded query value, the form-encoded + spelling, and a JSON-escaped value.

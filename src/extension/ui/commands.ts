@@ -5,7 +5,7 @@ import { thrownErrorDisplayText } from "../../provider/transport/errorMapping";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { failureClassification, failureTexts } from "../../shared/failureCause";
-import type { ErrorRecorder, Logger, RecordedError } from "../../shared/logger";
+import { type ErrorRecorder, Logger, type RecordedError } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
@@ -205,7 +205,10 @@ export async function runConnectionTest(
 				// only adds the docs action.
 				void showActionableMessage(
 					"error",
-					l10n.t("LiteLLM: Connection failed - {0}", failureTexts(outcome.cause, outcome.baseUrl ?? "").display),
+					l10n.t(
+						"LiteLLM: Connection failed - {0}",
+						Logger.redact(failureTexts(outcome.cause, outcome.baseUrl ?? "").display)
+					),
 					commandErrorActions(failureClassification(outcome.cause), outputChannel)
 				);
 				break;
@@ -338,7 +341,10 @@ async function runModelSyncPass(
 				logger.log(`Model sync failed: ${outcome.logSafeError}`);
 				void showActionableMessage(
 					"error",
-					l10n.t("LiteLLM: Model sync failed - {0}", failureTexts(outcome.cause, outcome.baseUrl ?? "").display),
+					l10n.t(
+						"LiteLLM: Model sync failed - {0}",
+						Logger.redact(failureTexts(outcome.cause, outcome.baseUrl ?? "").display)
+					),
 					commandErrorActions(failureClassification(outcome.cause), outputChannel)
 				);
 				break;
