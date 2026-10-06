@@ -28,6 +28,7 @@ import { buildGroupArgs, groupArgsFingerprint } from "../servers/serverSync/engi
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 import { readServerSecretsRecord, resolveOwnedSecrets } from "../servers/serverSync/secrets";
 import { parseServersSetting } from "../servers/serverSync/setting";
+import { canonicalEntryBaseUrls } from "../servers/serverSync/vscodeEnv";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
 /** The pre-projection rendering, verbatim from the old engine: salted hash over the full args JSON, no prefix. */
@@ -48,7 +49,7 @@ export async function projectSyncFingerprintsFor(
 	logger: Logger
 ): Promise<MigrationOutcome> {
 	const stored = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));
-	const ledger = validatedStringRecord(globalState.get(SYNCED_ENTRY_BASE_URLS_KEY));
+	const ledger = canonicalEntryBaseUrls(globalState.get(SYNCED_ENTRY_BASE_URLS_KEY));
 	const { entries } = parseServersSetting(readServersSetting());
 	const candidates = entries.filter((entry) => {
 		const record = stored[entry.label];

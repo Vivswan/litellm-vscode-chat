@@ -1,7 +1,14 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { apiRootOf, DEFAULT_API_VERSION, serverRootOf } from "../../../../shared/util/baseUrl";
+import {
+	apiRootOf,
+	canonicalBaseUrl,
+	canonicalStoredBaseUrl,
+	canonicalUrl,
+	DEFAULT_API_VERSION,
+	serverRootOf,
+} from "../../../../shared/util/baseUrl";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
@@ -70,6 +77,53 @@ describe("shared/util/baseUrl", () => {
 		assert.strictEqual(serverRootOf("http://h/v1", ""), "http://h");
 		assert.strictEqual(serverRootOf("http://h", ""), "http://h");
 		assert.strictEqual(serverRootOf("http://h/llm", ""), "http://h/llm");
+	});
+});
+
+describe("shared/util/baseUrl canonical spellings", () => {
+	// The WHATWG facts the one spelling rests on: the platform's URL parser accepts these spellings and serializes each
+	// to the text below; a runtime whose parser drifts (userinfo encoding, default-port elision, the slash rules)
+	// would silently change what every entry stores.
+	test("canonicalUrl is the WHATWG serialization of what the parser accepts with a host, else undefined", () => {
+		const cases: [string, string | undefined][] = [
+			["HTTP://User:Pa ss@Host:4000/", "http://User:Pa%20ss@host:4000/"],
+			["http:user:pass@host", "http://user:pass@host/"],
+			["http:/host", "http://host/"],
+			["ht\ttp://host", "http://host/"],
+			["  http://two.test/  ", "http://two.test/"],
+			["https://host:443/x", "https://host/x"],
+			["http://host/a b?q=1#f", "http://host/a%20b?q=1#f"],
+			["http://[::1]:4000", "http://[::1]:4000/"],
+			["wss://gw.example/mcp", "wss://gw.example/mcp"],
+			["http://user:pa/ss@host", undefined],
+			["localhost:4000", undefined],
+			["mailto:x@y", undefined],
+			["file:///tmp/x", undefined],
+			["not a url", undefined],
+			["", undefined],
+		];
+		for (const [typed, canonical] of cases) {
+			assert.strictEqual(canonicalUrl(typed), canonical, JSON.stringify(typed));
+		}
+	});
+
+	test("a stored identity whose stripped slash exposed a trailing space keeps the space the parser would trim", () => {
+		// WHATWG trims trailing spaces before parsing: the external fact the stored-identity reader works around.
+		assert.strictEqual(canonicalBaseUrl("http://host.test/a "), "http://host.test/a");
+		assert.strictEqual(canonicalStoredBaseUrl("http://host.test/a "), "http://host.test/a%20");
+		assert.strictEqual(canonicalStoredBaseUrl("http://host.test/a%20"), "http://host.test/a%20");
+		assert.strictEqual(canonicalStoredBaseUrl("http://host.test/?x=1"), "http://host.test/?x=1");
+		assert.strictEqual(canonicalStoredBaseUrl("HTTP://Host.test"), "http://host.test");
+	});
+
+	test("canonicalization is idempotent, so a stored canonical text re-parses to itself", () => {
+		for (const typed of ["HTTP://Host:4000/", "http:user:pass@host/x/", "https://host:443/a b"]) {
+			const url = canonicalUrl(typed);
+			const base = canonicalBaseUrl(typed);
+			assert.ok(url !== undefined && base !== undefined);
+			assert.strictEqual(canonicalUrl(url), url);
+			assert.strictEqual(canonicalBaseUrl(base), base);
+		}
 	});
 });
 

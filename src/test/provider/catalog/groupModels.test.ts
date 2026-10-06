@@ -36,12 +36,12 @@ const OAUTH_FIELDS = {
 
 suite("provider/catalog/groupModels", () => {
 	suite("parseGroupConfiguration", () => {
-		test("a full OAuth configuration yields the oauth unit with trimmed fields", () => {
+		test("a full OAuth configuration yields the oauth unit with trimmed fields and the token URL's one spelling", () => {
 			const server = expectDefined(
 				parseGroupConfiguration({
 					baseUrl: "http://litellm.test",
 					...OAUTH_FIELDS,
-					oauthTokenUrl: " http://idp.test/oauth2/token ",
+					oauthTokenUrl: " HTTP://IdP.test/oauth2/token ",
 					oauthScopes: " read write ",
 				})
 			);
@@ -230,15 +230,20 @@ suite("provider/catalog/groupModels", () => {
 			}
 		});
 
-		test("pre-OAuth narrowing is unchanged: trailing slashes trimmed, non-string apiKey means keyless", () => {
+		test("the base URL reads canonically, whatever spelling created the group; non-string apiKey means keyless", () => {
 			assert.deepStrictEqual(parseGroupConfiguration({ baseUrl: "http://litellm.test//", apiKey: 42 }), {
 				baseUrl: "http://litellm.test",
 				apiKey: "",
 			});
+			// A group an older version created from the user's own text is the entry now declared canonically.
+			assert.strictEqual(
+				parseGroupConfiguration({ baseUrl: "HTTP://LiteLLM.test:80/", apiKey: "k" })?.baseUrl,
+				"http://litellm.test"
+			);
 			assert.strictEqual(parseGroupConfiguration({ apiKey: "k" }), undefined);
-			// A URL that normalizes to nothing is no server: the same refusal entryUsesSecretField's no-server arm
-			// makes, so a stored credential can never ride a configuration the wire rule attributes to no entry.
+			// A URL with no canonical spelling is no server, so a stored credential can never ride such a configuration.
 			assert.strictEqual(parseGroupConfiguration({ baseUrl: "/", apiKey: "k" }), undefined);
+			assert.strictEqual(parseGroupConfiguration({ baseUrl: "localhost:4000", apiKey: "k" }), undefined);
 			assert.strictEqual(parseGroupConfiguration("http://litellm.test"), undefined);
 			assert.strictEqual(parseGroupConfiguration(null), undefined);
 		});

@@ -12,11 +12,16 @@
  */
 
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../shared/config/storageKeys";
-import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { canonicalBaseUrl, canonicalStoredBaseUrl, normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isRecord } from "../../shared/util/json";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
 
-/** One group identity as the provenance bookkeeping stores it; baseUrl is kept normalized. */
+/**
+ * One group identity as the provenance bookkeeping stores it; baseUrl is read in its one spelling (a stored record
+ * through canonicalStoredBaseUrl, a comparison through canonicalBaseUrl), so a record an older version stored as the
+ * user typed it still matches the group the provider now reports canonically. A stored URL with no canonical spelling
+ * identifies no group (groupModels.ts parseGroupConfiguration serves none) and is dropped.
+ */
 export interface GroupIdentity {
 	readonly label: string;
 	readonly baseUrl: string;
@@ -63,7 +68,8 @@ export interface GroupKey {
 }
 
 export function sameGroupIdentity(a: GroupIdentity, b: GroupIdentity): boolean {
-	return a.label === b.label && normalizeBaseUrl(a.baseUrl) === normalizeBaseUrl(b.baseUrl);
+	const url = canonicalBaseUrl(a.baseUrl);
+	return a.label === b.label && url !== undefined && url === canonicalBaseUrl(b.baseUrl);
 }
 
 function sameTombstoneIdentity(a: TombstoneIdentity, b: TombstoneIdentity): boolean {
@@ -113,7 +119,8 @@ function parseIdentity(value: unknown): GroupIdentity | undefined {
 	if (!isRecord(value) || typeof value.label !== "string" || typeof value.baseUrl !== "string") {
 		return undefined;
 	}
-	return { label: value.label, baseUrl: normalizeBaseUrl(value.baseUrl) };
+	const baseUrl = canonicalStoredBaseUrl(value.baseUrl);
+	return baseUrl === undefined ? undefined : { label: value.label, baseUrl };
 }
 
 function parseOrigin(value: unknown): OrphanedGroupOrigin | undefined {
@@ -147,8 +154,16 @@ function parseTombstone(value: unknown): TombstoneIdentity | undefined {
 	if (identity === undefined || !isRecord(value)) {
 		return undefined;
 	}
-	// A record from before the keyed kinds has no `by`: the status label and URL it carried.
-	const by = value.by === undefined ? "status" : value.by;
+	// A record from before the keyed kinds has no `by`: the status label and URL it carried. A group record whose
+	// stored URL text is not canonical was keyed under a pre-canonical spelling and matches no id the canonical group
+	// reports, so it hides by its label and URL too: the user hid that group.
+	const by =
+		value.by === undefined ||
+		(value.by === "group" &&
+			typeof value.baseUrl === "string" &&
+			canonicalStoredBaseUrl(value.baseUrl) !== value.baseUrl)
+			? "status"
+			: value.by;
 	return typeof by === "string" && Object.hasOwn(TOMBSTONE_PARSERS, by)
 		? TOMBSTONE_PARSERS[by as TombstoneIdentity["by"]](value, identity)
 		: undefined;

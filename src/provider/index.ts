@@ -313,7 +313,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			logCredentialRejections((message, data) => this.log(message, data))
 		);
 		if (!parsed) {
-			this.log("Ignoring provider-group refresh with malformed configuration (baseUrl must be a string)");
+			this.log("Ignoring provider-group refresh with malformed configuration (baseUrl must be a URL with a host)");
 			return [];
 		}
 		// The serve generation is claimed BEFORE the overlay's secrets read (the overlay never changes label or base

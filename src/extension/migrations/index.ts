@@ -1,6 +1,7 @@
 import type * as vscode from "vscode";
 import type { Logger } from "../../shared/logger";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
+import { canonicalUrlSpellingsMigration } from "./canonicalUrlSpellings";
 import type { MigrationStateId } from "./expiries";
 import { fingerprintProjectionMigration } from "./fingerprintProjection";
 import { legacyRegistryCleanupMigration } from "./legacyRegistryCleanup";
@@ -19,7 +20,8 @@ export interface MigrationContext {
 	/**
 	 * The session's fingerprint-salt view. A migration that persists fingerprints must call confirmDurable() at
 	 * decision time and defer unless it reports "durable": records written under a salt later sessions will not see
-	 * would match nothing.
+	 * would match nothing. The one exception is a rewrite gated on a stored record equal to a print computed this
+	 * session (canonicalUrlSpellings.ts): that equality already proves the salt.
 	 */
 	fingerprintSalt: FingerprintSaltSession;
 }
@@ -62,6 +64,7 @@ export const MIGRATIONS = [
 	stampSecretOwnersMigration,
 	fingerprintProjectionMigration,
 	oauthStampClientIdMigration,
+	canonicalUrlSpellingsMigration,
 ] as const satisfies readonly ExtensionMigration[];
 
 type RegisteredMigrationState = (typeof MIGRATIONS)[number]["state"];

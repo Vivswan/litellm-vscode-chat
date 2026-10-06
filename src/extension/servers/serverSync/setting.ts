@@ -35,7 +35,7 @@ import {
 	SECRET_FIELD_IDS,
 	SECRET_FIELD_NESTED_PATHS,
 } from "../../../shared/serverEntry";
-import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { canonicalBaseUrl, canonicalUrl, normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { HEADER_NAME_PATTERN, isHeaderScalar, trimHttpWhitespace, usableHttpText } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey, objectSlot } from "../../../shared/util/json";
 import type { CollectableEntry } from "../../../shared/util/knownSecrets";
@@ -50,7 +50,8 @@ export type EntryModelCapabilities = EntryViewFieldValues["modelCapabilities"];
  * object (present only with usable inline text; values resting in SecretStorage stay absent here and resolve at
  * group-args time). The remaining optional fields are the shared registry's EntryViewFields (present only when the raw
  * entry carries usable content); they are read extension-side and never enter the group configuration or its
- * fingerprint.
+ * fingerprint. Every URL field holds its one spelling (shared/util/baseUrl.ts canonicalUrl), so no reader of an entry
+ * compares or scrubs spellings.
  */
 export type DeclaredServer = {
 	readonly label: string;
@@ -107,13 +108,12 @@ function usableBudget(value: unknown): number | undefined {
 }
 
 /**
- * The URL itself is taken as written beyond trimming - the dashboard's write path is where http(s) shape is enforced,
- * exactly as it is for `baseUrl`.
+ * The URL is read in its one spelling (canonicalUrl); the http(s) shape is the dashboard write path's rule, exactly
+ * as for `baseUrl`.
  *
- *   `false` opts out                      -> an explicit off switch, not a mistake
- *   an explicit off switch, not a mistake -> it reports nothing
- *   an unusable `url` still leaves the entry opted in at the derived endpoint
- *     -> a typo costs the custom address, never the server
+ *   `false` opts out                       -> an explicit off switch, not a mistake, so it reports nothing
+ *   a `url` with no canonical spelling     -> reported, and nothing is published; the chat entry stays usable
+ *   a `url` of the wrong type, a blank one -> the derived endpoint, like `true`
  */
 function parseMcpOptIn(raw: unknown, report: (what: string) => void): McpOptIn | undefined {
 	if (raw === true) {
@@ -137,8 +137,16 @@ function parseMcpOptIn(raw: unknown, report: (what: string) => void): McpOptIn |
 		report("has an mcp.url that is not a string, ignored");
 		return true;
 	}
-	const url = usableHttpText(mcp.url);
-	return url !== undefined ? { url } : true;
+	const text = usableHttpText(mcp.url);
+	if (text === undefined) {
+		return true;
+	}
+	const url = canonicalUrl(text);
+	if (url === undefined) {
+		report("has an mcp.url that is not a URL with a host; no MCP server is published for this entry");
+		return undefined;
+	}
+	return { url };
 }
 
 type FlatAuthFields = { -readonly [K in OptionalEntryFieldId]?: string };
@@ -282,10 +290,14 @@ function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
 			problems.push(`has an unknown auth.oauth key "${key}"`);
 		}
 	}
-	const tokenUrl = typeof form.tokenUrl === "string" ? usableHttpText(form.tokenUrl) : undefined;
+	const tokenUrlText = typeof form.tokenUrl === "string" ? usableHttpText(form.tokenUrl) : undefined;
 	const clientId = typeof form.clientId === "string" ? usableHttpText(form.clientId) : undefined;
-	if (tokenUrl === undefined || clientId === undefined) {
+	if (tokenUrlText === undefined || clientId === undefined) {
 		problems.push("has an incomplete auth.oauth (tokenUrl and clientId are required)");
+	}
+	const tokenUrl = tokenUrlText === undefined ? undefined : canonicalUrl(tokenUrlText);
+	if (tokenUrlText !== undefined && tokenUrl === undefined) {
+		problems.push("has an auth.oauth.tokenUrl that is not a URL with a host");
 	}
 	for (const key of ["clientSecret", "scopes", "apiKey"] as const) {
 		if (form[key] !== undefined && typeof form[key] !== "string") {
@@ -521,8 +533,8 @@ function acceptEntries(
 			return;
 		}
 		const label = usableHttpText(record.label);
-		const baseUrl = usableHttpText(record.baseUrl);
-		if (label === undefined || baseUrl === undefined) {
+		const baseUrlText = usableHttpText(record.baseUrl);
+		if (label === undefined || baseUrlText === undefined) {
 			report("is missing a label or baseUrl");
 			return;
 		}
@@ -535,6 +547,13 @@ function acceptEntries(
 			return;
 		}
 		seen.add(label);
+
+		// A reject, not a drop: the entry keeps its label (no removal is inferred) and its row names the field.
+		const baseUrl = canonicalBaseUrl(baseUrlText);
+		if (baseUrl === undefined) {
+			report("has a baseUrl that is not a URL with a host; the entry is not used until it is fixed");
+			return;
+		}
 
 		//   Auth shape errors -> make the whole entry misconfigured
 		//   still PRESENT - rawDeclaredLabels keeps its label -> no removal is inferred and its group is not hidden
@@ -668,15 +687,73 @@ function acceptEntries(
 
 /**
  * The dashboard's per-entry reads and writes resolve through this so they act on exactly the entry the dashboard row
- * describes: a rejected same-label sibling earlier in the array cannot shadow the accepted entry, and a label the
- * parser rejects outright resolves to nothing.
+ * describes. An element rejected before it claims its label (not an object, no label or baseUrl, a reserved label)
+ * cannot shadow the accepted entry; a misconfigured claimant (a refused base URL or auth shape) still owns the label,
+ * so a later same-label element resolves to nothing, as does a label the parser rejects outright.
  */
 export function acceptedEntry(raw: unknown, label: string): { index: number; entry: DeclaredServer } | undefined {
-	if (!Array.isArray(raw)) {
-		return undefined;
-	}
 	const wanted = trimHttpWhitespace(label);
-	return acceptEntries(raw).find(({ entry }) => entry.label === wanted);
+	return acceptedEntries(raw).find(({ entry }) => entry.label === wanted);
+}
+
+/** Every accepted entry with its raw-array index, in one acceptance pass. */
+export function acceptedEntries(raw: unknown): { index: number; entry: DeclaredServer }[] {
+	return Array.isArray(raw) ? acceptEntries(raw) : [];
+}
+
+/**
+ * The URL field of a raw entry the parser refuses, when there is one: usable text with no canonical spelling. The
+ * settings import skips such an entry by this judgment instead of landing it, so a working entry under the label is
+ * never overwritten by one the parser would reject.
+ */
+export function refusedUrlField(raw: Readonly<Record<string, unknown>>): "baseUrl" | "auth.oauth.tokenUrl" | undefined {
+	const baseUrlText = usableHttpText(raw.baseUrl);
+	if (baseUrlText !== undefined && canonicalBaseUrl(baseUrlText) === undefined) {
+		return "baseUrl";
+	}
+	const tokenUrlText =
+		isRecord(raw.auth) && isRecord(raw.auth.oauth) ? usableHttpText(raw.auth.oauth.tokenUrl) : undefined;
+	return tokenUrlText !== undefined && canonicalUrl(tokenUrlText) === undefined ? "auth.oauth.tokenUrl" : undefined;
+}
+
+/**
+ * A raw entry with its URL fields in the one spelling the parser reads, every other byte untouched: what a settings
+ * import writes and what the one-time migration rewrites, so a stored entry reads back as itself. `oldBaseUrl` is the
+ * trimmed spelling the base URL had when it changed: the one field the sync fingerprint hashes (engine.ts
+ * groupIdentityArgs), so the one whose old spelling a record carry needs.
+ */
+export function respellEntryUrls(raw: Readonly<Record<string, unknown>>): {
+	readonly record: Record<string, unknown>;
+	readonly changed: boolean;
+	readonly oldBaseUrl?: string;
+} {
+	const record: Record<string, unknown> = { ...raw };
+	let changed = false;
+	let oldBaseUrl: string | undefined;
+	const baseUrlText = usableHttpText(raw.baseUrl);
+	const baseUrl = baseUrlText === undefined ? undefined : canonicalBaseUrl(baseUrlText);
+	if (baseUrl !== undefined && baseUrl !== raw.baseUrl) {
+		record.baseUrl = baseUrl;
+		changed = true;
+		oldBaseUrl = baseUrlText;
+	}
+	if (isRecord(raw.auth) && isRecord(raw.auth.oauth)) {
+		const tokenUrlText = usableHttpText(raw.auth.oauth.tokenUrl);
+		const tokenUrl = tokenUrlText === undefined ? undefined : canonicalUrl(tokenUrlText);
+		if (tokenUrl !== undefined && tokenUrl !== raw.auth.oauth.tokenUrl) {
+			record.auth = { ...raw.auth, oauth: { ...raw.auth.oauth, tokenUrl } };
+			changed = true;
+		}
+	}
+	if (isRecord(raw.mcp)) {
+		const urlText = usableHttpText(raw.mcp.url);
+		const url = urlText === undefined ? undefined : canonicalUrl(urlText);
+		if (url !== undefined && url !== raw.mcp.url) {
+			record.mcp = { ...raw.mcp, url };
+			changed = true;
+		}
+	}
+	return { record, changed, ...(oldBaseUrl !== undefined ? { oldBaseUrl } : {}) };
 }
 
 /**

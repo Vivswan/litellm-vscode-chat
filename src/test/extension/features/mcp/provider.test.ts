@@ -213,6 +213,12 @@ suite("extension/features/mcp", () => {
 			assert.strictEqual(resolved.uri.toString(), "https://elsewhere.example/mcp", "it is still published");
 		});
 
+		test("a junk explicit url publishes nothing: the derived endpoint would admit the entry's credentials", async () => {
+			const servers = [entry({ mcp: { url: "not a url" }, auth: { apiKey: SECRET_VALUES.apiKey } })];
+			const provider = makeProvider();
+			assert.deepStrictEqual(await withConfig({ servers }, () => provide(provider)), []);
+		});
+
 		test("another PATH on the entry's own origin is the documented case and stays credentialed", async () => {
 			const servers = [entry({ mcp: { url: `${TEST_BASE_URL}/tools/mcp` }, auth: { apiKey: SECRET_VALUES.apiKey } })];
 			const provider = makeProvider();
@@ -477,16 +483,6 @@ suite("extension/features/mcp", () => {
 				);
 			});
 			assert.deepStrictEqual(republished.headers, {}, "a refused pairing attaches nothing");
-		});
-
-		test("an unparseable endpoint is published bare rather than credentialed", async () => {
-			// The fail-closed arm of the origin check: junk is not this entry's origin.
-			const servers = [entry({ mcp: { url: "not a url" }, auth: { apiKey: SECRET_VALUES.apiKey } })];
-			const provider = makeProvider();
-			const [definition] = await withConfig({ servers }, () => provide(provider));
-			assert.ok(definition);
-			const resolved = await withConfig({ servers }, () => resolve(provider, definition));
-			assert.deepStrictEqual(resolved.headers, {});
 		});
 
 		test("a base URL that moves during the exchange refuses: it is what decided the credentials", async () => {

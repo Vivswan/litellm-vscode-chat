@@ -165,10 +165,10 @@ export interface ServerSyncEnv {
 	getFingerprints(): Readonly<Record<string, string>>;
 	setFingerprints(map: Readonly<Record<string, string>>): Promise<void>;
 	/**
-	 * Label -> normalized base URL for the entries earlier passes saw declared; a removal's tombstone stands on
-	 * it, and it suffers stale storage reads like getFingerprints, so the engine seeds a session copy once (see
-	 * ServerSyncEngine.ledger). Unlike the fingerprints it carries no credential material and no salt
-	 * dependence, so writes go out unguarded.
+	 * Label -> base URL in its one spelling (canonicalBaseUrl; the implementation canonicalizes what older versions
+	 * stored as typed) for the entries earlier passes saw declared; a removal's tombstone stands on it, and it suffers
+	 * stale storage reads like getFingerprints, so the engine seeds a session copy once (see ServerSyncEngine.ledger).
+	 * Unlike the fingerprints it carries no credential material and no salt dependence, so writes go out unguarded.
 	 */
 	getEntryBaseUrls(): Readonly<Record<string, string>>;
 	setEntryBaseUrls(map: Readonly<Record<string, string>>): Promise<void>;
@@ -227,8 +227,7 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
  * fuzz oracle (test/monkeyFuzz.ts), which compares identities through this exact projection but cannot call the salted
  * fingerprint.
  *
- *   baseUrl  -> verbatim
- *   verbatim -> a base URL text edit still reads as a different group
+ *   baseUrl  -> the entry's one spelling (setting.ts), so a re-spelling is the same group and a re-pointing a new one
  *   the add-only host never sees a change and entryCredentials.ts overlays current ones at serve time
  *     -> a rotation is in-sync
  */

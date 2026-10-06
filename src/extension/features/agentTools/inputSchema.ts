@@ -8,6 +8,7 @@ import { WIRE_LIMITS } from "../../../dashboard/endpoints";
 import type { AgentToolId } from "../../../shared/config/commandIds";
 import { FEATURE_MODEL_IDS } from "../../../shared/config/settingSpec";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { canonicalBaseUrl, canonicalUrl } from "../../../shared/util/baseUrl";
 import { trimHttpWhitespace } from "../../../shared/util/headers";
 import { recordFromKeys } from "../../../shared/util/json";
 
@@ -59,13 +60,38 @@ const clearable = z
 	.optional()
 	.describe("A string sets it, null clears it, absent keeps the stored value.");
 
+/**
+ * A URL read in its one spelling at the input boundary (shared/util/baseUrl.ts), so the planner compares and writes
+ * what the setting will hold, never the agent's spelling; text with no host is a parse refusal naming the field. The
+ * manifest renders the input side (a string), so the model-facing schema is unchanged.
+ */
+function canonicalUrlInput(canonicalize: (text: string) => string | undefined) {
+	return z
+		.string()
+		.min(1)
+		.transform((text, ctx) => {
+			const url = canonicalize(text);
+			if (url === undefined) {
+				ctx.addIssue({ code: "custom", message: "not a URL with a host" });
+				return z.NEVER;
+			}
+			return url;
+		});
+}
+
+const baseUrlInput = canonicalUrlInput(canonicalBaseUrl);
+
+const clearableTokenUrl = canonicalUrlInput(canonicalUrl)
+	.nullable()
+	.optional()
+	.describe("A URL sets it, null clears it, absent keeps the stored value.");
+
 const removableLabel = label.describe(
 	"The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
 );
-const groupBaseUrl = z
-	.string()
-	.min(1)
-	.describe("The group's base URL as litellm_configuration shows it; with the label it identifies the group.");
+const groupBaseUrl = baseUrlInput.describe(
+	"The group's base URL as litellm_configuration shows it; with the label it identifies the group."
+);
 
 const serverLabel = label.describe("The entry's label (its identity; the model picker groups models under it).");
 
@@ -136,7 +162,7 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 				adoptFrom: z
 					.strictObject({
 						label: label.describe("The external group's label, from litellm_configuration."),
-						baseUrl: z.string().min(1).describe("The external group's base URL, from litellm_configuration."),
+						baseUrl: baseUrlInput.describe("The external group's base URL, from litellm_configuration."),
 					})
 					.describe("The external provider group to copy, from litellm_configuration."),
 				secretLocations: z
@@ -154,13 +180,11 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 		z
 			.strictObject({
 				label: serverLabel,
-				baseUrl: z
-					.string()
-					.min(1)
+				baseUrl: baseUrlInput
 					.optional()
 					.describe("The server's root URL, e.g. http://localhost:4000. Required for a new entry."),
 				apiVersion: clearable,
-				oauthTokenUrl: clearable,
+				oauthTokenUrl: clearableTokenUrl,
 				oauthClientId: clearable,
 				oauthScopes: clearable,
 				virtualKeyHeader: clearable,
@@ -185,7 +209,18 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 				modelCapabilities: z.unknown().optional().describe("The entry's own models.capabilities record, whole."),
 				modelParameters: z.unknown().optional().describe("The entry's own models.parameters record, whole."),
 				budget: z.unknown().optional().describe("Manual usage budget in USD, a number; null clears it."),
-				mcp: z.unknown().optional().describe("MCP opt-in: true, { url }, or null to clear."),
+				mcp: z
+					.union([
+						z.literal(true),
+						z.strictObject({
+							url: canonicalUrlInput(canonicalUrl)
+								.optional()
+								.describe("The MCP endpoint URL; absent publishes the derived <baseUrl>/mcp."),
+						}),
+						z.null(),
+					])
+					.optional()
+					.describe("MCP opt-in: true, { url }, or null to clear."),
 				secrets: z
 					.strictObject(
 						recordFromKeys(SECRET_FIELD_IDS, (field) =>
@@ -319,18 +354,24 @@ type AgentInputParse<K extends AgentToolId> =
 	| { readonly ok: true; readonly input: AgentToolInput<K> }
 	| { readonly ok: false; readonly issues: readonly AgentInputIssue[] };
 
+/**
+ * A union's own issue says only "invalid input"; the field-level issues of its branches are what the calling model can
+ * act on (saveServer is an adopt-or-edit union, mcp a true-or-object-or-null one), so they are flattened in, each under
+ * its full path: a branch issue's path is relative to the union's position.
+ */
+function flattenIssues(issues: readonly z.core.$ZodIssue[], prefix: readonly PropertyKey[] = []): AgentInputIssue[] {
+	return issues.flatMap((issue) =>
+		issue.code === "invalid_union" && issue.errors.length > 0
+			? issue.errors.flatMap((branch) => flattenIssues(branch, [...prefix, ...issue.path]))
+			: [{ path: [...prefix, ...issue.path].map(String).join("."), code: issue.code, message: issue.message }]
+	);
+}
+
 /** Parse one tool's raw input against its envelope. */
 export function parseAgentToolInput<K extends AgentToolId>(tool: K, raw: unknown): AgentInputParse<K> {
 	const parsed = AGENT_TOOL_INPUT_SCHEMAS[tool].safeParse(raw);
 	if (!parsed.success) {
-		return {
-			ok: false,
-			issues: parsed.error.issues.map((issue) => ({
-				path: issue.path.map(String).join("."),
-				code: issue.code,
-				message: issue.message,
-			})),
-		};
+		return { ok: false, issues: flattenIssues(parsed.error.issues) };
 	}
 	return { ok: true, input: parsed.data as AgentToolInput<K> };
 }

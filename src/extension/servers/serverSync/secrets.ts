@@ -12,7 +12,7 @@
  */
 
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
-import type { SecretFieldId, SecretLocation, SecretOwner } from "../../../shared/serverEntry";
+import type { SecretDestinationEntry, SecretFieldId, SecretLocation, SecretOwner } from "../../../shared/serverEntry";
 import {
 	entryUsesSecretField,
 	parseSecretOwner,
@@ -68,7 +68,7 @@ function parseRecord(raw: string | undefined): StoredSecretsRecord {
 	const rawOwners = (parsed as Record<string, unknown>)[OWNER_KEY];
 	if (typeof rawOwners === "object" && rawOwners !== null) {
 		for (const field of SECRET_FIELD_IDS) {
-			const owner = parseSecretOwner((rawOwners as Record<string, unknown>)[field]);
+			const owner = parseSecretOwner((rawOwners as Record<string, unknown>)[field], field);
 			// A stamp is meaningful only beside its value.
 			if (owner !== undefined && values[field] !== undefined) {
 				owners[field] = owner;
@@ -247,6 +247,26 @@ export async function restampServerSecretOwner(
  */
 export { secretDestination };
 
+/**
+ * The one reader of a token URL string stamp (0.6.7 and earlier stamped the OAuth client secret with the token URL
+ * alone): resolveOwnedSecrets judges through it, so a legacy stamp pairs the moment its entry is accepted, without
+ * waiting for migrations/oauthStampClientId.ts to rewrite the blob; the undo of a settings import restores a
+ * snapshot's stamps through it too.
+ *
+ *   string equal to the entry's token URL -> the entry's destination (both read in the one spelling)
+ *   any other string                       -> { tokenUrl: <the string> } ("" -> {}), a mismatch under both rules
+ *   already structured, or no stamp        -> untouched
+ */
+export function upgradedStamp(entry: SecretDestinationEntry, field: SecretFieldId, owner: SecretOwner): SecretOwner {
+	if (field !== "oauthClientSecret" || typeof owner !== "string") {
+		return owner;
+	}
+	if (owner === (entry.oauthTokenUrl ?? "")) {
+		return secretDestination(entry, field);
+	}
+	return owner === "" ? {} : { tokenUrl: owner };
+}
+
 /** resolveOwnedSecrets' outcome; see there. */
 export interface OwnedSecretsResolution {
 	/** The stored values this entry may resolve: stamp matches the entry's destination, or predates stamping. */
@@ -284,7 +304,10 @@ export function resolveOwnedSecrets(entry: DeclaredServer, record: StoredSecrets
 			continue;
 		}
 		const owner = record.owners[field];
-		if (owner === undefined || sameSecretDestination(owner, secretDestination(entry, field))) {
+		if (
+			owner === undefined ||
+			sameSecretDestination(upgradedStamp(entry, field, owner), secretDestination(entry, field))
+		) {
 			values[field] = value;
 		} else if (inline[field] === undefined) {
 			mismatched.push(field);

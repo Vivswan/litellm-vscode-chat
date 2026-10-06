@@ -1,18 +1,16 @@
 /**
  * The pure mapping from MCP-opted-in server entries to the definition descriptors a provide pass publishes. The URI is
- * identity data, not a credential channel, but like any user-written URL it may embed credentials - echoes of it belong
- * in the shared URL redaction pipeline, never raw in logs or reports.
+ * identity data, not a credential channel, but like any configured URL it may embed credentials (canonical spelling
+ * keeps userinfo) - echoes of it belong in the shared URL redaction pipeline, never raw in logs or reports.
  */
 
 import type { McpOptIn } from "../../../shared/serverEntry";
 import { mcpEndpointOf } from "../../../shared/util/baseUrl";
-import { trimHttpWhitespace } from "../../../shared/util/headers";
 
 /**
  * The view of one opted-in entry this mapping consumes, injected by the caller: parsing the servers setting and
  * counting credential rotations both stay outside this module. `mcp` is the entry's opt-in as the settings parser
- * accepted it - `true` derives the default endpoint, the object form may name the exact URL, kept as written beyond
- * edge-trimming, since a URL the user wrote is not second-guessed.
+ * accepted it - `true` derives the default endpoint, the object form names the exact URL in its one spelling.
  */
 export type McpEntryView = {
 	readonly label: string;
@@ -52,16 +50,9 @@ export function mcpDefinitionsOf(entries: readonly McpEntryView[]): McpDefinitio
 }
 
 /**
- * The definition's URI: a usable explicit `url` wins as written (edge-trimmed, like every settings-string boundary; a
- * blank one reads as absent); otherwise the shared derivation, which the server form shows the user by name so the
- * promise and the published address cannot drift.
+ * The definition's URI: an explicit `url` wins; otherwise the shared derivation, which the server form shows the user
+ * by name so the promise and the published address cannot drift.
  */
 function mcpUriOf(entry: McpEntryView): string {
-	if (entry.mcp !== true && entry.mcp.url !== undefined) {
-		const url = trimHttpWhitespace(entry.mcp.url);
-		if (url !== "") {
-			return url;
-		}
-	}
-	return mcpEndpointOf(entry.baseUrl);
+	return entry.mcp !== true && entry.mcp.url !== undefined ? entry.mcp.url : mcpEndpointOf(entry.baseUrl);
 }

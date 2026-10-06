@@ -5,6 +5,7 @@ import type { StoredServerSecrets } from "../../../extension/servers/serverSync/
 import {
 	acceptedEntry,
 	parseServersSetting,
+	respellEntryUrls,
 	serverSettingReports,
 } from "../../../extension/servers/serverSync/setting";
 import { parseEnvelope } from "../../../extension/settingsTransfer/envelope";
@@ -570,13 +571,19 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 					assert.strictEqual(application.counts.overwritten, expected.overwritten.length);
 					assert.strictEqual(application.counts.skipped, expected.skipped);
 
-					// The entry and secrets a landing label carries are the oracle's representative element, stripped -
-					// pinned by content so a resolver picking the wrong same-label element cannot pass on counts alone.
+					// The entry and secrets a landing label carries are the oracle's representative element, stripped and
+					// (for an entry the parser accepts) in the parser's one URL spelling - pinned by content so a resolver
+					// picking the wrong same-label element cannot pass on counts alone.
 					const expectedLanding = (label: string, index: number) => {
 						const raw = incoming[index];
 						assert.ok(isRecord(raw));
 						const relabeled = rawLabelOf(raw) === label ? raw : { ...raw, label };
-						return stripEntrySecrets(relabeled);
+						const stripped = stripEntrySecrets(relabeled);
+						const accepted = acceptedEntry([stripped.entry], label) !== undefined;
+						return {
+							secrets: stripped.secrets,
+							entry: accepted ? respellEntryUrls(stripped.entry).record : stripped.entry,
+						};
 					};
 
 					const landed = application.counts.imported + application.counts.overwritten + application.counts.renamed;

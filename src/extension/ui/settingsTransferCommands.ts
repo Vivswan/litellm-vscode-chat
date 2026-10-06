@@ -29,7 +29,6 @@ import { parseSecretOwner, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
-import { upgradedStamp } from "../migrations/oauthStampClientId";
 import type { ServerSyncEngine } from "../servers/serverSync/engine";
 import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
 import {
@@ -38,6 +37,7 @@ import {
 	resolveOwnedSecrets,
 	secretDestination,
 	updateServerSecret,
+	upgradedStamp,
 } from "../servers/serverSync/secrets";
 import type { DeclaredServer } from "../servers/serverSync/setting";
 import { acceptedEntry, rawDeclaredLabels } from "../servers/serverSync/setting";
@@ -918,12 +918,11 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 			}
 			owners = {};
 			for (const [field, owner] of Object.entries(entry.owners)) {
-				const stamp = parseSecretOwner(owner);
-				if (
-					!(SECRET_FIELD_IDS as readonly string[]).includes(field) ||
-					stamp === undefined ||
-					blob[field as SecretFieldId] === undefined
-				) {
+				if (!(SECRET_FIELD_IDS as readonly string[]).includes(field)) {
+					return undefined;
+				}
+				const stamp = parseSecretOwner(owner, field as SecretFieldId);
+				if (stamp === undefined || blob[field as SecretFieldId] === undefined) {
 					return undefined;
 				}
 				owners[field as SecretFieldId] = stamp;

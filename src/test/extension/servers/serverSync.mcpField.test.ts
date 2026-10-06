@@ -63,8 +63,8 @@ suite("servers setting: the mcp entry field", () => {
 	});
 
 	test("a malformed opt-in never makes the entry misconfigured", () => {
-		// The Configuration diagnostics distinguish "reported" from "refused": only auth shape refuses an entry, and
-		// MCP must not join it.
+		// The Configuration diagnostics distinguish "reported" from "refused": only the auth shape and the base URL
+		// refuse an entry, and MCP must not join them.
 		const [report] = serverSettingReports([entry({ url: 42, endpoint: "x" })]);
 		assert.strictEqual(report?.accepted, true);
 		assert.deepStrictEqual([...(report?.problems ?? [])].sort(), [
@@ -73,9 +73,16 @@ suite("servers setting: the mcp entry field", () => {
 		]);
 	});
 
-	test("the url is taken as written: the parser does not second-guess its shape", () => {
-		// The dashboard's write path enforces http(s); the setting stays as lenient here as it is for baseUrl, so a
-		// scheme we did not anticipate is the user's business.
-		assert.deepStrictEqual(parseOne({ url: "not a url" }), { mcp: { url: "not a url" }, problems: [] });
+	test("the url keeps any scheme with a host in its one spelling; a url with none publishes nothing and is reported", () => {
+		// The dashboard's write path, not the setting, insists on http(s). A junk explicit url is not repaired to the
+		// derived endpoint: that origin would admit the entry's credentials to a server the user did not name.
+		assert.deepStrictEqual(parseOne({ url: "WSS://GW.example/mcp" }), {
+			mcp: { url: "wss://gw.example/mcp" },
+			problems: [],
+		});
+		assert.deepStrictEqual(parseOne({ url: "not a url" }), {
+			mcp: undefined,
+			problems: ["entry 1 has an mcp.url that is not a URL with a host; no MCP server is published for this entry"],
+		});
 	});
 });

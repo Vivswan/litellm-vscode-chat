@@ -12,6 +12,19 @@ import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
+/** The oracle's URL rule, restated: the WHATWG parser accepts it and it names a host. */
+function hasHost(value: unknown): boolean {
+	const text = usableText(value);
+	if (text === undefined) {
+		return false;
+	}
+	try {
+		return new URL(text).host.length > 0;
+	} catch {
+		return false;
+	}
+}
+
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
@@ -23,8 +36,8 @@ const labelArb = fc.oneof(
 );
 
 const baseUrlArb = fc.oneof(
-	{ weight: 4, arbitrary: fc.constantFrom<unknown>("http://one.test", " http://two.test/ ") },
-	fc.constantFrom<unknown>("", "  ", undefined, 42, {})
+	{ weight: 4, arbitrary: fc.constantFrom<unknown>("http://one.test", " http://two.test/ ", "HTTP://Three.test:80") },
+	fc.constantFrom<unknown>("", "  ", undefined, 42, {}, "localhost:4000", "http://user:pa/ss@host")
 );
 
 const junkScalar = fc.constantFrom<unknown>(42, null, true, "", "  ", [], {});
@@ -58,8 +71,8 @@ const oauthArb = fc.oneof(
 		arbitrary: fc.record(
 			{
 				tokenUrl: fc.oneof(
-					{ weight: 6, arbitrary: fc.constant<unknown>("http://idp.test/token") },
-					fc.constantFrom<unknown>("", "  ", 42, undefined)
+					{ weight: 6, arbitrary: fc.constantFrom<unknown>("http://idp.test/token", "HTTP://IdP.test/token") },
+					fc.constantFrom<unknown>("", "  ", 42, undefined, "idp.test/token")
 				),
 				clientId: fc.oneof(
 					{ weight: 6, arbitrary: fc.constant<unknown>("client-1") },
@@ -306,7 +319,7 @@ function authIsAcceptable(raw: unknown): boolean {
 		if (Object.keys(oauth).some((key) => !known.includes(key))) {
 			return false;
 		}
-		if (usableText(oauth.tokenUrl) === undefined || usableText(oauth.clientId) === undefined) {
+		if (!hasHost(oauth.tokenUrl) || usableText(oauth.clientId) === undefined) {
 			return false;
 		}
 		for (const key of ["clientSecret", "scopes", "apiKey"] as const) {
@@ -341,7 +354,7 @@ function expectedAcceptedIndices(raw: readonly unknown[]): number[] {
 			return;
 		}
 		seen.add(label);
-		if (authIsAcceptable(item.auth)) {
+		if (hasHost(item.baseUrl) && authIsAcceptable(item.auth)) {
 			accepted.push(index);
 		}
 	});

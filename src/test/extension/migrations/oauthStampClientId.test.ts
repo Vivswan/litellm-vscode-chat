@@ -29,9 +29,18 @@ suite("extension/migrations/oauthStampClientId", () => {
 			label: string;
 			owner: SecretOwner | undefined;
 			declaresOauth: boolean;
+			/** How the setting spells the token URL; the parser reads it canonically. */
+			declaredTokenUrl?: string;
 			expected: SecretOwner | undefined;
 		}[] = [
 			{ label: "legacy", owner: TOKEN_URL, declaresOauth: true, expected: CURRENT_STAMP },
+			{
+				label: "respelled",
+				owner: "HTTPS://IdP.test/token",
+				declaresOauth: true,
+				declaredTokenUrl: "HTTPS://IdP.test/token",
+				expected: CURRENT_STAMP,
+			},
 			{ label: "current", owner: CURRENT_STAMP, declaresOauth: true, expected: CURRENT_STAMP },
 			{
 				label: "foreign",
@@ -56,7 +65,9 @@ suite("extension/migrations/oauthStampClientId", () => {
 		const setting = rows.map((row) => ({
 			label: row.label,
 			baseUrl: `http://${row.label}.test`,
-			...(row.declaresOauth ? { auth: { oauth: { tokenUrl: TOKEN_URL, clientId: "cid" } } } : {}),
+			...(row.declaresOauth
+				? { auth: { oauth: { tokenUrl: row.declaredTokenUrl ?? TOKEN_URL, clientId: "cid" } } }
+				: {}),
 		}));
 
 		assert.strictEqual(await stampOauthClientIdsFor(() => setting, store, quietLogger()), "migrated");

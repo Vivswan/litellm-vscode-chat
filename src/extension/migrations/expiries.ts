@@ -42,6 +42,12 @@ export const MIGRATION_EXPIRIES = [
 		introduced: "2026-10-04",
 		expires: "2027-01-04",
 	},
+	{
+		state: "uncanonical-url-spellings",
+		file: "canonicalUrlSpellings.ts",
+		introduced: "2026-10-05",
+		expires: "2027-01-05",
+	},
 ] as const satisfies readonly MigrationExpiry[];
 
 /** The state slug of every live migration, runner-registered or not: the table above is the one list. */

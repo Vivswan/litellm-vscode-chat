@@ -50,7 +50,7 @@ import {
 	SECRET_FIELD_IDS,
 	secretDestination,
 } from "../../shared/serverEntry";
-import { DEFAULT_API_VERSION, mcpEndpointOf } from "../../shared/util/baseUrl";
+import { canonicalBaseUrl, DEFAULT_API_VERSION, mcpEndpointOf } from "../../shared/util/baseUrl";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import { AdoptForm } from "./adoptForm";
@@ -237,10 +237,11 @@ function includeModeLabel(mode: NonChatMode, skipped: number | undefined): strin
  */
 function derivedMcpHint(baseUrl: string): string {
 	const trimmed = trimHttpWhitespace(baseUrl);
-	// mcpEndpointOf is the publisher's own derivation, so the address named here is the address that gets published -
-	// not a second rendering of the rule.
-	return isUsableHttpUrl(trimmed)
-		? l10n.t("Leave empty to use {0}", mcpEndpointOf(trimmed))
+	// mcpEndpointOf over the spelling Save stores is the publisher's own derivation, so the address named here is the
+	// address that gets published - not a second rendering of the rule.
+	const canonical = canonicalBaseUrl(trimmed);
+	return isUsableHttpUrl(trimmed) && canonical !== undefined
+		? l10n.t("Leave empty to use {0}", mcpEndpointOf(canonical))
 		: l10n.t("Leave empty to use this server's own /mcp.");
 }
 

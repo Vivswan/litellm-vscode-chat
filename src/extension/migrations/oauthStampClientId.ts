@@ -1,35 +1,17 @@
 /**
  * Moves the stamp 0.6.7 and earlier wrote on an OAuth client secret (the token URL as a string) to secretDestination's
- * object (shared/serverEntry.ts); a blob with no string stamp on that field is a no-op.
- *
- *   string equal to the entry's token URL -> the entry's destination
- *   any other string                       -> { tokenUrl: <the string> } ("" -> {}), a mismatch under both rules
- *   already structured, or no stamp        -> untouched
+ * object (shared/serverEntry.ts), under the rule of serverSync/secrets.ts upgradedStamp, which every ownership check
+ * already judges by; a blob with no string stamp on that field is a no-op.
  */
 
 import * as vscode from "vscode";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { Logger } from "../../shared/logger";
-import type { SecretDestinationEntry, SecretFieldId, SecretOwner } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
 import type { SecretStore } from "../servers/serverSync/secrets";
-import { readServerSecretsRecord, restampServerSecretOwner, secretDestination } from "../servers/serverSync/secrets";
+import { readServerSecretsRecord, restampServerSecretOwner, upgradedStamp } from "../servers/serverSync/secrets";
 import { parseServersSetting } from "../servers/serverSync/setting";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
-
-/**
- * The one reader of a token URL string stamp; the undo of a settings import restores a snapshot's stamps through it
- * too.
- */
-export function upgradedStamp(entry: SecretDestinationEntry, field: SecretFieldId, owner: SecretOwner): SecretOwner {
-	if (field !== "oauthClientSecret" || typeof owner !== "string") {
-		return owner;
-	}
-	if (owner === (entry.oauthTokenUrl ?? "")) {
-		return secretDestination(entry, field);
-	}
-	return owner === "" ? {} : { tokenUrl: owner };
-}
 
 export async function stampOauthClientIdsFor(
 	readServersSetting: () => unknown,

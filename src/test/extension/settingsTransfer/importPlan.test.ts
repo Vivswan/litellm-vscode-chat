@@ -390,7 +390,54 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-1"));
 		});
 
-		test("an entry's non-secret fields ride through verbatim, the mcp opt-in included", () => {
+		test("an entry whose URL the parser refuses is skipped by field and never overwrites the working entry", () => {
+			const current = [
+				server("A"),
+				server("B", { auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "c" } } }),
+			];
+			const incoming = [
+				server("A", { baseUrl: "localhost:4000" }),
+				server("B", { auth: { oauth: { tokenUrl: "idp.test/token", clientId: "c" } } }),
+				server("C"),
+			];
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, current);
+			assert.deepStrictEqual(
+				plan.incomingServers.map((entry) => entry.skipped),
+				[true, true, false]
+			);
+			assert.ok(
+				plan.incomingServers[0]?.report.problems.includes("is not imported: its baseUrl is not a URL with a host")
+			);
+			assert.ok(
+				plan.incomingServers[1]?.report.problems.includes(
+					"is not imported: its auth.oauth.tokenUrl is not a URL with a host"
+				)
+			);
+			assert.deepStrictEqual(plan.collisions, [], "a skipped entry collides with nothing");
+			const application = resolveImportPlan(plan, {});
+			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 2 });
+			assert.deepStrictEqual(application.serversValue, [...current, server("C")]);
+		});
+
+		test("an imported entry lands in the one spelling the parser reads: base, token, and mcp URLs", () => {
+			const incoming = [
+				server("Typed", {
+					baseUrl: "HTTP://Typed.test:80/",
+					auth: { oauth: { tokenUrl: "HTTPS://IdP.test/token", clientId: "c" } },
+					mcp: { url: "HTTPS://GW.example/mcp" },
+				}),
+			];
+			const application = resolveImportPlan(planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined), {});
+			assert.deepStrictEqual(application.serversValue, [
+				server("Typed", {
+					baseUrl: "http://typed.test",
+					auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "c" } },
+					mcp: { url: "https://gw.example/mcp" },
+				}),
+			]);
+		});
+
+		test("an entry's non-secret fields ride through verbatim beyond URL spelling, the mcp opt-in included", () => {
 			// Secret surgery rewrites the auth object and nothing else: a new per-entry field must survive an
 			// export/import round trip without joining any allow-list, or a user moving machines would silently lose
 			// it.

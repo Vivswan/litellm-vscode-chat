@@ -9,6 +9,7 @@ import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../
 import type { Logger } from "../../../shared/logger";
 import type { ExpectedFailureCategory, NonChatMode, SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { canonicalStoredBaseUrl } from "../../../shared/util/baseUrl";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { validatedStringRecord } from "../../../shared/util/json";
 import type { FingerprintSaltSession } from "../../fingerprintSalt";
@@ -62,6 +63,23 @@ async function leftoverGroupActions(labels: readonly string[]): Promise<MessageA
 }
 
 const quoted = (labels: readonly string[]) => labels.map((label) => `"${label}"`).join(", ");
+
+/**
+ * The identity ledger as stored, read in the one spelling: older versions wrote base URLs as the user typed them, and
+ * the engine compares ledger URLs with the canonical ones it derives from the setting (a rename made while VS Code was
+ * closed is a removal otherwise). A value with no canonical spelling names no group and is dropped, so the removal it
+ * would have resolved degrades to the honest untracked notice, never a wrong tombstone.
+ */
+export function canonicalEntryBaseUrls(stored: unknown): Record<string, string> {
+	const ledger: Record<string, string> = {};
+	for (const [label, url] of Object.entries(validatedStringRecord(stored))) {
+		const canonical = canonicalStoredBaseUrl(url);
+		if (canonical !== undefined) {
+			ledger[label] = canonical;
+		}
+	}
+	return ledger;
+}
 
 /**
  * The removal notices, one per event class so each says only what is true. Every variant names the exact group label(s)
@@ -261,9 +279,7 @@ export function createServerSyncEnv(
 			}
 			await context.globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, next);
 		},
-		getEntryBaseUrls: () => {
-			return validatedStringRecord(context.globalState.get<unknown>(SYNCED_ENTRY_BASE_URLS_KEY));
-		},
+		getEntryBaseUrls: () => canonicalEntryBaseUrls(context.globalState.get<unknown>(SYNCED_ENTRY_BASE_URLS_KEY)),
 		setEntryBaseUrls: async (map) => {
 			await context.globalState.update(SYNCED_ENTRY_BASE_URLS_KEY, map);
 		},

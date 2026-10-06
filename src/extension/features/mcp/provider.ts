@@ -8,7 +8,7 @@
  *   provide runs EAGERLY - the editor calls it before any chat turn, unprompted -> what it returns cannot hold headers
  *   Credentials enter only in resolve, which the editor calls when it is about to start a session
  *     -> composing them is exactly as legitimate as composing them for a chat request
- *   what the session must dial -> The definitions themselves carry the URL as written
+ *   what the session must dial -> The definitions themselves carry the URL in its one spelling
  */
 
 import * as l10n from "@vscode/l10n";
@@ -64,13 +64,9 @@ export function currentMcpEntries(): McpEntry[] {
  * WITHOUT credentials. Any path on that origin counts, because a proxy may serve /mcp away from the root.
  */
 function sameOrigin(endpoint: string, baseUrl: string): boolean {
-	try {
-		const origin = new URL(endpoint).origin;
-		// the opaque origin "null" -> would make two unrelated destinations compare equal; it is not an origin
-		return origin !== "null" && origin === new URL(baseUrl).origin;
-	} catch {
-		return false;
-	}
+	const origin = new URL(endpoint).origin;
+	// the opaque origin "null" -> would make two unrelated destinations compare equal; it is not an origin
+	return origin !== "null" && origin === new URL(baseUrl).origin;
 }
 
 export function mcpDescriptors(deps: Pick<McpProviderDeps, "versions">): McpDefinitionDescriptor[] {

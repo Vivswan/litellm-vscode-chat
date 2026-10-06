@@ -404,6 +404,46 @@ describe("agentTools planner save_server", () => {
 		expect(plan).toEqual({ kind: "refused", reason: "kept-secret-destination-change", detail: expected });
 	});
 
+	// The input boundary reads URLs in the one spelling the setting holds, so a respelled input plans the very save the
+	// canonical input plans: same server, same kept-secret directives, same replacement identity; text with no host
+	// never reaches the planner.
+	test.each([
+		[
+			"base URL respelled",
+			{ label: "Prod", baseUrl: "HTTP://Prod.test:80/" },
+			{ label: "Prod", baseUrl: "http://prod.test" },
+		],
+		[
+			"token URL respelled",
+			{ label: "Oauth", oauthTokenUrl: "HTTP://Token.test/oauth" },
+			{ label: "Oauth", oauthTokenUrl: "http://token.test/oauth" },
+		],
+		[
+			"mcp url respelled",
+			{ label: "Prod", mcp: { url: "HTTPS://GW.example/mcp" } },
+			{ label: "Prod", mcp: { url: "https://gw.example/mcp" } },
+		],
+	])("a respelled input plans the canonical input's save: %s", (_name, raw, canonical) => {
+		const parsed = parseAgentToolInput("saveServer", raw);
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) {
+			return;
+		}
+		expect(savePayload(planSaveServer(parsed.input, state, false))).toEqual(
+			savePayload(planSaveServer(canonical as AgentToolInput<"saveServer">, state, false))
+		);
+	});
+
+	test.each([
+		["baseUrl", { label: "New", baseUrl: "localhost:4000" }],
+		["mcp.url", { label: "New", baseUrl: "http://new.test", mcp: { url: "not a url" } }],
+	])("a URL with no host is refused at the input boundary, naming %s", (path, raw) => {
+		expect(parseAgentToolInput("saveServer", raw)).toMatchObject({
+			ok: false,
+			issues: expect.arrayContaining([{ path, code: "custom", message: "not a URL with a host" }]),
+		});
+	});
+
 	// Drifts silently: two external groups can share a base URL; a URL-only match would adopt (or hide) the first one's
 	// handle under the other's label.
 	test.each([
