@@ -10,6 +10,7 @@ import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
 import { Help, HoverTip } from "../../../../webview/dashboard/help";
 import { TipBubble, useTip } from "../../../../webview/dashboard/ui/tip";
+import { REPO_ROOT } from "../../../util/repoRoot";
 import { makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
 import {
 	cleanup,
@@ -305,7 +306,7 @@ test("the bubble is fixed-position in the stylesheet, which is what escapes ever
 	//   a tip renders identically whether it is fixed or absolute -> deleting `position: fixed` leaves every suite
 	//                                                                green while every tip inside a scrollport gets
 	//                                                                clipped again
-	const sheet = readFileSync(join(import.meta.dir, "../../../../webview/dashboard/styles/dashboard.css"), "utf8");
+	const sheet = readFileSync(join(REPO_ROOT, "src/webview/dashboard/styles/dashboard.css"), "utf8");
 	const block = /\.tip-bubble \{([^}]*)\}/.exec(sheet)?.[1];
 	if (block === undefined) {
 		throw new Error("no .tip-bubble rule in dashboard.css");

@@ -2,11 +2,11 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import ts from "typescript";
 import { DOCKER_SKIP_FLAGS, DOCKER_TEST_LABELS, SEEDED_FUZZ_LABELS } from "./dockerTestLabels";
 import { STACK_DEFAULTS } from "./envFile";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { COPILOT_TOKEN_DIR, REAL_PROVIDERS } from "./fakeStack/proxyConfig";
+import { RuntimeImportGraph, runtimeImports, testFilesUnder } from "./runtimeImportGraph";
 
 /**
  * The TypeScript constants are truth; docker/docker-compose.yml, README.md, docs/development.md, and the workflows
@@ -329,120 +329,21 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		],
 	]);
 
-	// Only value-position module references count as runtime edges; type-only imports and type-position import("...")
-	// nodes are erased by both tsc and bun, so they never make a suite host-bound.
-	function runtimeImportSpecs(fileName: string, source: string): string[] {
-		const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
-		const specs: string[] = [];
-		const visit = (node: ts.Node): void => {
-			if (ts.isImportDeclaration(node)) {
-				if (!importClauseIsTypeOnly(node.importClause) && ts.isStringLiteral(node.moduleSpecifier)) {
-					specs.push(node.moduleSpecifier.text);
-				}
-			} else if (ts.isExportDeclaration(node)) {
-				const namedTypeOnly =
-					node.exportClause !== undefined &&
-					ts.isNamedExports(node.exportClause) &&
-					node.exportClause.elements.length > 0 &&
-					node.exportClause.elements.every((element) => element.isTypeOnly);
-				if (!node.isTypeOnly && !namedTypeOnly && node.moduleSpecifier !== undefined) {
-					if (ts.isStringLiteral(node.moduleSpecifier)) {
-						specs.push(node.moduleSpecifier.text);
-					}
-				}
-			} else if (ts.isImportEqualsDeclaration(node)) {
-				if (
-					!node.isTypeOnly &&
-					ts.isExternalModuleReference(node.moduleReference) &&
-					ts.isStringLiteral(node.moduleReference.expression)
-				) {
-					specs.push(node.moduleReference.expression.text);
-				}
-			} else if (ts.isCallExpression(node)) {
-				// Dynamic import()/require() in value position; the type-position import("...") form is an
-				// ImportTypeNode, never a CallExpression.
-				const callee = node.expression;
-				const isImportCall = callee.kind === ts.SyntaxKind.ImportKeyword;
-				const isRequireCall = ts.isIdentifier(callee) && callee.text === "require";
-				const argument = node.arguments[0];
-				if ((isImportCall || isRequireCall) && argument !== undefined && ts.isStringLiteralLike(argument)) {
-					specs.push(argument.text);
-				}
-			}
-			ts.forEachChild(node, visit);
-		};
-		visit(sourceFile);
-		return specs;
-	}
-
-	function importClauseIsTypeOnly(clause: ts.ImportClause | undefined): boolean {
-		if (clause === undefined) {
-			return false;
-		}
-		if (clause.isTypeOnly) {
-			return true;
-		}
-		return (
-			clause.name === undefined &&
-			clause.namedBindings !== undefined &&
-			ts.isNamedImports(clause.namedBindings) &&
-			clause.namedBindings.elements.length > 0 &&
-			clause.namedBindings.elements.every((element) => element.isTypeOnly)
-		);
-	}
-
-	function resolveRelative(fromFile: string, spec: string): string {
-		const base = path.resolve(path.dirname(fromFile), spec);
-		for (const candidate of [
-			base,
-			`${base}.ts`,
-			`${base}.tsx`,
-			path.join(base, "index.ts"),
-			path.join(base, "index.tsx"),
-		]) {
-			if (fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) {
-				return candidate;
-			}
-		}
-		// Fail closed: a spec this resolver cannot place would silently prune the walk, and a pruned subtree is where a
-		// vscode or msw edge hides while every guard below stays green.
-		throw new Error(
-			`${fromFile} imports "${spec}", which resolves to no file this scanner knows; teach resolveRelative the new shape`
-		);
-	}
-
-	interface ModuleEdges {
-		readonly hostPackage: string | undefined;
-		readonly imports: readonly string[];
-	}
-
-	// One parsed graph for both walks. The entries overlap on src/shared and src/provider almost completely, so a parse
-	// per visit redid the same files for every entry and overran mocha's 20 s budget on a loaded runner.
-	const graph = new Map<string, ModuleEdges>();
-
-	function edgesOf(file: string): ModuleEdges {
-		let edges = graph.get(file);
-		if (edges === undefined) {
-			const specs = runtimeImportSpecs(file, fs.readFileSync(file, "utf8"));
-			edges = {
-				hostPackage: specs.find((spec) => spec === "vscode" || spec === "msw" || spec.startsWith("msw/")),
-				imports: specs.filter((spec) => spec.startsWith(".")).map((spec) => resolveRelative(file, spec)),
-			};
-			graph.set(file, edges);
-		}
-		return edges;
-	}
+	const relative = (file: string): string => path.relative(repoRoot, file).split(path.sep).join("/");
+	// One parsed graph for both walks (the module says why).
+	const graph = new RuntimeImportGraph();
 
 	function hostMachineryChain(entryFile: string): string | undefined {
 		const parents = new Map<string, string | undefined>([[entryFile, undefined]]);
 		const queue = [entryFile];
 		for (let index = 0; index < queue.length; index++) {
 			const file = queue[index] as string;
-			const edges = edgesOf(file);
-			if (edges.hostPackage !== undefined) {
-				const chain = [`"${edges.hostPackage}"`];
+			const edges = graph.edgesOf(file);
+			const hostPackage = edges.specs.find((spec) => spec === "vscode" || spec === "msw" || spec.startsWith("msw/"));
+			if (hostPackage !== undefined) {
+				const chain = [`"${hostPackage}"`];
 				for (let at: string | undefined = file; at !== undefined; at = parents.get(at)) {
-					chain.unshift(path.relative(repoRoot, at).split(path.sep).join("/"));
+					chain.unshift(relative(at));
 				}
 				return chain.join(" -> ");
 			}
@@ -457,7 +358,7 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 	}
 
 	test("the scanner counts value edges and erases type-only forms", () => {
-		const specsOf = (source: string): string[] => runtimeImportSpecs("probe.ts", source);
+		const specsOf = (source: string): readonly string[] => runtimeImports("probe.ts", source).specs;
 		assert.deepStrictEqual(specsOf('import { x } from "a"; import "b"; export { y } from "c";'), ["a", "b", "c"]);
 		assert.deepStrictEqual(specsOf('const m = await import("a"); const n = require("b");'), ["a", "b"]);
 		assert.deepStrictEqual(specsOf('import x = require("a"); export * from "b";'), ["a", "b"]);
@@ -467,33 +368,18 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 			[]
 		);
 		assert.deepStrictEqual(specsOf('type X = import("a").X;'), []);
+		assert.strictEqual(runtimeImports("probe.ts", 'const m = await import(name); require("b");').opaque, true);
+		assert.strictEqual(runtimeImports("probe.ts", 'const m = await import("a"); require("b");').opaque, false);
 	});
 
-	function walkTestFiles(root: string, skipDirs: readonly string[]): string[] {
-		const found: string[] = [];
-		const walk = (dir: string): void => {
-			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-				const full = path.join(dir, entry.name);
-				const rel = path.relative(repoRoot, full).split(path.sep).join("/");
-				if (entry.isDirectory()) {
-					if (!skipDirs.includes(rel)) {
-						walk(full);
-					}
-				} else if (/\.test\.tsx?$/.test(entry.name)) {
-					found.push(rel);
-				}
-			}
-		};
-		walk(root);
-		return found;
-	}
-
 	test("every host-side unit suite needs the host, or documents why it stays", () => {
-		const hostSuites = walkTestFiles(path.join(repoRoot, "src", "test"), [
-			"src/test/bun",
-			"src/test/hostFidelity",
-			"src/test/activation",
-		]).filter((rel) => !/^src\/test\/docker-[^/]+\.test\.ts$/.test(rel));
+		const testDir = path.join(repoRoot, "src", "test");
+		const hostSuites = testFilesUnder(
+			testDir,
+			["bun", "hostFidelity", "activation"].map((dir) => path.join(testDir, dir))
+		)
+			.map(relative)
+			.filter((rel) => !/^src\/test\/docker-[^/]+\.test\.ts$/.test(rel));
 		assert.ok(hostSuites.length > 20, `walking src/test found a real host tree (got ${hostSuites.length} files)`);
 		for (const [listed] of HOST_SIDE_PURE_SUITES) {
 			assert.ok(
@@ -527,7 +413,7 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		for (const file of preloads) {
 			assert.ok(fs.existsSync(path.join(repoRoot, file)), `bunfig.toml preloads ${file}, which does not exist`);
 		}
-		const bunSuites = walkTestFiles(path.join(repoRoot, "src", "test", "bun"), []);
+		const bunSuites = testFilesUnder(path.join(repoRoot, "src", "test", "bun")).map(relative);
 		assert.ok(bunSuites.length > 20, `walking src/test/bun found a real bun tree (got ${bunSuites.length} files)`);
 		for (const file of [...preloads, ...bunSuites]) {
 			const chain = hostMachineryChain(path.join(repoRoot, file));

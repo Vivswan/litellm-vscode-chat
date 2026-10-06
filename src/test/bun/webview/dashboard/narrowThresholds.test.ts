@@ -14,11 +14,11 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { RAIL_COLLAPSE_QUERY } from "../../../../webview/dashboard/rail";
+import { REPO_ROOT } from "../../../util/repoRoot";
 
-const ROOT = join(import.meta.dir, "../../../../..");
-const STYLESHEET = join(ROOT, "src/webview/dashboard/styles/dashboard.css");
-const WEBVIEW = join(ROOT, "src/webview/dashboard");
-const WEBVIEW_TREE = join(ROOT, "src/webview");
+const STYLESHEET = join(REPO_ROOT, "src/webview/dashboard/styles/dashboard.css");
+const WEBVIEW = join(REPO_ROOT, "src/webview/dashboard");
+const WEBVIEW_TREE = join(REPO_ROOT, "src/webview");
 const THEME = join(WEBVIEW, "styles/theme.css");
 
 /**

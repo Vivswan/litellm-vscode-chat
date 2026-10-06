@@ -4,10 +4,11 @@
  * compiler dropped; what ships is the compiled sheet, so that is what a pin reads.
  */
 import path from "node:path";
+import { REPO_ROOT } from "../../../../util/repoRoot";
 import { blocks } from "./cssBlocks";
 import { tailwindCliBin } from "./tailwindCliBin";
 
-const stylesDir = path.resolve(import.meta.dir, "../../../../../webview/dashboard/styles");
+const stylesDir = path.join(REPO_ROOT, "src/webview/dashboard/styles");
 export const themeEntry = path.join(stylesDir, "theme.css");
 export const dashboardEntry = path.join(stylesDir, "dashboard.css");
 

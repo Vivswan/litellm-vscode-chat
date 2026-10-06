@@ -7,6 +7,8 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { BUN_TEST_FILE } from "../runtimeImportGraph";
+import { REPO_ROOT } from "../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
 
 const parsed = new Map<string, ts.SourceFile>();
@@ -26,10 +28,7 @@ function parsedSource(file: string): ts.SourceFile {
 	return sourceFile;
 }
 
-const BUN_TREE = path.resolve(import.meta.dir);
-const REPO_ROOT = path.resolve(BUN_TREE, "../../..");
-/** The file names `bun test` runs, per its discovery rules. */
-const TEST_FILE = /[._](?:test|spec)\.[cm]?[jt]sx?$/;
+const BUN_TREE = path.join(REPO_ROOT, "src", "test", "bun");
 const DEADLINE_MODULE = path.join(BUN_TREE, "childProcessTimeout.ts");
 const DEADLINE_PATH = path.relative(REPO_ROOT, DEADLINE_MODULE).split(path.sep).join("/");
 const DEADLINE_NAME = "CHILD_PROCESS_TIMEOUT_MS";
@@ -233,7 +232,7 @@ function jsxRuntimeModules(problems: string[]): string[] {
 function listRoots(problems: string[]): string[] {
 	const roots: string[] = [];
 	for (const entry of readdirSync(BUN_TREE, { recursive: true, withFileTypes: true })) {
-		if (entry.isFile() && TEST_FILE.test(entry.name)) {
+		if (entry.isFile() && BUN_TEST_FILE.test(entry.name)) {
 			roots.push(path.join(entry.parentPath, entry.name));
 		}
 	}

@@ -5,8 +5,9 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { REPO_ROOT } from "./util/repoRoot";
 
-const FIXTURE_PATH = path.resolve(__dirname, "..", "..", "src", "test", "fixtures", "openrouter-models.json");
+const FIXTURE_PATH = path.join(REPO_ROOT, "src", "test", "fixtures", "openrouter-models.json");
 
 export function catalogFixtureText(): string {
 	return fs.readFileSync(FIXTURE_PATH, "utf8");

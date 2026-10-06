@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { REPO_ROOT } from "../../../../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../../childProcessTimeout";
 import { compileDashboard, compileTheme, FORCED_COLORS_QUERY, forcedColorsBlocks, rulesFor } from "./compileStyles";
 import { blocks } from "./cssBlocks";
 
-const webviewDir = path.resolve(import.meta.dir, "../../../../../webview");
+const webviewDir = path.join(REPO_ROOT, "src/webview");
 
 /**
  * What forced colours do to one transparent border.

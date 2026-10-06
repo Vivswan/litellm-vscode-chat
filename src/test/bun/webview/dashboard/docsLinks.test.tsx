@@ -17,6 +17,7 @@ import {
 	DOCS_LINK_SETTINGS,
 } from "../../../../webview/dashboard/docsLinks";
 import { makeSettings } from "../../../dashboardSettingsFixture";
+import { REPO_ROOT } from "../../../util/repoRoot";
 import { declaredWithSecrets, makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
 import { buttonByText, cleanup, fireClick, mount, pushToWebview, resetPosted } from "../harness";
 
@@ -27,7 +28,6 @@ afterEach(() => {
 	cleanup();
 });
 
-const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..", "..");
 const DOCS_BASE = `${links.DOCS_SITE_URL}/`;
 
 /** Swept from a namespace import, so a future host link cannot escape the checks by not being hand-listed. */
@@ -47,14 +47,14 @@ function hostLinkUrls(): [name: string, url: string][] {
  * read as text.
  */
 function carrierDocsUrls(): [name: string, url: string][] {
-	const walkthroughDir = path.join(repoRoot, "assets", "walkthrough");
+	const walkthroughDir = path.join(REPO_ROOT, "assets", "walkthrough");
 	const texts: [name: string, text: string][] = [
 		...fs
-			.readdirSync(repoRoot)
+			.readdirSync(REPO_ROOT)
 			.filter((name) => /^package\.nls(\.[\w-]+)?\.json$/.test(name))
 			.map((name): [string, string] => [
 				name,
-				Object.values(JSON.parse(fs.readFileSync(path.join(repoRoot, name), "utf8")) as Record<string, string>).join(
+				Object.values(JSON.parse(fs.readFileSync(path.join(REPO_ROOT, name), "utf8")) as Record<string, string>).join(
 					"\n"
 				),
 			]),
@@ -88,7 +88,7 @@ test("every docs URL resolves to a page under docs/, and its #anchor to a headin
 		// The site serves docs/<path>.md at /<path>.html, the zh-cn and zh-tw twins at their directory's prefix.
 		expect(route, `${name}: ${url} names a rendered page`).toMatch(/^[\w-]+(\/[\w-]+)*\.html$/);
 		const file = `${(route ?? "").slice(0, -".html".length)}.md`;
-		const target = path.join(repoRoot, "docs", file);
+		const target = path.join(REPO_ROOT, "docs", file);
 		expect(fs.existsSync(target), `${name}: docs/${file} exists`).toBe(true);
 		if (fragment !== undefined) {
 			// Heading ids on the site are github-slugger's (the same package the site build slugs with), so the

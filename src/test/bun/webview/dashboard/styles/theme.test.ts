@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { REPO_ROOT } from "../../../../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../../childProcessTimeout";
 import {
 	compileDashboard,
@@ -187,10 +188,7 @@ test(
 		//   The idiom's contract lives in one wrapper (ui/reveal.tsx) -> it cannot fork again
 		//   its motion-reduce clause is unrenderable: the harness cannot emulate prefers-reduced-motion
 		//     -> this source-plus-compile pin is the clause's only enforcement
-		const source = readFileSync(
-			path.resolve(import.meta.dir, "../../../../../webview/dashboard/ui/reveal.tsx"),
-			"utf8"
-		);
+		const source = readFileSync(path.join(REPO_ROOT, "src/webview/dashboard/ui/reveal.tsx"), "utf8");
 		for (const clause of [
 			"opacity-0",
 			"transition-opacity",
@@ -728,10 +726,7 @@ test("the forced light palette keeps Light Modern's passing green, low contrast 
 	expect(light).toContain("--vscode-testing-iconPassed: #73c991");
 	expect(light).not.toContain("#007100");
 	// The high contrast light emulation is where #007100 legitimately lives.
-	const harness = readFileSync(
-		path.resolve(import.meta.dir, "../../../../../../scripts/dev/render/hostThemes.ts"),
-		"utf8"
-	);
+	const harness = readFileSync(path.join(REPO_ROOT, "scripts/dev/render/hostThemes.ts"), "utf8");
 	const lightEmulation = /function lightCss\(\)[\s\S]*?\n\}/.exec(harness)?.[0] ?? "";
 	expect(lightEmulation).toContain("--vscode-testing-iconPassed: #73c991");
 	expect(harness).toContain("--vscode-testing-iconPassed: #007100");
