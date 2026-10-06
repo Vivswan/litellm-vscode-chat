@@ -551,30 +551,68 @@ suite("settingsTransferCommands export flow", () => {
 });
 
 suite("settingsTransferCommands import flow", () => {
-	test("a file that is not JSON is rejected", async () => {
-		const world = makeWorld();
-		stageImportFile(world, "not json {{{");
-		await runImportSettingsFlow(world.env);
-		const note = onlyNotification(world);
-		assert.strictEqual(note.kind, "error");
-		assert.match(note.message, /not a LiteLLM settings export/);
-		assert.strictEqual(world.snapshotSlot, undefined);
-	});
-
-	test("JSON without the envelope discriminant is rejected", async () => {
-		const world = makeWorld();
-		stageImportFile(world, JSON.stringify({ settings: { "chat.timeout": 60000 } }));
-		await runImportSettingsFlow(world.env);
-		assert.match(onlyNotification(world).message, /not a LiteLLM settings export/);
-	});
-
-	test("a newer format version names exportedBy when present", async () => {
-		const world = makeWorld();
-		stageImportFile(world, JSON.stringify({ "litellm-vscode-chat": 2, exportedBy: "3.1.4", settings: {} }));
-		await runImportSettingsFlow(world.env);
-		const note = onlyNotification(world);
-		assert.match(note.message, /newer version/);
-		assert.match(note.message, /3\.1\.4/);
+	test("a file that is foreign, newer, or has nothing valid in it is refused whole: one error, nothing written", async () => {
+		// The whole outcome per refusal: the error names why, no preview is shown, and no setting, secret, snapshot,
+		// or sync is touched. The nothing-valid case names what each entry failed on, field only, never a value.
+		const cases: { name: string; contents: string; message: RegExp | string }[] = [
+			{
+				name: "not JSON",
+				contents: "not json {{{",
+				message: /^LiteLLM: This file is not a LiteLLM settings export\.$/,
+			},
+			{
+				name: "foreign shape",
+				contents: JSON.stringify({
+					settings: { "chat.timeout": 60000 },
+					servers: [{ label: "x", baseUrl: "http://x" }],
+				}),
+				message: /^LiteLLM: This file is not a LiteLLM settings export\.$/,
+			},
+			{
+				name: "newer format",
+				contents: JSON.stringify({
+					"litellm-vscode-chat": 2,
+					exportedBy: "3.1.4",
+					settings: { "chat.timeout": 60000 },
+				}),
+				message: /exported by a newer version of the extension \(3\.1\.4\)/,
+			},
+			{
+				name: "nothing valid",
+				contents: JSON.stringify({
+					"litellm-vscode-chat": 1,
+					exportedBy: "1.0.0",
+					settings: {
+						"chat.timeout": "slow",
+						servers: [{ baseUrl: "http://no-label" }, { label: "x", baseUrl: "nope", auth: { apiKey: "SECRET-X" } }],
+					},
+				}),
+				message: [
+					"LiteLLM: Nothing in this file can be imported.",
+					"2 server entries were not imported: entry 1 is missing a label or baseUrl.",
+					'"x" has a baseUrl that is not a URL with a host; the entry is not used until it is fixed.',
+					"chat.timeout must be a whole number between 1000 and 2147483647. It will be skipped.",
+				].join(" "),
+			},
+		];
+		for (const { name, contents, message } of cases) {
+			const world = makeWorld({ "chat.timeout": 9999 }, { x: { apiKey: "CURRENT" } });
+			stageImportFile(world, contents);
+			await runImportSettingsFlow(world.env);
+			const note = onlyNotification(world);
+			assert.strictEqual(note.kind, "error", name);
+			if (typeof message === "string") {
+				assert.strictEqual(note.message, message, name);
+			} else {
+				assert.match(note.message, message, name);
+			}
+			assert.ok(!`${note.message}${world.logs.join()}`.includes("SECRET-X"), name);
+			assert.deepStrictEqual(world.summaries, [], `${name}: no preview is shown`);
+			assert.deepStrictEqual(world.ops, [], `${name}: nothing is written, not even a sync request`);
+			assert.strictEqual(world.settings.get("chat.timeout"), 9999, name);
+			assert.strictEqual(world.snapshotSlot, undefined, name);
+			assert.deepStrictEqual(blobOf(world, "x"), { apiKey: "CURRENT" }, name);
+		}
 	});
 
 	test("a newer format version without exportedBy uses the generic message", async () => {
@@ -595,13 +633,79 @@ suite("settingsTransferCommands import flow", () => {
 		assert.strictEqual(world.settings.get("chat.timeout"), undefined);
 	});
 
-	test("a file with nothing importable stops with an info toast", async () => {
+	test("one of three entries failing validation drops that entry alone; the one warning names its field", async () => {
+		// Before the contract a labeled entry the parser rejects landed as written and the completion toast said
+		// nothing about it. Now the other two land, the dropped one's secret goes nowhere, and the warning says why.
 		const world = makeWorld();
-		stageEnvelope(world, { servers: [{ baseUrl: "http://no-label" }] });
+		stageEnvelope(world, {
+			servers: [
+				{ label: "a", baseUrl: "http://a:4000", auth: { apiKey: "KEY-A" } },
+				{ label: "broken", baseUrl: "http://b:4000", auth: { apiKey: "KEY-B", extra: 1 } },
+				{ label: "c", baseUrl: "http://c:4000" },
+			],
+		});
 		await runImportSettingsFlow(world.env);
+		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [
+			{ label: "a", baseUrl: "http://a:4000" },
+			{ label: "c", baseUrl: "http://c:4000" },
+		]);
+		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "KEY-A" });
+		assert.strictEqual(world.secretValues.get(serverSecretsKey("broken")), undefined);
 		const note = onlyNotification(world);
-		assert.strictEqual(note.kind, "info");
-		assert.match(note.message, /no importable settings/);
+		assert.strictEqual(note.kind, "warning");
+		assert.strictEqual(
+			note.message,
+			'LiteLLM: Settings import complete: 2 servers added. 1 server entry was not imported: "broken" has an unknown auth key "extra".'
+		);
+		assert.deepStrictEqual(note.actions, ["Undo Import"]);
+		assert.ok(
+			!`${JSON.stringify([...world.settings])}${world.logs.join()}${note.message}`.includes("KEY-B"),
+			"the dropped entry's credential reaches nothing"
+		);
+		const summary = expectDefined(world.summaries[0]);
+		assert.strictEqual(summary.serverCount, 2);
+		assert.deepStrictEqual(summary.droppedLines, ['"broken" has an unknown auth key "extra".']);
+		assert.strictEqual(summary.droppedCount, 1);
+	});
+
+	test("an accepted entry with an ignored header, an unsendable key, and an unknown key is kept as written and noted", async () => {
+		// The parser accepts the entry, so it lands verbatim (the import repairs nothing it only reads); the one
+		// warning carries each note by field, plus the file keys outside the setting vocabulary by name.
+		const world = makeWorld();
+		stageEnvelope(world, {
+			unknownKey: 1,
+			servers: [
+				{
+					label: "a",
+					baseUrl: "http://a:4000",
+					headers: { "x-bad": "line\nbreak" },
+					auth: { apiKey: "KEY\nA" },
+					colour: "red",
+				},
+			],
+		});
+		await runImportSettingsFlow(world.env);
+		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [
+			{ label: "a", baseUrl: "http://a:4000", headers: { "x-bad": "line\nbreak" }, colour: "red" },
+		]);
+		assert.deepStrictEqual(blobOf(world, "a"), {});
+		const note = onlyNotification(world);
+		assert.strictEqual(note.kind, "warning");
+		assert.strictEqual(
+			note.message,
+			[
+				"LiteLLM: Settings import complete: 1 server added.",
+				'Notes on the imported servers: "a" headers: Ignoring custom header whose value cannot be sent as an HTTP header ("x-bad").',
+				'"a" has API key text that cannot be sent as an HTTP header; it is not imported, so enter it again afterwards.',
+				'"a" has an unknown key "colour", ignored.',
+				"1 unknown key was ignored: unknownKey.",
+			].join(" ")
+		);
+		assert.deepStrictEqual(note.actions, ["Undo Import"]);
+		const summary = expectDefined(world.summaries[0]);
+		assert.strictEqual(summary.noteCount, 3);
+		assert.strictEqual(summary.droppedCount, 0);
+		assert.strictEqual(summary.unknownKeyCount, 1);
 	});
 
 	test("the preview summary carries counts, caps, and the connection-changed collisions", async () => {
@@ -623,15 +727,18 @@ suite("settingsTransferCommands import flow", () => {
 		const summary = expectDefined(world.summaries[0]);
 		assert.strictEqual(summary.settingCount, 2);
 		assert.deepStrictEqual(summary.settingKeys, ["chat.timeout", "chat.promptCaching"]);
-		assert.strictEqual(summary.serverCount, 3);
+		assert.strictEqual(summary.serverCount, 2);
 		assert.strictEqual(summary.collisionCount, 1);
 		assert.strictEqual(summary.connectionChangedCount, 1);
 		assert.strictEqual(summary.secretFieldCount, 1);
 		assert.deepStrictEqual(summary.skippedKeys, ["discovery.timeout"]);
 		assert.strictEqual(summary.unknownKeyCount, 1);
-		assert.strictEqual(summary.skippedServerCount, 1);
-		assert.ok(summary.problemCount > 0);
-		assert.ok(summary.problemLines.length <= 5);
+		assert.strictEqual(summary.droppedCount, 2);
+		assert.deepStrictEqual(summary.droppedLines, [
+			'"broken" is missing a label or baseUrl.',
+			"entry 4 is missing a label or baseUrl.",
+		]);
+		assert.strictEqual(summary.noteCount, 0);
 		// The preview was declined: nothing may be written.
 		assert.strictEqual(world.settings.get("chat.timeout"), undefined);
 		assert.strictEqual(world.snapshotSlot, undefined);
@@ -1228,9 +1335,10 @@ suite("settingsTransferCommands import flow", () => {
 			owners: { apiKey: "http://old:4000" },
 		},
 		{
-			// A parser-rejected entry's stamp is the file's spelling; the stored record reads it back canonical.
-			name: "restores its own key under a parser-rejected entry whose stamp carries the file's spelling",
-			imported: { label: "a", baseUrl: "HTTP://NEW:4000", auth: { oauth: { clientId: "client-a" }, apiKey: "KI" } },
+			// The file spells the address in uppercase; the import stamps the canonical spelling it lands (a
+			// parser-rejected entry never lands at all), and the rollback restores the pre-import key over it.
+			name: "restores its own key under an entry whose file spelling is not the canonical one",
+			imported: { label: "a", baseUrl: "HTTP://NEW:4000", auth: { apiKey: "KI" } },
 			saved: undefined,
 			blob: { apiKey: "K0" },
 			owners: {},
@@ -1830,7 +1938,8 @@ suite("settingsTransferCommands secret hygiene", () => {
 			servers: [
 				{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: SENTINEL } },
 				{ label: "b", baseUrl: "http://b:4000", auth: { apiKey: SENTINEL } },
-				// An uncertifiable auth shape: the entry skips whole, so its text never lands in the settings file.
+				// An uncertifiable auth shape: the parser rejects it, the entry drops whole, and its text never lands in
+				// the settings file.
 				{ label: "m", baseUrl: "http://m:4000", auth: [{ apiKey: SENTINEL }] },
 			],
 		});
@@ -1841,7 +1950,10 @@ suite("settingsTransferCommands secret hygiene", () => {
 			!JSON.stringify(Object.fromEntries(world.settings)).includes(SENTINEL),
 			"imported secrets belong in secret storage, never the settings map"
 		);
-		assert.match(expectDefined(world.notifications[0]).message, /1 server skipped/);
+		assert.match(
+			expectDefined(world.notifications[0]).message,
+			/1 server entry was not imported: "m" has an auth value that is not an object\./
+		);
 		await runUndoLastImportFlow(world.env);
 		assert.ok(!visibleSurfaces(world).includes(SENTINEL));
 	});
@@ -1887,11 +1999,12 @@ suite("settingsTransferCommands import preview", () => {
 			collisionCount: 0,
 			connectionChangedCount: 0,
 			secretFieldCount: 0,
-			problemLines: [],
-			problemCount: 0,
+			droppedLines: [],
+			droppedCount: 0,
+			noteLines: [],
+			noteCount: 0,
 			skippedKeys: ["chat.timeout", "usage.pollInterval", "chat.promptCaching", "usage.statusBar"],
 			unknownKeyCount: 0,
-			skippedServerCount: 0,
 		};
 		const lines = renderImportPreview(summary).split("\n");
 		assert.deepStrictEqual(lines, [

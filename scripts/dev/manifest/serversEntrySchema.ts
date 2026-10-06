@@ -6,7 +6,12 @@
  *   the three enums are spliced from the shared constants -> the manifest cannot offer a category, mode, or header type
  *                                                            the code never learned
  */
-import { ENTRY_VIEW_FIELD_IDS, EXPECTED_FAILURE_CATEGORIES, NON_CHAT_MODES } from "../../../src/shared/serverEntry";
+import {
+	ENTRY_VIEW_FIELD_IDS,
+	EXPECTED_FAILURE_CATEGORIES,
+	NON_CHAT_MODES,
+	SERVER_ENTRY_KEYS,
+} from "../../../src/shared/serverEntry";
 import { HEADER_SCALAR_TYPES } from "../../../src/shared/util/headers";
 
 export type JsonObject = { readonly [key: string]: JsonValue };
@@ -155,5 +160,13 @@ export function assertServersSchemaCoversEntryFields(schema: JsonObject = SERVER
 	const missing = ENTRY_VIEW_FIELD_IDS.filter((field) => schemaAt(schema, ENTRY_VIEW_FIELD_PATHS[field]) === undefined);
 	if (missing.length > 0) {
 		throw new Error(`the servers items schema declares no property for ${missing.join(", ")}`);
+	}
+	const declared = Object.keys(objectNode(schema.properties) ?? {});
+	const outsideVocabulary = declared.filter((key) => !SERVER_ENTRY_KEYS.includes(key));
+	const undeclared = SERVER_ENTRY_KEYS.filter((key) => !declared.includes(key));
+	if (outsideVocabulary.length > 0 || undeclared.length > 0) {
+		throw new Error(
+			`the servers items schema and SERVER_ENTRY_KEYS disagree: schema-only [${outsideVocabulary.join(", ")}], keys-only [${undeclared.join(", ")}]`
+		);
 	}
 }

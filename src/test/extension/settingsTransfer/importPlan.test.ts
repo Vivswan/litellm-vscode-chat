@@ -5,6 +5,7 @@ import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
 import type {
 	CollisionDecision,
 	CollisionDecisions,
+	EntryRemark,
 	ImportApplication,
 	ImportPlan,
 	IncomingServer,
@@ -39,10 +40,20 @@ void ({ key: "chat.promptCaching", reason: "wrong-type" } satisfies SkippedKey);
 void ({ action: "rename", newLabel: "B" } satisfies CollisionDecision);
 void ({ label: "A", connectionChanged: false } satisfies ServerCollision);
 void ({
-	raw: server("A"),
+	kept: true,
+	label: "A",
+	entry: server("A"),
+	secrets: {},
 	report: { index: 0, label: "A", baseUrl: "http://a.test", problems: [], accepted: true },
-	skipped: false,
+	notes: [],
 } satisfies IncomingServer);
+void ({
+	kept: false,
+	raw: "junk",
+	report: { index: 1, problems: ["is not an object"], accepted: false },
+	reason: "is not an object",
+} satisfies IncomingServer);
+void ({ subject: "entry 1", text: "is not an object" } satisfies EntryRemark);
 void ({ label: "A", secrets: {}, owners: {} } satisfies SecretWrite);
 
 suite("extension/settingsTransfer/importPlan", () => {
@@ -108,46 +119,59 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.deepStrictEqual(plan.incomingServers, []);
 		});
 
-		test("incoming entries carry per-entry verdicts; unlabeled and reserved-label entries are skipped", () => {
+		test("one judgment per entry: the parser's accept keeps, its rejection drops with the first line as the reason", () => {
+			// What would drift silently: a labeled entry the parser rejects landing as written (the pre-contract
+			// behavior), or a reason that echoes a value instead of naming the field.
 			const incoming = [
 				server("A"),
 				{ baseUrl: "http://nolabel.test" },
 				server("__proto__"),
 				"junk",
-				server("Broken", { auth: { unknownKey: true } }),
+				server("Broken", { auth: { apiKey: "sk-secret-text", unknownKey: true } }),
+				server("A", { budget: 9 }),
+				{ label: "Fragment", auth: { apiKey: "sk-frag" } },
 			];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
 			assert.deepStrictEqual(
-				plan.incomingServers.map((entry) => entry.skipped),
-				[false, true, true, true, false]
+				plan.incomingServers.map((entry) => entry.kept),
+				[true, false, false, false, false, false, false]
 			);
-			assert.deepStrictEqual(
-				plan.incomingServers.map((entry) => entry.raw),
-				incoming
-			);
-			// The misconfigured-but-labeled entry imports (its report carries the problems for the preview); only
-			// label-less entries cannot.
-			const broken = plan.incomingServers[4];
-			assert.ok(broken !== undefined && !broken.skipped && broken.report.problems.length > 0);
-			assert.strictEqual(broken.report.accepted, false);
+			assert.deepStrictEqual(plan.dropped, [
+				{ subject: "entry 2", text: "is missing a label or baseUrl" },
+				{ subject: "entry 3", text: "uses a reserved label" },
+				{ subject: "entry 4", text: "is not an object" },
+				{ subject: '"Broken"', text: 'has an unknown auth key "unknownKey"' },
+				{ subject: '"A"', text: "repeats an earlier entry's label; the first entry wins" },
+				{ subject: '"Fragment"', text: "is missing a label or baseUrl" },
+			]);
+			assert.ok(!JSON.stringify(plan.dropped).includes("sk-"), "a reason never carries a value");
+			assert.deepStrictEqual(plan.notes, []);
+			// Dropped whole: no collision, no landing, no secret write, and the count says so.
+			const application = resolveImportPlan(plan, {});
+			assert.deepStrictEqual(application.serversValue, [server("A")]);
+			assert.deepStrictEqual(application.secretWrites, [{ label: "A", secrets: {}, owners: {} }]);
+			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 0 });
+			assert.strictEqual(application.dropped.length, 6);
 		});
 
-		test("an entry whose auth cannot be certified secret-free is skipped with the reason", () => {
+		test("an entry whose auth cannot be certified secret-free is dropped with the reason", () => {
 			// Landing it would write the presumed credential into the settings file, breaking the
 			// secrets-go-to-secure-storage promise.
 			const incoming = [server("A"), server("Malformed", { auth: [{ apiKey: "sk-hidden" }] })];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
 			assert.deepStrictEqual(
-				plan.incomingServers.map((entry) => entry.skipped),
-				[false, true]
+				plan.incomingServers.map((entry) => entry.kept),
+				[true, false]
 			);
 			const malformed = plan.incomingServers[1];
-			assert.ok(malformed !== undefined);
+			assert.ok(malformed !== undefined && !malformed.kept);
 			assert.strictEqual(malformed.report.accepted, false);
-			assert.ok(malformed.report.problems.some((problem) => problem.includes("secret storage")));
-			// Skipped whole: no collision, no landing, no secret write.
+			// The parser rejects the array-shaped auth first; its line is the reason, and the secret never lands.
+			assert.deepStrictEqual(plan.dropped, [
+				{ subject: '"Malformed"', text: "has an auth value that is not an object" },
+			]);
 			const application = resolveImportPlan(plan, {});
-			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 1 });
+			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 0 });
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-hidden"));
 			assert.deepStrictEqual(
 				application.secretWrites.map((write) => write.label),
@@ -155,15 +179,17 @@ suite("extension/settingsTransfer/importPlan", () => {
 			);
 		});
 
-		test("a skipped uncertifiable entry does not shadow a valid same-label entry's fingerprint", () => {
-			// The skipped element stays out of the fingerprint parse; the valid element resolution lands is the one the
-			// collision compares.
+		test("a rejected claimant owns its label: the valid same-label sibling is a repeat and drops too", () => {
+			// Before the contract the import landed the sibling and compared its fingerprint. The parser's first-wins
+			// rule says otherwise, and the file is read as the parser reads it: both drop, each with its own line.
 			const incoming = [server("A", { auth: [{ apiKey: "sk-hidden" }] }), server("A")];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, [server("A")]);
-			assert.deepStrictEqual(plan.collisions, [{ label: "A", connectionChanged: false }]);
-			const application = resolveImportPlan(plan, { A: { action: "overwrite" } });
-			assert.deepStrictEqual(application.counts, { imported: 0, overwritten: 1, renamed: 0, skipped: 1 });
-			assert.deepStrictEqual(application.serversValue, [server("A")]);
+			assert.deepStrictEqual(
+				plan.dropped.map((remark) => remark.text),
+				["has an auth value that is not an object", "repeats an earlier entry's label; the first entry wins"]
+			);
+			assert.deepStrictEqual(plan.collisions, []);
+			assert.strictEqual(resolveImportPlan(plan, { A: { action: "overwrite" } }).serversValue, undefined);
 		});
 
 		test("collisions are the importable labels already declared, deduplicated, in file order", () => {
@@ -202,13 +228,14 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.deepStrictEqual(recordsOnly.collisions, [{ label: "A", connectionChanged: false }]);
 
 			// The false direction of the buildGroupArgs agreement: a flag of false means the engine's own args
-			// rendering is identical too.
+			// rendering is identical too, the kept entry's stripped secrets standing in for its blob.
 			const currentEntry = acceptedEntry(current, "A")?.entry;
-			const recordsOnlyServers = recordsOnly.incomingServers.map((entry) => entry.raw);
-			const recordsOnlyEntry = acceptedEntry(recordsOnlyServers, "A")?.entry;
+			const keptA = recordsOnly.incomingServers.find((entry) => entry.kept);
+			assert.ok(keptA?.kept === true);
+			const recordsOnlyEntry = acceptedEntry([keptA.entry], "A")?.entry;
 			assert.ok(currentEntry !== undefined && recordsOnlyEntry !== undefined);
 			assert.strictEqual(
-				JSON.stringify(buildGroupArgs(recordsOnlyEntry, {})),
+				JSON.stringify(buildGroupArgs(recordsOnlyEntry, keptA.secrets)),
 				JSON.stringify(buildGroupArgs(currentEntry, {}))
 			);
 		});
@@ -237,19 +264,18 @@ suite("extension/settingsTransfer/importPlan", () => {
 			}
 		});
 
-		test("a side that does not parse flags the collision; two unparseable sides do not", () => {
+		test("a current side that does not parse flags the collision; an incoming side that does not parse is dropped", () => {
 			const misconfigured = server("A", { auth: { unknownKey: true } });
 			const valid = server("A");
 			assert.deepStrictEqual(planSettingsImport({ [SERVERS_SETTING_KEY]: [valid] }, [misconfigured]).collisions, [
 				{ label: "A", connectionChanged: true },
 			]);
-			assert.deepStrictEqual(planSettingsImport({ [SERVERS_SETTING_KEY]: [misconfigured] }, [valid]).collisions, [
-				{ label: "A", connectionChanged: true },
-			]);
-			assert.deepStrictEqual(
-				planSettingsImport({ [SERVERS_SETTING_KEY]: [misconfigured] }, [misconfigured]).collisions,
-				[{ label: "A", connectionChanged: false }]
-			);
+			// A dropped entry collides with nothing: it never reaches the prompts, whatever the current side holds.
+			for (const current of [[valid], [misconfigured]]) {
+				const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [misconfigured] }, current);
+				assert.deepStrictEqual(plan.collisions, []);
+				assert.deepStrictEqual(plan.dropped, [{ subject: '"A"', text: 'has an unknown auth key "unknownKey"' }]);
+			}
 		});
 
 		test("storedSecrets stops the over-report when a secret merely moves between inline and SecretStorage", () => {
@@ -312,7 +338,7 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.strictEqual(plan.secretFieldCount, 3);
 		});
 
-		test("a header-borne secret the request path could not send is refused by field and never stored", () => {
+		test("a header-borne secret the request path could not send is refused by field, never stored, and noted", () => {
 			// The interior newline survives the strip's edge trim; stored, it would have reached SecretStorage and every
 			// request to the entry would have been refused until the user found and replaced it.
 			const cases: { field: RejectedCredentialField; kind: string; entry: Record<string, unknown> }[] = [
@@ -322,18 +348,17 @@ suite("extension/settingsTransfer/importPlan", () => {
 					kind: "virtual key",
 					entry: server("A", { auth: { virtualKey: { header: "x-vk", value: "vk-a\nb" } } }),
 				},
-				// An entry the parser rejects still lands labeled (its problems ride the preview); its secrets are narrowed
-				// alone, so the unsendable key is refused here too and never reaches SecretStorage.
-				{ field: "apiKey", kind: "API key", entry: server("A", { auth: { apiKey: "sk-a\nb", unknown: true } }) },
 			];
 			for (const { field, kind, entry } of cases) {
 				const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [entry] }, undefined);
 				const incoming = plan.incomingServers[0];
-				assert.strictEqual(incoming?.skipped, false, `${field}: the entry still lands without the value`);
+				assert.ok(incoming?.kept === true, `${field}: the entry still lands without the value`);
+				assert.deepStrictEqual(incoming.secrets, {}, field);
 				assert.ok(
-					incoming.report.problems.some((problem) => problem.includes(kind)),
-					`${field}: the preview names the field: ${incoming.report.problems.join(" | ")}`
+					incoming.notes.some((note) => note.includes(kind)),
+					`${field}: the note names the field: ${incoming.notes.join(" | ")}`
 				);
+				assert.deepStrictEqual(plan.notes, [{ subject: '"A"', text: incoming.notes[0] }]);
 				assert.strictEqual(plan.secretFieldCount, 0, field);
 
 				const application = resolveImportPlan(plan, {});
@@ -344,6 +369,28 @@ suite("extension/settingsTransfer/importPlan", () => {
 					`${field}: the value never lands in the file`
 				);
 			}
+		});
+
+		test("a kept entry carries the parser's ignored diagnostics and its unknown top-level keys as notes, verbatim", () => {
+			// What would drift silently: an unknown key on an entry landing with no word (the parser never reads it, so
+			// it reports nothing), or a note turning into a drop or a repair of the written entry.
+			const incoming = [
+				server("A", { headers: { "x-ok": "1", "x-bad": "line\nbreak" }, budget: "junk", colour: "crimson" }),
+			];
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
+			assert.strictEqual(plan.incomingServers[0]?.kept, true);
+			assert.deepStrictEqual(plan.dropped, []);
+			assert.deepStrictEqual(plan.notes, [
+				{
+					subject: '"A"',
+					text: 'headers: Ignoring custom header whose value cannot be sent as an HTTP header ("x-bad")',
+				},
+				{ subject: '"A"', text: "has a budget that is not a number greater than 0, ignored" },
+				{ subject: '"A"', text: 'has an unknown key "colour", ignored' },
+			]);
+			assert.ok(!JSON.stringify(plan.notes).includes("crimson"), "a note names the key, never its value");
+			// The entry lands as written: the import repairs nothing it only reads.
+			assert.deepStrictEqual(resolveImportPlan(plan, {}).serversValue, incoming);
 		});
 	});
 
@@ -425,7 +472,7 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-1"));
 		});
 
-		test("an entry whose URL the parser refuses is skipped by field and never overwrites the working entry", () => {
+		test("an entry whose URL the parser refuses is dropped with the field named and never overwrites the working entry", () => {
 			const current = [
 				server("A"),
 				server("B", { auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "c" } } }),
@@ -437,28 +484,27 @@ suite("extension/settingsTransfer/importPlan", () => {
 			];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, current);
 			assert.deepStrictEqual(
-				plan.incomingServers.map((entry) => entry.skipped),
-				[true, true, false]
+				plan.incomingServers.map((entry) => entry.kept),
+				[false, false, true]
 			);
-			assert.ok(
-				plan.incomingServers[0]?.report.problems.includes("is not imported: its baseUrl is not a URL with a host")
-			);
-			assert.ok(
-				plan.incomingServers[1]?.report.problems.includes(
-					"is not imported: its auth.oauth.tokenUrl is not a URL with a host"
-				)
-			);
-			assert.deepStrictEqual(plan.collisions, [], "a skipped entry collides with nothing");
+			assert.deepStrictEqual(plan.dropped, [
+				{
+					subject: '"A"',
+					text: "has a baseUrl that is not a URL with a host; the entry is not used until it is fixed",
+				},
+				{ subject: '"B"', text: "has an auth.oauth.tokenUrl that is not a URL with a host" },
+			]);
+			assert.deepStrictEqual(plan.collisions, [], "a dropped entry collides with nothing");
 			const application = resolveImportPlan(plan, {});
-			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 2 });
+			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 0 });
 			assert.deepStrictEqual(application.serversValue, [...current, server("C")]);
 		});
 
-		test("an imported entry lands in the one spelling the parser reads: base, token, and mcp URLs", () => {
+		test("an imported entry lands in the one spelling the parser reads, and its secrets are stamped for that spelling", () => {
 			const incoming = [
 				server("Typed", {
 					baseUrl: "HTTP://Typed.test:80/",
-					auth: { oauth: { tokenUrl: "HTTPS://IdP.test/token", clientId: "c" } },
+					auth: { oauth: { tokenUrl: "HTTPS://IdP.test/token", clientId: "c", clientSecret: "cs-typed" } },
 					mcp: { url: "HTTPS://GW.example/mcp" },
 				}),
 			];
@@ -469,6 +515,13 @@ suite("extension/settingsTransfer/importPlan", () => {
 					auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "c" } },
 					mcp: { url: "https://gw.example/mcp" },
 				}),
+			]);
+			assert.deepStrictEqual(application.secretWrites, [
+				{
+					label: "Typed",
+					secrets: { oauthClientSecret: "cs-typed" },
+					owners: { oauthClientSecret: { tokenUrl: "https://idp.test/token", clientId: "c" } },
+				},
 			]);
 		});
 
@@ -494,7 +547,7 @@ suite("extension/settingsTransfer/importPlan", () => {
 			// partial OAuth the old runtime ignored; the restructure drops it like the migration does.
 			const incoming = [server("Old", { apiKey: "sk-test-flat", oauthTokenUrl: "http://idp.test/token" })];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
-			assert.strictEqual(plan.incomingServers[0]?.skipped, false, "the flat shape must not be skipped");
+			assert.strictEqual(plan.incomingServers[0]?.kept, true, "the flat shape must not be dropped");
 			const application = resolveImportPlan(plan, {});
 			assert.deepStrictEqual(application.serversValue, [server("Old")]);
 			assert.deepStrictEqual(application.secretWrites, [
@@ -531,35 +584,58 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.ok(!JSON.stringify(application.serversValue).includes("cs-test-1"));
 		});
 
-		test("plan-skipped entries and within-file duplicate labels count as skipped", () => {
-			const incoming = [server("A"), { baseUrl: "http://nolabel.test" }, server("A", { budget: 9 })];
-			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
-			const application = resolveImportPlan(plan, {});
-			// The parser's first-entry-wins rule: the duplicate could never take effect, so it drops rather than
-			// landing a shadowed sibling.
-			assert.deepStrictEqual(application.serversValue, [server("A")]);
-			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 2 });
+		test("the completion notes follow the label an entry landed as, and a skipped entry leaves none", () => {
+			// The preview's notes name the file's labels; the completion notice must name the server the user will
+			// find in the dashboard, and must not tell them to re-enter a key for an entry they chose to skip.
+			const noted = server("a", { auth: { apiKey: "KEY\nA" }, colour: "crimson" });
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [noted, server("b", { budget: "junk" })] }, [
+				server("a"),
+			]);
+			assert.deepStrictEqual(
+				plan.notes.map((remark) => remark.subject),
+				['"a"', '"a"', '"b"']
+			);
+			const renamed = resolveImportPlan(plan, { a: { action: "rename", newLabel: "a-imported" } });
+			assert.deepStrictEqual(
+				renamed.notes.map((remark) => remark.subject),
+				['"a-imported"', '"a-imported"', '"b"']
+			);
+			assert.deepStrictEqual(renamed.touchedLabels, ["a-imported", "b"]);
+			const skipped = resolveImportPlan(plan, { a: { action: "skip" } });
+			assert.deepStrictEqual(skipped.notes, [
+				{ subject: '"b"', text: "has a budget that is not a number greater than 0, ignored" },
+			]);
 		});
 
-		test("a baseUrl-less fragment never shadows a valid same-label sibling, matching the parser's claim rule", () => {
-			// parseServersSetting would ignore the fragment (no usable baseUrl, so it claims no label); the import must
-			// land the entry the parser acts on.
+		test("dropped entries stay out of the skipped count; a skip decision is what the count carries", () => {
+			const incoming = [server("A"), { baseUrl: "http://nolabel.test" }, server("A", { budget: 9 })];
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, [server("A")]);
+			const application = resolveImportPlan(plan, { A: { action: "skip" } });
+			assert.strictEqual(application.serversValue, undefined);
+			assert.deepStrictEqual(application.counts, { imported: 0, overwritten: 0, renamed: 0, skipped: 1 });
+			assert.deepStrictEqual(
+				application.dropped.map((remark) => remark.subject),
+				["entry 2", '"A"']
+			);
+		});
+
+		test("a label-only fragment is dropped; it claims no label, so a full same-label sibling still lands", () => {
+			// The parser's claim rule is the import's: a fragment with no usable baseUrl is rejected before it claims its
+			// label, so the sibling that follows is the accepted entry. Before the contract, the fragment imported
+			// alone as a dead entry whose secret was stamped for no destination.
 			const fragment = { label: "A", auth: { apiKey: "sk-frag" } };
-			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [fragment, server("A", { budget: 7 })] }, undefined);
-			assert.strictEqual(plan.secretFieldCount, 0, "only the representative's inline secrets count");
-			const application = resolveImportPlan(plan, {});
+			const paired = planSettingsImport({ [SERVERS_SETTING_KEY]: [fragment, server("A", { budget: 7 })] }, undefined);
+			assert.deepStrictEqual(paired.dropped, [{ subject: '"A"', text: "is missing a label or baseUrl" }]);
+			assert.strictEqual(paired.secretFieldCount, 0, "only the kept entry's inline secrets count");
+			const application = resolveImportPlan(paired, {});
 			assert.deepStrictEqual(application.serversValue, [server("A", { budget: 7 })]);
 			assert.deepStrictEqual(application.secretWrites, [{ label: "A", secrets: {}, owners: {} }]);
-			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 1 });
+			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 0 });
 
-			// With no claiming sibling, the fragment itself still imports.
 			const alone = resolveImportPlan(planSettingsImport({ [SERVERS_SETTING_KEY]: [fragment] }, undefined), {});
-			assert.deepStrictEqual(alone.serversValue, [{ label: "A" }]);
-			// The fragment has no usable baseUrl, so its secret is stamped for no destination ("") and stays refused
-			// until a deliberate re-pairing.
-			assert.deepStrictEqual(alone.secretWrites, [
-				{ label: "A", secrets: { apiKey: "sk-frag" }, owners: { apiKey: "" } },
-			]);
+			assert.strictEqual(alone.serversValue, undefined);
+			assert.deepStrictEqual(alone.secretWrites, []);
+			assert.ok(!JSON.stringify(alone).includes("sk-frag"));
 		});
 
 		test("a garbage current servers value is replaced by the merged array instead of crashing", () => {

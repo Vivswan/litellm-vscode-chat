@@ -230,6 +230,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"renderImportPreview",
 	"undoImportAction",
 	"parseFailureMessage",
+	"droppedSentence",
 	"gateMessage",
 	"zeroModelJudgment",
 	"openUsageAction",
@@ -457,5 +458,6 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"actionableFailureText",
 	"usageRefreshFailureSummary",
 	"refusedSecretProblem",
+	"judgeEntry",
 	"planSettingsImport",
 ];
