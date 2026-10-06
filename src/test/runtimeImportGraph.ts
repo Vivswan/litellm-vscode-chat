@@ -80,7 +80,7 @@ function importClauseIsTypeOnly(clause: ts.ImportClause | undefined): boolean {
 	);
 }
 
-export function resolveRelative(fromFile: string, spec: string): string {
+function resolveRelative(fromFile: string, spec: string): string {
 	const base = path.resolve(path.dirname(fromFile), spec);
 	for (const candidate of [
 		base,
