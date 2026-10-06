@@ -1200,11 +1200,23 @@ suite("settingsTransferCommands import flow", () => {
 			await original(write);
 			dashboardWrite = world.env.settings.updateAuto("chat.timeout", 25000);
 		};
+		const slotWrites: string[] = [];
+		const originalSlot = world.env.writeSnapshotSlot;
+		world.env.writeSnapshotSlot = async (serialized) => {
+			slotWrites.push(serialized);
+			await originalSlot(serialized);
+		};
 		await runImportSettingsFlow(world.env);
 		await dashboardWrite;
 
 		assert.strictEqual(world.settings.get("chat.timeout"), 25000, "the newer dashboard write is never overwritten");
 		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [a, c]);
+		assert.strictEqual(slotWrites.length, 1, "exactly one undo snapshot is saved");
+		const snapshot = JSON.parse(expectDefined(slotWrites[0])) as {
+			settings: Record<string, { present: boolean; value?: unknown }>;
+		};
+		assert.deepStrictEqual(snapshot.settings.servers, { present: true, value: [a] }, "it holds the pre-import servers");
+		assert.deepStrictEqual(snapshot.settings["chat.timeout"], { present: true, value: 5000 });
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "info");
 		assert.match(note.message, /1 setting written/);
