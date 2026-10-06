@@ -133,8 +133,11 @@ export class StatusWindow {
 		 * refresh without event plumbing.
 		 */
 		private readonly staleServeWindowMs: () => number,
-		/** Never fired for re-reports of an identity already in the window. */
-		private readonly onLabeledGroupEntered: () => void = () => {}
+		/**
+		 * Unlabeled groups fire too: the sync engine joins them to a declared entry by client ID, and that join must run
+		 * in the pass this entry schedules.
+		 */
+		private readonly onGroupEntered: () => void = () => {}
 	) {}
 
 	/**
@@ -202,7 +205,6 @@ export class StatusWindow {
 	): void {
 		const identity = groupIdentity(groupServer, status.serverId);
 		const previous = this.entries.get(identity);
-		const entered = groupServer.label !== undefined && previous === undefined;
 		this.entries.set(identity, {
 			cycle: this.cycle,
 			at: this.now(),
@@ -216,8 +218,8 @@ export class StatusWindow {
 			skippedModeCounts: status.state === "ok" ? observations.skippedModeCounts : previous?.skippedModeCounts,
 			groupServer,
 		});
-		if (entered) {
-			this.onLabeledGroupEntered();
+		if (previous === undefined) {
+			this.onGroupEntered();
 		}
 	}
 

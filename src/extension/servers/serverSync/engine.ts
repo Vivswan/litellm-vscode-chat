@@ -176,7 +176,7 @@ export interface ServerSyncEnv {
 	 * An entry whose add never landed (blocked, or older than the ledger) may have no ledger record, yet the host
 	 * still hands its group to the provider on every refresh, so an unambiguous observation is evidence rather
 	 * than a guess and the ledger's second source. Live, not historical, so a natively deleted group leaves
-	 * within a sweep; wiring/servers.ts re-runs a pass when a labeled group enters, so late evidence is not lost.
+	 * within a sweep; wiring/servers.ts re-runs a pass when a group enters, so late evidence is not lost.
 	 */
 	observedGroupBaseUrls(label: string): readonly string[];
 	/** The groups the host serves right now, as the provider's status window reports them; see joinedGroupOf. */

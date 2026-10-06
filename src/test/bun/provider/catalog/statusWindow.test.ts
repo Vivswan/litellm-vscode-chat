@@ -226,7 +226,7 @@ describe("provider/catalog/statusWindow: a labeled group's entry keys on its ide
 });
 
 describe("provider/catalog/statusWindow: observed labeled group identities", () => {
-	test("labeled groups' base URLs are the window's LIVE view per label, unlabeled groups leave no trace, and entering fires once", () => {
+	test("labeled groups' base URLs are the window's LIVE view per label, an unlabeled group leaves no URL, and every identity's entry fires once", () => {
 		const clock = { nowMs: 1_000_000 };
 		let entered = 0;
 		const window = new StatusWindow(
@@ -252,9 +252,10 @@ describe("provider/catalog/statusWindow: observed labeled group identities", () 
 		window.record(errorStatus("old"), NOTHING_SERVED, oldGroup);
 		window.record(okStatus("new"), served, newGroup, { discoveredRawIds: ["test-model"] });
 		window.record(okStatus("bare"), served, unlabeled, { discoveredRawIds: ["test-model"] });
-		// A re-report is not an entry.
+		// A re-report is not an entry; the unlabeled group's entry counts like a labeled one's (the sync engine joins it
+		// by client ID too).
 		window.record(errorStatus("old"), NOTHING_SERVED, oldGroup);
-		expect(entered).toBe(2);
+		expect(entered).toBe(3);
 		expect(window.observedGroupBaseUrls("Prod")).toEqual(["http://old.test", "http://new.test"]);
 		expect(window.observedGroupBaseUrls("bare.test")).toEqual([]);
 		expect(window.observedGroupBaseUrls("Never")).toEqual([]);
@@ -267,7 +268,7 @@ describe("provider/catalog/statusWindow: observed labeled group identities", () 
 		expect(window.serverIds()).toEqual([]);
 		expect(window.observedGroupBaseUrls("Prod")).toEqual([]);
 		window.record(errorStatus("old"), NOTHING_SERVED, oldGroup);
-		expect(entered).toBe(3);
+		expect(entered).toBe(4);
 		expect(window.observedGroupBaseUrls("Prod")).toEqual(["http://old.test"]);
 	});
 });

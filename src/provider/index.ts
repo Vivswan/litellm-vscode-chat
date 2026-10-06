@@ -168,8 +168,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/** Fired to make the host re-resolve the group-agnostic call and every group through this provider. */
 	readonly onDidChangeLanguageModelChatInformation: Event<void> = this._onDidChangeEmitter.event;
 	/**
-	 * Fires when a labeled provider group enters the status window (see StatusWindow's onLabeledGroupEntered): the
-	 * sync engine's ownership evidence changed, so the servers wiring re-runs a sync pass.
+	 * Fires when a provider group enters the status window under a new identity (see StatusWindow's onGroupEntered):
+	 * the sync engine's ownership evidence changed, so the servers wiring re-runs a sync pass.
 	 */
 	readonly onDidObserveGroup: Event<void> = this._onDidObserveGroupEmitter.event;
 
