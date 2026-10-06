@@ -72,6 +72,10 @@ jobs:
         # The same script .husky/pre-commit runs through check:static, so a local green predicts this gate.
         run: bun scripts/ci/check-user-text-readers.ts
 
+      - name: Test suites derive repository paths only through the REPO_ROOT marker
+        # The same script .husky/pre-commit runs through check:static, so a local green predicts this gate.
+        run: bun scripts/ci/check-repo-root-marker.ts
+
       # The OpenRouter catalog arrives from the openrouter-catalog job of the
       # caller (the run's one live fetch, validated there) rather than from a
       # second fetch here. Judged by the next step so the failure names its

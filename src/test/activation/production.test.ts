@@ -22,6 +22,7 @@ import { catalogFixtureText } from "../catalogFixture";
 import { blockCatalogNetwork } from "../hostApiHelpers";
 import { expectDefined } from "../pureHelpers";
 import { makeExtensionStorage } from "../testUtils";
+import { REPO_ROOT } from "../util/repoRoot";
 
 /**
  * Two production activations cannot overlap in one host, since a second activate() throws on duplicate command
@@ -187,7 +188,7 @@ suite("production activation", () => {
 	test("the manifest declares onStartupFinished so activation never depends on Copilot Chat", async () => {
 		// Without an activation event the extension only wakes when a chat client queries LM providers: a host without
 		// Copilot Chat would get no migrations, no status bar, and no usage surfaces.
-		const manifestPath = path.resolve(__dirname, "..", "..", "..", "package.json");
+		const manifestPath = path.join(REPO_ROOT, "package.json");
 		const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as { activationEvents?: string[] };
 		assert.ok(
 			manifest.activationEvents?.includes("onStartupFinished"),

@@ -9,6 +9,7 @@ import * as path from "node:path";
  * Importing this module declares that the suite reads the repository as data (a doc, a stylesheet, a fixture, the
  * source tree), which no import graph can see. The pre-commit selection (scripts/dev/changedBunTests.ts) therefore runs
  * every suite whose imports reach this file on any staged change, so a repository path is never derived elsewhere.
+ * scripts/ci/check-repo-root-marker.ts refuses __dirname and import.meta.dir anywhere else under src/test.
  */
 function findRepoRoot(): string {
 	let dir = __dirname;
