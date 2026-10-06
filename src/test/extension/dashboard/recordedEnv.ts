@@ -11,7 +11,7 @@ import type { TombstoneIdentity } from "../../../extension/servers/groupRemovals
 import type { DeclaredServer } from "../../../extension/servers/serverSync";
 import { acceptedEntry, inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync";
 import { resolveOwnedSecrets } from "../../../extension/servers/serverSync/secrets";
-import { rawServerEntries, settingValueOf } from "../../../extension/servers/serversSettingWrite";
+import { rawServerEntries, settingValueOf } from "../../../extension/settingsWriteTurn";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import type { NonSecretOptionalFields, SecretOwner } from "../../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";

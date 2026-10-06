@@ -20,7 +20,7 @@ import type { TombstoneIdentity } from "../servers/groupRemovals";
 import type { DeclaredIdentities } from "../servers/serverSync";
 import { secretDestination } from "../servers/serverSync/secrets";
 import { acceptedEntry } from "../servers/serverSync/setting";
-import { rawServerEntries, writeServersSettingFrom } from "../servers/serversSettingWrite";
+import { rawServerEntries, writeServersSettingFrom } from "../settingsWriteTurn";
 import { adoptSourceHandle } from "./adoptHandle";
 import { labeledSnapshots, resolveGroupOwnership, secretValueHolders } from "./declaredJoin";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";

@@ -12,9 +12,9 @@ import { errorLabel } from "../shared/util/errorLabel";
 import { trimHttpWhitespace } from "../shared/util/headers";
 import { isRecord } from "../shared/util/json";
 import { updateServerSecret } from "./servers/serverSync";
-import type { ServersSettingStore } from "./servers/serversSettingWrite";
-import { writeServersSettingFrom } from "./servers/serversSettingWrite";
 import { createSettingsAccess } from "./settingsAccess";
+import type { ServersSettingStore } from "./settingsWriteTurn";
+import { writeServersSettingFrom } from "./settingsWriteTurn";
 
 /**
  * The `bun run dev` launcher writes the seed file (shared/devSeed.ts owns its name and shape) into the extension

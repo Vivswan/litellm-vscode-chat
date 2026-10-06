@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import type { DevSeedEnv } from "../../extension/devSeed";
 import { consumeDevSeed, parseDevSeed } from "../../extension/devSeed";
 import { updateServerSecret } from "../../extension/servers/serverSync";
-import { rawServerEntries, settingValueOf } from "../../extension/servers/serversSettingWrite";
+import { rawServerEntries, settingValueOf } from "../../extension/settingsWriteTurn";
 import { serverSecretsKey } from "../../shared/config/storageKeys";
 import { DEV_SEED_FILENAME } from "../../shared/devSeed";
 import { makeLogger } from "../pureHelpers";

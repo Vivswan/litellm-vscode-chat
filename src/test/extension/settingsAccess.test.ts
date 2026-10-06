@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { writeServersSettingFrom } from "../../extension/servers/serversSettingWrite";
 import type { SettingsInspection, SettingsSnapshotReader } from "../../extension/settingsAccess";
 import { createSettingsAccess, resolveConfiguredScope, resolveUpdateScope } from "../../extension/settingsAccess";
+import { writeServersSettingFrom } from "../../extension/settingsWriteTurn";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 
 interface RecordedUpdate {

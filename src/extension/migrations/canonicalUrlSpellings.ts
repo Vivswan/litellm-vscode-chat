@@ -28,9 +28,9 @@ import { isRecord, validatedStringRecord } from "../../shared/util/json";
 import { buildGroupArgs, groupArgsFingerprint } from "../servers/serverSync/engine";
 import type { DeclaredServer } from "../servers/serverSync/setting";
 import { acceptedEntries, respellEntryUrls } from "../servers/serverSync/setting";
-import type { ServersSettingStore } from "../servers/serversSettingWrite";
-import { replaceServersSetting } from "../servers/serversSettingWrite";
 import { createSettingsAccess } from "../settingsAccess";
+import type { ServersSettingStore } from "../settingsWriteTurn";
+import { replaceServersSetting } from "../settingsWriteTurn";
 import type { FingerprintMemento } from "./fingerprintProjection";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 

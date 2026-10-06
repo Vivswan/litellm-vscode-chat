@@ -1,7 +1,7 @@
 /**
  * The dashboard guards for a settings write that acts on a displayed row or appends beside one. A row was rendered from
  * an older setting, so every guard binds to what the row carried and derives its array from `fresh`, the read
- * serversSettingWrite.ts's turn made in the same tick as the write it then performs.
+ * settingsWriteTurn.ts's turn made in the same tick as the write it then performs.
  */
 
 import { isDeepStrictEqual } from "node:util";
@@ -18,8 +18,8 @@ import {
 	rawDeclaredLabels,
 	serverSettingReports,
 } from "../servers/serverSync/setting";
-import type { ServersSettingStore } from "../servers/serversSettingWrite";
-import { rawServerEntries } from "../servers/serversSettingWrite";
+import type { ServersSettingStore } from "../settingsWriteTurn";
+import { rawServerEntries } from "../settingsWriteTurn";
 import { DashboardValidationError } from "./intents";
 
 export interface RowIdentity {

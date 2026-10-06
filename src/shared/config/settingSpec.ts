@@ -423,7 +423,7 @@ const STRUCTURED_SETTING_KEYS = [
 /** Every setting key as a literal union, for the surfaces that must be TOTAL over the vocabulary. */
 export type SettingId = (typeof STRUCTURED_SETTING_KEYS)[number] | NumberSettingId | BooleanSettingId;
 
-/** Every setting the dashboard writes by key; the servers array is out, written in serversSettingWrite.ts's turn. */
+/** Every setting the dashboard writes by key; the servers array is out, written in settingsWriteTurn.ts's turn. */
 export type KeyedSettingId = Exclude<SettingId, typeof SERVERS_SETTING_KEY>;
 
 /** The id doubles as the nls key suffix `litellm.config.section.<id>`. */

@@ -3,8 +3,8 @@ import { canonicalizeUrlSpellingsFor } from "../../../extension/migrations/canon
 import { buildGroupArgs, groupArgsFingerprint, ServerSyncEngine } from "../../../extension/servers/serverSync/engine";
 import { readServerSecretsRecord, updateServerSecret } from "../../../extension/servers/serverSync/secrets";
 import { parseServersSetting } from "../../../extension/servers/serverSync/setting";
-import type { ServersSettingStore } from "../../../extension/servers/serversSettingWrite";
-import { settingValueOf } from "../../../extension/servers/serversSettingWrite";
+import type { ServersSettingStore } from "../../../extension/settingsWriteTurn";
+import { settingValueOf } from "../../../extension/settingsWriteTurn";
 import { VENDOR_ID } from "../../../shared/config/commandIds";
 import { SERVER_SYNC_FINGERPRINTS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";

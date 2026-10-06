@@ -59,8 +59,8 @@ import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 import { nonSecretIdentityMatches } from "../servers/serverSync/setting";
-import type { ServersSettingStore } from "../servers/serversSettingWrite";
-import { writeServersSettingFrom } from "../servers/serversSettingWrite";
+import type { ServersSettingStore } from "../settingsWriteTurn";
+import { writeServersSettingFrom } from "../settingsWriteTurn";
 import type { AdoptionResolution, ExternalGroupResolution } from "./adopt";
 import { applyAdoptServer } from "./adopt";
 import { patchRow, removeRow, requireSettingUnchanged } from "./rowBoundWrite";
@@ -116,7 +116,7 @@ export type FeatureProbes = Readonly<
 
 /**
  * The effects an intent can have; injected so intents are testable without vscode. The servers setting is written
- * only through serversSettingWrite.ts's turn, which is why the environment is its store.
+ * only through settingsWriteTurn.ts's turn, which is why the environment is its store.
  */
 export interface IntentEnvironment extends ServersSettingStore {
 	/** Write one litellm-vscode-chat.* setting by key; the servers array is no key here. */

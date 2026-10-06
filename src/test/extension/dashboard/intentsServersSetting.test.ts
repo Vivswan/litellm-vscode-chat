@@ -12,7 +12,7 @@ import {
 import { declaredViewsFromSetting } from "../../../extension/dashboard/panel";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
-import { writeServersSettingFrom } from "../../../extension/servers/serversSettingWrite";
+import { writeServersSettingFrom } from "../../../extension/settingsWriteTurn";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { ENTRY_VIEW_FIELD_IDS, pickNonSecretOptionalFields } from "../../../shared/serverEntry";
 import {

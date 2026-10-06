@@ -22,7 +22,7 @@ import { trimHttpWhitespace, usableHttpText } from "../../shared/util/headers";
 import { recordFromKeys } from "../../shared/util/json";
 import { buildGroupArgs } from "../servers/serverSync/engine";
 import { acceptedEntry } from "../servers/serverSync/setting";
-import { rawServerEntries } from "../servers/serversSettingWrite";
+import { rawServerEntries } from "../settingsWriteTurn";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardValidationError } from "./intents";

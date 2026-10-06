@@ -17,8 +17,8 @@ import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import type { SecretStore } from "../../../extension/servers/serverSync";
 import { acceptedEntry, ServerSyncEngine, serverSettingReports } from "../../../extension/servers/serverSync";
 import { readServerSecretsRecord, secretDestination } from "../../../extension/servers/serverSync/secrets";
-import { settingValueOf } from "../../../extension/servers/serversSettingWrite";
 import type { SettingsAccess } from "../../../extension/settingsAccess";
+import { inSettingsWriteTurn, settingValueOf } from "../../../extension/settingsWriteTurn";
 import type { GroupServer } from "../../../provider/catalog/groupModels";
 import { groupClientId, groupServerLabel, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
@@ -138,6 +138,7 @@ function makeFixture(): Fixture {
 			writes.push([...(value as readonly unknown[])]);
 			globalSetting = structuredClone(value);
 		},
+		writeTurn: (apply) => inSettingsWriteTurn((turn) => apply(settingsAccess, turn)),
 		updateAuto: async () => {},
 		removeConfigured: async () => {},
 		snapshotReader: () => ({ get: () => undefined, inspect: () => undefined }),

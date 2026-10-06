@@ -5,8 +5,8 @@ import { updateServerSecret } from "../../../extension/servers/serverSync";
 import { ServerSyncEngine } from "../../../extension/servers/serverSync/engine";
 import { readServerSecretsRecord, secretDestination } from "../../../extension/servers/serverSync/secrets";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
-import { settingValueOf, writeServersSettingFrom } from "../../../extension/servers/serversSettingWrite";
 import type { SettingsAccess, SettingsInspection } from "../../../extension/settingsAccess";
+import { inSettingsWriteTurn, settingValueOf, writeServersSettingFrom } from "../../../extension/settingsWriteTurn";
 import type {
 	ImportPreviewSummary,
 	SettingsTransferEnv,
@@ -182,15 +182,28 @@ function makeWorld(
 		readGlobal: (key) => settings.get(key),
 		readEffective: (key) => (workspaceValues.has(key) ? workspaceValues.get(key) : settings.get(key)),
 		inspect: inspectOf,
-		writeGlobal: writeUserValue,
-		readServersSetting: () => settings.get(SERVERS_SETTING_KEY),
-		writeServersSetting: (write) => writeUserValue(SERVERS_SETTING_KEY, settingValueOf(write)),
-		updateAuto: async () => {
-			throw new Error("updateAuto is not part of the transfer flows");
-		},
+		writeGlobal: (key, value) => inSettingsWriteTurn(() => writeUserValue(key, value)),
+		// The flows never call it; a dashboard intent does, so the race tests reach it through the one turn.
+		updateAuto: (key, value) => inSettingsWriteTurn(() => writeUserValue(key, value)),
 		removeConfigured: async () => {
 			throw new Error("removeConfigured is not part of the transfer flows");
 		},
+		readServersSetting: () => settings.get(SERVERS_SETTING_KEY),
+		writeServersSetting: (write) => writeUserValue(SERVERS_SETTING_KEY, settingValueOf(write)),
+		writeTurn: (apply) =>
+			inSettingsWriteTurn((turn) =>
+				apply(
+					{
+						writeGlobal: writeUserValue,
+						updateAuto: writeUserValue,
+						removeConfigured: access.removeConfigured,
+						readServersSetting: access.readServersSetting,
+						// Through the access object, so a test's patch of the servers write is honored inside a turn.
+						writeServersSetting: (write) => access.writeServersSetting(write),
+					},
+					turn
+				)
+			),
 		snapshotReader: () => ({ get: (key) => settings.get(key), inspect: inspectOf }),
 	};
 	const prompts: SettingsTransferPrompts = {
@@ -1173,6 +1186,35 @@ suite("settingsTransferCommands import flow", () => {
 	});
 
 	const importsKI = { label: "a", baseUrl: "http://new:4000", auth: { apiKey: "KI" } };
+	test("a dashboard scalar write arriving during the import's turn lands after it, never under it", async () => {
+		// The import writes servers [a, c] and chat.timeout 60000 in one turn. A dashboard intent asks for chat.timeout
+		// 25000 while that turn runs (right after the servers replacement). Both writers take the one turn, so the
+		// dashboard's write queues behind the import's and lands last; the import reports its own writes as landed.
+		const a = { label: "a", baseUrl: "http://a:4000" };
+		const c = { label: "c", baseUrl: "http://c:4000" };
+		const world = makeWorld({ servers: [a], "chat.timeout": 5000 });
+		stageEnvelope(world, { servers: [c], "chat.timeout": 60000 });
+		const original = world.env.settings.writeServersSetting;
+		let dashboardWrite: Promise<void> | undefined;
+		world.env.settings.writeServersSetting = async (write) => {
+			await original(write);
+			dashboardWrite = world.env.settings.updateAuto("chat.timeout", 25000);
+		};
+		await runImportSettingsFlow(world.env);
+		await dashboardWrite;
+
+		assert.strictEqual(world.settings.get("chat.timeout"), 25000, "the newer dashboard write is never overwritten");
+		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [a, c]);
+		const note = onlyNotification(world);
+		assert.strictEqual(note.kind, "info");
+		assert.match(note.message, /1 setting written/);
+		assert.deepStrictEqual(
+			world.ops.filter((op) => op.startsWith("settings:")),
+			[`settings:${SERVERS_SETTING_KEY}`, "settings:chat.timeout", "settings:chat.timeout"],
+			"servers, the import's scalar, then the dashboard's scalar"
+		);
+	});
+
 	for (const c of [
 		{
 			name: "leaves a different key a concurrent save stored",

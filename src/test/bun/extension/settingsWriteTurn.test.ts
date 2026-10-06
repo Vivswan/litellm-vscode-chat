@@ -4,12 +4,8 @@
  */
 
 import { expect, test } from "bun:test";
-import type { ServersSettingStore } from "../../../../extension/servers/serversSettingWrite";
-import {
-	replaceServersSetting,
-	settingValueOf,
-	writeServersSettingFrom,
-} from "../../../../extension/servers/serversSettingWrite";
+import type { ServersSettingStore } from "../../../extension/settingsWriteTurn";
+import { replaceServersSetting, settingValueOf, writeServersSettingFrom } from "../../../extension/settingsWriteTurn";
 
 function memoryStore(initial: unknown): { store: ServersSettingStore; writes: unknown[] } {
 	const writes: unknown[] = [];

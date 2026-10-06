@@ -22,7 +22,7 @@ import { acceptedEntry, inlineSecretValues, secretLocations } from "../servers/s
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 import { resolveOwnedSecrets, secretDestination } from "../servers/serverSync/secrets";
 import { declaredEntryLabel, nonSecretIdentityMatches, stillDeclaredIn } from "../servers/serverSync/setting";
-import { rawServerEntries, writeServersSettingFrom } from "../servers/serversSettingWrite";
+import { rawServerEntries, writeServersSettingFrom } from "../settingsWriteTurn";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError } from "./intents";

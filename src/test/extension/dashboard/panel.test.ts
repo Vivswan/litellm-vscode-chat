@@ -17,7 +17,7 @@ import type {
 } from "../../../extension/dashboard/state";
 import { EMPTY_CATALOG_STATUS, EMPTY_USAGE_VIEW } from "../../../extension/dashboard/state";
 import { entryModelParametersFor, parseServersSetting } from "../../../extension/servers/serverSync";
-import { rawServerEntries, settingValueOf } from "../../../extension/servers/serversSettingWrite";
+import { rawServerEntries, settingValueOf } from "../../../extension/settingsWriteTurn";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import type { SecretOwner } from "../../../shared/serverEntry";
