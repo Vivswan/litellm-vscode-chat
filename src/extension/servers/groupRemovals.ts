@@ -154,8 +154,16 @@ function parseTombstone(value: unknown): TombstoneIdentity | undefined {
 	if (identity === undefined || !isRecord(value)) {
 		return undefined;
 	}
-	// A record from before the keyed kinds has no `by`: the status label and URL it carried.
-	const by = value.by === undefined ? "status" : value.by;
+	// A record from before the keyed kinds has no `by`: the status label and URL it carried. A group record whose
+	// stored URL text is not canonical was keyed under a pre-canonical spelling and matches no id the canonical group
+	// reports, so it hides by its label and URL too: the user hid that group.
+	const by =
+		value.by === undefined ||
+		(value.by === "group" &&
+			typeof value.baseUrl === "string" &&
+			canonicalStoredBaseUrl(value.baseUrl) !== value.baseUrl)
+			? "status"
+			: value.by;
 	return typeof by === "string" && Object.hasOwn(TOMBSTONE_PARSERS, by)
 		? TOMBSTONE_PARSERS[by as TombstoneIdentity["by"]](value, identity)
 		: undefined;

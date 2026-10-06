@@ -26,13 +26,11 @@ import * as vscode from "vscode";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { SERVER_SYNC_FINGERPRINTS_KEY } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
-import { canonicalBaseUrl, canonicalUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
-import { usableHttpText } from "../../shared/util/headers";
 import { isRecord, validatedStringRecord } from "../../shared/util/json";
 import { buildGroupArgs, groupArgsFingerprint } from "../servers/serverSync/engine";
 import type { DeclaredServer } from "../servers/serverSync/setting";
-import { acceptedEntries } from "../servers/serverSync/setting";
+import { acceptedEntries, respellEntryUrls } from "../servers/serverSync/setting";
 import type { FingerprintMemento } from "./fingerprintProjection";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
@@ -40,50 +38,6 @@ import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./i
 export interface UrlSpellingSettings {
 	read(): unknown;
 	write(value: readonly unknown[]): Thenable<void>;
-}
-
-/**
- * One raw entry respelled. `oldBaseUrl` is the trimmed spelling the previous parser handed through when the base URL
- * changed: the one field the "i1:" fingerprint hashes (engine.ts groupIdentityArgs), so the only one whose old
- * spelling the carry needs.
- */
-interface Respelled {
-	readonly record: unknown;
-	readonly changed: boolean;
-	readonly oldBaseUrl?: string;
-}
-
-function respell(raw: unknown): Respelled {
-	if (!isRecord(raw)) {
-		return { record: raw, changed: false };
-	}
-	const record: Record<string, unknown> = { ...raw };
-	let changed = false;
-	let oldBaseUrl: string | undefined;
-	const baseUrlText = usableHttpText(raw.baseUrl);
-	const baseUrl = baseUrlText === undefined ? undefined : canonicalBaseUrl(baseUrlText);
-	if (baseUrl !== undefined && baseUrl !== raw.baseUrl) {
-		record.baseUrl = baseUrl;
-		changed = true;
-		oldBaseUrl = baseUrlText;
-	}
-	if (isRecord(raw.auth) && isRecord(raw.auth.oauth)) {
-		const tokenUrlText = usableHttpText(raw.auth.oauth.tokenUrl);
-		const tokenUrl = tokenUrlText === undefined ? undefined : canonicalUrl(tokenUrlText);
-		if (tokenUrl !== undefined && tokenUrl !== raw.auth.oauth.tokenUrl) {
-			record.auth = { ...raw.auth, oauth: { ...raw.auth.oauth, tokenUrl } };
-			changed = true;
-		}
-	}
-	if (isRecord(raw.mcp)) {
-		const urlText = usableHttpText(raw.mcp.url);
-		const url = urlText === undefined ? undefined : canonicalUrl(urlText);
-		if (url !== undefined && url !== raw.mcp.url) {
-			record.mcp = { ...raw.mcp, url };
-			changed = true;
-		}
-	}
-	return { record, changed, ...(oldBaseUrl !== undefined ? { oldBaseUrl } : {}) };
 }
 
 export async function canonicalizeUrlSpellingsFor(
@@ -95,7 +49,9 @@ export async function canonicalizeUrlSpellingsFor(
 	const raw: readonly unknown[] = Array.isArray(value) ? value : [];
 	// The accepted carrier of each label, by raw index: the only entries whose spelling and record move.
 	const carriers = new Map<number, DeclaredServer>(acceptedEntries(raw).map(({ index, entry }) => [index, entry]));
-	const respelled = raw.map((item, index) => (carriers.has(index) ? respell(item) : { record: item, changed: false }));
+	const respelled: readonly { record: unknown; changed: boolean; oldBaseUrl?: string }[] = raw.map((item, index) =>
+		carriers.has(index) && isRecord(item) ? respellEntryUrls(item) : { record: item, changed: false }
+	);
 
 	let rewrites = 0;
 	const stored = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));

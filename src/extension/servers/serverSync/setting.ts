@@ -702,6 +702,61 @@ export function acceptedEntries(raw: unknown): { index: number; entry: DeclaredS
 }
 
 /**
+ * The URL field of a raw entry the parser refuses, when there is one: usable text with no canonical spelling. The
+ * settings import skips such an entry by this judgment instead of landing it, so a working entry under the label is
+ * never overwritten by one the parser would reject.
+ */
+export function refusedUrlField(raw: Readonly<Record<string, unknown>>): "baseUrl" | "auth.oauth.tokenUrl" | undefined {
+	const baseUrlText = usableHttpText(raw.baseUrl);
+	if (baseUrlText !== undefined && canonicalBaseUrl(baseUrlText) === undefined) {
+		return "baseUrl";
+	}
+	const tokenUrlText =
+		isRecord(raw.auth) && isRecord(raw.auth.oauth) ? usableHttpText(raw.auth.oauth.tokenUrl) : undefined;
+	return tokenUrlText !== undefined && canonicalUrl(tokenUrlText) === undefined ? "auth.oauth.tokenUrl" : undefined;
+}
+
+/**
+ * A raw entry with its URL fields in the one spelling the parser reads, every other byte untouched: what a settings
+ * import writes and what the one-time migration rewrites, so a stored entry reads back as itself. `oldBaseUrl` is the
+ * trimmed spelling the base URL had when it changed: the one field the sync fingerprint hashes (engine.ts
+ * groupIdentityArgs), so the one whose old spelling a record carry needs.
+ */
+export function respellEntryUrls(raw: Readonly<Record<string, unknown>>): {
+	readonly record: Record<string, unknown>;
+	readonly changed: boolean;
+	readonly oldBaseUrl?: string;
+} {
+	const record: Record<string, unknown> = { ...raw };
+	let changed = false;
+	let oldBaseUrl: string | undefined;
+	const baseUrlText = usableHttpText(raw.baseUrl);
+	const baseUrl = baseUrlText === undefined ? undefined : canonicalBaseUrl(baseUrlText);
+	if (baseUrl !== undefined && baseUrl !== raw.baseUrl) {
+		record.baseUrl = baseUrl;
+		changed = true;
+		oldBaseUrl = baseUrlText;
+	}
+	if (isRecord(raw.auth) && isRecord(raw.auth.oauth)) {
+		const tokenUrlText = usableHttpText(raw.auth.oauth.tokenUrl);
+		const tokenUrl = tokenUrlText === undefined ? undefined : canonicalUrl(tokenUrlText);
+		if (tokenUrl !== undefined && tokenUrl !== raw.auth.oauth.tokenUrl) {
+			record.auth = { ...raw.auth, oauth: { ...raw.auth.oauth, tokenUrl } };
+			changed = true;
+		}
+	}
+	if (isRecord(raw.mcp)) {
+		const urlText = usableHttpText(raw.mcp.url);
+		const url = urlText === undefined ? undefined : canonicalUrl(urlText);
+		if (url !== undefined && url !== raw.mcp.url) {
+			record.mcp = { ...raw.mcp, url };
+			changed = true;
+		}
+	}
+	return { record, changed, ...(oldBaseUrl !== undefined ? { oldBaseUrl } : {}) };
+}
+
+/**
  * The removal detector reads this because "the user removed the entry" and "the entry is present but momentarily
  * malformed" must never be confused - a tombstone written for the latter would suppress a group the user did not
  * remove. Reserved labels stay out: the parser rejects them permanently, and the caller carries map records under these

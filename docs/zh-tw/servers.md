@@ -86,7 +86,7 @@
 - 標籤在項目之間唯一: 重複使用先前項目標籤的項目會被略過並回報 - 第一個項目勝出。要把兩個項目指向同一主機, 給它們不同的標籤; 它們隨即成為端到端的兩個伺服器 - 兩個選擇器群組、模型分別列在各自群組下, 每個項目的驗證、標頭與 `models` 記錄只套用於自己的群組。
 - 空的或只有空白的 `label` 或 `baseUrl` 讓項目無法使用: 略過並回報。JavaScript 保留名稱 `__proto__`、`constructor` 與 `prototype` 會被拒絕作為標籤。
 - 基底 URL 可以帶路徑 (`https://intranet.example.com/litellm`, 掛載在某路徑下的閘道); `/v1` 附加在其後, 除非路徑已以 `/v1` 或 `/v2` 這樣的版本區段結尾 (按原樣使用) - `apiVersion` 欄位可覆寫兩者 (空字串 = 什麼都不附加)。
-- 每個 URL 都以同一種寫法讀取和使用, 即標準 URL 序列化形式 (`HTTP://Host:4000/` 讀作 `http://host:4000`; 基底 URL 的結尾斜線會被去除, OAuth 權杖 URL 和 `mcp.url` 的則保留)。儀表板會以這種寫法寫入; 手動輸入的項目在 settings.json 中保留原文, 讀取時按正規寫法處理。`baseUrl` 或 OAuth `tokenUrl` 的文字若不能解析為帶主機的 URL (`localhost:4000`、`/v1`、`mailto:x@y`、`file:///tmp/x`、`http://user:pa/ss@host`), 該項目不可用: 跳過並回報, 回報中會點名該欄位。
+- 每個 URL 都以同一種寫法讀取和使用, 即標準 URL 序列化形式 (`HTTP://Host:4000/` 讀作 `http://host:4000`; 基底 URL 的結尾斜線會被去除, OAuth 權杖 URL 和 `mcp.url` 的則保留)。儀表板會以這種寫法寫入; 手動輸入的項目無論原文如何, 讀取時都按正規寫法處理。`baseUrl` 或 OAuth `tokenUrl` 的文字若不能解析為帶主機的 URL (`localhost:4000`、`/v1`、`mailto:x@y`、`file:///tmp/x`、`http://user:pa/ss@host`), 該項目不可用: 跳過並回報, 回報中會點名該欄位。
 - 純 `http` 可以用, 而且是本機代理的常規選擇; 但在網路上它會明文攜帶您的認證, 因此任何遠端伺服器都請優先用 `https`。
 - `budget` 必須是大於 0 的數字 ([用量 - 預算](usage.md#預算))。
 - `mcp` 接受 `true`、`false` (與不寫相同) 或一個物件。`url` 以和 `baseUrl` 相同的唯一寫法讀取; 不能解析為帶主機的 URL 的 `url` 會被回報, 且該項目不發布任何 MCP 伺服器 (伺服器本身照常運作), 而儀表板的表單會拒絕一眼可見的錯誤寫法。不帶 `url` 的物件會發布推導出的端點, 與 `true` 相同。

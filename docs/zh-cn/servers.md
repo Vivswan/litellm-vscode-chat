@@ -86,7 +86,7 @@
 - 标签在条目之间唯一: 重复使用先前条目标签的条目会被跳过并报告 - 第一个条目胜出。要把两个条目指向同一主机, 给它们不同的标签; 它们随即成为端到端的两个服务器 - 两个选择器组、模型分别列在各自组下, 每个条目的身份验证、标头和 `models` 记录只应用于自己的组。
 - 空的或只有空白的 `label` 或 `baseUrl` 让条目不可用: 跳过并报告。JavaScript 保留名 `__proto__`、`constructor` 和 `prototype` 会被拒绝作为标签。
 - 基础 URL 可以带路径 (`https://intranet.example.com/litellm`, 挂载在某路径下的网关); `/v1` 追加在其后, 除非路径已以 `/v1` 或 `/v2` 这样的版本段结尾 (按原样使用) - `apiVersion` 字段可覆盖两者 (空字符串 = 什么都不追加)。
-- 每个 URL 都以同一种写法读取和使用, 即标准 URL 序列化形式 (`HTTP://Host:4000/` 读作 `http://host:4000`; 基础 URL 的尾部斜杠会被去掉, OAuth 令牌 URL 和 `mcp.url` 的则保留)。仪表板会以这种写法写入; 手工输入的条目在 settings.json 中保留原文, 读取时按规范写法处理。`baseUrl` 或 OAuth `tokenUrl` 的文本若不能解析为带主机的 URL (`localhost:4000`、`/v1`、`mailto:x@y`、`file:///tmp/x`、`http://user:pa/ss@host`), 该条目不可用: 跳过并报告, 报告中会点名该字段。
+- 每个 URL 都以同一种写法读取和使用, 即标准 URL 序列化形式 (`HTTP://Host:4000/` 读作 `http://host:4000`; 基础 URL 的尾部斜杠会被去掉, OAuth 令牌 URL 和 `mcp.url` 的则保留)。仪表板会以这种写法写入; 手工输入的条目无论原文如何, 读取时都按规范写法处理。`baseUrl` 或 OAuth `tokenUrl` 的文本若不能解析为带主机的 URL (`localhost:4000`、`/v1`、`mailto:x@y`、`file:///tmp/x`、`http://user:pa/ss@host`), 该条目不可用: 跳过并报告, 报告中会点名该字段。
 - 纯 `http` 可以用, 而且是本地代理的常规选择; 但在网络上它会明文携带你的凭据, 因此任何远程服务器都请优先用 `https`。
 - `budget` 必须是大于 0 的数字 ([用量 - 预算](usage.md#预算))。
 - `mcp` 接受 `true`、`false` (与不写相同) 或一个对象。`url` 以和 `baseUrl` 相同的唯一写法读取; 不能解析为带主机的 URL 的 `url` 会被报告, 且该条目不发布任何 MCP 服务器 (服务器本身照常工作), 而仪表板的表单会拒绝一眼可见的错误写法。不带 `url` 的对象发布推导出的端点, 与 `true` 相同。

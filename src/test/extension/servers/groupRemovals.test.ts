@@ -2,7 +2,9 @@ import * as assert from "node:assert";
 import type { FingerprintSaltState } from "../../../extension/fingerprintSalt";
 import type { GroupKey } from "../../../extension/servers/groupRemovals";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
+import { groupClientId } from "../../../provider/catalog/groupModels";
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../../shared/config/storageKeys";
+import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { expectDefined } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 
@@ -195,6 +197,40 @@ suite("extension/servers/groupRemovals", () => {
 				true,
 				"a group record hides by client ID wherever the group reports"
 			);
+		});
+
+		test("a group-keyed tombstone minted under the old spelling still hides the group the provider now reports canonically", () => {
+			// The canonical group mints a new client id and group records compare by id alone, so the decoder reads a
+			// record whose stored URL text is not canonical by the label and URL it carries. The judgment is the stored
+			// text, never the id: a tab inside the host or userinfo respelled leaves the id's display URL unchanged.
+			const canonical = groupClientId({ baseUrl: normalizeBaseUrl("http://host:4000"), apiKey: "k", label: "Host" });
+			const group = { groupId: canonical, label: "Host", entryLabel: undefined, baseUrl: "http://host:4000" };
+			for (const stored of ["HTTP://Host:4000", "http://ho\tst:4000", "http://User:Pa ss@host:4000"]) {
+				const typed = groupClientId({ baseUrl: normalizeBaseUrl(stored), apiKey: "k", label: "Host" });
+				assert.notStrictEqual(typed, canonical, stored);
+				const { store } = makeStore({
+					[REMOVED_GROUP_TOMBSTONES_KEY]: {
+						version: "1",
+						records: [{ by: "group", groupId: typed, label: "Host", baseUrl: stored }],
+					},
+				});
+				const expectedUrl = stored.includes("@") ? "http://User:Pa%20ss@host:4000" : "http://host:4000";
+				assert.deepStrictEqual(store.tombstones(), [{ by: "status", label: "Host", baseUrl: expectedUrl }], stored);
+				assert.strictEqual(
+					store.isTombstoned({ ...group, baseUrl: expectedUrl }),
+					true,
+					`${JSON.stringify(stored)} still hides`
+				);
+			}
+			const { store: fresh } = makeStore({
+				[REMOVED_GROUP_TOMBSTONES_KEY]: {
+					version: "1",
+					records: [{ by: "group", groupId: canonical, label: "Host", baseUrl: "http://host:4000" }],
+				},
+			});
+			assert.deepStrictEqual(fresh.tombstones(), [
+				{ by: "group", groupId: canonical, label: "Host", baseUrl: "http://host:4000" },
+			]);
 		});
 
 		test("a tombstone an older version stored as typed still hides the group the provider now reports canonically", () => {

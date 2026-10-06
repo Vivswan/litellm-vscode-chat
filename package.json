@@ -523,9 +523,9 @@
 											"description": "The external group's label, from litellm_configuration."
 										},
 										"baseUrl": {
+											"description": "The external group's base URL, from litellm_configuration.",
 											"type": "string",
-											"minLength": 1,
-											"description": "The external group's base URL, from litellm_configuration."
+											"minLength": 1
 										}
 									},
 									"required": [
@@ -596,10 +596,15 @@
 									]
 								},
 								"oauthTokenUrl": {
-									"description": "A string sets it, null clears it, absent keeps the stored value.",
-									"type": [
-										"string",
-										"null"
+									"description": "A URL sets it, null clears it, absent keeps the stored value.",
+									"anyOf": [
+										{
+											"type": "string",
+											"minLength": 1
+										},
+										{
+											"type": "null"
+										}
 									]
 								},
 								"oauthClientId": {
@@ -702,13 +707,25 @@
 								},
 								"mcp": {
 									"description": "MCP opt-in: true, { url }, or null to clear.",
-									"type": [
-										"string",
-										"number",
-										"boolean",
-										"object",
-										"array",
-										"null"
+									"anyOf": [
+										{
+											"type": "boolean",
+											"const": true
+										},
+										{
+											"type": "object",
+											"properties": {
+												"url": {
+													"description": "The MCP endpoint URL; absent publishes the derived <baseUrl>/mcp.",
+													"type": "string",
+													"minLength": 1
+												}
+											},
+											"additionalProperties": false
+										},
+										{
+											"type": "null"
+										}
 									]
 								},
 								"secrets": {
@@ -965,9 +982,9 @@
 									"description": "The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
 								},
 								"baseUrl": {
+									"description": "The group's base URL as litellm_configuration shows it; with the label it identifies the group.",
 									"type": "string",
-									"minLength": 1,
-									"description": "The group's base URL as litellm_configuration shows it; with the label it identifies the group."
+									"minLength": 1
 								}
 							},
 							"required": [
@@ -992,9 +1009,9 @@
 									"description": "The servers entry label (remove), or the external or hidden group's label (hide, unhide)."
 								},
 								"baseUrl": {
+									"description": "The group's base URL as litellm_configuration shows it; with the label it identifies the group.",
 									"type": "string",
-									"minLength": 1,
-									"description": "The group's base URL as litellm_configuration shows it; with the label it identifies the group."
+									"minLength": 1
 								}
 							},
 							"required": [

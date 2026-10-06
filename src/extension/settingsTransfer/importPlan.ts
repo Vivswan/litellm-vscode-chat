@@ -29,6 +29,8 @@ import {
 	acceptedEntry,
 	declaredEntryLabel,
 	rawDeclaredLabels,
+	refusedUrlField,
+	respellEntryUrls,
 	serverSettingReports,
 } from "../servers/serverSync/setting";
 import { stripEntrySecrets } from "./secretSurgery";
@@ -243,6 +245,21 @@ export function planSettingsImport(
 					});
 					return;
 				}
+				// An entry the parser refuses for a URL is never written: landing it could overwrite a working entry under
+				// the label with one the parser rejects.
+				const refusedUrl = isRecord(raw) ? refusedUrlField(raw) : undefined;
+				if (refusedUrl !== undefined) {
+					incomingServers.push({
+						raw,
+						report: {
+							...report,
+							accepted: false,
+							problems: [...report.problems, `is not imported: its ${refusedUrl} is not a URL with a host`],
+						},
+						skipped: true,
+					});
+					return;
+				}
 				incomingServers.push({ raw, report, skipped: report.label === undefined });
 			});
 			continue;
@@ -379,6 +396,8 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 		// The stamp target is the entry as it will be written and parsed back;
 		// see SecretWrite.owners for the fail-closed fallback.
 		const parsed = acceptedEntry([stripped.entry], label)?.entry;
+		// What lands is the entry in the one spelling the parser reads (respellEntryUrls), never the file's.
+		const written = parsed === undefined ? stripped.entry : respellEntryUrls(stripped.entry).record;
 		const target = parsed ?? {
 			baseUrl: typeof rawEntry.baseUrl === "string" ? trimHttpWhitespace(rawEntry.baseUrl) : "",
 		};
@@ -393,7 +412,7 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 			touched.add(label);
 			touchedLabels.push(label);
 		}
-		return stripped.entry;
+		return written;
 	};
 
 	for (const [index, incoming] of plan.incomingServers.entries()) {
