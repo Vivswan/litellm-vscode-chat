@@ -1,7 +1,7 @@
 import { bearerHeaderValue, type HeaderValue, headerNameKey } from "../../shared/util/headers";
 import type { OAuthConfig, OAuthErrorSurface, OAuthTokenSource, TimeoutBudget, VirtualKeyConfig } from "./auth";
 import { buildDefaultHeaders } from "./clients";
-import { RequestError } from "./errorMapping";
+import { RequestError } from "./transportErrors";
 
 /**
  * The per-request credential overlay every transport applies the same way.

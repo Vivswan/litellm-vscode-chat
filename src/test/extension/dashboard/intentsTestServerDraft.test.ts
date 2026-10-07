@@ -6,7 +6,7 @@ import {
 	executeDashboardIntent,
 	validateTestServerDraft,
 } from "../../../extension/dashboard/intents";
-import { RequestError } from "../../../provider/transport/errorMapping";
+import { RequestError } from "../../../provider/transport/transportErrors";
 import { displayedReplace, KEEP_ALL, makeEnv, type RecordedEnv, replaceIdentity, serverPayload } from "./recordedEnv";
 
 suite("extension/dashboard/intents: testServerDraft", () => {

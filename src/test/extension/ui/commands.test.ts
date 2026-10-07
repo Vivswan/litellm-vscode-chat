@@ -11,7 +11,8 @@ import {
 import { IssueReporter } from "../../../extension/ui/issueReporter";
 import type { ConnectionStatus } from "../../../extension/ui/status";
 import { zeroModelJudgment } from "../../../extension/ui/status";
-import { mapSdkError, RequestError, statusLogSafeError } from "../../../provider/transport/errorMapping";
+import { mapSdkError } from "../../../provider/transport/errorMapping";
+import { RequestError, statusLogSafeError } from "../../../provider/transport/transportErrors";
 import { HAS_SHOWN_WELCOME_KEY, LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
 import { SETUP_HINT_KINDS, type SetupHintKind, transportClassificationOf } from "../../../shared/errorClassification";
 import type { FailureCause } from "../../../shared/failureCause";

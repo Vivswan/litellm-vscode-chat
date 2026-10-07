@@ -1,6 +1,6 @@
 import type * as vscode from "vscode";
-import { FEATURE_ERROR_SURFACE } from "../../provider/transport/errorMapping";
 import type { OneShotChatMessage, OneShotClient } from "../../provider/transport/oneShotClient";
+import { FEATURE_ERROR_SURFACE } from "../../provider/transport/transportErrors";
 import type { FeatureModelId, FeatureModelRef } from "../../shared/config/settingSpec";
 import { getRequestTimeout } from "../../shared/config/settings";
 import { entryConnectionFor } from "../servers/entryConnection";

@@ -8,7 +8,8 @@ import {
 	rememberIssueReport,
 	reportFingerprint,
 } from "../../../extension/ui/issueReporter";
-import { mapSdkError, RequestError } from "../../../provider/transport/errorMapping";
+import { mapSdkError } from "../../../provider/transport/errorMapping";
+import { RequestError } from "../../../provider/transport/transportErrors";
 import { Logger, recordedError } from "../../../shared/logger";
 import { GITHUB_REPO_URL } from "../../../shared/util/links";
 import { assertContains, assertOmits, assertStartsWith, expectDefined } from "../../pureHelpers";

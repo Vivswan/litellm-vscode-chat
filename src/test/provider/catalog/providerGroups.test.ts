@@ -5,7 +5,7 @@ import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../../provider/catalog/groupDiscovery";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
-import { RequestError } from "../../../provider/transport/errorMapping";
+import { RequestError } from "../../../provider/transport/transportErrors";
 import { publicErrorText } from "../../../shared/logger";
 import { MirroredError } from "../../../shared/mirroredError";
 import type { AggregatedStatus } from "../../../shared/servers";

@@ -17,8 +17,8 @@ import {
 	createPrProbe,
 	wirePrGeneration,
 } from "../../../../extension/features/prGen/wiring";
-import { RequestError } from "../../../../provider/transport/errorMapping";
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
+import { RequestError } from "../../../../provider/transport/transportErrors";
 import { CMD, prGenerationProviderTitle } from "../../../../shared/config/commandIds";
 import { Logger } from "../../../../shared/logger";
 import { MirroredError } from "../../../../shared/mirroredError";

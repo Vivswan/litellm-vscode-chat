@@ -7,7 +7,7 @@ import { type HeaderValue, headerValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
-import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartTexts } from "./errorMapping";
+import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartTexts } from "./transportErrors";
 
 /** Error ownership follows the transport-module convention: construct and throw without logging. */
 

@@ -10,7 +10,7 @@
 import * as l10n from "@vscode/l10n";
 import type { UsageEndpointId } from "../../../dashboard/usageEndpoints";
 import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
-import { RequestError } from "../../../provider/transport/errorMapping";
+import { RequestError } from "../../../provider/transport/transportErrors";
 import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 import { rejectedCredentialKinds } from "../../../shared/failureCause";
 import type { RejectedCredentialField } from "../../../shared/serverEntry";

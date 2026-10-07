@@ -36,12 +36,13 @@ import {
 import type { AuthOverlayScope } from "./authOverlay";
 import { applyAuthOverlay } from "./authOverlay";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
-import { bodylessResponseError, mapSdkError, timeoutRequestError } from "./errorMapping";
+import { mapSdkError } from "./errorMapping";
 import type { TransportFetch } from "./nodeHttpFetch";
 import { nodeHttpFetch } from "./nodeHttpFetch";
 import { buildRequestBody, resolveMaxTokens } from "./request";
 import type { ToolCallIdSource } from "./streaming/processor";
 import { StreamProcessor } from "./streaming/processor";
+import { bodylessResponseError, timeoutRequestError } from "./transportErrors";
 
 export interface ChatRequestContext {
 	/** The provider's one parse of the model object; nothing here re-narrows the host round trip. */

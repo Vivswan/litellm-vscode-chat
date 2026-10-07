@@ -18,7 +18,7 @@ import {
 	UsagePoller,
 	usageRefreshFailureSummary,
 } from "../../../../extension/servers/usage";
-import { RequestError } from "../../../../provider/transport/errorMapping";
+import { RequestError } from "../../../../provider/transport/transportErrors";
 import type { Clock, Timer } from "../../../../shared/util/timer";
 
 class FakeTimer implements Timer {

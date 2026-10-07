@@ -20,7 +20,7 @@ import {
 } from "../../../extension/servers/serverSync";
 import { ServerVerdict } from "../../../extension/servers/syncFailureOverlay";
 import { rawServerEntries, settingValueOf } from "../../../extension/settingsWriteTurn";
-import { RequestError } from "../../../provider/transport/errorMapping";
+import { RequestError } from "../../../provider/transport/transportErrors";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import type { SecretOwner } from "../../../shared/serverEntry";
 import { ENTRY_VIEW_FIELD_IDS } from "../../../shared/serverEntry";

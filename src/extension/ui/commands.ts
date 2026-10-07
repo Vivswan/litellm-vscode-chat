@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../provider/catalog/groupModels";
-import { thrownErrorDisplayText } from "../../provider/transport/errorMapping";
+import { thrownErrorDisplayText } from "../../provider/transport/transportErrors";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { failureClassification, failureTexts } from "../../shared/failureCause";

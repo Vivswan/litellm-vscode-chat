@@ -9,7 +9,7 @@ import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery
 import { parseGroupConfiguration, refusedCredentialFields } from "../../provider/catalog/groupModels";
 import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/auth";
 import { ChatClient } from "../../provider/transport/chatClient";
-import { RequestError } from "../../provider/transport/errorMapping";
+import { RequestError } from "../../provider/transport/transportErrors";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import { rejectedCredentialKinds } from "../../shared/failureCause";
 import type { NonChatMode, SecretFieldId } from "../../shared/serverEntry";

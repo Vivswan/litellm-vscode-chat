@@ -2,9 +2,9 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import type { TimeoutBudget } from "../../../provider/transport/auth";
-import { RequestError } from "../../../provider/transport/errorMapping";
 import type { OneShotChatMessage, OneShotConnection } from "../../../provider/transport/oneShotClient";
 import { OneShotClient } from "../../../provider/transport/oneShotClient";
+import { RequestError } from "../../../provider/transport/transportErrors";
 import { fixedHeaderValue } from "../../../shared/util/headers";
 import {
 	CHAT_COMPLETIONS_URL,

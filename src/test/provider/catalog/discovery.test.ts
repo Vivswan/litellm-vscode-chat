@@ -14,9 +14,9 @@ import { reasoningEffortSchema } from "../../../provider/catalog/modelConfigurat
 import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem, ModelShape } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
-import { RequestError } from "../../../provider/transport/errorMapping";
 import type { TransportFetch } from "../../../provider/transport/nodeHttpFetch";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
+import { RequestError } from "../../../provider/transport/transportErrors";
 import { CAPABILITY_FLOOR } from "../../../shared/config/capabilityResolution";
 import { publicErrorText } from "../../../shared/logger";
 import type { NonChatMode, SkippedModeCounts } from "../../../shared/serverEntry";
