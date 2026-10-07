@@ -9,7 +9,7 @@ import type {
 	Progress,
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
-import { CancellationError, EventEmitter } from "vscode";
+import { CancellationError, EventEmitter, LanguageModelError } from "vscode";
 import type { CapabilityCatalogLookup, ModelCapabilitiesRecord } from "../shared/config/capabilityResolution";
 import { EMPTY_CATALOG_LOOKUP } from "../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../shared/config/resolutionTable";
@@ -39,8 +39,8 @@ import { GroupStatusReporter } from "./catalog/statusReporting";
 import type { ServerModelsSnapshot } from "./catalog/statusWindow";
 import { StatusWindow } from "./catalog/statusWindow";
 import { ChatClient } from "./transport/chatClient";
-import { toLanguageModelError } from "./transport/errorMapping";
 import type { TransportFetch } from "./transport/nodeHttpFetch";
+import { RequestError } from "./transport/transportErrors";
 
 /** The terse classification keeps the model ID out of public logs. */
 function unroutableModelError(modelId: string, reason: "no group identity" | "group not served"): MirroredError {
@@ -49,6 +49,33 @@ function unroutableModelError(modelId: string, reason: "no group identity" | "gr
 		`Model "${modelId}" is not registered with any configured server. Refresh the model list and try again.`,
 		`RequestRouting(${reason})`
 	);
+}
+
+/**
+ * Only the taxonomy-backed cases map; everything else - including CancellationError, which is never wrapped or logged
+ * - passes through unchanged, and 401s keep their auth classification rather than being re-wrapped as anything else.
+ *
+ *   it renders in the chat UI -> the message is preserved
+ *   Wrap a classified transport failure in the stable LanguageModelError -> vscode.lm consumers can branch on the
+ *     documented codes instead of matching message text
+ */
+export function toLanguageModelError(err: unknown): unknown {
+	if (!(err instanceof RequestError)) {
+		return err;
+	}
+	let wrapped: Error | undefined;
+	if (err.kind === "auth") {
+		wrapped = LanguageModelError.NoPermissions(err.message);
+	} else if (err.status === 404) {
+		wrapped = LanguageModelError.NotFound(err.message);
+	} else if (err.status === 429) {
+		wrapped = LanguageModelError.Blocked(err.message);
+	}
+	if (wrapped === undefined) {
+		return err;
+	}
+	wrapped.cause = err;
+	return wrapped;
 }
 
 export interface LiteLLMChatModelProviderOptions {

@@ -1,13 +1,17 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { HttpResponse, http } from "msw";
+import { APIError } from "openai";
 import * as vscode from "vscode";
+import { toLanguageModelError } from "../../provider";
 import { mapModelInfoEntry, parseModelInfoItem } from "../../provider/catalog/discovery";
 import { DiscoveryCache } from "../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../provider/catalog/groupDiscovery";
 import { attachGroup, groupClientId } from "../../provider/catalog/groupModels";
 import { buildModelInfos } from "../../provider/catalog/registration";
 import { groupIdentity } from "../../provider/catalog/statusWindow";
+import { isHostCancellation } from "../../provider/transport/cancellation";
+import { mapSdkError } from "../../provider/transport/errorMapping";
 import { RequestError } from "../../provider/transport/transportErrors";
 import { Logger, publicErrorText, type RecordedError } from "../../shared/logger";
 import { MirroredError } from "../../shared/mirroredError";
@@ -1066,6 +1070,21 @@ suite("provider", () => {
 				}),
 				{ numRuns: NUM_RUNS, seed: SEED }
 			);
+		});
+	});
+
+	suite("classification for status surfaces", () => {
+		test("toLanguageModelError still maps a chat 404 to NotFound", () => {
+			const err = APIError.generate(404, { error: { message: "model not found" } }, undefined, new Headers());
+			const mapped = mapSdkError(
+				err,
+				{ surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 },
+				isHostCancellation
+			);
+			const wrapped = toLanguageModelError(mapped);
+			assert.ok(wrapped instanceof vscode.LanguageModelError, `expected LanguageModelError, got ${String(wrapped)}`);
+			assert.strictEqual(wrapped.code, vscode.LanguageModelError.NotFound().code);
+			assert.strictEqual(wrapped.cause, mapped);
 		});
 	});
 });

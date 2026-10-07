@@ -1,3 +1,8 @@
+/**
+ * Pinned under bun so an expected string is checked before a push. The LanguageModelError wrap at the provider boundary
+ * needs the host, so its pin lives in src/test/provider/index.test.ts.
+ */
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import {
 	APIConnectionError,
@@ -6,9 +11,8 @@ import {
 	APIUserAbortError,
 	AuthenticationError,
 } from "openai";
-import { CancellationError, LanguageModelError } from "vscode";
-import { OAuthTokenSource, type TimeoutBudget } from "../../../provider/transport/auth";
-import { mapSdkError, toLanguageModelError } from "../../../provider/transport/errorMapping";
+import { OAuthTokenSource, type TimeoutBudget } from "../../../../provider/transport/auth";
+import { mapSdkError } from "../../../../provider/transport/errorMapping";
 import {
 	type MapErrorContext,
 	RequestError,
@@ -20,16 +24,18 @@ import {
 	thrownErrorDisplayText,
 	timeoutMessage,
 	timeoutRequestError,
-} from "../../../provider/transport/transportErrors";
-import { transportClassificationOf } from "../../../shared/errorClassification";
-import { Logger } from "../../../shared/logger";
-import { localizedError, MirroredError } from "../../../shared/mirroredError";
-import { DEFAULT_API_VERSION } from "../../../shared/util/baseUrl";
-import { assertShows, assertStartsWith } from "../../pureHelpers";
+} from "../../../../provider/transport/transportErrors";
+import { transportClassificationOf } from "../../../../shared/errorClassification";
+import { Logger } from "../../../../shared/logger";
+import { localizedError, MirroredError } from "../../../../shared/mirroredError";
+import { DEFAULT_API_VERSION } from "../../../../shared/util/baseUrl";
+import { assertShows, assertStartsWith } from "../../../pureHelpers";
 
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 const commitCtx: MapErrorContext = { surface: "commitGeneration", baseUrl: "http://litellm.test", timeoutMs: 5000 };
+/** The host's predicate is vscode.CancellationError, which this tree cannot load; these pins hand the mapper one that never fires. */
+const neverCancelled = (_error: unknown): _error is never => false;
 
 /**
  * The cause chain the SDK produces for transport failures: its "Connection error." wrapper around undici's TypeError
@@ -47,12 +53,12 @@ function expectRequestError(mapped: Error, kind: RequestError["kind"]): RequestE
 	return mapped;
 }
 
-suite("provider/transport/errorMapping", () => {
-	suite("HTTP status errors", () => {
+describe("provider/transport/errorMapping", () => {
+	describe("HTTP status errors", () => {
 		test("401 maps to the authentication message on both surfaces", () => {
 			const err = new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers());
 			for (const ctx of [chatCtx, discoveryCtx]) {
-				const mapped = expectRequestError(mapSdkError(err, ctx), "auth");
+				const mapped = expectRequestError(mapSdkError(err, ctx, neverCancelled), "auth");
 				assert.strictEqual(mapped.status, 401);
 				assert.ok(
 					mapped.message.startsWith("Authentication failed: Your LiteLLM server requires an API key."),
@@ -80,7 +86,7 @@ suite("provider/transport/errorMapping", () => {
 				new Headers()
 			);
 			for (const ctx of [chatCtx, discoveryCtx]) {
-				const mapped = expectRequestError(mapSdkError(err, ctx), "auth");
+				const mapped = expectRequestError(mapSdkError(err, ctx, neverCancelled), "auth");
 				assert.strictEqual(mapped.status, 401);
 				assert.ok(mapped.message.startsWith("Authentication failed upstream:"), mapped.message);
 				assert.ok(
@@ -103,7 +109,7 @@ suite("provider/transport/errorMapping", () => {
 				undefined,
 				new Headers()
 			);
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "auth");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "auth");
 			assert.ok(
 				mapped.message.startsWith("Authentication failed: Your LiteLLM server requires an API key."),
 				mapped.message
@@ -124,7 +130,7 @@ suite("provider/transport/errorMapping", () => {
 				undefined,
 				new Headers()
 			);
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "auth");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "auth");
 			assert.ok(
 				mapped.message.startsWith("Authentication failed: Your LiteLLM server requires an API key."),
 				mapped.message
@@ -143,7 +149,7 @@ suite("provider/transport/errorMapping", () => {
 				undefined,
 				new Headers()
 			);
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "auth");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "auth");
 			assert.ok(mapped.message.startsWith("Authentication failed upstream:"), mapped.message);
 		});
 
@@ -161,10 +167,10 @@ suite("provider/transport/errorMapping", () => {
 			});
 
 			const detail = "LiteLLM 400 invalid_request_error: unsupported parameter: frobnicate";
-			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
+			const chat = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "http");
 			assert.strictEqual(chat.message, `The server rejected this request as invalid.\n\nDetails: ${detail}`);
 			assert.strictEqual(chat.status, 400);
-			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
+			const discovery = expectRequestError(mapSdkError(err, discoveryCtx, neverCancelled), "http");
 			assert.strictEqual(discovery.message, `The server refused the model-list request.\n${detail}`);
 			assert.strictEqual(discovery.status, 400);
 			assert.ok(!chat.message.includes('{"error"'), "the JSON envelope is never re-serialized into the message");
@@ -183,7 +189,7 @@ suite("provider/transport/errorMapping", () => {
 				undefined,
 				new Headers()
 			);
-			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
+			const chat = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "http");
 			assert.strictEqual(chat.status, 429, "Blocked mapping keys off status 429; it must survive");
 			assert.ok(
 				chat.message.startsWith(
@@ -204,7 +210,7 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(chat.logClassification, "RequestError(http, status 429, budget_exceeded)");
 			assert.strictEqual(chat.englishMessage, chat.message);
 
-			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
+			const discovery = expectRequestError(mapSdkError(err, discoveryCtx, neverCancelled), "http");
 			assert.ok(
 				discovery.message.startsWith("This key's budget is used up - the server refused to refresh the model list."),
 				discovery.message
@@ -214,7 +220,7 @@ suite("provider/transport/errorMapping", () => {
 
 		test("a plain 429 keeps the rate-limit headline and the status-only classification", () => {
 			const err = APIError.generate(429, { error: { message: "Rate limit reached" } }, undefined, new Headers());
-			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
+			const chat = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "http");
 			assert.ok(
 				chat.message.startsWith("The server is handling too many requests - wait a moment and try again."),
 				chat.message
@@ -226,9 +232,9 @@ suite("provider/transport/errorMapping", () => {
 			// Copilot Chat's error block flattens newlines, so the chat surface needs the textual boundary; the
 			// dashboard and tooltips split discovery messages on the single "\n".
 			const err = APIError.generate(500, { error: { message: "boom" } }, undefined, new Headers());
-			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
+			const chat = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "http");
 			assert.ok(chat.message.includes("\n\nDetails: "), chat.message);
-			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
+			const discovery = expectRequestError(mapSdkError(err, discoveryCtx, neverCancelled), "http");
 			assert.ok(!discovery.message.includes("Details:"), discovery.message);
 			assert.ok(discovery.message.includes("\n") && !discovery.message.includes("\n\n"), discovery.message);
 		});
@@ -238,20 +244,20 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(err.error, undefined);
 			assert.strictEqual(err.message, "400 plain text failure, not JSON");
 
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "http");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "http");
 			assert.strictEqual(
 				mapped.message,
 				"The server rejected this request as invalid.\n\nDetails: LiteLLM 400: plain text failure, not JSON"
 			);
 			assert.strictEqual(mapped.status, 400);
 			// Discovery does not brand a non-envelope body as LiteLLM's: the gateway may be the one speaking.
-			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
+			const discovery = expectRequestError(mapSdkError(err, discoveryCtx, neverCancelled), "http");
 			assert.ok(discovery.message.endsWith("\nHTTP 400: plain text failure, not JSON"), discovery.message);
 		});
 
 		test("discovery 404 points at the base URL with the /v1 and default-port guidance", () => {
 			const err = APIError.generate(404, { error: { message: "no such route" } }, undefined, new Headers());
-			const mapped = expectRequestError(mapSdkError(err, discoveryCtx), "http");
+			const mapped = expectRequestError(mapSdkError(err, discoveryCtx, neverCancelled), "http");
 			assert.strictEqual(mapped.status, 404);
 			assert.strictEqual(mapped.setupHint, "check-base-url");
 			assertShows(mapped.message, "http://litellm.test", "discovery 404 names the base URL");
@@ -266,7 +272,7 @@ suite("provider/transport/errorMapping", () => {
 
 		test("chat 404 leads with the removed-model guidance and suggests Sync Models, with no setupHint", () => {
 			const err = APIError.generate(404, { error: { message: "model not found" } }, undefined, new Headers());
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "http");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "http");
 			assert.strictEqual(mapped.status, 404);
 			assert.ok(mapped.message.startsWith("The server did not recognize this request"), mapped.message);
 			assert.ok(mapped.message.includes("LiteLLM: Sync Models Now"), mapped.message);
@@ -286,20 +292,20 @@ suite("provider/transport/errorMapping", () => {
 			const err = new APIError(404, undefined, "default backend - 404", new Headers());
 			// Chat keeps the recovered text: the nginx/wrong-server signature of a /v1-doubled base URL is the useful
 			// clue.
-			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
+			const chat = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "http");
 			assert.ok(chat.message.endsWith("\n\nDetails: LiteLLM 404: default backend - 404"), chat.message);
 			// The discovery headline already says this address does not serve the LiteLLM API; an HTML 404 page or
 			// plain-text body adds nothing.
-			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
+			const discovery = expectRequestError(mapSdkError(err, discoveryCtx, neverCancelled), "http");
 			assert.ok(!discovery.message.includes("\n"), discovery.message);
 			assert.ok(!discovery.message.includes("default backend"), discovery.message);
 		});
 	});
 
-	suite("connection errors", () => {
+	describe("connection errors", () => {
 		test("ECONNREFUSED in the cause chain maps to the connection message with the cause on the detail line", () => {
 			const err = connectionError(new Error("connect ECONNREFUSED 127.0.0.1:4000"));
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "connection");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "connection");
 			assert.strictEqual(
 				mapped.message,
 				"Connection Error: Unable to connect to http://litellm.test. Please check that the server is running and the URL is correct.\n\nDetails: fetch failed (cause: connect ECONNREFUSED 127.0.0.1:4000)"
@@ -314,7 +320,7 @@ suite("provider/transport/errorMapping", () => {
 			const err = connectionError(
 				Object.assign(new Error("getaddrinfo ENOTFOUND litellm.internal"), { code: "ENOTFOUND" })
 			);
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "connection");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "connection");
 			assertStartsWith(
 				mapped.message,
 				"Connection Error: Unable to connect to http://litellm.test. Please check that the server is running and the URL is correct."
@@ -328,7 +334,7 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(mapped.setupHint, undefined);
 		});
 
-		suite("*.localhost hosts", () => {
+		describe("*.localhost hosts", () => {
 			function localhostCtx(baseUrl: string): MapErrorContext {
 				return { surface: "chat", baseUrl, timeoutMs: 5000 };
 			}
@@ -337,7 +343,7 @@ suite("provider/transport/errorMapping", () => {
 
 			test("ENOTFOUND at a *.localhost host leads with the bare-localhost correction and its setup hint", () => {
 				const mapped = expectRequestError(
-					mapSdkError(enotfound(), localhostCtx("http://www.localhost:8001")),
+					mapSdkError(enotfound(), localhostCtx("http://www.localhost:8001"), neverCancelled),
 					"connection"
 				);
 				// The correction leads the headline: toasts truncate from the tail, so a trailing try-this sentence
@@ -355,7 +361,11 @@ suite("provider/transport/errorMapping", () => {
 
 			test("the discovery surface carries the same suggestion and hint", () => {
 				const mapped = expectRequestError(
-					mapSdkError(enotfound(), { surface: "discovery", baseUrl: "http://www.localhost:8001", timeoutMs: 5000 }),
+					mapSdkError(
+						enotfound(),
+						{ surface: "discovery", baseUrl: "http://www.localhost:8001", timeoutMs: 5000 },
+						neverCancelled
+					),
 					"connection"
 				);
 				assert.ok(mapped.message.includes("Try http://localhost:8001 instead"), mapped.message);
@@ -364,7 +374,7 @@ suite("provider/transport/errorMapping", () => {
 
 			test("the corrected URL keeps scheme, port, and path: only the host changes", () => {
 				const mapped = expectRequestError(
-					mapSdkError(enotfound(), localhostCtx("https://api.dev.localhost:8080/v1")),
+					mapSdkError(enotfound(), localhostCtx("https://api.dev.localhost:8080/v1"), neverCancelled),
 					"connection"
 				);
 				assert.ok(mapped.message.includes("Try https://localhost:8080/v1 instead"), mapped.message);
@@ -373,7 +383,7 @@ suite("provider/transport/errorMapping", () => {
 
 			test("a trailing dot on the host still counts as the family", () => {
 				const mapped = expectRequestError(
-					mapSdkError(enotfound(), localhostCtx("http://www.localhost.:8001")),
+					mapSdkError(enotfound(), localhostCtx("http://www.localhost.:8001"), neverCancelled),
 					"connection"
 				);
 				assert.ok(mapped.message.includes("Try http://localhost:8001 instead"), mapped.message);
@@ -382,7 +392,7 @@ suite("provider/transport/errorMapping", () => {
 
 			test("the family check is case-insensitive", () => {
 				const mapped = expectRequestError(
-					mapSdkError(enotfound(), localhostCtx("http://WWW.LOCALHOST:8001")),
+					mapSdkError(enotfound(), localhostCtx("http://WWW.LOCALHOST:8001"), neverCancelled),
 					"connection"
 				);
 				assert.ok(mapped.message.includes("Try http://localhost:8001 instead"), mapped.message);
@@ -393,27 +403,39 @@ suite("provider/transport/errorMapping", () => {
 				// The refusal proves the name resolved and the port answered "nothing here"; bare localhost would reach
 				// the same loopback, so the corrected-URL advice cannot fix the observed failure.
 				const err = connectionError(new Error("connect ECONNREFUSED 127.0.0.1:8001"));
-				const mapped = expectRequestError(mapSdkError(err, localhostCtx("http://www.localhost:8001")), "connection");
+				const mapped = expectRequestError(
+					mapSdkError(err, localhostCtx("http://www.localhost:8001"), neverCancelled),
+					"connection"
+				);
 				assert.strictEqual(mapped.setupHint, "proxy-not-running");
 				assert.ok(!mapped.message.includes("Try "), mapped.message);
 			});
 
 			test("plain localhost is not the family: ECONNREFUSED keeps proxy-not-running and no suggestion renders", () => {
 				const err = connectionError(new Error("connect ECONNREFUSED 127.0.0.1:4000"));
-				const mapped = expectRequestError(mapSdkError(err, localhostCtx("http://localhost:4000")), "connection");
+				const mapped = expectRequestError(
+					mapSdkError(err, localhostCtx("http://localhost:4000"), neverCancelled),
+					"connection"
+				);
 				assert.strictEqual(mapped.setupHint, "proxy-not-running");
 				assert.ok(!mapped.message.includes("Try "), mapped.message);
 			});
 
 			test("an IPv6 loopback host is not the family", () => {
-				const mapped = expectRequestError(mapSdkError(enotfound(), localhostCtx("http://[::1]:8001")), "connection");
+				const mapped = expectRequestError(
+					mapSdkError(enotfound(), localhostCtx("http://[::1]:8001"), neverCancelled),
+					"connection"
+				);
 				assert.strictEqual(mapped.setupHint, undefined);
 				assert.ok(!mapped.message.includes("Try "), mapped.message);
 			});
 
 			test("a non-connection failure at a *.localhost host gets neither suggestion nor hint", () => {
 				const err = connectionError(new Error("certificate has expired"));
-				const mapped = expectRequestError(mapSdkError(err, localhostCtx("http://www.localhost:8001")), "certificate");
+				const mapped = expectRequestError(
+					mapSdkError(err, localhostCtx("http://www.localhost:8001"), neverCancelled),
+					"certificate"
+				);
 				assert.strictEqual(mapped.setupHint, undefined);
 				assert.ok(!mapped.message.includes("Try "), mapped.message);
 			});
@@ -430,11 +452,15 @@ suite("provider/transport/errorMapping", () => {
 				[
 					"connection headline",
 					expectRequestError(
-						mapSdkError(connectionError(new Error("connect ECONNREFUSED 127.0.0.1:4000")), {
-							surface: "chat",
-							baseUrl: base,
-							timeoutMs: 5000,
-						}),
+						mapSdkError(
+							connectionError(new Error("connect ECONNREFUSED 127.0.0.1:4000")),
+							{
+								surface: "chat",
+								baseUrl: base,
+								timeoutMs: 5000,
+							},
+							neverCancelled
+						),
 						"connection"
 					).message,
 					shown,
@@ -444,7 +470,8 @@ suite("provider/transport/errorMapping", () => {
 					expectRequestError(
 						mapSdkError(
 							connectionError(Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" })),
-							{ surface: "chat", baseUrl: "http://user:sekret@www.localhost:8001", timeoutMs: 5000 }
+							{ surface: "chat", baseUrl: "http://user:sekret@www.localhost:8001", timeoutMs: 5000 },
+							neverCancelled
 						),
 						"connection"
 					).message,
@@ -453,11 +480,15 @@ suite("provider/transport/errorMapping", () => {
 				[
 					"certificate detail",
 					expectRequestError(
-						mapSdkError(connectionError(new Error("unable to verify the first certificate")), {
-							surface: "chat",
-							baseUrl: "https://user:sekret@litellm.test",
-							timeoutMs: 5000,
-						}),
+						mapSdkError(
+							connectionError(new Error("unable to verify the first certificate")),
+							{
+								surface: "chat",
+								baseUrl: "https://user:sekret@litellm.test",
+								timeoutMs: 5000,
+							},
+							neverCancelled
+						),
 						"certificate"
 					).message,
 					"SSL certificate error for https://[redacted]@litellm.test",
@@ -475,19 +506,25 @@ suite("provider/transport/errorMapping", () => {
 				[
 					"cause-chain detail",
 					expectRequestError(
-						mapSdkError(connectionError(new Error(`Failed to parse URL from ${base}/v1`)), {
-							surface: "chat",
-							baseUrl: base,
-							timeoutMs: 5000,
-						}),
+						mapSdkError(
+							connectionError(new Error(`Failed to parse URL from ${base}/v1`)),
+							{
+								surface: "chat",
+								baseUrl: base,
+								timeoutMs: 5000,
+							},
+							neverCancelled
+						),
 						"network"
 					).message,
 					`Failed to parse URL from ${shown}/v1`,
 				],
 				[
 					"404 body detail",
-					expectRequestError(mapSdkError(notFound, { surface: "chat", baseUrl: base, timeoutMs: 5000 }), "http")
-						.message,
+					expectRequestError(
+						mapSdkError(notFound, { surface: "chat", baseUrl: base, timeoutMs: 5000 }, neverCancelled),
+						"http"
+					).message,
 					`Details: LiteLLM 404: rejected ${shown}`,
 				],
 				[
@@ -497,7 +534,7 @@ suite("provider/transport/errorMapping", () => {
 				],
 				[
 					"anonymous tail",
-					mapSdkError(new Error(`boom while probing ${base}/v1`), chatCtx).message,
+					mapSdkError(new Error(`boom while probing ${base}/v1`), chatCtx, neverCancelled).message,
 					`boom while probing ${shown}/v1`,
 				],
 			];
@@ -509,7 +546,10 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(transportClassificationOf(unclassified), undefined);
 			assert.strictEqual(
 				statusLogSafeError(
-					expectRequestError(mapSdkError(notFound, { surface: "chat", baseUrl: base, timeoutMs: 5000 }), "http")
+					expectRequestError(
+						mapSdkError(notFound, { surface: "chat", baseUrl: base, timeoutMs: 5000 }, neverCancelled),
+						"http"
+					)
 				),
 				"RequestError(http, status 404, chat)"
 			);
@@ -517,7 +557,7 @@ suite("provider/transport/errorMapping", () => {
 
 		test("expired certificate in the cause chain maps to the SSL-expired message", () => {
 			const err = connectionError(new Error("certificate has expired"));
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "certificate");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "certificate");
 			assert.strictEqual(
 				mapped.message,
 				"SSL Certificate Error: The SSL certificate for http://litellm.test has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL."
@@ -526,7 +566,7 @@ suite("provider/transport/errorMapping", () => {
 
 		test("other certificate failures get the untrusted-certificate headline with the cause on the detail line", () => {
 			const err = connectionError(new Error("self-signed certificate"));
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "certificate");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "certificate");
 			assert.strictEqual(
 				mapped.message,
 				"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's " +
@@ -544,7 +584,7 @@ suite("provider/transport/errorMapping", () => {
 					code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
 				})
 			);
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "certificate");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "certificate");
 			assert.ok(
 				mapped.message.endsWith(
 					"\n\nDetails: SSL certificate error for http://litellm.test: unable to verify the first certificate (UNABLE_TO_VERIFY_LEAF_SIGNATURE)"
@@ -554,7 +594,7 @@ suite("provider/transport/errorMapping", () => {
 		});
 	});
 
-	suite("socket-failure classifier parity (chat transport vs OAuth token endpoint)", () => {
+	describe("socket-failure classifier parity (chat transport vs OAuth token endpoint)", () => {
 		// Both entry points classify the same raw fetch failures through the one shared classifier: identical kind and
 		// identical cause-detail extraction, with only the context-sanctioned advice differing. The expected headlines
 		// are pinned per entry point so every wording difference is a decision recorded here, not drift.
@@ -567,7 +607,8 @@ suite("provider/transport/errorMapping", () => {
 			budget: TimeoutBudget = { ms: 5000, setting: "discovery.timeout" }
 		): Promise<RequestError> {
 			const realFetch = globalThis.fetch;
-			globalThis.fetch = () => Promise.reject(makeFailure());
+			// bun's fetch type carries preconnect, which the exchange never calls.
+			globalThis.fetch = (() => Promise.reject(makeFailure())) as unknown as typeof fetch;
 			try {
 				await new OAuthTokenSource().getToken(
 					{ tokenUrl: URL_UNDER_TEST, clientId: "client-1", clientSecret: "secret-1" },
@@ -712,7 +753,7 @@ suite("provider/transport/errorMapping", () => {
 		for (const c of cases) {
 			test(`${c.name} classifies identically at both entry points`, async () => {
 				const chat = expectRequestError(
-					mapSdkError(new APIConnectionError({ cause: fetchFailure(c.deepest()) }), chatCtx),
+					mapSdkError(new APIConnectionError({ cause: fetchFailure(c.deepest()) }), chatCtx, neverCancelled),
 					c.kind
 				);
 				const oauth = await oauthSocketFailure(() => fetchFailure(c.deepest()));
@@ -739,7 +780,7 @@ suite("provider/transport/errorMapping", () => {
 			const deepest = () => new DOMException("The operation was aborted due to timeout", "TimeoutError");
 
 			const chat = expectRequestError(
-				mapSdkError(new APIConnectionError({ cause: fetchFailure(deepest()) }), chatCtx),
+				mapSdkError(new APIConnectionError({ cause: fetchFailure(deepest()) }), chatCtx, neverCancelled),
 				"timeout"
 			);
 			assert.strictEqual(chat.message, timeoutMessage(chatCtx));
@@ -795,15 +836,15 @@ suite("provider/transport/errorMapping", () => {
 		});
 	});
 
-	suite("timeouts", () => {
+	describe("timeouts", () => {
 		test("a TimeoutError DOMException in the cause chain maps to the per-surface timeout message", () => {
 			const err = connectionError(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
 
-			const chat = expectRequestError(mapSdkError(err, chatCtx), "timeout");
+			const chat = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "timeout");
 			assert.strictEqual(chat.message, timeoutMessage(chatCtx));
 			assert.match(chat.message, /chat\.timeout/);
 
-			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "timeout");
+			const discovery = expectRequestError(mapSdkError(err, discoveryCtx, neverCancelled), "timeout");
 			assert.strictEqual(discovery.message, timeoutMessage(discoveryCtx));
 			assert.match(discovery.message, /discovery\.timeout/);
 		});
@@ -811,10 +852,10 @@ suite("provider/transport/errorMapping", () => {
 		test("APIConnectionTimeoutError maps to the per-surface timeout message", () => {
 			const err = new APIConnectionTimeoutError();
 
-			const chat = expectRequestError(mapSdkError(err, chatCtx), "timeout");
+			const chat = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "timeout");
 			assert.match(chat.message, /chat\.timeout/);
 
-			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "timeout");
+			const discovery = expectRequestError(mapSdkError(err, discoveryCtx, neverCancelled), "timeout");
 			assert.match(discovery.message, /discovery\.timeout/);
 		});
 
@@ -850,7 +891,7 @@ suite("provider/transport/errorMapping", () => {
 			];
 			for (const { name, cause, kind, message } of cases) {
 				const err = Object.assign(new APIConnectionTimeoutError(), { cause });
-				const mapped = expectRequestError(mapSdkError(err, chatCtx), kind);
+				const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), kind);
 				assert.match(mapped.message, message, name);
 				if (kind !== "timeout") {
 					assert.doesNotMatch(mapped.message, /chat\.timeout/, `${name}: raising the budget cannot help`);
@@ -859,9 +900,9 @@ suite("provider/transport/errorMapping", () => {
 		});
 	});
 
-	suite("pass-through and construction", () => {
+	describe("pass-through and construction", () => {
 		test("APIUserAbortError maps to an aborted RequestError", () => {
-			const mapped = expectRequestError(mapSdkError(new APIUserAbortError(), chatCtx), "aborted");
+			const mapped = expectRequestError(mapSdkError(new APIUserAbortError(), chatCtx, neverCancelled), "aborted");
 			assert.strictEqual(mapped.message, "Request was aborted.");
 		});
 
@@ -871,7 +912,7 @@ suite("provider/transport/errorMapping", () => {
 			const err = Object.assign(new TypeError("terminated"), {
 				cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
 			});
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "network");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "network");
 			assert.ok(mapped.message.startsWith("The connection dropped before the model finished replying"), mapped.message);
 			assert.ok(
 				mapped.message.endsWith(
@@ -882,7 +923,7 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(mapped.cause, err);
 			// The commit call is non-streaming: no partial answer exists, so the "cut short" wording would be false
 			// there.
-			const commit = expectRequestError(mapSdkError(err, commitCtx), "network");
+			const commit = expectRequestError(mapSdkError(err, commitCtx, neverCancelled), "network");
 			assertStartsWith(
 				commit.message,
 				"The connection dropped before the reply arrived, so no commit message was generated"
@@ -892,26 +933,26 @@ suite("provider/transport/errorMapping", () => {
 				commit.message.includes("\n\nDetails: Connection to http://litellm.test closed mid-response"),
 				"commit errors reach a newline-flattening notification, so the join carries the Details lead-in"
 			);
-			const disco = expectRequestError(mapSdkError(err, discoveryCtx), "network");
+			const disco = expectRequestError(mapSdkError(err, discoveryCtx, neverCancelled), "network");
 			assertStartsWith(disco.message, "The connection to http://litellm.test dropped while fetching models");
 			assert.ok(disco.message.endsWith("\nterminated (cause: other side closed)"), disco.message);
 		});
 
 		test("an ECONNRESET without SDK wrapping still classifies as a network error", () => {
 			const err = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
-			expectRequestError(mapSdkError(err, chatCtx), "network");
+			expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "network");
 		});
 
 		test("the never-connected fallback splits headline and cause detail per surface", () => {
 			const err = connectionError(
 				Object.assign(new Error("getaddrinfo EAI_AGAIN litellm.internal"), { code: "EAI_AGAIN" })
 			);
-			const chat = expectRequestError(mapSdkError(err, chatCtx), "network");
+			const chat = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "network");
 			assert.strictEqual(
 				chat.message,
 				"Could not reach http://litellm.test. Check your network, VPN, or proxy settings, and that the server is up.\n\nDetails: fetch failed (cause: getaddrinfo EAI_AGAIN litellm.internal)"
 			);
-			const disco = expectRequestError(mapSdkError(err, discoveryCtx), "network");
+			const disco = expectRequestError(mapSdkError(err, discoveryCtx, neverCancelled), "network");
 			assertStartsWith(disco.message, "Could not reach http://litellm.test to list its models.");
 			assert.ok(
 				disco.message.endsWith("\nfetch failed (cause: getaddrinfo EAI_AGAIN litellm.internal)"),
@@ -924,20 +965,33 @@ suite("provider/transport/errorMapping", () => {
 				status: 500,
 				englishMessage: "upstream said: terminated",
 			});
-			assert.strictEqual(mapSdkError(err, chatCtx), err);
+			assert.strictEqual(mapSdkError(err, chatCtx, neverCancelled), err);
 		});
 
-		test("a CancellationError passes through unwrapped", () => {
-			const err = new CancellationError();
-			assert.strictEqual(mapSdkError(err, chatCtx), err);
-			assert.strictEqual(mapSdkError(err, discoveryCtx), err);
+		test("an error the cancellation predicate recognises passes through unwrapped on every surface", () => {
+			// The host's class is vscode.CancellationError, which this tree cannot load, so a sentinel class stands in.
+			class Cancelled extends Error {
+				constructor() {
+					super("Canceled");
+					this.name = "Canceled";
+				}
+			}
+			const err = new Cancelled();
+			const isCancellation = (error: unknown): error is Cancelled => error instanceof Cancelled;
+			for (const surface of TRANSPORT_ERROR_SURFACES) {
+				const ctx: MapErrorContext = { surface, baseUrl: "http://litellm.test", timeoutMs: 5000 };
+				assert.strictEqual(mapSdkError(err, ctx, isCancellation), err, surface);
+			}
+			const wrapped = mapSdkError(err, chatCtx, neverCancelled) as Error & { logClassification?: string };
+			assert.notStrictEqual(wrapped, err);
+			assert.strictEqual(wrapped.logClassification, "unhandled Error in transport (Canceled, chat)");
 		});
 
 		test("an Error already carrying an englishMessage mirror passes through unwrapped", () => {
 			// The localizedError construction sites (chatClient pre-flight throws, the stream processor) arrive here
 			// already shaped; re-headlining would double-wrap them.
 			const err = localizedError("display", "english");
-			assert.strictEqual(mapSdkError(err, chatCtx), err);
+			assert.strictEqual(mapSdkError(err, chatCtx, neverCancelled), err);
 		});
 
 		test("a classification-only MirroredError passes through unwrapped too", () => {
@@ -946,22 +1000,25 @@ suite("provider/transport/errorMapping", () => {
 			const err = new MirroredError("display quoting a response body", {
 				logClassification: "ValidationError(example)",
 			});
-			assert.strictEqual(mapSdkError(err, chatCtx), err);
-			assert.strictEqual(mapSdkError(err, discoveryCtx), err);
+			assert.strictEqual(mapSdkError(err, chatCtx, neverCancelled), err);
+			assert.strictEqual(mapSdkError(err, discoveryCtx, neverCancelled), err);
 		});
 
 		test("a plain Error merely containing the word terminated is not reclassified as network", () => {
 			// The termination branch requires a socket-level signature or undici's exact top-level TypeError; unrelated
 			// errors fall to the anonymous wrapper instead.
 			const err = new Error("worker terminated by policy");
-			const mapped = mapSdkError(err, chatCtx);
+			const mapped = mapSdkError(err, chatCtx, neverCancelled);
 			assert.ok(!(mapped instanceof RequestError), "must not classify as a transport RequestError");
 			assert.ok(mapped.message.startsWith("The request failed unexpectedly."), mapped.message);
 		});
 
 		test("an unknown plain Error is wrapped with the unexpected-failure headline and a fixed classification", () => {
 			const err = new Error("boom");
-			const mapped = mapSdkError(err, chatCtx) as Error & { englishMessage?: string; logClassification?: string };
+			const mapped = mapSdkError(err, chatCtx, neverCancelled) as Error & {
+				englishMessage?: string;
+				logClassification?: string;
+			};
 			assert.strictEqual(
 				mapped.message,
 				"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.\n\nDetails: Unexpected Error during the chat request to http://litellm.test: boom"
@@ -970,13 +1027,13 @@ suite("provider/transport/errorMapping", () => {
 			// The thrown value's text is arbitrary, so the public surfaces record only the fixed shape.
 			assert.strictEqual(mapped.logClassification, "unhandled Error in transport (Error, chat)");
 			assert.strictEqual(mapped.cause, err);
-			const disco = mapSdkError(err, discoveryCtx) as Error & { logClassification?: string };
+			const disco = mapSdkError(err, discoveryCtx, neverCancelled) as Error & { logClassification?: string };
 			assert.ok(disco.message.includes("during the discovery request to http://litellm.test"), disco.message);
 			assert.strictEqual(disco.logClassification, "unhandled Error in transport (Error, discovery)");
 		});
 
 		test("a non-Error value is wrapped with its string form on the detail line", () => {
-			const mapped = mapSdkError("boom", chatCtx) as Error & { logClassification?: string };
+			const mapped = mapSdkError("boom", chatCtx, neverCancelled) as Error & { logClassification?: string };
 			assert.ok(mapped instanceof Error);
 			assert.ok(
 				mapped.message.endsWith("\n\nDetails: Unexpected string during the chat request to http://litellm.test: boom"),
@@ -986,7 +1043,7 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("a value whose String() coercion throws still maps to an Error", () => {
-			const mapped = mapSdkError({ toString: null, valueOf: null }, chatCtx);
+			const mapped = mapSdkError({ toString: null, valueOf: null }, chatCtx, neverCancelled);
 			assert.ok(mapped instanceof Error);
 			assert.ok(mapped.message.includes("[object Object]"), mapped.message);
 		});
@@ -1000,7 +1057,7 @@ suite("provider/transport/errorMapping", () => {
 			assert.ok(err.message.endsWith("\n\nDetails: LiteLLM stream error (500): upstream died mid-stream"), err.message);
 			assert.ok(!err.message.includes('{"error"'), "the envelope is never re-serialized");
 			// mapSdkError must hand it through untouched on the way out of send().
-			assert.strictEqual(mapSdkError(err, chatCtx), err);
+			assert.strictEqual(mapSdkError(err, chatCtx, neverCancelled), err);
 		});
 
 		test("a cause-chain message masks where it is read, before the punctuation strip and the collapse", () => {
@@ -1008,13 +1065,13 @@ suite("provider/transport/errorMapping", () => {
 			// that link, which would otherwise respell the value ("key-zq7w") past the exit's reach; masked at the chain
 			// reader, the strip finds no period. The dropped-stream branch is the one whose first link is outside text.
 			Logger.registerSecrets(["key-zq7w.", "two\nlines-zq7w"]);
-			const stripped = mapSdkError(new Error("other side closed key-zq7w."), chatCtx);
+			const stripped = mapSdkError(new Error("other side closed key-zq7w."), chatCtx, neverCancelled);
 			const strippedExpected =
 				"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server." +
 				"\n\nDetails: Connection to http://litellm.test closed mid-response: other side closed [redacted]";
 			// A value with a line break in the deepest link: masked at the reader, the whitespace collapse works on the
 			// marker; the socket-failure path starts at the SDK error's cause ("fetch failed") and quotes the deepest link.
-			const collapsed = mapSdkError(connectionError(new Error("rejected two\nlines-zq7w")), chatCtx);
+			const collapsed = mapSdkError(connectionError(new Error("rejected two\nlines-zq7w")), chatCtx, neverCancelled);
 			const collapsedExpected =
 				"Could not reach http://litellm.test. Check your network, VPN, or proxy settings, and that the server is up." +
 				"\n\nDetails: fetch failed (cause: rejected [redacted])";
@@ -1036,23 +1093,12 @@ suite("provider/transport/errorMapping", () => {
 
 		test("mapSdkError's http mapping opts in with the status, never the body", () => {
 			const err = new APIError(503, { error: { message: "internal-host body" } }, "503 boom", new Headers());
-			const mapped = expectRequestError(mapSdkError(err, chatCtx), "http");
+			const mapped = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "http");
 			assert.strictEqual(mapped.logClassification, "RequestError(http, status 503)");
 		});
 	});
 
-	suite("classification for status surfaces", () => {
-		test("toLanguageModelError still maps a chat 404 to NotFound", () => {
-			const err = APIError.generate(404, { error: { message: "model not found" } }, undefined, new Headers());
-			const mapped = mapSdkError(err, chatCtx);
-			const wrapped = toLanguageModelError(mapped);
-			assert.ok(wrapped instanceof LanguageModelError, `expected LanguageModelError, got ${String(wrapped)}`);
-			assert.strictEqual(wrapped.code, LanguageModelError.NotFound().code);
-			assert.strictEqual(wrapped.cause, mapped);
-		});
-	});
-
-	suite("envelope classification parity (HTTP response vs mid-stream frame)", () => {
+	describe("envelope classification parity (HTTP response vs mid-stream frame)", () => {
 		// The same LiteLLM envelope must sort into the same class - and so the same chat headline - whether it arrives
 		// as an HTTP error response or as an in-band stream error frame after the 200.
 		const cases: {
@@ -1095,7 +1141,11 @@ suite("provider/transport/errorMapping", () => {
 		for (const c of cases) {
 			test(`a ${c.name} envelope gets the same headline over HTTP and mid-stream`, () => {
 				const http = expectRequestError(
-					mapSdkError(APIError.generate(c.status, { error: c.envelope }, undefined, new Headers()), chatCtx),
+					mapSdkError(
+						APIError.generate(c.status, { error: c.envelope }, undefined, new Headers()),
+						chatCtx,
+						neverCancelled
+					),
 					"http"
 				);
 				assertStartsWith(http.message, c.headline);
@@ -1119,7 +1169,8 @@ suite("provider/transport/errorMapping", () => {
 						undefined,
 						new Headers()
 					),
-					chatCtx
+					chatCtx,
+					neverCancelled
 				),
 				"http"
 			);
@@ -1128,7 +1179,7 @@ suite("provider/transport/errorMapping", () => {
 		});
 	});
 
-	suite("display/English split (localized display, English logs)", () => {
+	describe("display/English split (localized display, English logs)", () => {
 		test("every localized mapSdkError site records an englishMessage identical to the English display", () => {
 			// Under the test host's English fallback, l10n.t returns the English template, so display and hand-written
 			// mirror must be the same string. A mismatch means a site's English mirror drifted from its t() literal.
@@ -1137,47 +1188,80 @@ suite("provider/transport/errorMapping", () => {
 				type: null,
 			};
 			const cases: Error[] = [
-				mapSdkError(new APIConnectionTimeoutError(), chatCtx),
-				mapSdkError(new APIConnectionTimeoutError(), discoveryCtx),
-				mapSdkError(new APIConnectionTimeoutError(), commitCtx),
-				mapSdkError(new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()), chatCtx),
-				mapSdkError(new AuthenticationError(401, upstream401, undefined, new Headers()), chatCtx),
-				mapSdkError(new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()), chatCtx),
-				mapSdkError(new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()), discoveryCtx),
-				mapSdkError(new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()), commitCtx),
+				mapSdkError(new APIConnectionTimeoutError(), chatCtx, neverCancelled),
+				mapSdkError(new APIConnectionTimeoutError(), discoveryCtx, neverCancelled),
+				mapSdkError(new APIConnectionTimeoutError(), commitCtx, neverCancelled),
+				mapSdkError(
+					new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()),
+					chatCtx,
+					neverCancelled
+				),
+				mapSdkError(new AuthenticationError(401, upstream401, undefined, new Headers()), chatCtx, neverCancelled),
+				mapSdkError(
+					new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()),
+					chatCtx,
+					neverCancelled
+				),
+				mapSdkError(
+					new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()),
+					discoveryCtx,
+					neverCancelled
+				),
+				mapSdkError(
+					new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()),
+					commitCtx,
+					neverCancelled
+				),
 				mapSdkError(
 					new APIError(400, { error: { message: "maximum context length is 8192 tokens" } }, undefined, new Headers()),
-					commitCtx
+					commitCtx,
+					neverCancelled
 				),
-				mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), chatCtx),
-				mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), discoveryCtx),
-				mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), commitCtx),
-				mapSdkError(new APIUserAbortError(), chatCtx),
+				mapSdkError(
+					new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()),
+					chatCtx,
+					neverCancelled
+				),
+				mapSdkError(
+					new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()),
+					discoveryCtx,
+					neverCancelled
+				),
+				mapSdkError(
+					new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()),
+					commitCtx,
+					neverCancelled
+				),
+				mapSdkError(new APIUserAbortError(), chatCtx, neverCancelled),
 				mapSdkError(
 					connectionError(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })),
-					chatCtx
+					chatCtx,
+					neverCancelled
 				),
-				mapSdkError(connectionError(new Error("certificate has expired")), chatCtx),
-				mapSdkError(connectionError(new Error("self-signed certificate")), chatCtx),
-				mapSdkError(connectionError(new Error("socket hang up")), chatCtx),
-				mapSdkError(connectionError(new Error("socket hang up")), discoveryCtx),
+				mapSdkError(connectionError(new Error("certificate has expired")), chatCtx, neverCancelled),
+				mapSdkError(connectionError(new Error("self-signed certificate")), chatCtx, neverCancelled),
+				mapSdkError(connectionError(new Error("socket hang up")), chatCtx, neverCancelled),
+				mapSdkError(connectionError(new Error("socket hang up")), discoveryCtx, neverCancelled),
 				mapSdkError(
 					Object.assign(new TypeError("terminated"), {
 						cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
 					}),
-					chatCtx
-				),
-				mapSdkError(
-					Object.assign(new TypeError("terminated"), {
-						cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
-					}),
-					discoveryCtx
+					chatCtx,
+					neverCancelled
 				),
 				mapSdkError(
 					Object.assign(new TypeError("terminated"), {
 						cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
 					}),
-					commitCtx
+					discoveryCtx,
+					neverCancelled
+				),
+				mapSdkError(
+					Object.assign(new TypeError("terminated"), {
+						cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
+					}),
+					commitCtx,
+					neverCancelled
 				),
 				streamErrorFrame({ message: "upstream died" }),
 			];

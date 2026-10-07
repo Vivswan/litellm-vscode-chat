@@ -1,7 +1,7 @@
 /**
- * Pinned under bun so an expected string is checked before a push. The pins that need vscode (CancellationError
- * identity, LanguageModelError construction, mapSdkError's routing) stay in the host suite
- * src/test/provider/transport/errorMapping.test.ts.
+ * Pinned under bun so an expected string is checked before a push. mapSdkError's routing is pinned beside this file in
+ * errorMapping.test.ts. The LanguageModelError wrap at the provider boundary needs the host, so its pin lives in
+ * src/test/provider/index.test.ts.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";

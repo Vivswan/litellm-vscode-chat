@@ -1,6 +1,11 @@
+/**
+ * The SDK-error mapper without a vscode value, so its pins run under bun (src/test/bun/preload.ts admits no module whose
+ * imports reach vscode). The host's cancellation class is the one vscode value the mapping needs, so callers inject it as
+ * the isCancellation predicate (cancellation.ts). The LanguageModelError wrap sits at the provider boundary
+ * (src/provider/index.ts).
+ */
 import * as l10n from "@vscode/l10n";
 import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from "openai";
-import { CancellationError, LanguageModelError } from "vscode";
 import { manageCommandTitle } from "../../shared/config/commandIds";
 import { errorMessageText } from "../../shared/logger";
 import { MirroredError } from "../../shared/mirroredError";
@@ -21,33 +26,6 @@ import {
 	timeoutRequestError,
 	twoPartTexts,
 } from "./transportErrors";
-
-/**
- * Only the taxonomy-backed cases map; everything else - including CancellationError, which is never wrapped or logged
- * - passes through unchanged, and 401s keep their auth classification rather than being re-wrapped as anything else.
- *
- *   it renders in the chat UI -> the message is preserved
- *   Wrap a classified transport failure in the stable LanguageModelError -> vscode.lm consumers can branch on the
- *     documented codes instead of matching message text
- */
-export function toLanguageModelError(err: unknown): unknown {
-	if (!(err instanceof RequestError)) {
-		return err;
-	}
-	let wrapped: Error | undefined;
-	if (err.kind === "auth") {
-		wrapped = LanguageModelError.NoPermissions(err.message);
-	} else if (err.status === 404) {
-		wrapped = LanguageModelError.NotFound(err.message);
-	} else if (err.status === 429) {
-		wrapped = LanguageModelError.Blocked(err.message);
-	}
-	if (wrapped === undefined) {
-		return err;
-	}
-	wrapped.cause = err;
-	return wrapped;
-}
 
 /**
  * Lazy so the l10n bundle lookup and the interpolated manage-command title both resolve at 401 time, not module load.
@@ -95,8 +73,15 @@ function isUpstreamAuthFailure(error: unknown): boolean {
 	return typeof message === "string" && /litellm\.[\w.]*AuthenticationError/i.test(message);
 }
 
-/** The SDK adds a wrapper level over the socket/TLS error that carries the actionable string. */
-export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
+/**
+ * The SDK adds a wrapper level over the socket/TLS error that carries the actionable string. An error `isCancellation`
+ * recognises passes through untouched: cancellation is never wrapped, so the provider boundary can keep it unlogged.
+ */
+export function mapSdkError(
+	err: unknown,
+	ctx: MapErrorContext,
+	isCancellation: (error: unknown) => error is Error
+): Error {
 	if (err instanceof APIError && typeof err.status === "number") {
 		if (err.status === 401) {
 			return isUpstreamAuthFailure(err.error)
@@ -178,7 +163,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		);
 	}
 
-	if (err instanceof RequestError || err instanceof MirroredError || err instanceof CancellationError) {
+	if (err instanceof RequestError || err instanceof MirroredError || isCancellation(err)) {
 		return err;
 	}
 	// Errors shaped elsewhere but carrying the English mirror duck-typed already carry their display/English pair;

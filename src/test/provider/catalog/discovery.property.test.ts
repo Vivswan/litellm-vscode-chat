@@ -11,6 +11,7 @@ import { deriveTokenConstraints } from "../../../provider/catalog/modelCatalog";
 import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMProvider, ModelInfoFields } from "../../../provider/catalog/schemas";
 import { supportsTools } from "../../../provider/catalog/schemas";
+import { isHostCancellation } from "../../../provider/transport/cancellation";
 import { createServerClient } from "../../../provider/transport/clients";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import { fixedHeaderValue } from "../../../shared/util/headers";
@@ -151,6 +152,7 @@ suite("provider/discovery expectedFailures retry properties", () => {
 					discoveryTimeout: 30000,
 					expected,
 					log: () => {},
+					isCancellation: isHostCancellation,
 				});
 				if (infoFails && listingFails) {
 					await assert.rejects(call, "only a /models failure is terminal, expected or not");

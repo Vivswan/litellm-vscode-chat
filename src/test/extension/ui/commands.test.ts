@@ -11,6 +11,7 @@ import {
 import { IssueReporter } from "../../../extension/ui/issueReporter";
 import type { ConnectionStatus } from "../../../extension/ui/status";
 import { zeroModelJudgment } from "../../../extension/ui/status";
+import { isHostCancellation } from "../../../provider/transport/cancellation";
 import { mapSdkError } from "../../../provider/transport/errorMapping";
 import { RequestError, statusLogSafeError } from "../../../provider/transport/transportErrors";
 import { HAS_SHOWN_WELCOME_KEY, LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
@@ -435,7 +436,11 @@ suite("extension/ui/commands", () => {
 				"check-base-url": {
 					label: "a discovery 404",
 					buildError: () =>
-						mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), ctx),
+						mapSdkError(
+							new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()),
+							ctx,
+							isHostCancellation
+						),
 				},
 				"proxy-not-running": {
 					label: "a refused connection",
@@ -446,13 +451,18 @@ suite("extension/ui/commands", () => {
 									cause: new Error("connect ECONNREFUSED 127.0.0.1:4000"),
 								}),
 							}),
-							ctx
+							ctx,
+							isHostCancellation
 						),
 				},
 				"configure-api-key": {
 					label: "a proxy-rejected key",
 					buildError: () =>
-						mapSdkError(new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()), ctx),
+						mapSdkError(
+							new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()),
+							ctx,
+							isHostCancellation
+						),
 				},
 				"use-bare-localhost": {
 					label: "a *.localhost host that fails to resolve",
@@ -463,7 +473,8 @@ suite("extension/ui/commands", () => {
 									cause: Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" }),
 								}),
 							}),
-							{ ...ctx, baseUrl: "http://www.localhost:8001" }
+							{ ...ctx, baseUrl: "http://www.localhost:8001" },
+							isHostCancellation
 						),
 				},
 			};
@@ -535,7 +546,8 @@ suite("extension/ui/commands", () => {
 			test("the Troubleshooting Docs action opens the cause's docs deep link", async () => {
 				const mapped = mapSdkError(
 					new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()),
-					ctx
+					ctx,
+					isHostCancellation
 				);
 				const statusBar = makeStatusBar({ state: "not-configured" });
 				const opened: string[] = [];
@@ -805,7 +817,8 @@ suite("extension/ui/commands", () => {
 					surface: "discovery",
 					baseUrl: "http://litellm.test",
 					timeoutMs: 5000,
-				}
+				},
+				isHostCancellation
 			);
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const cause: FailureCause = {
@@ -1152,11 +1165,15 @@ suite("extension/ui/commands", () => {
 			reporter.recordError(
 				"discovery",
 				recordedError(
-					mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), {
-						surface: "discovery",
-						baseUrl: "http://litellm.test",
-						timeoutMs: 5000,
-					})
+					mapSdkError(
+						new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()),
+						{
+							surface: "discovery",
+							baseUrl: "http://litellm.test",
+							timeoutMs: 5000,
+						},
+						isHostCancellation
+					)
 				)
 			);
 			const mocks = mockGate("Report Anyway");

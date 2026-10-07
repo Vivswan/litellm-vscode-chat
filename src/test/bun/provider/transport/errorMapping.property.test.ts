@@ -1,19 +1,22 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { APIConnectionTimeoutError, APIError, APIUserAbortError, AuthenticationError } from "openai";
-import { mapSdkError } from "../../../provider/transport/errorMapping";
+import { mapSdkError } from "../../../../provider/transport/errorMapping";
 import {
 	type MapErrorContext,
 	RequestError,
 	TRANSPORT_ERROR_SURFACES,
 	timeoutMessage,
 	twoPartTexts,
-} from "../../../provider/transport/transportErrors";
-import { manageCommandTitle } from "../../../shared/config/commandIds";
-import { resolveFuzzSeed } from "../../fuzzStream";
+} from "../../../../provider/transport/transportErrors";
+import { manageCommandTitle } from "../../../../shared/config/commandIds";
+import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
+/** The host's predicate is vscode.CancellationError, which this tree cannot load; these pins hand the mapper one that never fires. */
+const neverCancelled = (_error: unknown): _error is never => false;
 
 /**
  * Mapped messages are user-facing and feed the issue-report buffer that opens public GitHub issues, so mapSdkError must
@@ -125,14 +128,14 @@ const proxyPlainCaseArb: fc.Arbitrary<Auth401Case> = fc
 		return { marker, expected: "proxy" as const, body: bodies[shape] };
 	});
 
-suite("provider/errorMapping properties", () => {
+describe("provider/errorMapping properties", () => {
 	test("mapSdkError is total: any input under any context maps to an Error and never throws", () => {
 		fc.assert(
 			fc.property(
 				fc.oneof(fc.anything({ maxDepth: 3, maxKeys: 5, withNullPrototype: true }), fc.jsonValue({ maxDepth: 3 })),
 				ctxArb,
 				(raw, ctx) => {
-					const mapped = mapSdkError(raw, ctx);
+					const mapped = mapSdkError(raw, ctx, neverCancelled);
 					assert.ok(mapped instanceof Error, `mapSdkError must return an Error, got ${typeof mapped}`);
 				}
 			),
@@ -143,7 +146,7 @@ suite("provider/errorMapping properties", () => {
 	test("401 bodies map to exactly one of the two fixed auth messages and never echo body text", () => {
 		fc.assert(
 			fc.property(fc.oneof(upstreamCaseArb, proxyEnvelopeCaseArb, proxyPlainCaseArb), ctxArb, (authCase, ctx) => {
-				const mapped = mapSdkError(auth401(authCase.body), ctx);
+				const mapped = mapSdkError(auth401(authCase.body), ctx, neverCancelled);
 				assert.ok(mapped instanceof RequestError, `expected RequestError, got ${mapped.name}: ${mapped.message}`);
 				assert.strictEqual(mapped.kind, "auth");
 				assert.strictEqual(mapped.status, 401);
@@ -165,7 +168,7 @@ suite("provider/errorMapping properties", () => {
 		fc.assert(
 			fc.property(markerArb, litellmMentionArb, ctxArb, (marker, mention, ctx) => {
 				const body = { message: `${mention}${marker}`, type: "auth_error", param: "None", code: "401" };
-				const mapped = mapSdkError(auth401(body), ctx);
+				const mapped = mapSdkError(auth401(body), ctx, neverCancelled);
 				assert.ok(mapped instanceof RequestError, `expected RequestError, got ${mapped.name}`);
 				assert.strictEqual(mapped.message, authMessage());
 			}),
@@ -181,7 +184,7 @@ suite("provider/errorMapping properties", () => {
 				ctxArb,
 				(status, body, ctx) => {
 					const err = new APIError(status, body as Record<string, unknown> | undefined, undefined, new Headers());
-					const mapped = mapSdkError(err, ctx);
+					const mapped = mapSdkError(err, ctx, neverCancelled);
 					assert.ok(mapped instanceof RequestError, `expected RequestError, got ${mapped.name}: ${mapped.message}`);
 					assert.strictEqual(mapped.status, status);
 					assert.strictEqual(mapped.kind, status === 401 ? "auth" : "http");
@@ -243,7 +246,7 @@ suite("provider/errorMapping properties", () => {
 	test("timeouts map to the exact per-surface timeout message and aborts to kind aborted", () => {
 		fc.assert(
 			fc.property(ctxArb, (ctx) => {
-				const timedOut = mapSdkError(new APIConnectionTimeoutError(), ctx);
+				const timedOut = mapSdkError(new APIConnectionTimeoutError(), ctx, neverCancelled);
 				assert.ok(timedOut instanceof RequestError, `expected RequestError, got ${timedOut.name}`);
 				assert.strictEqual(timedOut.kind, "timeout");
 				assert.strictEqual(timedOut.status, undefined);
@@ -262,7 +265,7 @@ suite("provider/errorMapping properties", () => {
 
 				// This layer maps SDK aborts to kind "aborted"; converting a cancellation to vscode.CancellationError
 				// is the caller's concern.
-				const aborted = mapSdkError(new APIUserAbortError(), ctx);
+				const aborted = mapSdkError(new APIUserAbortError(), ctx, neverCancelled);
 				assert.ok(aborted instanceof RequestError, `expected RequestError, got ${aborted.name}`);
 				assert.strictEqual(aborted.kind, "aborted");
 				assert.strictEqual(aborted.status, undefined);

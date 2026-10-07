@@ -1,7 +1,6 @@
 /**
  * The transport's error vocabulary without a vscode value, so its pins run under bun (src/test/bun/preload.ts admits
- * no module whose imports reach vscode). errorMapping.ts keeps the two readers of vscode itself, the CancellationError
- * pass-through and the LanguageModelError wrap, and imports the rest from here.
+ * no module whose imports reach vscode). errorMapping.ts builds the SDK-error mapping on it under the same rule.
  */
 import * as l10n from "@vscode/l10n";
 import type { APIError } from "openai";
