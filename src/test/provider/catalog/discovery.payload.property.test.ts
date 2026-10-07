@@ -14,6 +14,7 @@ import {
 	LONG_CONTEXT_COST_PREFIX,
 	WIRE_COST_FIELDS,
 } from "../../../provider/catalog/schemas";
+import { isHostCancellation } from "../../../provider/transport/cancellation";
 import { createServerClient } from "../../../provider/transport/clients";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import type { CostCapabilityField } from "../../../shared/config/capabilityResolution";
@@ -233,7 +234,14 @@ suite("provider/discovery fetchModels payload properties", () => {
 			},
 			nodeHttpFetch
 		);
-		return { client, baseUrl: TEST_BASE_URL, apiVersion: undefined, discoveryTimeout: 5000, log: noLog };
+		return {
+			client,
+			baseUrl: TEST_BASE_URL,
+			apiVersion: undefined,
+			discoveryTimeout: 5000,
+			log: noLog,
+			isCancellation: isHostCancellation,
+		};
 	}
 
 	test("no usable unblocked model is ever dropped, and blocked-only payloads yield an empty list", async function () {

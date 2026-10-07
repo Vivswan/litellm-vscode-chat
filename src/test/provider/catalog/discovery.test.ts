@@ -13,6 +13,7 @@ import { deriveTokenConstraints } from "../../../provider/catalog/modelCatalog";
 import { reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem, ModelShape } from "../../../provider/catalog/schemas";
+import { isHostCancellation } from "../../../provider/transport/cancellation";
 import { createServerClient } from "../../../provider/transport/clients";
 import type { TransportFetch } from "../../../provider/transport/nodeHttpFetch";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
@@ -49,6 +50,7 @@ function request(log: (message: string, data?: unknown) => void = () => {}, fetc
 		apiVersion: undefined,
 		discoveryTimeout: 5000,
 		log,
+		isCancellation: isHostCancellation,
 	};
 }
 

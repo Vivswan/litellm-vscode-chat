@@ -325,6 +325,8 @@ export interface FetchModelsRequest {
 	headers?: Record<string, string>;
 	/** Receives only what discoveryLineWriter lets through. */
 	log: (message: string, data?: unknown) => void;
+	/** mapSdkError's cancellation predicate; see cancellation.ts. */
+	isCancellation: (error: unknown) => error is Error;
 }
 
 /** The /v1/models fallback rethrow keys on it rather than matching message text. */
@@ -711,7 +713,11 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		// Response-derived text can echo credentials into the issue-report buffer, so the log carries only the
 		// classification. This is discovery's one expected-failure log seam, because a /model/info failure is nonfatal
 		// and never reaches the provider boundary.
-		const mapped = mapSdkError(error, { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout });
+		const mapped = mapSdkError(
+			error,
+			{ surface: "discovery", baseUrl, timeoutMs: discoveryTimeout },
+			request.isCancellation
+		);
 		// The signal firing IS the timeout evidence even when the mapped error is not classified as one
 		// (AbortSignal.timeout's TimeoutError maps to the unhandled tail).
 		modelInfo.evidence = infoSignal.aborted ? { kind: "timeout" } : unservedEvidenceOf(mapped);
@@ -747,7 +753,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		if (error instanceof RequestError && error.logClassification === UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION) {
 			throw error;
 		}
-		throw refineModelsListingFailure(mapSdkError(error, errorContext), failureContext);
+		throw refineModelsListingFailure(mapSdkError(error, errorContext, request.isCancellation), failureContext);
 	}
 	const listingEnvelope = parseWire(dataEnvelopeSchema, parsed);
 	const data = listingEnvelope.success ? listingEnvelope.data.data : [];

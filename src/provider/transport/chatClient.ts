@@ -35,6 +35,7 @@ import {
 } from "./auth";
 import type { AuthOverlayScope } from "./authOverlay";
 import { applyAuthOverlay } from "./authOverlay";
+import { isHostCancellation } from "./cancellation";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
 import { mapSdkError } from "./errorMapping";
 import type { TransportFetch } from "./nodeHttpFetch";
@@ -174,6 +175,7 @@ export class ChatClient {
 				discoveryTimeout,
 				entryLabel: server.entryLabel,
 				log: this.log,
+				isCancellation: isHostCancellation,
 				...(expected !== undefined ? { expected } : {}),
 				...(includeModes !== undefined ? { includeModes } : {}),
 				...(headers !== undefined ? { headers } : {}),
@@ -378,7 +380,7 @@ export class ChatClient {
 			if (timeoutSignal.aborted) {
 				throw timeoutRequestError(errorContext, err);
 			}
-			const mapped = mapSdkError(err, errorContext);
+			const mapped = mapSdkError(err, errorContext, isHostCancellation);
 			auth?.fail(mapped);
 			throw mapped;
 		} finally {

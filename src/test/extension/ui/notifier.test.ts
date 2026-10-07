@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
 import { reconfigureAction, showMessage } from "../../../extension/ui/notifier";
 import { zeroModelJudgment, zeroModelTexts } from "../../../extension/ui/status";
+import { isHostCancellation } from "../../../provider/transport/cancellation";
 import { mapSdkError } from "../../../provider/transport/errorMapping";
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
 import { transportClassificationOf } from "../../../shared/errorClassification";
@@ -513,7 +514,8 @@ suite("extension/ui/notifier", () => {
 							new APIConnectionError({
 								cause: Object.assign(new TypeError("fetch failed"), { cause: new Error(deepest) }),
 							}),
-							ctx
+							ctx,
+							isHostCancellation
 						)
 					)
 				);

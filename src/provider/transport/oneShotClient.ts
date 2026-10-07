@@ -6,6 +6,7 @@ import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "./auth";
 import { OAuthTokenSource } from "./auth";
 import type { AuthOverlayScope } from "./authOverlay";
 import { applyAuthOverlay, plainFetchBaseHeaders, setOwnedHeader } from "./authOverlay";
+import { isHostCancellation } from "./cancellation";
 import { chatCompletionsUrl, completionsUrl } from "./clients";
 import { mapSdkError } from "./errorMapping";
 import { parseCompletionText } from "./fim";
@@ -216,7 +217,7 @@ export class OneShotClient {
 			}
 			throw err instanceof RequestError
 				? err
-				: mapSdkError(err, { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeout.ms });
+				: mapSdkError(err, { surface, baseUrl: connection.baseUrl, timeoutMs: opts.timeout.ms }, isHostCancellation);
 		} finally {
 			cancelListener.dispose();
 		}
@@ -293,7 +294,7 @@ export class OneShotClient {
 			if (timeoutSignal.aborted) {
 				throw timeoutRequestError(errorContext, err);
 			}
-			const mapped = mapSdkError(err, errorContext);
+			const mapped = mapSdkError(err, errorContext, isHostCancellation);
 			auth?.fail(mapped);
 			throw mapped;
 		} finally {

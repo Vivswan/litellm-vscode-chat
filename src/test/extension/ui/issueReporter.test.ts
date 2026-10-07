@@ -8,6 +8,7 @@ import {
 	rememberIssueReport,
 	reportFingerprint,
 } from "../../../extension/ui/issueReporter";
+import { isHostCancellation } from "../../../provider/transport/cancellation";
 import { mapSdkError } from "../../../provider/transport/errorMapping";
 import { RequestError } from "../../../provider/transport/transportErrors";
 import { Logger, recordedError } from "../../../shared/logger";
@@ -184,7 +185,11 @@ suite("IssueReporter", () => {
 			"422 BODY-MARKER-422\n\tat com.example.Foo.bar(Foo.java:1)",
 			new Headers()
 		);
-		const mapped = mapSdkError(sdkError, { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 });
+		const mapped = mapSdkError(
+			sdkError,
+			{ surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 },
+			isHostCancellation
+		);
 		reporter.recordError("Chat request failed", recordedError(mapped));
 		const snapshot = makeSnapshot({ latestError: reporter.getLatestError() });
 
@@ -216,11 +221,15 @@ suite("IssueReporter", () => {
 
 	test("recordError captures the transport classification, and only for transport errors", () => {
 		const reporter = new IssueReporter();
-		const mapped = mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), {
-			surface: "discovery",
-			baseUrl: "http://litellm.test",
-			timeoutMs: 5000,
-		});
+		const mapped = mapSdkError(
+			new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()),
+			{
+				surface: "discovery",
+				baseUrl: "http://litellm.test",
+				timeoutMs: 5000,
+			},
+			isHostCancellation
+		);
 		reporter.recordError("discovery", recordedError(mapped));
 		assert.deepStrictEqual(expectDefined(reporter.getLatestError()).classification, {
 			kind: "http",
