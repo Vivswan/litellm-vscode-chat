@@ -6,7 +6,7 @@ import {
 	oauthCredentialFingerprint,
 	type TimeoutBudget,
 } from "../../../provider/transport/auth";
-import { RequestError } from "../../../provider/transport/errorMapping";
+import { RequestError } from "../../../provider/transport/transportErrors";
 import { Logger } from "../../../shared/logger";
 import { mswServer, useMsw } from "../../mocks/handlers";
 

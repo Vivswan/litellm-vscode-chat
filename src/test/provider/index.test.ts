@@ -8,7 +8,7 @@ import type { DiscoveredGroupModels } from "../../provider/catalog/groupDiscover
 import { attachGroup, groupClientId } from "../../provider/catalog/groupModels";
 import { buildModelInfos } from "../../provider/catalog/registration";
 import { groupIdentity } from "../../provider/catalog/statusWindow";
-import { RequestError } from "../../provider/transport/errorMapping";
+import { RequestError } from "../../provider/transport/transportErrors";
 import { Logger, publicErrorText, type RecordedError } from "../../shared/logger";
 import { MirroredError } from "../../shared/mirroredError";
 import type { AggregatedStatus } from "../../shared/servers";

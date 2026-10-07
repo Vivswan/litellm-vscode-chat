@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { type FailureLineMessage, logFailure } from "../../provider/catalog/discoveryLog";
-import { thrownErrorDisplayText } from "../../provider/transport/errorMapping";
+import { thrownErrorDisplayText } from "../../provider/transport/transportErrors";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import type { Logger } from "../../shared/logger";
 import { commandErrorActions, showActionableMessage } from "../ui/notifier";

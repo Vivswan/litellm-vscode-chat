@@ -5,7 +5,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import { thrownErrorDisplayText } from "../../provider/transport/errorMapping";
+import { thrownErrorDisplayText } from "../../provider/transport/transportErrors";
 import type { SetupHintKind } from "../../shared/errorClassification";
 import { failureClassification } from "../../shared/failureCause";
 import { isHiddenGroupServerStatus } from "../../shared/servers";

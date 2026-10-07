@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { RequestError } from "../../../provider/transport/errorMapping";
 import { StreamProcessor } from "../../../provider/transport/streaming/processor";
+import { RequestError } from "../../../provider/transport/transportErrors";
 import type { ThinkingPartCtor } from "../../../shared/conversion/thinkingPart";
 import { resetThinkingPartLogOnce } from "../../../shared/conversion/thinkingPart";
 import { expectDefined } from "../../pureHelpers";

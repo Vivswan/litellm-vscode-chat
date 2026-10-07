@@ -21,7 +21,7 @@ import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "../../../prov
 import { OAuthTokenSource } from "../../../provider/transport/auth";
 import type { AuthOverlayScope } from "../../../provider/transport/authOverlay";
 import { applyAuthOverlay, plainFetchBaseHeaders } from "../../../provider/transport/authOverlay";
-import { RequestError } from "../../../provider/transport/errorMapping";
+import { RequestError } from "../../../provider/transport/transportErrors";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
 import type { RejectedCredentialField } from "../../../shared/serverEntry";

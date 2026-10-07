@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { RequestError } from "../../provider/transport/errorMapping";
+import { RequestError } from "../../provider/transport/transportErrors";
 import { publicErrorText } from "../../shared/logger";
 import { localizedError, MirroredError } from "../../shared/mirroredError";
 

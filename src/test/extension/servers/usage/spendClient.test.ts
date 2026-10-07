@@ -13,7 +13,7 @@ import {
 	usageUnavailabilityOf,
 	userInfoUrl,
 } from "../../../../extension/servers/usage";
-import { RequestError } from "../../../../provider/transport/errorMapping";
+import { RequestError } from "../../../../provider/transport/transportErrors";
 import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 

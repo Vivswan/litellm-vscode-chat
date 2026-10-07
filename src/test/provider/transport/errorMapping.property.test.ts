@@ -1,14 +1,14 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { APIConnectionTimeoutError, APIError, APIUserAbortError, AuthenticationError } from "openai";
+import { mapSdkError } from "../../../provider/transport/errorMapping";
 import {
 	type MapErrorContext,
-	mapSdkError,
 	RequestError,
 	TRANSPORT_ERROR_SURFACES,
 	timeoutMessage,
 	twoPartTexts,
-} from "../../../provider/transport/errorMapping";
+} from "../../../provider/transport/transportErrors";
 import { manageCommandTitle } from "../../../shared/config/commandIds";
 import { resolveFuzzSeed } from "../../fuzzStream";
 

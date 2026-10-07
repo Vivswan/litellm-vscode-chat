@@ -6,7 +6,7 @@
 import * as assert from "node:assert";
 import { http } from "msw";
 import { createDraftConnectionProbe } from "../../../extension/dashboard/testDraftConnection";
-import { RequestError } from "../../../provider/transport/errorMapping";
+import { RequestError } from "../../../provider/transport/transportErrors";
 import { fixedHeaderValue } from "../../../shared/util/headers";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 

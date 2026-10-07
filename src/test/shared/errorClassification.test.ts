@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { RequestError } from "../../provider/transport/errorMapping";
+import { RequestError } from "../../provider/transport/transportErrors";
 import { SETUP_HINT_KINDS, TRANSPORT_ERROR_KINDS, transportClassificationOf } from "../../shared/errorClassification";
 
 suite("shared/errorClassification", () => {

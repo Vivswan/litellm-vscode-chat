@@ -5,7 +5,7 @@ import { MirroredError } from "../../shared/mirroredError";
 import type { ExpectedFailureCategory, NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { apiRootOf } from "../../shared/util/baseUrl";
 import type { ChatClient, ServerConnection } from "../transport/chatClient";
-import { statusLogSafeError } from "../transport/errorMapping";
+import { statusLogSafeError } from "../transport/transportErrors";
 import type { ExpectedDiscoveryFailures } from "./discovery";
 import type { DiscoveryCache } from "./discoveryCache";
 import { discoveryLineWriter, failureKindOf } from "./discoveryLog";

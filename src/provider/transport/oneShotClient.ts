@@ -7,11 +7,12 @@ import { OAuthTokenSource } from "./auth";
 import type { AuthOverlayScope } from "./authOverlay";
 import { applyAuthOverlay, plainFetchBaseHeaders, setOwnedHeader } from "./authOverlay";
 import { chatCompletionsUrl, completionsUrl } from "./clients";
-import type { MapErrorContext, TransportErrorSurface } from "./errorMapping";
-import { mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
+import { mapSdkError } from "./errorMapping";
 import { parseCompletionText } from "./fim";
 import type { TransportFetch } from "./nodeHttpFetch";
 import { nodeHttpFetch } from "./nodeHttpFetch";
+import type { MapErrorContext, TransportErrorSurface } from "./transportErrors";
+import { RequestError, timeoutRequestError } from "./transportErrors";
 
 /**
  * No retries, since completions never retry.
