@@ -4,12 +4,13 @@
  *
  *   a value only the brand can carry -> no sending path re-checks it or drops it
  */
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import { plainFetchBaseHeaders, setOwnedHeader } from "../../../provider/transport/authOverlay";
-import { fixedHeaderValue, type HeaderValue } from "../../../shared/util/headers";
+import { plainFetchBaseHeaders, setOwnedHeader } from "../../../../provider/transport/authOverlay";
+import { fixedHeaderValue, type HeaderValue } from "../../../../shared/util/headers";
 
-suite("provider/transport/authOverlay", () => {
-	suite("setOwnedHeader", () => {
+describe("provider/transport/authOverlay", () => {
+	describe("setOwnedHeader", () => {
 		test("owns the name outright: every existing spelling is removed, whatever the case", () => {
 			const headers: Record<string, HeaderValue> = {
 				authorization: fixedHeaderValue("custom-a"),
@@ -35,7 +36,7 @@ suite("provider/transport/authOverlay", () => {
 		});
 	});
 
-	suite("plainFetchBaseHeaders", () => {
+	describe("plainFetchBaseHeaders", () => {
 		const ua = fixedHeaderValue("ua/1.0");
 
 		test("a set API key owns both auth headers and adds the explicit Bearer no SDK adds on plain fetch", () => {
