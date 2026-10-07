@@ -10,7 +10,7 @@ import { ESLintUtils, type TSESTree } from "@typescript-eslint/utils";
 import ts from "typescript";
 
 /** Default-deny: a member vscode adds later is a write until it is listed here; clear() erases, it writes no text. */
-export const NON_WRITING_MEMBERS: ReadonlySet<string> = new Set([
+const NON_WRITING_MEMBERS: ReadonlySet<string> = new Set([
 	"name",
 	"show",
 	"hide",
