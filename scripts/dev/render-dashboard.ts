@@ -173,10 +173,7 @@ async function ensureBundle(): Promise<{ bundlePath: string; stylesheetPath: str
 	return { bundlePath, stylesheetPath };
 }
 
-/**
- * The emulated host theme's token set, proven to cover the stylesheet where the fidelity claim holds
- * (render/hostThemes.ts: the ordinary themes, since the sparse high-contrast sets are the fidelity).
- */
+/** Resolve host tokens; check dark/light coverage because the real high-contrast sets intentionally omit tokens. */
 function hostThemeTokens(hostTheme: HostTheme, stylesheet: string): string {
 	const tokensCss = {
 		dark: themeCss,
@@ -280,8 +277,6 @@ async function main(): Promise<void> {
 	}
 	const forcedTheme: AppTheme = values["app-theme"] ?? "auto";
 	const stylesheet = await fs.readFile(stylesheetPath, "utf8");
-	// --no-theme asks for the stylesheet's own fallbacks, the very state the coverage assertion refuses for a themed
-	// render, so the assertion rides with the token set it judges.
 	const tokensCss = values["no-theme"] === true ? "" : hostThemeTokens(hostTheme, stylesheet);
 	// Any measurement run measures the pinned faces, --out beside it or not: a PNG rendered while measuring photographs
 	// the pinned stack on purpose, so a sweep failure can be reproduced with the same fonts it measured.
