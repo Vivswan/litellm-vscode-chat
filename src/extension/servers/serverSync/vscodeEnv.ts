@@ -132,7 +132,14 @@ type NoticeEvent =
 	| Extract<RemovedEntryEvent, { kind: "renamed" }>
 	| (Extract<RemovedEntryEvent, { kind: "removed" }> & { readonly outcome: RemovalOutcome | undefined });
 
-async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void> {
+/**
+ * The toast door the removal notices leave through. A toast waits for the user's click, so the reconciliation never
+ * awaits its notice; the door is a dependency so a caller can hear the notice its own events produced instead of
+ * listening on the window every other caller's notices also reach.
+ */
+export type RemovalNoticeDoor = typeof showActionableMessage;
+
+async function notifyRemovalEvents(events: readonly NoticeEvent[], show: RemovalNoticeDoor): Promise<void> {
 	const hidden: string[] = [];
 	const hiddenThisSession: string[] = [];
 	const shared: string[] = [];
@@ -155,7 +162,7 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void
 		}
 	}
 	if (shared.length > 0) {
-		void showActionableMessage(
+		void show(
 			"info",
 			l10n.t(
 				"Removed {0} from the servers setting. Another entry still declares the same provider group, so it keeps serving; there is nothing to delete.",
@@ -176,7 +183,7 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void
 						"Removed {0} from the servers setting. VS Code has not reported their provider groups this session, so their models may still appear; delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
 						labels
 					);
-		void showActionableMessage("info", message, await leftoverGroupActions(unreported));
+		void show("info", message, await leftoverGroupActions(unreported));
 	}
 	if (hidden.length > 0) {
 		const labels = quoted(hidden);
@@ -190,7 +197,7 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void
 						"Removed {0} from the servers setting; their models are hidden. VS Code still keeps a provider group for each: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
 						labels
 					);
-		void showActionableMessage("info", message, await leftoverGroupActions(hidden));
+		void show("info", message, await leftoverGroupActions(hidden));
 	}
 	if (hiddenThisSession.length > 0) {
 		const labels = quoted(hiddenThisSession);
@@ -204,10 +211,10 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void
 						"Removed {0} from the servers setting; their models are hidden for this session only, because the hides cannot be kept across restarts. VS Code still keeps a provider group for each: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
 						labels
 					);
-		void showActionableMessage("info", message, await leftoverGroupActions(hiddenThisSession));
+		void show("info", message, await leftoverGroupActions(hiddenThisSession));
 	}
 	for (const event of renamed) {
-		void showActionableMessage(
+		void show(
 			"info",
 			l10n.t(
 				'Renamed "{0}" to "{1}". VS Code keeps the old group "{0}" and its models: delete it in Manage Language Models, or remove its object from the models file and reload the window. A rename made directly in settings.json does not carry the old label\'s stored secrets; set them again for "{1}" (a dashboard rename copies them).',
@@ -229,7 +236,7 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[]): Promise<void
 						"Removed {0} from the servers setting. VS Code keeps their provider groups and models: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
 						labels
 					);
-		void showActionableMessage("info", message, await leftoverGroupActions(untracked));
+		void show("info", message, await leftoverGroupActions(untracked));
 	}
 }
 
@@ -239,7 +246,8 @@ export function createServerSyncEnv(
 	fingerprintSalt: FingerprintSaltSession,
 	removals: GroupRemovalStore,
 	observedGroupBaseUrls: (label: string) => readonly string[],
-	observedSnapshots: () => readonly ServerModelsSnapshot[]
+	observedSnapshots: () => readonly ServerModelsSnapshot[],
+	showRemovalNotice: RemovalNoticeDoor = showActionableMessage
 ): ServerSyncEnv {
 	if (fingerprintSalt.state() !== "durable") {
 		logger.log(
@@ -349,7 +357,7 @@ export function createServerSyncEnv(
 				}
 			}
 			if (noticeEvents.length > 0) {
-				void notifyRemovalEvents(noticeEvents).catch((error: unknown) => {
+				void notifyRemovalEvents(noticeEvents, showRemovalNotice).catch((error: unknown) => {
 					logger.error("Removal notice failed", error);
 				});
 			}
