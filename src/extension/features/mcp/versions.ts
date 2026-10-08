@@ -40,16 +40,13 @@ function readCounters(store: VersionStore): Record<string, number> {
 }
 
 /**
- * Deliberately WIDER than the secrets, because what matters to the editor is whether the next session would
- * authenticate differently. Field-keyed JSON, so two field sets cannot serialize identically and a value moved
- * between fields counts as the change it is.
+ * Wider than the secret fields on purpose: what matters is whether the next session authenticates differently.
+ * Field-keyed JSON, so a value moved between fields is the change it is.
  *
- *   non-secret auth text                              -> renaming the virtual-key header changes authentication as
- *                                                        surely as rotating its value
- *   baseUrl                                           -> also AUTHORIZES, as the origin an endpoint must match and the
- *                                                        destination a proxy key's stamp names
- *   baseUrl, custom mcp.url                           -> nothing else tells the editor to re-resolve
- *   the endpoint does not move when the base URL does -> nothing else tells the editor to re-resolve
+ *   virtualKeyHeader, the OAuth text, headers -> renamed or edited, the sent headers change like a rotated value
+ *   baseUrl                                   -> authorizes: the origin the endpoint must match and the destination a
+ *                                                proxy key's stamp names; under a custom mcp.url nothing else in the
+ *                                                published definition moves with it
  */
 function credentialDigestOf(entry: DeclaredServer): string {
 	const parts: Record<string, unknown> = { baseUrl: entry.baseUrl };

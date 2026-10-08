@@ -7,17 +7,6 @@ import { collectKnownSecretValues } from "../../shared/util/knownSecrets";
 import { onServerSecretWritten, readServerSecretsRecord } from "../servers/serverSync/secrets";
 import { collectableEntries, declaredEntryLabel } from "../servers/serverSync/setting";
 
-/**
- * Publish every credential value the configuration holds to the output door, which keeps their union for the session:
- * the raw servers setting's values (accepted or not, so a rejected entry's credentials count), each declared label's
- * SecretStorage blob, and every value this window writes into a blob, so a key just typed into the setting is known
- * to the first line that quotes it.
- *   activation                -> awaited until the setting's values and the blobs read at activation have published
- *   a servers-setting edit    -> the setting's values publish before the listener returns; the blobs follow
- *   a server-secret change    -> the same two publishes
- *   a value this window writes -> published from the write itself; the change event behind it carries no value
- *   one blob read failing     -> a logged error, the other blobs' values publish
- */
 export async function wireKnownSecrets(
 	context: vscode.ExtensionContext,
 	logger: Logger,
@@ -34,6 +23,7 @@ export async function wireKnownSecrets(
 	};
 	const refresh = async (): Promise<void> => {
 		const raw = vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
+		// Before the first await: a later listener on the same change event may log a line quoting a key just typed.
 		publish(collectKnownSecretValues(collectableEntries(raw), []));
 		const rawRecords: readonly unknown[] = Array.isArray(raw) ? raw : [];
 		const declared = rawRecords.map(declaredEntryLabel).filter((label): label is string => label !== undefined);
