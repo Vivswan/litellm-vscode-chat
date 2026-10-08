@@ -348,53 +348,6 @@ const validation =
  * Windows in which a live group carries L1's secret and a resolution short of one consistent, fully read
  * setting+secrets pair would hand it out, and the siblings in which a user's own group beside L1 must stay the
  * user's. Unlabeled groups report under the URL host, as discovery labels them.
- *
- *   mid-pass              -> L1's add has not returned; the views predate L1 and the state push shows its group as an
- *                            external row
- *   first-pass            -> last session's pass created the group; no pass completed this session, so the push falls
- *                            back to the setting
- *   secrets-unreadable    -> L1 is blocked and a legacy unlabeled group carries its secret (joined by connection ID);
- *                            the read fails at the intent
- *   declared-mid-read     -> L1 and its secure key land while the resolver awaits another entry's blob; its group is
- *                            already served
- *   declared-during-adopt -> the native source's key becomes a declared entry's between the adopt's resolution and
- *                            its write
- *   secret-rotates-mid-read   -> L1's stored key rotates while the resolver awaits another entry's blob; the group
- *                                carrying the new key was external
- *   declared-after-resolution -> the declaration lands in the promise continuation between the resolution's return
- *                                and the tombstone write
- *   rejected-entry            -> L1's auth block was hand-edited into a shape the parser refuses after its group, key
- *                                baked in, was created
- *   label-only-entry          -> L1 was hand-edited down to its label; its stamped group is the label's legacy row
- *   non-array-setting         -> the setting is mid-edit; the pass keeps every old label declared, yet nothing can
- *                                join any group
- *   rejected-carrier-inline-key -> L1's rejected shape still carries its key inline; the unstamped group holding that key
- *                                  is L1's leftover, not the user's
- *   rejected-carrier-flat-key -> L1's rejected shape carries its key at the flat position; the group holding it is
- *                                L1's leftover
- *   rejected-carrier-stored-and-inline -> L1's rejected shape carries one key inline while another is stored; the group
- *                                         holding the stored one is L1's leftover too
- *   rotated-inline-secret-unstamped -> L1's OAuth token URL changed with its inline client secret kept; the unstamped
- *                                      old group holding that secret is L1's leftover
- *   rejected-entry-sibling-group -> the rejected L1's own group, label stamped, sits at H beside an external group
- *                                   with its own key; the external one stays adoptable
- *   malformed-after-resolution -> the setting turns into a non-array in the continuation
- *                                 between the resolution's return and the write
- *   rotated-oauth-personal    -> L1's OAuth token URL changed; its old group, label stamped, joins by label and URL,
- *                                and the user's own Personal group at H stays adoptable
- *   renamed-legacy-personal   -> L1's rotated identity gets a new group; its renamed, stamped old group is a legacy row
- *   two-entries-personal      -> L2 declares H but has no group, and claims nothing by URL alone
- *   unset-setting-native      -> nothing declared (the user scope reads undefined, the engine []); a native group's own
- *                                key is the one adoption that copies
- *   moved-entry-old-group     -> L1 moved to another URL; the group its old shape created, label stamped, lives on at H
- *   retained-key-legacy       -> L1 moved to another URL with a rejected duplicate left at H; its secure key stays
- *                                stamped for H, and the pre-stamp group at H carrying that key is L1's legacy row
- *   rejected-moved-stamped-group -> L1's only carrier is rejected, at another URL; the stamped group its valid shape
- *                                   created at H is the label's legacy row, not external
- *   rejected-duplicate-personal  -> a rejected duplicate of the accepted L1 at H, whose own group joins by ID; the
- *                                   duplicate claims nothing by URL alone, so Personal at H stays adoptable
- *   sibling-without-url       -> the rejected duplicate has no URL; an unlabeled group at H that nothing ties to L1
- *                                is the user's own
  */
 const WINDOWS: Record<string, Scenario> = {
 	"mid-pass": {
@@ -437,6 +390,7 @@ const WINDOWS: Record<string, Scenario> = {
 		refusal: DashboardValidationError,
 		open: async ({ env, host, pushedHandle, handleOf }) => {
 			await executeDashboardIntent({ method: "saveServerSetting", payload: saveSecure("L1", H) }, env);
+			// Last session's pass created the group; no pass has completed in this one.
 			await host.addProviderGroup({ name: "L1", vendor: "litellm", baseUrl: H, label: "L1", apiKey: SECRET });
 			assert.strictEqual(pushedHandle("L1"), undefined, "the settings fallback shows L1 as declared");
 			return { handle: handleOf("L1"), close: async () => {} };
@@ -513,6 +467,7 @@ const WINDOWS: Record<string, Scenario> = {
 			await engine.syncNow();
 			const handle = pushedHandle("native");
 			assert.ok(handle !== undefined);
+			// The adopt's read of its own label's blob is the step between its resolution and its write.
 			fixture.onSecretRead = (label) => {
 				if (label === "Copy") {
 					fixture.onSecretRead = undefined;
@@ -806,7 +761,7 @@ const WINDOWS: Record<string, Scenario> = {
 			await host.addProviderGroup({ name: "native", vendor: "litellm", baseUrl: H, apiKey: SECRET });
 			await engine.syncNow();
 			const handle = pushedHandle("native");
-			assert.ok(handle !== undefined);
+			assert.ok(handle !== undefined, "nothing is declared, so the native group is an external row");
 			return { handle, close: async () => {} };
 		},
 	},

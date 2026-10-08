@@ -1472,21 +1472,6 @@ suite("settingsTransferCommands undo flow", () => {
 	 * What the add-only host receives after an import whose add it refused (so the entry carries a pending retry) and
 	 * the undo of that import: a pass runs only once the restore is whole, and every value it sends was recorded for
 	 * the entry it rides with.
-	 *
-	 *   oauth            -> the recorded client secret, stamped for the recorded destination, rides with the old entry
-	 *   unstamped        -> a snapshot recorded without stamps restores stamped for the recorded entry
-	 *   orphan           -> the recorded setting declared no entry for the label; the value restores as recorded
-	 *   orphan-held      -> the same orphan while the servers write fails: nothing restores, the imported entry keeps
-	 *                       its key
-	 *   oauth-held       -> the oauth row while the servers write fails: the imported entry keeps its own client secret
-	 *   legacy           -> a snapshot whose client-secret stamp is the token URL string; the restored entry still
-	 *                       uses it
-	 *   dormant-oauth    -> an unstamped client secret under an entry without OAuth: the empty destination is a stamp
-	 *   absent           -> the imported one is removed after the setting; the old entry adds bare
-	 *     no pre-import blob -> the imported one is removed after the setting
-	 *   legacy-collision -> a string stamp spelling the object form's JSON; only a structured stamp matches
-	 *   same-destination -> the imported key is owned by the restored entry too; only the hold keeps a pass from adding
-	 *                       it before the removal
 	 */
 	const OAUTH_OLD = {
 		label: "a",
@@ -1511,6 +1496,7 @@ suite("settingsTransferCommands undo flow", () => {
 			preImportSecret?: {
 				field: "oauthClientSecret" | "apiKey";
 				value: string;
+				/** `legacy` is the token URL string older builds stamped a client secret with; the entry still uses it. */
 				owner: "stamped" | "legacy" | { raw: string } | undefined;
 			};
 			imported: unknown[];
@@ -1530,12 +1516,14 @@ suite("settingsTransferCommands undo flow", () => {
 			initialServers: [{ label: "a", baseUrl: "http://old:4000" }],
 			preImportSecret: { field: "apiKey", value: "OLD-KEY", owner: undefined },
 			imported: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
+			// Recorded without a stamp, restored stamped for the recorded entry.
 			expectedAdds: [hostAdd("http://old:4000", { apiKey: "OLD-KEY" })],
 		},
 		orphan: {
 			initialServers: [],
 			preImportSecret: { field: "apiKey", value: "OLD-KEY", owner: undefined },
 			imported: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
+			// No entry was declared for the label, so the restored value rides with no add.
 			expectedAdds: [],
 		},
 		"orphan-held": {
@@ -1574,6 +1562,7 @@ suite("settingsTransferCommands undo flow", () => {
 		absent: {
 			initialServers: [{ label: "a", baseUrl: "http://old:4000" }],
 			imported: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
+			// No pre-import blob: the imported key is removed after the setting, so the old entry adds bare.
 			expectedAdds: [hostAdd("http://old:4000", {})],
 		},
 		"legacy-collision": {
@@ -1597,6 +1586,8 @@ suite("settingsTransferCommands undo flow", () => {
 		"same-destination": {
 			initialServers: [{ label: "a", baseUrl: "http://same:4000" }],
 			imported: [{ label: "a", baseUrl: "http://same:4000", auth: { apiKey: "NEW-KEY" } }],
+			// The imported key's stamp names the restored entry too; only the hold keeps a pass from adding it
+			// before the removal.
 			expectedAdds: [hostAdd("http://same:4000", {})],
 		},
 	};
