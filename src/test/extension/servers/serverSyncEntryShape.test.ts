@@ -381,8 +381,9 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 	suite("FINGERPRINT STABILITY across the entry restructure (R3's migration depends on this pin)", () => {
 		// The migration rewrites entries from the flat pre-redesign fields to the nested auth shape without touching
 		// SERVER_SYNC_FINGERPRINTS_KEY or any SecretStorage value. That is sound only while a migrated entry flattens
-		// to byte-identical group args - same keys, same values, same insertion order - as its flat original, for every
-		// credential combination the old world honored.
+		// to the same group args as its flat original, for every credential combination the old world honored. The
+		// key-order assertion pins the descriptor order as a shape fact, not a fingerprint fact: the legacy projection
+		// (migrations/fingerprintProjection.ts) owns its own key order.
 		const pin = (flat: DeclaredServer, nested: Record<string, unknown>, stored: StoredServerSecrets = {}) => {
 			const { entries, problems } = parseServersSetting([nested]);
 			assert.deepStrictEqual(problems, [], JSON.stringify(nested));
