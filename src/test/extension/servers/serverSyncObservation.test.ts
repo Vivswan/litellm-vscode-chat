@@ -137,7 +137,9 @@ function makeFixture(initialMemento?: Record<string, unknown>): Fixture {
 				salt,
 				removals,
 				(label) => window.observedGroupBaseUrls(label),
-				() => window.snapshots()
+				() => window.snapshots(),
+				// Silent: a removal here must never toast the real window, where another suite may be listening.
+				async () => {}
 			),
 			readServersSetting: () => setting,
 			addProviderGroup: host.addProviderGroup,
