@@ -233,8 +233,8 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
 
 /**
  * One label's group arguments, resolved the way a sync pass resolves them, so resolveGroupArgs, entryStillCurrent,
- * and entryCredentials.ts cannot render an entry differently: what each makes of a refusal is its own. `undeclared`
- * carries the setting it read, so a caller's carrier check judges the same read.
+ * entryCredentials.ts, and servers/entryConnection.ts cannot render an entry differently: what each makes of a refusal
+ * is its own. `undeclared` carries the setting it read, so a caller's carrier check judges the same read.
  */
 type OwnedGroupArgs =
 	| { readonly kind: "undeclared"; readonly setting: unknown }

@@ -29,8 +29,6 @@ import { normalizeBaseUrl, serverRootOf } from "../../../shared/util/baseUrl";
 import type { HeaderValue } from "../../../shared/util/headers";
 import { isRecord } from "../../../shared/util/json";
 import { sleepUnlessAborted } from "../../../shared/util/timer";
-import { buildGroupArgs } from "../serverSync/engine";
-import type { StoredServerSecrets } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 
 // The URL builders over the shared USAGE_ENDPOINT_PATHS table: each takes the entry's apiVersion so serverRootOf can
@@ -81,12 +79,16 @@ export type UsageConnectionResolution =
 
 /**
  * The base URL is normalized because a doubled slash reaches LiteLLM as `//key/info`, which answers 404 and would
- * misclassify the server as usage-unsupported. The credentials come off the chat path's own narrowing over
- * buildGroupArgs (inline values outrank the stored blob), so a key or virtual key the chat path refuses is refused here
- * too, and the sync engine's Diagnostics-tab report covers both.
+ * misclassify the server as usage-unsupported. `args` are the entry's group arguments as the sync engine bakes them
+ * (buildGroupArgs: inline values outrank the stored blob), and the credentials come off the chat path's own narrowing
+ * over them, so a key or virtual key the chat path refuses is refused here too, and the sync engine's Diagnostics-tab
+ * report covers both.
  */
-export function usageConnectionFor(entry: DeclaredServer, stored: StoredServerSecrets): UsageConnectionResolution {
-	const { credentials, rejections } = narrowGroupCredentials(buildGroupArgs(entry, stored));
+export function usageConnectionFor(
+	entry: DeclaredServer,
+	args: Readonly<Record<string, string>>
+): UsageConnectionResolution {
+	const { credentials, rejections } = narrowGroupCredentials(args);
 	const refused = refusedCredentialFields(rejections);
 	if (refused !== undefined) {
 		return { kind: "credentialsRefused", fields: refused };

@@ -257,6 +257,38 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	/**
+	 * The pre-probe staleness check compares the snapshot and fresh resolutions by value, so an edit that only reorders
+	 * the headers map is the same pairing (a string compare of the two renderings skipped it for a pass), while a
+	 * changed header value is another connection and still skips.
+	 */
+	const HEADER_EDITS = [
+		{ name: "reordered headers still probe", headers: { "x-two": "2", "x-one": "1" }, probes: 1 },
+		{ name: "a changed header value still skips", headers: { "x-one": "1", "x-two": "changed" }, probes: 0 },
+	] as const;
+	for (const edit of HEADER_EDITS) {
+		test(`a servers edit landing mid-pass: ${edit.name}`, async () => {
+			let h: Harness | undefined;
+			const readSecrets = async () => {
+				h?.setServers([{ label: "alpha", baseUrl: "http://one.test", headers: edit.headers }]);
+				return { values: { apiKey: "sk-1" }, owners: {} };
+			};
+			h = makeHarness({
+				intervalMs: 0,
+				servers: [{ label: "alpha", baseUrl: "http://one.test", headers: { "x-one": "1", "x-two": "2" } }],
+				readSecrets,
+			});
+
+			await h.poller.refreshNow();
+			assert.strictEqual(h.client.calls.keyInfo, edit.probes);
+			if (edit.probes === 1) {
+				assert.deepStrictEqual(h.client.keyConnections[0]?.headers, { "x-one": "1", "x-two": "2" });
+			} else {
+				assert.strictEqual(h.poller.store.get("alpha"), undefined, "the skipped pass stores nothing");
+			}
+		});
+	}
+
+	/**
 	 * The read returns the OLD entry's unsendable stored key while the edit has already re-pointed the label; recording
 	 * the refusal would write one.test into the store (and, with a valid key at the new host, toast a refusal the
 	 * current entry does not have).

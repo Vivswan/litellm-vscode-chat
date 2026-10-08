@@ -1,6 +1,8 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import type { DeclaredServer } from "../../../../extension/servers/serverSync";
+import { buildGroupArgs } from "../../../../extension/servers/serverSync";
+import type { StoredServerSecrets } from "../../../../extension/servers/serverSync/secrets";
 import {
 	activityWindow,
 	dailyActivityUrl,
@@ -377,9 +379,14 @@ suite("extension/servers/usage spendClient", () => {
 	});
 
 	suite("usageConnectionFor", () => {
+		/** The resolution over the entry's group arguments, as the poller and entryConnection.ts hand them in. */
+		function resolutionOf(entry: DeclaredServer, stored: StoredServerSecrets) {
+			return usageConnectionFor(entry, buildGroupArgs(entry, stored));
+		}
+
 		/** The resolved connection, failing the test on a refusal the case did not expect. */
-		function connectionOf(entry: DeclaredServer, stored: Parameters<typeof usageConnectionFor>[1]): UsageConnection {
-			const resolution = usageConnectionFor(entry, stored);
+		function connectionOf(entry: DeclaredServer, stored: StoredServerSecrets): UsageConnection {
+			const resolution = resolutionOf(entry, stored);
 			assert.strictEqual(resolution.kind, "resolved", `expected a resolved connection for ${entry.label}`);
 			return resolution.connection;
 		}
@@ -437,19 +444,19 @@ suite("extension/servers/usage spendClient", () => {
 		test("refuses a virtual key or API key that cannot be sent as an HTTP header, naming the field", () => {
 			// The platform's Headers quotes the whole value in its TypeError ('"sk-a\nb" is an invalid header value');
 			// resolving keyless instead sent the probes headerless and rendered the server's 401 as the usage state.
-			const badValue = usageConnectionFor(
+			const badValue = resolutionOf(
 				{ label: "alpha", baseUrl: TEST_BASE_URL, virtualKeyHeader: "x-litellm-key", virtualKeyValue: "bad\nvalue" },
 				{}
 			);
 			assert.deepStrictEqual(badValue, { kind: "credentialsRefused", fields: ["virtualKeyValue"] });
 
-			const badName = usageConnectionFor(
+			const badName = resolutionOf(
 				{ label: "alpha", baseUrl: TEST_BASE_URL, virtualKeyHeader: "bad header", virtualKeyValue: "vk-1" },
 				{}
 			);
 			assert.deepStrictEqual(badName, { kind: "credentialsRefused", fields: ["virtualKeyValue"] });
 
-			const badKey = usageConnectionFor({ label: "alpha", baseUrl: TEST_BASE_URL }, { apiKey: "sk-a\nb" });
+			const badKey = resolutionOf({ label: "alpha", baseUrl: TEST_BASE_URL }, { apiKey: "sk-a\nb" });
 			assert.deepStrictEqual(badKey, { kind: "credentialsRefused", fields: ["apiKey"] });
 
 			// Headers strips edge whitespace itself, so a pasted trailing newline is a repair, not a refusal.
