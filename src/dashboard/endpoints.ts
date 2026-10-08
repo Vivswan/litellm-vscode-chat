@@ -167,23 +167,27 @@ export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly mcp: McpOptIn | null;
 }
 
-/**
- * How one method's outcome returns and which queue its handling joins.
- *
- *   outcome "read"            -> a correlated response
- *   outcome "acked"           -> a correlated ack or fail; only success is followed by the state push its write
- *                                triggers
- *   outcome "fire-and-forget" -> no ack; the following push is the success signal
- *   channel "chained"         -> one at a time on the mutation chain
- *   two concurrent saves would lose an update
- *                            -> one at a time on the mutation chain
- *   channel "concurrent"      -> off the chain; only non-mutating methods
- */
+/** How one method's outcome returns to the webview. */
+type EndpointOutcome =
+	/** A correlated response. */
+	| "read"
+	/** A correlated ack or fail; only success is followed by the state push its write triggers. */
+	| "acked"
+	/** No ack; the following push is the success signal. */
+	| "fire-and-forget";
+
+/** Which queue a method's handling joins. */
+type EndpointChannel =
+	/** One at a time on the mutation chain: two concurrent saves would lose an update. */
+	| "chained"
+	/** Off the chain; only non-mutating methods. */
+	| "concurrent";
+
 type DashboardEndpointSpec =
-	| { readonly outcome: "read" | "acked"; readonly channel: "chained" | "concurrent" }
+	| { readonly outcome: Exclude<EndpointOutcome, "fire-and-forget">; readonly channel: EndpointChannel }
 	| {
 			readonly outcome: "fire-and-forget";
-			readonly channel: "chained" | "concurrent";
+			readonly channel: EndpointChannel;
 			/**
 			 * Where a refused fire-and-forget intent's standing notice renders. Acked failures answer their posting
 			 * hook instead, so only this variant carries `fail`.

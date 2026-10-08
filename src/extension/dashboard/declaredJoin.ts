@@ -76,17 +76,8 @@ export interface GroupOwnership {
 }
 
 /**
- * A group belongs to a declared entry by its client ID (credential-fingerprinted, so same-URL entries join exactly),
- * else by the label-agnostic connection ID shared non-exclusively (pre-label groups report under one identity every
- * entry mirroring that connection describes), else by label and URL; never by URL alone, so a user's own group
- * beside a declared one is nobody's. What no entry claims is external unless the setting still names it:
- *
- *   configuration stamped with a declared label    -> legacy of that label; a moved or rotated entry's leftover
- *   carrying a declared label's stored secret value -> legacy of that label; a pre-stamp group of a moved entry
- *
- * The group ownership is not the provider's suppression (wiring/provider.ts isGroupSuppressed): a legacy group
- * keeps serving its models until the user deletes it, unless it is tombstoned or the stamped leftover of an entry
- * that now declares another URL, which both hide.
+ * Ownership is not the provider's suppression (wiring/provider.ts isGroupSuppressed): a legacy group keeps serving
+ * its models until the user deletes it or that predicate hides it.
  */
 export function resolveGroupOwnership(inputs: GroupOwnershipInputs): GroupOwnership {
 	const { labeled, declared, carriers = [], secretHolders = new Map<string, readonly string[]>() } = inputs;
@@ -95,21 +86,25 @@ export function resolveGroupOwnership(inputs: GroupOwnershipInputs): GroupOwners
 	const passes: readonly {
 		pass: JoinPass;
 		match: (snapshot: ServerModelsSnapshot, view: DeclaredGroupIdentity) => boolean;
-		/** A shared pass lets several entries claim one snapshot; only equal join keys can collide (see the doc). */
+		/** A shared pass lets several entries claim one snapshot; only equal join keys can collide. */
 		shared?: boolean;
 	}[] = [
 		{
+			// The client ID is credential-fingerprinted, so same-URL entries join exactly.
 			pass: "identity",
 			match: (snapshot, view) =>
 				view.expectedClientId !== undefined && snapshot.status.serverId === view.expectedClientId,
 		},
 		{
+			// The label-agnostic connection ID is shared non-exclusively: pre-label groups report under one identity
+			// every entry mirroring that connection describes.
 			pass: "connection",
 			match: (snapshot, view) =>
 				view.expectedConnectionId !== undefined && snapshot.status.serverId === view.expectedConnectionId,
 			shared: true,
 		},
 		{
+			// Label and URL, never URL alone: a user's own group beside a declared one is nobody's.
 			pass: "label-url",
 			match: (snapshot, view) => sameGroupIdentity(snapshot.status, view),
 		},
@@ -130,7 +125,8 @@ export function resolveGroupOwnership(inputs: GroupOwnershipInputs): GroupOwners
 		});
 	}
 	const declaredLabels = new Set([...declared.map((identity) => identity.label), ...carriers]);
-	// A holder label from an earlier pass that the setting no longer carries names nothing: the group is the user's.
+	// What no entry claims is external unless the setting still names it: by the group's stamp (a moved or rotated
+	// entry's leftover), else by a declared label's secret value it carries (a pre-stamp group of a moved entry).
 	const legacyLabelOf = (snapshot: ServerModelsSnapshot): string | undefined => {
 		const stamp = snapshot.entryLabel;
 		if (stamp !== undefined && declaredLabels.has(stamp)) {
