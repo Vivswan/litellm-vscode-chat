@@ -20,6 +20,7 @@ import * as vscode from "vscode";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
+import type { OptionalEntryFieldId } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { fingerprint } from "../../shared/util/fingerprint";
@@ -31,9 +32,27 @@ import { parseServersSetting } from "../servers/serverSync/setting";
 import { canonicalEntryBaseUrls } from "../servers/serverSync/vscodeEnv";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
+/**
+ * The pre-projection engine's args, key by key in the order it serialized them, so buildGroupArgs' insertion order
+ * carries no meaning here; a field added later never enters this rendering, since the old engine never wrote it.
+ */
+const LEGACY_ARGS_KEY_ORDER = [
+	"name",
+	"vendor",
+	"baseUrl",
+	"label",
+	"apiKey",
+	"oauthTokenUrl",
+	"oauthClientId",
+	"oauthClientSecret",
+	"oauthScopes",
+	"virtualKeyHeader",
+	"virtualKeyValue",
+] as const satisfies readonly ("name" | "vendor" | "baseUrl" | "label" | OptionalEntryFieldId)[];
+
 /** The pre-projection rendering, verbatim from the old engine: salted hash over the full args JSON, no prefix. */
-function legacyGroupArgsFingerprint(args: Record<string, string>): string {
-	return fingerprint(JSON.stringify(args));
+function legacyGroupArgsFingerprint(args: Readonly<Record<string, string>>): string {
+	return fingerprint(JSON.stringify(args, [...LEGACY_ARGS_KEY_ORDER]));
 }
 
 export interface FingerprintMemento {

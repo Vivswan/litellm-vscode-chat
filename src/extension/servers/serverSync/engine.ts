@@ -210,10 +210,6 @@ export interface ServerSyncEnv {
 	logError(message: string, error: unknown): void;
 }
 
-/**
- * The key order is part of the legacy fingerprint rendering (migrations/fingerprintProjection.ts hashes this object's
- * JSON), so a reordering would match no stored record while that migration lives.
- */
 export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecrets): Record<string, string> {
 	const args: Record<string, string> = {
 		name: entry.label,
@@ -477,7 +473,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 * external against this, never against getDeclared(), whose views lag until the next pass ends.
 	 *
 	 *   the setting and the blobs are separate stores with no atomic read (secrets.ts)
-	 *     -> a pair counts only once two consecutive reads agree
+	 *     -> a pair counts only once two consecutive reads agree; a rotation after a blob's final read is not seen
 	 *   a secrets read throws -> rejects; resolved over inline values alone, a legacy group whose connection ID embeds
 	 *                            the stored credential's fingerprint would read as external
 	 */
