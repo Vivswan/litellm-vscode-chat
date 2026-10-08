@@ -11,14 +11,12 @@ import { canonicalStoredBaseUrl, canonicalUrl, normalizeBaseUrl } from "./util/b
 import { type HeaderValue, headerNameKey } from "./util/headers";
 
 /**
- * THE ORDER IS LOAD-BEARING while migrations/fingerprintProjection.ts lives: buildGroupArgs emits the provider-group
- * args in this order, and that migration recognises a pre-projection record by re-rendering the full-args JSON.
- * The `format` flag reaches only the generated provider configuration in package.json (scripts/dev/manifest); the
- * readers here walk `id` and `secret`.
+ * The order carries no meaning for the sync fingerprints: the "i1:" print reads only the identity projection
+ * (serverSync/engine.ts groupIdentityArgs) and the legacy projection owns its key order
+ * (migrations/fingerprintProjection.ts LEGACY_ARGS_KEY_ORDER). The `format` flag reaches only the generated provider
+ * configuration in package.json (scripts/dev/manifest); the readers here walk `id` and `secret`.
  *
  *   secret ones flagged -> inline storage is legal for those; a SecretStorage blob is the alternative
- *   the current "i1:" fingerprint reads only the identity projection (serverSync/engine.ts groupIdentityArgs) -> is
- *     order-free
  */
 export const OPTIONAL_ENTRY_FIELDS = [
 	{ id: "apiKey", secret: true },
@@ -304,10 +302,7 @@ export type McpOptIn = true | { readonly url?: string | undefined };
 
 type EntryModelRecordMap = ModelRecordMap;
 
-/**
- * These fields must never reach the provider-group args or their fingerprint; buildGroupArgs walks
- * OPTIONAL_ENTRY_FIELDS alone, so unlike that descriptor this table's order is NOT load-bearing.
- */
+/** These fields must never reach the provider-group args or their fingerprint; buildGroupArgs walks OPTIONAL_ENTRY_FIELDS alone. */
 export interface EntryViewFieldValues {
 	/** What apiRootOf appends to the base URL: "" is a real value (append nothing), absent means auto-detect. */
 	readonly apiVersion: string;

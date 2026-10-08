@@ -228,31 +228,27 @@ function splitTopLevel(text: string, separators: string): string[] {
 /** The root box, wherever it is named: `html`, `:root`, or either inside `:is()`/`:where()`. */
 const ROOT_SUBJECT = /(?:^|[^\w-])(?:html|:root)\b/i;
 
-/** The root box unnamed: a universal selector matches every element, and html is one. */
+/**
+ * The root box unnamed: a universal selector matches every element, and html is one. Anchored whole, since
+ * `*::before` is a box the root grows, not the root.
+ */
 const UNIVERSAL_SUBJECT = /^(?:\*|:is\(\*\)|:where\(\*\))$/i;
 
-/**
- * What one selector points AT - its subject, its last compound, not everything it mentions.
- *
- *   A bare `*` is the root and only a bare one (`.x *` cannot match html)
- *     -> that case asks the whole selector
- *   the pattern is exact-anchored, never a prefix
- *     -> `*::before` (a box the root grows, not the root) stays out
- *   `&[data-theme]` styles whatever `&` resolves to, while `& body` has body as its subject
- *     -> contains rather than starts-with
- *   `:is(&)` and `&.x` are the same question
- *     -> contains rather than starts-with
- */
+/** `&` anywhere in the compound: `:is(&)` and `&.x` both style whatever `&` resolves to. */
+const PARENT_SUBJECT = /&/;
+
+/** What one selector points AT: its subject, the last compound, not everything it mentions (`& body` styles body). */
 function subjectKind(part: string): "root" | "parent" | "other" {
 	const compounds = splitTopLevel(part, " \t\n\r>+~");
 	const subject = compounds.at(-1)?.trim() ?? "";
 	if (ROOT_SUBJECT.test(subject)) {
 		return "root";
 	}
+	// Only a bare universal selects the root: `.x *` cannot match html.
 	if (compounds.length === 1 && UNIVERSAL_SUBJECT.test(subject)) {
 		return "root";
 	}
-	return subject.includes("&") ? "parent" : "other";
+	return PARENT_SUBJECT.test(subject) ? "parent" : "other";
 }
 
 /**

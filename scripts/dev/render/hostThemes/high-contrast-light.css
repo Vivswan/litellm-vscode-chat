@@ -1,0 +1,46 @@
+/* VS Code's Light High Contrast tokens, from the registry's hcLight defaults. */
+:root {
+	--vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ubuntu, sans-serif;
+	--vscode-font-size: 13px;
+	--vscode-editor-font-family: Menlo, Monaco, "Courier New", monospace;
+	--vscode-foreground: #292929;
+	--vscode-descriptionForeground: #292929b3;
+	--vscode-disabledForeground: #7f7f7f;
+	--vscode-editor-background: #ffffff;
+	--vscode-panel-background: #ffffff;
+	--vscode-editorWidget-background: #ffffff;
+	--vscode-widget-border: #0f4a85;
+	--vscode-contrastBorder: #0f4a85;
+	--vscode-contrastActiveBorder: #006bbd;
+	--vscode-focusBorder: #006bbd;
+	--vscode-errorForeground: #b5200d;
+	--vscode-editorWarning-foreground: #895503;
+	--vscode-testing-iconPassed: #007100;
+	--vscode-textLink-foreground: #0f4a85;
+	--vscode-textLink-activeForeground: #0f4a85;
+	--vscode-textCodeBlock-background: #f2f2f2;
+	--vscode-panelTitle-activeForeground: #292929;
+	--vscode-panelTitle-inactiveForeground: #292929;
+	--vscode-panelTitle-activeBorder: #b5200d;
+	--vscode-input-background: #ffffff;
+	--vscode-input-foreground: #292929;
+	--vscode-input-border: #0f4a85;
+	--vscode-input-placeholderForeground: #292929b3;
+	--vscode-inputValidation-errorBackground: #ffffff;
+	--vscode-inputValidation-errorBorder: #0f4a85;
+	--vscode-button-background: #0f4a85;
+	--vscode-button-foreground: #ffffff;
+	--vscode-button-border: #0f4a85;
+	--vscode-editorHoverWidget-background: #ffffff;
+	--vscode-editorHoverWidget-foreground: #292929;
+	--vscode-editorHoverWidget-border: #0f4a85;
+	--vscode-notifications-background: #ffffff;
+	--vscode-notifications-foreground: #292929;
+	--vscode-notifications-border: #0f4a85;
+	--vscode-dropdown-background: #ffffff;
+	--vscode-dropdown-foreground: #292929;
+	--vscode-dropdown-border: #0f4a85;
+	--vscode-scrollbarSlider-background: #0f4a8566;
+	--vscode-scrollbarSlider-hoverBackground: #0f4a8599;
+	--vscode-scrollbarSlider-activeBackground: #0f4a85;
+}

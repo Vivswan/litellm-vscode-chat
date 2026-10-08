@@ -726,10 +726,11 @@ test("the forced light palette keeps Light Modern's passing green, low contrast 
 	expect(light).toContain("--vscode-testing-iconPassed: #73c991");
 	expect(light).not.toContain("#007100");
 	// The high contrast light emulation is where #007100 legitimately lives.
-	const harness = readFileSync(path.join(REPO_ROOT, "scripts/dev/render/hostThemes.ts"), "utf8");
-	const lightEmulation = /function lightCss\(\)[\s\S]*?\n\}/.exec(harness)?.[0] ?? "";
+	const emulationsDir = path.join(REPO_ROOT, "scripts/dev/render/hostThemes");
+	const lightEmulation = readFileSync(path.join(emulationsDir, "light.css"), "utf8");
 	expect(lightEmulation).toContain("--vscode-testing-iconPassed: #73c991");
-	expect(harness).toContain("--vscode-testing-iconPassed: #007100");
+	const hcLightEmulation = readFileSync(path.join(emulationsDir, "high-contrast-light.css"), "utf8");
+	expect(hcLightEmulation).toContain("--vscode-testing-iconPassed: #007100");
 });
 
 test(

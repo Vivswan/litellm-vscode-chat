@@ -405,7 +405,7 @@ suite("extension/servers/serverSync", () => {
 			});
 		});
 
-		test("emits keys in the pinned order the persisted fingerprints hash", () => {
+		test("emits keys in the descriptor's declared order, a shape fact the fingerprints do not depend on", () => {
 			// The list is spelled out on purpose; do not derive it from the descriptor.
 			const args = buildGroupArgs(
 				{

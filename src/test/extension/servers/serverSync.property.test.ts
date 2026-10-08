@@ -196,7 +196,7 @@ suite("extension/servers/serverSync buildGroupArgs properties", () => {
 					assert.deepStrictEqual(
 						Object.keys(args),
 						expectedKeys,
-						"the persisted fingerprint hashes this order; it must not depend on input shape"
+						"the args follow the descriptor's declared order, a shape fact that must not depend on input shape"
 					);
 
 					const keys = Object.keys(record);

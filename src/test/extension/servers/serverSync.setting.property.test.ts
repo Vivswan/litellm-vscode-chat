@@ -471,15 +471,14 @@ suite("extension/servers/serverSync setting parser properties (nested shape)", (
 					const entry = entries[index] as DeclaredServer;
 					const roundTripped = reparsed[index] as DeclaredServer;
 					const args = buildGroupArgs(entry, stored);
-					// The negative half of the fingerprint contract (serverEntry.ts): headers, models.*, discovery.*,
-					// and budget never reach group args.
+					// serverEntry.ts (EntryViewFieldValues): the view fields never reach group args.
 					for (const key of Object.keys(args)) {
 						assert.ok(canonicalKeys.includes(key), `group args must never carry "${key}"`);
 					}
 					assert.strictEqual(
 						JSON.stringify(buildGroupArgs(roundTripped, stored)),
 						JSON.stringify(args),
-						"the persisted fingerprint hashes this JSON; the round trip must not perturb it"
+						"the round trip must not perturb the args, whose values (not their insertion order) the fingerprints hash"
 					);
 				}
 			}),

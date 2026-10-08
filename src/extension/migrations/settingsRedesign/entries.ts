@@ -140,12 +140,10 @@ function collectAuthFields(
  * header set the old transport sent for each combination. Drops mirror what the old runtime never honored, so
  * nothing carried forward can turn a working entry into a misconfigured one.
  *
- *   tokenUrl or clientId alone (the old hasOAuth gate) -> dropped
- *   the old runtime ignored a partial oauth outright   -> dropped
- *   virtualKey header without its value                -> kept; the value may rest in SecretStorage
- *   value without a header, or an illegal header name  -> dropped
- *   it never reaches the wire                          -> dropped
- *   the stored blob                                    -> waits for a re-added header
+ *   tokenUrl or clientId alone                        -> dropped: the old hasOAuth gate ignored a partial oauth
+ *   virtualKey header without its value               -> kept: the value may rest in SecretStorage
+ *   value without a header, or an illegal header name -> dropped: it never reached the wire, and the stored blob waits
+ *                                                        for a re-added header
  */
 function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 	auth: Record<string, unknown> | undefined;

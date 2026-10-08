@@ -126,17 +126,8 @@ interface ConfigProblem {
 }
 
 /**
- * Whether one diagnostic belongs on this page, as an exhaustive classification, never a filter predicate. A switch
- * with no default and an annotated return type, deliberately: a boolean predicate let a new diagnostic kind reach the
- * page unclassified.
- *
- *   Dropped kinds                                -> the ones a Servers row reports beside the control that fixes
- *                                                   them: a rejected entry THAT WAS DRAWN A ROW, and hidden groups
- *   `rowOwned`                                   -> the host's own answer
- *   a reject with no drawable identity           -> gets NO row, and this list is then the only place its problems
- *                                                   appear
- *   `noImplicitReturns`                          -> turns the unhandled case into TS7030
- *   the downstream PageConfigDiagnostic switches -> give TS2366 as a second net
+ * An exhaustive classification, never a filter predicate: a boolean predicate once let a new diagnostic kind reach the
+ * page unclassified. No default and an annotated return type, so a new kind fails to compile here instead.
  */
 function pageDiagnostic(diagnostic: ConfigDiagnosticView): PageConfigDiagnostic | undefined {
 	switch (diagnostic.kind) {

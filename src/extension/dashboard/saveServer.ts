@@ -28,13 +28,6 @@ import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError } from "./intents";
 import { appendFree, replaceShown, requireLabelFree } from "./rowBoundWrite";
 
-/**
- * Computed once so the pairing checks, the guarded apply, and the cleanup agree on it. Either rename branch leaves
- * the new label serving only the renamed entry's own secrets.
- *
- *   rename, willCopy (the owned view holds values) -> the copy replaces the new label's blob
- *   rename, !willCopy                              -> the new label's leftover fields are wiped
- */
 /** One secure field's value and ownership stamp, as a save's rollback reads and restores them. */
 type StagedSecret = { readonly value: string | undefined; readonly owner: SecretOwner | undefined };
 
@@ -129,19 +122,17 @@ export function secretPlans(
 
 /**
  * What "keep" directives resolve against for a draft writing `label` over the entry `targetLabel` names, shared
- * with the draft-connection test. A field stamped for another destination resolves nothing, exactly as the sync
- * engine refuses it and the dashboard displayed it as "none".
- *
- *   accepted        -> the entry being replaced, so a rejected same-label sibling cannot shadow it
- *   storedOld       -> the shown label's blob, admitted field by field through the ownership check;
- *                      keeps read this alone
- *   storedOldRecord -> that blob as stored, for the save's overwrite and rollback bookkeeping
- *   storedNewRecord -> the blob already under the draft's label (on a rename, a retired label's leftover)
+ * with the draft-connection test. A field stamped for another destination resolves nothing (resolveOwnedSecrets),
+ * exactly as the sync engine refuses it and the dashboard displayed it as "none".
  */
 export interface KeepSources {
+	/** The entry being replaced, so a rejected same-label sibling cannot shadow it. */
 	readonly accepted: { readonly index: number; readonly entry: DeclaredServer } | undefined;
+	/** The shown label's blob, admitted field by field through the ownership check; keeps read this alone. */
 	readonly storedOld: Partial<Readonly<Record<SecretFieldId, string>>>;
+	/** That blob as stored, for the save's overwrite and rollback bookkeeping. */
 	readonly storedOldRecord: StoredSecretsRecord;
+	/** The blob already under the draft's label (on a rename, a retired label's leftover). */
 	readonly storedNewRecord: StoredSecretsRecord;
 	/** Whether a rename will copy the old label's blob (its owned view holds anything). */
 	readonly willCopy: boolean;

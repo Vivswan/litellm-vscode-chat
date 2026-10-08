@@ -149,6 +149,11 @@ export interface LiteLLMChatModelProviderOptions {
 	now?: (() => number) | undefined;
 }
 
+export interface GroupRefreshOutcome {
+	/** The groupReportCount delta across the pass (statusReporting.ts); zero means nothing fresh was read. */
+	readonly refreshedGroups: number;
+}
+
 /**
  * Error ownership lives here: transport and discovery modules construct specific errors and throw without logging, and
  * this facade is the SINGLE logging boundary - it logs each failure once, and the composed modules log only through
@@ -167,7 +172,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private readonly _discovery: GroupDiscovery;
 	private readonly _resolveEntryCredentials?: EntryCredentialsResolver | undefined;
 	private readonly _groupServesInFlight = new Set<Promise<unknown>>();
-	private _refreshPass: Promise<{ readonly refreshedGroups: number }> | undefined;
+	private _refreshPass: Promise<GroupRefreshOutcome> | undefined;
 	private readonly _onDidChangeEmitter = new EventEmitter<void>();
 	private readonly _onDidObserveGroupEmitter = new EventEmitter<void>();
 	/**
@@ -223,6 +228,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			getExpectedFailures: options.getExpectedFailures ?? (() => undefined),
 			getEntryIncludeModes: options.getEntryIncludeModes ?? (() => undefined),
 			isGroupSuppressed: options.isGroupSuppressed ?? (() => false),
+			resolveEntryCredentials: options.resolveEntryCredentials,
 			log: (message, data) => this.log(message, data),
 			logFailure: (message, data, error) => this.logger?.failure(message, data, error),
 		});
@@ -335,19 +341,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		// The baked copy's rejections are logged, not refused: a declared entry's current copy is judged by the overlay
 		// below, and an external group has no entry to refuse for.
 		logCredentialRejections((message, data) => this.log(message, data), parsed.rejections);
-		const baked = parsed.server;
-		// The serve generation is claimed BEFORE the overlay's secrets read (the overlay never changes label or base
-		// URL, so the pre-overlay parse is a valid claim): a serve that stalls in the resolver while a newer one
-		// completes must yield its record, and only arrival order can decide that.
-		const generation = this._discovery.beginServe(baked);
-		const overlaid = await overlayEntryCredentials(baked, this._resolveEntryCredentials);
+		const pending = this._discovery.claimServe(parsed.server);
+		await pending.ready;
+		const claim = pending.settle();
 
-		const serverId = groupClientId(overlaid.server);
-		if (this._statusWindow.beginCycleOnReSight(serverId, overlaid.server)) {
+		const serverId = groupClientId(claim.server);
+		if (this._statusWindow.beginCycleOnReSight(serverId, claim.server)) {
 			this.pruneServerCaches([...this._statusWindow.serverIds(), serverId]);
 		}
 
-		const models = await this._discovery.fetchGroupModels(overlaid.server, silent, generation, overlaid.failure);
+		const models = await this._discovery.fetchGroupModels(claim, silent);
 		// A rotation's record replaced the group's client ID in the window, so the retired client's caches prune here.
 		this.pruneServerCaches(this._statusWindow.serverIds());
 		return models;
@@ -362,59 +365,42 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	/**
-	 * The explicit refresh (Test Connection, Sync Models Now). One pass at a time: a second caller joins the running
-	 * pass, so two passes cannot claim generations against each other's probes. The pass resolves only when the
-	 * window holds this pass's outcome, so a caller reading the status afterwards reads it; `refreshedGroups` is how
-	 * many group reports landed during the pass, and zero means nothing fresh was read.
-	 *
-	 *   host serves in flight    -> awaited first: a serve loading pre-refresh data still records (clear() only stops
-	 *                               it storing), so it must land before the count starts, and its group is then in the
-	 *                               window to be probed
-	 *   the probes               -> one per windowed group, after clear(), so each reaches the network or joins a load
-	 *                               begun after the clear; the overlay re-runs so a rotation since the group was
-	 *                               recorded probes with current credentials
-	 *   the change event, last   -> only when a probe changed what some group serves or how (its models, or the
-	 *                               outcome the stale marking follows): the host then re-resolves from the cache the
-	 *                               probes filled, and a pass that changed nothing asks no group twice (failed loads
-	 *                               are never cached, so a re-resolve of a failing group is a new attempt)
-	 *   reports landed           -> counted, not the probes: a probe yields its record to a newer serve that recorded
-	 *                               first (groupDiscovery.ts), and that serve's record is the pass's then
+	 * The explicit refresh (Test Connection, Sync Models Now); two concurrent passes would claim serve generations
+	 * against each other's probes.
 	 */
-	refreshGroups(): Promise<{ readonly refreshedGroups: number }> {
+	refreshGroups(): Promise<GroupRefreshOutcome> {
 		this._refreshPass ??= this.runRefreshPass().finally(() => {
 			this._refreshPass = undefined;
 		});
 		return this._refreshPass;
 	}
 
-	private async runRefreshPass(): Promise<{ readonly refreshedGroups: number }> {
-		// Exactly the serves in flight at pass start: one that starts later records on its own, and waiting for it
-		// would let a host that keeps starting serves hold the pass (and the dashboard's Retry) open forever.
+	private async runRefreshPass(): Promise<GroupRefreshOutcome> {
+		// A serve already loading still records pre-refresh data. Later serves record on their own, and waiting for them
+		// would let a host that never goes quiet hold the pass (and the dashboard's Retry) open.
 		await Promise.allSettled([...this._groupServesInFlight]);
 		const reportsBefore = this._reporter.groupReportCount;
 		const servedBefore = this.servedModelsKey();
 		this._discoveryCache.clear();
-		// Only the groups the host served this cycle: a group it deleted is still in the window's one-cycle grace, and
-		// a probe would record it fresh and keep it on every surface for as long as the user keeps syncing.
-		await Promise.all(
-			this._statusWindow.currentCycleGroupServers().map(async (groupServer) => {
-				try {
-					// Claimed before the overlay's await, like provideGroupModels.
-					const generation = this._discovery.beginServe(groupServer);
-					const overlaid = await overlayEntryCredentials(groupServer, this._resolveEntryCredentials);
-					await this._discovery.fetchGroupModels(overlaid.server, false, generation, overlaid.failure);
-				} catch {
-					// Already logged and recorded in the merged status; the other group servers still get probed.
-				}
-			})
-		);
-		// Same lockstep re-derivation as provideGroupModels: a probe's record may have replaced a rotated group's
-		// client ID.
+		await Promise.all(this._statusWindow.currentCycleGroupServers().map((groupServer) => this.probeGroup(groupServer)));
+		// A probe's record may have replaced a rotated group's client ID in the window.
 		this.pruneServerCaches(this._statusWindow.serverIds());
+		// A pass that changed nothing asks no group twice: failed loads are never cached, so the host's re-resolve of a
+		// still-failing group would be a second attempt.
 		if (this.servedModelsKey() !== servedBefore) {
 			this._onDidChangeEmitter.fire();
 		}
 		return { refreshedGroups: this._reporter.groupReportCount - reportsBefore };
+	}
+
+	private async probeGroup(groupServer: GroupServer): Promise<void> {
+		try {
+			const pending = this._discovery.claimServe(groupServer);
+			await pending.ready;
+			await this._discovery.fetchGroupModels(pending.settle(), false);
+		} catch {
+			// Already logged and recorded in the merged status; the other group servers still get probed.
+		}
 	}
 
 	/**
