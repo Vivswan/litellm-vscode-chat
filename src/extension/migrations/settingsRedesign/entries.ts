@@ -14,7 +14,6 @@
 import { parseCapabilityRecord } from "../../../shared/config/capabilityResolution";
 import { parseParameterRecord } from "../../../shared/config/parameterResolution";
 import { canonicalFieldKey } from "../../../shared/config/recordResolution";
-import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { HEADER_NAME_PATTERN, headerNameKey, usableHttpText } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
@@ -123,9 +122,7 @@ function collectAuthFields(
 		if (!Object.hasOwn(record, id)) {
 			continue;
 		}
-		const value = (SECRET_FIELD_IDS as readonly string[]).includes(id)
-			? usableHttpText(record[id])
-			: usableHttpText(record[id]);
+		const value = usableHttpText(record[id]);
 		if (value === undefined) {
 			counts.droppedJunkFields += 1;
 		} else {
