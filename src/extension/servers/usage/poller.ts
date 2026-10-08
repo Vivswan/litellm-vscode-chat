@@ -7,6 +7,7 @@
  *   refreshNow                  -> still works
  */
 
+import { isDeepStrictEqual } from "node:util";
 import * as l10n from "@vscode/l10n";
 import type { UsageEndpointId } from "../../../dashboard/usageEndpoints";
 import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
@@ -18,19 +19,13 @@ import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import type { Clock, Timer } from "../../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../../shared/util/timer";
+import { buildGroupArgs } from "../serverSync/engine";
 import type { StoredSecretsRecord, StoredServerSecrets } from "../serverSync/secrets";
 import { resolveOwnedSecrets } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "../serverSync/setting";
 import { newlyCrossedThresholds, resolveBudget } from "./budget";
-import type {
-	ActivityWindow,
-	DailyUsage,
-	KeyUsage,
-	UsageConnection,
-	UsageConnectionResolution,
-	UserUsage,
-} from "./spendClient";
+import type { ActivityWindow, DailyUsage, KeyUsage, UsageConnection, UserUsage } from "./spendClient";
 import { activityWindow, usageConnectionFor, usageUnavailabilityOf } from "./spendClient";
 import type { UsageEndpointState, UsageEndpointStates, UsageFailureClassification } from "./store";
 import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "./store";
@@ -107,14 +102,6 @@ export interface UsageServerRefreshOutcome {
 
 export interface UsageRefreshOutcome {
 	readonly servers: readonly UsageServerRefreshOutcome[];
-}
-
-/**
- * JSON over usageConnectionFor's fixed construction order; the rendering carries secret values, so it stays in memory
- * and is never logged.
- */
-function sameResolution(a: UsageConnectionResolution, b: UsageConnectionResolution): boolean {
-	return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function describeEndpointFailure(failure: UsageEndpointFailure): string {
@@ -501,7 +488,7 @@ export class UsagePoller {
 		}
 		let connection: UsageConnection | undefined;
 		if (stored !== undefined) {
-			const resolution = usageConnectionFor(entry, stored);
+			const resolution = usageConnectionFor(entry, buildGroupArgs(entry, stored));
 			// The entries were snapshotted at the pass start and this entry's secrets read just now, so an edit landing
 			// in between would pair a stale entry with fresh credentials, or report a stale entry's refusal. Re-read the
 			// entry before anything is probed, written, or reported and compare the host AND the RESOLUTION (a refusal
@@ -511,7 +498,7 @@ export class UsagePoller {
 			if (
 				fresh === undefined ||
 				fresh.entry.baseUrl !== entry.baseUrl ||
-				!sameResolution(usageConnectionFor(fresh.entry, stored), resolution)
+				!isDeepStrictEqual(usageConnectionFor(fresh.entry, buildGroupArgs(fresh.entry, stored)), resolution)
 			) {
 				return undefined;
 			}

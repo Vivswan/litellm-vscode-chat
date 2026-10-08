@@ -1,10 +1,9 @@
 import * as vscode from "vscode";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { RejectedCredentialField } from "../../shared/serverEntry";
-import type { StoredSecretsRecord } from "./serverSync/secrets";
-import { readServerSecretsRecord, resolveOwnedSecrets } from "./serverSync/secrets";
+import { resolveOwnedGroupArgs } from "./serverSync/engine";
+import { readServerSecretsRecord } from "./serverSync/secrets";
 import type { DeclaredServer } from "./serverSync/setting";
-import { acceptedEntry } from "./serverSync/setting";
 import type { UsageConnection } from "./usage/spendClient";
 import { usageConnectionFor } from "./usage/spendClient";
 
@@ -33,30 +32,33 @@ export type EntryConnectionResolution =
  * label (the entry identity the sync engine and usage resolution use): the shared featureChatSend (the five chat
  * features), the inline-completions FIM send, and the MCP publisher all resolve through this.
  *
- *   Secrets resolve as the sync engine and the usage poller resolve them -> inline settings values outrank the blob
+ *   The group arguments are the sync engine's own (resolveOwnedGroupArgs) -> a feature sends what a pass would bake
  */
 export async function entryConnectionFor(
 	secrets: vscode.SecretStorage,
 	label: string
 ): Promise<EntryConnectionResolution> {
-	const raw = vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
-	const found = acceptedEntry(raw, label);
-	if (found === undefined) {
-		return { kind: "noEntry" };
+	const owned = await resolveOwnedGroupArgs(
+		{
+			readServersSetting: () => vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
+			readSecrets: (entryLabel) => readServerSecretsRecord(secrets, entryLabel),
+		},
+		label
+	);
+	switch (owned.kind) {
+		case "undeclared":
+			return { kind: "noEntry" };
+		case "secretsUnreadable":
+			return { kind: "secretsUnreadable" };
+		case "owned": {
+			if (owned.refused.length > 0) {
+				return { kind: "secretsMismatched" };
+			}
+			const resolution = usageConnectionFor(owned.entry, owned.args);
+			if (resolution.kind === "credentialsRefused") {
+				return resolution;
+			}
+			return { kind: "resolved", entry: owned.entry, connection: resolution.connection };
+		}
 	}
-	let record: StoredSecretsRecord;
-	try {
-		record = await readServerSecretsRecord(secrets, label);
-	} catch {
-		return { kind: "secretsUnreadable" };
-	}
-	const owned = resolveOwnedSecrets(found.entry, record);
-	if (owned.refused.length > 0) {
-		return { kind: "secretsMismatched" };
-	}
-	const resolution = usageConnectionFor(found.entry, owned.values);
-	if (resolution.kind === "credentialsRefused") {
-		return resolution;
-	}
-	return { kind: "resolved", entry: found.entry, connection: resolution.connection };
 }
