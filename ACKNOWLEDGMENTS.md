@@ -44,6 +44,7 @@ Pull requests that were merged, or whose implementations and ideas were folded i
 | [@leovela69](https://github.com/leovela69) | Diagnostics reports that exposed the hidden-group status/reporting chain ([#246](https://github.com/Vivswan/litellm-vscode-chat/issues/246)) |
 | [@leovela69](https://github.com/leovela69) | The misleading timeout advice on non-LiteLLM servers, which drove the endpoint-aware expected-failure hints ([#261](https://github.com/Vivswan/litellm-vscode-chat/issues/261)) |
 | [@Lw-CodeStorage](https://github.com/Lw-CodeStorage) | Sticker images not recognized in chat ([#141](https://github.com/Vivswan/litellm-vscode-chat/issues/141)) |
+| [@mateusz-plociennik](https://github.com/mateusz-plociennik) | The Thinking Effort menu losing Low, Medium and High when the server flags only the tiers beyond them ([#514](https://github.com/Vivswan/litellm-vscode-chat/issues/514)) |
 | [@o-l-a-v](https://github.com/o-l-a-v) | Confirming and narrowing the missing-models report ([#188](https://github.com/Vivswan/litellm-vscode-chat/issues/188)) |
 | [@Pandaplanes](https://github.com/Pandaplanes) | Base URL trailing-slash normalization ([#53](https://github.com/Vivswan/litellm-vscode-chat/issues/53)) |
 | [@proxium](https://github.com/proxium) | Custom HTTP headers for virtual keys ([#157](https://github.com/Vivswan/litellm-vscode-chat/issues/157)) |

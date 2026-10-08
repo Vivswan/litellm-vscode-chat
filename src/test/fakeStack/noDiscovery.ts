@@ -22,16 +22,17 @@ export function stripNoDiscoveryPrefix(pathname: string): NoDiscoveryRouting {
 
 /**
  * /v1/model/info is listed even though the fake backend never served it, so the mode stays total if that route ever
- * appears.
+ * appears; /model_group/info likewise, the LiteLLM-only root endpoint the extension probes after a model/info answer.
  */
 export function isDiscoveryRoute(pathname: string): boolean {
-	return pathname === "/v1/models" || pathname === "/v1/model/info";
+	return pathname === "/v1/models" || pathname === "/v1/model/info" || pathname === "/model_group/info";
 }
 
-/** Attempts against the two blanked discovery GETs, per credential. */
+/** Attempts against the blanked discovery GETs, per credential. */
 export interface NoDiscoveryAttemptCounts {
 	models: number;
 	modelInfo: number;
+	modelGroupInfo: number;
 }
 
 /** The no-discovery mirror's whole state; the counters only ever grow. */
@@ -54,11 +55,13 @@ export function recordDiscoveryAttempt(
 	authorization: string | undefined
 ): void {
 	const bearer = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "(none)";
-	const counts = state.attemptsByBearer.get(bearer) ?? { models: 0, modelInfo: 0 };
+	const counts = state.attemptsByBearer.get(bearer) ?? { models: 0, modelInfo: 0, modelGroupInfo: 0 };
 	if (pathname === "/v1/models") {
 		counts.models += 1;
 	} else if (pathname === "/v1/model/info") {
 		counts.modelInfo += 1;
+	} else if (pathname === "/model_group/info") {
+		counts.modelGroupInfo += 1;
 	} else {
 		return;
 	}

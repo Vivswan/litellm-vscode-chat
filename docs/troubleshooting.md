@@ -125,6 +125,8 @@ What a declaration changes, exactly: the named endpoint gets a single attempt pe
 
 And what you give up without `/v1/model/info` is metadata, not chat: capability and pricing fields do not arrive, so fill important ones through [`models.capabilities`](models.md#capabilities) (the OpenRouter catalog backfills well-known IDs automatically).
 
+On a LiteLLM proxy, discovery also reads `/model_group/info` once `/v1/model/info` has answered. A server without model-info never pays for that probe and needs no extra declaration; a 404 there on an older LiteLLM is the fallback, not a problem.
+
 The alternative that restores full metadata - and multi-provider routing - is running a LiteLLM proxy in front of the server and pointing the extension at that; [LiteLLM's own docs](https://docs.litellm.ai/docs/providers/ollama) cover fronting Ollama and friends.
 
 ### No models appear in the model picker

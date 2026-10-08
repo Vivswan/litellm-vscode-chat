@@ -67,8 +67,9 @@ export interface LiteLLMProvider extends PerTokenCosts {
 	supports_pdf_input?: boolean | null | undefined;
 	supported_openai_params?: string[] | null | undefined;
 	/**
-	 * Synthesized by discovery from the report's per-level `supports_<level>_reasoning_effort` flags. Never passes
-	 * through raw, so a wire entry cannot forge the list past the flags.
+	 * Authored by discovery, never passed through raw: modelConfiguration's mirror of LiteLLM's resolver over this
+	 * entry's own flags; null is "unknown". The proxy's own group resolution rides LiteLLMModelItem.reasoningEfforts
+	 * instead and outranks this.
 	 */
 	reasoning_effort_levels?: string[] | null | undefined;
 }
@@ -112,6 +113,13 @@ export interface LiteLLMModelItem {
 	id: string;
 	shape: ModelShape;
 	architecture?: LiteLLMArchitecture | undefined;
+	/**
+	 * LiteLLM's own resolution of the Thinking Effort menu for this model group (/model_group/info's
+	 * supported_reasoning_efforts), carried on the item so every shape, the bare one included, keeps it: a list is the
+	 * menu, null is the proxy saying unknown, absent is a proxy that never served the field (the per-provider
+	 * reasoning_effort_levels then decide).
+	 */
+	reasoningEfforts?: readonly string[] | null | undefined;
 }
 
 /**
@@ -218,6 +226,21 @@ export const rawModelInfoItemSchema = z
 	});
 
 export type LiteLLMModelInfoItem = z.infer<typeof rawModelInfoItemSchema>;
+
+/**
+ * One /model_group/info entry, narrowed to the two keys discovery reads. supported_reasoning_efforts is LiteLLM's own
+ * resolution for the group: a list is the menu, null is the proxy saying it does not know, and an absent key is a
+ * proxy from before the field existed (it degrades to undefined like a malformed value, so the deployment flags decide).
+ */
+export const modelGroupInfoItemSchema = z.looseObject({
+	model_group: z.string(),
+	supported_reasoning_efforts: lenient(
+		z
+			.array(z.unknown())
+			.transform((levels) => levels.filter((level): level is string => typeof level === "string"))
+			.nullable()
+	),
+});
 
 /**
  * The declared model_info fields without looseObject's index signature. Test builders type against this so a renamed

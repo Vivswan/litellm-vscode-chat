@@ -12,21 +12,29 @@ describe("provider/catalog/modelCatalog", () => {
 			reasoning_effort_levels: levels,
 		});
 
-		// Two deployments of one model, as /model/info reports them; null is a deployment with no true level flag.
+		// Two deployments of one model, as /model/info reports them; null is a deployment LiteLLM's rule resolves to unknown.
+		// The merge mirrors the proxy's own: one unknown deployment leaves the group unknown, otherwise the intersection.
 		const cases: { name: string; reported: (string[] | null)[]; expected: string[] | undefined }[] = [
-			{ name: "one deployment reporting", reported: [["low"], null], expected: ["low"] },
+			{ name: "one deployment unknown leaves the group unknown", reported: [["low"], null], expected: undefined },
 			{ name: "both the same", reported: [["low"], ["low"]], expected: ["low"] },
-			{ name: "disjoint, listed high first", reported: [["high"], ["low"]], expected: ["low", "high"] },
+			{ name: "disjoint deployments intersect to an empty menu", reported: [["high"], ["low"]], expected: [] },
 			{
-				name: "overlapping",
+				name: "overlapping, in menu order",
 				reported: [
 					["low", "high", "max"],
-					["low", "xhigh", "max"],
+					["max", "xhigh", "low"],
 				],
-				expected: ["low", "high", "xhigh", "max"],
+				expected: ["low", "max"],
 			},
-			{ name: "none", reported: [null, null], expected: undefined },
-			{ name: "an unknown level trails the known ones", reported: [["ultra"], ["low"]], expected: ["low", "ultra"] },
+			{ name: "every deployment unknown", reported: [null, null], expected: undefined },
+			{
+				name: "a level outside the built-in vocabulary survives when every deployment carries it",
+				reported: [
+					["ultra", "low"],
+					["low", "ultra"],
+				],
+				expected: ["low", "ultra"],
+			},
 		];
 		for (const { name, reported, expected } of cases) {
 			test(name, () => {

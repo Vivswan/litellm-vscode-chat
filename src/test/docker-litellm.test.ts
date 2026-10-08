@@ -193,12 +193,13 @@ suite("Docker LiteLLM stack", () => {
 					`${id} advertises reasoning without per-level flags and must surface the built-in menu`
 				);
 			}
-			// deepseek-r2 declares supports_<level>_reasoning_effort flags in the generated proxy config, so its menu
-			// must be the server's list.
+			// deepseek-r2 declares supports_<level>_reasoning_effort flags in the generated proxy config; this LiteLLM
+			// predates /model_group/info's resolved field, so the menu is the extension's mirror of LiteLLM's flag rule:
+			// none and minimal unless flagged false, medium and high always, max because it is flagged true.
 			assert.deepStrictEqual(
 				expectDefined(byId.get("deepseek-r2"), "deepseek-r2 in refreshEntryModels").configurationSchema,
-				reasoningEffortSchema(["low", "medium", "high", "max"]),
-				"the picker menu must follow the server's per-level reasoning-effort flags"
+				reasoningEffortSchema(["none", "minimal", "low", "medium", "high", "max"]),
+				"the picker menu must follow LiteLLM's reading of the server's per-level reasoning-effort flags"
 			);
 			for (const id of ["gpt-5.2", "llama-4-scout"]) {
 				assert.ok(

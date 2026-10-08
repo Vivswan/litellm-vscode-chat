@@ -6,7 +6,7 @@ import {
 	guessedMaxTokensDefault,
 } from "../../shared/config/capabilityResolution";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
-import { orderedReasoningLevels } from "./modelConfiguration";
+import { intersectSupportedReasoningEfforts } from "./modelConfiguration";
 import type { DeclaredPerTokenCosts, LiteLLMProvider, PerTokenCosts, TokenConstraints } from "./schemas";
 
 export function buildExposedModelId(rawModelId: string, serverId: string, serverCount: number): string {
@@ -100,19 +100,24 @@ function intersectReportedParams(providers: readonly LiteLLMProvider[]): readonl
 }
 
 /**
- * The UNION, unlike the params intersection: the proxy routes each request to one deployment, so a level any of them
- * flags is a real choice, and one the serving deployment rejects surfaces that server's own error. Deployment merging,
- * registration's configurationSchemaFor, and the capability baseline all read this one rule.
- *   {low} and {high}  -> [low, high], in menu order
- *   {low} and no flag -> [low]
- *   no flag anywhere  -> undefined: the menu falls back rather than registering empty (only a user record writes [])
+ * The proxy's own group merge, mirrored (router._set_model_group_info): one deployment resolved to unknown leaves the
+ * whole group unknown, otherwise the deployments' answers intersect, so the menu offers nothing routing could reject.
+ * Deployment merging, registration's configurationSchemaFor, and the capability baseline all read this one rule.
+ *   {low, high} and {high, max} -> [high]
+ *   {low} and {high}            -> []: the menu registers empty, the server's word
+ *   {low} and unknown           -> undefined: the menu falls back to the built-in list
  */
 export function reportedReasoningLevels(providers: readonly LiteLLMProvider[]): string[] | undefined {
-	const reported = providers
-		.map((p) => p.reasoning_effort_levels)
-		.filter((levels): levels is string[] => Array.isArray(levels));
-	const union = orderedReasoningLevels(reported.flatMap((levels) => narrowStrings(levels)));
-	return union.length > 0 ? union : undefined;
+	let merged: string[] | undefined;
+	for (const [index, provider] of providers.entries()) {
+		const levels = provider.reasoning_effort_levels;
+		if (!Array.isArray(levels)) {
+			return undefined;
+		}
+		const resolved = narrowStrings(levels);
+		merged = index === 0 ? resolved : intersectSupportedReasoningEfforts(merged, resolved);
+	}
+	return merged;
 }
 
 export interface DiscoveredBaselineInput {
@@ -126,6 +131,11 @@ export interface DiscoveredBaselineInput {
 	readonly toolCalling: boolean;
 	/** Whether this entry advertises the reasoning-effort control (registration's answer for its shape). */
 	readonly reasoning: boolean;
+	/**
+	 * The proxy's own Thinking Effort menu for the group (LiteLLMModelItem.reasoningEfforts): when present it outranks
+	 * what the providers' flags resolved to, null reading as unreported.
+	 */
+	readonly reasoningEfforts?: readonly string[] | null | undefined;
 	/**
 	 * The per-token costs this entry's registration would have priced: present ONLY for the shapes whose route pins the
 	 * serving deployment's cost. The untooled base entry and the cheapest/fastest aggregates pass none - registration
@@ -149,7 +159,12 @@ export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): Se
 	const promptCachingReported = providers.some((p) => typeof p.supports_prompt_caching === "boolean");
 	const responseSchemaReported = providers.some((p) => typeof p.supports_response_schema === "boolean");
 	const supportedParams = intersectReportedParams(providers);
-	const reasoningLevels = reportedReasoningLevels(providers);
+	const reasoningLevels =
+		input.reasoningEfforts === undefined
+			? reportedReasoningLevels(providers)
+			: input.reasoningEfforts === null
+				? undefined
+				: [...input.reasoningEfforts];
 	const values: Partial<ServerCapabilityValues> = {
 		...(reported.context ? { context_length: limits.contextLength } : {}),
 		...(reported.any ? { max_input_tokens: limits.maxInputTokens } : {}),

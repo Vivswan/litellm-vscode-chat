@@ -22,7 +22,8 @@
 延伸模組詢問每個已設定的伺服器它提供什麼 - 在啟用時、設定變更時, 以及每當 VS Code 重新解析其模型提供者時:
 
 - 探索先讀 `/v1/model/info` - 帶有 token 上限、價格與能力旗標的豐富端點 - 當該呼叫失敗、未回傳資料陣列, 或回傳的項目沒有一個可用時, 退回單純的 `/v1/models` 清單。格式良好的空清單註冊零個模型, 不觸發退回。
-- 探索請求是冪等的 GET, 所以暫時性失敗會重試。`discovery.timeout` (預設 30 秒) 是涵蓋單一請求及其重試的硬性上限 - 不是整輪的上限: 模型資訊清單、`/v1/models` 退回和任何 OAuth 權杖交換各自獲得一份新預算, 所以一輪最長可能耗時到它們之和。重試規則詳情: [疑難排解](troubleshooting.md#逾時與重試)。
+- 一旦 `/v1/model/info` 作出了回應, 探索還會讀取 LiteLLM 的 `/model_group/info` 以取得每個模型解析好的 Thinking Effort 檔位。該呼叫僅供參考: 沒有此端點的伺服器只會失去選單的伺服器訊號, 別無損失。
+- 探索請求是冪等的 GET, 所以暫時性失敗會重試。`discovery.timeout` (預設 30 秒) 是涵蓋單一請求及其重試的硬性上限 - 不是整輪的上限: 模型資訊清單、`/v1/models` 退回、`/model_group/info` 讀取和任何 OAuth 權杖交換各自獲得一份新預算, 所以一輪最長可能耗時到它們之和。重試規則詳情: [疑難排解](troubleshooting.md#逾時與重試)。
 - *預期*某端點失敗的伺服器 (沒有模型清單的閘道) 在項目的 `discovery.expectedFailures` 裡說明: 單次嘗試、一條 info 層級記錄、沒有錯誤噪音。見[伺服器](servers.md#探索與預期失敗)。
 - 結果會沿用 `discovery.cacheTtl` (預設 1 小時), 因為 VS Code 重新解析提供者很頻繁 - 有時一秒好幾次。失敗從不快取, 同時發生的重新整理共用一個請求, "LiteLLM: Sync Models Now" 在您需要立即拿到新清單時略過快取。
 - 當背景重新整理失敗, 但最近一次成功探索仍在 `discovery.staleServeWindow` 之內 (預設十分鐘) 時, 最後已知的模型保持可用, 標記為過時 (警告圖示加懸停說明), 而不是在工作階段中途從選擇器裡消失。伺服器休眠或重啟更久就調高這個視窗; 設為 `0` 則首次重新整理失敗即移除該伺服器的模型。
@@ -201,7 +202,7 @@
 | 視覺 | `supports_vision` | |
 | 音訊輸入 | `supports_audio_input` | |
 | 推理 | `supports_reasoning`, 或 `supported_openai_params` 中含 `reasoning_effort` | 明確的 `supports_reasoning: false` 勝出 |
-| 推理強度檔位 | `supports_<level>_reasoning_effort` 旗標 (例如 `supports_max_reasoning_effort`) | 標為 `true` 的檔位成為 Thinking Effort 選單; `false` 與 `null` 視為未回報, 完全沒有 `true` 旗標時選單退回內建清單 |
+| 推理強度檔位 | LiteLLM 在 `/model_group/info` 中解析好的 `supported_reasoning_efforts`; 在沒有該欄位的舊版代理上, 則是模型資訊中的 `supports_<level>_reasoning_effort` 旗標和 `reasoning_effort_levels` 清單 | 代理的清單就是 Thinking Effort 選單 (`null` 表示代理說不知道)。沒有該欄位時, 擴充功能套用 LiteLLM 自己的旗標規則: 宣告的清單整體勝出; 否則 Medium 和 High 總是存在, Minimal 和 Low 除非為 `false`, Extra High 和 Max 僅在為 `true` 時, Off 除非為 `false` (Azure 的 gpt-5 系列需要 `true`)。完全沒有旗標時選單退回內建清單 |
 | 提示快取 | `supports_prompt_caching` | 與每個欄位一樣可覆寫; 該功能仍受 `chat.promptCaching` 雙重門控 ([設定](settings.md#提示快取)) |
 | 定價 | 八個成本欄位 (`input_cost_per_token` 等) | 恰好為 0/0 的輸入/輸出對是 LiteLLM「沒有定價資料」的印記, 視為完全沒有回報 ([定價](#定價)) |
 | Token 上限 | 模型資訊的 token 上限欄位 | 見 [Token 上限](#token-上限) |
@@ -430,7 +431,7 @@
 選單的檔位像任何能力欄位一樣按模型解析 ([優先順序](#能力優先順序)), 來源從高到低:
 
 1. 您的 [`models.capabilities` 記錄](#能力)中的 `reasoning_effort_levels` 清單 (項目優先於全域)。任何字串都可以 - 詞彙表是開放的, 選中的檔位按原樣送出。您自己寫下的空清單會把選單清空到只剩「提供者預設」。
-2. 伺服器模型資訊中的 `supports_<level>_reasoning_effort` 旗標, 當 LiteLLM 宣告了它們時 (對[負載平衡池](#負載平衡池), 取每個部署都標記的檔位; 互不相交的旗標視為未回報)。
+2. 伺服器自己的解析結果, 當 LiteLLM 宣告了它時: `/model_group/info` 中的 `supported_reasoning_efforts`, 已經在[負載平衡池](#負載平衡池)的各個部署間取過交集。沒有該欄位的舊版代理則在此處套用 LiteLLM 的旗標規則 ([能力欄位](#能力欄位)), 逐個部署解析後以同樣方式取交集; LiteLLM 在伺服器端做的成本表查詢在這裡不可用, 所以線上沒有任何旗標的部署視為未知, 並讓整個池視為未回報。
 3. 您的記錄中帶 `_fallback` 標記的清單, 在伺服器未回報時填充。
 4. 內建清單: 關閉、最小、低、中、高、極高、最大。
 

@@ -67,15 +67,15 @@ function priceCategoryFor(inputCost: number, outputCost: number): "low" | "mediu
  *                                                                             advertise it
  */
 function configurationSchemaFor(
-	providers: readonly LiteLLMProvider[]
+	providers: readonly LiteLLMProvider[],
+	reasoningEfforts: LiteLLMModelItem["reasoningEfforts"]
 ): Pick<LanguageModelChatInformation, "configurationSchema"> {
-	return providers.length > 0 && providers.every(supportsReasoningEffort)
-		? {
-				configurationSchema: reasoningEffortSchema(
-					reportedReasoningLevels(providers) ?? DEFAULT_REASONING_EFFORT_LEVELS
-				),
-			}
-		: {};
+	if (providers.length === 0 || !providers.every(supportsReasoningEffort)) {
+		return {};
+	}
+	// The proxy's own menu outranks what the providers' flags resolved to; its null is "unknown", the built-in list.
+	const levels = reasoningEfforts === undefined ? reportedReasoningLevels(providers) : (reasoningEfforts ?? undefined);
+	return { configurationSchema: reasoningEffortSchema(levels ?? DEFAULT_REASONING_EFFORT_LEVELS) };
 }
 
 /**
@@ -212,7 +212,16 @@ export function buildModelInfos(
 			toolCalling: boolean,
 			reasoning: boolean,
 			costs?: Readonly<PerTokenCosts>
-		) => discoveredCapabilityBaseline({ providers, limits, modalities, toolCalling, reasoning, costs });
+		) =>
+			discoveredCapabilityBaseline({
+				providers,
+				limits,
+				modalities,
+				toolCalling,
+				reasoning,
+				costs,
+				reasoningEfforts: m.reasoningEfforts,
+			});
 
 		switch (shape.kind) {
 			case "deployment": {
@@ -233,7 +242,7 @@ export function buildModelInfos(
 							imageInput: vision,
 						},
 						...pricingFromCosts(provider, currencySymbol),
-						...configurationSchemaFor([provider]),
+						...configurationSchemaFor([provider], m.reasoningEfforts),
 						litellm: {
 							rawModelId: m.id,
 							supportsPromptCaching: provider.supports_prompt_caching === true,
@@ -299,7 +308,7 @@ export function buildModelInfos(
 						supportsAudioInput: audioInput,
 						serverDeclared: baselineFor(toolProviders, constraints, true, toolProviders.every(supportsReasoningEffort)),
 					};
-					const aggregateConfigurationSchema = configurationSchemaFor(toolProviders);
+					const aggregateConfigurationSchema = configurationSchemaFor(toolProviders, m.reasoningEfforts);
 					const aggregateCapabilities = {
 						toolCalling: true,
 						imageInput: vision,
@@ -354,7 +363,7 @@ export function buildModelInfos(
 							imageInput: vision,
 						},
 						...pricingFromCosts(p, currencySymbol),
-						...configurationSchemaFor([p]),
+						...configurationSchemaFor([p], m.reasoningEfforts),
 						litellm: {
 							rawModelId: rawId,
 							supportsPromptCaching: p.supports_prompt_caching === true,
@@ -388,7 +397,7 @@ export function buildModelInfos(
 							toolCalling: false,
 							imageInput: vision,
 						},
-						...configurationSchemaFor(providers),
+						...configurationSchemaFor(providers, m.reasoningEfforts),
 						litellm: {
 							rawModelId: m.id,
 							supportsPromptCaching: providers.every((p) => p.supports_prompt_caching === true),

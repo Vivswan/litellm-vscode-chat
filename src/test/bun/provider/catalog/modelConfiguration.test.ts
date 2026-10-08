@@ -3,15 +3,17 @@ import * as assert from "node:assert";
 import {
 	DEFAULT_REASONING_EFFORT_LEVELS,
 	effectiveReasoningLevels,
-	reasoningEffortLevelsFromFlags,
+	intersectSupportedReasoningEfforts,
 	reasoningEffortPickerValues,
 	reasoningEffortSchema,
 	requestParamsFromModelConfiguration,
+	resolveSupportedReasoningEfforts,
 	supportsReasoningEffort,
 } from "../../../../provider/catalog/modelConfiguration";
 import type { LiteLLMProvider } from "../../../../provider/catalog/schemas";
 import type { EffectiveCapabilityFields } from "../../../../shared/config/capabilityResolution";
 import { expectDefined } from "../../../pureHelpers";
+import { INTERSECT_CASES, RESOLVE_CASES } from "./litellmReasoningEffortCases";
 
 describe("provider/catalog/modelConfiguration", () => {
 	describe("reasoning-effort schema", () => {
@@ -59,54 +61,93 @@ describe("provider/catalog/modelConfiguration", () => {
 		});
 	});
 
-	describe("reasoningEffortLevelsFromFlags", () => {
-		test("collects the true-flagged levels, known ones in menu order", () => {
-			assert.deepStrictEqual(
-				reasoningEffortLevelsFromFlags({
-					supports_max_reasoning_effort: true,
-					supports_low_reasoning_effort: true,
+	describe("resolveSupportedReasoningEfforts", () => {
+		// LiteLLM's resolver is the source of truth for what a deployment's flags mean (#514); the vectors are its own
+		// unit tests, so a divergence here is a bug in the mirror.
+		for (const { name, modelInfo, deploymentIsMapped, expected } of RESOLVE_CASES) {
+			test(`LiteLLM conformance: ${name}`, () => {
+				assert.deepStrictEqual(resolveSupportedReasoningEfforts(modelInfo, { deploymentIsMapped }), expected);
+			});
+		}
+
+		// The reporter's four models as upstream's price map describes them today, with LiteLLM's answers.
+		const reported: ReadonlyArray<{ name: string; info: Record<string, unknown>; menu: string[] | undefined }> = [
+			{
+				name: "claude-opus-4-8",
+				info: { supports_reasoning: true, supports_xhigh_reasoning_effort: true, supports_max_reasoning_effort: true },
+				menu: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+			},
+			{
+				name: "claude-opus-4-6",
+				info: { supports_reasoning: true, supports_max_reasoning_effort: true },
+				menu: ["none", "minimal", "low", "medium", "high", "max"],
+			},
+			{
+				name: "gpt-5.4",
+				info: {
+					supports_reasoning: true,
+					supports_none_reasoning_effort: true,
 					supports_xhigh_reasoning_effort: true,
-				}),
-				["low", "xhigh", "max"]
-			);
-		});
-
-		test("false and null flags read as unreported, not as a veto", () => {
-			assert.deepStrictEqual(
-				reasoningEffortLevelsFromFlags({
-					supports_none_reasoning_effort: null,
 					supports_minimal_reasoning_effort: false,
-					supports_high_reasoning_effort: true,
-				}),
-				["high"]
-			);
-		});
-
-		test("a report whose every flag is false or null carries no signal", () => {
-			assert.strictEqual(
-				reasoningEffortLevelsFromFlags({
+				},
+				menu: ["none", "low", "medium", "high", "xhigh"],
+			},
+			{
+				name: "gpt-5.5-pro",
+				info: {
+					supports_reasoning: true,
+					supports_none_reasoning_effort: false,
+					supports_xhigh_reasoning_effort: true,
+					supports_minimal_reasoning_effort: false,
 					supports_low_reasoning_effort: false,
-					supports_high_reasoning_effort: null,
-				}),
-				undefined,
-				"an all-negative stamp must fall through to the built-in list, never an empty menu"
+				},
+				menu: ["medium", "high", "xhigh"],
+			},
+			{
+				name: "an azure deployment spelled gpt5_series is the gpt-5 family too, so none needs an explicit true",
+				info: {
+					supports_reasoning: true,
+					litellm_provider: "azure",
+					key: "azure/my-gpt5_series-deploy",
+					supports_minimal_reasoning_effort: true,
+				},
+				menu: ["minimal", "low", "medium", "high"],
+			},
+			{
+				name: "an azure gpt-5-chat deployment is outside the gpt-5 family, so none stays opt-out",
+				info: {
+					supports_reasoning: true,
+					litellm_provider: "azure",
+					key: "azure/gpt-5-chat-latest",
+					supports_max_reasoning_effort: true,
+				},
+				menu: ["none", "minimal", "low", "medium", "high", "max"],
+			},
+		];
+		for (const { name, info, menu } of reported) {
+			test(`the wire shape of ${name}`, () => {
+				assert.deepStrictEqual(resolveSupportedReasoningEfforts(info, { deploymentIsMapped: false }), menu);
+			});
+		}
+
+		test("non-record sources resolve to unknown", () => {
+			assert.strictEqual(resolveSupportedReasoningEfforts(undefined, { deploymentIsMapped: false }), undefined);
+			assert.strictEqual(
+				resolveSupportedReasoningEfforts("supports_reasoning", { deploymentIsMapped: true }),
+				undefined
 			);
 		});
+	});
 
-		test("unknown level names are the server's to define and append after the known ones", () => {
-			assert.deepStrictEqual(
-				reasoningEffortLevelsFromFlags({
-					supports_ultra_reasoning_effort: true,
-					supports_medium_reasoning_effort: true,
-				}),
-				["medium", "ultra"]
-			);
-		});
+	describe("intersectSupportedReasoningEfforts", () => {
+		for (const { name, current, resolved, expected } of INTERSECT_CASES) {
+			test(`LiteLLM conformance: ${name}`, () => {
+				assert.deepStrictEqual(intersectSupportedReasoningEfforts(current, resolved), expected);
+			});
+		}
 
-		test("non-flag keys and non-record sources contribute nothing", () => {
-			assert.strictEqual(reasoningEffortLevelsFromFlags({ supports_reasoning: true, max_tokens: 5 }), undefined);
-			assert.strictEqual(reasoningEffortLevelsFromFlags(undefined), undefined);
-			assert.strictEqual(reasoningEffortLevelsFromFlags("supports_low_reasoning_effort"), undefined);
+		test("a level outside the built-in vocabulary survives the intersection when both sides carry it", () => {
+			assert.deepStrictEqual(intersectSupportedReasoningEfforts(["ultra", "low"], ["low", "ultra"]), ["low", "ultra"]);
 		});
 	});
 

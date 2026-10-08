@@ -125,6 +125,8 @@ VS Code 无法与基础 URL 建立可信的 HTTPS 连接; 扩展没有绕过证�
 
 而没有 `/v1/model/info` 时失去的是元数据, 不是聊天: 能力与定价字段不会到达, 所以重要的字段请通过 [`models.capabilities`](models.md#能力) 补上 (知名模型 ID 由 OpenRouter 目录自动回填)。
 
+在 LiteLLM 代理上, `/v1/model/info` 应答之后发现还会读取 `/model_group/info`。没有模型信息的服务器永远不会为该探测买单, 也无需额外声明; 旧版 LiteLLM 在那里应答 404 只是回退, 不是问题。
+
 想恢复完整元数据 - 以及多提供方路由 - 的替代方案是在该服务器前架设一个 LiteLLM 代理并把扩展指向它; [LiteLLM 自己的文档](https://docs.litellm.ai/docs/providers/ollama)介绍了如何前置 Ollama 等服务器。
 
 ### 模型选择器中没有出现任何模型

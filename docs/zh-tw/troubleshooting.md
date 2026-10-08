@@ -125,6 +125,8 @@ VS Code 無法與基底 URL 建立可信任的 HTTPS 連線; 延伸模組沒有�
 
 而沒有 `/v1/model/info` 時失去的是中繼資料, 不是聊天: 能力與定價欄位不會到達, 所以重要的欄位請透過 [`models.capabilities`](models.md#能力) 補上 (知名模型 ID 由 OpenRouter 目錄自動回填)。
 
+在 LiteLLM 代理上, `/v1/model/info` 回應之後探索還會讀取 `/model_group/info`。沒有模型資訊的伺服器永遠不會為該探測買單, 也無需額外宣告; 舊版 LiteLLM 在那裡回應 404 只是回退, 不是問題。
+
 想恢復完整中繼資料 - 以及多提供者路由 - 的替代方案是在該伺服器前架設一個 LiteLLM 代理並把延伸模組指向它; [LiteLLM 自己的文件](https://docs.litellm.ai/docs/providers/ollama)介紹了如何前置 Ollama 等伺服器。
 
 ### 模型選擇器中沒有出現任何模型

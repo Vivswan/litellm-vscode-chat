@@ -4,7 +4,7 @@ import { isTransportErrorKind, transportClassificationOf } from "../../shared/er
 import { MirroredError } from "../../shared/mirroredError";
 import type { NonChatMode } from "../../shared/serverEntry";
 import { isNonChatMode } from "../../shared/serverEntry";
-import { MODEL_INFO_PATH, MODELS_PATH } from "../transport/clients";
+import { MODEL_GROUP_INFO_PATH, MODEL_INFO_PATH, MODELS_PATH } from "../transport/clients";
 
 const mint = Symbol("classification");
 
@@ -32,7 +32,7 @@ class ClassificationText {
 
 export type Classification = ClassificationText;
 
-type DiscoveryEndpoint = typeof MODEL_INFO_PATH | typeof MODELS_PATH;
+type DiscoveryEndpoint = typeof MODEL_INFO_PATH | typeof MODELS_PATH | typeof MODEL_GROUP_INFO_PATH;
 
 type FailureKind = TransportErrorKind | "unclassified";
 
@@ -83,6 +83,10 @@ interface DiscoveryLogLines extends Record<FailureLineMessage, ClassifiedFailure
 	"model/info returned data but no usable models; falling back": { dataLength: number };
 	"model/info response has no data array; falling back": { rejection: Classification };
 	"model/info failed; falling back to the models listing": { expected: boolean; kind: FailureKind; status?: number };
+	"Parsed model_group/info response": { groupCount: number };
+	"Skipping malformed model_group/info entry": { index: number; rejection: Classification };
+	"model_group/info response has no data array; menus follow the deployment flags": { rejection: Classification };
+	"model_group/info failed; menus follow the deployment flags": { kind: FailureKind; status?: number };
 	"Model discovery failed for provider group": {
 		expected: boolean;
 		silent: boolean;
@@ -108,7 +112,7 @@ const ACCEPTS: { readonly [K in ValueKind]: (value: unknown) => boolean } = {
 	boolean: (value) => typeof value === "boolean",
 	classification: ClassificationText.isOne,
 	mode: isNonChatMode,
-	endpoint: (value) => value === MODEL_INFO_PATH || value === MODELS_PATH,
+	endpoint: (value) => value === MODEL_INFO_PATH || value === MODELS_PATH || value === MODEL_GROUP_INFO_PATH,
 	failureKind: (value) => value === "unclassified" || isTransportErrorKind(value),
 };
 
@@ -146,6 +150,10 @@ const LINE_SHAPES: {
 		kind: "failureKind",
 		status: "number",
 	},
+	"Parsed model_group/info response": { groupCount: "number" },
+	"Skipping malformed model_group/info entry": { index: "number", rejection: "classification" },
+	"model_group/info response has no data array; menus follow the deployment flags": { rejection: "classification" },
+	"model_group/info failed; menus follow the deployment flags": { kind: "failureKind", status: "number" },
 	"Model discovery failed for provider group": {
 		expected: "boolean",
 		silent: "boolean",

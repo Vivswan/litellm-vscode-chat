@@ -55,7 +55,9 @@ export interface FakeModelCapabilities {
 	audioOutput?: boolean;
 	/**
 	 * Emitted as one supports_<level>_reasoning_effort: true flag per level; omission emits no per-level flags at
-	 * all, so the extension's picker menu falls back to its built-in level list.
+	 * all, so the extension's picker menu falls back to its built-in level list. The menu follows LiteLLM's flag rule,
+	 * not this list verbatim: medium and high are always on, none, minimal and low are on unless flagged false, so
+	 * only xhigh and max need listing to appear.
 	 */
 	reasoningEffortLevels?: readonly string[];
 }

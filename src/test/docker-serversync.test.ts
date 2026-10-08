@@ -177,7 +177,7 @@ suite("Docker server sync", () => {
 		const response = await fetch(`${FAKE_URL}/_test/nodiscovery-stats`);
 		assert.ok(response.ok, `GET /_test/nodiscovery-stats failed: ${response.status}`);
 		const stats = (await response.json()) as Record<string, NoDiscoveryAttemptCounts>;
-		return stats[bearer] ?? { models: 0, modelInfo: 0 };
+		return stats[bearer] ?? { models: 0, modelInfo: 0, modelGroupInfo: 0 };
 	}
 
 	/**
