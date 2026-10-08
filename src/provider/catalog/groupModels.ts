@@ -226,15 +226,20 @@ export function failureCauseOf(error: unknown): FailureCause {
 /** The extension layer's resolver of a declared entry's current credentials; see GroupCredentialsResolution. */
 export type EntryCredentialsResolver = (label: string, baseUrl: string) => Promise<GroupCredentialsResolution>;
 
+export interface OverlaidGroup {
+	readonly server: GroupServer;
+	readonly failure?: MirroredError;
+}
+
 /**
- * The one overlay for both consumers of a labeled group's credentials, both in provider/index.ts.
- *   serve path   -> the failure rides beside the baked server as the discovery preflight failure
- *   request path -> the failure is thrown before anything is sent
+ * The one overlay for both consumers of a labeled group's credentials.
+ *   serve path   (groupDiscovery.ts claimServe)   -> the failure rides on the claim as the discovery preflight failure
+ *   request path (provider/index.ts)              -> the failure is thrown before anything is sent
  */
 export async function overlayEntryCredentials(
 	server: GroupServer,
 	resolve: EntryCredentialsResolver | undefined
-): Promise<{ server: GroupServer; failure?: MirroredError }> {
+): Promise<OverlaidGroup> {
 	if (server.label === undefined || resolve === undefined) {
 		return { server };
 	}
