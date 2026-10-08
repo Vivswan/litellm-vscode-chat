@@ -148,7 +148,7 @@ interface TextScan {
 	/** The starts and ends of every run holding an "@", ascending. */
 	readonly atRunStarts: readonly number[];
 	readonly atRunEnds: readonly number[];
-	/** Every delimiting quote and line break, ascending: a URL never crosses one (two lines are two URLs). */
+	/** Every delimiting quote, ascending: a URL never crosses one (a JSON key and its value are two strings). */
 	readonly delimiters: readonly number[];
 }
 
@@ -158,7 +158,7 @@ function scanText(text: string): TextScan {
 	const delimiters: number[] = [];
 	for (let i = 0; i < text.length; ) {
 		while (i < text.length && isBoundaryAt(text, i)) {
-			if (isQuote(text[i]) || text[i] === "\n" || text[i] === "\r") {
+			if (isQuote(text[i])) {
 				delimiters.push(i);
 			}
 			i++;
@@ -175,8 +175,7 @@ function scanText(text: string): TextScan {
 
 /**
  * The widest candidate around the "@" at `at` that the parser reads as a URL with userinfo, inside the delimiting
- * quotes and line breaks that enclose it (a JSON key and its value are two strings, never one URL). Starts, nearest
- * first: each "//"
+ * quotes that enclose it (a JSON key and its value are two strings, never one URL). Starts, nearest first: each "//"
  * inside the "@"-run (nearest the "@" first), the run's start, then every run start to its left (down to `floor`)
  * whose run holds a ":" or opens with "//". A start's span grows one "@"-bearing run at a time while the parser reads
  * it as a URL WITH userinfo (a password may hold spaces and a second "@": "http://u:pa@ss word@host"); the first start
@@ -289,8 +288,8 @@ function scanCuts(text: string, floor: number, cuts: Cut[]): void {
 }
 
 /**
- * Ascending and disjoint, as redactUrlCredentials applies them. A single-line text is tried whole before any "@" is
- * scanned, since to the parser a scheme word inside the password opens no second URL. Prose the parser reads as a
+ * Ascending and disjoint, as redactUrlCredentials applies them. The text is tried whole before any "@" is scanned,
+ * since to the parser a scheme word inside the password opens no second URL. Prose the parser reads as a
  * URL is a spelling the transport would request, so it is cut like one.
  *   "Failed at http:user:pass@host:4000: failed"      -> "Failed at http://host:4000: failed"
  *   "at http://user:pass a b c d e@host now"          -> "at http://host now"
@@ -302,7 +301,7 @@ function urlCuts(text: string): Cut[] {
 	if (!text.includes("@")) {
 		return cuts;
 	}
-	const whole = /[\n\r]/.test(text) ? undefined : parsedUrl(text.replace(IGNORED, ""));
+	const whole = parsedUrl(text.replace(IGNORED, ""));
 	const cut = whole !== undefined && (whole.username !== "" || whole.password !== "") ? cutUserinfo(text) : undefined;
 	if (cut !== undefined) {
 		cuts.push({ from: 0, replacement: cut.replacement, resumeAt: cut.authorityEnd });
