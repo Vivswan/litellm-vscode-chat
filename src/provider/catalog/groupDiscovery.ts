@@ -14,7 +14,6 @@ import type {
 	EntryCredentialsResolver,
 	GroupServer,
 	LiteLLMModelInfo,
-	OverlaidGroup,
 	PreAttachModelInfo,
 } from "./groupModels";
 import {
@@ -88,25 +87,28 @@ export interface SuppressedGroupKey {
 	readonly baseUrl: string;
 }
 
-declare const serveClaimBrand: unique symbol;
-
 /**
- * A serve's claim while its credentials resolve. settle is synchronous, so the caller's await of `overlay` is the only
- * hop between the overlay resolving and a cached serve's record.
+ * A serve's claim while its credentials resolve. `ready` is the overlay's own promise and settle is synchronous, so the
+ * caller's await is the only hop between the overlay resolving and a cached serve's record.
  */
 export interface PendingServeClaim {
 	readonly generation: number;
-	readonly overlay: Promise<OverlaidGroup>;
-	settle(overlaid: OverlaidGroup): ServeClaim;
+	readonly ready: Promise<unknown>;
+	/** This claim over its own completed overlay; throws before `ready` resolved. */
+	settle(): ServeClaim;
 }
 
-/** The brand keeps settle the only minter: no fetch runs unclaimed or pre-overlay. */
-export interface ServeClaim {
-	readonly [serveClaimBrand]: true;
-	readonly generation: number;
-	readonly server: GroupServer;
-	readonly failure: MirroredError | undefined;
+/** Nominal through its private member, so neither a literal nor a spread stands in for one; claimServe is the minter. */
+class SettledServeClaim {
+	declare private readonly minter: "claimServe";
+	constructor(
+		readonly generation: number,
+		readonly server: GroupServer,
+		readonly failure: MirroredError | undefined
+	) {}
 }
+
+export type ServeClaim = SettledServeClaim;
 
 export interface GroupDiscoveryOptions {
 	/** The transport's model listing; its errors arrive unlogged and are logged once here at the boundary. */
@@ -160,10 +162,25 @@ export class GroupDiscovery {
 		const claimKey = logicalGroupId(groupServer) ?? groupClientId(groupServer);
 		const generation = (this._serveGenerations.get(claimKey) ?? 0) + 1;
 		this._serveGenerations.set(claimKey, generation);
+		const overlay = overlayEntryCredentials(groupServer, this._options.resolveEntryCredentials);
+		let settled: ServeClaim | undefined;
+		// Registered before the caller's await, so it has run when the caller's continuation does. A rejection reaches
+		// the caller through that await; this reaction only mints.
+		void overlay.then(
+			(overlaid) => {
+				settled = new SettledServeClaim(generation, overlaid.server, overlaid.failure);
+			},
+			() => undefined
+		);
 		return {
 			generation,
-			overlay: overlayEntryCredentials(groupServer, this._options.resolveEntryCredentials),
-			settle: (overlaid) => ({ generation, server: overlaid.server, failure: overlaid.failure }) as ServeClaim,
+			ready: overlay,
+			settle: () => {
+				if (settled === undefined) {
+					throw new Error("A serve claim was settled before its overlay resolved");
+				}
+				return settled;
+			},
 		};
 	}
 
@@ -180,10 +197,7 @@ export class GroupDiscovery {
 		return { modelInfo: categories.includes("modelInfo"), modelListing: categories.includes("modelListing") };
 	}
 
-	/**
-	 * The facade builds its prune keep-set through this same method, so an entry keyed under a rotated root -
-	 * unreachable to every serve - ages out at the next prune instead of lingering with the old root's models.
-	 */
+	/** The facade's prune keep-set (index.ts pruneServerCaches) composes through here too. */
 	cacheKeyFor(groupServer: GroupServer): string {
 		const apiRoot = apiRootOf(
 			groupServer.baseUrl,

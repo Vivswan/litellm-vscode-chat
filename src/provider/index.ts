@@ -150,7 +150,7 @@ export interface LiteLLMChatModelProviderOptions {
 }
 
 export interface GroupRefreshOutcome {
-	/** Group reports that landed during the pass, whichever serve's record stood; zero means nothing fresh was read. */
+	/** The groupReportCount delta across the pass (statusReporting.ts); zero means nothing fresh was read. */
 	readonly refreshedGroups: number;
 }
 
@@ -342,7 +342,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		// below, and an external group has no entry to refuse for.
 		logCredentialRejections((message, data) => this.log(message, data), parsed.rejections);
 		const pending = this._discovery.claimServe(parsed.server);
-		const claim = pending.settle(await pending.overlay);
+		await pending.ready;
+		const claim = pending.settle();
 
 		const serverId = groupClientId(claim.server);
 		if (this._statusWindow.beginCycleOnReSight(serverId, claim.server)) {
@@ -395,7 +396,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private async probeGroup(groupServer: GroupServer): Promise<void> {
 		try {
 			const pending = this._discovery.claimServe(groupServer);
-			await this._discovery.fetchGroupModels(pending.settle(await pending.overlay), false);
+			await pending.ready;
+			await this._discovery.fetchGroupModels(pending.settle(), false);
 		} catch {
 			// Already logged and recorded in the merged status; the other group servers still get probed.
 		}
