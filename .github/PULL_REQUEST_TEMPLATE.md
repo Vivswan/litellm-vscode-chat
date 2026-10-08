@@ -36,6 +36,10 @@ The kind of change sets the headings:
   pure refactor                   ## What this changes
   contract, schema, or docs       ## What this specifies
 
+A single-heading form renames `## Before` to its heading, holds the blocks there,
+and deletes `## After`. An unused heading or an empty details section is deleted,
+never left in.
+
 Under one heading, a single block carries a `before:` line and an `after:` line.
 
 Insert only the blocks the change moved, in this order: the flow (plain ASCII,
@@ -80,9 +84,8 @@ By default 2 to 4 bullets like those, latest totals only.
 - **Refused: a retry on 401.** The server's answer is final, so a retry only repeats it.
 - **Files:** `src/provider/transport/errorMapping.ts`.
 
-Lines like those, for a bot reviewer or the next agent rather than the reader
-above: reviewer notes, refused alternatives, the file list. One fact per line,
-one sentence each. Delete this whole section when it is empty.
+Keep reviewer notes, refused alternatives, and the file list here, one fact per
+line. Delete the section when it is empty.
 -->
 
 </details>
