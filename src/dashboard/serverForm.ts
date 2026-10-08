@@ -173,16 +173,7 @@ export type ServerFormProblems = Partial<Record<ServerFormField, string>>;
 
 /**
  * The save bar counts these, so a quiet bar under a move the user can see reads as broken, and one that goes quiet
- * on an edit that blocks is worse.
- *
- *   text and secret fields                        -> compare what Save would write
- *   compare what Save would write                 -> padding, an inactive form's leftover, or a URL's spelling never
- *                                                    counts
- *   text Save would refuse                        -> still counts, by its trimmed form
- *   authForm                                      -> raw draft
- *   switching it can leave every directive "keep" -> raw draft
- *   the three row grids                           -> raw draft
- *   a row can sit mid-edit and unparseable        -> raw draft
+ * on an edit that blocks is worse: text Save would refuse still counts, by its trimmed form.
  */
 export function changedServerFormFields(draft: ServerFormDraft, baseline: ServerFormDraft): readonly ServerFormField[] {
 	const nowSecrets = parseSecrets(draft);
@@ -235,12 +226,11 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 			return !sameTokenSet(draft[field], baseline[field]);
 		}
 		if (field === "authForm") {
-			// The selector itself, by draft: see the carve-out above.
+			// The selector by raw draft: a switch can leave every secret directive "keep" and every optional text empty,
+			// invisible to the parsed comparisons above.
 			return draft.authForm !== baseline.authForm;
 		}
-		// The row grids, by draft too. Small JSON-safe drafts, so their id-stripped serialization IS their identity -
-		// no field-by-field walk that a new sub-field could silently fall out of, and no false edit from the record
-		// rows' UI-only ids.
+		// The row grids by raw draft, since a row can sit mid-edit and unparseable.
 		return draftRowsKey(draft[field]) !== draftRowsKey(baseline[field]);
 	});
 }
