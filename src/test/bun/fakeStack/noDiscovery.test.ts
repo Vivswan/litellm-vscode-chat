@@ -33,9 +33,10 @@ describe("fakeStack/noDiscovery: prefix routing", () => {
 		});
 	});
 
-	test("isDiscoveryRoute names exactly the two discovery GETs", () => {
+	test("isDiscoveryRoute names exactly the three discovery GETs", () => {
 		assert.strictEqual(isDiscoveryRoute("/v1/models"), true);
 		assert.strictEqual(isDiscoveryRoute("/v1/model/info"), true);
+		assert.strictEqual(isDiscoveryRoute("/model_group/info"), true);
 		assert.strictEqual(isDiscoveryRoute("/v1/chat/completions"), false);
 		assert.strictEqual(isDiscoveryRoute("/health"), false);
 	});
@@ -47,10 +48,11 @@ describe("fakeStack/noDiscovery: discovery-attempt counters", () => {
 		recordDiscoveryAttempt(state, "/v1/model/info", "Bearer key-a");
 		recordDiscoveryAttempt(state, "/v1/models", "Bearer key-a");
 		recordDiscoveryAttempt(state, "/v1/models", "Bearer key-a");
+		recordDiscoveryAttempt(state, "/model_group/info", "Bearer key-a");
 		recordDiscoveryAttempt(state, "/v1/models", "Bearer key-b");
 		assert.deepStrictEqual(noDiscoveryStats(state), {
-			"key-a": { models: 2, modelInfo: 1 },
-			"key-b": { models: 1, modelInfo: 0 },
+			"key-a": { models: 2, modelInfo: 1, modelGroupInfo: 1 },
+			"key-b": { models: 1, modelInfo: 0, modelGroupInfo: 0 },
 		});
 	});
 
@@ -59,6 +61,6 @@ describe("fakeStack/noDiscovery: discovery-attempt counters", () => {
 		recordDiscoveryAttempt(state, "/v1/models", undefined);
 		recordDiscoveryAttempt(state, "/v1/models", "Basic dXNlcg==");
 		recordDiscoveryAttempt(state, "/v1/chat/completions", "Bearer key-a");
-		assert.deepStrictEqual(noDiscoveryStats(state), { "(none)": { models: 2, modelInfo: 0 } });
+		assert.deepStrictEqual(noDiscoveryStats(state), { "(none)": { models: 2, modelInfo: 0, modelGroupInfo: 0 } });
 	});
 });

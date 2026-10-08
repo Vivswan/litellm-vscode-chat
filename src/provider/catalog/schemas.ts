@@ -67,9 +67,8 @@ export interface LiteLLMProvider extends PerTokenCosts {
 	supports_pdf_input?: boolean | null | undefined;
 	supported_openai_params?: string[] | null | undefined;
 	/**
-	 * Authored by discovery from the report's explicit `reasoning_effort_levels` list or its per-level
-	 * `supports_<level>_reasoning_effort` flags (modelConfiguration's precedence). Never passes through raw, so a wire
-	 * entry's list arrives ordered and string-only.
+	 * Authored by discovery, never passed through raw: LiteLLM's own resolution from /model_group/info where the proxy
+	 * serves it, otherwise modelConfiguration's mirror of that resolver over this entry's flags; null is "unknown".
 	 */
 	reasoning_effort_levels?: string[] | null | undefined;
 }
@@ -219,6 +218,21 @@ export const rawModelInfoItemSchema = z
 	});
 
 export type LiteLLMModelInfoItem = z.infer<typeof rawModelInfoItemSchema>;
+
+/**
+ * One /model_group/info entry, narrowed to the two keys discovery reads. supported_reasoning_efforts is LiteLLM's own
+ * resolution for the group: a list is the menu, null is the proxy saying it does not know, and an absent key is a
+ * proxy from before the field existed (it degrades to undefined like a malformed value, so the deployment flags decide).
+ */
+export const modelGroupInfoItemSchema = z.looseObject({
+	model_group: z.string(),
+	supported_reasoning_efforts: lenient(
+		z
+			.array(z.unknown())
+			.transform((levels) => levels.filter((level): level is string => typeof level === "string"))
+			.nullable()
+	),
+});
 
 /**
  * The declared model_info fields without looseObject's index signature. Test builders type against this so a renamed

@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { apiRootOf } from "../../shared/util/baseUrl";
+import { apiRootOf, serverRootOf } from "../../shared/util/baseUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { type HeaderValue, headerNameKey } from "../../shared/util/headers";
 import type { TransportFetch } from "./nodeHttpFetch";
@@ -33,6 +33,8 @@ const KEYLESS_PLACEHOLDER = "keyless";
  */
 export const MODEL_INFO_PATH = "/model/info";
 export const MODELS_PATH = "/models";
+/** LiteLLM serves this one at the server root only, with no /v1 twin. */
+export const MODEL_GROUP_INFO_PATH = "/model_group/info";
 export const CHAT_COMPLETIONS_PATH = "/chat/completions";
 const COMPLETIONS_PATH = "/completions";
 
@@ -42,6 +44,10 @@ export function modelInfoUrl(baseUrl: string, apiVersion: string | undefined): s
 
 export function modelsUrl(baseUrl: string, apiVersion: string | undefined): string {
 	return `${apiRootOf(baseUrl, apiVersion)}${MODELS_PATH}`;
+}
+
+export function modelGroupInfoUrl(baseUrl: string, apiVersion: string | undefined): string {
+	return `${serverRootOf(baseUrl, apiVersion)}${MODEL_GROUP_INFO_PATH}`;
 }
 
 export function chatCompletionsUrl(baseUrl: string, apiVersion: string | undefined): string {

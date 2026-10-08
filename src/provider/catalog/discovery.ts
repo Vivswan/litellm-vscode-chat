@@ -8,14 +8,21 @@ import type { NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { isNonChatMode } from "../../shared/serverEntry";
 import { isRecord, recordFromKeys } from "../../shared/util/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
-import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
+import {
+	MODEL_GROUP_INFO_PATH,
+	MODEL_INFO_PATH,
+	MODELS_PATH,
+	modelGroupInfoUrl,
+	modelInfoUrl,
+	modelsUrl,
+} from "../transport/clients";
 import { mapSdkError } from "../transport/errorMapping";
 import { retryIdempotent } from "../transport/retry";
 import { RequestError, timeoutRequestError } from "../transport/transportErrors";
 import type { DiscoveryLog } from "./discoveryLog";
 import { discoveryLineWriter, failureKindOf, parseWire } from "./discoveryLog";
 import { collapseTokenLimits, deriveTokenConstraints, reportedReasoningLevels } from "./modelCatalog";
-import { reasoningEffortLevelsFromModelInfo } from "./modelConfiguration";
+import { orderedReasoningLevels, resolveSupportedReasoningEfforts } from "./modelConfiguration";
 import type {
 	LiteLLMArchitecture,
 	LiteLLMModelInfoItem,
@@ -31,6 +38,7 @@ import {
 	isLongContextCostField,
 	LONG_CONTEXT_COST_FIELDS,
 	LONG_CONTEXT_COST_PREFIX,
+	modelGroupInfoItemSchema,
 	providerEntrySchema,
 	rawModelInfoItemSchema,
 	rawModelItemSchema,
@@ -42,6 +50,12 @@ import {
  * this for the OAuth token exchange.
  */
 export const DISCOVERY_MAX_RETRIES = 2;
+
+/**
+ * Whether LiteLLM's catalog described a deployment is provenance the wire does not carry, so every entry resolves as
+ * unmapped: a flagless one reads as unknown (the built-in menu) rather than as a model that takes no level.
+ */
+const UNMAPPED_DEPLOYMENT = { deploymentIsMapped: false } as const;
 
 /** A models-listing item. */
 export function isLiteLLMModelItem(value: unknown): value is RawModelItem {
@@ -129,7 +143,7 @@ export function normalizeModelItem(raw: RawModelItem, log: DiscoveryLog): LiteLL
 			//   the long-context tier costs -> are synthesized
 			providers.push({
 				...entry,
-				reasoning_effort_levels: reasoningEffortLevelsFromModelInfo(entry),
+				reasoning_effort_levels: resolveSupportedReasoningEfforts(entry, UNMAPPED_DEPLOYMENT),
 				context_length: normalizePositiveNumber(entry.context_length),
 				max_tokens: normalizePositiveNumber(entry.max_tokens),
 				max_input_tokens: normalizePositiveNumber(entry.max_input_tokens),
@@ -184,7 +198,7 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo {
 		supports_reasoning: item.model_info?.supports_reasoning ?? null,
 		supports_pdf_input: item.model_info?.supports_pdf_input ?? null,
 		supported_openai_params: item.model_info?.supported_openai_params ?? null,
-		reasoning_effort_levels: reasoningEffortLevelsFromModelInfo(item.model_info) ?? null,
+		reasoning_effort_levels: resolveSupportedReasoningEfforts(item.model_info, UNMAPPED_DEPLOYMENT) ?? null,
 		...serverCostsOf(item.model_info),
 	};
 
@@ -679,6 +693,18 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	// What the model-info probe did, for the same-pass verdicts: the /models success return and the /models failure
 	// refinement both read it.
 	const modelInfo: ModelInfoProbeOutcome = { answered: false, evidence: undefined };
+	// The group endpoint is LiteLLM-only and lives at the server root, so it is probed only once /model/info has
+	// answered with a body: an OpenAI-compatible server (Ollama hangs on unknown routes until the timeout) never pays
+	// for it, and its 404 costs that server nothing.
+	const withGroupMenus = async (result: FetchModelsResult): Promise<FetchModelsResult> => {
+		if (!modelInfo.answered) {
+			return result;
+		}
+		const efforts = await fetchModelGroupReasoningEfforts(request, log);
+		return efforts === undefined
+			? result
+			: { ...result, models: result.models.map((model) => withServerReasoningEfforts(model, efforts)) };
+	};
 	const infoSignal = AbortSignal.timeout(discoveryTimeout);
 	try {
 		// Retries stay off for an endpoint whose failure the entry declares expected.
@@ -704,7 +730,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 				log("model/info returned data but no usable models; falling back", { dataLength: data.length });
 			} else {
 				log("Successfully fetched models", { modelCount: models.length });
-				return { models, observedModelInfoKeys, skippedModeCounts };
+				return await withGroupMenus({ models, observedModelInfoKeys, skippedModeCounts });
 			}
 		} else {
 			log("model/info response has no data array; falling back", { rejection: infoEnvelope.rejection });
@@ -769,12 +795,99 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		}
 	}
 	log("Successfully fetched models", { modelCount: models.length });
-	return {
+	return await withGroupMenus({
 		models,
 		// See FetchModelsResult.modelInfoUnsupported: a declared-expected probe failure is already handled and gets no
 		// hint.
 		...(modelInfo.evidence !== undefined && expected?.modelInfo !== true
 			? { modelInfoUnsupported: modelInfo.evidence.kind }
 			: {}),
-	};
+	});
+}
+
+/** model_group -> LiteLLM's resolved menu; null is the proxy saying unknown. A group without the field is not here. */
+type ModelGroupReasoningEfforts = ReadonlyMap<string, readonly string[] | null>;
+
+/**
+ * Nonfatal like the model/info probe: a failure of any kind (a 404 from a proxy without the endpoint, a 401, a timeout)
+ * leaves the deployment-flag menus standing and is logged by classification only. A proxy from before the field
+ * answers without it, which the schema reads as undefined, so those groups are left out of the map.
+ */
+async function fetchModelGroupReasoningEfforts(
+	request: FetchModelsRequest,
+	log: DiscoveryLog
+): Promise<ModelGroupReasoningEfforts | undefined> {
+	const { client, baseUrl, apiVersion, discoveryTimeout, headers } = request;
+	log("Fetching models", { endpoint: MODEL_GROUP_INFO_PATH });
+	const signal = AbortSignal.timeout(discoveryTimeout);
+	// The absolute URL, since the client's base is the API root (.../v1) and this endpoint sits at the server root.
+	const url = modelGroupInfoUrl(baseUrl, apiVersion);
+	let parsed: unknown;
+	try {
+		parsed = await getJson(client, url, url, {
+			signal,
+			timeoutMs: discoveryTimeout,
+			maxRetries: DISCOVERY_MAX_RETRIES,
+			headers,
+		});
+	} catch (error) {
+		const context = { surface: "discovery" as const, baseUrl, timeoutMs: discoveryTimeout };
+		// The signal firing IS the timeout, even when it fired during a retry's backoff sleep.
+		const mapped = signal.aborted
+			? timeoutRequestError(context, error)
+			: mapSdkError(error, context, request.isCancellation);
+		log("model_group/info failed; menus follow the deployment flags", failureKindOf(mapped));
+		return undefined;
+	}
+	const envelope = parseWire(dataEnvelopeSchema, parsed);
+	if (!envelope.success) {
+		log("model_group/info response has no data array; menus follow the deployment flags", {
+			rejection: envelope.rejection,
+		});
+		return undefined;
+	}
+	log("Parsed model_group/info response", { groupCount: envelope.data.data.length });
+	const efforts = new Map<string, readonly string[] | null>();
+	for (const [index, entry] of envelope.data.data.entries()) {
+		const group = parseWire(modelGroupInfoItemSchema, entry);
+		if (!group.success) {
+			log("Skipping malformed model_group/info entry", { index, rejection: group.rejection });
+			continue;
+		}
+		if (group.data.supported_reasoning_efforts !== undefined) {
+			efforts.set(group.data.model_group, group.data.supported_reasoning_efforts);
+		}
+	}
+	return efforts;
+}
+
+/** The proxy's own resolution replaces what the deployment flags said; a bare entry has no provider to carry it. */
+function withServerReasoningEfforts(model: LiteLLMModelItem, efforts: ModelGroupReasoningEfforts): LiteLLMModelItem {
+	const levels = efforts.get(model.id);
+	if (levels === undefined) {
+		return model;
+	}
+	const authored = levels === null ? null : orderedReasoningLevels(levels);
+	switch (model.shape.kind) {
+		case "deployment":
+			return {
+				...model,
+				shape: { ...model.shape, provider: { ...model.shape.provider, reasoning_effort_levels: authored } },
+			};
+		case "group": {
+			const [first, ...rest] = model.shape.providers;
+			return {
+				...model,
+				shape: {
+					kind: "group",
+					providers: [
+						{ ...first, reasoning_effort_levels: authored },
+						...rest.map((provider) => ({ ...provider, reasoning_effort_levels: authored })),
+					],
+				},
+			};
+		}
+		case "bare":
+			return model;
+	}
 }

@@ -3,15 +3,17 @@ import * as assert from "node:assert";
 import {
 	DEFAULT_REASONING_EFFORT_LEVELS,
 	effectiveReasoningLevels,
-	reasoningEffortLevelsFromModelInfo,
+	intersectSupportedReasoningEfforts,
 	reasoningEffortPickerValues,
 	reasoningEffortSchema,
 	requestParamsFromModelConfiguration,
+	resolveSupportedReasoningEfforts,
 	supportsReasoningEffort,
 } from "../../../../provider/catalog/modelConfiguration";
 import type { LiteLLMProvider } from "../../../../provider/catalog/schemas";
 import type { EffectiveCapabilityFields } from "../../../../shared/config/capabilityResolution";
 import { expectDefined } from "../../../pureHelpers";
+import { INTERSECT_CASES, RESOLVE_CASES } from "./litellmReasoningEffortCases";
 
 describe("provider/catalog/modelConfiguration", () => {
 	describe("reasoning-effort schema", () => {
@@ -59,24 +61,31 @@ describe("provider/catalog/modelConfiguration", () => {
 		});
 	});
 
-	describe("reasoningEffortLevelsFromModelInfo", () => {
-		// Upstream LiteLLM's model_prices_and_context_window.json never flags low/medium/high as true: it stamps
-		// supports_<level>_reasoning_effort only to add a tier above or below that baseline or to remove one with false
-		// (#514). A report's true flags are therefore never the whole menu.
-		const cases: ReadonlyArray<{ name: string; info: Record<string, unknown>; menu: string[] | undefined }> = [
+	describe("resolveSupportedReasoningEfforts", () => {
+		// LiteLLM's resolver is the source of truth for what a deployment's flags mean (#514); the vectors are its own
+		// unit tests, so a divergence here is a bug in the mirror.
+		for (const { name, modelInfo, deploymentIsMapped, expected } of RESOLVE_CASES) {
+			test(`LiteLLM conformance: ${name}`, () => {
+				assert.deepStrictEqual(resolveSupportedReasoningEfforts(modelInfo, { deploymentIsMapped }), expected);
+			});
+		}
+
+		// The reporter's four models as upstream's price map describes them today, with LiteLLM's answers.
+		const reported: ReadonlyArray<{ name: string; info: Record<string, unknown>; menu: string[] | undefined }> = [
 			{
-				name: "claude-opus-4-8: two tiers flagged above the baseline extend it",
-				info: { supports_xhigh_reasoning_effort: true, supports_max_reasoning_effort: true },
-				menu: ["low", "medium", "high", "xhigh", "max"],
+				name: "claude-opus-4-8",
+				info: { supports_reasoning: true, supports_xhigh_reasoning_effort: true, supports_max_reasoning_effort: true },
+				menu: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
 			},
 			{
-				name: "claude-opus-4-6: one tier flagged above the baseline extends it",
-				info: { supports_max_reasoning_effort: true },
-				menu: ["low", "medium", "high", "max"],
+				name: "claude-opus-4-6",
+				info: { supports_reasoning: true, supports_max_reasoning_effort: true },
+				menu: ["none", "minimal", "low", "medium", "high", "max"],
 			},
 			{
-				name: "gpt-5.4: a false flag on a non-baseline tier changes nothing, true flags add",
+				name: "gpt-5.4",
 				info: {
+					supports_reasoning: true,
 					supports_none_reasoning_effort: true,
 					supports_xhigh_reasoning_effort: true,
 					supports_minimal_reasoning_effort: false,
@@ -84,8 +93,9 @@ describe("provider/catalog/modelConfiguration", () => {
 				menu: ["none", "low", "medium", "high", "xhigh"],
 			},
 			{
-				name: "gpt-5.5-pro: a false flag on a baseline level removes it",
+				name: "gpt-5.5-pro",
 				info: {
+					supports_reasoning: true,
 					supports_none_reasoning_effort: false,
 					supports_xhigh_reasoning_effort: true,
 					supports_minimal_reasoning_effort: false,
@@ -94,70 +104,50 @@ describe("provider/catalog/modelConfiguration", () => {
 				menu: ["medium", "high", "xhigh"],
 			},
 			{
-				name: "a lone false flag on a tier outside the baseline is a report that yields the bare baseline",
-				info: { supports_minimal_reasoning_effort: false },
-				menu: ["low", "medium", "high"],
-			},
-			{
-				name: "unknown level names are the server's to define and append after the known ones",
-				info: { supports_ultra_reasoning_effort: true },
-				menu: ["low", "medium", "high", "ultra"],
-			},
-			{
-				name: "a report that removes the whole baseline leaves an empty menu, the server's explicit word",
+				name: "an azure deployment spelled gpt5_series is the gpt-5 family too, so none needs an explicit true",
 				info: {
-					supports_low_reasoning_effort: false,
-					supports_medium_reasoning_effort: false,
-					supports_high_reasoning_effort: false,
+					supports_reasoning: true,
+					litellm_provider: "azure",
+					key: "azure/my-gpt5_series-deploy",
+					supports_minimal_reasoning_effort: true,
 				},
-				menu: [],
+				menu: ["minimal", "low", "medium", "high"],
 			},
 			{
-				name: "flags that are all null carry no signal",
-				info: { supports_none_reasoning_effort: null, supports_high_reasoning_effort: null },
-				menu: undefined,
-			},
-			{
-				name: "a non-boolean flag value is ignored, not read as true",
-				info: { supports_low_reasoning_effort: "yes" },
-				menu: undefined,
-			},
-			{
-				name: "non-flag keys carry no signal",
-				info: { supports_reasoning: true, max_tokens: 5 },
-				menu: undefined,
-			},
-			// 40 upstream entries carry an explicit reasoning_effort_levels list and no per-level flags at all.
-			{
-				name: "an explicit server list is the menu, in menu order",
-				info: { reasoning_effort_levels: ["high", "none"] },
-				menu: ["none", "high"],
-			},
-			{
-				name: "an explicit server list wins over the flags beside it",
-				info: { reasoning_effort_levels: ["high", "max"], supports_xhigh_reasoning_effort: true },
-				menu: ["high", "max"],
-			},
-			{
-				name: "an empty explicit list is no signal, so the flags decide",
-				info: { reasoning_effort_levels: [], supports_xhigh_reasoning_effort: true },
-				menu: ["low", "medium", "high", "xhigh"],
-			},
-			{
-				name: "an explicit list with a non-string entry is no signal, so the flags decide",
-				info: { reasoning_effort_levels: ["high", 5], supports_max_reasoning_effort: true },
-				menu: ["low", "medium", "high", "max"],
+				name: "an azure gpt-5-chat deployment is outside the gpt-5 family, so none stays opt-out",
+				info: {
+					supports_reasoning: true,
+					litellm_provider: "azure",
+					key: "azure/gpt-5-chat-latest",
+					supports_max_reasoning_effort: true,
+				},
+				menu: ["none", "minimal", "low", "medium", "high", "max"],
 			},
 		];
-		for (const { name, info, menu } of cases) {
-			test(name, () => {
-				assert.deepStrictEqual(reasoningEffortLevelsFromModelInfo(info), menu);
+		for (const { name, info, menu } of reported) {
+			test(`the wire shape of ${name}`, () => {
+				assert.deepStrictEqual(resolveSupportedReasoningEfforts(info, { deploymentIsMapped: false }), menu);
 			});
 		}
 
-		test("non-record sources carry no signal", () => {
-			assert.strictEqual(reasoningEffortLevelsFromModelInfo(undefined), undefined);
-			assert.strictEqual(reasoningEffortLevelsFromModelInfo("supports_low_reasoning_effort"), undefined);
+		test("non-record sources resolve to unknown", () => {
+			assert.strictEqual(resolveSupportedReasoningEfforts(undefined, { deploymentIsMapped: false }), undefined);
+			assert.strictEqual(
+				resolveSupportedReasoningEfforts("supports_reasoning", { deploymentIsMapped: true }),
+				undefined
+			);
+		});
+	});
+
+	describe("intersectSupportedReasoningEfforts", () => {
+		for (const { name, current, resolved, expected } of INTERSECT_CASES) {
+			test(`LiteLLM conformance: ${name}`, () => {
+				assert.deepStrictEqual(intersectSupportedReasoningEfforts(current, resolved), expected);
+			});
+		}
+
+		test("a level outside the built-in vocabulary survives the intersection when both sides carry it", () => {
+			assert.deepStrictEqual(intersectSupportedReasoningEfforts(["ultra", "low"], ["low", "ultra"]), ["low", "ultra"]);
 		});
 	});
 

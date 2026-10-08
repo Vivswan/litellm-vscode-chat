@@ -222,6 +222,40 @@ suite("provider/catalog/capabilityOverrides", () => {
 			);
 		});
 
+		test("the user's level list wins whole over the proxy's own resolution, and an empty one empties the menu", () => {
+			// reasoning_effort_levels on the provider is what discovery authors from /model_group/info (#514): the server's
+			// word, which the user's record still outranks without union or intersection.
+			const resolvedByProxy: LiteLLMModelItem = {
+				...DEPLOYMENT,
+				shape: deploymentShape({
+					...DEPLOYMENT_PROVIDER,
+					supports_reasoning: true,
+					reasoning_effort_levels: ["low", "medium", "high"],
+				}),
+			};
+			assert.deepStrictEqual(
+				registered(resolvedByProxy).configurationSchema,
+				reasoningEffortSchema(["low", "medium", "high"]),
+				"control: with no record the server's resolution is the menu"
+			);
+			const own = applyCapabilityOverrides(
+				[registered(resolvedByProxy)],
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { reasoning_effort_levels: ["gentle", "max"] } } })
+			);
+			assert.deepStrictEqual(own[0]?.configurationSchema, reasoningEffortSchema(["gentle", "max"]));
+			const emptied = applyCapabilityOverrides(
+				[registered(resolvedByProxy)],
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { reasoning_effort_levels: [] } } })
+			);
+			assert.deepStrictEqual(
+				emptied[0]?.configurationSchema,
+				reasoningEffortSchema([]),
+				"Provider default alone, even though the server reports levels"
+			);
+		});
+
 		test("the entry's level list beats the global one, and a levels-only record on a gated-off model is inert", () => {
 			const reasoningItem: LiteLLMModelItem = {
 				...DEPLOYMENT,

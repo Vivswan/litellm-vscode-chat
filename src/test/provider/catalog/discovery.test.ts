@@ -25,6 +25,7 @@ import { fixedHeaderValue } from "../../../shared/util/headers";
 import {
 	discoveryHandlers,
 	emptyErrorResponse,
+	MODEL_GROUP_INFO_URL,
 	MODEL_INFO_URL,
 	MODELS_URL,
 	mswServer,
@@ -118,6 +119,8 @@ suite("provider/catalog/discovery", () => {
 		});
 
 		test("the server's reasoning-effort report authors the levels list on both discovery paths", () => {
+			// LiteLLM's rule (its resolver, mirrored in modelConfiguration): medium and high always, minimal and low unless
+			// false, xhigh and max only when true, none unless false.
 			const mapped = mapModelInfoEntry(
 				expectDefined(
 					parseModelInfoItem({
@@ -132,33 +135,34 @@ suite("provider/catalog/discovery", () => {
 					})
 				)
 			);
-			assert.deepStrictEqual(
-				mapped.provider.reasoning_effort_levels,
-				["low", "medium", "high", "max"],
-				"true flags add to the low/medium/high baseline; a false on a tier outside it and a null change nothing"
-			);
+			assert.deepStrictEqual(mapped.provider.reasoning_effort_levels, ["none", "low", "medium", "high", "max"]);
 
 			// providers-array entries: normalizeModelItem authors the field after the pass-through spread, so a wire
-			// entry's own list arrives ordered, never raw.
+			// entry's own list arrives ordered and known-only, never raw.
 			const routed = normalizeModelItem(
 				{
 					id: "routed",
 					providers: [
 						{ provider: "openrouter", status: "ok", supports_xhigh_reasoning_effort: true },
-						{ provider: "anthropic", status: "ok", reasoning_effort_levels: ["max", "high"] },
+						{
+							provider: "anthropic",
+							status: "ok",
+							supports_reasoning: true,
+							reasoning_effort_levels: ["max", "high", "turbo"],
+						},
 					],
 				},
 				() => {}
 			);
 			const [flagged, listed] = expectShape(routed, "group").providers;
-			assert.deepStrictEqual(flagged.reasoning_effort_levels, ["low", "medium", "high", "xhigh"]);
+			assert.deepStrictEqual(flagged.reasoning_effort_levels, ["none", "minimal", "low", "medium", "high", "xhigh"]);
 			assert.deepStrictEqual(
 				expectDefined(listed).reasoning_effort_levels,
 				["high", "max"],
-				"an explicit list is the menu"
+				"a declared list is the menu, LiteLLM's known levels only"
 			);
 
-			// A lone false flag is a report: it removes from the baseline rather than reading as silence.
+			// A lone false flag is a report: supports_reasoning reads as implied, and the flag removes its level.
 			const narrowed = mapModelInfoEntry(
 				expectDefined(
 					parseModelInfoItem({
@@ -167,9 +171,9 @@ suite("provider/catalog/discovery", () => {
 					})
 				)
 			);
-			assert.deepStrictEqual(narrowed.provider.reasoning_effort_levels, ["medium", "high"]);
+			assert.deepStrictEqual(narrowed.provider.reasoning_effort_levels, ["none", "minimal", "medium", "high"]);
 
-			// No flag and no list is no signal at all, never an empty list.
+			// No flag and no list is unknown, never an empty list: the wire cannot say whether the catalog mapped it.
 			const unflagged = mapModelInfoEntry(
 				expectDefined(parseModelInfoItem({ model_name: "plain", model_info: { supports_reasoning: true } }))
 			);
@@ -972,8 +976,8 @@ suite("provider/catalog/discovery", () => {
 			assert.deepStrictEqual(provider.supported_openai_params, ["temperature"]);
 			assert.deepStrictEqual(
 				provider.reasoning_effort_levels,
-				["low", "medium", "high", "xhigh", "max"],
-				"the flag-derived level lists union in menu order, unlike the supported params"
+				["none", "minimal", "low", "medium", "high", "max"],
+				"the deployments' resolved menus intersect in menu order, the proxy's own group rule"
 			);
 			assert.strictEqual(model.architecture, undefined, "Vision holds only when every deployment advertises it");
 		});
@@ -1436,6 +1440,110 @@ suite("provider/catalog/discovery", () => {
 		});
 	});
 
+	suite("model_group/info", () => {
+		const infoPayload = {
+			data: [
+				{ model_name: "resolved", model_info: { supports_reasoning: true, supports_max_reasoning_effort: true } },
+				{ model_name: "unknown", model_info: { supports_reasoning: true, supports_max_reasoning_effort: true } },
+				{ model_name: "older", model_info: { supports_reasoning: true, supports_max_reasoning_effort: true } },
+				{ model_name: "unlisted", model_info: { supports_reasoning: true, supports_max_reasoning_effort: true } },
+			],
+		};
+		const FLAG_MENU = ["none", "minimal", "low", "medium", "high", "max"];
+		const levelsOf = (models: LiteLLMModelItem[], id: string) =>
+			expectShape(expectDefined(models.find((model) => model.id === id)), "deployment").provider
+				.reasoning_effort_levels;
+
+		test("the proxy's resolution replaces the flag menu where the field is present, a list or null; an absent field leaves the flags", async () => {
+			mswServer.use(
+				...discoveryHandlers(infoPayload, {
+					data: [
+						{ model_group: "resolved", supported_reasoning_efforts: ["max", "low", 7, "turbo"] },
+						{ model_group: "unknown", supported_reasoning_efforts: null },
+						{ model_group: "older" },
+						{ no_group_name: true },
+					],
+				})
+			);
+			const { models } = await fetchModels(request());
+			assert.deepStrictEqual(
+				levelsOf(models, "resolved"),
+				["low", "max", "turbo"],
+				"served as is: ordered, strings only"
+			);
+			assert.strictEqual(levelsOf(models, "unknown"), null, "null is the proxy saying unknown");
+			assert.deepStrictEqual(levelsOf(models, "older"), FLAG_MENU, "a group without the field keeps the flag rule");
+			assert.deepStrictEqual(levelsOf(models, "unlisted"), FLAG_MENU, "a model the endpoint never named too");
+		});
+
+		test("a providers-array model gets the resolution on every provider route", async () => {
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () =>
+					HttpResponse.json({
+						data: [
+							{
+								id: "routed",
+								providers: [
+									{ provider: "a", status: "ok", supports_reasoning: true },
+									{ provider: "b", status: "ok", supports_reasoning: true },
+								],
+							},
+						],
+					})
+				),
+				http.get(MODEL_GROUP_INFO_URL, () =>
+					HttpResponse.json({ data: [{ model_group: "routed", supported_reasoning_efforts: ["high"] }] })
+				)
+			);
+			const { models } = await fetchModels(request());
+			const { providers } = expectShape(expectDefined(models[0]), "group");
+			assert.deepStrictEqual(
+				providers.map((provider) => provider.reasoning_effort_levels),
+				[["high"], ["high"]]
+			);
+		});
+
+		test("the endpoint is probed only after model/info answered, and never changes the outcome when it fails", async () => {
+			// An OpenAI-compatible server (no /v1/model/info) must not pay for a LiteLLM-only probe: Ollama hangs on
+			// unknown routes until the discovery timeout.
+			let groupProbes = 0;
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+				http.get(MODELS_URL, () => HttpResponse.json({ object: "list", data: [{ id: "plain" }] })),
+				http.get(MODEL_GROUP_INFO_URL, () => {
+					groupProbes += 1;
+					return emptyErrorResponse(404);
+				})
+			);
+			const fallback = await fetchModels(request());
+			assert.deepStrictEqual(
+				fallback.models.map((model) => model.id),
+				["plain"]
+			);
+			assert.strictEqual(groupProbes, 0, "no model/info answer, no group probe");
+
+			// A LiteLLM proxy from before the endpoint answers 404; a 401 keeps its own classification (never re-wrapped);
+			// a non-JSON body is the unparseable-response classification. All nonfatal: the flag menus stand and nothing
+			// surfaces as an error.
+			const failures: ReadonlyArray<{ answer: () => Response; classification: Record<string, unknown> }> = [
+				{ answer: () => emptyErrorResponse(404), classification: { kind: "http", status: 404 } },
+				{ answer: () => emptyErrorResponse(401), classification: { kind: "auth", status: 401 } },
+				{ answer: () => new HttpResponse("<html>not json</html>", { status: 200 }), classification: { kind: "http" } },
+			];
+			for (const { answer, classification } of failures) {
+				const { entries, log } = logRecorder();
+				// Registered first: msw takes the first matching handler, and discoveryHandlers carries a 404 for this URL.
+				mswServer.use(http.get(MODEL_GROUP_INFO_URL, answer), ...discoveryHandlers(infoPayload));
+				const { models } = await fetchModels(request(log));
+				assert.deepStrictEqual(levelsOf(models, "resolved"), FLAG_MENU);
+				const failure = entries.find(
+					(entry) => entry.message === "model_group/info failed; menus follow the deployment flags"
+				);
+				assert.deepStrictEqual(expectDefined(failure).data, classification, "logged by classification alone");
+			}
+		});
+	});
+
 	suite("mergeModelDeployments", () => {
 		/** Build a deployment through the production parse-and-map path, never by hand. */
 		function deployment(modelInfo: Record<string, unknown>): MappedModelInfo {
@@ -1472,15 +1580,15 @@ suite("provider/catalog/discovery", () => {
 			assert.ok(!("output_cost_per_token" in declared.values));
 		});
 
-		test("deployments flagging disjoint tiers register their union, not every default", () => {
+		test("deployments flagging different opt-in tiers register their intersection, not every default", () => {
 			const merged = mergeModelDeployments([
 				deployment({ supports_reasoning: true, supports_max_reasoning_effort: true }),
 				deployment({ supports_reasoning: true, supports_xhigh_reasoning_effort: true }),
 			]);
 			assert.deepStrictEqual(
 				merged.provider.reasoning_effort_levels,
-				["low", "medium", "high", "xhigh", "max"],
-				"menu order, not arrival order"
+				["none", "minimal", "low", "medium", "high"],
+				"a tier only one deployment accepts is one routing could reject, so it is not offered"
 			);
 			const { infos } = buildModelInfos(
 				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider, limits: merged.limits } }],
@@ -1491,12 +1599,12 @@ suite("provider/catalog/discovery", () => {
 			const info = expectDefined(infos[0]);
 			assert.deepStrictEqual(
 				info.configurationSchema,
-				reasoningEffortSchema(["low", "medium", "high", "xhigh", "max"]),
-				"the picker offers what either deployment accepts, never the seven built-in levels"
+				reasoningEffortSchema(["none", "minimal", "low", "medium", "high"]),
+				"the picker offers what every deployment accepts, never the seven built-in levels"
 			);
 			const declared = info.litellm.serverDeclared;
 			assert.ok(declared.kind === "discovered");
-			assert.deepStrictEqual(declared.values.reasoning_effort_levels, ["low", "medium", "high", "xhigh", "max"]);
+			assert.deepStrictEqual(declared.values.reasoning_effort_levels, ["none", "minimal", "low", "medium", "high"]);
 		});
 
 		test("a merged deployment's baseline never claims more than the merge advertised", () => {

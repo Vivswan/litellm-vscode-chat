@@ -1,6 +1,5 @@
 import * as l10n from "@vscode/l10n";
 import type { LanguageModelConfigurationSchema } from "vscode";
-import { z } from "zod";
 import type { EffectiveCapabilityFields } from "../../shared/config/capabilityResolution";
 import { capabilityField } from "../../shared/config/capabilityResolution";
 import { isRecord } from "../../shared/util/json";
@@ -123,12 +122,9 @@ export function reasoningEffortSchema(levels: readonly string[]): LanguageModelC
 	};
 }
 
-/** LiteLLM's per-level support flags, e.g. supports_xhigh_reasoning_effort; the level name is the capture. */
-const REASONING_LEVEL_FLAG = /^supports_(.+)_reasoning_effort$/;
-
 /**
  * The one menu order: known levels in the built-in order, unknown ones after them as they arrived. The flag-derived
- * list and modelCatalog's cross-deployment union both sort through here, so a known level's place never depends on
+ * list and modelCatalog's cross-deployment merge both sort through here, so a known level's place never depends on
  * which deployment the server listed first.
  */
 export function orderedReasoningLevels(levels: Iterable<string>): string[] {
@@ -140,51 +136,116 @@ export function orderedReasoningLevels(levels: Iterable<string>): string[] {
 	return [...known, ...unknown];
 }
 
-/**
- * The levels LiteLLM's price map takes as given: its per-level flags never say `true` for these, only `false` to
- * remove one.
- */
-const BASELINE_REASONING_EFFORT_LEVELS: readonly string[] = ["low", "medium", "high"];
+/** The flags LiteLLM reads, by polarity; medium and high have no flag and are always on for a reasoning model. */
+const OPT_OUT_EFFORT_FLAGS = {
+	minimal: "supports_minimal_reasoning_effort",
+	low: "supports_low_reasoning_effort",
+} as const;
+const OPT_IN_EFFORT_FLAGS = { xhigh: "supports_xhigh_reasoning_effort", max: "supports_max_reasoning_effort" } as const;
+const NONE_EFFORT_FLAG = "supports_none_reasoning_effort";
+const EFFORT_FLAGS: readonly string[] = [
+	NONE_EFFORT_FLAG,
+	...Object.values(OPT_OUT_EFFORT_FLAGS),
+	...Object.values(OPT_IN_EFFORT_FLAGS),
+];
 
-/**
- * The server's menu for one model_info record, or undefined when it reports nothing: a non-empty
- * `reasoning_effort_levels` list is the menu, otherwise the per-level flags are deltas against the baseline.
- *   reasoning_effort_levels: ["none", "high"]  -> none, high (the flags beside it are ignored)
- *   reasoning_effort_levels: [] or malformed    -> no signal from the list; the flags decide
- *   supports_xhigh_reasoning_effort: true       -> low, medium, high, xhigh
- *   supports_low_reasoning_effort: false, alone -> medium, high
- *   no flag with a boolean value                -> undefined
- */
-export function reasoningEffortLevelsFromModelInfo(source: unknown): string[] | undefined {
-	if (!isRecord(source)) {
-		return undefined;
-	}
-	const explicit = EXPLICIT_REASONING_LEVELS.safeParse(source.reasoning_effort_levels);
-	return explicit.success ? orderedReasoningLevels(explicit.data) : reasoningEffortLevelsFromFlags(source);
+/** LiteLLM's `is None`: JSON null and an absent key read alike. */
+function isUnset(value: unknown): boolean {
+	return value === undefined || value === null;
 }
 
-const EXPLICIT_REASONING_LEVELS = z.array(z.string()).min(1);
-
 /**
- * Upstream's flags are deltas (#514): `true` adds a tier to the baseline, `false` removes one, so the true flags alone
- * are never the whole menu. Any boolean flag is a report; null and non-boolean values are no flag at all.
+ * LiteLLM's own resolver, mirrored for a proxy that predates /model_group/info's supported_reasoning_efforts
+ * (litellm/router_utils/reasoning_effort_capability.py; the vectors in
+ * src/test/bun/provider/catalog/litellmReasoningEffortCases.ts are LiteLLM's). undefined is "unknown", which must never
+ * narrow a group; [] is a model that takes no level. Two inputs LiteLLM has and the wire does not: the cost map's
+ * unprefixed twin of a provider-prefixed entry (flags are read here as the entry carries them) and whether the catalog
+ * mapped the deployment, which discovery passes as false so a flagless entry resolves to unknown, never to an empty
+ * menu.
+ *   supports_reasoning: false                     -> [], whatever else the entry says
+ *   neither supports_reasoning: true nor a flag   -> [] when the catalog mapped the deployment, else undefined
+ *   reasoning_effort_levels: [...]                -> that list, known levels only, in menu order
+ *   flags only                                    -> medium, high always; minimal, low unless false; xhigh, max only
+ *                                                    when true; none unless false, except azure's gpt-5 and gpt-6
+ *                                                    family, where it needs true
+ *   every flag null                               -> undefined
  */
-function reasoningEffortLevelsFromFlags(source: Record<string, unknown>): string[] | undefined {
-	const levels = new Set(BASELINE_REASONING_EFFORT_LEVELS);
-	let flagged = false;
-	for (const [key, value] of Object.entries(source)) {
-		const level = REASONING_LEVEL_FLAG.exec(key)?.[1];
-		if (level === undefined || level === "" || typeof value !== "boolean") {
-			continue;
-		}
-		flagged = true;
-		if (value) {
-			levels.add(level);
-		} else {
-			levels.delete(level);
+export function resolveSupportedReasoningEfforts(
+	modelInfo: unknown,
+	options: { readonly deploymentIsMapped: boolean }
+): string[] | undefined {
+	if (!isRecord(modelInfo)) {
+		return undefined;
+	}
+	if (modelInfo.supports_reasoning === false) {
+		return [];
+	}
+	const hasFlag = EFFORT_FLAGS.some((flag) => !isUnset(modelInfo[flag]));
+	if (modelInfo.supports_reasoning !== true && !hasFlag) {
+		return options.deploymentIsMapped ? [] : undefined;
+	}
+	const declared = modelInfo.reasoning_effort_levels;
+	if (Array.isArray(declared)) {
+		return DEFAULT_REASONING_EFFORT_LEVELS.filter((level) => declared.includes(level));
+	}
+	if (!hasFlag) {
+		return undefined;
+	}
+	const allowed = new Set<string>(["medium", "high"]);
+	for (const [level, flag] of Object.entries(OPT_OUT_EFFORT_FLAGS)) {
+		if (modelInfo[flag] !== false) {
+			allowed.add(level);
 		}
 	}
-	return flagged ? orderedReasoningLevels(levels) : undefined;
+	for (const [level, flag] of Object.entries(OPT_IN_EFFORT_FLAGS)) {
+		if (modelInfo[flag] === true) {
+			allowed.add(level);
+		}
+	}
+	if (supportsNoneReasoningEffort(modelInfo)) {
+		allowed.add("none");
+	}
+	return DEFAULT_REASONING_EFFORT_LEVELS.filter((level) => allowed.has(level));
+}
+
+/**
+ * Opt-in only where LiteLLM's request path refuses the level: its azure gpt-5 config raises on reasoning_effort "none"
+ * without an explicit true, and that config is selected for the gpt-5 and gpt-6 names (minus gpt-5-chat) plus any
+ * deployment spelled gpt5_series.
+ */
+function supportsNoneReasoningEffort(modelInfo: Record<string, unknown>): boolean {
+	const flag = modelInfo[NONE_EFFORT_FLAG];
+	const key = modelInfo.key;
+	if (modelInfo.litellm_provider !== "azure" || typeof key !== "string" || !isAzureGpt5Family(key)) {
+		return flag !== false;
+	}
+	return flag === true;
+}
+
+function isAzureGpt5Family(model: string): boolean {
+	const bare = model.split("/").at(-1) ?? model;
+	const reasoningSeries = (model.includes("gpt-5") || model.includes("gpt-6")) && !bare.includes("gpt-5-chat");
+	return reasoningSeries || model.includes("gpt5_series");
+}
+
+/**
+ * LiteLLM's group merge: a deployment resolved to unknown never narrows, and a level survives only when every
+ * deployment with an answer accepts it, so the group offers nothing routing could reject. One departure from the
+ * Python: a level outside the built-in vocabulary survives when both sides carry it, because the user's own levels are
+ * open here and LiteLLM's are an enum.
+ */
+export function intersectSupportedReasoningEfforts(
+	current: readonly string[] | undefined,
+	resolved: readonly string[] | undefined
+): string[] | undefined {
+	if (resolved === undefined) {
+		return current === undefined ? undefined : [...current];
+	}
+	if (current === undefined) {
+		return [...resolved];
+	}
+	const keep = new Set(resolved);
+	return orderedReasoningLevels(current.filter((level) => keep.has(level)));
 }
 
 /**

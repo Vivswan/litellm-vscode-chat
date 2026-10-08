@@ -425,12 +425,12 @@ suite("provider/model info and fallback", () => {
 			);
 			assert.deepStrictEqual(
 				(await findInfo("grok-5")).configurationSchema,
-				reasoningEffortSchema(["low", "medium", "high", "max"]),
-				"the menu is the low/medium/high baseline plus the server's added tier, not the built-in list"
+				reasoningEffortSchema(["none", "low", "medium", "high", "max"]),
+				"LiteLLM's reading of the flags (a false minimal drops it, a true max adds it), not the built-in list"
 			);
 		});
 
-		test("deployments flagging disjoint tiers offer their union end to end", async () => {
+		test("deployments flagging different opt-in tiers offer their intersection end to end", async () => {
 			mswServer.use(
 				...discoveryHandlers({
 					data: [
@@ -441,8 +441,44 @@ suite("provider/model info and fallback", () => {
 			);
 			assert.deepStrictEqual(
 				(await findInfo("split")).configurationSchema,
-				reasoningEffortSchema(["low", "medium", "high", "xhigh", "max"]),
-				"a tier either deployment accepts is offered; the built-in list is not"
+				reasoningEffortSchema(["none", "minimal", "low", "medium", "high"]),
+				"a tier only one deployment accepts is not offered; the built-in list is not either"
+			);
+		});
+
+		test("the proxy's own /model_group/info resolution is the menu, over whatever the deployment flags said", async () => {
+			mswServer.use(
+				...discoveryHandlers(
+					{
+						data: [
+							infoEntry("kimi", { supports_reasoning: true, supports_max_reasoning_effort: true }),
+							infoEntry("unknown-to-proxy", { supports_reasoning: true, supports_max_reasoning_effort: true }),
+							infoEntry("older-field", { supports_reasoning: true, supports_max_reasoning_effort: true }),
+						],
+					},
+					{
+						data: [
+							{ model_group: "kimi", supported_reasoning_efforts: ["max", "high", "low"] },
+							{ model_group: "unknown-to-proxy", supported_reasoning_efforts: null },
+							{ model_group: "older-field" },
+						],
+					}
+				)
+			);
+			assert.deepStrictEqual(
+				(await findInfo("kimi")).configurationSchema,
+				reasoningEffortSchema(["low", "high", "max"]),
+				"the server's list, in menu order"
+			);
+			assert.deepStrictEqual(
+				(await findInfo("unknown-to-proxy")).configurationSchema,
+				REASONING_EFFORT_SCHEMA,
+				"null is the proxy saying unknown, so the built-in list stands even though the flags would resolve"
+			);
+			assert.deepStrictEqual(
+				(await findInfo("older-field")).configurationSchema,
+				reasoningEffortSchema(["none", "minimal", "low", "medium", "high", "max"]),
+				"a group without the field is a proxy from before it, so the flags decide"
 			);
 		});
 

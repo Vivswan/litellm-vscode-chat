@@ -22,7 +22,8 @@
 扩展询问每个已配置的服务器它提供什么 - 在激活时、设置变化时, 以及每当 VS Code 重新解析其模型提供程序时:
 
 - 发现先读 `/v1/model/info` - 携带 token 限制、定价和能力标志的丰富终结点 - 当该调用失败、未返回数据数组, 或返回的条目没有一个可用时, 回退到纯 `/v1/models` 列表。格式良好的空列表注册零个模型, 不触发回退。
-- 发现请求是幂等的 GET, 所以瞬时失败会重试。`discovery.timeout` (默认 30 秒) 是覆盖单个请求及其重试的硬性上限 - 不是整轮的上限: 模型信息列表、`/v1/models` 回退和任何 OAuth 令牌交换各自获得一份新预算, 所以一轮最长可能耗时到它们之和。重试规则详情: [故障排除](troubleshooting.md#超时与重试)。
+- 一旦 `/v1/model/info` 作出了应答, 发现还会读取 LiteLLM 的 `/model_group/info` 以获取每个模型解析好的 Thinking Effort 档位。该调用仅为参考: 没有此终结点的服务器只会失去菜单的服务器信号, 别无损失。
+- 发现请求是幂等的 GET, 所以瞬时失败会重试。`discovery.timeout` (默认 30 秒) 是覆盖单个请求及其重试的硬性上限 - 不是整轮的上限: 模型信息列表、`/v1/models` 回退、`/model_group/info` 读取和任何 OAuth 令牌交换各自获得一份新预算, 所以一轮最长可能耗时到它们之和。重试规则详情: [故障排除](troubleshooting.md#超时与重试)。
 - *预期*某终结点失败的服务器 (没有模型列表的网关) 在条目的 `discovery.expectedFailures` 里说明: 单次尝试、一条 info 级日志、没有错误噪音。见[服务器](servers.md#发现与预期失败)。
 - 结果会复用 `discovery.cacheTtl` (默认 1 小时), 因为 VS Code 重新解析提供程序很频繁 - 有时一秒好几次。失败从不缓存, 同时发生的刷新共享一个请求, "LiteLLM: Sync Models Now" 在你需要立即拿到新列表时绕过缓存。
 - 当后台刷新失败, 但最近一次成功发现仍在 `discovery.staleServeWindow` 之内 (默认十分钟) 时, 最后已知的模型保持可用, 标记为过期 (警告图标加悬停说明), 而不是在会话中途从选择器里消失。服务器休眠或重启更久就调大这个窗口; 设为 `0` 则首次刷新失败即移除该服务器的模型。
@@ -201,7 +202,7 @@
 | 视觉 | `supports_vision` | |
 | 音频输入 | `supports_audio_input` | |
 | 推理 | `supports_reasoning`, 或 `supported_openai_params` 中含 `reasoning_effort` | 显式 `supports_reasoning: false` 胜出 |
-| 推理强度档位 | 非空的 `reasoning_effort_levels` 列表, 否则是 `supports_<level>_reasoning_effort` 标志 (例如 `supports_max_reasoning_effort`) | 列表就是 Thinking Effort 菜单 (空列表视为未报告)。标志在 Low/Medium/High 基线上增减: `true` 加入一个档位, `false` 移除一个, `null` 视为未报告。两者都没有时菜单回落到内置列表 |
+| 推理强度档位 | LiteLLM 在 `/model_group/info` 中解析好的 `supported_reasoning_efforts`; 在没有该字段的旧版代理上, 则是模型信息中的 `supports_<level>_reasoning_effort` 标志和 `reasoning_effort_levels` 列表 | 代理的列表就是 Thinking Effort 菜单 (`null` 表示代理说不知道)。没有该字段时, 扩展套用 LiteLLM 自己的标志规则: 声明的列表整体胜出; 否则 Medium 和 High 总是存在, Minimal 和 Low 除非为 `false`, Extra High 和 Max 仅在为 `true` 时, Off 除非为 `false` (Azure 的 gpt-5 系列需要 `true`)。完全没有标志时菜单回落到内置列表 |
 | 提示缓存 | `supports_prompt_caching` | 与每个字段一样可覆盖; 该功能仍受 `chat.promptCaching` 双重门控 ([设置](settings.md#提示缓存)) |
 | 定价 | 八个成本字段 (`input_cost_per_token` 等) | 恰好为 0/0 的输入/输出对是 LiteLLM「没有定价数据」的印记, 视为完全没有报告 ([定价](#定价)) |
 | Token 限制 | 模型信息的 token 限制字段 | 见 [Token 限制](#token-限制) |
@@ -430,7 +431,7 @@
 菜单的档位像任何能力字段一样按模型解析 ([优先级](#能力优先级)), 来源从高到低:
 
 1. 你的 [`models.capabilities` 记录](#能力)中的 `reasoning_effort_levels` 列表 (条目优先于全局)。任何字符串都可以 - 词汇表是开放的, 选中的档位按原样发送。你自己写下的空列表会把菜单清空到只剩「提供方默认」。
-2. 服务器的模型信息, 当 LiteLLM 声明了它时: 非空的 `reasoning_effort_levels` 列表 (空列表视为未报告), 否则是在 Low/Medium/High 基线上增减的 `supports_<level>_reasoning_effort` 标志 (`true` 加入一个档位, `false` 移除一个)。对[负载均衡池](#负载均衡池), 取任一部署报告的档位。
+2. 服务器自己的解析结果, 当 LiteLLM 声明了它时: `/model_group/info` 中的 `supported_reasoning_efforts`, 已经在[负载均衡池](#负载均衡池)的各个部署间取过交集。没有该字段的旧版代理则在此处套用 LiteLLM 的标志规则 ([能力字段](#能力字段)), 逐个部署解析后以同样方式取交集; 规则读不出的部署会让整个池视为未报告。
 3. 你的记录中带 `_fallback` 标记的列表, 在服务器未报告时填充。
 4. 内置列表: 关闭、最小、低、中、高、极高、最大。
 

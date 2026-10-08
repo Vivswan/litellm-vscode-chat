@@ -188,6 +188,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"unparseableModelsResponse",
 	"parseJsonBody",
 	"getJson",
+	"fetchModelGroupReasoningEfforts",
 	"modelListingUnservedError",
 	"noEndpointServedError",
 	"refineModelsListingFailure",
