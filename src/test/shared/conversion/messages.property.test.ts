@@ -19,50 +19,34 @@ type ConversationEvent =
 	| { kind: "tool-exchange"; callId: string; name: string; args: Record<string, unknown>; result: string };
 
 /**
- * How an adversarial generator corrupts one tool exchange.
- *
- *   "empty-pair"                                                    -> the shape validation accepts and the mint
- *                                                                      repairs
- *   "user-call", "user-call-text", and "nested-call"                -> valid exotic shapes
- *     the calls ride user messages                                  -> validation's positional walk never sees them
- *   "same-message-pair", "empty-twin-pair", and "result-then-call"  -> mix call and result parts inside one message
- *                                                                      and stay sendable
- *   "interleaved-reuse"                                             -> reuses an id across two calls of one message
- *                                                                      (one tool_calls array on the wire)
- *   the rest                                                        -> must be rejected before send
+ * Each way an adversarial generator corrupts one tool exchange, and whether the exchange still closes on the wire: a
+ * history of only sendable kinds must pass validation, and a rejected kind must be refused before send.
  */
-type ExchangeCorruption =
-	| "none"
-	| "empty-pair"
-	| "empty-call"
-	| "empty-result"
-	| "drop-result"
-	| "double-result"
-	| "stray-result"
-	| "user-call"
-	| "user-call-text"
-	| "nested-call"
-	| "same-message-pair"
-	| "empty-twin-pair"
-	| "result-then-call"
-	| "interleaved-reuse";
+const EXCHANGE_CORRUPTIONS = {
+	none: "sendable",
+	"empty-pair": "sendable",
+	"empty-call": "rejected",
+	"empty-result": "rejected",
+	"drop-result": "rejected",
+	"double-result": "rejected",
+	"stray-result": "rejected",
+	"user-call": "sendable",
+	"user-call-text": "sendable",
+	"nested-call": "sendable",
+	"same-message-pair": "sendable",
+	"empty-twin-pair": "sendable",
+	"result-then-call": "sendable",
+	"interleaved-reuse": "rejected",
+} as const satisfies Record<string, "sendable" | "rejected">;
+
+type ExchangeCorruption = keyof typeof EXCHANGE_CORRUPTIONS;
+
+const CORRUPTION_KINDS = Object.keys(EXCHANGE_CORRUPTIONS) as ExchangeCorruption[];
 
 interface AdversarialEvent {
 	callId: string;
 	corruption: ExchangeCorruption;
 }
-
-/** The corruption kinds whose exchange closes cleanly, so a history of only these must pass validation. */
-const SENDABLE_CORRUPTIONS: ReadonlySet<ExchangeCorruption> = new Set([
-	"none",
-	"empty-pair",
-	"user-call",
-	"user-call-text",
-	"nested-call",
-	"same-message-pair",
-	"empty-twin-pair",
-	"result-then-call",
-]);
 
 // Nonempty: the converter intentionally drops messages whose only content is the empty string, and an empty
 // conversation is rejected by validateRequest.
@@ -130,22 +114,7 @@ interface WireMessage {
 	tool_call_id?: string;
 }
 
-const corruptionArb: fc.Arbitrary<ExchangeCorruption> = fc.constantFrom(
-	"none",
-	"empty-pair",
-	"empty-call",
-	"empty-result",
-	"drop-result",
-	"double-result",
-	"stray-result",
-	"user-call",
-	"user-call-text",
-	"nested-call",
-	"same-message-pair",
-	"empty-twin-pair",
-	"result-then-call",
-	"interleaved-reuse"
-);
+const corruptionArb: fc.Arbitrary<ExchangeCorruption> = fc.constantFrom(...CORRUPTION_KINDS);
 
 // A tiny id pool (with the mint's own prefix in it) makes cross-exchange reuse, duplicate-live ids, and mint collisions
 // all reachable.
@@ -176,6 +145,7 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 				user([event.callId]);
 				break;
 			case "empty-pair":
+				// A whole pair with empty ids: validation accepts the shape and the mint repairs the id.
 				assistant("");
 				user([""]);
 				break;
@@ -340,7 +310,7 @@ suite("shared/messages convertMessages properties", () => {
 					assert.ok(e instanceof Error, "validation must reject with an Error");
 					passed = false;
 				}
-				const repairable = events.every((e) => SENDABLE_CORRUPTIONS.has(e.corruption));
+				const repairable = events.every((e) => EXCHANGE_CORRUPTIONS[e.corruption] === "sendable");
 				if (repairable) {
 					// Non-vacuity: whole-pair shapes (empty ids included) must stay sendable.
 					assert.ok(passed, "a history of complete call/result pairs must pass validation");
