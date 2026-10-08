@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import * as vscode from "vscode";
+import type * as vscode from "vscode";
 import { classifyOverall } from "../../../dashboard/presenters";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import {
@@ -10,6 +10,7 @@ import {
 } from "../../../extension/servers/serverSync";
 import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
 import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
+import type { RemovalNoticeDoor } from "../../../extension/servers/serverSync/vscodeEnv";
 import { canonicalEntryBaseUrls, removalOutcome } from "../../../extension/servers/serverSync/vscodeEnv";
 import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
 import { groupClientId } from "../../../provider/catalog/groupModels";
@@ -1870,7 +1871,12 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 });
 
 suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence", () => {
-	function makeEnv(salt: "durable" | "session-only", snapshots: () => ServerModelsSnapshot[] = () => []) {
+	function makeEnv(
+		salt: "durable" | "session-only",
+		snapshots: () => ServerModelsSnapshot[] = () => [],
+		// Silent by default: a reconcile here must never toast the real window, where another suite may be listening.
+		showRemovalNotice: RemovalNoticeDoor = async () => {}
+	) {
 		const storage = makeExtensionStorage({ [SERVER_SYNC_FINGERPRINTS_KEY]: { A: "before" } });
 		const lines: string[] = [];
 		const logger = new Logger({
@@ -1883,7 +1889,15 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 		} as unknown as vscode.ExtensionContext;
 		const removals = new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession(salt));
 		return {
-			env: createServerSyncEnv(context, logger, fakeFingerprintSaltSession(salt), removals, () => [], snapshots),
+			env: createServerSyncEnv(
+				context,
+				logger,
+				fakeFingerprintSaltSession(salt),
+				removals,
+				() => [],
+				snapshots,
+				showRemovalNotice
+			),
 			removals,
 			storage,
 			lines,
@@ -1947,24 +1961,23 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 			status: makeServerStatus({ serverId: "group:l1", label: "h.test", baseUrl: "http://h.test" }),
 			models: [],
 		};
-		const { env, removals, storage } = makeEnv("session-only", () => [live]);
-		const toasts: string[] = [];
-		const original = vscode.window.showInformationMessage;
-		(vscode.window as Record<string, unknown>).showInformationMessage = async (message: string) => {
-			toasts.push(message);
-			return undefined;
-		};
-		try {
-			await env.reconcileEntryIdentities(
-				[],
-				[{ kind: "removed", label: "L1", baseUrl: "http://h.test", groupIds: ["group:l1"], sharedGroupIds: [] }]
-			);
-			for (let i = 0; i < 50 && toasts.length === 0; i++) {
-				await new Promise((resolve) => setTimeout(resolve, 10));
+		// The notice is heard through this env's own door, never the shared window: another suite's detached notice
+		// (a production reconcile whose toast follows a host round trip) can land at any moment and is not this one.
+		const notices: { kind: string; message: string }[] = [];
+		const firstNotice = Promise.withResolvers<string>();
+		const { env, removals, storage } = makeEnv(
+			"session-only",
+			() => [live],
+			async (kind, message) => {
+				notices.push({ kind, message });
+				firstNotice.resolve(message);
 			}
-		} finally {
-			(vscode.window as Record<string, unknown>).showInformationMessage = original;
-		}
+		);
+		await env.reconcileEntryIdentities(
+			[],
+			[{ kind: "removed", label: "L1", baseUrl: "http://h.test", groupIds: ["group:l1"], sharedGroupIds: [] }]
+		);
+		const toast = await firstNotice.promise;
 		assert.deepStrictEqual(removals.tombstones(), [
 			{ by: "entry", label: "L1", baseUrl: "http://h.test" },
 			{ by: "group", groupId: "group:l1", label: "L1", baseUrl: "http://h.test" },
@@ -1979,8 +1992,11 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 			[{ by: "entry", label: "L1", baseUrl: "http://h.test" }],
 			"only the salt-independent record reaches storage"
 		);
-		const toast = toasts[0] ?? "";
-		assert.strictEqual(toasts.length, 1, "one notice");
+		assert.deepStrictEqual(
+			notices.map((notice) => notice.kind),
+			["info"],
+			"one notice"
+		);
 		assert.ok(
 			toast.includes("hidden for this session only") && toast.includes("cannot be kept across restarts"),
 			toast
