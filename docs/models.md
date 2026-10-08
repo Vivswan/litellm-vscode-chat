@@ -201,7 +201,7 @@ Discovery reads capabilities from model info:
 | Vision | `supports_vision` | |
 | Audio input | `supports_audio_input` | |
 | Reasoning | `supports_reasoning`, or `reasoning_effort` among `supported_openai_params` | An explicit `supports_reasoning: false` wins |
-| Reasoning effort levels | The `supports_<level>_reasoning_effort` flags (e.g. `supports_max_reasoning_effort`) | Levels flagged `true` become the Thinking Effort menu; `false` and `null` read as unreported, and with no `true` flag at all the menu falls back to its built-in list |
+| Reasoning effort levels | A non-empty `reasoning_effort_levels` list, else the `supports_<level>_reasoning_effort` flags (e.g. `supports_max_reasoning_effort`) | The list is the Thinking Effort menu (an empty one is no report). The flags adjust the Low/Medium/High baseline: `true` adds a level, `false` removes one, `null` reads as unreported. With neither the menu falls back to its built-in list |
 | Prompt caching | `supports_prompt_caching` | Overridable like every field; the feature stays double-gated by `chat.promptCaching` ([Settings](settings.md#prompt-caching)) |
 | Pricing | the eight cost fields (`input_cost_per_token`, ...) | An input/output pair of exactly 0/0 is LiteLLM's stamp for "no pricing data" and reads as no report at all ([pricing](#pricing)) |
 | Token limits | model info's token limit fields | See [Token limits](#token-limits) |
@@ -430,7 +430,7 @@ What each choice sends:
 The menu's levels resolve per model like any capability field ([precedence](#capability-precedence)), highest source first:
 
 1. A `reasoning_effort_levels` list in your [`models.capabilities` records](#capabilities) (entry over global). Any strings work - the vocabulary is open, and a picked level is sent as-is. An empty list you write yourself empties the menu down to Provider default.
-2. The server's `supports_<level>_reasoning_effort` flags from model info, where LiteLLM declares them (for a [pooled model](#load-balanced-pools), the levels every deployment flags; disjoint flags read as no report).
+2. The server's model info, where LiteLLM declares it: a non-empty `reasoning_effort_levels` list (an empty one is no report), else the `supports_<level>_reasoning_effort` flags adjusting the Low/Medium/High baseline (`true` adds a level, `false` removes one). For a [pooled model](#load-balanced-pools), the levels every deployment flags; disjoint flags read as no report.
 3. A `_fallback`-marked list from your records, filling where the server reports nothing.
 4. The built-in list: Off, Minimal, Low, Medium, High, Extra High, Max.
 

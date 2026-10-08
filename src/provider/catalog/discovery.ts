@@ -15,7 +15,7 @@ import { RequestError, timeoutRequestError } from "../transport/transportErrors"
 import type { DiscoveryLog } from "./discoveryLog";
 import { discoveryLineWriter, failureKindOf, parseWire } from "./discoveryLog";
 import { collapseTokenLimits, deriveTokenConstraints, reportedReasoningLevels } from "./modelCatalog";
-import { reasoningEffortLevelsFromFlags } from "./modelConfiguration";
+import { reasoningEffortLevelsFromModelInfo } from "./modelConfiguration";
 import type {
 	LiteLLMArchitecture,
 	LiteLLMModelInfoItem,
@@ -129,7 +129,7 @@ export function normalizeModelItem(raw: RawModelItem, log: DiscoveryLog): LiteLL
 			//   the long-context tier costs -> are synthesized
 			providers.push({
 				...entry,
-				reasoning_effort_levels: reasoningEffortLevelsFromFlags(entry),
+				reasoning_effort_levels: reasoningEffortLevelsFromModelInfo(entry),
 				context_length: normalizePositiveNumber(entry.context_length),
 				max_tokens: normalizePositiveNumber(entry.max_tokens),
 				max_input_tokens: normalizePositiveNumber(entry.max_input_tokens),
@@ -184,7 +184,7 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo {
 		supports_reasoning: item.model_info?.supports_reasoning ?? null,
 		supports_pdf_input: item.model_info?.supports_pdf_input ?? null,
 		supported_openai_params: item.model_info?.supported_openai_params ?? null,
-		reasoning_effort_levels: reasoningEffortLevelsFromFlags(item.model_info) ?? null,
+		reasoning_effort_levels: reasoningEffortLevelsFromModelInfo(item.model_info) ?? null,
 		...serverCostsOf(item.model_info),
 	};
 

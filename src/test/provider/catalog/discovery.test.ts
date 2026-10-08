@@ -117,7 +117,7 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(parsed.model_info?.max_output_tokens, "16000", "numeric strings stay for normalization");
 		});
 
-		test("per-level reasoning-effort flags author the levels list on both discovery paths", () => {
+		test("the server's reasoning-effort report authors the levels list on both discovery paths", () => {
 			const mapped = mapModelInfoEntry(
 				expectDefined(
 					parseModelInfoItem({
@@ -134,37 +134,44 @@ suite("provider/catalog/discovery", () => {
 			);
 			assert.deepStrictEqual(
 				mapped.provider.reasoning_effort_levels,
-				["low", "max"],
-				"true flags collect in menu order; false and null read as unreported"
+				["low", "medium", "high", "max"],
+				"true flags add to the low/medium/high baseline; a false on a tier outside it and a null change nothing"
 			);
 
 			// providers-array entries: normalizeModelItem authors the field after the pass-through spread, so a wire
-			// entry cannot forge the list.
+			// entry's own list arrives ordered, never raw.
 			const routed = normalizeModelItem(
 				{
 					id: "routed",
 					providers: [
-						{
-							provider: "openrouter",
-							status: "ok",
-							supports_high_reasoning_effort: true,
-							reasoning_effort_levels: ["forged"],
-						},
+						{ provider: "openrouter", status: "ok", supports_xhigh_reasoning_effort: true },
+						{ provider: "anthropic", status: "ok", reasoning_effort_levels: ["max", "high"] },
 					],
 				},
 				() => {}
 			);
-			const [provider] = expectShape(routed, "group").providers;
-			assert.deepStrictEqual(provider.reasoning_effort_levels, ["high"], "the flags are the wire truth");
+			const [flagged, listed] = expectShape(routed, "group").providers;
+			assert.deepStrictEqual(flagged.reasoning_effort_levels, ["low", "medium", "high", "xhigh"]);
+			assert.deepStrictEqual(
+				expectDefined(listed).reasoning_effort_levels,
+				["high", "max"],
+				"an explicit list is the menu"
+			);
 
-			// No true flag anywhere is no signal at all, never an empty list.
-			const unflagged = mapModelInfoEntry(
+			// A lone false flag is a report: it removes from the baseline rather than reading as silence.
+			const narrowed = mapModelInfoEntry(
 				expectDefined(
 					parseModelInfoItem({
-						model_name: "plain",
+						model_name: "narrowed",
 						model_info: { supports_reasoning: true, supports_low_reasoning_effort: false },
 					})
 				)
+			);
+			assert.deepStrictEqual(narrowed.provider.reasoning_effort_levels, ["medium", "high"]);
+
+			// No flag and no list is no signal at all, never an empty list.
+			const unflagged = mapModelInfoEntry(
+				expectDefined(parseModelInfoItem({ model_name: "plain", model_info: { supports_reasoning: true } }))
 			);
 			assert.strictEqual(unflagged.provider.reasoning_effort_levels, null);
 		});
@@ -965,7 +972,7 @@ suite("provider/catalog/discovery", () => {
 			assert.deepStrictEqual(provider.supported_openai_params, ["temperature"]);
 			assert.deepStrictEqual(
 				provider.reasoning_effort_levels,
-				["low", "high", "xhigh", "max"],
+				["low", "medium", "high", "xhigh", "max"],
 				"the flag-derived level lists union in menu order, unlike the supported params"
 			);
 			assert.strictEqual(model.architecture, undefined, "Vision holds only when every deployment advertises it");
@@ -1465,12 +1472,16 @@ suite("provider/catalog/discovery", () => {
 			assert.ok(!("output_cost_per_token" in declared.values));
 		});
 
-		test("deployments flagging disjoint levels register their union, not every default", () => {
+		test("deployments flagging disjoint tiers register their union, not every default", () => {
 			const merged = mergeModelDeployments([
-				deployment({ supports_reasoning: true, supports_high_reasoning_effort: true }),
-				deployment({ supports_reasoning: true, supports_low_reasoning_effort: true }),
+				deployment({ supports_reasoning: true, supports_max_reasoning_effort: true }),
+				deployment({ supports_reasoning: true, supports_xhigh_reasoning_effort: true }),
 			]);
-			assert.deepStrictEqual(merged.provider.reasoning_effort_levels, ["low", "high"], "menu order, not arrival order");
+			assert.deepStrictEqual(
+				merged.provider.reasoning_effort_levels,
+				["low", "medium", "high", "xhigh", "max"],
+				"menu order, not arrival order"
+			);
 			const { infos } = buildModelInfos(
 				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider, limits: merged.limits } }],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("k") },
@@ -1480,12 +1491,12 @@ suite("provider/catalog/discovery", () => {
 			const info = expectDefined(infos[0]);
 			assert.deepStrictEqual(
 				info.configurationSchema,
-				reasoningEffortSchema(["low", "high"]),
+				reasoningEffortSchema(["low", "medium", "high", "xhigh", "max"]),
 				"the picker offers what either deployment accepts, never the seven built-in levels"
 			);
 			const declared = info.litellm.serverDeclared;
 			assert.ok(declared.kind === "discovered");
-			assert.deepStrictEqual(declared.values.reasoning_effort_levels, ["low", "high"]);
+			assert.deepStrictEqual(declared.values.reasoning_effort_levels, ["low", "medium", "high", "xhigh", "max"]);
 		});
 
 		test("a merged deployment's baseline never claims more than the merge advertised", () => {

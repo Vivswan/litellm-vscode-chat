@@ -425,24 +425,24 @@ suite("provider/model info and fallback", () => {
 			);
 			assert.deepStrictEqual(
 				(await findInfo("grok-5")).configurationSchema,
-				reasoningEffortSchema(["low", "high", "max"]),
-				"the menu is the server's flagged levels, not the built-in list"
+				reasoningEffortSchema(["low", "medium", "high", "max"]),
+				"the menu is the low/medium/high baseline plus the server's added tier, not the built-in list"
 			);
 		});
 
-		test("deployments flagging disjoint levels offer their union end to end", async () => {
+		test("deployments flagging disjoint tiers offer their union end to end", async () => {
 			mswServer.use(
 				...discoveryHandlers({
 					data: [
-						infoEntry("split", { supports_reasoning: true, supports_low_reasoning_effort: true }),
-						infoEntry("split", { supports_reasoning: true, supports_high_reasoning_effort: true }),
+						infoEntry("split", { supports_reasoning: true, supports_xhigh_reasoning_effort: true }),
+						infoEntry("split", { supports_reasoning: true, supports_max_reasoning_effort: true }),
 					],
 				})
 			);
 			assert.deepStrictEqual(
 				(await findInfo("split")).configurationSchema,
-				reasoningEffortSchema(["low", "high"]),
-				"a level either deployment accepts is offered; the built-in list is not"
+				reasoningEffortSchema(["low", "medium", "high", "xhigh", "max"]),
+				"a tier either deployment accepts is offered; the built-in list is not"
 			);
 		});
 

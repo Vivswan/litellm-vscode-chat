@@ -201,7 +201,7 @@
 | 视觉 | `supports_vision` | |
 | 音频输入 | `supports_audio_input` | |
 | 推理 | `supports_reasoning`, 或 `supported_openai_params` 中含 `reasoning_effort` | 显式 `supports_reasoning: false` 胜出 |
-| 推理强度档位 | `supports_<level>_reasoning_effort` 标志 (例如 `supports_max_reasoning_effort`) | 标为 `true` 的档位成为 Thinking Effort 菜单; `false` 和 `null` 视为未报告, 完全没有 `true` 标志时菜单回落到内置列表 |
+| 推理强度档位 | 非空的 `reasoning_effort_levels` 列表, 否则是 `supports_<level>_reasoning_effort` 标志 (例如 `supports_max_reasoning_effort`) | 列表就是 Thinking Effort 菜单 (空列表视为未报告)。标志在 Low/Medium/High 基线上增减: `true` 加入一个档位, `false` 移除一个, `null` 视为未报告。两者都没有时菜单回落到内置列表 |
 | 提示缓存 | `supports_prompt_caching` | 与每个字段一样可覆盖; 该功能仍受 `chat.promptCaching` 双重门控 ([设置](settings.md#提示缓存)) |
 | 定价 | 八个成本字段 (`input_cost_per_token` 等) | 恰好为 0/0 的输入/输出对是 LiteLLM「没有定价数据」的印记, 视为完全没有报告 ([定价](#定价)) |
 | Token 限制 | 模型信息的 token 限制字段 | 见 [Token 限制](#token-限制) |
@@ -430,7 +430,7 @@
 菜单的档位像任何能力字段一样按模型解析 ([优先级](#能力优先级)), 来源从高到低:
 
 1. 你的 [`models.capabilities` 记录](#能力)中的 `reasoning_effort_levels` 列表 (条目优先于全局)。任何字符串都可以 - 词汇表是开放的, 选中的档位按原样发送。你自己写下的空列表会把菜单清空到只剩「提供方默认」。
-2. 服务器模型信息中的 `supports_<level>_reasoning_effort` 标志, 当 LiteLLM 声明了它们时 (对[负载均衡池](#负载均衡池), 取每个部署都标记的档位; 互不相交的标志视为未报告)。
+2. 服务器的模型信息, 当 LiteLLM 声明了它时: 非空的 `reasoning_effort_levels` 列表 (空列表视为未报告), 否则是在 Low/Medium/High 基线上增减的 `supports_<level>_reasoning_effort` 标志 (`true` 加入一个档位, `false` 移除一个)。对[负载均衡池](#负载均衡池), 取每个部署都标记的档位; 互不相交的标志视为未报告。
 3. 你的记录中带 `_fallback` 标记的列表, 在服务器未报告时填充。
 4. 内置列表: 关闭、最小、低、中、高、极高、最大。
 

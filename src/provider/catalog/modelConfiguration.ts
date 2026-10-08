@@ -1,5 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import type { LanguageModelConfigurationSchema } from "vscode";
+import { z } from "zod";
 import type { EffectiveCapabilityFields } from "../../shared/config/capabilityResolution";
 import { capabilityField } from "../../shared/config/capabilityResolution";
 import { isRecord } from "../../shared/util/json";
@@ -140,22 +141,50 @@ export function orderedReasoningLevels(levels: Iterable<string>): string[] {
 }
 
 /**
- * LiteLLM stamps `supports_<level>_reasoning_effort` per level onto model info, `true`/`false`/`null`; only an explicit
- * `true` counts, and a report whose every flag is false or null reads as no signal rather than an empty menu (a user
- * record can still write the exact list).
+ * The levels LiteLLM's price map takes as given: its per-level flags never say `true` for these, only `false` to
+ * remove one.
  */
-export function reasoningEffortLevelsFromFlags(source: unknown): string[] | undefined {
+const BASELINE_REASONING_EFFORT_LEVELS: readonly string[] = ["low", "medium", "high"];
+
+/**
+ * The server's menu for one model_info record, or undefined when it reports nothing: a non-empty
+ * `reasoning_effort_levels` list is the menu, otherwise the per-level flags are deltas against the baseline.
+ *   reasoning_effort_levels: ["none", "high"]  -> none, high (the flags beside it are ignored)
+ *   reasoning_effort_levels: [] or malformed    -> no signal from the list; the flags decide
+ *   supports_xhigh_reasoning_effort: true       -> low, medium, high, xhigh
+ *   supports_low_reasoning_effort: false, alone -> medium, high
+ *   no flag with a boolean value                -> undefined
+ */
+export function reasoningEffortLevelsFromModelInfo(source: unknown): string[] | undefined {
 	if (!isRecord(source)) {
 		return undefined;
 	}
-	const flagged = new Set<string>();
+	const explicit = EXPLICIT_REASONING_LEVELS.safeParse(source.reasoning_effort_levels);
+	return explicit.success ? orderedReasoningLevels(explicit.data) : reasoningEffortLevelsFromFlags(source);
+}
+
+const EXPLICIT_REASONING_LEVELS = z.array(z.string()).min(1);
+
+/**
+ * Upstream's flags are deltas (#514): `true` adds a tier to the baseline, `false` removes one, so the true flags alone
+ * are never the whole menu. Any boolean flag is a report; null and non-boolean values are no flag at all.
+ */
+function reasoningEffortLevelsFromFlags(source: Record<string, unknown>): string[] | undefined {
+	const levels = new Set(BASELINE_REASONING_EFFORT_LEVELS);
+	let flagged = false;
 	for (const [key, value] of Object.entries(source)) {
 		const level = REASONING_LEVEL_FLAG.exec(key)?.[1];
-		if (level !== undefined && level !== "" && value === true) {
-			flagged.add(level);
+		if (level === undefined || level === "" || typeof value !== "boolean") {
+			continue;
+		}
+		flagged = true;
+		if (value) {
+			levels.add(level);
+		} else {
+			levels.delete(level);
 		}
 	}
-	return flagged.size > 0 ? orderedReasoningLevels(flagged) : undefined;
+	return flagged ? orderedReasoningLevels(levels) : undefined;
 }
 
 /**

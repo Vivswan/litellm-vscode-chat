@@ -55,7 +55,8 @@ export interface FakeModelCapabilities {
 	audioOutput?: boolean;
 	/**
 	 * Emitted as one supports_<level>_reasoning_effort: true flag per level; omission emits no per-level flags at
-	 * all, so the extension's picker menu falls back to its built-in level list.
+	 * all, so the extension's picker menu falls back to its built-in level list. A true flag only adds to the
+	 * extension's low/medium/high baseline, so a list that leaves those out still gets them.
 	 */
 	reasoningEffortLevels?: readonly string[];
 }

@@ -3,7 +3,7 @@ import * as assert from "node:assert";
 import {
 	DEFAULT_REASONING_EFFORT_LEVELS,
 	effectiveReasoningLevels,
-	reasoningEffortLevelsFromFlags,
+	reasoningEffortLevelsFromModelInfo,
 	reasoningEffortPickerValues,
 	reasoningEffortSchema,
 	requestParamsFromModelConfiguration,
@@ -59,54 +59,105 @@ describe("provider/catalog/modelConfiguration", () => {
 		});
 	});
 
-	describe("reasoningEffortLevelsFromFlags", () => {
-		test("collects the true-flagged levels, known ones in menu order", () => {
-			assert.deepStrictEqual(
-				reasoningEffortLevelsFromFlags({
-					supports_max_reasoning_effort: true,
-					supports_low_reasoning_effort: true,
+	describe("reasoningEffortLevelsFromModelInfo", () => {
+		// Upstream LiteLLM's model_prices_and_context_window.json never flags low/medium/high as true: it stamps
+		// supports_<level>_reasoning_effort only to add a tier above or below that baseline or to remove one with false
+		// (#514). A report's true flags are therefore never the whole menu.
+		const cases: ReadonlyArray<{ name: string; info: Record<string, unknown>; menu: string[] | undefined }> = [
+			{
+				name: "claude-opus-4-8: two tiers flagged above the baseline extend it",
+				info: { supports_xhigh_reasoning_effort: true, supports_max_reasoning_effort: true },
+				menu: ["low", "medium", "high", "xhigh", "max"],
+			},
+			{
+				name: "claude-opus-4-6: one tier flagged above the baseline extends it",
+				info: { supports_max_reasoning_effort: true },
+				menu: ["low", "medium", "high", "max"],
+			},
+			{
+				name: "gpt-5.4: a false flag on a non-baseline tier changes nothing, true flags add",
+				info: {
+					supports_none_reasoning_effort: true,
 					supports_xhigh_reasoning_effort: true,
-				}),
-				["low", "xhigh", "max"]
-			);
-		});
-
-		test("false and null flags read as unreported, not as a veto", () => {
-			assert.deepStrictEqual(
-				reasoningEffortLevelsFromFlags({
-					supports_none_reasoning_effort: null,
 					supports_minimal_reasoning_effort: false,
-					supports_high_reasoning_effort: true,
-				}),
-				["high"]
-			);
-		});
-
-		test("a report whose every flag is false or null carries no signal", () => {
-			assert.strictEqual(
-				reasoningEffortLevelsFromFlags({
+				},
+				menu: ["none", "low", "medium", "high", "xhigh"],
+			},
+			{
+				name: "gpt-5.5-pro: a false flag on a baseline level removes it",
+				info: {
+					supports_none_reasoning_effort: false,
+					supports_xhigh_reasoning_effort: true,
+					supports_minimal_reasoning_effort: false,
 					supports_low_reasoning_effort: false,
-					supports_high_reasoning_effort: null,
-				}),
-				undefined,
-				"an all-negative stamp must fall through to the built-in list, never an empty menu"
-			);
-		});
+				},
+				menu: ["medium", "high", "xhigh"],
+			},
+			{
+				name: "a lone false flag on a tier outside the baseline is a report that yields the bare baseline",
+				info: { supports_minimal_reasoning_effort: false },
+				menu: ["low", "medium", "high"],
+			},
+			{
+				name: "unknown level names are the server's to define and append after the known ones",
+				info: { supports_ultra_reasoning_effort: true },
+				menu: ["low", "medium", "high", "ultra"],
+			},
+			{
+				name: "a report that removes the whole baseline leaves an empty menu, the server's explicit word",
+				info: {
+					supports_low_reasoning_effort: false,
+					supports_medium_reasoning_effort: false,
+					supports_high_reasoning_effort: false,
+				},
+				menu: [],
+			},
+			{
+				name: "flags that are all null carry no signal",
+				info: { supports_none_reasoning_effort: null, supports_high_reasoning_effort: null },
+				menu: undefined,
+			},
+			{
+				name: "a non-boolean flag value is ignored, not read as true",
+				info: { supports_low_reasoning_effort: "yes" },
+				menu: undefined,
+			},
+			{
+				name: "non-flag keys carry no signal",
+				info: { supports_reasoning: true, max_tokens: 5 },
+				menu: undefined,
+			},
+			// 40 upstream entries carry an explicit reasoning_effort_levels list and no per-level flags at all.
+			{
+				name: "an explicit server list is the menu, in menu order",
+				info: { reasoning_effort_levels: ["high", "none"] },
+				menu: ["none", "high"],
+			},
+			{
+				name: "an explicit server list wins over the flags beside it",
+				info: { reasoning_effort_levels: ["high", "max"], supports_xhigh_reasoning_effort: true },
+				menu: ["high", "max"],
+			},
+			{
+				name: "an empty explicit list is no signal, so the flags decide",
+				info: { reasoning_effort_levels: [], supports_xhigh_reasoning_effort: true },
+				menu: ["low", "medium", "high", "xhigh"],
+			},
+			{
+				name: "an explicit list with a non-string entry is no signal, so the flags decide",
+				info: { reasoning_effort_levels: ["high", 5], supports_max_reasoning_effort: true },
+				menu: ["low", "medium", "high", "max"],
+			},
+		];
+		for (const { name, info, menu } of cases) {
+			test(name, () => {
+				assert.deepStrictEqual(reasoningEffortLevelsFromModelInfo(info), menu);
+			});
+		}
 
-		test("unknown level names are the server's to define and append after the known ones", () => {
-			assert.deepStrictEqual(
-				reasoningEffortLevelsFromFlags({
-					supports_ultra_reasoning_effort: true,
-					supports_medium_reasoning_effort: true,
-				}),
-				["medium", "ultra"]
-			);
-		});
-
-		test("non-flag keys and non-record sources contribute nothing", () => {
-			assert.strictEqual(reasoningEffortLevelsFromFlags({ supports_reasoning: true, max_tokens: 5 }), undefined);
-			assert.strictEqual(reasoningEffortLevelsFromFlags(undefined), undefined);
-			assert.strictEqual(reasoningEffortLevelsFromFlags("supports_low_reasoning_effort"), undefined);
+		test("non-record sources carry no signal", () => {
+			assert.strictEqual(reasoningEffortLevelsFromModelInfo(undefined), undefined);
+			assert.strictEqual(reasoningEffortLevelsFromModelInfo("supports_low_reasoning_effort"), undefined);
 		});
 	});
 

@@ -67,8 +67,9 @@ export interface LiteLLMProvider extends PerTokenCosts {
 	supports_pdf_input?: boolean | null | undefined;
 	supported_openai_params?: string[] | null | undefined;
 	/**
-	 * Synthesized by discovery from the report's per-level `supports_<level>_reasoning_effort` flags. Never passes
-	 * through raw, so a wire entry cannot forge the list past the flags.
+	 * Authored by discovery from the report's explicit `reasoning_effort_levels` list or its per-level
+	 * `supports_<level>_reasoning_effort` flags (modelConfiguration's precedence). Never passes through raw, so a wire
+	 * entry's list arrives ordered and string-only.
 	 */
 	reasoning_effort_levels?: string[] | null | undefined;
 }
