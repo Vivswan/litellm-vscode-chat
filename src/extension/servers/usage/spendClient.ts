@@ -21,6 +21,7 @@ import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "../../../prov
 import { OAuthTokenSource } from "../../../provider/transport/auth";
 import type { AuthOverlayScope } from "../../../provider/transport/authOverlay";
 import { applyAuthOverlay, plainFetchBaseHeaders } from "../../../provider/transport/authOverlay";
+import type { BackoffSleep } from "../../../provider/transport/retry";
 import { RequestError } from "../../../provider/transport/transportErrors";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
@@ -339,6 +340,8 @@ export interface UsageClientOptions {
 	/** The whole-call timeout read, injectable for tests; the default reads the live discovery.timeout setting. */
 	readonly getTimeoutMs?: () => number;
 	readonly log?: ((message: string, data?: unknown) => void) | undefined;
+	/** The retry backoff, injectable for tests; the default is the real timer. */
+	readonly sleep?: BackoffSleep;
 }
 
 /**
@@ -347,11 +350,14 @@ export interface UsageClientOptions {
  * One instance per poller so OAuth tokens cache across polls and invalidate on 401 exactly like the chat path.
  */
 export class UsageClient {
-	private readonly oauthTokens = new OAuthTokenSource();
+	private readonly oauthTokens: OAuthTokenSource;
 	private readonly getTimeoutMs: () => number;
+	private readonly sleep: BackoffSleep;
 
 	constructor(private readonly options: UsageClientOptions) {
 		this.getTimeoutMs = options.getTimeoutMs ?? (() => getDiscoveryTimeout(options.log));
+		this.sleep = options.sleep ?? sleepUnlessAborted;
+		this.oauthTokens = new OAuthTokenSource(this.sleep);
 	}
 
 	async fetchKeyInfo(connection: UsageConnection, signal?: AbortSignal): Promise<KeyUsage> {
@@ -421,7 +427,7 @@ export class UsageClient {
 		let lastFailure: unknown;
 		for (let attempt = 0; attempt <= DISCOVERY_MAX_RETRIES; attempt += 1) {
 			if (attempt > 0) {
-				await sleepUnlessAborted(RETRY_DELAY_MS * attempt, signal);
+				await this.sleep(RETRY_DELAY_MS * attempt, signal);
 				// The outer signal wins the classification when both have fired: an abort the caller asked for must not
 				// be relabeled a timeout.
 				if (outerSignal?.aborted) {

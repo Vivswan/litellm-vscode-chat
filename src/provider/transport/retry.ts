@@ -7,10 +7,15 @@ const RETRY_DELAY_MS = 200;
 /** A server-named wait longer than this is treated as absent, as the SDK does. */
 const MAX_SERVER_RETRY_DELAY_MS = 60_000;
 
+/** Resolves after `ms` or as soon as `signal` aborts, whichever is first; every retry loop reads the signal after it. */
+export type BackoffSleep = (ms: number, signal: AbortSignal) => Promise<void>;
+
 export interface RetryOptions {
 	readonly maxRetries: number;
 	/** The caller's whole-call bound: it ends a sleep and the loop at once, so backoff never outlives it. */
 	readonly signal: AbortSignal;
+	/** The real timer unless a test passes a zero sleep, so a retrying case pays no wall time. */
+	readonly sleep?: BackoffSleep;
 }
 
 /**
@@ -54,6 +59,7 @@ function serverRetryDelayMs(error: unknown): number | undefined {
 }
 
 export async function retryIdempotent<T>(attempt: () => Promise<T>, options: RetryOptions): Promise<T> {
+	const sleep = options.sleep ?? sleepUnlessAborted;
 	for (let retries = 0; ; retries += 1) {
 		let failure: unknown;
 		try {
@@ -64,7 +70,7 @@ export async function retryIdempotent<T>(attempt: () => Promise<T>, options: Ret
 			}
 			failure = error;
 		}
-		await sleepUnlessAborted(serverRetryDelayMs(failure) ?? RETRY_DELAY_MS * (retries + 1), options.signal);
+		await sleep(serverRetryDelayMs(failure) ?? RETRY_DELAY_MS * (retries + 1), options.signal);
 		if (options.signal.aborted) {
 			throw options.signal.reason ?? new Error("The operation was aborted");
 		}
