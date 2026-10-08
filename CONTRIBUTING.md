@@ -15,7 +15,7 @@ CI, settings, and standards files here arrive from the fleet sync; a file whose 
 - CI gates on the `all-green` status check - the CI workflow's own `all-green` job, which needs every gating job and fails unless each result is success or skipped, with at least one success.
 - Repository-specific checks live in `.github/workflows/checks.yml`; run the commands it lists locally before pushing.
 - `.github/workflows/nightly.yml` re-runs the gate's test jobs every night with one thing moved ahead at a time: VS Code Insiders, or LiteLLM's rolling `main-stable` image. A red night files a `nightly-failure` issue; its header comment says what each job's red points at.
-- A typography gate enforces plain ASCII punctuation: no curly quotes, em-dashes, or invisible unicode.
+- A typography gate refuses non-ASCII punctuation, look-alike confusables, full-width characters, and invisible unicode in every eligible file of the checkout.
 
 ## Security
 
@@ -59,7 +59,7 @@ The Husky pre-commit hook (`.husky/pre-commit`) only checks and never writes: th
 - settings docs: `bun run docs:settings`
 - l10n bundle: `bun run l10n:extract`
 
-The VS Code host suite is CI's on every push; `bun run check` runs everything locally.
+The VS Code host suite is CI's on every push, and `bun run check` runs it with the static checks locally. The two fleet gates (commit subjects, typography over the checkout) run only in CI.
 
 ## Code style
 
@@ -72,4 +72,10 @@ Conventions live in [AGENTS.md](AGENTS.md). In short:
 
 1. Fork the repo and create a branch for your change.
 2. Make sure the checks under "Running checks" pass locally.
-3. Open a PR with a Conventional Commit title (see "Pull requests" above).
+3. Open a PR. The [pull request template](.github/PULL_REQUEST_TEMPLATE.md) prefills the body's shape and carries the rules for the title and each section.
+4. A title that credits a community author, `(#N, thanks @login)`, needs that login's row in [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
+
+Two gates refuse what the local checks never see:
+
+- **Commit subjects:** `fix(a,b): Handle Y` fails twice, on the comma scope (one scope or none, spelled `[A-Za-z0-9._/-]`) and on the Sentence-case description. The gate reads the title and every commit on the branch. The allowed types are `@commitlint/config-conventional`'s, as the platform's `validate-commit-names` action (the `pr-title` check) applies them.
+- **Typography:** the gate under "CI" reads the eligible files in the checkout, not the PR body.
