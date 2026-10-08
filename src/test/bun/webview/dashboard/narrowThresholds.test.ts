@@ -1,20 +1,18 @@
 /**
- * The narrow system's own arithmetic, checked against the stylesheet rather than a memory of it. Two hazards,
- * neither of which any suite can observe (happy-dom has no layout), both of which are arithmetic:
- *
- *   The rail collapses on a WINDOW query while every other threshold asks the PANE
- *     -> the pane's width is DISCONTINUOUS at the collapse and every width in that band happens twice
- *   every width in that band happens twice
- *     -> a breakpoint inside it fires in REVERSE as the window widens
- *   Tailwind compiles `@max-[Npx]/pane:` to `width < N` while `@container pane (max-width: N)` is `<= N`
- *     -> a rule and the utility it PAIRS with disagree at exactly N
+ * Layout arithmetic, checked against the stylesheet because happy-dom has no layout to observe it in. The rail
+ * collapses on a WINDOW query while every other threshold asks the PANE, so every pane width in the collapse band
+ * happens twice and a breakpoint inside it fires in reverse as the window widens. Tailwind's `@max-[Npx]/pane:` is
+ * `width < N` where `(max-width: N)` is `<= N`, so a rule and the utility it pairs with can disagree at exactly N.
  */
 
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { type Rule, type Selector, type SelectorComponent, transform } from "lightningcss";
 import { RAIL_COLLAPSE_QUERY } from "../../../../webview/dashboard/rail";
 import { REPO_ROOT } from "../../../util/repoRoot";
+import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
+import { compileDashboard, compileTheme } from "./styles/compileStyles";
 
 const STYLESHEET = join(REPO_ROOT, "src/webview/dashboard/styles/dashboard.css");
 const WEBVIEW = join(REPO_ROOT, "src/webview/dashboard");
@@ -203,65 +201,70 @@ function stylesheetSources(): { readonly file: string; readonly css: string }[] 
 	return sheets;
 }
 
-/** Split on any of `separators`, but only at paren depth zero: `:is(a, b)` is one token. */
-function splitTopLevel(text: string, separators: string): string[] {
-	const parts: string[] = [];
-	let depth = 0;
-	let current = "";
-	for (const char of text) {
-		if (char === "(") {
-			depth += 1;
-		} else if (char === ")") {
-			depth = Math.max(0, depth - 1);
-		}
-		if (depth === 0 && separators.includes(char)) {
-			parts.push(current);
-			current = "";
-			continue;
-		}
-		current += char;
-	}
-	parts.push(current);
-	return parts.filter((part) => part.trim() !== "");
-}
-
-/** The root box, wherever it is named: `html`, `:root`, or either inside `:is()`/`:where()`. */
-const ROOT_SUBJECT = /(?:^|[^\w-])(?:html|:root)\b/i;
+type SubjectKind = "root" | "parent" | "other";
 
 /**
- * The root box unnamed: a universal selector matches every element, and html is one. Anchored whole, since
- * `*::before` is a box the root grows, not the root.
+ * What one selector points AT: its subject, the compound after the last combinator (`& body` styles body). `root`
+ * names the root box (`html`, `:root`) or is the bare universal selector, which matches html too; `*::before` is a
+ * box the root grows and `.x *` cannot match html. `parent` is whatever `&` resolves to, `:is(&)` and `&.x` alike.
+ * Every selector list a pseudo-class nests is looked through, so `:not()` and `:has()` err toward root.
  */
-const UNIVERSAL_SUBJECT = /^(?:\*|:is\(\*\)|:where\(\*\))$/i;
-
-/** `&` anywhere in the compound: `:is(&)` and `&.x` both style whatever `&` resolves to. */
-const PARENT_SUBJECT = /&/;
-
-/** What one selector points AT: its subject, the last compound, not everything it mentions (`& body` styles body). */
-function subjectKind(part: string): "root" | "parent" | "other" {
-	const compounds = splitTopLevel(part, " \t\n\r>+~");
-	const subject = compounds.at(-1)?.trim() ?? "";
-	if (ROOT_SUBJECT.test(subject)) {
-		return "root";
+function subjectKind(selector: Selector, lone = true): SubjectKind {
+	const lastCombinator = selector.findLastIndex((component) => component.type === "combinator");
+	const compound = selector.slice(lastCombinator + 1);
+	const bare = lone && lastCombinator === -1 && compound.length === 1;
+	if (compound.some((component) => component.type === "pseudo-element")) {
+		return "other";
 	}
-	// Only a bare universal selects the root: `.x *` cannot match html.
-	if (compounds.length === 1 && UNIVERSAL_SUBJECT.test(subject)) {
-		return "root";
-	}
-	return PARENT_SUBJECT.test(subject) ? "parent" : "other";
+	const kinds = compound.map((component): SubjectKind => {
+		switch (component.type) {
+			case "type":
+				return component.name.toLowerCase() === "html" ? "root" : "other";
+			case "universal":
+				return bare ? "root" : "other";
+			case "nesting":
+				return "parent";
+			case "pseudo-class":
+				if (component.kind === "root") {
+					return "root";
+				}
+				return strongest(nestedSelectors(component).map((inner) => subjectKind(inner, bare)));
+			default:
+				return "other";
+		}
+	});
+	return strongest(kinds);
 }
 
-/**
- * Walks the prelude stack outward, since a `&`-rooted selector answers with its parent's subject. At-rule preludes are
- * transparent.
- */
-function selectsRoot(stack: readonly string[]): boolean {
-	for (let index = stack.length - 1; index >= 0; index -= 1) {
-		const prelude = stack[index] ?? "";
-		if (prelude.startsWith("@")) {
-			continue;
-		}
-		const kinds = splitTopLevel(prelude, ",").map(subjectKind);
+function nestedSelectors(component: Extract<SelectorComponent, { type: "pseudo-class" }>): readonly Selector[] {
+	switch (component.kind) {
+		case "is":
+		case "where":
+		case "not":
+		case "any":
+		case "has":
+			return component.selectors;
+		case "nth-child":
+		case "nth-last-child":
+			return component.of ?? [];
+		default:
+			return [];
+	}
+}
+
+const strongest = (kinds: readonly SubjectKind[]): SubjectKind =>
+	kinds.includes("root") ? "root" : kinds.includes("parent") ? "parent" : "other";
+
+interface EnclosingRule {
+	readonly selectors: Selector[];
+	/** The compiled line that opened the rule, for the report. */
+	readonly line: string;
+}
+
+/** A `&` subject defers to its parent's. */
+function selectsRoot(stack: readonly EnclosingRule[]): boolean {
+	for (const { selectors } of stack.toReversed()) {
+		const kinds = selectors.map((selector) => subjectKind(selector));
 		if (kinds.includes("root")) {
 			return true;
 		}
@@ -272,40 +275,49 @@ function selectsRoot(stack: readonly string[]): boolean {
 	return false;
 }
 
-/** `font-size`, and the `font` shorthand that sets it too. Not `font-family`, not `--font-size`. */
-const FONT_SIZE_DECLARATION = /^\s*font(?:-size)?\s*:/i;
+const styleOf = (rule: Rule) =>
+	rule.type === "style" ? rule.value : rule.type === "nesting" ? rule.value.style : undefined;
 
 /**
  * Every rule setting a font size on the ROOT box - the one `rem` resolves against, so the one that decides what this
- * page's rem sizes are worth against its px thresholds. A brace walk rather than a regex per rule: CSS nesting hides
- * the answer, since `html { &[data-theme="dark"] { font-size } }` styles html while its own prelude says only
- * `&[data-theme="dark"]`.
- *
- *   String literals are blanked first -> `content` cannot desync it
+ * page's rem sizes are worth against its px thresholds. Read from the COMPILED sheets, which is what ships: the raw
+ * Tailwind entry carries a `source(none)` import no CSS parser accepts. The parser enters a style rule, then its own
+ * declarations, then its nested rules (declarations after one arrive as a rule of their own), so the rules entered
+ * and not yet exited are the ones enclosing a declaration: `html { &[data-theme="dark"] { font-size } }` styles html
+ * while its own selector says only `&[data-theme="dark"]`. The `font` shorthand sets the size too.
  */
-function rootFontSizeDeclarations(): string[] {
+async function rootFontSizeDeclarations(): Promise<string[]> {
 	const found: string[] = [];
-	for (const { file, css } of stylesheetSources()) {
-		const stack: string[] = [];
-		let buffer = "";
-		// Strings blanked, not removed: an attribute value reading "html" is not a selector on html.
-		for (const char of css.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""')) {
-			if (char === "{") {
-				stack.push(buffer.trim());
-				buffer = "";
-			} else if (char === "}" || char === ";") {
-				// Checked before the pop: a block's last declaration may drop its semicolon.
-				if (FONT_SIZE_DECLARATION.test(buffer) && selectsRoot(stack)) {
-					found.push(`${file}: ${stack.join(" > ")} { ${buffer.trim()} }`);
-				}
-				if (char === "}") {
-					stack.pop();
-				}
-				buffer = "";
-			} else {
-				buffer += char;
+	const compiled = [
+		{ file: "theme.css", css: await compileTheme() },
+		{ file: "dashboard.css", css: await compileDashboard() },
+	];
+	for (const { file, css } of compiled) {
+		const lines = css.split("\n");
+		const enclosing: EnclosingRule[] = [];
+		const report = (property: string) => (): undefined => {
+			if (selectsRoot(enclosing)) {
+				found.push(`${file}: ${property} under ${enclosing.map((rule) => rule.line).join(" > ")}`);
 			}
-		}
+		};
+		transform({
+			filename: file,
+			code: Buffer.from(css),
+			visitor: {
+				Rule: (rule) => {
+					const style = styleOf(rule);
+					if (style !== undefined) {
+						enclosing.push({ selectors: style.selectors, line: lines[style.loc.line]?.trim() ?? "" });
+					}
+				},
+				RuleExit: (rule) => {
+					if (styleOf(rule) !== undefined) {
+						enclosing.pop();
+					}
+				},
+				Declaration: { "font-size": report("font-size"), font: report("font") },
+			},
+		});
 	}
 	return found;
 }
@@ -363,74 +375,78 @@ test("every pane query is spelled one of the two legal ways", () => {
 	expect(illegal).toEqual([]);
 });
 
-test("the settings rows' shared tracks leave the description a working column at the stack threshold", () => {
-	// The Settings page runs full-bleed on four shared tracks - label, control, description, actions - and stacks on a
-	// pane query. The description is the one elastic track, so the state to guard is a pane just above the threshold
-	// where the label cap, the fixed tracks, and the gaps leave it a word per line.
-	const css = stylesheet();
-	// The gutter is a fixed token both settings pages read, declared on the track owner; settingLabelGutter.test.ts
-	// owns WHY it is fixed, this reads its width so the arithmetic below prices the real column.
-	const gutter = /\.settings-groups \{\s*--setting-label-gutter: (\d+(?:\.\d+)?)rem;/.exec(css);
-	if (gutter?.[1] === undefined) {
-		throw new Error("could not read --setting-label-gutter from dashboard.css's .settings-groups block");
-	}
-	// Anchored to the wide-tier block: the tracks, the label cap, and the gap all live inside the ONE
-	// `@container pane (width >= N px)` block that owns the settings grid, so the threshold cannot be spelled
-	// twice and drift - membership in the block is checked by brace depth below.
-	const wide = new RegExp(
-		String.raw`@container pane \(width >= (\d+)px\) \{\s*\.settings-groups \{\s*display: grid;\s*` +
-			String.raw`grid-template-columns: var\(--setting-label-gutter\) minmax\(0, (\d+(?:\.\d+)?)rem\) ` +
-			String.raw`minmax\(0, 1fr\) (\d+(?:\.\d+)?)rem;\s*column-gap: (\d+)px;`
-	).exec(css);
-	if (wide?.[1] === undefined || wide[2] === undefined || wide[3] === undefined || wide[4] === undefined) {
-		throw new Error("could not read the shared settings tracks from dashboard.css's .settings-groups block");
-	}
-	const threshold = Number(wide[1]);
-	// The label cap sits in the SAME wide block (brace-balanced slice), so it flips at the same width the
-	// tracks do; the two-column stacked band opens at the same threshold's other side.
-	const blockStart = css.indexOf(wide[0]);
-	let depth = 0;
-	let blockEnd = blockStart;
-	for (let index = css.indexOf("{", blockStart); index < css.length; index++) {
-		if (css[index] === "{") {
-			depth += 1;
-		} else if (css[index] === "}") {
-			depth -= 1;
-			if (depth === 0) {
-				blockEnd = index;
-				break;
+test(
+	"the settings rows' shared tracks leave the description a working column at the stack threshold",
+	async () => {
+		// The Settings page runs full-bleed on four shared tracks - label, control, description, actions - and stacks on a
+		// pane query. The description is the one elastic track, so the state to guard is a pane just above the threshold
+		// where the label cap, the fixed tracks, and the gaps leave it a word per line.
+		const css = stylesheet();
+		// The gutter is a fixed token both settings pages read, declared on the track owner; settingLabelGutter.test.ts
+		// owns WHY it is fixed, this reads its width so the arithmetic below prices the real column.
+		const gutter = /\.settings-groups \{\s*--setting-label-gutter: (\d+(?:\.\d+)?)rem;/.exec(css);
+		if (gutter?.[1] === undefined) {
+			throw new Error("could not read --setting-label-gutter from dashboard.css's .settings-groups block");
+		}
+		// Anchored to the wide-tier block: the tracks, the label cap, and the gap all live inside the ONE
+		// `@container pane (width >= N px)` block that owns the settings grid, so the threshold cannot be spelled
+		// twice and drift - membership in the block is checked by brace depth below.
+		const wide = new RegExp(
+			String.raw`@container pane \(width >= (\d+)px\) \{\s*\.settings-groups \{\s*display: grid;\s*` +
+				String.raw`grid-template-columns: var\(--setting-label-gutter\) minmax\(0, (\d+(?:\.\d+)?)rem\) ` +
+				String.raw`minmax\(0, 1fr\) (\d+(?:\.\d+)?)rem;\s*column-gap: (\d+)px;`
+		).exec(css);
+		if (wide?.[1] === undefined || wide[2] === undefined || wide[3] === undefined || wide[4] === undefined) {
+			throw new Error("could not read the shared settings tracks from dashboard.css's .settings-groups block");
+		}
+		const threshold = Number(wide[1]);
+		// The label cap sits in the SAME wide block (brace-balanced slice), so it flips at the same width the
+		// tracks do; the two-column stacked band opens at the same threshold's other side.
+		const blockStart = css.indexOf(wide[0]);
+		let depth = 0;
+		let blockEnd = blockStart;
+		for (let index = css.indexOf("{", blockStart); index < css.length; index++) {
+			if (css[index] === "{") {
+				depth += 1;
+			} else if (css[index] === "}") {
+				depth -= 1;
+				if (depth === 0) {
+					blockEnd = index;
+					break;
+				}
 			}
 		}
-	}
-	const wideBlock = css.slice(blockStart, blockEnd);
-	// The cell's own bound reads the SAME token as the track, so the gutter has one width rather than a track and a cap
-	// that can disagree.
-	expect(wideBlock).toContain("max-width: var(--setting-label-gutter)");
-	expect(wideBlock).toContain("grid-template-columns: subgrid");
-	// The stacked band opens where the wide tier closes: the `< threshold` block (brace-balanced, like the wide one -
-	// an unbounded scan would be satisfied by an "auto 1fr" template anywhere later in the file) carries the two-column
-	// template, so the label column and the rows turn at one width.
-	const stackedOpen = css.indexOf(`@container pane (width < ${threshold}px) {`, blockEnd);
-	expect(stackedOpen, `no stacked band opens at ${threshold}`).toBeGreaterThan(-1);
-	let stackedDepth = 0;
-	let stackedEnd = stackedOpen;
-	for (let index = css.indexOf("{", stackedOpen); index < css.length; index++) {
-		if (css[index] === "{") {
-			stackedDepth += 1;
-		} else if (css[index] === "}") {
-			stackedDepth -= 1;
-			if (stackedDepth === 0) {
-				stackedEnd = index;
-				break;
+		const wideBlock = css.slice(blockStart, blockEnd);
+		// The cell's own bound reads the SAME token as the track, so the gutter has one width rather than a track and a cap
+		// that can disagree.
+		expect(wideBlock).toContain("max-width: var(--setting-label-gutter)");
+		expect(wideBlock).toContain("grid-template-columns: subgrid");
+		// The stacked band opens where the wide tier closes: the `< threshold` block (brace-balanced, like the wide one -
+		// an unbounded scan would be satisfied by an "auto 1fr" template anywhere later in the file) carries the two-column
+		// template, so the label column and the rows turn at one width.
+		const stackedOpen = css.indexOf(`@container pane (width < ${threshold}px) {`, blockEnd);
+		expect(stackedOpen, `no stacked band opens at ${threshold}`).toBeGreaterThan(-1);
+		let stackedDepth = 0;
+		let stackedEnd = stackedOpen;
+		for (let index = css.indexOf("{", stackedOpen); index < css.length; index++) {
+			if (css[index] === "{") {
+				stackedDepth += 1;
+			} else if (css[index] === "}") {
+				stackedDepth -= 1;
+				if (stackedDepth === 0) {
+					stackedEnd = index;
+					break;
+				}
 			}
 		}
-	}
-	expect(css.slice(stackedOpen, stackedEnd)).toContain("grid-template-columns: auto 1fr");
-	// The tracks are rem and the threshold px, so a root font size other than the CSS default of 16 would move
-	// one side of the comparison. That is a fact about the stylesheets rather than a constant, so it is checked.
-	expect(rootFontSizeDeclarations()).toEqual([]);
-	const gaps = 3;
-	const fixed = (Number(gutter[1]) + Number(wide[2]) + Number(wide[3])) * 16 + Number(wide[4]) * gaps;
-	// 240px is about 34 characters of 0.95em prose: a real column, not a sliver.
-	expect(threshold - fixed).toBeGreaterThanOrEqual(240);
-});
+		expect(css.slice(stackedOpen, stackedEnd)).toContain("grid-template-columns: auto 1fr");
+		// The tracks are rem and the threshold px, so a root font size other than the CSS default of 16 would move
+		// one side of the comparison. That is a fact about the stylesheets rather than a constant, so it is checked.
+		expect(await rootFontSizeDeclarations()).toEqual([]);
+		const gaps = 3;
+		const fixed = (Number(gutter[1]) + Number(wide[2]) + Number(wide[3])) * 16 + Number(wide[4]) * gaps;
+		// 240px is about 34 characters of 0.95em prose: a real column, not a sliver.
+		expect(threshold - fixed).toBeGreaterThanOrEqual(240);
+	},
+	CHILD_PROCESS_TIMEOUT_MS
+);
