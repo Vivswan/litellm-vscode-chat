@@ -9,8 +9,22 @@ import { statusLogSafeError } from "../transport/transportErrors";
 import type { ExpectedDiscoveryFailures } from "./discovery";
 import type { DiscoveryCache } from "./discoveryCache";
 import { discoveryLineWriter, failureKindOf } from "./discoveryLog";
-import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./groupModels";
-import { attachGroup, failureCauseOf, groupClientId, groupServerLabel, markStale } from "./groupModels";
+import type {
+	AttachedModelInfo,
+	EntryCredentialsResolver,
+	GroupServer,
+	LiteLLMModelInfo,
+	OverlaidGroup,
+	PreAttachModelInfo,
+} from "./groupModels";
+import {
+	attachGroup,
+	failureCauseOf,
+	groupClientId,
+	groupServerLabel,
+	markStale,
+	overlayEntryCredentials,
+} from "./groupModels";
 import { buildModelInfos } from "./registration";
 import type { ServedModelDecorator } from "./servedModels";
 import type { GroupServeOutcome, GroupStatusReporter } from "./statusReporting";
@@ -74,6 +88,26 @@ export interface SuppressedGroupKey {
 	readonly baseUrl: string;
 }
 
+declare const serveClaimBrand: unique symbol;
+
+/**
+ * A serve's claim while its credentials resolve. settle is synchronous, so the caller's await of `overlay` is the only
+ * hop between the overlay resolving and a cached serve's record.
+ */
+export interface PendingServeClaim {
+	readonly generation: number;
+	readonly overlay: Promise<OverlaidGroup>;
+	settle(overlaid: OverlaidGroup): ServeClaim;
+}
+
+/** The brand keeps settle the only minter: no fetch runs unclaimed or pre-overlay. */
+export interface ServeClaim {
+	readonly [serveClaimBrand]: true;
+	readonly generation: number;
+	readonly server: GroupServer;
+	readonly failure: MirroredError | undefined;
+}
+
 export interface GroupDiscoveryOptions {
 	/** The transport's model listing; its errors arrive unlogged and are logged once here at the boundary. */
 	client: Pick<ChatClient, "fetchModels">;
@@ -94,6 +128,8 @@ export interface GroupDiscoveryOptions {
 	getEntryIncludeModes: (label: string, baseUrl: string) => readonly NonChatMode[] | undefined;
 	/** The extension layer's tombstone predicate; see LiteLLMChatModelProviderOptions.isGroupSuppressed. */
 	isGroupSuppressed: (group: SuppressedGroupKey) => boolean;
+	/** See LiteLLMChatModelProviderOptions.resolveEntryCredentials. */
+	resolveEntryCredentials: EntryCredentialsResolver | undefined;
 	// Facade-bound log callbacks: this module logs only through them, so the provider facade stays the single logging
 	// boundary.
 	log: (message: string, data?: unknown) => void;
@@ -106,11 +142,6 @@ export interface GroupDiscoveryOptions {
 
 export class GroupDiscovery {
 	private readonly _options: GroupDiscoveryOptions;
-	/**
-	 * The claim counter, keyed by the pre-overlay claim key (a labeled group's logicalGroupId, else its client ID):
-	 * index.ts claims the generation before its first await, so arrival order at the facade decides which serve's
-	 * record stands, not resolver or fetch completion order.
-	 */
 	private readonly _serveGenerations = new Map<string, number>();
 	/**
 	 * The newest generation that has RECORDED, keyed by the group's IDENTITY (statusWindow.ts groupIdentity), so two
@@ -124,16 +155,16 @@ export class GroupDiscovery {
 		this._options = options;
 	}
 
-	/**
-	 * Claim the next serve generation, SYNCHRONOUSLY and before any await in the caller: the overlay never changes
-	 * label or base URL, and an unlabeled group's client ID never changes either, so the pre-overlay parse is a valid
-	 * claim ticket.
-	 */
-	beginServe(groupServer: GroupServer): number {
+	/** The overlay never changes label or base URL, so the pre-overlay group is the claim key. */
+	claimServe(groupServer: GroupServer): PendingServeClaim {
 		const claimKey = logicalGroupId(groupServer) ?? groupClientId(groupServer);
 		const generation = (this._serveGenerations.get(claimKey) ?? 0) + 1;
 		this._serveGenerations.set(claimKey, generation);
-		return generation;
+		return {
+			generation,
+			overlay: overlayEntryCredentials(groupServer, this._options.resolveEntryCredentials),
+			settle: (overlaid) => ({ generation, server: overlaid.server, failure: overlaid.failure }) as ServeClaim,
+		};
 	}
 
 	private expectedFailuresFor(entryLabel: string | undefined, baseUrl: string): readonly ExpectedFailureCategory[] {
@@ -172,18 +203,8 @@ export class GroupDiscovery {
 	 * cycle bookkeeping stay live across cached sweeps. Every read stamps the group's identity onto a fresh outer
 	 * object (nested metadata stays shared); the credential fingerprint of the CURRENT connection keys the cache.
 	 */
-	async fetchGroupModels(
-		groupServer: GroupServer,
-		silent: boolean,
-		/** The beginServe claim for this serve; absent for callers with no earlier await. */
-		generation?: number,
-		/**
-		 * A failure the caller established before any fetch (the entry's credentials did not resolve): it takes the
-		 * fetch's own failure path, cached models included, so an ok record can never stand for a group whose
-		 * requests would fail.
-		 */
-		preflightFailure?: Error
-	): Promise<LiteLLMModelInfo[]> {
+	async fetchGroupModels(claim: ServeClaim, silent: boolean): Promise<LiteLLMModelInfo[]> {
+		const groupServer = claim.server;
 		const server: ServerConnection = {
 			id: groupClientId(groupServer),
 			label: groupServer.label ?? groupServerLabel(groupServer.baseUrl),
@@ -200,8 +221,6 @@ export class GroupDiscovery {
 			infos.map((info) => attachGroup(info, identity));
 		// The cache key composes the group with the live apiVersion and includeModes, so an edit lands on a fresh key.
 		const cacheKey = this.cacheKeyFor(groupServer);
-		// An unclaimed serve claims here, so it can at least be superseded by later serves.
-		const serveGeneration = generation ?? this.beginServe(groupServer);
 		// The one outcome that serves WITHOUT recording is the superseded yield below.
 		//   both outcome counts -> derive from the same pair
 		const recordAndServe: RecordAndServe = (
@@ -216,7 +235,7 @@ export class GroupDiscovery {
 			// call was configured for. Until the newer serve lands, this record is what makes those models routable, so
 			// a newer claim alone (or a live apiVersion edit, which the next serve carries) never yields.
 			//   rotated credentials -> arrive only with a LATER serve's overlaid server, so they land as a newer record
-			if ((this._recordedGenerations.get(identity) ?? 0) > serveGeneration) {
+			if ((this._recordedGenerations.get(identity) ?? 0) > claim.generation) {
 				this._options.log(
 					"Discovery finished for a rotated configuration; leaving the group record to the current one",
 					{
@@ -225,7 +244,7 @@ export class GroupDiscovery {
 				);
 				return { served: [...discovered, ...declared], discovered, declared };
 			}
-			this._recordedGenerations.set(identity, serveGeneration);
+			this._recordedGenerations.set(identity, claim.generation);
 			// The one served-count derivation.
 			const servedModelCount = served.discovered.length + served.declared.length;
 			if (outcome.state === "ok") {
@@ -329,8 +348,8 @@ export class GroupDiscovery {
 			const texts = failureTexts(cause, server.baseUrl);
 			throw new MirroredError(texts.display, { englishMessage: outcome.logSafeError });
 		};
-		if (preflightFailure !== undefined) {
-			return serveFailure(preflightFailure, false);
+		if (claim.failure !== undefined) {
+			return serveFailure(claim.failure, false);
 		}
 		// The unserved-probe hint one ok serve carries; see DiscoveredGroupModels.modelInfoUnsupported.
 		const probeHint = (
