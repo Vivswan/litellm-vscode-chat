@@ -116,17 +116,14 @@ export const VSCODE_DEFAULT_CSS = `@layer vscode-default {
 }`;
 
 /**
- * Measurement runs (--widths, --pane-widths) swap every font token for these faces; screenshot runs (--out alone) keep
- * the native stacks, since design review judges the host's fonts and measurement judges the pinned ones.
+ * Only measurement runs (--widths, --pane-widths) read these faces: design review judges the host's own fonts,
+ * measurement the pinned ones.
  *
- *   vertical overrides -> every line box is a fixed fraction of the font size
- *   every line box is a fixed fraction of the font size -> a green macOS sweep predicts the Linux-only gate
- *   the host's mono fallback once rounded a mixed sans+mono line box 1px taller there -> vertical overrides
- *   local() chains     -> only faces with IDENTICAL advances pass (Liberation Sans carries Arial's, Liberation Mono
- *                         carries Courier New's); the engagement control fails any other face
- *   CSS cannot override advances -> only faces with IDENTICAL advances pass
- *   divergent faces    -> the same sources with other vertical metrics, so a swap changes ONLY the metrics
- *                         (check-geometry's metric probe)
+ *   ascent/descent overrides     -> every line box is a fixed fraction of the font size, so a green macOS sweep
+ *                                   predicts the Linux-only gate; the host's mono fallback once rounded a mixed
+ *                                   sans+mono line box 1px taller there
+ *   CSS cannot override advances -> only metric-compatible faces share a local() chain; the engagement control
+ *                                   fails any other face
  */
 const PINNED_SANS_SOURCES = `local("Arial"), local("Liberation Sans")`;
 
@@ -135,6 +132,7 @@ const PINNED_MONO_SOURCES = `local("Courier New"), local("Liberation Mono")`;
 /** Near Arial's real metrics, so pinning moves today's measurements as little as possible. */
 const PINNED_FONT_METRICS = { ascent: 90, descent: 22 };
 
+/** The pinned sources under other vertical metrics, so the metric probe's swap changes nothing but the metrics. */
 const DIVERGENT_FONT_METRICS = { ascent: 160, descent: 40 };
 
 /** What a line-height: normal line box must measure under each face, at 100px font size. */
