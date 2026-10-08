@@ -334,7 +334,7 @@ function calleeCandidates(expression: ts.Expression, sourceFile: ts.SourceFile):
 
 /**
  * The walk follows bound NAMES, never values in flight: following those would be data-flow analysis, which the gate
- * deliberately is not. The reverseCensus fixtures pin what stays invisible.
+ * deliberately is not.
  */
 function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile): InvocationEvidence {
 	const evidence: InvocationEvidence = { direct: false, callees: new Set<string>() };
@@ -387,10 +387,9 @@ function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile
 			}
 		}
 	};
-	// An argument is the caller's edge, since the walk cannot see whether the callee invokes it. Direct arguments only:
-	// an identifier nested in an array or object literal, or behind a spread, is a value in a structure - the data-flow
-	// boundary, pinned by fixtures.
-	const noteArguments = (args: readonly ts.Expression[] | undefined): void => {
+	// An argument is the caller's edge, since the walk cannot see whether the callee invokes it. An identifier nested in
+	// an array or object literal, or behind a spread, is a value in a structure - the data-flow boundary.
+	const noteDirectArgumentEdges = (args: readonly ts.Expression[] | undefined): void => {
 		for (const argument of args ?? []) {
 			noteAliasSources(argument);
 		}
@@ -398,12 +397,12 @@ function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile
 	const dig = (node: ts.Node): void => {
 		if (ts.isCallExpression(node)) {
 			note(node.expression);
-			noteArguments(node.arguments);
+			noteDirectArgumentEdges(node.arguments);
 		} else if (ts.isTaggedTemplateExpression(node)) {
 			note(node.tag);
 		} else if (ts.isNewExpression(node)) {
 			note(node.expression);
-			noteArguments(node.arguments);
+			noteDirectArgumentEdges(node.arguments);
 		}
 		// A default aliases exactly like a variable initializer does, wherever it binds: `wrap(title =
 		// manageCommandTitle)` and `{ title = ... } = {}`.
@@ -805,9 +804,8 @@ function fileLazyNames(sourceFile: ts.SourceFile, census: readonly string[]): Se
 }
 
 /**
- * A module-scope localization call runs before l10n.config and freezes the English text; this parses what evaluates at
- * load time. A destructured `t` is invisible to the text match here; vscodeL10nOffenses bans destructuring off the
- * canonical l10n binding.
+ * A module-scope localization call runs before l10n.config and freezes the English text. A destructured `t` is
+ * invisible to the text match here; vscodeL10nOffenses bans destructuring off the canonical l10n binding.
  */
 export function moduleScopeL10nOffenses(contents: string, fileName: string): number[] {
 	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
