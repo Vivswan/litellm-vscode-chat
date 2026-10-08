@@ -69,6 +69,9 @@ const DEFAULT_EXPIRES_IN_SECONDS = 300;
 
 const RETRY_DELAY_MS = 200;
 
+/** Resolves after `ms` or as soon as `signal` aborts, whichever is first; the exchange loop reads the signal after it. */
+type BackoffSleep = (ms: number, signal: AbortSignal) => Promise<void>;
+
 interface CachedToken {
 	accessToken: HeaderValue;
 	refreshAtMs: number;
@@ -84,6 +87,8 @@ interface SharedExchange {
 export class OAuthTokenSource {
 	private readonly tokens = new Map<string, CachedToken>();
 	private readonly exchanges = new Map<string, SharedExchange>();
+
+	constructor(private readonly sleep: BackoffSleep = sleepUnlessAborted) {}
 
 	/**
 	 * No caller's bounds reach the exchange: it is abandoned only when its last waiter leaves, so a waiter never
@@ -137,7 +142,7 @@ export class OAuthTokenSource {
 			// A settled exchange is never joinable: both arms leave the map before they settle.
 			//   fulfilled -> cache the token -> forget -> resolve
 			//   rejected  -> forget -> rethrow
-			token: exchangeClientCredentials(config, controller.signal).then(
+			token: exchangeClientCredentials(config, controller.signal, this.sleep).then(
 				({ accessToken, expiresInSeconds }) => {
 					const lifetimeMs = expiresInSeconds * 1000;
 					const skewMs = Math.min(REFRESH_SKEW_MS, lifetimeMs / 2);
@@ -354,7 +359,8 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: H
  */
 async function exchangeClientCredentials(
 	config: OAuthConfig,
-	signal: AbortSignal
+	signal: AbortSignal,
+	sleep: BackoffSleep
 ): Promise<{ accessToken: HeaderValue; expiresInSeconds: number }> {
 	const form = new URLSearchParams({
 		grant_type: "client_credentials",
@@ -367,7 +373,7 @@ async function exchangeClientCredentials(
 	let lastFailure: unknown;
 	for (let attempt = 0; attempt <= DISCOVERY_MAX_RETRIES; attempt += 1) {
 		if (attempt > 0) {
-			await sleepUnlessAborted(RETRY_DELAY_MS * attempt, signal);
+			await sleep(RETRY_DELAY_MS * attempt, signal);
 			if (signal.aborted) {
 				throw abortReason(signal);
 			}

@@ -4,6 +4,7 @@
  * to "no suggestion" - ghost text has no error surface - and cancellation is never logged.
  */
 
+import { setTimeout as sleep } from "node:timers/promises";
 import * as vscode from "vscode";
 import {
 	FIM_PREFIX_BUDGET,
@@ -46,10 +47,6 @@ export interface InlineCompletionProviderDeps {
 	 * errors from the issue-report buffer.
 	 */
 	readonly log: (message: string, data?: unknown) => void;
-}
-
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Total cancellation test: a hostile error whose prototype walk throws must degrade, not reject. */
