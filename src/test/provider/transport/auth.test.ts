@@ -16,6 +16,9 @@ function oauthConfig(overrides: Partial<OAuthConfig> = {}): OAuthConfig {
 	return { tokenUrl: TOKEN_URL, clientId: "client-1", clientSecret: "secret-1", ...overrides };
 }
 
+/** The retry backoff is setup here, not what any pin reads: the tests that retry count attempts, not time. */
+const noBackoff = () => Promise.resolve();
+
 // The budget identities the shipped callers mint where they read their numbers: the chat and discovery transports pass
 // the discovery timeout, the one-shot chat features their chat.timeout whole-call budget, and the inline-completion
 // call its fixed FIM bound that names no setting.
@@ -267,7 +270,7 @@ suite("provider/transport/auth", () => {
 					return HttpResponse.error();
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(noBackoff);
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "network");
 
@@ -290,7 +293,7 @@ suite("provider/transport/auth", () => {
 					})
 				);
 			try {
-				const source = new OAuthTokenSource();
+				const source = new OAuthTokenSource(noBackoff);
 
 				const error = await expectRequestError(
 					source.getToken(oauthConfig(), "discovery", discoveryBudget()),
@@ -322,7 +325,7 @@ suite("provider/transport/auth", () => {
 			});
 			globalThis.fetch = () => Promise.reject(hostile);
 			try {
-				const source = new OAuthTokenSource();
+				const source = new OAuthTokenSource(noBackoff);
 
 				const error = await expectRequestError(
 					source.getToken(oauthConfig(), "discovery", discoveryBudget()),
@@ -350,7 +353,7 @@ suite("provider/transport/auth", () => {
 					return HttpResponse.json({ access_token: "tok-after-retry", expires_in: 3600 });
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(noBackoff);
 
 			assert.strictEqual(await source.getToken(oauthConfig(), "discovery", discoveryBudget()), "tok-after-retry");
 			assert.strictEqual(attempts, 2);
@@ -364,7 +367,7 @@ suite("provider/transport/auth", () => {
 					return HttpResponse.json({}, { status: 502 });
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(noBackoff);
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget()), "http");
 
@@ -777,7 +780,7 @@ suite("provider/transport/auth", () => {
 				);
 			};
 			try {
-				const source = new OAuthTokenSource();
+				const source = new OAuthTokenSource(noBackoff);
 				const originator = source.getToken(oauthConfig(), "discovery", discoveryBudget());
 				const joiner = source.getToken(oauthConfig(), "commitGeneration", chatBudget(7000));
 

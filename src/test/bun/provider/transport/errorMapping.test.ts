@@ -600,6 +600,9 @@ describe("provider/transport/errorMapping", () => {
 		// are pinned per entry point so every wording difference is a decision recorded here, not drift.
 		const URL_UNDER_TEST = "http://litellm.test";
 
+		/** The retry backoff is setup here, not what any pin reads: every exchange below fails on all three attempts. */
+		const noBackoff = () => Promise.resolve();
+
 		/** Drive the OAuth exchange's socket-failure tail: fetch rejects with the synthetic failure on every retry. */
 		async function oauthSocketFailure(
 			makeFailure: () => unknown,
@@ -610,7 +613,7 @@ describe("provider/transport/errorMapping", () => {
 			// bun's fetch type carries preconnect, which the exchange never calls.
 			globalThis.fetch = (() => Promise.reject(makeFailure())) as unknown as typeof fetch;
 			try {
-				await new OAuthTokenSource().getToken(
+				await new OAuthTokenSource(noBackoff).getToken(
 					{ tokenUrl: URL_UNDER_TEST, clientId: "client-1", clientSecret: "secret-1" },
 					surface,
 					budget
@@ -793,7 +796,6 @@ describe("provider/transport/errorMapping", () => {
 			);
 		});
 
-		// Each exchange sleeps 600 ms of retry backoff, one per surface: a 4.8 s floor against bun's 5 s default.
 		test("the exchange-timeout advice follows the budget's setting on every surface, never the surface itself", async () => {
 			// The advice identity rides the TimeoutBudget from the caller that read the number, so a surface can never
 			// smuggle in advice for a setting that does not bound its exchange. Every surface (derived from the copy
@@ -834,7 +836,7 @@ describe("provider/transport/errorMapping", () => {
 				}
 				assert.strictEqual(timedOut.englishMessage, timedOut.message, surface);
 			}
-		}, 30_000);
+		});
 	});
 
 	describe("timeouts", () => {
