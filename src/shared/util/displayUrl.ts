@@ -33,13 +33,9 @@ function isQuote(ch: string | undefined): boolean {
 	return ch === '"' || ch === "'";
 }
 
+/** Tabs and line breaks never reach here: displayUrl drops what the parser ignores before any helper runs. */
 function isSpace(ch: string | undefined): boolean {
-	return ch === undefined || ch === " " || ch === "\t" || ch === "\n" || ch === "\r";
-}
-
-/** A space or a line end bounds a run; a tab does not, since the parser drops it ("ht\ttp:" is a scheme to it). */
-function isRunBreak(ch: string | undefined): boolean {
-	return ch === undefined || ch === " " || ch === "\n" || ch === "\r";
+	return ch === undefined || ch === " ";
 }
 
 /**
@@ -59,7 +55,7 @@ function isDelimitingQuote(text: string, index: number): boolean {
 }
 
 function isBoundaryAt(text: string, index: number): boolean {
-	return isRunBreak(text[index]) || isDelimitingQuote(text, index);
+	return isSpace(text[index]) || isDelimitingQuote(text, index);
 }
 
 function runStartOf(text: string, index: number, floor: number): number {
@@ -79,19 +75,18 @@ function runEndOf(text: string, index: number, ceiling: number): number {
 }
 
 /**
- * Where the authority of a URL sits in its ORIGINAL text: the scheme ends at the first ":" (the parser drops tabs and
- * newlines, never scheme characters), slashes follow it (backslashes too under a special scheme only), the authority
- * ends at the first path, query, or fragment delimiter, and the userinfo at the authority's last "@" (-1 when none).
+ * Where the authority of a URL sits in its ORIGINAL text: the scheme ends at the first ":", slashes follow it
+ * (backslashes too under a special scheme only), the authority ends at the first path, query, or fragment delimiter,
+ * and the userinfo at the authority's last "@" (-1 when none).
  */
 function authorityOf(span: string): { scheme: number; start: number; end: number; at: number } {
 	const scheme = span.startsWith("//") ? 0 : span.indexOf(":") + 1;
 	const schemeName = span
 		.slice(0, Math.max(scheme - 1, 0))
-		.replace(IGNORED, "")
 		.trim()
 		.toLowerCase();
 	const special = scheme === 0 || SPECIAL_SCHEMES.has(schemeName);
-	const slashes = special ? "/\\\t\n\r" : "/\t\n\r";
+	const slashes = special ? "/\\" : "/";
 	const delimiters = special ? "/\\?#" : "/?#";
 	let start = scheme;
 	while (start < span.length && slashes.includes(span[start] as string)) {
@@ -109,15 +104,15 @@ function authorityOf(span: string): { scheme: number; start: number; end: number
 }
 
 /**
- * The span with its userinfo cut out of the original text, the slashes normalized to "//" and the characters the
- * parser drops dropped. Cutting the original keeps anything the parser folded into the path, such as a second URL.
+ * The span with its userinfo cut out of the original text, the slashes normalized to "//". Cutting the original keeps
+ * anything the parser folded into the path, such as a second URL.
  */
 function cutUserinfo(span: string): { replacement: string; authorityEnd: number } | undefined {
 	const { scheme, end, at } = authorityOf(span);
 	if (at === -1) {
 		return undefined;
 	}
-	const replacement = `${span.slice(0, scheme)}//${span.slice(at + 1, end)}`.replace(IGNORED, "");
+	const replacement = `${span.slice(0, scheme)}//${span.slice(at + 1, end)}`;
 	return { replacement, authorityEnd: end };
 }
 
@@ -301,7 +296,7 @@ function urlCuts(text: string): Cut[] {
 	if (!text.includes("@")) {
 		return cuts;
 	}
-	const whole = parsedUrl(text.replace(IGNORED, ""));
+	const whole = parsedUrl(text);
 	const cut = whole !== undefined && (whole.username !== "" || whole.password !== "") ? cutUserinfo(text) : undefined;
 	if (cut !== undefined) {
 		cuts.push({ from: 0, replacement: cut.replacement, resumeAt: cut.authorityEnd });
