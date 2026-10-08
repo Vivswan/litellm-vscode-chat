@@ -1,0 +1,50 @@
+/* VS Code's Dark High Contrast tokens, from the workbench color registry's hcDark defaults. Deliberately sparse where
+	 the real theme is: secondary backgrounds and list hover colors are genuinely null there, so the fallback chains and
+	 theme.css's contrast overrides are what render.
+
+	   button.background IS set - black -> theme.css cannot read an accent off it */
+:root {
+	--vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ubuntu, sans-serif;
+	--vscode-font-size: 13px;
+	--vscode-editor-font-family: Menlo, Monaco, "Courier New", monospace;
+	--vscode-foreground: #ffffff;
+	--vscode-descriptionForeground: #ffffffb3;
+	--vscode-disabledForeground: #a5a5a5;
+	--vscode-editor-background: #000000;
+	--vscode-panel-background: #000000;
+	--vscode-editorWidget-background: #0c141f;
+	--vscode-widget-border: #6fc3df;
+	--vscode-contrastBorder: #6fc3df;
+	--vscode-contrastActiveBorder: #f38518;
+	--vscode-focusBorder: #f38518;
+	--vscode-errorForeground: #f48771;
+	--vscode-editorWarning-foreground: #ffd370;
+	--vscode-testing-iconPassed: #73c991;
+	--vscode-textLink-foreground: #21a6ff;
+	--vscode-textLink-activeForeground: #21a6ff;
+	--vscode-textCodeBlock-background: #000000;
+	--vscode-panelTitle-activeForeground: #ffffff;
+	--vscode-panelTitle-inactiveForeground: #ffffff;
+	--vscode-panelTitle-activeBorder: #6fc3df;
+	--vscode-input-background: #000000;
+	--vscode-input-foreground: #ffffff;
+	--vscode-input-border: #6fc3df;
+	--vscode-input-placeholderForeground: #ffffffb3;
+	--vscode-inputValidation-errorBackground: #000000;
+	--vscode-inputValidation-errorBorder: #f48771;
+	--vscode-button-background: #000000;
+	--vscode-button-foreground: #ffffff;
+	--vscode-button-border: #6fc3df;
+	--vscode-editorHoverWidget-background: #0c141f;
+	--vscode-editorHoverWidget-foreground: #ffffff;
+	--vscode-editorHoverWidget-border: #6fc3df;
+	--vscode-notifications-background: #000000;
+	--vscode-notifications-foreground: #ffffff;
+	--vscode-notifications-border: #6fc3df;
+	--vscode-dropdown-background: #000000;
+	--vscode-dropdown-foreground: #ffffff;
+	--vscode-dropdown-border: #6fc3df;
+	--vscode-scrollbarSlider-background: #6fc3df99;
+	--vscode-scrollbarSlider-hoverBackground: #6fc3dfcc;
+	--vscode-scrollbarSlider-activeBackground: #6fc3df;
+}
