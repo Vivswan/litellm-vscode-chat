@@ -17,14 +17,13 @@
 		".vscode-test.mjs"
 	],
 	"project": [
-		"src/**/*.{ts,tsx}",
+		"src/**/*.{ts,tsx,css}",
 		"scripts/**/*.{ts,mts}"
 	],
 	"ignoreExportsUsedInFile": false,
 	"ignoreDependencies": [
 		"@vscode/test-electron",
-		"@tailwindcss/cli",
-		"tailwindcss"
+		"@tailwindcss/cli"
 	],
 	"ignoreBinaries": [
 		"down",
