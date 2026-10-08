@@ -199,8 +199,8 @@ export function assertPinCoversStylesheet(stylesheet: string): void {
 
 /**
  * VS Code writes --vscode-* onto the document element's inline style (webview/browser/pre/index.html, applyStyles),
- * not into a stylesheet, so a stylesheet rule redefining a host token loses in the editor; delivered as a stylesheet
- * here, it would win. The --font-* pins ride along for the same reason (pinFontTokens).
+ * not into a stylesheet. Normal stylesheet declarations on the document element cannot override these inline tokens;
+ * the --font-* pins use the same delivery (pinFontTokens).
  */
 export function inlineTokenStyle(tokensCss: string): string {
 	const rules: string[] = [];
