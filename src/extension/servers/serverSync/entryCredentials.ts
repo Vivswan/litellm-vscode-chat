@@ -1,18 +1,14 @@
 /**
- * The credential half of the provider's entry overlay: resolve one declared entry's CURRENT credentials in exactly the
- * rendering a sync pass would bake into its group (the same setting parse, secrets read, ownership check,
- * buildGroupArgs precedence, and parseGroupConfiguration narrowing), so the overlaid connection can never diverge from
- * what a freshly created group would carry. Related but deliberately separate: engine.resolveGroupArgs matches by
- * label alone and silently drops refused fields, which only the internal test command may tolerate.
+ * The credential half of the provider's entry overlay (overlayEntryCredentials): the current credentials of the
+ * declared entry behind a labeled group, so a rotation reaches the next serve and request without a host re-add.
  */
 
 import type { GroupCredentialsResolution } from "../../../provider/catalog/groupModels";
 import { parseGroupConfiguration, refusedCredentialFields } from "../../../provider/catalog/groupModels";
 import { errorLabel } from "../../../shared/util/errorLabel";
-import { buildGroupArgs } from "./engine";
+import { resolveOwnedGroupArgs } from "./engine";
 import type { StoredSecretsRecord } from "./secrets";
-import { resolveOwnedSecrets } from "./secrets";
-import { matchedEntryFor, rejectedCarrierLabels, serverSettingReports } from "./setting";
+import { rejectedCarrierLabels, serverSettingReports } from "./setting";
 
 /**
  * With no accepted entry at this label and base URL, a label the setting still carries in a rejected shape (a rejected
@@ -26,28 +22,23 @@ export async function entryGroupCredentialsFor(
 	baseUrl: string,
 	log?: (message: string, data?: unknown) => void
 ): Promise<GroupCredentialsResolution> {
-	const setting = readServersSetting();
-	const entry = matchedEntryFor(setting, label, baseUrl);
-	if (entry === undefined) {
-		return rejectedCarrierLabels(serverSettingReports(setting)).includes(label)
+	const owned = await resolveOwnedGroupArgs({ readServersSetting, readSecrets }, label, baseUrl);
+	if (owned.kind === "undeclared") {
+		return rejectedCarrierLabels(serverSettingReports(owned.setting)).includes(label)
 			? { kind: "unavailable", reason: "misconfigured" }
 			: { kind: "external" };
 	}
-	let record: StoredSecretsRecord;
-	try {
-		record = await readSecrets(label);
-	} catch (error) {
+	if (owned.kind === "secretsUnreadable") {
 		log?.("Reading a server entry's stored secrets for the credential overlay failed", {
 			label,
-			error: errorLabel(error),
+			error: errorLabel(owned.error),
 		});
 		return { kind: "unavailable", reason: "secretsUnreadable" };
 	}
-	const owned = resolveOwnedSecrets(entry, record);
 	if (owned.refused.length > 0) {
 		return { kind: "unavailable", reason: "secretsMismatched" };
 	}
-	const parsed = parseGroupConfiguration(buildGroupArgs(entry, owned.values));
+	const parsed = parseGroupConfiguration(owned.args);
 	if (parsed === undefined) {
 		return { kind: "unavailable", reason: "unusable" };
 	}

@@ -34,6 +34,7 @@ import { inlineSecretValues, resolveOwnedSecrets, secretLocations } from "./secr
 import type { DeclaredServer } from "./setting";
 import {
 	acceptedEntry,
+	matchedEntryFor,
 	parseServersSetting,
 	rawDeclaredLabels,
 	rejectedCarrierInlineSecrets,
@@ -228,6 +229,41 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
 		}
 	}
 	return args;
+}
+
+/**
+ * One label's group arguments, resolved the way a sync pass resolves them, so resolveGroupArgs, entryStillCurrent,
+ * and entryCredentials.ts cannot render an entry differently: what each makes of a refusal is its own. `undeclared`
+ * carries the setting it read, so a caller's carrier check judges the same read.
+ */
+type OwnedGroupArgs =
+	| { readonly kind: "undeclared"; readonly setting: unknown }
+	| { readonly kind: "secretsUnreadable"; readonly error: unknown }
+	| {
+			readonly kind: "owned";
+			readonly entry: DeclaredServer;
+			readonly args: Record<string, string>;
+			readonly refused: readonly SecretFieldId[];
+	  };
+
+export async function resolveOwnedGroupArgs(
+	env: Pick<ServerSyncEnv, "readServersSetting" | "readSecrets">,
+	label: string,
+	baseUrl?: string
+): Promise<OwnedGroupArgs> {
+	const setting = env.readServersSetting();
+	const entry = baseUrl === undefined ? acceptedEntry(setting, label)?.entry : matchedEntryFor(setting, label, baseUrl);
+	if (entry === undefined) {
+		return { kind: "undeclared", setting };
+	}
+	let record: StoredSecretsRecord;
+	try {
+		record = await env.readSecrets(entry.label);
+	} catch (error) {
+		return { kind: "secretsUnreadable", error };
+	}
+	const owned = resolveOwnedSecrets(entry, record);
+	return { kind: "owned", entry, args: buildGroupArgs(entry, owned.values), refused: owned.refused };
 }
 
 /**
@@ -455,17 +491,18 @@ export class ServerSyncEngine implements vscode.Disposable {
 	/**
 	 * Exactly what a sync pass would submit, so litellm._test.refreshEntryModels can drive the otherwise
 	 * host-invoked group serving path; like buildGroupArgs's output it carries resolved secrets verbatim and
-	 * must never be logged or ride a state push. A refused stored field stays out, since this path must never
-	 * send a credential the engine itself would refuse (the provider's real overlay, entryCredentials.ts, fails
-	 * closed on any refusal too).
+	 * must never be logged or ride a state push. A refusal is tolerated, since only the test command calls this.
 	 */
 	async resolveGroupArgs(label: string): Promise<Record<string, string> | undefined> {
-		const match = acceptedEntry(this.env.readServersSetting(), label);
-		if (match === undefined) {
-			return undefined;
+		const owned = await resolveOwnedGroupArgs(this.env, label);
+		switch (owned.kind) {
+			case "undeclared":
+				return undefined;
+			case "secretsUnreadable":
+				throw owned.error;
+			case "owned":
+				return owned.args;
 		}
-		const record = await this.env.readSecrets(match.entry.label);
-		return buildGroupArgs(match.entry, resolveOwnedSecrets(match.entry, record).values);
 	}
 
 	/**
@@ -672,22 +709,14 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
-	 * A failed read counts as "not current" too, so the add is skipped and the pass that follows whatever changed
-	 * reads truth. A mid-pass credential EDIT does not block the add, since the identity fingerprint does not
-	 * cover credentials and the baked values are a serve-time-overridden fallback, so pairing pass-start secrets
-	 * with a freshly edited entry is harmless.
+	 * The fingerprint covers no credential, so a mid-pass credential EDIT does not block the add (the overlay serves
+	 * the current values); a refusal does, since the pairing must not reach the host at all. The pass that follows
+	 * whatever changed reads truth.
 	 */
 	private async entryStillCurrent(label: string, printed: string): Promise<boolean> {
 		try {
-			const fresh = acceptedEntry(this.env.readServersSetting(), label);
-			if (fresh === undefined) {
-				return false;
-			}
-			const owned = resolveOwnedSecrets(fresh.entry, await this.env.readSecrets(fresh.entry.label));
-			if (owned.refused.length > 0) {
-				return false;
-			}
-			return groupArgsFingerprint(buildGroupArgs(fresh.entry, owned.values)) === printed;
+			const owned = await resolveOwnedGroupArgs(this.env, label);
+			return owned.kind === "owned" && owned.refused.length === 0 && groupArgsFingerprint(owned.args) === printed;
 		} catch {
 			return false;
 		}
@@ -921,12 +950,8 @@ export class ServerSyncEngine implements vscode.Disposable {
 							this.env.log("Provider group exists and the host has no update path", { label: entry.label });
 						}
 					} else {
-						// The persisted map keeps the last-known-good fingerprint (a failed add changed nothing about
-						// the live group) and the retry rides the "upsertFailed" state instead: dropping the
-						// fingerprint here would destroy the only record that lets the healthy group's next duplicate
-						// response read as in-sync. Any duplicate-refusal knowledge is stale now, so setting the state
-						// also clears a stale "blocked" - otherwise its shortcut would suppress the retry this failure
-						// needs.
+						// The set also replaces a stale "blocked", whose unforced-pass shortcut would otherwise skip the
+						// retry this failure needs.
 						this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 						this.retry.set(entry.label, { kind: "upsertFailed", fingerprint: printed });
 						syncFailure = syncFailureOf("upsertFailed");
