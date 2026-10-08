@@ -751,7 +751,9 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 						if (drive.site !== undefined) {
 							const binding = imports.get(loop.list);
 							problems.push(
-								`${rel(file)}:${lineOf(node)} test "${subject}" drives ${drive.site.description} inside a loop (line ${lineOf(loop.node)}) over ${loop.list} imported from "${binding?.specifier ?? "?"}", paying the retry backoff once per entry; ${remedy(drive.site.sleeper)}`
+								`${rel(file)}:${lineOf(node)} test "${subject}" drives ${drive.site.description} inside a loop ` +
+									`(line ${lineOf(loop.node)}) over ${loop.list} imported from "${binding?.specifier ?? "?"}", ` +
+									`paying the retry backoff once per entry; ${remedy(drive.site.sleeper)}`
 							);
 						}
 						return true;
