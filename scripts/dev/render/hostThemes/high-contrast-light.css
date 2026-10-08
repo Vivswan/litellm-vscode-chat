@@ -1,6 +1,4 @@
-/* VS Code's Light High Contrast tokens, from the registry's hcLight defaults. Its own combination, and an unrenderable
-	 state is one nobody checks: theme.css keys the wash scale off body.vscode-high-contrast-light, a class no other
-	 render produces. */
+/* VS Code's Light High Contrast tokens, from the registry's hcLight defaults. */
 :root {
 	--vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ubuntu, sans-serif;
 	--vscode-font-size: 13px;

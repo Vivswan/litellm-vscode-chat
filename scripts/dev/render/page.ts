@@ -245,9 +245,10 @@ export function buildPageHtml(
 		}
 		html = html.replace("<html ", `<html style="${attribute}" `);
 	}
-	// VS Code stamps the theme kind onto the body, and theme.css keys its contrast overrides off that class. HC light
-	// carries both classes, exactly as the host's applyStyles does, so a rule keyed on only one of them cannot behave
-	// differently here than in the editor.
+	// VS Code stamps the theme kind onto the body, and theme.css keys its contrast overrides off that class: HC light
+	// carries both classes, as the host's applyStyles does, so a rule keyed on one of them behaves the same here and in
+	// the editor. theme.css keys its wash scale off vscode-high-contrast-light alone, so the HC light render is the one
+	// check of that state.
 	const bodyClass = {
 		dark: "vscode-dark",
 		light: "vscode-light",
