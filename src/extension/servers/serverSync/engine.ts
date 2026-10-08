@@ -43,18 +43,6 @@ import {
 } from "./setting";
 
 /**
- * Consumers key on the class alone, never on message text. extension/dashboard/state.ts denies only an
- * upsertFailed claimant a shared snapshot's models and marks only a secretsUnreadable view's locations unproven.
- *
- *   upsertFailed       -> this add attempt failed outright, so the entry may have no group at all
- *   blocked            -> a group with the name exists and the host refused the duplicate
- *   secretsUnreadable  -> the blob read itself failed; the view's locations degraded to the inline-only guess
- *   secretsMismatched  -> the read succeeded but a stored value's ownership stamp refused the pairing
- *   saltUnavailable    -> the read succeeded and only the unconfirmed fingerprint salt stopped the pass
- *   credentialsRefused -> the group synced, but a configured key cannot ride its header, so requests are refused
- */
-
-/**
  * One entry's sync failure: the class alone. The text renders from it where it is shown (shared/failureCause.ts), in
  * the reader's locale, so the view carries no sentence written under the locale of the pass that failed.
  */
@@ -223,22 +211,16 @@ export interface ServerSyncEnv {
 }
 
 /**
- * The field order is frozen because the persisted fingerprint hashes groupIdentityArgs' projection of this
- * object and migrations/fingerprintProjection.ts re-renders the legacy full-args JSON, so both renderings must
- * stay byte-stable (serverSyncEntryShape.test.ts pins them across the nested-settings restructure).
- *
- *   the host echoes only the configuration back, and it keeps same-URL same-credential entries distinct
- *     -> label repeats the group name
- *   credential fields -> a baked fallback only
- *   entryCredentials.ts overlays the entry's current values at serve and request time -> a baked fallback only
- *   everything else   -> extension-read
- *   extension-read    -> edits must not churn the group
+ * The key order is part of the legacy fingerprint rendering (migrations/fingerprintProjection.ts hashes this object's
+ * JSON), so a reordering would match no stored record while that migration lives.
  */
 export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecrets): Record<string, string> {
 	const args: Record<string, string> = {
 		name: entry.label,
 		vendor: VENDOR_ID,
 		baseUrl: entry.baseUrl,
+		// The host echoes a group's configuration back without its name, and the label inside it keeps two entries at
+		// one URL with one credential apart.
 		label: entry.label,
 	};
 	const inline = inlineSecretValues(entry);
@@ -307,12 +289,6 @@ export class IndeterminateServersSettingError extends Error {
 	}
 }
 
-/**
- * The one SyncFailure constructor: the message derives from the class, so the pairing is right by construction at
- * every producer site. The total Record makes a new class a compile error until it names its message. The refusal's
- * text names no field: the group itself synced, and the Diagnostics tab (rejectedCredentials) points at the field.
- */
-/** The failure's message is the renderer's display text for its class (shared/failureCause.ts). */
 function syncFailureOf(failureClass: SyncErrorClass): SyncFailure {
 	return { class: failureClass };
 }
@@ -497,21 +473,13 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
-	 * What the setting declares at the moment of the call, resolved like a pass resolves it but with no host call and
-	 * no bookkeeping. The adopt and hide intents decide which live groups are external against this, never against
-	 * getDeclared(), whose views lag until the next pass ends.
+	 * What the setting declares at the moment of the call: the adopt and hide intents judge which live groups are
+	 * external against this, never against getDeclared(), whose views lag until the next pass ends.
 	 *
-	 *   settings write, pass pending         -> the new entry is already here
-	 *   pass running, new group served       -> it joins by identity instead of reading as external
-	 *   secrets read throws                  -> rejects; inline-only keys miss a legacy group whose connection ID
-	 *                                           carries the secret
-	 *   setting or a blob changes mid-read   -> read everything again; the pair returned was read twice unchanged,
-	 *                                           or the call rejects
-	 *   parser-rejected entry with a label   -> a carrier; a group stamped with it or holding its key is never external
-	 *   non-array setting                    -> rejects; the pass still treats every old label as declared, and
-	 *                                           nothing could join its group
-	 *   a blob rotated after its second read -> not seen; SecretStorage has no compare-and-swap (secrets.ts), the
-	 *                                           save path's residual too
+	 *   the setting and the blobs are separate stores with no atomic read (secrets.ts)
+	 *     -> a pair counts only once two consecutive reads agree
+	 *   a secrets read throws -> rejects; resolved over inline values alone, a legacy group whose connection ID embeds
+	 *                            the stored credential's fingerprint would read as external
 	 */
 	async resolveDeclaredIdentities(): Promise<DeclaredIdentities> {
 		let previous = await this.readDeclaredPair();
