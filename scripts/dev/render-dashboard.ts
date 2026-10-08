@@ -173,6 +173,21 @@ async function ensureBundle(): Promise<{ bundlePath: string; stylesheetPath: str
 	return { bundlePath, stylesheetPath };
 }
 
+/** Resolve host tokens; check dark/light coverage because the real high-contrast sets intentionally omit tokens. */
+function hostThemeTokens(hostTheme: HostTheme, stylesheet: string): string {
+	const tokensCss = {
+		dark: themeCss,
+		light: lightCss,
+		"high-contrast": highContrastCss,
+		"high-contrast-light": highContrastLightCss,
+		"forced-colors": highContrastCss,
+	}[hostTheme]();
+	if (hostTheme === "dark" || hostTheme === "light") {
+		assertThemeCoversStylesheet(stylesheet, tokensCss, hostTheme);
+	}
+	return tokensCss;
+}
+
 async function main(): Promise<void> {
 	const { values } = parseArgs({
 		options: {
@@ -261,24 +276,13 @@ async function main(): Promise<void> {
 		throw new Error(`--app-theme must be one of ${UI_THEMES.join(", ")}; got ${values["app-theme"]}`);
 	}
 	const forcedTheme: AppTheme = values["app-theme"] ?? "auto";
-	const tokensCss =
-		values["no-theme"] === true
-			? ""
-			: {
-					dark: themeCss,
-					light: lightCss,
-					"high-contrast": highContrastCss,
-					"high-contrast-light": highContrastLightCss,
-					"forced-colors": highContrastCss,
-				}[hostTheme]();
-	if (hostTheme === "dark" || hostTheme === "light") {
-		assertThemeCoversStylesheet(await fs.readFile(stylesheetPath, "utf8"), tokensCss, hostTheme);
-	}
+	const stylesheet = await fs.readFile(stylesheetPath, "utf8");
+	const tokensCss = values["no-theme"] === true ? "" : hostThemeTokens(hostTheme, stylesheet);
 	// Any measurement run measures the pinned faces, --out beside it or not: a PNG rendered while measuring photographs
 	// the pinned stack on purpose, so a sweep failure can be reproduced with the same fonts it measured.
 	const pinFonts = measuring;
 	if (pinFonts) {
-		assertPinCoversStylesheet(await fs.readFile(stylesheetPath, "utf8"));
+		assertPinCoversStylesheet(stylesheet);
 	}
 	const html = buildPageHtml(
 		withAppearance(fixture.messages, forcedTheme, accent),
