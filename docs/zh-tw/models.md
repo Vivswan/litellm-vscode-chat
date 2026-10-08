@@ -430,7 +430,7 @@
 選單的檔位像任何能力欄位一樣按模型解析 ([優先順序](#能力優先順序)), 來源從高到低:
 
 1. 您的 [`models.capabilities` 記錄](#能力)中的 `reasoning_effort_levels` 清單 (項目優先於全域)。任何字串都可以 - 詞彙表是開放的, 選中的檔位按原樣送出。您自己寫下的空清單會把選單清空到只剩「提供者預設」。
-2. 伺服器的模型資訊, 當 LiteLLM 宣告了它時: 非空的 `reasoning_effort_levels` 清單 (空清單視為未回報), 否則是在 Low/Medium/High 基線上增減的 `supports_<level>_reasoning_effort` 旗標 (`true` 加入一個檔位, `false` 移除一個)。對[負載平衡池](#負載平衡池), 取每個部署都標記的檔位; 互不相交的旗標視為未回報。
+2. 伺服器的模型資訊, 當 LiteLLM 宣告了它時: 非空的 `reasoning_effort_levels` 清單 (空清單視為未回報), 否則是在 Low/Medium/High 基線上增減的 `supports_<level>_reasoning_effort` 旗標 (`true` 加入一個檔位, `false` 移除一個)。對[負載平衡池](#負載平衡池), 取任一部署回報的檔位。
 3. 您的記錄中帶 `_fallback` 標記的清單, 在伺服器未回報時填充。
 4. 內建清單: 關閉、最小、低、中、高、極高、最大。
 

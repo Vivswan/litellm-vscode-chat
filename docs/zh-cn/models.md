@@ -430,7 +430,7 @@
 菜单的档位像任何能力字段一样按模型解析 ([优先级](#能力优先级)), 来源从高到低:
 
 1. 你的 [`models.capabilities` 记录](#能力)中的 `reasoning_effort_levels` 列表 (条目优先于全局)。任何字符串都可以 - 词汇表是开放的, 选中的档位按原样发送。你自己写下的空列表会把菜单清空到只剩「提供方默认」。
-2. 服务器的模型信息, 当 LiteLLM 声明了它时: 非空的 `reasoning_effort_levels` 列表 (空列表视为未报告), 否则是在 Low/Medium/High 基线上增减的 `supports_<level>_reasoning_effort` 标志 (`true` 加入一个档位, `false` 移除一个)。对[负载均衡池](#负载均衡池), 取每个部署都标记的档位; 互不相交的标志视为未报告。
+2. 服务器的模型信息, 当 LiteLLM 声明了它时: 非空的 `reasoning_effort_levels` 列表 (空列表视为未报告), 否则是在 Low/Medium/High 基线上增减的 `supports_<level>_reasoning_effort` 标志 (`true` 加入一个档位, `false` 移除一个)。对[负载均衡池](#负载均衡池), 取任一部署报告的档位。
 3. 你的记录中带 `_fallback` 标记的列表, 在服务器未报告时填充。
 4. 内置列表: 关闭、最小、低、中、高、极高、最大。
 

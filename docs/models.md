@@ -430,7 +430,7 @@ What each choice sends:
 The menu's levels resolve per model like any capability field ([precedence](#capability-precedence)), highest source first:
 
 1. A `reasoning_effort_levels` list in your [`models.capabilities` records](#capabilities) (entry over global). Any strings work - the vocabulary is open, and a picked level is sent as-is. An empty list you write yourself empties the menu down to Provider default.
-2. The server's model info, where LiteLLM declares it: a non-empty `reasoning_effort_levels` list (an empty one is no report), else the `supports_<level>_reasoning_effort` flags adjusting the Low/Medium/High baseline (`true` adds a level, `false` removes one). For a [pooled model](#load-balanced-pools), the levels every deployment flags; disjoint flags read as no report.
+2. The server's model info, where LiteLLM declares it: a non-empty `reasoning_effort_levels` list (an empty one is no report), else the `supports_<level>_reasoning_effort` flags adjusting the Low/Medium/High baseline (`true` adds a level, `false` removes one). For a [pooled model](#load-balanced-pools), the levels any deployment reports.
 3. A `_fallback`-marked list from your records, filling where the server reports nothing.
 4. The built-in list: Off, Minimal, Low, Medium, High, Extra High, Max.
 
