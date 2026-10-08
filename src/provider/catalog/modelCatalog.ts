@@ -132,6 +132,11 @@ export interface DiscoveredBaselineInput {
 	/** Whether this entry advertises the reasoning-effort control (registration's answer for its shape). */
 	readonly reasoning: boolean;
 	/**
+	 * The proxy's own Thinking Effort menu for the group (LiteLLMModelItem.reasoningEfforts): when present it outranks
+	 * what the providers' flags resolved to, null reading as unreported.
+	 */
+	readonly reasoningEfforts?: readonly string[] | null | undefined;
+	/**
 	 * The per-token costs this entry's registration would have priced: present ONLY for the shapes whose route pins the
 	 * serving deployment's cost. The untooled base entry and the cheapest/fastest aggregates pass none - registration
 	 * deliberately never priced them, and the walk's server level must not offer what the picker refused to advertise.
@@ -154,7 +159,12 @@ export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): Se
 	const promptCachingReported = providers.some((p) => typeof p.supports_prompt_caching === "boolean");
 	const responseSchemaReported = providers.some((p) => typeof p.supports_response_schema === "boolean");
 	const supportedParams = intersectReportedParams(providers);
-	const reasoningLevels = reportedReasoningLevels(providers);
+	const reasoningLevels =
+		input.reasoningEfforts === undefined
+			? reportedReasoningLevels(providers)
+			: input.reasoningEfforts === null
+				? undefined
+				: [...input.reasoningEfforts];
 	const values: Partial<ServerCapabilityValues> = {
 		...(reported.context ? { context_length: limits.contextLength } : {}),
 		...(reported.any ? { max_input_tokens: limits.maxInputTokens } : {}),

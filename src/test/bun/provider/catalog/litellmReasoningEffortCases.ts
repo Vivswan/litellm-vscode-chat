@@ -7,8 +7,11 @@
  *
  * Left out: every case that reads LiteLLM's bundled cost map (the unprefixed-twin lookups, the azure gpt-5 gate sweep,
  * the Kimi K3 and gpt-6 entries, the monkeypatched declaration) and nearest_declared_reasoning_effort, which is the
- * request path, not the menu. Where LiteLLM asserts only that "none" is in the result, the vector here pins the whole
- * list the same rule yields.
+ * request path, not the menu. Those lookups are server-side only: the proxy's /v1/model/info hydrates each deployment
+ * from its matching cost-map entry without the resolver's unprefixed-twin merge (litellm/utils.py
+ * get_model_info_helper), so a prefixed entry whose flags live only on its twin reaches the wire flagless and resolves
+ * to unknown here where LiteLLM's resolver would have inherited them. Where LiteLLM asserts only that "none" is in the
+ * result, the vector here pins the whole list the same rule yields.
  */
 
 export interface ResolveCase {

@@ -67,8 +67,9 @@ export interface LiteLLMProvider extends PerTokenCosts {
 	supports_pdf_input?: boolean | null | undefined;
 	supported_openai_params?: string[] | null | undefined;
 	/**
-	 * Authored by discovery, never passed through raw: LiteLLM's own resolution from /model_group/info where the proxy
-	 * serves it, otherwise modelConfiguration's mirror of that resolver over this entry's flags; null is "unknown".
+	 * Authored by discovery, never passed through raw: modelConfiguration's mirror of LiteLLM's resolver over this
+	 * entry's own flags; null is "unknown". The proxy's own group resolution rides LiteLLMModelItem.reasoningEfforts
+	 * instead and outranks this.
 	 */
 	reasoning_effort_levels?: string[] | null | undefined;
 }
@@ -112,6 +113,13 @@ export interface LiteLLMModelItem {
 	id: string;
 	shape: ModelShape;
 	architecture?: LiteLLMArchitecture | undefined;
+	/**
+	 * LiteLLM's own resolution of the Thinking Effort menu for this model group (/model_group/info's
+	 * supported_reasoning_efforts), carried on the item so every shape, the bare one included, keeps it: a list is the
+	 * menu, null is the proxy saying unknown, absent is a proxy that never served the field (the per-provider
+	 * reasoning_effort_levels then decide).
+	 */
+	reasoningEfforts?: readonly string[] | null | undefined;
 }
 
 /**

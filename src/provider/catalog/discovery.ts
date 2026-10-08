@@ -379,6 +379,15 @@ function parseJsonBody(text: string, endpointUrl: string): unknown {
 }
 
 /**
+ * What a discovery GET answered with. An empty body (a 204, a bare 200) is kept apart from a body that parses to
+ * null, because "answered with a body" is the evidence that marks a LiteLLM proxy for the group probe.
+ */
+type DiscoveryBody = { readonly empty: true } | { readonly empty: false; readonly value: unknown };
+const EMPTY_BODY: DiscoveryBody = { empty: true };
+/** An empty body reads as an empty listing downstream, exactly like a body that parsed to null. */
+const bodyValue = (body: DiscoveryBody): unknown => (body.empty ? null : body.value);
+
+/**
  * One discovery GET: the SDK runs without retries because its backoff sleep ignores the signal, so retryIdempotent
  * owns the retries and `signal` bounds the whole call, sleeps included. The per-request timeout keeps the SDK's own
  * 600 s default from overriding ours.
@@ -393,7 +402,7 @@ async function getJson(
 		readonly maxRetries: number;
 		readonly headers: FetchModelsRequest["headers"];
 	}
-): Promise<unknown> {
+): Promise<DiscoveryBody> {
 	return retryIdempotent(
 		async () => {
 			const response = await client
@@ -410,7 +419,7 @@ async function getJson(
 				throw new APIConnectionError({ cause: readError instanceof Error ? readError : undefined });
 			}
 			// An empty body, a 204 or a bare 200, is an empty listing, not a parse failure.
-			return text === "" ? null : parseJsonBody(text, endpointUrl);
+			return text === "" ? EMPTY_BODY : { empty: false, value: parseJsonBody(text, endpointUrl) };
 		},
 		{ maxRetries: options.maxRetries, signal: options.signal }
 	);
@@ -454,6 +463,8 @@ function evidenceKind(evidence: EndpointFailureEvidence): {
 interface ModelInfoProbeOutcome {
 	/** The probe got an HTTP response it could read (even one that fell back for lacking usable models). */
 	answered: boolean;
+	/** The response carried a JSON body (an empty 200 or 204 answers without one), which is what marks a LiteLLM proxy. */
+	body: boolean;
 	evidence: EndpointFailureEvidence | undefined;
 }
 
@@ -692,12 +703,12 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 
 	// What the model-info probe did, for the same-pass verdicts: the /models success return and the /models failure
 	// refinement both read it.
-	const modelInfo: ModelInfoProbeOutcome = { answered: false, evidence: undefined };
+	const modelInfo: ModelInfoProbeOutcome = { answered: false, body: false, evidence: undefined };
 	// The group endpoint is LiteLLM-only and lives at the server root, so it is probed only once /model/info has
 	// answered with a body: an OpenAI-compatible server (Ollama hangs on unknown routes until the timeout) never pays
 	// for it, and its 404 costs that server nothing.
 	const withGroupMenus = async (result: FetchModelsResult): Promise<FetchModelsResult> => {
-		if (!modelInfo.answered) {
+		if (!modelInfo.body) {
 			return result;
 		}
 		const efforts = await fetchModelGroupReasoningEfforts(request, log);
@@ -708,7 +719,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	const infoSignal = AbortSignal.timeout(discoveryTimeout);
 	try {
 		// Retries stay off for an endpoint whose failure the entry declares expected.
-		const parsedInfo: unknown = await getJson(client, MODEL_INFO_PATH, modelInfoUrl(baseUrl, apiVersion), {
+		const infoBody = await getJson(client, MODEL_INFO_PATH, modelInfoUrl(baseUrl, apiVersion), {
 			signal: infoSignal,
 			timeoutMs: discoveryTimeout,
 			maxRetries: expected?.modelInfo === true ? 0 : DISCOVERY_MAX_RETRIES,
@@ -716,7 +727,8 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		});
 		// An unparseable body throws above and proves nothing about endpoint support.
 		modelInfo.answered = true;
-		const infoEnvelope = parseWire(dataEnvelopeSchema, parsedInfo);
+		modelInfo.body = !infoBody.empty;
+		const infoEnvelope = parseWire(dataEnvelopeSchema, bodyValue(infoBody));
 		if (infoEnvelope.success) {
 			const data: unknown[] = infoEnvelope.data.data;
 			log("Parsed model/info response", { modelCount: data.length });
@@ -764,9 +776,9 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		apiVersion,
 		timeoutMs: discoveryTimeout,
 	};
-	let parsed: unknown;
+	let listingBody: DiscoveryBody;
 	try {
-		parsed = await getJson(client, MODELS_PATH, modelsUrl(baseUrl, apiVersion), {
+		listingBody = await getJson(client, MODELS_PATH, modelsUrl(baseUrl, apiVersion), {
 			signal: timeoutSignal,
 			timeoutMs: discoveryTimeout,
 			maxRetries: expected?.modelListing === true ? 0 : DISCOVERY_MAX_RETRIES,
@@ -781,7 +793,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		}
 		throw refineModelsListingFailure(mapSdkError(error, errorContext, request.isCancellation), failureContext);
 	}
-	const listingEnvelope = parseWire(dataEnvelopeSchema, parsed);
+	const listingEnvelope = parseWire(dataEnvelopeSchema, bodyValue(listingBody));
 	const data = listingEnvelope.success ? listingEnvelope.data.data : [];
 	log("Parsed models listing", { modelCount: data.length });
 
@@ -822,9 +834,9 @@ async function fetchModelGroupReasoningEfforts(
 	const signal = AbortSignal.timeout(discoveryTimeout);
 	// The absolute URL, since the client's base is the API root (.../v1) and this endpoint sits at the server root.
 	const url = modelGroupInfoUrl(baseUrl, apiVersion);
-	let parsed: unknown;
+	let groupBody: DiscoveryBody;
 	try {
-		parsed = await getJson(client, url, url, {
+		groupBody = await getJson(client, url, url, {
 			signal,
 			timeoutMs: discoveryTimeout,
 			maxRetries: DISCOVERY_MAX_RETRIES,
@@ -839,7 +851,7 @@ async function fetchModelGroupReasoningEfforts(
 		log("model_group/info failed; menus follow the deployment flags", failureKindOf(mapped));
 		return undefined;
 	}
-	const envelope = parseWire(dataEnvelopeSchema, parsed);
+	const envelope = parseWire(dataEnvelopeSchema, bodyValue(groupBody));
 	if (!envelope.success) {
 		log("model_group/info response has no data array; menus follow the deployment flags", {
 			rejection: envelope.rejection,
@@ -861,33 +873,11 @@ async function fetchModelGroupReasoningEfforts(
 	return efforts;
 }
 
-/** The proxy's own resolution replaces what the deployment flags said; a bare entry has no provider to carry it. */
+/** The proxy's own resolution rides the item, so the bare shape (no provider to carry it) keeps it too. */
 function withServerReasoningEfforts(model: LiteLLMModelItem, efforts: ModelGroupReasoningEfforts): LiteLLMModelItem {
 	const levels = efforts.get(model.id);
 	if (levels === undefined) {
 		return model;
 	}
-	const authored = levels === null ? null : orderedReasoningLevels(levels);
-	switch (model.shape.kind) {
-		case "deployment":
-			return {
-				...model,
-				shape: { ...model.shape, provider: { ...model.shape.provider, reasoning_effort_levels: authored } },
-			};
-		case "group": {
-			const [first, ...rest] = model.shape.providers;
-			return {
-				...model,
-				shape: {
-					kind: "group",
-					providers: [
-						{ ...first, reasoning_effort_levels: authored },
-						...rest.map((provider) => ({ ...provider, reasoning_effort_levels: authored })),
-					],
-				},
-			};
-		}
-		case "bare":
-			return model;
-	}
+	return { ...model, reasoningEfforts: levels === null ? null : orderedReasoningLevels(levels) };
 }

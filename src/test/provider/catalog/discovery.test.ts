@@ -173,11 +173,14 @@ suite("provider/catalog/discovery", () => {
 			);
 			assert.deepStrictEqual(narrowed.provider.reasoning_effort_levels, ["none", "minimal", "medium", "high"]);
 
-			// No flag and no list is unknown, never an empty list: the wire cannot say whether the catalog mapped it.
-			const unflagged = mapModelInfoEntry(
-				expectDefined(parseModelInfoItem({ model_name: "plain", model_info: { supports_reasoning: true } }))
-			);
-			assert.strictEqual(unflagged.provider.reasoning_effort_levels, null);
+			// No flag and no list is unknown, never an empty list: the wire cannot say whether the catalog mapped it, so
+			// LiteLLM's "mapped non-reasoning model" answer ([]) is unreachable here by design.
+			for (const modelInfo of [{}, { supports_reasoning: null }, { supports_reasoning: true }]) {
+				const unflagged = mapModelInfoEntry(
+					expectDefined(parseModelInfoItem({ model_name: "plain", model_info: modelInfo }))
+				);
+				assert.strictEqual(unflagged.provider.reasoning_effort_levels, null, JSON.stringify(modelInfo));
+			}
 		});
 	});
 
@@ -1450,11 +1453,11 @@ suite("provider/catalog/discovery", () => {
 			],
 		};
 		const FLAG_MENU = ["none", "minimal", "low", "medium", "high", "max"];
-		const levelsOf = (models: LiteLLMModelItem[], id: string) =>
-			expectShape(expectDefined(models.find((model) => model.id === id)), "deployment").provider
-				.reasoning_effort_levels;
+		const modelOf = (models: LiteLLMModelItem[], id: string) => expectDefined(models.find((model) => model.id === id));
+		const flagLevelsOf = (models: LiteLLMModelItem[], id: string) =>
+			expectShape(modelOf(models, id), "deployment").provider.reasoning_effort_levels;
 
-		test("the proxy's resolution replaces the flag menu where the field is present, a list or null; an absent field leaves the flags", async () => {
+		test("the proxy's resolution rides the item where the field is present, a list or null; an absent field leaves the flags", async () => {
 			mswServer.use(
 				...discoveryHandlers(infoPayload, {
 					data: [
@@ -1467,16 +1470,24 @@ suite("provider/catalog/discovery", () => {
 			);
 			const { models } = await fetchModels(request());
 			assert.deepStrictEqual(
-				levelsOf(models, "resolved"),
+				modelOf(models, "resolved").reasoningEfforts,
 				["low", "max", "turbo"],
 				"served as is: ordered, strings only"
 			);
-			assert.strictEqual(levelsOf(models, "unknown"), null, "null is the proxy saying unknown");
-			assert.deepStrictEqual(levelsOf(models, "older"), FLAG_MENU, "a group without the field keeps the flag rule");
-			assert.deepStrictEqual(levelsOf(models, "unlisted"), FLAG_MENU, "a model the endpoint never named too");
+			assert.strictEqual(modelOf(models, "unknown").reasoningEfforts, null, "null is the proxy saying unknown");
+			for (const id of ["older", "unlisted"]) {
+				assert.strictEqual(modelOf(models, id).reasoningEfforts, undefined, `${id}: no field, nothing carried`);
+				assert.deepStrictEqual(flagLevelsOf(models, id), FLAG_MENU, `${id}: the flag rule stands`);
+			}
+			assert.deepStrictEqual(
+				flagLevelsOf(models, "resolved"),
+				FLAG_MENU,
+				"the deployment's own flags stay beside the proxy's answer, never rewritten"
+			);
 		});
 
-		test("a providers-array model gets the resolution on every provider route", async () => {
+		test("a providers-array model and a bare listing carry the resolution too", async () => {
+			// The bare shape has no provider to hang a menu on, so the item is the one carrier every shape shares.
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () =>
 					HttpResponse.json({
@@ -1488,19 +1499,63 @@ suite("provider/catalog/discovery", () => {
 									{ provider: "b", status: "ok", supports_reasoning: true },
 								],
 							},
+							{ id: "reasoner" },
 						],
 					})
 				),
 				http.get(MODEL_GROUP_INFO_URL, () =>
-					HttpResponse.json({ data: [{ model_group: "routed", supported_reasoning_efforts: ["high"] }] })
+					HttpResponse.json({
+						data: [
+							{ model_group: "routed", supported_reasoning_efforts: ["high"] },
+							{ model_group: "reasoner", supported_reasoning_efforts: ["low", "high"] },
+						],
+					})
 				)
 			);
 			const { models } = await fetchModels(request());
-			const { providers } = expectShape(expectDefined(models[0]), "group");
+			const routed = modelOf(models, "routed");
+			assert.deepStrictEqual(routed.reasoningEfforts, ["high"]);
 			assert.deepStrictEqual(
-				providers.map((provider) => provider.reasoning_effort_levels),
-				[["high"], ["high"]]
+				expectShape(routed, "group").providers.map((provider) => provider.reasoning_effort_levels),
+				[null, null],
+				"the routes' own flag resolution (unknown) is untouched"
 			);
+			const bare = modelOf(models, "reasoner");
+			assert.strictEqual(bare.shape.kind, "bare");
+			assert.deepStrictEqual(bare.reasoningEfforts, ["low", "high"]);
+		});
+
+		test("an empty model/info body is an answer without a body, so the group endpoint is not probed", async () => {
+			const listing = {
+				object: "list",
+				data: [{ id: "routed", providers: [{ provider: "a", status: "ok", supports_reasoning: true }] }],
+			};
+			const groupInfo = { data: [{ model_group: "routed", supported_reasoning_efforts: ["high"] }] };
+			let groupProbes = 0;
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => new HttpResponse(null, { status: 200 })),
+				http.get(MODELS_URL, () => HttpResponse.json(listing)),
+				http.get(MODEL_GROUP_INFO_URL, () => {
+					groupProbes += 1;
+					return HttpResponse.json(groupInfo);
+				})
+			);
+			const { models } = await fetchModels(request());
+			assert.strictEqual(groupProbes, 0, "a bodiless 200 is not a LiteLLM proxy's model/info");
+			assert.strictEqual(modelOf(models, "routed").reasoningEfforts, undefined);
+
+			// The body "null" IS a body: it parses to no data array and falls back, but the probe runs.
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => new HttpResponse("null", { status: 200 })),
+				http.get(MODELS_URL, () => HttpResponse.json(listing)),
+				http.get(MODEL_GROUP_INFO_URL, () => {
+					groupProbes += 1;
+					return HttpResponse.json(groupInfo);
+				})
+			);
+			const withNullBody = await fetchModels(request());
+			assert.strictEqual(groupProbes, 1);
+			assert.deepStrictEqual(modelOf(withNullBody.models, "routed").reasoningEfforts, ["high"]);
 		});
 
 		test("the endpoint is probed only after model/info answered, and never changes the outcome when it fails", async () => {
@@ -1535,7 +1590,8 @@ suite("provider/catalog/discovery", () => {
 				// Registered first: msw takes the first matching handler, and discoveryHandlers carries a 404 for this URL.
 				mswServer.use(http.get(MODEL_GROUP_INFO_URL, answer), ...discoveryHandlers(infoPayload));
 				const { models } = await fetchModels(request(log));
-				assert.deepStrictEqual(levelsOf(models, "resolved"), FLAG_MENU);
+				assert.deepStrictEqual(flagLevelsOf(models, "resolved"), FLAG_MENU);
+				assert.strictEqual(modelOf(models, "resolved").reasoningEfforts, undefined);
 				const failure = entries.find(
 					(entry) => entry.message === "model_group/info failed; menus follow the deployment flags"
 				);

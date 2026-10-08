@@ -223,15 +223,12 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("the user's level list wins whole over the proxy's own resolution, and an empty one empties the menu", () => {
-			// reasoning_effort_levels on the provider is what discovery authors from /model_group/info (#514): the server's
-			// word, which the user's record still outranks without union or intersection.
+			// reasoningEfforts is what discovery carries from /model_group/info (#514): the server's word, which the user's
+			// record still outranks without union or intersection.
 			const resolvedByProxy: LiteLLMModelItem = {
 				...DEPLOYMENT,
-				shape: deploymentShape({
-					...DEPLOYMENT_PROVIDER,
-					supports_reasoning: true,
-					reasoning_effort_levels: ["low", "medium", "high"],
-				}),
+				shape: deploymentShape({ ...DEPLOYMENT_PROVIDER, supports_reasoning: true }),
+				reasoningEfforts: ["low", "medium", "high"],
 			};
 			assert.deepStrictEqual(
 				registered(resolvedByProxy).configurationSchema,
@@ -254,6 +251,18 @@ suite("provider/catalog/capabilityOverrides", () => {
 				reasoningEffortSchema([]),
 				"Provider default alone, even though the server reports levels"
 			);
+		});
+
+		test("a bare listing keeps the proxy's resolution for the control a record promotes", () => {
+			// A /v1/models entry with no provider data cannot advertise the control itself; once a record's
+			// supports_reasoning promotes it, the menu is still the server's resolved set, not the built-in list.
+			const bare: LiteLLMModelItem = { id: "gpt-test", shape: { kind: "bare" }, reasoningEfforts: ["low", "high"] };
+			const promoted = applyCapabilityOverrides(
+				[registered(bare)],
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { supports_reasoning: true } } })
+			);
+			assert.deepStrictEqual(promoted[0]?.configurationSchema, reasoningEffortSchema(["low", "high"]));
 		});
 
 		test("the entry's level list beats the global one, and a levels-only record on a gated-off model is inert", () => {

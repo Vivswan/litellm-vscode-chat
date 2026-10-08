@@ -155,13 +155,14 @@ function isUnset(value: unknown): boolean {
 }
 
 /**
- * LiteLLM's own resolver, mirrored for a proxy that predates /model_group/info's supported_reasoning_efforts
+ * LiteLLM's resolver, mirrored for a proxy that predates /model_group/info's supported_reasoning_efforts
  * (litellm/router_utils/reasoning_effort_capability.py; the vectors in
  * src/test/bun/provider/catalog/litellmReasoningEffortCases.ts are LiteLLM's). undefined is "unknown", which must never
- * narrow a group; [] is a model that takes no level. Two inputs LiteLLM has and the wire does not: the cost map's
- * unprefixed twin of a provider-prefixed entry (flags are read here as the entry carries them) and whether the catalog
- * mapped the deployment, which discovery passes as false so a flagless entry resolves to unknown, never to an empty
- * menu.
+ * narrow a group; [] is a model that takes no level. Two inputs LiteLLM has and the wire does not, so this reads the
+ * flags as the entry carries them: the cost map (LiteLLM's resolver inherits a prefixed entry's missing flags and
+ * declared list from its unprefixed twin, a merge /v1/model/info's hydration never makes, so those stay server-side)
+ * and whether the catalog mapped the deployment, which discovery passes as false so a flagless entry resolves to
+ * unknown, never to an empty menu.
  *   supports_reasoning: false                     -> [], whatever else the entry says
  *   neither supports_reasoning: true nor a flag   -> [] when the catalog mapped the deployment, else undefined
  *   reasoning_effort_levels: [...]                -> that list, known levels only, in menu order
