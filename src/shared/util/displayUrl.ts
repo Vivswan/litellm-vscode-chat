@@ -289,12 +289,9 @@ function scanCuts(text: string, floor: number, cuts: Cut[]): void {
 }
 
 /**
- * Every userinfo cut in a text, ascending and disjoint. A single-line text is tried whole first, as the parser reads
- * a value (a tab counts for nothing, a scheme word inside the password opens no second URL); then every "@" is a
- * candidate and the parser decides how far the URL around it reaches, never across a line break (two lines are two
- * URLs; a password split by one is left to its as-written known value). Prose the parser also reads as a URL is cut
- * too: "Visit https://x.test and email u@x.test" is a spelling the transport would request, with the words as the
- * username.
+ * Ascending and disjoint, as redactUrlCredentials applies them. A single-line text is tried whole before any "@" is
+ * scanned, since to the parser a scheme word inside the password opens no second URL. Prose the parser reads as a
+ * URL is a spelling the transport would request, so it is cut like one.
  *   "Failed at http:user:pass@host:4000: failed"      -> "Failed at http://host:4000: failed"
  *   "at http://user:pass a b c d e@host now"          -> "at http://host now"
  *   "https://u:p@one.test/a https://x:s@two.test/b"   -> "https://one.test/a https://two.test/b"
