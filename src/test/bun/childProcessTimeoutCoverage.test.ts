@@ -4,29 +4,21 @@
  * positive is loud and names its site, while a spawn deliberately hidden from it is out of scope.
  */
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { BUN_TEST_FILE } from "../runtimeImportGraph";
 import { REPO_ROOT } from "../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
-
-const parsed = new Map<string, ts.SourceFile>();
-
-/** One parse per module for the whole audit; JSDoc and parent pointers are skipped since nothing here reads them. */
-function parsedSource(file: string): ts.SourceFile {
-	let sourceFile = parsed.get(file);
-	if (sourceFile === undefined) {
-		sourceFile = ts.createSourceFile(
-			file,
-			readFileSync(file, "utf8"),
-			{ languageVersion: ts.ScriptTarget.Latest, jsDocParsingMode: ts.JSDocParsingMode.ParseNone },
-			false
-		);
-		parsed.set(file, sourceFile);
-	}
-	return sourceFile;
-}
+import {
+	baseName,
+	calleeRoot,
+	importStatements,
+	isFile,
+	isTypeOnlyImport,
+	parsedSource,
+	unwrapped,
+} from "./syntaxWalk";
 
 const BUN_TREE = path.join(REPO_ROOT, "src", "test", "bun");
 const DEADLINE_MODULE = path.join(BUN_TREE, "childProcessTimeout.ts");
@@ -134,18 +126,6 @@ function classifyExternal(specifier: string, name: string): ExternalKind {
 	return "unclassified";
 }
 
-/**
- * An import or export whose every binding is a type loads nothing at runtime: the transpiler erases it whole, so it is
- * not an edge, and an unlisted package behind one is not a load to classify. `import defer` still loads.
- */
-const isTypeOnlyImport = (clause: ts.ImportClause | undefined): boolean =>
-	clause !== undefined &&
-	(clause.phaseModifier === ts.SyntaxKind.TypeKeyword ||
-		(clause.name === undefined &&
-			clause.namedBindings !== undefined &&
-			ts.isNamedImports(clause.namedBindings) &&
-			clause.namedBindings.elements.length > 0 &&
-			clause.namedBindings.elements.every((element) => element.isTypeOnly)));
 const isTypeOnlyExport = (node: ts.ExportDeclaration): boolean =>
 	node.isTypeOnly ||
 	(node.exportClause !== undefined &&
@@ -195,26 +175,6 @@ interface Context {
 
 const rel = (file: string): string => path.relative(BUN_TREE, file).split(path.sep).join("/");
 
-/** An expression with its casts and parentheses removed, so `(Bun as typeof Bun).spawn` reads as written. */
-function unwrapped(expression: ts.Expression): ts.Expression {
-	let current = expression;
-	while (
-		ts.isAsExpression(current) ||
-		ts.isSatisfiesExpression(current) ||
-		ts.isParenthesizedExpression(current) ||
-		ts.isNonNullExpression(current) ||
-		ts.isTypeAssertionExpression(current)
-	) {
-		current = current.expression;
-	}
-	return current;
-}
-
-const baseName = (expression: ts.Expression): string | undefined => {
-	const inner = unwrapped(expression);
-	return ts.isIdentifier(inner) ? inner.text : undefined;
-};
-
 /** `expression` is `process`, or a member chain ending in `.process` (globalThis.process), casts aside. */
 const namesProcess = (expression: ts.Expression): boolean => {
 	const inner = unwrapped(expression);
@@ -252,18 +212,6 @@ function listRoots(problems: string[]): string[] {
 		}
 	}
 	return [...new Set(roots)].sort();
-}
-
-const fileKinds = new Map<string, boolean>();
-
-/** One stat per candidate path: discovery, the import table, and every dynamic load resolve the same specifiers. */
-function isFile(candidate: string): boolean {
-	let known = fileKinds.get(candidate);
-	if (known === undefined) {
-		known = statSync(candidate, { throwIfNoEntry: false })?.isFile() ?? false;
-		fileKinds.set(candidate, known);
-	}
-	return known;
 }
 
 function resolveRelative(from: string, specifier: string, problems: string[]): string | undefined {
@@ -393,31 +341,6 @@ function plainKeys(literal: ts.ObjectLiteralExpression): Set<string> | undefined
 	return keys;
 }
 
-/**
- * The identifier a callee chain hangs off and the member read directly off it: `test.each(rows)` and `it.skipIf(flag)`
- * both root at their first name, and `bt.test(...)` off a namespace import roots at `bt` with member `test`.
- */
-function calleeRoot(
-	node: ts.Expression
-): { readonly root: ts.Identifier; readonly member: string | undefined } | undefined {
-	let current: ts.Expression = unwrapped(node);
-	let member: string | undefined;
-	for (;;) {
-		if (ts.isIdentifier(current)) {
-			return { root: current, member };
-		}
-		if (ts.isPropertyAccessExpression(current)) {
-			member = current.name.text;
-			current = unwrapped(current.expression);
-		} else if (ts.isCallExpression(current)) {
-			member = undefined;
-			current = unwrapped(current.expression);
-		} else {
-			return undefined;
-		}
-	}
-}
-
 function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 	const { problems, usedSafe, jsxRuntimes } = context;
 	const file = path.resolve(sf.fileName);
@@ -475,17 +398,12 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 	const testNamespaces = new Set<string>();
 	const spawnImports: { readonly local: string; readonly description: string }[] = [];
 	let namesChildProcess = false;
-	for (const statement of sf.statements) {
-		if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) {
-			continue;
-		}
-		const specifier = statement.moduleSpecifier.text;
-		const clause = statement.importClause;
-		if (isTypeOnlyImport(clause) || !admit(statement, specifier) || clause === undefined) {
+	for (const { statement, specifier, bindings } of importStatements(sf)) {
+		if (!admit(statement, specifier)) {
 			continue;
 		}
 		const fromBunTest = specifier === "bun:test";
-		const register = (local: ts.Identifier, imported: string): void => {
+		for (const { local, imported } of bindings) {
 			const binding = bindingFor(specifier, imported);
 			if (binding !== undefined) {
 				module.imports.set(local.text, binding);
@@ -505,19 +423,6 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 			}
 			if (fromBunTest && imported === "*") {
 				testNamespaces.add(local.text);
-			}
-		};
-		if (clause.name !== undefined) {
-			register(clause.name, "default");
-		}
-		const bindings = clause.namedBindings;
-		if (bindings !== undefined && ts.isNamespaceImport(bindings)) {
-			register(bindings.name, "*");
-		} else if (bindings !== undefined) {
-			for (const element of bindings.elements) {
-				if (!element.isTypeOnly) {
-					register(element.name, (element.propertyName ?? element.name).text);
-				}
 			}
 		}
 	}
