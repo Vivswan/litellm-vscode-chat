@@ -27,8 +27,16 @@ const TOKEN_URL = "http://idp.test/oauth2/token";
 
 const WINDOW = { startDate: "2026-07-01", endDate: "2026-07-30" };
 
+/** The retry backoff is setup here, not what any pin reads: no test below asserts on time. */
+const noBackoff = () => Promise.resolve();
+
 function client(overrides: Partial<UsageClientOptions> = {}): UsageClient {
-	return new UsageClient({ userAgent: fixedHeaderValue("test-agent"), getTimeoutMs: () => 5000, ...overrides });
+	return new UsageClient({
+		userAgent: fixedHeaderValue("test-agent"),
+		getTimeoutMs: () => 5000,
+		sleep: noBackoff,
+		...overrides,
+	});
 }
 
 function connection(overrides: Partial<UsageConnection> = {}): UsageConnection {

@@ -24,6 +24,9 @@ const WINDOW = { startDate: "2026-07-01", endDate: "2026-07-30" };
  */
 const MARKER = "sk-hashed-key-material-FUZZ";
 
+/** The retry backoff is setup here, not what any pin reads: the retried cases pin the classification, not the time. */
+const noBackoff = () => Promise.resolve();
+
 const connection = {
 	label: "alpha",
 	baseUrl: TEST_BASE_URL,
@@ -40,6 +43,7 @@ function recordingClient(): { client: UsageClient; logs: string[] } {
 	const client = new UsageClient({
 		userAgent: fixedHeaderValue("test-agent"),
 		getTimeoutMs: () => 5000,
+		sleep: noBackoff,
 		log: (message, data) => {
 			logs.push(`${message} ${JSON.stringify(data) ?? ""}`);
 		},
@@ -328,9 +332,8 @@ suite("extension/servers/usage spendClient payload properties", () => {
 
 	test("non-OK statuses classify deterministically from the status alone; bodies never leak", async function () {
 		this.timeout(240000);
-		// 4xx fails on the first attempt, so the property stays cheap; 501 and 5xx ride the retry budget first, so the
-		// retried path gets one pinned example below. The status-to-verdict mapping is pure and covered by its own
-		// property.
+		// 4xx fails on the first attempt; 501 and 5xx exhaust the retry budget first, so the retried path gets one
+		// pinned example below. The status-to-verdict mapping is pure and covered by its own property.
 		let servedStatus = 400;
 		mswServer.use(
 			http.get(KEY_INFO_URL, () =>
@@ -376,16 +379,15 @@ suite("extension/servers/usage spendClient payload properties", () => {
 		// body unread throughout.
 		const routeMissing = await expectFailure(501);
 		assert.strictEqual(usageUnavailabilityOf(routeMissing), "unsupported");
-		// A 500 exhausts the same budget and stays transient, marker-free on every surface (the property above skips
-		// 5xx to dodge the backoff).
+		// A 500 exhausts the same budget and stays transient, marker-free on every surface (the property above covers
+		// the single-attempt statuses).
 		const exhausted = await expectFailure(500);
 		assert.strictEqual(exhausted.kind, "http");
 		assert.strictEqual(usageUnavailabilityOf(exhausted), undefined, "5xx must not read as permanently unavailable");
 		assert.strictEqual(logs.length, 0, "the spend client constructs errors and throws WITHOUT logging");
 	});
 
-	test("a network failure exhausts the retries into a typed error whose cause chain carries no response text", async function () {
-		this.timeout(30000);
+	test("a network failure exhausts the retries into a typed error whose cause chain carries no response text", async () => {
 		// HttpResponse.error() makes fetch itself throw, driving the one path that attaches a cause to the thrown
 		// RequestError - so the cause-chain walk in errorTextSurfaces is exercised for real, not vacuously.
 		mswServer.use(http.get(KEY_INFO_URL, () => HttpResponse.error()));

@@ -7,6 +7,7 @@ import { type HeaderValue, headerValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
+import type { BackoffSleep } from "./retry";
 import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartTexts } from "./transportErrors";
 
 /** Error ownership follows the transport-module convention: construct and throw without logging. */
@@ -68,9 +69,6 @@ const REFRESH_SKEW_MS = 60_000;
 const DEFAULT_EXPIRES_IN_SECONDS = 300;
 
 const RETRY_DELAY_MS = 200;
-
-/** Resolves after `ms` or as soon as `signal` aborts, whichever is first; the exchange loop reads the signal after it. */
-type BackoffSleep = (ms: number, signal: AbortSignal) => Promise<void>;
 
 interface CachedToken {
 	accessToken: HeaderValue;
