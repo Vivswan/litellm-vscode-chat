@@ -138,30 +138,24 @@ function printsQuotedInherit(printed: string): boolean {
 }
 
 /**
- * Pinning the four font tokens pins the page only if every font-family resolves through them (or inherit), so this
- * fails closed otherwise. A declaration is reported under the rule entered last: the visitor enters a rule, then its
- * own declarations, then its nested rules, and declarations after a nested rule are a rule of their own. The sheet is
- * printed with every declaration but the `inherit` families removed, for printsQuotedInherit.
- *
- *   a literal font stack or new utility class  -> silent platform divergence would return
- *   the font SHORTHAND, any value but inherit  -> it also sets the family
- *   .font-sans or .font-mono rule missing      -> the engagement check's utility legs would measure inherited font and
- *                                                 prove nothing
+ * render-dashboard.ts's engagement legs measure the .font-sans and .font-mono rules, so a stylesheet without one has a
+ * leg measure inherited font and prove nothing. Lightning CSS hands declarations after a nested rule to the visitor as
+ * a nested-declarations rule of their own, so the rule entered last is always the one a declaration sits in.
  */
 export function assertPinCoversStylesheet(stylesheet: string): void {
 	const lines = stylesheet.split("\n");
 	const utilities = new Set<string>();
 	const unpinned: string[] = [];
 	const inheritFamilies: string[] = [];
-	let entered = "";
-	const { code } = transform({
+	let enteredRule = "";
+	const { code: inheritFamiliesOnly } = transform({
 		filename: "dashboard.css",
 		code: Buffer.from(stylesheet),
 		minify: true,
 		visitor: {
 			Rule: (rule) => {
 				const line = (rule as { value?: { loc?: { line: number } } }).value?.loc?.line;
-				entered = line === undefined ? rule.type : `${lines[line]?.trim()} (compiled line ${line + 1})`;
+				enteredRule = line === undefined ? rule.type : `${lines[line]?.trim()} (compiled line ${line + 1})`;
 				if (rule.type === "style") {
 					for (const [only, ...rest] of rule.value.selectors) {
 						if (rest.length === 0 && only?.type === "class") {
@@ -174,17 +168,17 @@ export function assertPinCoversStylesheet(stylesheet: string): void {
 				if (leavesFontToPlatform(declaration)) {
 					const property =
 						declaration.property === "unparsed" ? declaration.value.propertyId.property : declaration.property;
-					unpinned.push(`${property} under ${entered}`);
+					unpinned.push(`${property} under ${enteredRule}`);
 				}
 				if (!isInheritFamily(declaration)) {
 					return [];
 				}
-				inheritFamilies.push(entered);
+				inheritFamilies.push(enteredRule);
 				return undefined;
 			},
 		},
 	});
-	if (printsQuotedInherit(code.toString())) {
+	if (printsQuotedInherit(inheritFamiliesOnly.toString())) {
 		unpinned.push(`a quoted family named "inherit" under one of: ${inheritFamilies.join(", ")}`);
 	}
 	if (unpinned.length > 0) {
@@ -204,15 +198,9 @@ export function assertPinCoversStylesheet(stylesheet: string): void {
 }
 
 /**
- * The host's token delivery, reproduced exactly: VS Code writes --vscode-* one by one onto the document element's
- * inline style (webview/browser/pre/index.html, applyStyles), not into a stylesheet. An inline declaration outranks
- * every author rule on the same element, so a stylesheet rule that redefines a host token loses in the editor and would
- * win here.
- *
- *   inline is the one place the stylesheet's theme layer cannot re-define them (the theme token sets themselves carry
- *   no --font-*) -> The measurement font pin's --font-* declarations ride the same delivery
- *
- * Stylesheet printing emits a rule, so the validated single rule is unwrapped.
+ * VS Code writes --vscode-* onto the document element's inline style (webview/browser/pre/index.html, applyStyles),
+ * not into a stylesheet. Normal stylesheet declarations on the document element cannot override these inline tokens;
+ * the --font-* pins use the same delivery (pinFontTokens).
  */
 export function inlineTokenStyle(tokensCss: string): string {
 	const rules: string[] = [];
@@ -240,8 +228,8 @@ export function inlineTokenStyle(tokensCss: string): string {
 	if (tokens === 0) {
 		throw new Error("The token set produced no token declarations; the render would show no theme at all");
 	}
-	const printed = code.toString();
-	return printed.slice(printed.indexOf("{") + 1, printed.lastIndexOf("}"));
+	const rule = code.toString();
+	return rule.slice(rule.indexOf("{") + 1, rule.lastIndexOf("}"));
 }
 
 /**
