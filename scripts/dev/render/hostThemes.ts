@@ -87,11 +87,14 @@ const isInheritToken = (declaration: Unparsed): boolean => {
 	return rest.length === 0 && only?.type === "token" && only.value.type === "ident" && only.value.value === "inherit";
 };
 
+const isInheritFamily = (declaration: Declaration): boolean =>
+	declaration.property === "font-family" && declaration.value.length === 1 && declaration.value[0] === "inherit";
+
 /** A `font-family` or `font` declaration whose value a pinned token does not decide; `inherit` leaves the pin in charge. */
 function leavesFontToPlatform(declaration: Declaration): boolean {
 	switch (declaration.property) {
 		case "font-family":
-			return declaration.value.length !== 1 || declaration.value[0] !== "inherit";
+			return !isInheritFamily(declaration);
 		case "font":
 			return true;
 		case "unparsed": {
@@ -113,9 +116,33 @@ function leavesFontToPlatform(declaration: Declaration): boolean {
 }
 
 /**
+ * The JS AST gives the keyword `inherit` and a family NAMED "inherit" (Tailwind's `font-['inherit']`) one shape, and
+ * only the printer keeps the quotes: the print is read back with the property renamed to a custom one, whose token
+ * list tells a string from an ident. A comment or an at-rule prelude in the print is no declaration to that read.
+ */
+function printsQuotedInherit(printed: string): boolean {
+	let quoted = false;
+	transform({
+		filename: "inherit.css",
+		code: Buffer.from(printed.replaceAll("font-family:", "--font-family:")),
+		visitor: {
+			Declaration: {
+				custom: {
+					"--font-family": (declaration) => {
+						quoted ||= declaration.value.some((token) => token.type === "token" && token.value.type === "string");
+					},
+				},
+			},
+		},
+	});
+	return quoted;
+}
+
+/**
  * Pinning the four font tokens pins the page only if every font-family resolves through them (or inherit), so this
  * fails closed otherwise. A declaration is reported under the rule entered last: the visitor enters a rule, then its
- * own declarations, then its nested rules, and declarations after a nested rule are a rule of their own.
+ * own declarations, then its nested rules, and declarations after a nested rule are a rule of their own. The sheet is
+ * printed with every declaration but the `inherit` families removed, for printsQuotedInherit.
  *
  *   a literal font stack or new utility class  -> silent platform divergence would return
  *   the font SHORTHAND, any value but inherit  -> it also sets the family
@@ -126,10 +153,12 @@ export function assertPinCoversStylesheet(stylesheet: string): void {
 	const lines = stylesheet.split("\n");
 	const utilities = new Set<string>();
 	const unpinned: string[] = [];
+	const inheritFamilies: string[] = [];
 	let entered = "";
-	transform({
+	const { code } = transform({
 		filename: "dashboard.css",
 		code: Buffer.from(stylesheet),
+		minify: true,
 		visitor: {
 			Rule: (rule) => {
 				const line = (rule as { value?: { loc?: { line: number } } }).value?.loc?.line;
@@ -148,9 +177,17 @@ export function assertPinCoversStylesheet(stylesheet: string): void {
 						declaration.property === "unparsed" ? declaration.value.propertyId.property : declaration.property;
 					unpinned.push(`${property} under ${entered}`);
 				}
+				if (!isInheritFamily(declaration)) {
+					return [];
+				}
+				inheritFamilies.push(entered);
+				return undefined;
 			},
 		},
 	});
+	if (printsQuotedInherit(code.toString())) {
+		unpinned.push(`a quoted family named "inherit" under one of: ${inheritFamilies.join(", ")}`);
+	}
 	if (unpinned.length > 0) {
 		throw new Error(
 			`The stylesheet reads fonts outside the pinned tokens, so a measurement would depend on platform fonts:` +
@@ -176,9 +213,7 @@ export function assertPinCoversStylesheet(stylesheet: string): void {
  *   inline is the one place the stylesheet's theme layer cannot re-define them (the theme token sets themselves carry
  *   no --font-*) -> The measurement font pin's --font-* declarations ride the same delivery
  *
- * The printer has no entry point for a bare declaration list: the set's one rule is printed minified with its other
- * declarations removed, and the envelope unwrapped. A literal comes out in the printer's spelling (`#cccccc` as
- * `#ccc`); the declaration set is unchanged.
+ * Stylesheet printing emits a rule, so the validated single rule is unwrapped.
  */
 export function inlineTokenStyle(tokensCss: string): string {
 	const rules: string[] = [];
