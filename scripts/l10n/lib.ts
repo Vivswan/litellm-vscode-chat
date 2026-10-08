@@ -333,15 +333,8 @@ function calleeCandidates(expression: ts.Expression, sourceFile: ts.SourceFile):
 }
 
 /**
- * The walk follows NAMES bound by declaration, assignment, alias, or default, never values in flight; following those
- * would be data-flow analysis, which the gate deliberately is not, and fixtures pin the boundary so it stays a
- * decision.
- *
- *   direct argument -> the caller's edge
- *   the walk cannot see whether the callee invokes it -> the caller's edge
- *   thunk table's PROPERTY call, or member call reaching a class STATIC
- *     -> invisible; census.ts registers the known thunk case by hand
- *   invocation-time binding, spread, or identifier nested in an argument -> invisible
+ * The walk follows bound NAMES, never values in flight: following those would be data-flow analysis, which the gate
+ * deliberately is not. The reverseCensus fixtures pin what stays invisible.
  */
 function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile): InvocationEvidence {
 	const evidence: InvocationEvidence = { direct: false, callees: new Set<string>() };
@@ -394,8 +387,9 @@ function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile
 			}
 		}
 	};
-	// Direct arguments only: an identifier nested in an array or object literal, or behind a spread, is a value in a
-	// structure - the documented data-flow boundary, pinned by fixtures.
+	// An argument is the caller's edge, since the walk cannot see whether the callee invokes it. Direct arguments only:
+	// an identifier nested in an array or object literal, or behind a spread, is a value in a structure - the data-flow
+	// boundary, pinned by fixtures.
 	const noteArguments = (args: readonly ts.Expression[] | undefined): void => {
 		for (const argument of args ?? []) {
 			noteAliasSources(argument);
@@ -812,14 +806,8 @@ function fileLazyNames(sourceFile: ts.SourceFile, census: readonly string[]): Se
 
 /**
  * A module-scope localization call runs before l10n.config and freezes the English text; this parses what evaluates at
- * load time. Class STATICS do not defer, unlike function bodies, methods, accessors, and instance initializers; what
- * stays invisible is pinned by fixtures:
- *
- *   a destructured `t`                                      -> vscodeL10nOffenses bans that shape outright
- *   a custom wrapper invoking its argument                  -> module-scope references stay deliberately quiet
- *   a re-spelled forwarder (`globalThis.Reflect.apply`, a rebound `Reflect`) -> text matching is the decision
- *                                                                               (isCallerForwarder)
- *   a member call reaching a class STATIC that localizes    -> invisible
+ * load time. A destructured `t` is invisible to the text match here; vscodeL10nOffenses bans destructuring off the
+ * canonical l10n binding.
  */
 export function moduleScopeL10nOffenses(contents: string, fileName: string): number[] {
 	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
