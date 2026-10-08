@@ -1518,7 +1518,7 @@ suite("provider/catalog/discovery", () => {
 			assert.deepStrictEqual(
 				expectShape(routed, "group").providers.map((provider) => provider.reasoning_effort_levels),
 				[null, null],
-				"the routes' own flag resolution (unknown) is untouched"
+				"the routes' own flag resolution stays untouched, and unknown is null on this path as on model/info's"
 			);
 			const bare = modelOf(models, "reasoner");
 			assert.strictEqual(bare.shape.kind, "bare");

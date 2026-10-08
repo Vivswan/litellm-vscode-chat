@@ -143,7 +143,8 @@ export function normalizeModelItem(raw: RawModelItem, log: DiscoveryLog): LiteLL
 			//   the long-context tier costs -> are synthesized
 			providers.push({
 				...entry,
-				reasoning_effort_levels: resolveSupportedReasoningEfforts(entry, UNMAPPED_DEPLOYMENT),
+				// null is the one "unknown" a discovery-authored provider carries, on both listing paths.
+				reasoning_effort_levels: resolveSupportedReasoningEfforts(entry, UNMAPPED_DEPLOYMENT) ?? null,
 				context_length: normalizePositiveNumber(entry.context_length),
 				max_tokens: normalizePositiveNumber(entry.max_tokens),
 				max_input_tokens: normalizePositiveNumber(entry.max_input_tokens),
