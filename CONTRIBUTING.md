@@ -72,4 +72,10 @@ Conventions live in [AGENTS.md](AGENTS.md). In short:
 
 1. Fork the repo and create a branch for your change.
 2. Make sure the checks under "Running checks" pass locally.
-3. Open a PR with a Conventional Commit title (see "Pull requests" above).
+3. Open a PR. The [pull request template](.github/PULL_REQUEST_TEMPLATE.md) prefills the body's shape and carries the rules for each section.
+4. Title it as a Conventional Commit (see "Pull requests" above). A change that resolves a community issue or PR credits its author, `(#N, thanks @login)`, and that login has a row in [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
+
+Two gates refuse what the local checks never see:
+
+- **Commit subjects:** the title and every pushed subject take one scope or none, spelled `[A-Za-z0-9._/-]`, and start lower-case, so `fix(a,b): Handle Y` fails on both counts.
+- **Typography:** the gate under "CI" reads the tracked files, not the PR body, so the diff keeps plain ASCII punctuation.
