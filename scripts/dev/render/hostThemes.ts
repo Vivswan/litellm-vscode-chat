@@ -116,9 +116,8 @@ function leavesFontToPlatform(declaration: Declaration): boolean {
 }
 
 /**
- * The JS AST gives the keyword `inherit` and a family NAMED "inherit" (Tailwind's `font-['inherit']`) one shape, and
- * only the printer keeps the quotes: the print is read back with the property renamed to a custom one, whose token
- * list tells a string from an ident. A comment or an at-rule prelude in the print is no declaration to that read.
+ * Lightning CSS's JS AST flattens quoted and keyword families, so its quote-preserving print is reparsed as a custom
+ * property.
  */
 function printsQuotedInherit(printed: string): boolean {
 	let quoted = false;
