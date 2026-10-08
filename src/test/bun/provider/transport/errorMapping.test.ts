@@ -793,6 +793,7 @@ describe("provider/transport/errorMapping", () => {
 			);
 		});
 
+		// Each exchange sleeps 600 ms of retry backoff, one per surface: a 4.8 s floor against bun's 5 s default.
 		test("the exchange-timeout advice follows the budget's setting on every surface, never the surface itself", async () => {
 			// The advice identity rides the TimeoutBudget from the caller that read the number, so a surface can never
 			// smuggle in advice for a setting that does not bound its exchange. Every surface (derived from the copy
@@ -833,7 +834,7 @@ describe("provider/transport/errorMapping", () => {
 				}
 				assert.strictEqual(timedOut.englishMessage, timedOut.message, surface);
 			}
-		});
+		}, 30_000);
 	});
 
 	describe("timeouts", () => {
