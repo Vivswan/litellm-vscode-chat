@@ -98,6 +98,7 @@ const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["node:os", "reads host facts"],
 	["node:path", "string arithmetic"],
 	["node:string_decoder", "in-process byte-to-text decoding"],
+	["node:timers/promises", "in-process timers as promises"],
 	["node:util", "in-process value comparison and inspection"],
 	["openai", "HTTP client over fetch; starts no process"],
 	["react", "component runtime"],

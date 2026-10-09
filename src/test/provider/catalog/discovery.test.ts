@@ -17,11 +17,13 @@ import { isHostCancellation } from "../../../provider/transport/cancellation";
 import { createServerClient } from "../../../provider/transport/clients";
 import type { TransportFetch } from "../../../provider/transport/nodeHttpFetch";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
+import type { BackoffSleep } from "../../../provider/transport/retry";
 import { RequestError } from "../../../provider/transport/transportErrors";
 import { CAPABILITY_FLOOR } from "../../../shared/config/capabilityResolution";
 import { publicErrorText } from "../../../shared/logger";
 import type { NonChatMode, SkippedModeCounts } from "../../../shared/serverEntry";
 import { fixedHeaderValue } from "../../../shared/util/headers";
+import { sleepUnlessAborted } from "../../../shared/util/timer";
 import {
 	discoveryHandlers,
 	emptyErrorResponse,
@@ -33,6 +35,9 @@ import {
 	useMsw,
 } from "../../mocks/handlers";
 import { assertOmits, expectDefined } from "../../pureHelpers";
+
+/** The retry backoff is setup here, not what any pin reads: the one test about a sleep's abort passes the real one. */
+const noBackoff: BackoffSleep = () => Promise.resolve();
 
 function request(log: (message: string, data?: unknown) => void = () => {}, fetchImpl: TransportFetch = nodeHttpFetch) {
 	const client = createServerClient(
@@ -52,6 +57,7 @@ function request(log: (message: string, data?: unknown) => void = () => {}, fetc
 		discoveryTimeout: 5000,
 		log,
 		isCancellation: isHostCancellation,
+		sleep: noBackoff,
 	};
 }
 
@@ -1064,8 +1070,7 @@ suite("provider/catalog/discovery", () => {
 			);
 		});
 
-		test("transient 5xx discovery failures are retried and then succeed", async function () {
-			this.timeout(15000);
+		test("transient 5xx discovery failures are retried and then succeed", async () => {
 			const attempts = { info: 0, models: 0 };
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => {
@@ -1149,8 +1154,7 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(attempts.models, 1);
 		});
 
-		test("an expected models failure leaves the model/info retry budget alone", async function () {
-			this.timeout(15000);
+		test("an expected models failure leaves the model/info retry budget alone", async () => {
 			const attempts = { info: 0, models: 0 };
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => {
@@ -1168,8 +1172,7 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(attempts.models, 1);
 		});
 
-		test("a large Retry-After cannot stall discovery past the timeout", async function () {
-			this.timeout(15000);
+		test("a large Retry-After cannot stall discovery past the timeout", async () => {
 			mswServer.use(
 				// 404 is not retryable, so discovery falls straight through to /v1/models.
 				http.get(MODEL_INFO_URL, () => new HttpResponse("not found", { status: 404 })),
@@ -1177,7 +1180,11 @@ suite("provider/catalog/discovery", () => {
 			);
 
 			const started = Date.now();
-			await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 1000 }), /discovery\.timeout/);
+			// The real sleep: the subject is the timeout ending a 60 s backoff, which a zero sleep would never start.
+			await assert.rejects(
+				fetchModels({ ...request(), discoveryTimeout: 1000, sleep: sleepUnlessAborted }),
+				/discovery\.timeout/
+			);
 			const elapsed = Date.now() - started;
 			assert.ok(elapsed < 6000, `Timeout must bound the whole call including backoff sleeps, took ${elapsed}ms`);
 		});
@@ -1204,15 +1211,13 @@ suite("provider/catalog/discovery", () => {
 				assert.strictEqual(result.modelInfoUnsupported, "status");
 			});
 
-			test("model-info hanging to timeout beside a /models success marks the result modelInfoUnsupported: timeout", async function () {
-				this.timeout(15000);
+			test("model-info hanging to timeout beside a /models success marks the result modelInfoUnsupported: timeout", async () => {
 				mswServer.use(http.get(MODEL_INFO_URL, hangForever), http.get(MODELS_URL, modelsListing));
 				const result = await fetchModels({ ...request(), discoveryTimeout: 500 });
 				assert.strictEqual(result.modelInfoUnsupported, "timeout");
 			});
 
-			test("a model-info 500 proves nothing about endpoint support: no marker", async function () {
-				this.timeout(15000);
+			test("a model-info 500 proves nothing about endpoint support: no marker", async () => {
 				mswServer.use(
 					http.get(MODEL_INFO_URL, () => emptyErrorResponse(500)),
 					http.get(MODELS_URL, modelsListing)
@@ -1266,8 +1271,7 @@ suite("provider/catalog/discovery", () => {
 				});
 			});
 
-			test("a listing that times out while model-info answered gets the timeout flavor of the hint", async function () {
-				this.timeout(15000);
+			test("a listing that times out while model-info answered gets the timeout flavor of the hint", async () => {
 				mswServer.use(http.get(MODEL_INFO_URL, unusableModelInfo), http.get(MODELS_URL, hangForever));
 				await assert.rejects(
 					fetchModels({ ...request(), discoveryTimeout: 400, entryLabel: "Ollama" }),
@@ -1315,8 +1319,7 @@ suite("provider/catalog/discovery", () => {
 				);
 			});
 
-			test("both endpoints timing out replaces the raise-the-timeout advice with the not-OpenAI-compatible verdict", async function () {
-				this.timeout(15000);
+			test("both endpoints timing out replaces the raise-the-timeout advice with the not-OpenAI-compatible verdict", async () => {
 				mswServer.use(http.get(MODEL_INFO_URL, hangForever), http.get(MODELS_URL, hangForever));
 				await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 400 }), (error: unknown) => {
 					assert.ok(error instanceof RequestError);
@@ -1390,8 +1393,7 @@ suite("provider/catalog/discovery", () => {
 				});
 			});
 
-			test("mixed evidence keeps the plain timeout message: a 400 model-info failure proves nothing", async function () {
-				this.timeout(15000);
+			test("mixed evidence keeps the plain timeout message: a 400 model-info failure proves nothing", async () => {
 				// 400 is not retryable, so the probe's verdict is its mapped HTTP class - no unserved evidence - and
 				// the stalled listing keeps the raise-the-timeout advice.
 				mswServer.use(
@@ -1401,8 +1403,7 @@ suite("provider/catalog/discovery", () => {
 				await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 400 }), /discovery\.timeout/);
 			});
 
-			test("mixed evidence kinds keep the plain message: a 404 probe beside a stalled listing is not both-unserved", async function () {
-				this.timeout(15000);
+			test("mixed evidence kinds keep the plain message: a 404 probe beside a stalled listing is not both-unserved", async () => {
 				mswServer.use(
 					http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
 					http.get(MODELS_URL, hangForever)

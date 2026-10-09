@@ -8,6 +8,7 @@ import type { NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { isNonChatMode } from "../../shared/serverEntry";
 import { isRecord, recordFromKeys } from "../../shared/util/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
+import { sleepUnlessAborted } from "../../shared/util/timer";
 import {
 	MODEL_GROUP_INFO_PATH,
 	MODEL_INFO_PATH,
@@ -17,6 +18,7 @@ import {
 	modelsUrl,
 } from "../transport/clients";
 import { mapSdkError } from "../transport/errorMapping";
+import type { BackoffSleep } from "../transport/retry";
 import { retryIdempotent } from "../transport/retry";
 import { RequestError, timeoutRequestError } from "../transport/transportErrors";
 import type { DiscoveryLog } from "./discoveryLog";
@@ -342,6 +344,8 @@ export interface FetchModelsRequest {
 	log: (message: string, data?: unknown) => void;
 	/** mapSdkError's cancellation predicate; see cancellation.ts. */
 	isCancellation: (error: unknown) => error is Error;
+	/** The retry backoff between failed GETs: the real timer unless a test passes a zero sleep. */
+	sleep?: BackoffSleep;
 }
 
 /** The /v1/models fallback rethrow keys on it rather than matching message text. */
@@ -402,6 +406,7 @@ async function getJson(
 		readonly timeoutMs: number;
 		readonly maxRetries: number;
 		readonly headers: FetchModelsRequest["headers"];
+		readonly sleep: BackoffSleep;
 	}
 ): Promise<DiscoveryBody> {
 	return retryIdempotent(
@@ -422,7 +427,7 @@ async function getJson(
 			// An empty body, a 204 or a bare 200, is an empty listing, not a parse failure.
 			return text === "" ? EMPTY_BODY : { empty: false, value: parseJsonBody(text, endpointUrl) };
 		},
-		{ maxRetries: options.maxRetries, signal: options.signal }
+		{ maxRetries: options.maxRetries, signal: options.signal, sleep: options.sleep }
 	);
 }
 
@@ -698,6 +703,7 @@ function narrowModelInfoData(
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
 	const { client, baseUrl, apiVersion, discoveryTimeout, expected, includeModes, entryLabel, headers } = request;
+	const sleep = request.sleep ?? sleepUnlessAborted;
 	const log = discoveryLineWriter(request.log);
 
 	log("Fetching models", { endpoint: MODEL_INFO_PATH });
@@ -712,7 +718,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		if (!modelInfo.body) {
 			return result;
 		}
-		const efforts = await fetchModelGroupReasoningEfforts(request, log);
+		const efforts = await fetchModelGroupReasoningEfforts(request, log, sleep);
 		return efforts === undefined
 			? result
 			: { ...result, models: result.models.map((model) => withServerReasoningEfforts(model, efforts)) };
@@ -725,6 +731,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			timeoutMs: discoveryTimeout,
 			maxRetries: expected?.modelInfo === true ? 0 : DISCOVERY_MAX_RETRIES,
 			headers,
+			sleep,
 		});
 		// An unparseable body throws above and proves nothing about endpoint support.
 		modelInfo.answered = true;
@@ -784,6 +791,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			timeoutMs: discoveryTimeout,
 			maxRetries: expected?.modelListing === true ? 0 : DISCOVERY_MAX_RETRIES,
 			headers,
+			sleep,
 		});
 	} catch (error) {
 		if (timeoutSignal.aborted) {
@@ -828,7 +836,8 @@ type ModelGroupReasoningEfforts = ReadonlyMap<string, readonly string[] | null>;
  */
 async function fetchModelGroupReasoningEfforts(
 	request: FetchModelsRequest,
-	log: DiscoveryLog
+	log: DiscoveryLog,
+	sleep: BackoffSleep
 ): Promise<ModelGroupReasoningEfforts | undefined> {
 	const { client, baseUrl, apiVersion, discoveryTimeout, headers } = request;
 	log("Fetching models", { endpoint: MODEL_GROUP_INFO_PATH });
@@ -842,6 +851,7 @@ async function fetchModelGroupReasoningEfforts(
 			timeoutMs: discoveryTimeout,
 			maxRetries: DISCOVERY_MAX_RETRIES,
 			headers,
+			sleep,
 		});
 	} catch (error) {
 		const context = { surface: "discovery" as const, baseUrl, timeoutMs: discoveryTimeout };

@@ -113,11 +113,9 @@ suite("provider/discovery expectedFailures retry properties", () => {
 	 * The per-endpoint retry invariant over every expectedFailures and endpoint-failure
 	 * combination: an expected endpoint gets exactly one attempt, an unexpected one keeps
 	 * the full budget, a model/info success skips the fallback, and expectations never
-	 * change WHICH failure is terminal. Run count is capped because retried 5xx attempts
-	 * pay the real backoff sleeps.
+	 * change WHICH failure is terminal. The retry backoff is a zero sleep: setup, not a pin.
 	 */
-	test("expected endpoints get one attempt, unexpected ones the full budget, per endpoint", async function () {
-		this.timeout(120000);
+	test("expected endpoints get one attempt, unexpected ones the full budget, per endpoint", async () => {
 		const expectedArb = fc.record({ modelInfo: fc.boolean(), modelListing: fc.boolean() });
 		await fc.assert(
 			fc.asyncProperty(expectedArb, fc.boolean(), fc.boolean(), async (expected, infoFails, listingFails) => {
@@ -153,6 +151,7 @@ suite("provider/discovery expectedFailures retry properties", () => {
 					expected,
 					log: () => {},
 					isCancellation: isHostCancellation,
+					sleep: () => Promise.resolve(),
 				});
 				if (infoFails && listingFails) {
 					await assert.rejects(call, "only a /models failure is terminal, expected or not");
@@ -165,7 +164,7 @@ suite("provider/discovery expectedFailures retry properties", () => {
 				const expectedModelsAttempts = !infoFails ? 0 : listingFails ? budget(expected.modelListing) : 1;
 				assert.strictEqual(attempts.models, expectedModelsAttempts, "models attempt count");
 			}),
-			{ numRuns: Math.min(NUM_RUNS, 16), seed: SEED }
+			{ numRuns: NUM_RUNS, seed: SEED }
 		);
 	});
 });
