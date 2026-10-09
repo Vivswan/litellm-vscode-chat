@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { APIConnectionError } from "openai";
 import * as vscode from "vscode";
-import type { DeclaredServerView } from "../../../extension/servers/serverSync";
+import type { DeclaredServerView } from "../../../extension/servers/serverSync/engine";
 import { reconfigureAction, showMessage } from "../../../extension/ui/notifier";
 import { zeroModelJudgment, zeroModelTexts } from "../../../extension/ui/status";
 import { isHostCancellation } from "../../../provider/transport/cancellation";

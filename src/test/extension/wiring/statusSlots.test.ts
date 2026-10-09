@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { UsagePoller } from "../../../extension/servers/usage";
+import type { UsagePoller } from "../../../extension/servers/usage/poller";
 import { liveStatusItemSlots, realStatusItemCreationCount } from "../../../extension/ui/status";
 import { wireUsageSurfaces } from "../../../extension/wiring/dashboard";
 import { wireStatusSurfaces } from "../../../extension/wiring/ui";

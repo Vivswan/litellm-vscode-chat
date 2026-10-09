@@ -1,9 +1,9 @@
-import * as vscode from "vscode";
-import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
+import type * as vscode from "vscode";
 import type { RejectedCredentialField } from "../../shared/serverEntry";
 import { resolveOwnedGroupArgs } from "./serverSync/engine";
 import { readServerSecretsRecord } from "./serverSync/secrets";
 import type { DeclaredServer } from "./serverSync/setting";
+import { readRawServersSetting } from "./serverSync/vscodeEnv";
 import type { UsageConnection } from "./usage/spendClient";
 import { usageConnectionFor } from "./usage/spendClient";
 
@@ -40,7 +40,7 @@ export async function entryConnectionFor(
 ): Promise<EntryConnectionResolution> {
 	const owned = await resolveOwnedGroupArgs(
 		{
-			readServersSetting: () => vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
+			readServersSetting: readRawServersSetting,
 			readSecrets: (entryLabel) => readServerSecretsRecord(secrets, entryLabel),
 		},
 		label

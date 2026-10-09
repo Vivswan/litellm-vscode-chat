@@ -4,7 +4,8 @@
  * owner and the consumer read one window the way they do in production.
  */
 
-import type { DeclaredServerView, ServerEntryReport } from "../../../extension/servers/serverSync";
+import type { DeclaredServerView } from "../../../extension/servers/serverSync/engine";
+import type { ServerEntryReport } from "../../../extension/servers/serverSync/setting";
 import { ServerVerdict } from "../../../extension/servers/syncFailureOverlay";
 import { Notifier } from "../../../extension/ui/notifier";
 import type { AggregatedStatus, ServerStatus } from "../../../shared/servers";

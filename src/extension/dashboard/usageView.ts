@@ -10,7 +10,7 @@ import type {
 	UsageServerCardView,
 	UsageServerView,
 } from "../../dashboard/viewModels";
-import type { ServerUsageState, UsageEndpointState } from "../servers/usage";
+import type { ServerUsageState, UsageEndpointState } from "../servers/usage/store";
 
 export interface UsageViewInput {
 	readonly states: readonly ServerUsageState[];

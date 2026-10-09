@@ -367,7 +367,12 @@ export function createServerSyncEnv(
 	};
 }
 
-function readRawServersSetting(): unknown {
+/**
+ * The live servers setting as VS Code resolves it, workspace over user over default: the one reader every live caller
+ * shares (features, migrations, wiring, the palette and test commands), so no second spelling of the key or scope can
+ * drift.
+ */
+export function readRawServersSetting(): unknown {
 	return vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
 }
 

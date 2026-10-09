@@ -1,11 +1,13 @@
 import * as assert from "node:assert";
-import type { DeclaredServer, StoredServerSecrets } from "../../../extension/servers/serverSync";
-import { buildGroupArgs, parseServersSetting, ServerSyncEngine } from "../../../extension/servers/serverSync";
+import { buildGroupArgs, ServerSyncEngine } from "../../../extension/servers/serverSync/engine";
+import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
+import type { DeclaredServer } from "../../../extension/servers/serverSync/setting";
 import {
 	declaredEntryLabel,
 	entryApiVersionFor,
 	entryDeclaredModelsFor,
 	entryHeadersFor,
+	parseServersSetting,
 	rawDeclaredLabels,
 	stillDeclaredIn,
 } from "../../../extension/servers/serverSync/setting";

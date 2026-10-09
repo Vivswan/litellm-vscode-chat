@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import type { StoredServerSecrets } from "../../../extension/servers/serverSync";
-import { acceptedEntry, buildGroupArgs, parseServersSetting } from "../../../extension/servers/serverSync";
-import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
+import { buildGroupArgs, groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
+import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
+import { acceptedEntry, parseServersSetting } from "../../../extension/servers/serverSync/setting";
 import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";

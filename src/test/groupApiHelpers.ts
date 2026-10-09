@@ -10,7 +10,7 @@
 
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { DeclaredServerView } from "../extension/servers/serverSync";
+import type { DeclaredServerView } from "../extension/servers/serverSync/engine";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../shared/config/settingSpec";
 import type { ExpectedFailureCategory } from "../shared/serverEntry";

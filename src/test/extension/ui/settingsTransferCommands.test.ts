@@ -1,9 +1,12 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { SecretStore, StoredServerSecrets } from "../../../extension/servers/serverSync";
-import { updateServerSecret } from "../../../extension/servers/serverSync";
 import { ServerSyncEngine } from "../../../extension/servers/serverSync/engine";
-import { readServerSecretsRecord, secretDestination } from "../../../extension/servers/serverSync/secrets";
+import type { SecretStore, StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
+import {
+	readServerSecretsRecord,
+	secretDestination,
+	updateServerSecret,
+} from "../../../extension/servers/serverSync/secrets";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
 import type { SettingsAccess, SettingsInspection } from "../../../extension/settingsAccess";
 import { inSettingsWriteTurn, settingValueOf, writeServersSettingFrom } from "../../../extension/settingsWriteTurn";

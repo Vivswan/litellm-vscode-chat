@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import { buildDashboardState, resolveDashboardModelParameters } from "../../../extension/dashboard/state";
-import type { DeclaredServerView } from "../../../extension/servers/serverSync";
+import type { DeclaredServerView } from "../../../extension/servers/serverSync/engine";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";

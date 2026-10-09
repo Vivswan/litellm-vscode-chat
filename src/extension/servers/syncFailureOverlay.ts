@@ -15,10 +15,11 @@ import type { ServerStatus } from "../../shared/servers";
 import { isHiddenGroupServerStatus } from "../../shared/servers";
 import { labeledSnapshots, resolveGroupOwnership } from "../dashboard/declaredJoin";
 import type { DeclaredServersInput } from "../dashboard/declaredServers";
-import type { DeclaredServerView, ServerEntryReport, SyncFailure } from "./serverSync";
-// Not through the serverSync barrel: that barrel reaches the vscode host, and this module serves the webview-side
-// vocabulary suites too.
+import type { DeclaredServerView, SyncFailure } from "./serverSync/engine";
+// Runtime imports stay host-free (rejects.ts; the engine and setting imports are types): the bun-side vocabulary
+// suites load this module, and the bun test tree admits nothing that reaches vscode.
 import { rejectsWithOwnRow } from "./serverSync/rejects";
+import type { ServerEntryReport } from "./serverSync/setting";
 
 /**
  * What a declared entry presents, decided from its live status and its sync failure.

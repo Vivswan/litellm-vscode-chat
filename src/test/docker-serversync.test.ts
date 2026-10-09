@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { classifyOverall } from "../dashboard/presenters";
-import type { DeclaredServerView } from "../extension/servers/serverSync";
+import type { DeclaredServerView } from "../extension/servers/serverSync/engine";
 import { applySyncFailures } from "../extension/servers/syncFailureOverlay";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";

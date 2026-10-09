@@ -15,7 +15,7 @@ import type { SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { isRecord } from "../../../shared/util/json";
 import type { DashboardController } from "../../dashboard/panel";
-import type { DeclaredServerView } from "../../servers/serverSync";
+import type { DeclaredServerView } from "../../servers/serverSync/engine";
 import type { SettingsAccess } from "../../settingsAccess";
 import { resolveConfiguredScope } from "../../settingsAccess";
 import { buildDiagnosticsSnapshot } from "../../ui/diagnostics";

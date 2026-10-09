@@ -10,14 +10,13 @@
  *                                                  destination now would refuse the pairing the user is completing
  */
 
-import * as vscode from "vscode";
-import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { Logger } from "../../shared/logger";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { errorLabel } from "../../shared/util/errorLabel";
 import type { SecretStore } from "../servers/serverSync/secrets";
 import { readServerSecretsRecord, secretDestination, stampServerSecretOwner } from "../servers/serverSync/secrets";
 import { parseServersSetting } from "../servers/serverSync/setting";
+import { readRawServersSetting } from "../servers/serverSync/vscodeEnv";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
 /** The migration body over injectable reads; the wrapper below supplies the real ones. */
@@ -77,10 +76,6 @@ export const stampSecretOwnersMigration: ExtensionMigration<"unstamped-server-se
 	description: "Stamped stored server secrets with the destinations their entries pair them with",
 	sourceRelease: "0.4.7",
 	run(ctx: MigrationContext): Promise<MigrationOutcome> {
-		return stampSecretOwnersFor(
-			() => vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
-			ctx.secrets,
-			ctx.logger
-		);
+		return stampSecretOwnersFor(readRawServersSetting, ctx.secrets, ctx.logger);
 	},
 };

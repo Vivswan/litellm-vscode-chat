@@ -1,10 +1,10 @@
 import * as assert from "node:assert";
-import { parseServersSetting, serverSettingReports } from "../../../extension/servers/serverSync";
 import {
 	readServerSecretsRecord,
 	resolveOwnedSecrets,
 	updateServerSecret,
 } from "../../../extension/servers/serverSync/secrets";
+import { parseServersSetting, serverSettingReports } from "../../../extension/servers/serverSync/setting";
 import { makeSecretStore } from "./serverSyncHelpers";
 
 /**

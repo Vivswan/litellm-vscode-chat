@@ -6,7 +6,7 @@
 
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { DeclaredServerView } from "../../../extension/servers/serverSync";
+import type { DeclaredServerView } from "../../../extension/servers/serverSync/engine";
 import { wireStatusFanout } from "../../../extension/wiring/ui";
 import { Logger } from "../../../shared/logger";
 import type { AggregatedStatus } from "../../../shared/servers";

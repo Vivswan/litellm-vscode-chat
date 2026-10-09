@@ -17,11 +17,20 @@ import { canonicalBaseUrl, canonicalUrl } from "../../shared/util/baseUrl";
 import { errorLabel } from "../../shared/util/errorLabel";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { recordFromKeys } from "../../shared/util/json";
-import type { DeclaredServer } from "../servers/serverSync";
-import { acceptedEntry, inlineSecretValues, secretLocations } from "../servers/serverSync";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
-import { resolveOwnedSecrets, secretDestination } from "../servers/serverSync/secrets";
-import { declaredEntryLabel, nonSecretIdentityMatches, stillDeclaredIn } from "../servers/serverSync/setting";
+import {
+	inlineSecretValues,
+	resolveOwnedSecrets,
+	secretDestination,
+	secretLocations,
+} from "../servers/serverSync/secrets";
+import type { DeclaredServer } from "../servers/serverSync/setting";
+import {
+	acceptedEntry,
+	declaredEntryLabel,
+	nonSecretIdentityMatches,
+	stillDeclaredIn,
+} from "../servers/serverSync/setting";
 import { rawServerEntries, writeServersSettingFrom } from "../settingsWriteTurn";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";

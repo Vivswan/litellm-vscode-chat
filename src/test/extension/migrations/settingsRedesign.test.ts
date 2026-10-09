@@ -8,8 +8,9 @@ import type { LegacyHintKind } from "../../../extension/migrations/settingsRedes
 import { collectLegacyHints } from "../../../extension/migrations/settingsRedesign/hints";
 import { planSettingsRedesign } from "../../../extension/migrations/settingsRedesign/transform";
 import type { SettingsSnapshot } from "../../../extension/migrations/settingsRedesign/types";
-import type { DeclaredServer } from "../../../extension/servers/serverSync";
-import { buildGroupArgs, parseServersSetting } from "../../../extension/servers/serverSync";
+import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
+import type { DeclaredServer } from "../../../extension/servers/serverSync/setting";
+import { parseServersSetting } from "../../../extension/servers/serverSync/setting";
 import { matcherMatches, parseMatcherKey } from "../../../shared/config/modelMatcher";
 import { Logger } from "../../../shared/logger";
 import { assertOmits, expectDefined } from "../../pureHelpers";
