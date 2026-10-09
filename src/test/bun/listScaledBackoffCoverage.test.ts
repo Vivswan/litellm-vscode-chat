@@ -13,7 +13,6 @@ const SLEEP_MODULE = path.join(SRC, "shared", "util", "timer.ts");
 const SLEEP_NAME = "sleepUnlessAborted";
 const PRODUCTION_EXTENSIONS = new Set([".ts", ".tsx"]);
 const TEST_NAMES = new Set(["test", "it"]);
-/** Array methods whose callback runs once per entry. */
 const PER_ENTRY_METHODS = new Set([
 	"forEach",
 	"map",
@@ -53,7 +52,6 @@ interface ValueImport {
 	readonly imported: string;
 }
 
-/** Every runtime binding a module imports, by local name. */
 function valueImports(sf: ts.SourceFile): Map<string, ValueImport> {
 	const imports = new Map<string, ValueImport>();
 	for (const { specifier, bindings } of importStatements(sf)) {
@@ -186,7 +184,6 @@ const isScope = (node: ts.Node): boolean =>
 	ts.isCatchClause(node) ||
 	ts.isClassLike(node);
 
-/** Every identifier reference in `sf` resolved to its declaration; a name declared nowhere in reach is absent. */
 function resolveReferences(
 	sf: ts.SourceFile,
 	imports: ReadonlyMap<string, ValueImport>
@@ -283,11 +280,7 @@ function resolveReferences(
 	return resolved;
 }
 
-/**
- * Visits what runs when `node` runs, in source order: a nested function only where a call receives it (so a thunk
- * built for later is skipped), never a type, never a declaration's or member's name. `visit` returns false to keep
- * the walk out of a node's children.
- */
+/** A nested function is followed only where a call receives it: a thunk built for later never runs in the loop. */
 function eachExecuted(
 	node: ts.Node,
 	asCallback: boolean,
@@ -375,7 +368,6 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 			: sleepers.get(binding.target)?.find((sleeper) => sleeper.name === binding.imported);
 	};
 
-	/** The expression is the real sleep, imported directly, through a namespace, or stored in a local. */
 	const isRealSleep = (expression: ts.Expression, visited: Set<ts.Node>): boolean => {
 		if (sleeperFor(expression)?.name === SLEEP_NAME) {
 			return true;
@@ -393,7 +385,6 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 		return ts.isIdentifier(inner) && inner.text === "undefined";
 	};
 
-	/** The sleep argument is present and is neither `undefined` nor the real sleep handed back in. */
 	const injected = (sleeper: Sleeper, args: readonly ts.Expression[]): boolean => {
 		if (sleeper.sleepParameter === undefined) {
 			return false;
@@ -405,7 +396,6 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 		return argument !== undefined && !isUndefined(argument) && !isRealSleep(argument, new Set());
 	};
 
-	/** What a call runs in the callee: the defaults of the parameters it leaves out or passes `undefined`, then the body. */
 	const calledBodies = (declaration: Declaration, args: readonly ts.Expression[]): ts.Node[] =>
 		declaration.kind !== "function"
 			? []
@@ -422,7 +412,6 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 	const initializerOf = (declaration: Declaration): ts.Node[] =>
 		declaration.kind === "value" && declaration.node.initializer !== undefined ? [declaration.node.initializer] : [];
 
-	/** A value whose initializer names another declaration stands for it, one level deep (`const run = exchange`). */
 	const aliasTarget = (declaration: Declaration): Declaration =>
 		declaration.kind === "value" && declaration.node.initializer !== undefined
 			? (declarationOf(declaration.node.initializer) ?? declaration)
@@ -527,7 +516,6 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 		return undefined;
 	};
 
-	/** The test callback plus every same-file function it calls or hands to a call, with the defaults each call runs. */
 	const reachableBodies = (callback: ts.Node): ts.Node[] => {
 		const bodies = [callback];
 		const seen = new Set<ts.Node>([callback]);
