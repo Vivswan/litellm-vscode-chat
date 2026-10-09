@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { HttpResponse, http } from "msw";
-import type { KeyUsage, UserUsage } from "../../../../extension/servers/usage";
-import { UsageClient, usageUnavailabilityOf } from "../../../../extension/servers/usage";
+import type { KeyUsage, UserUsage } from "../../../../extension/servers/usage/spendClient";
+import { UsageClient, usageUnavailabilityOf } from "../../../../extension/servers/usage/spendClient";
 import { RequestError } from "../../../../provider/transport/transportErrors";
 import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../../fuzzStream";

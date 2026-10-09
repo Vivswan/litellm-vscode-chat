@@ -3,7 +3,9 @@ import * as assert from "node:assert";
 import type { UsageServerCardView, UsageServerView } from "../../../../dashboard/viewModels";
 import type { UsageViewInput } from "../../../../extension/dashboard/usageView";
 import { buildUsageView } from "../../../../extension/dashboard/usageView";
-import type { BudgetStatus, ServerUsageState, UsageTotals } from "../../../../extension/servers/usage";
+import type { BudgetStatus } from "../../../../extension/servers/usage/budget";
+import type { UsageTotals } from "../../../../extension/servers/usage/spendClient";
+import type { ServerUsageState } from "../../../../extension/servers/usage/store";
 
 function fullCard(card: UsageServerCardView | undefined): UsageServerView {
 	assert.ok(card !== undefined);

@@ -14,7 +14,7 @@ import {
 	usageConnectionFor,
 	usageUnavailabilityOf,
 	userInfoUrl,
-} from "../../../../extension/servers/usage";
+} from "../../../../extension/servers/usage/spendClient";
 import { RequestError } from "../../../../provider/transport/transportErrors";
 import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";

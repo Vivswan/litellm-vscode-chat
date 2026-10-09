@@ -1,23 +1,20 @@
 import * as assert from "node:assert";
+import type { UsageFetchClient, UsagePollerEnv } from "../../../../extension/servers/usage/poller";
+import {
+	USAGE_ACTIVITY_WINDOW_DAYS,
+	UsagePoller,
+	usageRefreshFailureSummary,
+} from "../../../../extension/servers/usage/poller";
 import type {
 	ActivityWindow,
 	DailyUsage,
 	KeyUsage,
-	ServerUsageState,
-	UsageAvailability,
-	UsageChangeEvent,
 	UsageConnection,
-	UsageFetchClient,
-	UsagePollerEnv,
 	UsageTotals,
 	UserUsage,
-} from "../../../../extension/servers/usage";
-import {
-	activityWindow,
-	USAGE_ACTIVITY_WINDOW_DAYS,
-	UsagePoller,
-	usageRefreshFailureSummary,
-} from "../../../../extension/servers/usage";
+} from "../../../../extension/servers/usage/spendClient";
+import { activityWindow } from "../../../../extension/servers/usage/spendClient";
+import type { ServerUsageState, UsageAvailability, UsageChangeEvent } from "../../../../extension/servers/usage/store";
 import { RequestError } from "../../../../provider/transport/transportErrors";
 import type { Clock, Timer } from "../../../../shared/util/timer";
 

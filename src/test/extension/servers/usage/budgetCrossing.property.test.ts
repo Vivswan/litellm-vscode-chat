@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { crossedThresholds, newlyCrossedThresholds } from "../../../../extension/servers/usage";
+import { crossedThresholds, newlyCrossedThresholds } from "../../../../extension/servers/usage/budget";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;

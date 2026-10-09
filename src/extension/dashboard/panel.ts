@@ -68,8 +68,9 @@ import {
 } from "../servers/serverSync";
 import { readServerSecretsRecord } from "../servers/serverSync/secrets";
 import type { ServerVerdict } from "../servers/syncFailureOverlay";
-import type { UsagePoller } from "../servers/usage";
-import { isUsageFresh, notifyUsageRefreshFailure } from "../servers/usage";
+import { isUsageFresh } from "../servers/usage/freshness";
+import type { UsagePoller } from "../servers/usage/poller";
+import { notifyUsageRefreshFailure } from "../servers/usage/vscodeEnv";
 import type { SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
 import { copyToClipboard } from "../ui/clipboard";

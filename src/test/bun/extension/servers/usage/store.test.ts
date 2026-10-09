@@ -1,6 +1,6 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import type { ServerUsageState } from "../../../../../extension/servers/usage";
+import type { ServerUsageState } from "../../../../../extension/servers/usage/store";
 import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "../../../../../extension/servers/usage/store";
 
 function state(label: string, overrides: Partial<ServerUsageState> = {}): ServerUsageState {

@@ -23,7 +23,8 @@ import {
 	serverSettingReports,
 } from "../servers/serverSync";
 import { ServerVerdict } from "../servers/syncFailureOverlay";
-import { createUsagePollerEnv, registerRefreshUsageCommand, UsagePoller } from "../servers/usage";
+import { UsagePoller } from "../servers/usage/poller";
+import { createUsagePollerEnv, registerRefreshUsageCommand } from "../servers/usage/vscodeEnv";
 import { createSettingsTransferEnv, registerSettingsTransferCommands } from "../ui/settingsTransferCommands";
 
 const OPENROUTER_CATALOG_SETTING_ID = "models.openRouterCatalog" satisfies BooleanSettingId;

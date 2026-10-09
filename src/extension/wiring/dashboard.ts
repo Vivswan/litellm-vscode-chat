@@ -23,7 +23,7 @@ import type { GroupRemovalStore } from "../servers/groupRemovals";
 import type { ServerSyncEngine } from "../servers/serverSync";
 import { readEntryModelCapabilities } from "../servers/serverSync";
 import type { ServerVerdict } from "../servers/syncFailureOverlay";
-import type { UsagePoller } from "../servers/usage";
+import type { UsagePoller } from "../servers/usage/poller";
 import { StatusItem } from "../ui/status";
 import { UsageAlerts } from "../ui/usageAlerts";
 import { UsageStatusBar } from "../ui/usageStatusItem";
