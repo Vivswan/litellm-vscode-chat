@@ -28,23 +28,6 @@ const PER_ENTRY_METHODS = new Set([
 	"findLast",
 	"findLastIndex",
 ]);
-/** Methods that hand back a view of the list they were called on, so a loop over the result still runs per entry. */
-const LIST_VIEW_METHODS = new Set([
-	"entries",
-	"keys",
-	"values",
-	"slice",
-	"filter",
-	"map",
-	"reverse",
-	"toReversed",
-	"sort",
-	"toSorted",
-	"concat",
-	"flat",
-]);
-/** `Object.<name>(record)` and `Array.from(list)` enumerate their argument. */
-const ENUMERATING_STATICS = new Set(["Object.entries", "Object.keys", "Object.values", "Array.from"]);
 
 const rel = (file: string): string => path.relative(REPO_ROOT, file).split(path.sep).join("/");
 
@@ -187,7 +170,6 @@ type Declaration =
 	| { readonly kind: "import"; readonly local: string }
 	| { readonly kind: "function"; readonly node: FunctionNode }
 	| { readonly kind: "value"; readonly node: ts.VariableDeclaration }
-	| { readonly kind: "parameter"; readonly node: ts.ParameterDeclaration }
 	| { readonly kind: "opaque" };
 
 const OPAQUE: Declaration = { kind: "opaque" };
@@ -256,7 +238,7 @@ function resolveReferences(
 		}
 		if (ts.isFunctionLike(node)) {
 			for (const parameter of node.parameters) {
-				declare(scope, parameter.name, { kind: "parameter", node: parameter });
+				declare(scope, parameter.name, OPAQUE);
 			}
 			if (ts.isFunctionExpression(node) && node.name !== undefined) {
 				scope.set(node.name.text, { kind: "function", node });
@@ -356,9 +338,9 @@ interface Drive {
 interface Audit {
 	readonly problems: string[];
 	readonly testFiles: number;
-	/** Loops over an import inside a test, whether or not the body sleeps. */
-	readonly listLoops: number;
-	/** Loops over an import whose body drives a sleeper, injected or not. */
+	/** Loops inside tests, whether or not the body sleeps. */
+	readonly loops: number;
+	/** Loops whose body drives a sleeper, injected or not. */
 	readonly drives: number;
 }
 
@@ -367,7 +349,7 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 	const imports = valueImports(sf);
 	const resolved = resolveReferences(sf, imports);
 	const problems: string[] = [];
-	let listLoops = 0;
+	let loops = 0;
 	let drives = 0;
 	const lineOf = (node: ts.Node): number => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
 	const declarationOf = (expression: ts.Expression): Declaration | undefined => {
@@ -520,161 +502,56 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 		return { site, drives };
 	};
 
-	/** Per test: the imported lists each helper parameter receives, and the parameters some call leaves to their default. */
-	let parameterLists = new Map<ts.ParameterDeclaration, Set<string>>();
-	let defaultedParameters = new Set<ts.ParameterDeclaration>();
-
-	const stripAwait = (expression: ts.Expression): ts.Expression => {
-		const inner = unwrapped(expression);
-		return ts.isAwaitExpression(inner) ? unwrapped(inner.expression) : inner;
-	};
-
-	/** The imported binding a loop subject enumerates, through views, spreads, members, aliases, and parameters. */
-	const listRoot = (expression: ts.Expression, visited: Set<ts.Node>): string | undefined => {
-		const inner = stripAwait(expression);
-		if (ts.isIdentifier(inner)) {
-			const declaration = resolved.get(inner);
-			if (declaration?.kind === "import") {
-				return declaration.local;
-			}
-			if (declaration?.kind === "parameter") {
-				const passed = parameterLists.get(declaration.node)?.values().next().value;
-				if (
-					passed !== undefined ||
-					!defaultedParameters.has(declaration.node) ||
-					declaration.node.initializer === undefined ||
-					visited.has(declaration.node)
-				) {
-					return passed;
-				}
-				visited.add(declaration.node);
-				return listRoot(declaration.node.initializer, visited);
-			}
-			if (
-				declaration?.kind === "value" &&
-				declaration.node.initializer !== undefined &&
-				!visited.has(declaration.node)
-			) {
-				visited.add(declaration.node);
-				return listRoot(declaration.node.initializer, visited);
-			}
-			return undefined;
-		}
-		if (ts.isArrayLiteralExpression(inner)) {
-			for (const element of inner.elements) {
-				if (ts.isSpreadElement(element)) {
-					const root = listRoot(element.expression, visited);
-					if (root !== undefined) {
-						return root;
-					}
-				}
-			}
-			return undefined;
-		}
-		if (ts.isPropertyAccessExpression(inner) || ts.isElementAccessExpression(inner)) {
-			return listRoot(inner.expression, visited);
-		}
-		if (ts.isCallExpression(inner)) {
-			const callee = unwrapped(inner.expression);
-			if (!ts.isPropertyAccessExpression(callee)) {
-				return undefined;
-			}
-			const base = baseName(callee.expression);
-			const [first] = inner.arguments;
-			if (base !== undefined && ENUMERATING_STATICS.has(`${base}.${callee.name.text}`) && first !== undefined) {
-				return listRoot(first, visited);
-			}
-			return LIST_VIEW_METHODS.has(callee.name.text) ? listRoot(callee.expression, visited) : undefined;
-		}
-		return undefined;
-	};
-
 	interface Loop {
 		readonly node: ts.Node;
-		readonly list: string;
+		readonly subject: string;
 		readonly bodies: readonly ts.Node[];
 	}
 
 	const loopOf = (node: ts.Node): Loop | undefined => {
-		if (ts.isForOfStatement(node)) {
-			const list = listRoot(node.expression, new Set());
-			return list === undefined ? undefined : { node, list, bodies: [node.statement] };
+		if (ts.isForOfStatement(node) || ts.isForInStatement(node)) {
+			return { node, subject: node.expression.getText(sf), bodies: [node.statement] };
 		}
-		if (ts.isForStatement(node) && node.condition !== undefined) {
-			let list: string | undefined;
-			const scan = (child: ts.Node): void => {
-				if (list === undefined && ts.isPropertyAccessExpression(child) && child.name.text === "length") {
-					list = listRoot(child.expression, new Set());
-				}
-				ts.forEachChild(child, scan);
-			};
-			scan(node.condition);
-			return list === undefined ? undefined : { node, list, bodies: [node.statement] };
+		if (ts.isForStatement(node)) {
+			return { node, subject: node.condition?.getText(sf) ?? "", bodies: [node.statement] };
+		}
+		if (ts.isWhileStatement(node) || ts.isDoStatement(node)) {
+			return { node, subject: node.expression.getText(sf), bodies: [node.statement] };
 		}
 		if (ts.isCallExpression(node)) {
 			const callee = unwrapped(node.expression);
 			if (ts.isPropertyAccessExpression(callee) && PER_ENTRY_METHODS.has(callee.name.text)) {
-				const list = listRoot(callee.expression, new Set());
-				return list === undefined ? undefined : { node, list, bodies: node.arguments };
+				return { node, subject: callee.expression.getText(sf), bodies: node.arguments };
 			}
 		}
 		return undefined;
 	};
 
-	/**
-	 * The test callback plus every same-file function it calls or hands to a call, to a fixpoint, binding each helper
-	 * parameter to the imported lists its call sites pass so a loop inside the helper still names the list.
-	 */
+	/** The test callback plus every same-file function it calls or hands to a call, with the defaults each call runs. */
 	const reachableBodies = (callback: ts.Node): ts.Node[] => {
-		parameterLists = new Map();
-		defaultedParameters = new Set();
 		const bodies = [callback];
 		const seen = new Set<ts.Node>([callback]);
-		for (let grew = true; grew; ) {
-			grew = false;
-			const reach = (
-				declaration: Declaration | undefined,
-				args: readonly ts.Expression[]
-			): FunctionNode | undefined => {
-				const target = declaration === undefined ? undefined : aliasTarget(declaration);
-				if (target?.kind !== "function") {
-					return undefined;
-				}
-				for (const body of calledBodies(target, args)) {
-					if (!seen.has(body)) {
-						seen.add(body);
-						bodies.push(body);
-						grew = true;
-					}
-				}
-				return target.node;
-			};
-			for (let index = 0; index < bodies.length; index += 1) {
-				eachExecuted(bodies[index] as ts.Node, true, (child, asCallback) => {
-					if (ts.isCallExpression(child) || ts.isNewExpression(child)) {
-						const args = child.arguments ?? [];
-						const called = reach(declarationOf(child.expression), args);
-						called?.parameters.forEach((parameter, position) => {
-							const argument = args[position];
-							if (argument === undefined || isUndefined(argument)) {
-								if (!defaultedParameters.has(parameter)) {
-									defaultedParameters.add(parameter);
-									grew = true;
-								}
-								return;
-							}
-							const list = listRoot(argument, new Set());
-							if (list !== undefined && !parameterLists.get(parameter)?.has(list)) {
-								parameterLists.set(parameter, new Set([...(parameterLists.get(parameter) ?? []), list]));
-								grew = true;
-							}
-						});
-					} else if (ts.isIdentifier(child) && asCallback) {
-						reach(resolved.get(child), []);
-					}
-					return true;
-				});
+		const reach = (declaration: Declaration | undefined, args: readonly ts.Expression[]): void => {
+			const target = declaration === undefined ? undefined : aliasTarget(declaration);
+			if (target?.kind !== "function") {
+				return;
 			}
+			for (const body of calledBodies(target, args)) {
+				if (!seen.has(body)) {
+					seen.add(body);
+					bodies.push(body);
+				}
+			}
+		};
+		for (let index = 0; index < bodies.length; index += 1) {
+			eachExecuted(bodies[index] as ts.Node, true, (child, asCallback) => {
+				if (ts.isCallExpression(child) || ts.isNewExpression(child)) {
+					reach(declarationOf(child.expression), child.arguments ?? []);
+				} else if (ts.isIdentifier(child) && asCallback) {
+					reach(resolved.get(child), []);
+				}
+				return true;
+			});
 		}
 		return bodies;
 	};
@@ -733,7 +610,7 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 						if (loop === undefined) {
 							return true;
 						}
-						listLoops += 1;
+						loops += 1;
 						const visited = new Set<ts.Node>();
 						const drive = loop.bodies.reduce<Drive>(
 							(found, part) => {
@@ -749,11 +626,10 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 							drives += 1;
 						}
 						if (drive.site !== undefined) {
-							const binding = imports.get(loop.list);
 							problems.push(
 								`${rel(file)}:${lineOf(node)} test "${subject}" drives ${drive.site.description} inside a loop ` +
-									`(line ${lineOf(loop.node)}) over ${loop.list} imported from "${binding?.specifier ?? "?"}", ` +
-									`paying the retry backoff once per entry; ${remedy(drive.site.sleeper)}`
+									`(line ${lineOf(loop.node)}) over ${loop.subject}, paying the retry backoff once per entry; ` +
+									remedy(drive.site.sleeper)
 							);
 						}
 						return true;
@@ -764,7 +640,7 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 		ts.forEachChild(node, visitTests);
 	};
 	visitTests(sf);
-	return { problems, testFiles: 1, listLoops, drives };
+	return { problems, testFiles: 1, loops, drives };
 }
 
 function sum(audits: readonly Audit[]): Audit {
@@ -772,10 +648,10 @@ function sum(audits: readonly Audit[]): Audit {
 		(total, audit) => ({
 			problems: [...total.problems, ...audit.problems],
 			testFiles: total.testFiles + audit.testFiles,
-			listLoops: total.listLoops + audit.listLoops,
+			loops: total.loops + audit.loops,
 			drives: total.drives + audit.drives,
 		}),
-		{ problems: [], testFiles: 0, listLoops: 0, drives: 0 }
+		{ problems: [], testFiles: 0, loops: 0, drives: 0 }
 	);
 }
 
@@ -816,7 +692,7 @@ interface Shape {
 	readonly shape: string;
 	readonly source: string;
 	readonly problems: number;
-	readonly listLoops: number;
+	readonly loops: number;
 	readonly drives: number;
 	readonly names?: string;
 }
@@ -827,59 +703,66 @@ const SHAPES: Shape[] = [
 		shape: "for..of over the import, the sleeper built in a same-file helper",
 		source: `test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { await exchange(surface); } });`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
-		names: 'test "sweep" drives new OAuthTokenSource at line 10, through exchange() inside a loop (line 14)',
+		names:
+			'test "sweep" drives new OAuthTokenSource at line 10, through exchange() inside a loop (line 14) over TRANSPORT_ERROR_SURFACES',
 	},
 	{
 		shape: "the same loop with a zero sleep injected",
 		source: `test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { await exchange(surface, new OAuthTokenSource(noBackoff)); } });`,
 		problems: 0,
-		listLoops: 1,
+		loops: 1,
+		drives: 1,
+	},
+	{
+		shape: "a loop over a local literal pays the same cost",
+		source: `test("sweep", async () => { for (const surface of ["chat", "discovery"]) { await exchange(surface); } });`,
+		problems: 1,
+		loops: 1,
+		drives: 1,
+	},
+	{
+		shape: "a loop over a spread copy of the list",
+		source: `test("sweep", async () => { for (const surface of [...TRANSPORT_ERROR_SURFACES]) { await exchange(surface); } });`,
+		problems: 1,
+		loops: 1,
 		drives: 1,
 	},
 	{
 		shape: "forEach with an async callback",
 		source: `test("sweep", () => { TRANSPORT_ERROR_SURFACES.forEach(async (surface) => { await exchange(surface); }); });`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 	},
 	{
 		shape: "a named function handed to map",
 		source: `test("sweep", async () => { await Promise.all(TRANSPORT_ERROR_SURFACES.map(exchange)); });`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 	},
 	{
 		shape: "a classic for over the import's length",
 		source: `test("sweep", async () => { for (let i = 0; i < TRANSPORT_ERROR_SURFACES.length; i += 1) { await exchange(TRANSPORT_ERROR_SURFACES[i]); } });`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 	},
 	{
-		shape: "the import handed to a helper whose parameter is looped",
+		shape: "the loop inside a helper the test calls",
 		source: `async function sweep(surfaces: readonly string[]) { for (const surface of surfaces) { await exchange(surface); } }
 test("sweep", async () => { await sweep(TRANSPORT_ERROR_SURFACES); });`,
 		problems: 1,
-		listLoops: 1,
-		drives: 1,
-	},
-	{
-		shape: "the import as a helper parameter's default",
-		source: `async function sweep(surfaces = TRANSPORT_ERROR_SURFACES) { for (const surface of surfaces) { await exchange(surface); } }
-test("sweep", async () => { await sweep(); });`,
-		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 	},
 	{
 		shape: "an explicit undefined that lets the helper's default sleeper run",
 		source: `test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { await exchange(surface, undefined); } });`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 	},
 	{
@@ -887,7 +770,7 @@ test("sweep", async () => { await sweep(); });`,
 		source: `const source = new OAuthTokenSource();
 test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { await source.getToken(CONFIG, surface, BUDGET); } });`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 		names: 'drives new OAuthTokenSource at line 14, held by "source"',
 	},
@@ -896,14 +779,14 @@ test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { aw
 		source: `async function sweep() { for (const surface of TRANSPORT_ERROR_SURFACES) { await exchange(surface); } }
 test("sweep", sweep);`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 	},
 	{
 		shape: "the real sleep handed back in through a namespace import",
 		source: `test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { await exchange(surface, new OAuthTokenSource(timers.sleepUnlessAborted)); } });`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 	},
 	{
@@ -911,14 +794,14 @@ test("sweep", sweep);`,
 		source: `const sleep = timers.sleepUnlessAborted;
 test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { await exchange(surface, new OAuthTokenSource(sleep)); } });`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 	},
 	{
 		shape: "a sleeper with no sleep parameter",
 		source: `test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { await retryIdempotent(() => Promise.reject(new Error(surface)), { maxRetries: 2, signal: new AbortController().signal }); } });`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 		names:
 			"retryIdempotent (src/provider/transport/retry.ts) takes no sleep: give it a sleep parameter defaulting to sleepUnlessAborted, as OAuthTokenSource (src/provider/transport/auth.ts) has, and pass a zero sleep here",
@@ -928,7 +811,7 @@ test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { aw
 		source: `test("first", async () => { const source = new OAuthTokenSource(); for (const surface of TRANSPORT_ERROR_SURFACES) { await source.getToken(CONFIG, surface, BUDGET); } });
 test("second", async () => { const source = new OAuthTokenSource(noBackoff); for (const surface of TRANSPORT_ERROR_SURFACES) { await source.getToken(CONFIG, surface, BUDGET); } });`,
 		problems: 1,
-		listLoops: 2,
+		loops: 2,
 		drives: 2,
 		names: 'test "first"',
 	},
@@ -936,38 +819,15 @@ test("second", async () => { const source = new OAuthTokenSource(noBackoff); for
 		shape: "an immediately invoked function inside the loop body",
 		source: `test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { await (async () => { await exchange(surface); })(); } });`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
-	},
-	{
-		shape: "a local list named like another test's alias of the import",
-		source: `test("first", () => { const rows = TRANSPORT_ERROR_SURFACES; if (rows.length === 0) { throw new Error("empty"); } });
-test("second", async () => { const rows = ["chat", "discovery"]; for (const row of rows) { await exchange(row); } });`,
-		problems: 0,
-		listLoops: 0,
-		drives: 0,
-	},
-	{
-		shape: "a helper only mentioned, never called",
-		source: `test("sweep", () => { const jobs = TRANSPORT_ERROR_SURFACES.map(() => exchange); if (jobs.length === 0) { throw new Error("empty"); } });`,
-		problems: 0,
-		listLoops: 1,
-		drives: 0,
-	},
-	{
-		shape: "a helper's alias only mentioned, never called",
-		source: `const run = exchange;
-test("sweep", () => { const jobs = TRANSPORT_ERROR_SURFACES.map(() => run); if (jobs.length === 0) { throw new Error("empty"); } });`,
-		problems: 0,
-		listLoops: 1,
-		drives: 0,
 	},
 	{
 		shape: "a helper's alias called in the loop",
 		source: `const run = exchange;
 test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { await run(surface); } });`,
 		problems: 1,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 	},
 	{
@@ -975,40 +835,29 @@ test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { aw
 		source: `const run = exchange;
 test("sweep", async () => { for (const surface of TRANSPORT_ERROR_SURFACES) { await run(surface, new OAuthTokenSource(noBackoff)); } });`,
 		problems: 0,
-		listLoops: 1,
+		loops: 1,
 		drives: 1,
 	},
 	{
-		shape: "a helper called once with a local list and once left to its import default",
-		source: `async function sweep(surfaces = TRANSPORT_ERROR_SURFACES) { for (const surface of surfaces) { await exchange(surface); } }
-test("both", async () => { await sweep(["chat"]); await sweep(); });`,
-		problems: 1,
-		listLoops: 1,
-		drives: 1,
-	},
-	{
-		shape: "a local list passed where the helper's default is the import",
-		source: `async function sweep(surfaces = TRANSPORT_ERROR_SURFACES) { for (const surface of surfaces) { await exchange(surface); } }
-test("local", async () => { await sweep(["chat"]); });`,
+		shape: "a helper only mentioned, never called",
+		source: `test("sweep", () => { const jobs = TRANSPORT_ERROR_SURFACES.map(() => exchange); if (jobs.length === 0) { throw new Error("empty"); } });`,
 		problems: 0,
-		listLoops: 0,
+		loops: 1,
 		drives: 0,
 	},
 	{
-		shape: "one helper, one test passing the import and one a local list",
-		source: `async function sweep(surfaces: readonly string[]) { for (const surface of surfaces) { await exchange(surface); } }
-test("local", async () => { await sweep(["chat"]); });
-test("imported", async () => { await sweep(TRANSPORT_ERROR_SURFACES); });`,
-		problems: 1,
-		listLoops: 1,
-		drives: 1,
-		names: 'test "imported"',
+		shape: "a helper's alias only mentioned, never called",
+		source: `const run = exchange;
+test("sweep", () => { const jobs = TRANSPORT_ERROR_SURFACES.map(() => run); if (jobs.length === 0) { throw new Error("empty"); } });`,
+		problems: 0,
+		loops: 1,
+		drives: 0,
 	},
 	{
 		shape: "thunks built per entry for later",
 		source: `test("sweep", () => { const jobs = TRANSPORT_ERROR_SURFACES.map((surface) => () => exchange(surface)); if (jobs.length === 0) { throw new Error("empty"); } });`,
 		problems: 0,
-		listLoops: 1,
+		loops: 1,
 		drives: 0,
 	},
 	{
@@ -1016,14 +865,7 @@ test("imported", async () => { await sweep(TRANSPORT_ERROR_SURFACES); });`,
 		source: `async function sweep() { for (const surface of TRANSPORT_ERROR_SURFACES) { await exchange(surface); } }
 test("factory", () => { const job = () => sweep(); if (typeof job !== "function") { throw new Error("bad job"); } });`,
 		problems: 0,
-		listLoops: 0,
-		drives: 0,
-	},
-	{
-		shape: "a loop over a local literal",
-		source: `test("sweep", async () => { for (const surface of ["chat", "discovery"]) { await exchange(surface); } });`,
-		problems: 0,
-		listLoops: 0,
+		loops: 0,
 		drives: 0,
 	},
 	{
@@ -1031,18 +873,18 @@ test("factory", () => { const job = () => sweep(); if (typeof job !== "function"
 		source: `const source = new OAuthTokenSource();
 test("sweep", () => { for (const surface of TRANSPORT_ERROR_SURFACES) { type Source = typeof source; const label: Source | string = surface; if (label === "") { throw new Error("empty"); } } });`,
 		problems: 0,
-		listLoops: 1,
+		loops: 1,
 		drives: 0,
 	},
 ];
 
 const sleepers = productionSleepers();
 
-test.each(SHAPES)("the detector reads the shape: $shape", ({ source, problems, listLoops, drives, names }) => {
+test.each(SHAPES)("the detector reads the shape: $shape", ({ source, problems, loops, drives, names }) => {
 	const result = analyzeTest(fixture(`${FIXTURE_HEADER}\n${source}\n`), sleepers, exemplarOf(sleepers));
-	expect({ problems: result.problems.length, listLoops: result.listLoops, drives: result.drives }).toEqual({
+	expect({ problems: result.problems.length, loops: result.loops, drives: result.drives }).toEqual({
 		problems,
-		listLoops,
+		loops,
 		drives,
 	});
 	if (names !== undefined) {
@@ -1050,7 +892,7 @@ test.each(SHAPES)("the detector reads the shape: $shape", ({ source, problems, l
 	}
 });
 
-test("every bun test that drives a backoff sleeper once per entry of an imported list injects a zero sleep", () => {
+test("every bun test that drives a backoff sleeper once per loop entry injects a zero sleep", () => {
 	expect([...sleepers.values()].flat().length).toBeGreaterThan(0);
 	const result = audit(sleepers);
 	expect(result.problems).toEqual([]);
