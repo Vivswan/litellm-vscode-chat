@@ -17,11 +17,13 @@ import { isHostCancellation } from "../../../provider/transport/cancellation";
 import { createServerClient } from "../../../provider/transport/clients";
 import type { TransportFetch } from "../../../provider/transport/nodeHttpFetch";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
+import type { BackoffSleep } from "../../../provider/transport/retry";
 import { RequestError } from "../../../provider/transport/transportErrors";
 import { CAPABILITY_FLOOR } from "../../../shared/config/capabilityResolution";
 import { publicErrorText } from "../../../shared/logger";
 import type { NonChatMode, SkippedModeCounts } from "../../../shared/serverEntry";
 import { fixedHeaderValue } from "../../../shared/util/headers";
+import { sleepUnlessAborted } from "../../../shared/util/timer";
 import {
 	discoveryHandlers,
 	emptyErrorResponse,
@@ -33,6 +35,9 @@ import {
 	useMsw,
 } from "../../mocks/handlers";
 import { assertOmits, expectDefined } from "../../pureHelpers";
+
+/** The retry backoff is setup here, not what any pin reads: the one test about a sleep's abort passes the real one. */
+const noBackoff: BackoffSleep = () => Promise.resolve();
 
 function request(log: (message: string, data?: unknown) => void = () => {}, fetchImpl: TransportFetch = nodeHttpFetch) {
 	const client = createServerClient(
@@ -52,6 +57,7 @@ function request(log: (message: string, data?: unknown) => void = () => {}, fetc
 		discoveryTimeout: 5000,
 		log,
 		isCancellation: isHostCancellation,
+		sleep: noBackoff,
 	};
 }
 
@@ -1064,8 +1070,7 @@ suite("provider/catalog/discovery", () => {
 			);
 		});
 
-		test("transient 5xx discovery failures are retried and then succeed", async function () {
-			this.timeout(15000);
+		test("transient 5xx discovery failures are retried and then succeed", async () => {
 			const attempts = { info: 0, models: 0 };
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => {
@@ -1149,8 +1154,7 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(attempts.models, 1);
 		});
 
-		test("an expected models failure leaves the model/info retry budget alone", async function () {
-			this.timeout(15000);
+		test("an expected models failure leaves the model/info retry budget alone", async () => {
 			const attempts = { info: 0, models: 0 };
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => {
@@ -1177,7 +1181,11 @@ suite("provider/catalog/discovery", () => {
 			);
 
 			const started = Date.now();
-			await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 1000 }), /discovery\.timeout/);
+			// The real sleep: the subject is the timeout ending a 60 s backoff, which a zero sleep would never start.
+			await assert.rejects(
+				fetchModels({ ...request(), discoveryTimeout: 1000, sleep: sleepUnlessAborted }),
+				/discovery\.timeout/
+			);
 			const elapsed = Date.now() - started;
 			assert.ok(elapsed < 6000, `Timeout must bound the whole call including backoff sleeps, took ${elapsed}ms`);
 		});
@@ -1211,8 +1219,7 @@ suite("provider/catalog/discovery", () => {
 				assert.strictEqual(result.modelInfoUnsupported, "timeout");
 			});
 
-			test("a model-info 500 proves nothing about endpoint support: no marker", async function () {
-				this.timeout(15000);
+			test("a model-info 500 proves nothing about endpoint support: no marker", async () => {
 				mswServer.use(
 					http.get(MODEL_INFO_URL, () => emptyErrorResponse(500)),
 					http.get(MODELS_URL, modelsListing)

@@ -1,3 +1,5 @@
+import { setTimeout as setTimeoutPromise } from "node:timers/promises";
+
 export interface Timer {
 	/** Schedule `callback` after `ms`; the returned closure cancels the pending call. */
 	set(callback: () => void, ms: number): () => void;
@@ -50,20 +52,17 @@ export class PendingCall {
 	}
 }
 
-export function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
-	return new Promise((resolve) => {
-		if (signal.aborted) {
-			resolve();
-			return;
+/**
+ * Resolves after `ms` or as soon as `signal` aborts, never rejecting on abort: each retry loop reads its signal
+ * afterwards and chooses the error. The platform timer rejects with an AbortError on abort, so that one rejection
+ * is turned into the resolution here.
+ */
+export async function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
+	try {
+		await setTimeoutPromise(ms, undefined, { signal });
+	} catch (error) {
+		if (!signal.aborted) {
+			throw error;
 		}
-		const onAbort = () => {
-			clearTimeout(timer);
-			resolve();
-		};
-		const timer = setTimeout(() => {
-			signal.removeEventListener("abort", onAbort);
-			resolve();
-		}, ms);
-		signal.addEventListener("abort", onAbort, { once: true });
-	});
+	}
 }

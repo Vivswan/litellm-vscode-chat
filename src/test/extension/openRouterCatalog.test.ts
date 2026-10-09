@@ -44,8 +44,8 @@ interface ScheduledCall {
 }
 
 /**
- * A recording timer: the schedule's delays (weekly, daily) are captured for the test to fire. Retry backoff runs on
- * discovery's pipeline, not this timer, so retrying tests pay its real sub-second sleeps.
+ * A recording timer: the schedule's delays (weekly, daily) are captured for the test to fire. The retry backoff
+ * within one refresh is the store's `sleep` option, a zero sleep in every harness below.
  */
 function makeTimer(): { timer: Timer; scheduled: ScheduledCall[] } {
 	const scheduled: ScheduledCall[] = [];
@@ -157,6 +157,8 @@ function makeHarness(options: HarnessOptions = {}): Harness {
 				}),
 		timer,
 		clock,
+		// The retry backoff is setup here, not what any pin reads: no test below asserts on time.
+		sleep: () => Promise.resolve(),
 	});
 	store.onDidUpdate(() => {
 		harness.updates += 1;

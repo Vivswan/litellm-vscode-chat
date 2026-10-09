@@ -13,6 +13,7 @@ import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai"
 import * as vscode from "vscode";
 import type { CatalogRefreshFailure } from "../dashboard/viewModels";
 import { DISCOVERY_MAX_RETRIES } from "../provider/catalog/discovery";
+import type { BackoffSleep } from "../provider/transport/retry";
 import { retryIdempotent } from "../provider/transport/retry";
 import type { CapabilityCatalogLookup } from "../shared/config/capabilityResolution";
 import {
@@ -28,7 +29,7 @@ import { OPENROUTER_CATALOG_METADATA_KEY } from "../shared/config/storageKeys";
 import type { Logger } from "../shared/logger";
 import { isRecord } from "../shared/util/json";
 import type { Clock, Timer } from "../shared/util/timer";
-import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../shared/util/timer";
+import { PendingCall, REAL_TIMER, SYSTEM_CLOCK, sleepUnlessAborted } from "../shared/util/timer";
 
 /** The artifact/cache file name, identical in dist/ and globalStorage; the test seam writes the same path. */
 export const CATALOG_FILE_NAME = "openrouter-models.json";
@@ -58,8 +59,11 @@ export interface OpenRouterCatalogStoreOptions {
 	 * retries only in the SDK's error vocabulary (see fetchOpenRouterCatalog); anything else is settled.
 	 */
 	readonly fetchCatalog?: (signal: AbortSignal) => Promise<unknown>;
+	/** Schedules the refreshes (weekly, daily on failure); the retry backoff within one refresh is `sleep`. */
 	readonly timer?: Timer;
 	readonly clock?: Clock;
+	/** The retry backoff between failed fetch attempts: the real timer unless a test passes a zero sleep. */
+	readonly sleep?: BackoffSleep;
 }
 
 export interface OpenRouterCatalogStore extends vscode.Disposable {
@@ -171,6 +175,7 @@ class Store implements OpenRouterCatalogStore {
 	private readonly fetchCatalog: (signal: AbortSignal) => Promise<unknown>;
 	private readonly timer: Timer;
 	private readonly clock: Clock;
+	private readonly sleep: BackoffSleep;
 	private readonly abort = new AbortController();
 
 	private current = EMPTY_CATALOG_SNAPSHOT;
@@ -185,6 +190,7 @@ class Store implements OpenRouterCatalogStore {
 		this.fetchCatalog = options.fetchCatalog ?? fetchOpenRouterCatalog;
 		this.timer = options.timer ?? REAL_TIMER;
 		this.clock = options.clock ?? SYSTEM_CLOCK;
+		this.sleep = options.sleep ?? sleepUnlessAborted;
 		this.scheduled = new PendingCall(this.timer);
 		this.onDidUpdate = this.updateEmitter.event;
 		this.lookup = {
@@ -373,7 +379,7 @@ class Store implements OpenRouterCatalogStore {
 				this.options.isEnabled()
 					? this.fetchCatalog(this.abort.signal)
 					: Promise.reject(new Error("OpenRouter catalog refresh opted out")),
-			{ maxRetries: DISCOVERY_MAX_RETRIES, signal: this.abort.signal }
+			{ maxRetries: DISCOVERY_MAX_RETRIES, signal: this.abort.signal, sleep: this.sleep }
 		);
 	}
 
