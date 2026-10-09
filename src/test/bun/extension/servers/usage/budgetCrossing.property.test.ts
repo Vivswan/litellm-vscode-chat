@@ -1,7 +1,8 @@
+import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { crossedThresholds, newlyCrossedThresholds } from "../../../../extension/servers/usage/budget";
-import { resolveFuzzSeed } from "../../../fuzzStream";
+import { crossedThresholds, newlyCrossedThresholds } from "../../../../../extension/servers/usage/budget";
+import { resolveFuzzSeed } from "../../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
@@ -26,7 +27,7 @@ const thresholdsArb = fc.array(
 	{ maxLength: 6 }
 );
 
-suite("extension/servers/usage threshold-crossing properties", () => {
+describe("extension/servers/usage threshold-crossing properties", () => {
 	test("crossings are exactly the usable at-or-above thresholds, deduplicated ascending", () => {
 		fc.assert(
 			fc.property(fractionArb, thresholdsArb, (fraction, thresholds) => {
