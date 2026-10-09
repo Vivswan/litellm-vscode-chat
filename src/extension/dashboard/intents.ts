@@ -51,9 +51,9 @@ import { headerNameKey, headerValue, isValidHeaderName, trimHttpWhitespace } fro
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { TombstoneIdentity, TombstoneRecording } from "../servers/groupRemovals";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
-import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
-import { nonSecretIdentityMatches } from "../servers/serverSync/setting";
+import { inlineSecretValues } from "../servers/serverSync/secrets";
+import { acceptedEntry, nonSecretIdentityMatches } from "../servers/serverSync/setting";
 import type { ServersSettingStore } from "../settingsWriteTurn";
 import { writeServersSettingFrom } from "../settingsWriteTurn";
 import type { AdoptionResolution, ExternalGroupResolution } from "./adopt";

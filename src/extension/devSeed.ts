@@ -11,7 +11,7 @@ import type { Logger } from "../shared/logger";
 import { errorLabel } from "../shared/util/errorLabel";
 import { trimHttpWhitespace } from "../shared/util/headers";
 import { isRecord } from "../shared/util/json";
-import { updateServerSecret } from "./servers/serverSync";
+import { updateServerSecret } from "./servers/serverSync/secrets";
 import { createSettingsAccess } from "./settingsAccess";
 import type { ServersSettingStore } from "./settingsWriteTurn";
 import { writeServersSettingFrom } from "./settingsWriteTurn";

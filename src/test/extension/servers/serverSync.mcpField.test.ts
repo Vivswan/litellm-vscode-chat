@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { parseServersSetting, serverSettingReports } from "../../../extension/servers/serverSync";
+import { parseServersSetting, serverSettingReports } from "../../../extension/servers/serverSync/setting";
 
 /**
  * The `mcp` entry field's acceptance rules. The field is opt-in by presence, so the negative space matters most:

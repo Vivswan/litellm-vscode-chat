@@ -7,7 +7,7 @@
 
 import { expect, test } from "bun:test";
 import { classifyOverall } from "../../../../dashboard/presenters";
-import type { DeclaredServerView } from "../../../../extension/servers/serverSync";
+import type { DeclaredServerView } from "../../../../extension/servers/serverSync/engine";
 import {
 	applySyncFailures,
 	declaredPresentation,

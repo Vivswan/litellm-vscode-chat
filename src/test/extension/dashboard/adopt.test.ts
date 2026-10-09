@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import type { LiveDeclaration } from "../../../extension/dashboard/adopt";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "../../../extension/dashboard/adopt";
 import type { DashboardStateInputs } from "../../../extension/dashboard/state";
-import type { DeclaredServerView } from "../../../extension/servers/serverSync";
+import type { DeclaredServerView } from "../../../extension/servers/serverSync/engine";
 import type { GroupServer } from "../../../provider/catalog/groupModels";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fixedHeaderValue } from "../../../shared/util/headers";

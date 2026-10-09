@@ -25,8 +25,9 @@ import {
 	NEW_MODEL_CAPABILITIES_ID,
 	NEW_MODEL_PARAMETERS_ID,
 } from "../migrations/settingsRedesign/legacyIds";
-import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
-import { rejectsWithOwnRow } from "../servers/serverSync";
+import type { DeclaredServerView } from "../servers/serverSync/engine";
+import { rejectsWithOwnRow } from "../servers/serverSync/rejects";
+import type { ServerEntryReport } from "../servers/serverSync/setting";
 import type { SettingsReader } from "./state";
 
 /** The field under `auth` (or `auth.oauth`) a dropped credential lives in, as the servers setting spells it. */

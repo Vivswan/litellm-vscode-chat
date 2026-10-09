@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
-import type { DeclaredServer } from "../../../../extension/servers/serverSync";
-import { buildGroupArgs } from "../../../../extension/servers/serverSync";
+import { buildGroupArgs } from "../../../../extension/servers/serverSync/engine";
 import type { StoredServerSecrets } from "../../../../extension/servers/serverSync/secrets";
+import type { DeclaredServer } from "../../../../extension/servers/serverSync/setting";
 import {
 	activityWindow,
 	dailyActivityUrl,

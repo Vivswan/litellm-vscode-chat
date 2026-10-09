@@ -15,9 +15,10 @@ import { DashboardValidationError, executeDashboardIntent } from "../../../exten
 import { createIntentEnvironment } from "../../../extension/dashboard/panel";
 import { buildDashboardState } from "../../../extension/dashboard/state";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
-import type { SecretStore } from "../../../extension/servers/serverSync";
-import { acceptedEntry, ServerSyncEngine, serverSettingReports } from "../../../extension/servers/serverSync";
+import { ServerSyncEngine } from "../../../extension/servers/serverSync/engine";
+import type { SecretStore } from "../../../extension/servers/serverSync/secrets";
 import { readServerSecretsRecord, secretDestination } from "../../../extension/servers/serverSync/secrets";
+import { acceptedEntry, serverSettingReports } from "../../../extension/servers/serverSync/setting";
 import type { SettingsAccess } from "../../../extension/settingsAccess";
 import { inSettingsWriteTurn, settingValueOf } from "../../../extension/settingsWriteTurn";
 import type { GroupServer } from "../../../provider/catalog/groupModels";

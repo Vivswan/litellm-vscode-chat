@@ -2,16 +2,15 @@ import * as assert from "node:assert";
 import type * as vscode from "vscode";
 import { classifyOverall } from "../../../dashboard/presenters";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
-import {
-	buildGroupArgs,
-	createServerSyncEnv,
-	parseServersSetting,
-	ServerSyncEngine,
-} from "../../../extension/servers/serverSync";
-import { groupArgsFingerprint } from "../../../extension/servers/serverSync/engine";
+import { buildGroupArgs, groupArgsFingerprint, ServerSyncEngine } from "../../../extension/servers/serverSync/engine";
 import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
+import { parseServersSetting } from "../../../extension/servers/serverSync/setting";
 import type { RemovalNoticeDoor } from "../../../extension/servers/serverSync/vscodeEnv";
-import { canonicalEntryBaseUrls, removalOutcome } from "../../../extension/servers/serverSync/vscodeEnv";
+import {
+	canonicalEntryBaseUrls,
+	createServerSyncEnv,
+	removalOutcome,
+} from "../../../extension/servers/serverSync/vscodeEnv";
 import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
 import { groupClientId } from "../../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";

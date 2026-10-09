@@ -11,7 +11,8 @@
 
 import type { OverallVerdict } from "../dashboard/presenters";
 import type { DashboardServer, DeclaredServerNotice } from "../dashboard/viewModels";
-import type { DeclaredServerView, ServerEntryReport } from "../extension/servers/serverSync";
+import type { DeclaredServerView } from "../extension/servers/serverSync/engine";
+import type { ServerEntryReport } from "../extension/servers/serverSync/setting";
 import { ServerVerdict } from "../extension/servers/syncFailureOverlay";
 import type { FailureCause, SyncErrorClass } from "../shared/failureCause";
 import { markLogSafe } from "../shared/logger";

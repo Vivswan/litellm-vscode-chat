@@ -2,7 +2,8 @@ import * as assert from "node:assert";
 import type { DeclaredServerNotice } from "../../../dashboard/viewModels";
 import type { SettingsReader } from "../../../extension/dashboard/state";
 import { buildDashboardState } from "../../../extension/dashboard/state";
-import type { DeclaredServerView, ServerEntryReport } from "../../../extension/servers/serverSync";
+import type { DeclaredServerView } from "../../../extension/servers/serverSync/engine";
+import type { ServerEntryReport } from "../../../extension/servers/serverSync/setting";
 import { fixedHeaderValue } from "../../../shared/util/headers";
 import { makeServerStatus } from "../../testUtils";
 

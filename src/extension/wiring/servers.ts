@@ -16,12 +16,9 @@ import { resolveDeclaredServers } from "../dashboard/declaredServers";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
-import {
-	createServerSyncEnv,
-	registerSetServerSecretCommand,
-	ServerSyncEngine,
-	serverSettingReports,
-} from "../servers/serverSync";
+import { ServerSyncEngine } from "../servers/serverSync/engine";
+import { serverSettingReports } from "../servers/serverSync/setting";
+import { createServerSyncEnv, registerSetServerSecretCommand } from "../servers/serverSync/vscodeEnv";
 import { ServerVerdict } from "../servers/syncFailureOverlay";
 import { UsagePoller } from "../servers/usage/poller";
 import { createUsagePollerEnv, registerRefreshUsageCommand } from "../servers/usage/vscodeEnv";

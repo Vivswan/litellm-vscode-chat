@@ -8,7 +8,7 @@ import type { AggregatedStatus } from "../../shared/servers";
 import { DOCS_GETTING_STARTED_URL } from "../../shared/util/links";
 import type { DashboardController } from "../dashboard/panel";
 import { registerManageCommand } from "../servers/serverManagement";
-import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
+import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync/engine";
 import type { ServerVerdict } from "../servers/syncFailureOverlay";
 import {
 	registerHelpAndFeedbackCommand,
