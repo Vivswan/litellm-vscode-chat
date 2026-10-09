@@ -40,8 +40,11 @@ jobs:
   ci:
     uses: Vivswan/repo-platform/.github/workflows/fleet-ci.yml@stable
     permissions:
-      contents: read
-      # validate-managed-files posts its sticky findings comment.
+      # The release-pr job pushes the refreshed release branch; fleet-ci.yml's
+      # workflow-level `contents: read` keeps every other called job at read.
+      contents: write
+      # validate-managed-files posts its sticky findings comment; the release-pr
+      # job updates the refreshed release PR.
       pull-requests: write
       # The ceiling for the CodeQL analysis calls.
       security-events: write
