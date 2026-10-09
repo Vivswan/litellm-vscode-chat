@@ -52,11 +52,7 @@ export class PendingCall {
 	}
 }
 
-/**
- * Resolves after `ms` or as soon as `signal` aborts, never rejecting on abort: each retry loop reads its signal
- * afterwards and chooses the error. The platform timer rejects with an AbortError on abort, so that one rejection
- * is turned into the resolution here.
- */
+/** Resolves on abort so retryIdempotent can inspect its signal and choose the error. */
 export async function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
 	try {
 		await setTimeoutPromise(ms, undefined, { signal });

@@ -1172,8 +1172,7 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(attempts.models, 1);
 		});
 
-		test("a large Retry-After cannot stall discovery past the timeout", async function () {
-			this.timeout(15000);
+		test("a large Retry-After cannot stall discovery past the timeout", async () => {
 			mswServer.use(
 				// 404 is not retryable, so discovery falls straight through to /v1/models.
 				http.get(MODEL_INFO_URL, () => new HttpResponse("not found", { status: 404 })),
@@ -1212,8 +1211,7 @@ suite("provider/catalog/discovery", () => {
 				assert.strictEqual(result.modelInfoUnsupported, "status");
 			});
 
-			test("model-info hanging to timeout beside a /models success marks the result modelInfoUnsupported: timeout", async function () {
-				this.timeout(15000);
+			test("model-info hanging to timeout beside a /models success marks the result modelInfoUnsupported: timeout", async () => {
 				mswServer.use(http.get(MODEL_INFO_URL, hangForever), http.get(MODELS_URL, modelsListing));
 				const result = await fetchModels({ ...request(), discoveryTimeout: 500 });
 				assert.strictEqual(result.modelInfoUnsupported, "timeout");
@@ -1273,8 +1271,7 @@ suite("provider/catalog/discovery", () => {
 				});
 			});
 
-			test("a listing that times out while model-info answered gets the timeout flavor of the hint", async function () {
-				this.timeout(15000);
+			test("a listing that times out while model-info answered gets the timeout flavor of the hint", async () => {
 				mswServer.use(http.get(MODEL_INFO_URL, unusableModelInfo), http.get(MODELS_URL, hangForever));
 				await assert.rejects(
 					fetchModels({ ...request(), discoveryTimeout: 400, entryLabel: "Ollama" }),
@@ -1322,8 +1319,7 @@ suite("provider/catalog/discovery", () => {
 				);
 			});
 
-			test("both endpoints timing out replaces the raise-the-timeout advice with the not-OpenAI-compatible verdict", async function () {
-				this.timeout(15000);
+			test("both endpoints timing out replaces the raise-the-timeout advice with the not-OpenAI-compatible verdict", async () => {
 				mswServer.use(http.get(MODEL_INFO_URL, hangForever), http.get(MODELS_URL, hangForever));
 				await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 400 }), (error: unknown) => {
 					assert.ok(error instanceof RequestError);
@@ -1397,8 +1393,7 @@ suite("provider/catalog/discovery", () => {
 				});
 			});
 
-			test("mixed evidence keeps the plain timeout message: a 400 model-info failure proves nothing", async function () {
-				this.timeout(15000);
+			test("mixed evidence keeps the plain timeout message: a 400 model-info failure proves nothing", async () => {
 				// 400 is not retryable, so the probe's verdict is its mapped HTTP class - no unserved evidence - and
 				// the stalled listing keeps the raise-the-timeout advice.
 				mswServer.use(
@@ -1408,8 +1403,7 @@ suite("provider/catalog/discovery", () => {
 				await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 400 }), /discovery\.timeout/);
 			});
 
-			test("mixed evidence kinds keep the plain message: a 404 probe beside a stalled listing is not both-unserved", async function () {
-				this.timeout(15000);
+			test("mixed evidence kinds keep the plain message: a 404 probe beside a stalled listing is not both-unserved", async () => {
 				mswServer.use(
 					http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
 					http.get(MODELS_URL, hangForever)
