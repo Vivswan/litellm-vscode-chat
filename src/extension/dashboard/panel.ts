@@ -58,18 +58,16 @@ import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore, TombstoneIdentity } from "../servers/groupRemovals";
 import { tombstoneHides } from "../servers/groupRemovals";
 import { openManageLanguageModels } from "../servers/manageLanguageModels";
-import type { SecretStore, ServerSyncEngine } from "../servers/serverSync";
-import {
-	deleteServerSecrets,
-	IndeterminateServersSettingError,
-	readEntryModelParameters,
-	serverSettingReports,
-	updateServerSecret,
-} from "../servers/serverSync";
-import { readServerSecretsRecord } from "../servers/serverSync/secrets";
+import type { ServerSyncEngine } from "../servers/serverSync/engine";
+import { IndeterminateServersSettingError } from "../servers/serverSync/engine";
+import type { SecretStore } from "../servers/serverSync/secrets";
+import { deleteServerSecrets, readServerSecretsRecord, updateServerSecret } from "../servers/serverSync/secrets";
+import { serverSettingReports } from "../servers/serverSync/setting";
+import { readEntryModelParameters } from "../servers/serverSync/vscodeEnv";
 import type { ServerVerdict } from "../servers/syncFailureOverlay";
-import type { UsagePoller } from "../servers/usage";
-import { isUsageFresh, notifyUsageRefreshFailure } from "../servers/usage";
+import { isUsageFresh } from "../servers/usage/freshness";
+import type { UsagePoller } from "../servers/usage/poller";
+import { notifyUsageRefreshFailure } from "../servers/usage/vscodeEnv";
 import type { SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
 import { copyToClipboard } from "../ui/clipboard";

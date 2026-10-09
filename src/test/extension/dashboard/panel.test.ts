@@ -17,7 +17,7 @@ import {
 	entryModelParametersFor,
 	parseServersSetting,
 	serverSettingReports,
-} from "../../../extension/servers/serverSync";
+} from "../../../extension/servers/serverSync/setting";
 import { ServerVerdict } from "../../../extension/servers/syncFailureOverlay";
 import { rawServerEntries, settingValueOf } from "../../../extension/settingsWriteTurn";
 import { RequestError } from "../../../provider/transport/transportErrors";

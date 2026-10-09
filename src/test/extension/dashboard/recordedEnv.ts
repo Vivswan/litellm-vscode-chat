@@ -8,9 +8,13 @@ import type { AdoptableGroupCredentials } from "../../../extension/dashboard/ado
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
 import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";
 import type { TombstoneIdentity } from "../../../extension/servers/groupRemovals";
-import type { DeclaredServer } from "../../../extension/servers/serverSync";
-import { acceptedEntry, inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync";
-import { resolveOwnedSecrets } from "../../../extension/servers/serverSync/secrets";
+import {
+	inlineSecretValues,
+	resolveOwnedSecrets,
+	secretLocations,
+} from "../../../extension/servers/serverSync/secrets";
+import type { DeclaredServer } from "../../../extension/servers/serverSync/setting";
+import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
 import { rawServerEntries, settingValueOf } from "../../../extension/settingsWriteTurn";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import type { NonSecretOptionalFields, SecretOwner } from "../../../shared/serverEntry";

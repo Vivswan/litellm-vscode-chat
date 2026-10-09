@@ -6,6 +6,7 @@ import type { Logger } from "../../shared/logger";
 import { collectKnownSecretValues } from "../../shared/util/knownSecrets";
 import { onServerSecretWritten, readServerSecretsRecord } from "../servers/serverSync/secrets";
 import { collectableEntries, declaredEntryLabel } from "../servers/serverSync/setting";
+import { readRawServersSetting } from "../servers/serverSync/vscodeEnv";
 
 export async function wireKnownSecrets(
 	context: vscode.ExtensionContext,
@@ -22,7 +23,7 @@ export async function wireKnownSecrets(
 		}
 	};
 	const refresh = async (): Promise<void> => {
-		const raw = vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
+		const raw = readRawServersSetting();
 		// Before the first await: a later listener on the same change event may log a line quoting a key just typed.
 		publish(collectKnownSecretValues(collectableEntries(raw), []));
 		const rawRecords: readonly unknown[] = Array.isArray(raw) ? raw : [];

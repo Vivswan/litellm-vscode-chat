@@ -15,16 +15,17 @@
 
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { DeclaredServer, DeclaredServerView } from "../extension/servers/serverSync";
-import {
-	buildGroupArgs,
-	inlineSecretValues,
-	parseServersSetting,
-	secretLocations,
-} from "../extension/servers/serverSync";
-import { groupIdentityArgs } from "../extension/servers/serverSync/engine";
+import type { DeclaredServerView } from "../extension/servers/serverSync/engine";
+import { buildGroupArgs, groupIdentityArgs } from "../extension/servers/serverSync/engine";
 import type { OwnedSecretsResolution } from "../extension/servers/serverSync/secrets";
-import { resolveOwnedSecrets, secretDestination } from "../extension/servers/serverSync/secrets";
+import {
+	inlineSecretValues,
+	resolveOwnedSecrets,
+	secretDestination,
+	secretLocations,
+} from "../extension/servers/serverSync/secrets";
+import type { DeclaredServer } from "../extension/servers/serverSync/setting";
+import { parseServersSetting } from "../extension/servers/serverSync/setting";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import {

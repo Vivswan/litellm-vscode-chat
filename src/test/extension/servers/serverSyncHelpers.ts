@@ -3,13 +3,12 @@
  * operations and removal events the suites inspect.
  */
 import type { DeclaredGroupClaim } from "../../../extension/servers/groupRemovals";
+import type { RemovedEntryEvent, ServerSyncEnv } from "../../../extension/servers/serverSync/engine";
 import type {
-	RemovedEntryEvent,
 	SecretStore,
-	ServerSyncEnv,
+	StoredSecretOwners,
 	StoredServerSecrets,
-} from "../../../extension/servers/serverSync";
-import type { StoredSecretOwners } from "../../../extension/servers/serverSync/secrets";
+} from "../../../extension/servers/serverSync/secrets";
 import type { ServerModelsSnapshot } from "../../../provider/catalog/statusWindow";
 
 export function makeSecretStore(initial: Record<string, string> = {}): SecretStore & { values: Map<string, string> } {

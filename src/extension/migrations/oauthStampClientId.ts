@@ -4,13 +4,12 @@
  * already judges by; a blob with no string stamp on that field is a no-op.
  */
 
-import * as vscode from "vscode";
-import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { Logger } from "../../shared/logger";
 import { errorLabel } from "../../shared/util/errorLabel";
 import type { SecretStore } from "../servers/serverSync/secrets";
 import { readServerSecretsRecord, restampServerSecretOwner, upgradedStamp } from "../servers/serverSync/secrets";
 import { parseServersSetting } from "../servers/serverSync/setting";
+import { readRawServersSetting } from "../servers/serverSync/vscodeEnv";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
 export async function stampOauthClientIdsFor(
@@ -63,10 +62,6 @@ export const oauthStampClientIdMigration: ExtensionMigration<"token-url-only-oau
 	description: "Re-stamped stored OAuth client secrets with the client id beside the token URL",
 	sourceRelease: "0.6.7",
 	run(ctx: MigrationContext): Promise<MigrationOutcome> {
-		return stampOauthClientIdsFor(
-			() => vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
-			ctx.secrets,
-			ctx.logger
-		);
+		return stampOauthClientIdsFor(readRawServersSetting, ctx.secrets, ctx.logger);
 	},
 };

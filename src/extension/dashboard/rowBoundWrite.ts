@@ -9,8 +9,8 @@ import * as l10n from "@vscode/l10n";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
-import type { DeclaredServer } from "../servers/serverSync";
 import { drawableRejects } from "../servers/serverSync/rejects";
+import type { DeclaredServer } from "../servers/serverSync/setting";
 import {
 	acceptedEntry,
 	declaredEntryLabel,

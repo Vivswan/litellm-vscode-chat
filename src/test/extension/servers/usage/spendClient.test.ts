@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
-import type { DeclaredServer } from "../../../../extension/servers/serverSync";
-import { buildGroupArgs } from "../../../../extension/servers/serverSync";
+import { buildGroupArgs } from "../../../../extension/servers/serverSync/engine";
 import type { StoredServerSecrets } from "../../../../extension/servers/serverSync/secrets";
+import type { DeclaredServer } from "../../../../extension/servers/serverSync/setting";
 import {
 	activityWindow,
 	dailyActivityUrl,
@@ -14,7 +14,7 @@ import {
 	usageConnectionFor,
 	usageUnavailabilityOf,
 	userInfoUrl,
-} from "../../../../extension/servers/usage";
+} from "../../../../extension/servers/usage/spendClient";
 import { RequestError } from "../../../../provider/transport/transportErrors";
 import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";

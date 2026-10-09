@@ -17,7 +17,7 @@ import { errorLabel } from "../../shared/util/errorLabel";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
 import type { TombstoneIdentity } from "../servers/groupRemovals";
-import type { DeclaredIdentities } from "../servers/serverSync";
+import type { DeclaredIdentities } from "../servers/serverSync/engine";
 import { secretDestination } from "../servers/serverSync/secrets";
 import { acceptedEntry } from "../servers/serverSync/setting";
 import { rawServerEntries, writeServersSettingFrom } from "../settingsWriteTurn";

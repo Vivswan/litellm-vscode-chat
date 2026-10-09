@@ -8,7 +8,7 @@
 import type { GroupServer } from "../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
 import { sameGroupIdentity } from "../servers/groupRemovals";
-import type { DeclaredGroupIdentity } from "../servers/serverSync";
+import type { DeclaredGroupIdentity } from "../servers/serverSync/engine";
 
 /**
  * Labels are not unique (two provider groups can point at one host with different credentials), so colliding labels get

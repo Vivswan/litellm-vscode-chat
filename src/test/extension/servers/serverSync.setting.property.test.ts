@@ -1,12 +1,13 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import type { DeclaredServer, StoredServerSecrets } from "../../../extension/servers/serverSync";
+import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
+import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
+import type { DeclaredServer } from "../../../extension/servers/serverSync/setting";
 import {
 	acceptedEntry,
-	buildGroupArgs,
 	parseServersSetting,
 	serverSettingReports,
-} from "../../../extension/servers/serverSync";
+} from "../../../extension/servers/serverSync/setting";
 import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";

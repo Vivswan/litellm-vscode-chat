@@ -16,8 +16,6 @@
  *                                                        refusal as blocked, as before
  */
 
-import * as vscode from "vscode";
-import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { OptionalEntryFieldId } from "../../shared/serverEntry";
@@ -29,7 +27,7 @@ import { buildGroupArgs, groupArgsFingerprint } from "../servers/serverSync/engi
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 import { readServerSecretsRecord, resolveOwnedSecrets } from "../servers/serverSync/secrets";
 import { parseServersSetting } from "../servers/serverSync/setting";
-import { canonicalEntryBaseUrls } from "../servers/serverSync/vscodeEnv";
+import { canonicalEntryBaseUrls, readRawServersSetting } from "../servers/serverSync/vscodeEnv";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
 /**
@@ -159,7 +157,7 @@ export const fingerprintProjectionMigration: ExtensionMigration<"full-args-sync-
 	sourceRelease: "0.6.0",
 	run(ctx: MigrationContext): Promise<MigrationOutcome> {
 		return projectSyncFingerprintsFor(
-			() => vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
+			readRawServersSetting,
 			(label) => readServerSecretsRecord(ctx.secrets, label),
 			ctx.globalState,
 			async () => (await ctx.fingerprintSalt.confirmDurable()) === "durable",

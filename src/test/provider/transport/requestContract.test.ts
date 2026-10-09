@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { entryModelParametersFor } from "../../../extension/servers/serverSync";
+import { entryModelParametersFor } from "../../../extension/servers/serverSync/setting";
 import type { GroupServer, LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { attachGroup, groupClientId, parseModelMetadata } from "../../../provider/catalog/groupModels";
 import { groupIdentity } from "../../../provider/catalog/statusWindow";

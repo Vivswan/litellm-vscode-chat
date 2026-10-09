@@ -1,8 +1,12 @@
 /**
- * The sync engine: builds the provider-group arguments for each declared entry, drives the host's add-only group
- * command, and owns the fingerprint and retry bookkeeping that keeps duplicate rejections readable.
+ * The sync engine keeps VS Code's provider groups in step with the litellm-vscode-chat.servers setting, the settings
+ * side's source of truth for servers. The host's group command rejects an existing name and has no update or removal
+ * command (hostGroupCommand.test.ts pins this), so a duplicate rejection for an unchanged entry is the synced steady
+ * state, and an entry changed underneath its group surfaces an actionable error.
  *
- *   Effects -> arrive through the injected ServerSyncEnv
+ *   Each entry        -> registers through the host's add-only lm.addLanguageModelsProviderGroup command
+ *   its secret fields -> resolved as inline-in-settings value first, then the label's SecretStorage blob, then absent
+ *   Effects           -> arrive through the injected ServerSyncEnv; errors are logged, never thrown into activation
  */
 
 import { isDeepStrictEqual } from "node:util";

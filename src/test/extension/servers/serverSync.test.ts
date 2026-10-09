@@ -5,28 +5,28 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { readInlineSecretValues } from "../../../extension/dashboard/intents";
-import type { DeclaredServer, SecretStore, StoredServerSecrets } from "../../../extension/servers/serverSync";
+import { buildGroupArgs, ServerSyncEngine } from "../../../extension/servers/serverSync/engine";
+import type { SecretStore, StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
+import {
+	deleteServerSecrets,
+	inlineSecretValues,
+	readServerSecretsRecord,
+	resolveOwnedSecrets,
+	secretDestination,
+	stampServerSecretOwner,
+	updateServerSecret,
+} from "../../../extension/servers/serverSync/secrets";
+import type { DeclaredServer } from "../../../extension/servers/serverSync/setting";
 import {
 	acceptedEntry,
-	buildGroupArgs,
 	declaresServerRows,
-	deleteServerSecrets,
 	entryExpectedFailuresFor,
 	entryIncludeModesFor,
 	entryModelCapabilitiesFor,
 	entryModelParametersFor,
 	entrySupersedingBaseUrl,
-	inlineSecretValues,
 	parseServersSetting,
-	ServerSyncEngine,
-	updateServerSecret,
-} from "../../../extension/servers/serverSync";
-import {
-	readServerSecretsRecord,
-	resolveOwnedSecrets,
-	secretDestination,
-	stampServerSecretOwner,
-} from "../../../extension/servers/serverSync/secrets";
+} from "../../../extension/servers/serverSync/setting";
 import { parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { CMD } from "../../../shared/config/commandIds";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";

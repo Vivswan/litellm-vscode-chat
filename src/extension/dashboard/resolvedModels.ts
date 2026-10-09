@@ -43,7 +43,7 @@ import {
 	normalizeModelCapabilities,
 	normalizeModelParameters,
 } from "../../shared/config/settings";
-import type { DeclaredServerView } from "../servers/serverSync";
+import type { DeclaredServerView } from "../servers/serverSync/engine";
 import { locateModel, modelScopeKey } from "./adoptHandle";
 import { labeledSnapshots } from "./declaredJoin";
 import type { EntryCapabilitiesRecord, EntryParametersResolution, SettingsReader } from "./state";

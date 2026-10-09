@@ -1,6 +1,6 @@
 import type { DashboardStateInputs, SettingsInspection, SettingsReader } from "../../../extension/dashboard/state";
 import { buildDashboardState, EMPTY_CATALOG_STATUS, readDashboardSettings } from "../../../extension/dashboard/state";
-import type { DeclaredServerView } from "../../../extension/servers/serverSync";
+import type { DeclaredServerView } from "../../../extension/servers/serverSync/engine";
 
 export function makeDeclared(overrides: Partial<DeclaredServerView> = {}): DeclaredServerView {
 	return {

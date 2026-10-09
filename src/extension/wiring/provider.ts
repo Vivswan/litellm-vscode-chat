@@ -23,7 +23,7 @@ import {
 	readEntryModelCapabilities,
 	readEntryModelParameters,
 	readEntrySupersedingBaseUrl,
-} from "../servers/serverSync";
+} from "../servers/serverSync/vscodeEnv";
 import { createTokenCountingController } from "../tokenCounting";
 
 /** How long configuration-change bursts (settings.json keystrokes) coalesce before models re-resolve. */

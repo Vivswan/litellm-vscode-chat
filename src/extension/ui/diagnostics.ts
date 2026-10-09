@@ -5,7 +5,7 @@ import type { ServerStatus } from "../../shared/servers";
 import { recordFromKeys } from "../../shared/util/json";
 import { mcpEnabledEntryCount } from "../features/mcp/wiring";
 import { sameGroupIdentity } from "../servers/groupRemovals";
-import type { DeclaredServerView } from "../servers/serverSync";
+import type { DeclaredServerView } from "../servers/serverSync/engine";
 import type { DiagnosticsSnapshot, IssueReporter } from "./issueReporter";
 import type { ConnectionStatus } from "./status";
 import { statusServerStatuses, statusTotalModels } from "./status";

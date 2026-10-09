@@ -5,8 +5,10 @@
  */
 
 import { pickEntryViewFields, pickNonSecretOptionalFields } from "../../shared/serverEntry";
-import type { DeclaredServerView } from "../servers/serverSync";
-import { buildGroupArgs, declaredCredentials, parseServersSetting, secretLocations } from "../servers/serverSync";
+import type { DeclaredServerView } from "../servers/serverSync/engine";
+import { buildGroupArgs, declaredCredentials } from "../servers/serverSync/engine";
+import { secretLocations } from "../servers/serverSync/secrets";
+import { parseServersSetting } from "../servers/serverSync/setting";
 
 /**
  * The sync engine reads the secret blobs; the pre-first-pass settings fallback cannot check SecretStorage
