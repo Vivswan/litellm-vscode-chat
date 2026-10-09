@@ -18,7 +18,11 @@ import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
 import { ServerSyncEngine } from "../servers/serverSync/engine";
 import { serverSettingReports } from "../servers/serverSync/setting";
-import { createServerSyncEnv, registerSetServerSecretCommand } from "../servers/serverSync/vscodeEnv";
+import {
+	createServerSyncEnv,
+	readRawServersSetting,
+	registerSetServerSecretCommand,
+} from "../servers/serverSync/vscodeEnv";
 import { ServerVerdict } from "../servers/syncFailureOverlay";
 import { UsagePoller } from "../servers/usage/poller";
 import { createUsagePollerEnv, registerRefreshUsageCommand } from "../servers/usage/vscodeEnv";
@@ -68,11 +72,10 @@ export function wireServers(
 	const usagePoller = new UsagePoller(createUsagePollerEnv(context, logger, userAgent));
 	// One state for every headline surface: the provider's window, the engine's views (the setting before the first
 	// pass), and the setting's entry reports.
-	const readServersSetting = () => vscode.workspace.getConfiguration(CONFIG_SECTION).get<unknown>(SERVERS_SETTING_KEY);
 	const verdict = new ServerVerdict({
 		statuses: () => deps.observedSnapshots().map((snapshot) => snapshot.status),
-		declared: () => resolveDeclaredServers(syncEngine.getDeclared(), readServersSetting()),
-		entryReports: () => serverSettingReports(readServersSetting()),
+		declared: () => resolveDeclaredServers(syncEngine.getDeclared(), readRawServersSetting()),
+		entryReports: () => serverSettingReports(readRawServersSetting()),
 	});
 	context.subscriptions.push(
 		syncEngine,

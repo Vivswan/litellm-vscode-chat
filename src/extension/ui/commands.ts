@@ -3,7 +3,6 @@ import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../provider/catalog/groupModels";
 import { thrownErrorDisplayText } from "../../provider/transport/transportErrors";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
-import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { failureClassification, failureTexts } from "../../shared/failureCause";
 import { type ErrorRecorder, Logger, type RecordedError } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
@@ -16,6 +15,7 @@ import type { DashboardController } from "../dashboard/panel";
 import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync/engine";
 import { secretDestination, updateServerSecret } from "../servers/serverSync/secrets";
 import { acceptedEntry } from "../servers/serverSync/setting";
+import { readRawServersSetting } from "../servers/serverSync/vscodeEnv";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
 import type { IssueReporter } from "./issueReporter";
 import { readLastIssueReport, rememberIssueReport, reportFingerprint } from "./issueReporter";
@@ -575,10 +575,7 @@ export function registerTestCommands(
 				}
 				// Stamped like the palette when the label resolves to a declared entry; a secret seeded before its
 				// entry is declared writes unstamped and resolves anywhere, like a pre-stamping blob.
-				const entry = acceptedEntry(
-					vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
-					label
-				)?.entry;
+				const entry = acceptedEntry(readRawServersSetting(), label)?.entry;
 				const owner = entry !== undefined ? secretDestination(entry, field as SecretFieldId) : undefined;
 				return updateServerSecret(context.secrets, label, field as SecretFieldId, value, owner);
 			}

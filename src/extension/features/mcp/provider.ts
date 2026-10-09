@@ -13,7 +13,6 @@ import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { type FailureSink, logFailure } from "../../../provider/catalog/discoveryLog";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
-import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
 import { rejectedCredentialKinds } from "../../../shared/failureCause";
 import type { MirroredError } from "../../../shared/mirroredError";
@@ -24,6 +23,7 @@ import type { EntryConnectionRefused } from "../../servers/entryConnection";
 import { entryConnectionFor } from "../../servers/entryConnection";
 import type { DeclaredServer } from "../../servers/serverSync/setting";
 import { parseServersSetting } from "../../servers/serverSync/setting";
+import { readRawServersSetting } from "../../servers/serverSync/vscodeEnv";
 import type { McpDefinitionDescriptor, McpEntryView } from "./definitions";
 import { mcpDefinitionsOf } from "./definitions";
 import type { McpVersionCounters } from "./versions";
@@ -54,7 +54,7 @@ function mcpEntriesOf(raw: unknown): McpEntry[] {
 }
 
 export function currentMcpEntries(): McpEntry[] {
-	return mcpEntriesOf(vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY));
+	return mcpEntriesOf(readRawServersSetting());
 }
 
 /**
