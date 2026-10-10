@@ -57,13 +57,27 @@ suite("Docker LiteLLM monkey fuzzer", () => {
 			.update(SERVERS_SETTING_KEY, originalServersSetting, vscode.ConfigurationTarget.Global);
 	});
 
+	/**
+	 * The run's timeline, one line per corpus entry and walk: a late walk's failure is read against how long the walks
+	 * before it took and how many groups the add-only host had piled up (#546 fell at walk 37, after walks had slowed
+	 * from seconds to minutes). The status window's row count stands in for the host's group count; a just-removed
+	 * group holds an extra row for one cycle.
+	 */
+	async function logRun(tag: string, steps: number, startedAt: number): Promise<void> {
+		const rows = (await vscode.commands.executeCommand("litellm._test.getServerStatuses")) as unknown[];
+		console.log(`[monkey] ${tag}: steps=${steps} statusRows=${rows.length} elapsedMs=${Date.now() - startedAt}`);
+	}
+
 	async function runReported(tag: string, label: string, actions: MonkeyAction[]): Promise<void> {
+		const startedAt = Date.now();
 		try {
 			await session.runActions(tag, actions);
 		} catch (error) {
+			await logRun(tag, actions.length, startedAt);
 			const minimal = await shrinkMonkeyFailure(session, tag, actions);
 			throw monkeyFailureReport(label, error, minimal);
 		}
+		await logRun(tag, actions.length, startedAt);
 	}
 
 	test("replays the regression corpus", async function () {
