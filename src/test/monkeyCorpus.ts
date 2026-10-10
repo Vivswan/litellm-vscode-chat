@@ -97,4 +97,25 @@ export const MONKEY_CORPUS: MonkeyCorpusEntry[] = [
 			{ kind: "set-secret", label: "s1", field: "apiKey", serial: 6 },
 		],
 	},
+	{
+		// FUZZ_SEED=47006 walk 37 (#546): the end-of-walk responsiveness probe timed out at 15 s while VS Code flagged
+		// the extension host unresponsive three times. Walks had slowed from 14 s to minutes by then, with about 118
+		// add-only groups on the host. That reads as load, not reproduced outside CI.
+		//
+		//   s1 actions under a fresh namespace -> no-ops (shrinking dropped the declare)
+		//   what replays                       -> three syncs, a probe bundle, a chat, the probe that timed out
+		name: "three-syncs-then-chat-probe-timeout",
+		actions: [
+			{
+				kind: "dashboard-intent",
+				intent: { kind: "request", id: "fuzz-3", method: "syncModels", payload: null },
+				expect: "ok",
+			},
+			{ kind: "redeclare-server", label: "s1" },
+			{ kind: "remove-server", label: "s1" },
+			{ kind: "declare-server", label: "s4", credential: "ambiguous", extras: { expectedFailures: true } },
+			{ kind: "sync-now" },
+			{ kind: "chat", verb: "text", a: 35, b: 28381, pick: 880 },
+		],
+	},
 ];
