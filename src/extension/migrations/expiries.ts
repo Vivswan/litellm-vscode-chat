@@ -33,8 +33,8 @@ export const MIGRATION_EXPIRIES = [
 	{
 		state: "full-args-sync-fingerprints",
 		file: "fingerprintProjection.ts",
-		introduced: "2026-08-30",
-		expires: "2026-11-30",
+		introduced: "2026-09-01",
+		expires: "2026-12-01",
 	},
 	{
 		state: "token-url-only-oauth-stamps",
@@ -45,8 +45,8 @@ export const MIGRATION_EXPIRIES = [
 	{
 		state: "uncanonical-url-spellings",
 		file: "canonicalUrlSpellings.ts",
-		introduced: "2026-10-05",
-		expires: "2027-01-05",
+		introduced: "2026-10-06",
+		expires: "2027-01-06",
 	},
 ] as const satisfies readonly MigrationExpiry[];
 
