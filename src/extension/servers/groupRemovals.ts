@@ -11,6 +11,7 @@
  *   the provider layer cannot import this module -> injected as a predicate at activation
  */
 
+import { Mutex } from "async-mutex";
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../shared/config/storageKeys";
 import { canonicalBaseUrl, canonicalStoredBaseUrl, normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isRecord } from "../../shared/util/json";
@@ -301,14 +302,10 @@ class VersionedRegion<T> {
 	}
 
 	/** Persists run serialized: an out-of-order write would mark a newer failure's records as persisted. */
-	private persistQueue: Promise<void> = Promise.resolve();
+	private readonly persistMutex = new Mutex();
 
 	persistCommitted(): Promise<void> {
-		// Two-handler then: a rejection (a throwing onPersistError listener) must not strand every later write.
-		const write = () => this.writeCommitted();
-		const run = this.persistQueue.then(write, write);
-		this.persistQueue = run;
-		return run;
+		return this.persistMutex.runExclusive(() => this.writeCommitted());
 	}
 
 	private async writeCommitted(): Promise<void> {
