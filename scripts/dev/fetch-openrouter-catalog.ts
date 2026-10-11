@@ -9,8 +9,7 @@
  *     artifact, and schema drift stays fatal in every mode
  */
 
-import { mkdir, mkdtemp, rename, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
 	CATALOG_MODEL_COUNT_FLOOR,
@@ -71,7 +70,6 @@ function validateAndSlim(payload: unknown): { text: string; modelCount: number }
 }
 
 async function main(): Promise<void> {
-	const checkOnly = process.argv.includes("--check");
 	const payload = await fetchLivePayload({
 		fetch: (url, init) => fetch(url, init),
 		timeoutMs: FETCH_TIMEOUT_MS,
@@ -79,14 +77,6 @@ async function main(): Promise<void> {
 		onRetry: (line) => console.error(line),
 	});
 	const { text, modelCount } = validateAndSlim(payload);
-
-	if (checkOnly) {
-		const dir = await mkdtemp(path.join(os.tmpdir(), "openrouter-catalog-"));
-		const file = path.join(dir, "openrouter-models.json");
-		await writeFile(file, text);
-		console.log(`OpenRouter catalog check passed: ${modelCount} models; slimmed artifact at ${file}`);
-		return;
-	}
 
 	const target = path.join(process.cwd(), "dist", "openrouter-models.json");
 	await mkdir(path.dirname(target), { recursive: true });
