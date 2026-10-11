@@ -239,8 +239,9 @@ test("the record-path figure closes its section in the open: nothing in the pane
 });
 
 test("a state push leaves the record path on screen instead of hiding it under the reader", () => {
-	// A state push orphans the answers (fresh requestIds), so the figure unmounts until the new answer lands; what
-	// comes back must be the same visible figure, never a re-collapsed one.
+	// A state push re-asks with a fresh requestId; the figure stays mounted while the answer is in flight (a blank
+	// here unmounted the open tables on every usage poll), and what comes back is the same visible figure, never a
+	// re-collapsed one.
 	const chains = [
 		{
 			layer: "global" as const,
@@ -266,9 +267,11 @@ test("a state push leaves the record path on screen instead of hiding it under t
 	answer();
 	expect(container.querySelector(".record-chain")).not.toBeNull();
 
+	const figure = container.querySelector(".record-chain");
 	void act(() => {
 		render(<ModelInspector currencySymbol="$" {...props} stateSeq={1} />, container);
 	});
+	expect(container.querySelector(".record-chain")?.isSameNode(figure)).toBe(true);
 	answer();
 	expect(container.querySelector(".record-chain")).not.toBeNull();
 	expect(container.querySelector("details")).toBeNull();
@@ -1280,8 +1283,8 @@ test("the Diagnostics jump links open the merged panel scrolled to their section
 });
 
 test("the anchor stops re-scrolling for good once both feeds have answered", () => {
-	// Readiness flips false again on every state push (fresh requestIds orphan the old answers) - a reader who scrolled
-	// away must not be yanked back to the anchor by a configuration change landing minutes later.
+	// A state push re-asks both feeds; whether the held answers stay or are replaced, a reader who scrolled away must
+	// not be yanked back to the anchor by a configuration change landing minutes later.
 	const landings: string[] = [];
 	const original = Element.prototype.scrollIntoView;
 	Element.prototype.scrollIntoView = function (this: Element) {
