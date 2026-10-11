@@ -229,6 +229,11 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # The fetch imports openai's error classes; without node_modules bun would auto-install that package outside the
+      # lockfile and the step would still pass.
+      - name: Set up development environment
+        run: bun scripts/env/setup-env.ts
+
       # A third-party outage must not block landing on main, so push-to-main runs opt into the script's lenient mode.
       # The file, not the exit code, says whether the catalog was fetched.
       #
@@ -269,14 +274,10 @@ jobs:
           # which re-run all jobs.
           overwrite: true
 
-  # Lint (Biome and ESLint), helper-script typecheck, @types/vscode vs
-  # engines.vscode, and the packaged-file-list check. Waits
-  # for the catalog job because the packaged-file-list check downloads its
-  # artifact instead of fetching the catalog itself: the ordering cost is the
-  # producer's runtime (typically about a minute; the fetch's retry ladder is
-  # 80 s worst case, under the job's 5-minute cap) on a job that was never
-  # the gate's critical path (the test matrix and docker-stack shards run far
-  # longer).
+  # Lint (Biome, ESLint, knip), the generator drift checks, @types/vscode vs engines.vscode, and the packaged-file-list
+  # check. Waits for the catalog job because the packaged-file-list check downloads its artifact instead of fetching
+  # the catalog itself. The wait costs the producer's runtime (about a minute, 80 s of retries worst case) on a job far
+  # off the gate's critical path (the test matrix and docker-stack shards run far longer).
   format-check:
     needs: openrouter-catalog
     uses: ./.github/workflows/format-check-reusable.yml
@@ -284,10 +285,10 @@ jobs:
       catalog-artifact: openrouter-catalog
       catalog-outcome: ${{ needs.openrouter-catalog.outputs.catalog }}
 
-  # All four tsconfig projects. The reusable format-check only typechecks the helper scripts, and the bun test tree and
-  # bundle are transpile-only, so without this job nothing on a push typechecks src/webview or src/test/bun: the
-  # pre-commit hook's check:static does, but a --no-verify commit or a web edit skips it, and a broken webview project
-  # once reached a merge commit through that gap.
+  # All four tsconfig projects. The test job's compile covers only the root project, and the bun test tree and bundle
+  # are transpile-only, so without this job nothing on a push typechecks src/webview, src/test/bun, or the helper
+  # scripts: the pre-commit hook's check:static does, but a --no-verify commit or a web edit skips it, and a broken
+  # webview project once reached a merge commit through that gap.
   typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 15

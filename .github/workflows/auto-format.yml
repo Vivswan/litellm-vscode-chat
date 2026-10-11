@@ -19,6 +19,7 @@ jobs:
     # credentials (checkout below persists none; the push step scopes them).
     if: github.event.label.name == 'fix-lint' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
