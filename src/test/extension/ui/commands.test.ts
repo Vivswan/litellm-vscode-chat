@@ -14,6 +14,7 @@ import { zeroModelJudgment } from "../../../extension/ui/status";
 import { isHostCancellation } from "../../../provider/transport/cancellation";
 import { mapSdkError } from "../../../provider/transport/errorMapping";
 import { RequestError, statusLogSafeError } from "../../../provider/transport/transportErrors";
+import { CMD } from "../../../shared/config/commandIds";
 import { HAS_SHOWN_WELCOME_KEY, LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
 import { SETUP_HINT_KINDS, type SetupHintKind, transportClassificationOf } from "../../../shared/errorClassification";
 import type { FailureCause } from "../../../shared/failureCause";
@@ -28,8 +29,8 @@ suite("extension/ui/commands", () => {
 	 * Poll until `condition` holds: the gate flow is deliberately not awaited by the command, so its effects land
 	 * later.
 	 */
-	async function waitFor(condition: () => boolean, what: string): Promise<void> {
-		const deadline = Date.now() + 2000;
+	async function waitFor(condition: () => boolean, what: string, deadlineMs = 2000): Promise<void> {
+		const deadline = Date.now() + deadlineMs;
 		while (!condition()) {
 			assert.ok(Date.now() < deadline, `timed out waiting for ${what}`);
 			await new Promise((resolve) => setTimeout(resolve, 5));
@@ -1729,7 +1730,7 @@ suite("extension/ui/commands", () => {
 				{ provideLanguageModelChatInformation: async () => [], getServerSnapshots: () => [] },
 				{ getRecentLogs: () => [], getLatestError: () => undefined },
 				{ getDeclared: () => [], resolveGroupArgs: async () => undefined },
-				{ injectMessageForTest: async () => "ok" as const },
+				{ injectMessageForTest: async () => "ok" as const, dispose: () => {} },
 				{ readSince: () => ({ next: 0, lines: [], dropped: 0 }) }
 			);
 			assert.strictEqual(context.subscriptions.length, 0, "the production gate must register nothing");
@@ -1777,6 +1778,33 @@ suite("extension/ui/commands", () => {
 				}),
 				"ok"
 			);
+		});
+
+		test("dashboardMessage closes the dashboard panel once the injected message is handled", async function () {
+			this.timeout(20000);
+			// The monkey fuzzer's dashboard actions all go through this command, and a panel left visible afterwards
+			// makes every later group status report rebuild and push the whole dashboard state for the rest of the
+			// session. The editor tab model is the one outside view of the panel, and it follows the panel
+			// asynchronously, so both reads poll.
+			const dashboardTabOpen = () =>
+				vscode.window.tabGroups.all.some((group) =>
+					group.tabs.some(
+						(tab) => tab.input instanceof vscode.TabInputWebview && tab.input.viewType.includes("litellm.dashboard")
+					)
+				);
+			// The control: the detector sees the panel the plain open command leaves open.
+			await vscode.commands.executeCommand(CMD.openDashboard);
+			await waitFor(dashboardTabOpen, "the dashboard tab the open command created", 10000);
+			assert.strictEqual(
+				await vscode.commands.executeCommand("litellm._test.dashboardMessage", {
+					kind: "request",
+					id: "cmd-3",
+					method: "ready",
+					payload: null,
+				}),
+				"ok"
+			);
+			await waitFor(() => !dashboardTabOpen(), "the dashboard tab to close after the injected message", 10000);
 		});
 	});
 
