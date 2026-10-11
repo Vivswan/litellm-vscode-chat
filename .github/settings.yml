@@ -71,6 +71,9 @@ labels:
     - name: nightly-failure
       color: D93F0B
       description: Automated nightly CI failure
+    - name: parked
+      color: c2e0c6
+      description: Ready and mergeable, kept open by the owner on purpose; do not merge
     - name: release-blocker
       color: B60205
       description: Blocks releases while open - release-health fails release PRs and
