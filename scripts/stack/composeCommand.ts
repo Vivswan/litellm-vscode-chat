@@ -3,7 +3,7 @@
 // The compose file lives in docker/, but the project directory stays the repo root so .env resolution and the compose
 // file's relative bind mounts keep resolving from there.
 
-import { spawnSync } from "node:child_process";
+import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 
 const COMPOSE_FILE_ARGS = ["-f", "docker/docker-compose.yml", "--project-directory", "."];
 
@@ -88,20 +88,36 @@ export function resolveComposeCommand(): string[] {
 	process.exit(1);
 }
 
+type ComposeStdout = "inherit" | "pipe" | number;
+
 /**
- * The one compose executor: the resolved argv is spawned directly, never re-parsed by a shell, so a quoted COMPOSE_CMD
- * means the same thing on every path.
+ * The one compose spawn: the resolved argv runs directly, never re-parsed by a shell, so a quoted COMPOSE_CMD means
+ * the same thing on every path. stdout is the console, a pipe, or an open file descriptor.
  */
-export function runCompose(args: string[]): number {
+function spawnCompose(args: string[], stdout: ComposeStdout): SpawnSyncReturns<Buffer> | undefined {
 	const [command, ...base] = resolveComposeCommand();
 	if (!command) {
-		return 1;
+		return undefined;
 	}
-	const result = spawnSync(command, [...base, ...args], { stdio: "inherit" });
+	const result = spawnSync(command, [...base, ...args], { stdio: ["inherit", stdout, "inherit"] });
 	if (result.error) {
 		// An unprobed COMPOSE_CMD override can name a missing binary; spawnSync reports that as `error` with no status,
 		// which must not die silently.
 		console.error(`[compose] could not run "${command}": ${result.error.message}`);
 	}
-	return result.status ?? 1;
+	return result;
+}
+
+/**
+ * Runs compose and returns its exit status. A descriptor as `stdout` streams the output straight into that file: a
+ * piped spawnSync stops at its 1 MiB buffer, far short of a long run's service log.
+ */
+export function runCompose(args: string[], stdout: "inherit" | number = "inherit"): number {
+	return spawnCompose(args, stdout)?.status ?? 1;
+}
+
+/** Compose's stdout on success, undefined on any failure; for short answers such as `config --services`. */
+export function readCompose(args: string[]): string | undefined {
+	const result = spawnCompose(args, "pipe");
+	return result?.status === 0 ? result.stdout.toString() : undefined;
 }

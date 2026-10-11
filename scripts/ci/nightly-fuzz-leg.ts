@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { nightlyDockerArgs } from "../../src/test/dockerTestLabels";
 import { parseLastFuzzSeedLine } from "../../src/test/fuzzSeed";
+import { STACK_LOG_DIR_ENV } from "../stack/stackLogs";
 
 function env(name: string): string {
 	const value = process.env[name];
@@ -47,8 +48,11 @@ async function runLogged(
 	return code ?? 128 + (signal === null ? 0 : os.constants.signals[signal]);
 }
 
+/** The leg's slice of the failure artifact (nightly-fuzz.yml uploads .fuzz-failures/). */
+const failureDir = (leg: string): string => path.join(".fuzz-failures", leg);
+
 function writeReport(leg: string, logPath: string, lines: readonly string[]): void {
-	const dir = path.join(".fuzz-failures", leg);
+	const dir = failureDir(leg);
 	mkdirSync(dir, { recursive: true });
 	copyFileSync(logPath, path.join(dir, path.basename(logPath)));
 	writeFileSync(path.join(dir, "report.md"), `${lines.join("\n")}\n`);
@@ -98,7 +102,7 @@ async function dockerLeg(): Promise<number> {
 	console.log(`leg ${leg}: test:docker ${args.join(" ")}${seeded ? `, seed ${seed}` : ""}`);
 	const status = await runLogged(
 		["timeout", "--kill-after=60", "45m", "xvfb-run", "-a", "bun", "run", "test:docker", ...args],
-		seeded ? { FUZZ_SEED: seed } : {},
+		{ [STACK_LOG_DIR_ENV]: path.resolve(failureDir(leg)), ...(seeded ? { FUZZ_SEED: seed } : {}) },
 		logPath
 	);
 	if (status === 0) {
@@ -107,41 +111,44 @@ async function dockerLeg(): Promise<number> {
 	// On a seeded leg the logged seed equals SEED; the fallback covers a failure before any suite logged.
 	const last = parseLastFuzzSeedLine(readFileSync(logPath, "utf8"));
 	const replaySeed = last?.seed ?? seed;
-	writeReport(
-		leg,
-		logPath,
-		seeded
-			? [
-					`# Docker leg ${leg} failed (mode ${last?.mode ?? "unknown"}, seed ${replaySeed})`,
-					"",
-					"Replay:",
-					"",
-					"```bash",
-					`FUZZ_SEED=${replaySeed} FUZZ_ITERATIONS=${env("FUZZ_ITERATIONS")} ` +
-						`CONVERSATION_ITERATIONS=${env("CONVERSATION_ITERATIONS")} MONKEY_ITERATIONS=${env("MONKEY_ITERATIONS")} ` +
-						`bun run test:docker ${args.join(" ")}`,
-					"```",
-					"",
-					"Every suite in this leg ran under the same explicit seed, so the",
-					"command replays the whole leg; the mode names the suite that",
-					"logged last (keep FUZZ_SEED and narrow --only to that suite's",
-					"label to skip the rest). A seeded failure report includes a",
-					"minimal failing event list; pin it in src/test/fuzzCorpus.ts so",
-					"the case replays on every run.",
-				]
-			: [
-					`# Docker leg ${leg} failed (unseeded suites)`,
-					"",
-					"Replay:",
-					"",
-					"```bash",
+	const lines = seeded
+		? [
+				`# Docker leg ${leg} failed (mode ${last?.mode ?? "unknown"}, seed ${replaySeed})`,
+				"",
+				"Replay:",
+				"",
+				"```bash",
+				`FUZZ_SEED=${replaySeed} FUZZ_ITERATIONS=${env("FUZZ_ITERATIONS")} ` +
+					`CONVERSATION_ITERATIONS=${env("CONVERSATION_ITERATIONS")} MONKEY_ITERATIONS=${env("MONKEY_ITERATIONS")} ` +
 					`bun run test:docker ${args.join(" ")}`,
-					"```",
-					"",
-					"These suites draw no fuzz seed; see the attached log for the",
-					"failing suite.",
-				]
-	);
+				"```",
+				"",
+				"Every suite in this leg ran under the same explicit seed, so the",
+				"command replays the whole leg; the mode names the suite that",
+				"logged last (keep FUZZ_SEED and narrow --only to that suite's",
+				"label to skip the rest). A seeded failure report includes a",
+				"minimal failing event list; pin it in src/test/fuzzCorpus.ts so",
+				"the case replays on every run.",
+			]
+		: [
+				`# Docker leg ${leg} failed (unseeded suites)`,
+				"",
+				"Replay:",
+				"",
+				"```bash",
+				`bun run test:docker ${args.join(" ")}`,
+				"```",
+				"",
+				"These suites draw no fuzz seed; see the attached log for the",
+				"failing suite.",
+			];
+	writeReport(leg, logPath, [
+		...lines,
+		"",
+		"Stack logs: one timestamped <service>.log per compose service",
+		"beside this report; one missing failed to capture, see",
+		"nightly-docker.log.",
+	]);
 	return status;
 }
 
