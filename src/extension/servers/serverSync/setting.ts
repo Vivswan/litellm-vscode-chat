@@ -515,29 +515,47 @@ function knownTokens<T extends string>(
 	return [...new Set(known)];
 }
 
+/** The two places an entry's problems go; acceptEntries says what each may carry. */
+interface EntryReportChannels {
+	readonly log: (what: string) => void;
+	readonly row: (what: string) => void;
+}
+
 /**
- * Like knownTokens, the refused model IDs are counted in the report, never echoed: they are user text and the report
- * is logged. The dashboard's own reporter for the global records settings may name them; this one feeds the log.
+ * A refused model ID is user text: the dashboard row names it, since that row is where a user finds which entry is
+ * malformed, and the log counts it like knownTokens counts unknown tokens.
  */
-function countedEntryRecords(
+function reportedEntryRecords(
 	raw: unknown,
 	slot: "parameters" | "capabilities",
 	normalize: (raw: unknown, report: RecordShapeReport) => Record<string, Record<string, unknown>>,
-	report: (what: string) => void
+	channels: EntryReportChannels
 ): Record<string, Record<string, unknown>> {
-	const refused: Parameters<RecordShapeReport>[0]["kind"][] = [];
-	const records = normalize(raw, (problem) => refused.push(problem.kind));
-	const count = (kind: (typeof refused)[number]) => refused.filter((refusal) => refusal === kind).length;
-	if (count("map") > 0) {
-		report(`has a models.${slot} value that is not an object, ignored`);
-	}
-	const entries = count("entry");
+	let entries = 0;
+	let reserved = 0;
+	const records = normalize(raw, (problem) => {
+		switch (problem.kind) {
+			case "map": {
+				const what = `has a models.${slot} value that is not an object, ignored`;
+				channels.log(what);
+				channels.row(what);
+				break;
+			}
+			case "entry":
+				entries += 1;
+				channels.row(`has a models.${slot} entry "${problem.key}" that is not an object, ignored`);
+				break;
+			case "reserved-key":
+				reserved += 1;
+				channels.row(`has a models.${slot} entry "${problem.key}" under a reserved name, ignored`);
+				break;
+		}
+	});
 	if (entries > 0) {
-		report(`has ${entries} models.${slot} entry(s) that are not objects, ignored`);
+		channels.log(`has ${entries} models.${slot} entry(s) that are not objects, ignored`);
 	}
-	const reserved = count("reserved-key");
 	if (reserved > 0) {
-		report(`has ${reserved} models.${slot} entry(s) under a reserved name, ignored`);
+		channels.log(`has ${reserved} models.${slot} entry(s) under a reserved name, ignored`);
 	}
 	return records;
 }
@@ -554,11 +572,16 @@ function acceptEntries(
 	const accepted: { index: number; entry: DeclaredServer }[] = [];
 	const seen = new Set<string>();
 	raw.forEach((item: unknown, index) => {
-		// One prefix for everything reported about this entry: the problems are logged, so they reference the entry by
-		// index and structural key names only, never by entered values.
+		// Two channels for everything reported about this entry. `problems` is logged into the issue report, so it
+		// references the entry by index and structural key names only, never by entered values; `reportTo` draws the
+		// dashboard's diagnostics rows and may name the key the user has to find. Most problems go to both.
+		const channels: EntryReportChannels = {
+			log: (what) => problems?.push(`entry ${index + 1} ${what}`),
+			row: (what) => reportTo?.(index, what),
+		};
 		const report = (what: string) => {
-			problems?.push(`entry ${index + 1} ${what}`);
-			reportTo?.(index, what);
+			channels.log(what);
+			channels.row(what);
 		};
 		const record = objectSlot(item, "is not an object", report);
 		if (record === undefined) {
@@ -641,15 +664,15 @@ function acceptEntries(
 			}
 			// The records normalizer is the one shape classifier; its refusals ride this entry's report so a
 			// `"gpt-4": "oops"` does not read as "no per-entry records" in silence.
-			const modelParameters = countedEntryRecords(models.parameters, "parameters", normalizeModelParameters, report);
+			const modelParameters = reportedEntryRecords(models.parameters, "parameters", normalizeModelParameters, channels);
 			if (Object.keys(modelParameters).length > 0) {
 				entry.modelParameters = modelParameters;
 			}
-			const modelCapabilities = countedEntryRecords(
+			const modelCapabilities = reportedEntryRecords(
 				models.capabilities,
 				"capabilities",
 				normalizeModelCapabilities,
-				report
+				channels
 			);
 			if (Object.keys(modelCapabilities).length > 0) {
 				entry.modelCapabilities = modelCapabilities;

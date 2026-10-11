@@ -26,6 +26,7 @@ import {
 	entryModelParametersFor,
 	entrySupersedingBaseUrl,
 	parseServersSetting,
+	serverSettingReports,
 } from "../../../extension/servers/serverSync/setting";
 import { parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { CMD } from "../../../shared/config/commandIds";
@@ -487,7 +488,7 @@ suite("extension/servers/serverSync", () => {
 
 	suite("per-entry modelParameters", () => {
 		test("parseServersSetting keeps a usable record and reports malformed shapes by count without rejecting the entry", () => {
-			const { entries, problems } = parseServersSetting([
+			const raw = [
 				{
 					label: "Prod",
 					baseUrl: "http://prod.test",
@@ -502,15 +503,29 @@ suite("extension/servers/serverSync", () => {
 				{ label: "Junk", baseUrl: "http://junk.test", models: { parameters: "junk" } },
 				{ label: "Empty", baseUrl: "http://empty.test", models: { parameters: {} } },
 				{ label: "Bare", baseUrl: "http://bare.test" },
-			]);
+			];
+			const { entries, problems } = parseServersSetting(raw);
 
-			// A malformed shape never rejects the entry, and it is counted, never named: the problems are logged into the
-			// issue report and model IDs are user text.
+			// A malformed shape never rejects the entry. The parser's problems are logged into the issue report, so they
+			// count the refused model IDs (user text); the dashboard rows are where a user finds WHICH entry is malformed,
+			// so they name the key. One shared text once stripped the key from the rows; this pins both renderings.
 			assert.deepStrictEqual(problems, [
 				"entry 1 has 1 models.parameters entry(s) that are not objects, ignored",
 				"entry 1 has 1 models.parameters entry(s) under a reserved name, ignored",
 				"entry 2 has a models.parameters value that is not an object, ignored",
 			]);
+			assert.deepStrictEqual(
+				serverSettingReports(raw).map((report) => report.problems),
+				[
+					[
+						'has a models.parameters entry "claude" that is not an object, ignored',
+						'has a models.parameters entry "__proto__" under a reserved name, ignored',
+					],
+					["has a models.parameters value that is not an object, ignored"],
+					[],
+					[],
+				]
+			);
 			assert.strictEqual(entries.length, 4, "every entry is accepted");
 			assert.deepStrictEqual(entries[0]?.modelParameters, { "gpt-4": { temperature: 0.2, stop: ["END"] } });
 			for (const entry of entries.slice(1)) {
