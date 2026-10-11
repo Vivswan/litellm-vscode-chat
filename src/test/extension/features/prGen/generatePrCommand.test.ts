@@ -1,14 +1,20 @@
 import * as assert from "node:assert";
+import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import { featureChatSend } from "../../../../extension/features/featureChatSend";
 import type { API, Branch, Change, Commit, Repository } from "../../../../extension/features/gitApi";
 import {
 	clipboardText,
 	type GeneratePrDeps,
 	runGeneratePrDescription,
 } from "../../../../extension/features/prGen/generatePrCommand";
+import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { Logger } from "../../../../shared/logger";
+import { fixedHeaderValue } from "../../../../shared/util/headers";
+import { CHAT_COMPLETIONS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
+import { memorySecretStorage } from "../wiringSpies";
 
 const ENABLED_CONFIG = {
 	"prGeneration.enabled": true,
@@ -77,6 +83,7 @@ function boundaryLines(lines: readonly string[]): string[] {
 }
 
 suite("extension/features/prGen generatePrCommand", () => {
+	useMsw();
 	// Toast promises stay pending until dismissed in a live host, which would hang any await on showActionableMessage;
 	// the stubs record and resolve.
 	const shownMessages: string[] = [];
@@ -256,14 +263,33 @@ suite("extension/features/prGen generatePrCommand", () => {
 	});
 
 	test("the answer masks as received: a value the markdown strip would respell is masked before the parse", async () => {
+		// Through the real shared send, since that is where the mask at receipt lives: an injected send would have to
+		// mask on its own, and then the test would prove the fake rather than the pipeline.
 		Logger.registerSecrets(["**secret-zq7w**"]);
-		await withConfig(ENABLED_CONFIG, () =>
-			runGeneratePrDescription(
-				() => Promise.resolve("Title: **secret-zq7w**"),
-				makeDeps(),
-				undefined,
-				fakeGit(readyRepo())
+		mswServer.use(
+			http.post(CHAT_COMPLETIONS_URL, () =>
+				HttpResponse.json({ choices: [{ message: { role: "assistant", content: "Title: **secret-zq7w**" } }] })
 			)
+		);
+		const oneShot = new OneShotClient({ userAgent: fixedHeaderValue("test-agent") });
+		const secrets = memorySecretStorage();
+		await withConfig(
+			{ ...ENABLED_CONFIG, servers: [{ label: "alpha", baseUrl: TEST_BASE_URL, auth: { apiKey: "sk-test" } }] },
+			() =>
+				runGeneratePrDescription(
+					(model, prompt, token) =>
+						featureChatSend(
+							"prGeneration",
+							{ oneShot, secrets },
+							model,
+							[{ role: "user", content: prompt }],
+							token,
+							() => {}
+						),
+					makeDeps(),
+					undefined,
+					fakeGit(readyRepo())
+				)
 		);
 		assert.strictEqual(copied, "[redacted]");
 		assert.match(shownMessages[0] ?? "", /Copied "\[redacted\]" to the clipboard/);
