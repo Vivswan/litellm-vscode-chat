@@ -288,6 +288,22 @@ class VersionedRegion<T> {
 		return this.records;
 	}
 
+	/**
+	 * A view computed from the records and recomputed only when the list was replaced. Every path that changes the
+	 * records assigns a new array (the constructor, adoption, commit, commitTransient), never mutates one, so the
+	 * array's identity is the view's freshness key.
+	 */
+	derived<D>(derive: (records: readonly T[]) => D): () => D {
+		let cache: { readonly from: readonly T[]; readonly value: D } | undefined;
+		return () => {
+			const records = this.list();
+			if (cache === undefined || cache.from !== records) {
+				cache = { from: records, value: derive(records) };
+			}
+			return cache.value;
+		};
+	}
+
 	/** Replace the in-memory list synchronously; callers observe the new state before any event or persist. */
 	commit(records: readonly T[]): void {
 		this.records = records;
@@ -332,6 +348,74 @@ class VersionedRegion<T> {
 	}
 }
 
+/** A label's canonical URLs; the shape both halves of a GroupIdentity match through (sameGroupIdentity). */
+type IdentityIndex = Map<string, Set<string>>;
+
+function indexIdentity(index: IdentityIndex, identity: GroupIdentity): void {
+	const url = canonicalBaseUrl(identity.baseUrl);
+	if (url === undefined) {
+		return;
+	}
+	let urls = index.get(identity.label);
+	if (urls === undefined) {
+		urls = new Set();
+		index.set(identity.label, urls);
+	}
+	urls.add(url);
+}
+
+function indexedIdentity(index: IdentityIndex, identity: GroupIdentity): boolean {
+	const url = canonicalBaseUrl(identity.baseUrl);
+	return url !== undefined && (index.get(identity.label)?.has(url) ?? false);
+}
+
+/**
+ * The tombstone list keyed the way the suppression predicate asks: the host re-resolves every group it has ever been
+ * handed on each model-change event, so a lookup that scanned the list cost groups times tombstones per event.
+ * Answers exactly what tombstoneHides answers over the same records, by key instead of by scan.
+ *
+ *   group  record -> its client ID
+ *   entry  record -> the group's entry label at the URL
+ *   status record -> the group's status label at the URL
+ */
+class TombstoneIndex {
+	private readonly groupIds = new Set<string>();
+	private readonly entries: IdentityIndex = new Map();
+	private readonly statuses: IdentityIndex = new Map();
+	private readonly shown: IdentityIndex = new Map();
+
+	constructor(records: readonly TombstoneIdentity[]) {
+		for (const record of records) {
+			indexIdentity(this.shown, record);
+			switch (record.by) {
+				case "group":
+					this.groupIds.add(record.groupId);
+					break;
+				case "entry":
+					indexIdentity(this.entries, record);
+					break;
+				case "status":
+					indexIdentity(this.statuses, record);
+					break;
+			}
+		}
+	}
+
+	hides(group: GroupKey): boolean {
+		return (
+			this.groupIds.has(group.groupId) ||
+			(group.entryLabel !== undefined &&
+				indexedIdentity(this.entries, { label: group.entryLabel, baseUrl: group.baseUrl })) ||
+			indexedIdentity(this.statuses, { label: group.label, baseUrl: group.baseUrl })
+		);
+	}
+
+	/** Whether any record, whatever it hides by, is shown under the identity. */
+	shows(identity: GroupIdentity): boolean {
+		return indexedIdentity(this.shown, identity);
+	}
+}
+
 export class GroupRemovalStore {
 	private didChangeListener: (() => void) | undefined;
 	private persistErrorListener: ((error: unknown) => void) | undefined;
@@ -363,6 +447,7 @@ export class GroupRemovalStore {
 	}
 
 	private readonly tombstoneRegion: VersionedRegion<TombstoneIdentity>;
+	private readonly tombstoneIndex: () => TombstoneIndex;
 	private readonly provenanceRegion: VersionedRegion<OrphanedGroupRecord>;
 
 	constructor(
@@ -371,6 +456,7 @@ export class GroupRemovalStore {
 	) {
 		const report = (error: unknown) => this.persistErrorListener?.(error);
 		this.tombstoneRegion = new VersionedRegion(memento, REMOVED_GROUP_TOMBSTONES_KEY, parseTombstoneList, report);
+		this.tombstoneIndex = this.tombstoneRegion.derived((records) => new TombstoneIndex(records));
 		this.provenanceRegion = new VersionedRegion(memento, ORPHANED_GROUP_PROVENANCE_KEY, parseProvenanceList, report);
 	}
 
@@ -380,12 +466,12 @@ export class GroupRemovalStore {
 
 	/** Whether the user explicitly removed this group; the provider-side suppression predicate. */
 	isTombstoned(group: GroupKey): boolean {
-		return this.tombstoneRegion.list().some((record) => tombstoneHides(record, group));
+		return this.tombstoneIndex().hides(group);
 	}
 
 	/** Whether a tombstone is shown under this identity: what the hidden-groups line's rows act on. */
 	hasTombstone(label: string, baseUrl: string): boolean {
-		return this.tombstoneRegion.list().some((record) => sameGroupIdentity(record, { label, baseUrl }));
+		return this.tombstoneIndex().shows({ label, baseUrl });
 	}
 
 	/**
