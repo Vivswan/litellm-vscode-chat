@@ -645,10 +645,17 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			// A mid-edit settings.json where the array itself is broken: presence is unknowable, so nothing may read as
 			// removed and nothing may shed its records.
 			recorded.setting = "not an array";
+			const loggedBefore = recorded.logged.length;
 			await engine.syncNow();
 			assert.deepStrictEqual(recordedEvents(recorded), []);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Prod"]);
 			assert.deepStrictEqual(recorded.entryBaseUrls, { Prod: "http://prod.test" });
+			// The parser and finishPass both see the container, and a pass runs after every settled edit of a mid-edit
+			// settings.json, so the issue report gets exactly one classification line per pass, from finishPass.
+			assert.deepStrictEqual(
+				recorded.logged.slice(loggedBefore).map(([message]) => message),
+				["Servers setting container is not an array; the pass changes no records"]
+			);
 
 			// undefined and null prove nothing either: the setting declares an array schema with a [] default, so a
 			// non-array is a malformed or partial state, never how a real "remove everything" arrives.

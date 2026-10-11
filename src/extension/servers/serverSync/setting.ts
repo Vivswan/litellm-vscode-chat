@@ -388,11 +388,10 @@ function parseVirtualKeyObject(raw: unknown, path: string): { fields: FlatAuthFi
 }
 
 export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; problems: string[] } {
-	if (raw === undefined || raw === null) {
-		return { entries: [], problems: [] };
-	}
+	// The problems are per entry. A container that is not an array (undefined, null, a mid-edit value) has none, and
+	// what it means for a sync pass is classified and logged once by the engine's finishPass.
 	if (!Array.isArray(raw)) {
-		return { entries: [], problems: ["the servers setting is not an array"] };
+		return { entries: [], problems: [] };
 	}
 	const problems: string[] = [];
 	return { entries: acceptEntries(raw, problems).map(({ entry }) => entry), problems };

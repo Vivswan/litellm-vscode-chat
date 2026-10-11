@@ -57,10 +57,11 @@ suite("extension/servers/serverSync", () => {
 			);
 		});
 
-		test("an absent or non-array setting reads as empty", () => {
+		test("an absent or non-array setting reads as empty, with no entry problem", () => {
+			// The container's shape is the sync engine's one log line per pass (finishPass); a parse problem here would
+			// put a second line into the issue report on every pass of a mid-edit settings.json.
 			assert.deepStrictEqual(parseServersSetting(undefined), { entries: [], problems: [] });
-			assert.strictEqual(parseServersSetting("junk").entries.length, 0);
-			assert.strictEqual(parseServersSetting("junk").problems.length, 1);
+			assert.deepStrictEqual(parseServersSetting("junk"), { entries: [], problems: [] });
 		});
 
 		test("declaresServerRows counts a rejected entry that has a Misconfigured row as configured", () => {
