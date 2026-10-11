@@ -20,6 +20,7 @@
 //   bun run test:docker --skip-host-fidelity
 //   bun run test:docker --skip-host-fidelity-groups
 //   KEEP_DOCKER_STACK=1 bun run test:docker leave the stack running afterward
+//   DOCKER_TEST_LOG_DIR=dir bun run test:docker on failure, write every service's full log to dir/<service>.log
 
 import { execSync, spawn } from "node:child_process";
 import {
@@ -33,6 +34,7 @@ import { resolveComposeCommand, runCompose } from "./stack/composeCommand";
 import { HOST_STALL_MARKER, HostStallDetector, stalledBeforeTests } from "./stack/hostStall";
 import { composeSetting, ensureGeneratedConfig, readEnvFile, STACK_DEFAULTS } from "./stack/litellmConfig";
 import { seedStackUsageBudgetKey } from "./stack/seedUsage";
+import { STACK_LOG_DIR_ENV, writeStackLogs } from "./stack/stackLogs";
 
 const args = process.argv.slice(2);
 
@@ -237,11 +239,23 @@ async function main(): Promise<void> {
 		}
 	} catch (error) {
 		failed = true;
+		// Logs are best-effort; the original failure is what matters.
 		console.error("\nDocker test run failed; recent LiteLLM logs:");
 		try {
 			compose("logs", "litellm", "--tail", "100");
-		} catch {
-			// Logs are best-effort; the original failure is what matters.
+		} catch {}
+		const logDir = process.env[STACK_LOG_DIR_ENV];
+		if (logDir) {
+			try {
+				const captures = writeStackLogs(logDir);
+				console.error(
+					`\nFull stack logs: ${captures
+						.map(({ file, status }) => (status === 0 ? file : `${file} (compose logs exited ${status})`))
+						.join(" ")}`
+				);
+			} catch (logError) {
+				console.error(`Full stack logs not written: ${String(logError)}`);
+			}
 		}
 		const status = (error as { status?: number }).status;
 		process.exitCode = status ?? 1;
