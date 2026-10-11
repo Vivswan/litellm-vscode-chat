@@ -517,6 +517,33 @@ function knownTokens<T extends string>(
 }
 
 /**
+ * Like knownTokens, the refused model IDs are counted in the report, never echoed: they are user text and the report
+ * is logged. The dashboard's own reporter for the global records settings may name them; this one feeds the log.
+ */
+function countedEntryRecords(
+	raw: unknown,
+	slot: "parameters" | "capabilities",
+	normalize: (raw: unknown, report: RecordShapeReport) => Record<string, Record<string, unknown>>,
+	report: (what: string) => void
+): Record<string, Record<string, unknown>> {
+	const refused: Parameters<RecordShapeReport>[0]["kind"][] = [];
+	const records = normalize(raw, (problem) => refused.push(problem.kind));
+	const count = (kind: (typeof refused)[number]) => refused.filter((refusal) => refusal === kind).length;
+	if (count("map") > 0) {
+		report(`has a models.${slot} value that is not an object, ignored`);
+	}
+	const entries = count("entry");
+	if (entries > 0) {
+		report(`has ${entries} models.${slot} entry(s) that are not objects, ignored`);
+	}
+	const reserved = count("reserved-key");
+	if (reserved > 0) {
+		report(`has ${reserved} models.${slot} entry(s) under a reserved name, ignored`);
+	}
+	return records;
+}
+
+/**
  * The accepted entries with their raw-array indices: the single place the acceptance rules live, so
  * parseServersSetting and acceptedEntry cannot disagree about which raw entry a label resolves to.
  */
@@ -615,26 +642,16 @@ function acceptEntries(
 			}
 			// The records normalizer is the one shape classifier; its refusals ride this entry's report so a
 			// `"gpt-4": "oops"` does not read as "no per-entry records" in silence.
-			const shapeReport =
-				(slot: "parameters" | "capabilities"): RecordShapeReport =>
-				(problem) => {
-					switch (problem.kind) {
-						case "map":
-							report(`has a models.${slot} value that is not an object, ignored`);
-							break;
-						case "entry":
-							report(`has a models.${slot} entry "${problem.key}" that is not an object, ignored`);
-							break;
-						case "reserved-key":
-							report(`has a models.${slot} entry "${problem.key}" under a reserved name, ignored`);
-							break;
-					}
-				};
-			const modelParameters = normalizeModelParameters(models.parameters, shapeReport("parameters"));
+			const modelParameters = countedEntryRecords(models.parameters, "parameters", normalizeModelParameters, report);
 			if (Object.keys(modelParameters).length > 0) {
 				entry.modelParameters = modelParameters;
 			}
-			const modelCapabilities = normalizeModelCapabilities(models.capabilities, shapeReport("capabilities"));
+			const modelCapabilities = countedEntryRecords(
+				models.capabilities,
+				"capabilities",
+				normalizeModelCapabilities,
+				report
+			);
 			if (Object.keys(modelCapabilities).length > 0) {
 				entry.modelCapabilities = modelCapabilities;
 			}

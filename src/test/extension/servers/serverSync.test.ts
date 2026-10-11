@@ -485,7 +485,7 @@ suite("extension/servers/serverSync", () => {
 	});
 
 	suite("per-entry modelParameters", () => {
-		test("parseServersSetting keeps a usable record and reports malformed shapes by key without rejecting the entry", () => {
+		test("parseServersSetting keeps a usable record and reports malformed shapes by count without rejecting the entry", () => {
 			const { entries, problems } = parseServersSetting([
 				{
 					label: "Prod",
@@ -503,11 +503,11 @@ suite("extension/servers/serverSync", () => {
 				{ label: "Bare", baseUrl: "http://bare.test" },
 			]);
 
-			// A malformed shape never rejects the entry, and it is named (the key is user configuration): it used to
-			// read as "no per-entry records" in silence.
+			// A malformed shape never rejects the entry, and it is counted, never named: the problems are logged into the
+			// issue report and model IDs are user text.
 			assert.deepStrictEqual(problems, [
-				'entry 1 has a models.parameters entry "claude" that is not an object, ignored',
-				'entry 1 has a models.parameters entry "__proto__" under a reserved name, ignored',
+				"entry 1 has 1 models.parameters entry(s) that are not objects, ignored",
+				"entry 1 has 1 models.parameters entry(s) under a reserved name, ignored",
 				"entry 2 has a models.parameters value that is not an object, ignored",
 			]);
 			assert.strictEqual(entries.length, 4, "every entry is accepted");
@@ -634,12 +634,11 @@ suite("extension/servers/serverSync", () => {
 				{ label: "Bare", baseUrl: "http://bare.test" },
 			]);
 
-			// Unknown expectedFailures values are counted, never echoed: the
-			// problems are logged and the tokens are user text. A malformed
-			// records shape is named by its key, which is user configuration.
+			// Unknown expectedFailures values and refused records keys alike are counted, never echoed: the problems are
+			// logged and both are user text.
 			assert.deepStrictEqual(problems, [
-				'entry 1 has a models.capabilities entry "claude" that is not an object, ignored',
-				'entry 1 has a models.capabilities entry "__proto__" under a reserved name, ignored',
+				"entry 1 has 1 models.capabilities entry(s) that are not objects, ignored",
+				"entry 1 has 1 models.capabilities entry(s) under a reserved name, ignored",
 				"entry 1 lists 2 unknown discovery.expectedFailures value(s), ignored",
 				"entry 1 lists 2 unknown discovery.includeModes value(s), ignored",
 				"entry 2 has a models.capabilities value that is not an object, ignored",
