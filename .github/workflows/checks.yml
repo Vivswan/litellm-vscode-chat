@@ -229,6 +229,11 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # The fetch imports openai's error classes; without node_modules bun would auto-install that package outside the
+      # lockfile and the step would still pass.
+      - name: Set up development environment
+        run: bun scripts/env/setup-env.ts
+
       # A third-party outage must not block landing on main, so push-to-main runs opt into the script's lenient mode.
       # The file, not the exit code, says whether the catalog was fetched.
       #
