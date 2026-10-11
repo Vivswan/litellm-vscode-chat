@@ -388,11 +388,10 @@ function parseVirtualKeyObject(raw: unknown, path: string): { fields: FlatAuthFi
 }
 
 export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; problems: string[] } {
-	if (raw === undefined || raw === null) {
-		return { entries: [], problems: [] };
-	}
+	// The problems are per entry. A container that is not an array (undefined, null, a mid-edit value) has none, and
+	// what it means for a sync pass is classified and logged once by the engine's finishPass.
 	if (!Array.isArray(raw)) {
-		return { entries: [], problems: ["the servers setting is not an array"] };
+		return { entries: [], problems: [] };
 	}
 	const problems: string[] = [];
 	return { entries: acceptEntries(raw, problems).map(({ entry }) => entry), problems };
@@ -516,6 +515,51 @@ function knownTokens<T extends string>(
 	return [...new Set(known)];
 }
 
+/** The two places an entry's problems go; acceptEntries says what each may carry. */
+interface EntryReportChannels {
+	readonly log: (what: string) => void;
+	readonly row: (what: string) => void;
+}
+
+/**
+ * A refused model ID is user text: the dashboard row names it, since that row is where a user finds which entry is
+ * malformed, and the log counts it like knownTokens counts unknown tokens.
+ */
+function reportedEntryRecords(
+	raw: unknown,
+	slot: "parameters" | "capabilities",
+	normalize: (raw: unknown, report: RecordShapeReport) => Record<string, Record<string, unknown>>,
+	channels: EntryReportChannels
+): Record<string, Record<string, unknown>> {
+	let entries = 0;
+	let reserved = 0;
+	const records = normalize(raw, (problem) => {
+		switch (problem.kind) {
+			case "map": {
+				const what = `has a models.${slot} value that is not an object, ignored`;
+				channels.log(what);
+				channels.row(what);
+				break;
+			}
+			case "entry":
+				entries += 1;
+				channels.row(`has a models.${slot} entry "${problem.key}" that is not an object, ignored`);
+				break;
+			case "reserved-key":
+				reserved += 1;
+				channels.row(`has a models.${slot} entry "${problem.key}" under a reserved name, ignored`);
+				break;
+		}
+	});
+	if (entries > 0) {
+		channels.log(`has ${entries} models.${slot} entry(s) that are not objects, ignored`);
+	}
+	if (reserved > 0) {
+		channels.log(`has ${reserved} models.${slot} entry(s) under a reserved name, ignored`);
+	}
+	return records;
+}
+
 /**
  * The accepted entries with their raw-array indices: the single place the acceptance rules live, so
  * parseServersSetting and acceptedEntry cannot disagree about which raw entry a label resolves to.
@@ -528,11 +572,16 @@ function acceptEntries(
 	const accepted: { index: number; entry: DeclaredServer }[] = [];
 	const seen = new Set<string>();
 	raw.forEach((item: unknown, index) => {
-		// One prefix for everything reported about this entry: the problems are logged, so they reference the entry by
-		// index and structural key names only, never by entered values.
+		// Two channels for everything reported about this entry. `problems` is logged into the issue report, so it
+		// references the entry by index and structural key names only, never by entered values; `reportTo` draws the
+		// dashboard's diagnostics rows and may name the key the user has to find. Most problems go to both.
+		const channels: EntryReportChannels = {
+			log: (what) => problems?.push(`entry ${index + 1} ${what}`),
+			row: (what) => reportTo?.(index, what),
+		};
 		const report = (what: string) => {
-			problems?.push(`entry ${index + 1} ${what}`);
-			reportTo?.(index, what);
+			channels.log(what);
+			channels.row(what);
 		};
 		const record = objectSlot(item, "is not an object", report);
 		if (record === undefined) {
@@ -615,26 +664,16 @@ function acceptEntries(
 			}
 			// The records normalizer is the one shape classifier; its refusals ride this entry's report so a
 			// `"gpt-4": "oops"` does not read as "no per-entry records" in silence.
-			const shapeReport =
-				(slot: "parameters" | "capabilities"): RecordShapeReport =>
-				(problem) => {
-					switch (problem.kind) {
-						case "map":
-							report(`has a models.${slot} value that is not an object, ignored`);
-							break;
-						case "entry":
-							report(`has a models.${slot} entry "${problem.key}" that is not an object, ignored`);
-							break;
-						case "reserved-key":
-							report(`has a models.${slot} entry "${problem.key}" under a reserved name, ignored`);
-							break;
-					}
-				};
-			const modelParameters = normalizeModelParameters(models.parameters, shapeReport("parameters"));
+			const modelParameters = reportedEntryRecords(models.parameters, "parameters", normalizeModelParameters, channels);
 			if (Object.keys(modelParameters).length > 0) {
 				entry.modelParameters = modelParameters;
 			}
-			const modelCapabilities = normalizeModelCapabilities(models.capabilities, shapeReport("capabilities"));
+			const modelCapabilities = reportedEntryRecords(
+				models.capabilities,
+				"capabilities",
+				normalizeModelCapabilities,
+				channels
+			);
 			if (Object.keys(modelCapabilities).length > 0) {
 				entry.modelCapabilities = modelCapabilities;
 			}

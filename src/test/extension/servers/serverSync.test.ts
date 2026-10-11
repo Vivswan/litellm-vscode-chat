@@ -26,6 +26,7 @@ import {
 	entryModelParametersFor,
 	entrySupersedingBaseUrl,
 	parseServersSetting,
+	serverSettingReports,
 } from "../../../extension/servers/serverSync/setting";
 import { parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { CMD } from "../../../shared/config/commandIds";
@@ -57,10 +58,11 @@ suite("extension/servers/serverSync", () => {
 			);
 		});
 
-		test("an absent or non-array setting reads as empty", () => {
+		test("an absent or non-array setting reads as empty, with no entry problem", () => {
+			// The container's shape is the sync engine's one log line per pass (finishPass); a parse problem here would
+			// put a second line into the issue report on every pass of a mid-edit settings.json.
 			assert.deepStrictEqual(parseServersSetting(undefined), { entries: [], problems: [] });
-			assert.strictEqual(parseServersSetting("junk").entries.length, 0);
-			assert.strictEqual(parseServersSetting("junk").problems.length, 1);
+			assert.deepStrictEqual(parseServersSetting("junk"), { entries: [], problems: [] });
 		});
 
 		test("declaresServerRows counts a rejected entry that has a Misconfigured row as configured", () => {
@@ -485,8 +487,8 @@ suite("extension/servers/serverSync", () => {
 	});
 
 	suite("per-entry modelParameters", () => {
-		test("parseServersSetting keeps a usable record and reports malformed shapes by key without rejecting the entry", () => {
-			const { entries, problems } = parseServersSetting([
+		test("parseServersSetting keeps a usable record and reports malformed shapes by count without rejecting the entry", () => {
+			const raw = [
 				{
 					label: "Prod",
 					baseUrl: "http://prod.test",
@@ -501,15 +503,29 @@ suite("extension/servers/serverSync", () => {
 				{ label: "Junk", baseUrl: "http://junk.test", models: { parameters: "junk" } },
 				{ label: "Empty", baseUrl: "http://empty.test", models: { parameters: {} } },
 				{ label: "Bare", baseUrl: "http://bare.test" },
-			]);
+			];
+			const { entries, problems } = parseServersSetting(raw);
 
-			// A malformed shape never rejects the entry, and it is named (the key is user configuration): it used to
-			// read as "no per-entry records" in silence.
+			// A malformed shape never rejects the entry. The parser's problems are logged into the issue report, so they
+			// count the refused model IDs (user text); the dashboard rows are where a user finds WHICH entry is malformed,
+			// so they name the key. One shared text once stripped the key from the rows; this pins both renderings.
 			assert.deepStrictEqual(problems, [
-				'entry 1 has a models.parameters entry "claude" that is not an object, ignored',
-				'entry 1 has a models.parameters entry "__proto__" under a reserved name, ignored',
+				"entry 1 has 1 models.parameters entry(s) that are not objects, ignored",
+				"entry 1 has 1 models.parameters entry(s) under a reserved name, ignored",
 				"entry 2 has a models.parameters value that is not an object, ignored",
 			]);
+			assert.deepStrictEqual(
+				serverSettingReports(raw).map((report) => report.problems),
+				[
+					[
+						'has a models.parameters entry "claude" that is not an object, ignored',
+						'has a models.parameters entry "__proto__" under a reserved name, ignored',
+					],
+					["has a models.parameters value that is not an object, ignored"],
+					[],
+					[],
+				]
+			);
 			assert.strictEqual(entries.length, 4, "every entry is accepted");
 			assert.deepStrictEqual(entries[0]?.modelParameters, { "gpt-4": { temperature: 0.2, stop: ["END"] } });
 			for (const entry of entries.slice(1)) {
@@ -634,12 +650,11 @@ suite("extension/servers/serverSync", () => {
 				{ label: "Bare", baseUrl: "http://bare.test" },
 			]);
 
-			// Unknown expectedFailures values are counted, never echoed: the
-			// problems are logged and the tokens are user text. A malformed
-			// records shape is named by its key, which is user configuration.
+			// Unknown expectedFailures values and refused records keys alike are counted, never echoed: the problems are
+			// logged and both are user text.
 			assert.deepStrictEqual(problems, [
-				'entry 1 has a models.capabilities entry "claude" that is not an object, ignored',
-				'entry 1 has a models.capabilities entry "__proto__" under a reserved name, ignored',
+				"entry 1 has 1 models.capabilities entry(s) that are not objects, ignored",
+				"entry 1 has 1 models.capabilities entry(s) under a reserved name, ignored",
 				"entry 1 lists 2 unknown discovery.expectedFailures value(s), ignored",
 				"entry 1 lists 2 unknown discovery.includeModes value(s), ignored",
 				"entry 2 has a models.capabilities value that is not an object, ignored",

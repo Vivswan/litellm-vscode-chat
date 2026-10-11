@@ -80,17 +80,14 @@ function isAcceptableAt(raw: readonly unknown[], index: number, seen: ReadonlySe
 }
 
 suite("extension/servers/serverSync parsing properties", () => {
-	test("parseServersSetting is total; non-arrays yield no entries and one problem", () => {
+	test("parseServersSetting is total; non-arrays yield no entries and no problems", () => {
 		fc.assert(
 			fc.property(fc.oneof(fc.jsonValue(), fc.anything()), (raw) => {
 				const { entries, problems } = parseServersSetting(raw);
 				assert.ok(Array.isArray(entries));
-				if (raw === undefined || raw === null) {
+				if (!Array.isArray(raw)) {
 					assert.deepStrictEqual(entries, []);
 					assert.deepStrictEqual(problems, []);
-				} else if (!Array.isArray(raw)) {
-					assert.deepStrictEqual(entries, []);
-					assert.strictEqual(problems.length, 1);
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
