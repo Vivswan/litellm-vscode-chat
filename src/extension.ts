@@ -124,7 +124,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	});
 	wireUsageSurfaces(context, logger, { usagePoller: servers.usagePoller, dashboard });
 	wireCatalogRefresh(context, logger, { catalogStore, notifyModelsChanged, dashboard });
-	wireGroupRemovalReactions(logger, { groupRemovals: storage.groupRemovals, provider, dashboard });
+	wireGroupRemovalReactions(logger, { groupRemovals: storage.groupRemovals, notifyModelsChanged, dashboard });
 
 	// Test-only commands; registered after the sync engine and the dashboard exist because the suites read the engine's
 	// declared views through them and the monkey fuzzer injects dashboard messages.

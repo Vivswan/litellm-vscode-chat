@@ -13,18 +13,22 @@ function countingMemento(initial: Record<string, unknown>): {
 	memento: RemovalMemento;
 	store: Map<string, unknown>;
 	reads: () => number;
+	writes: () => number;
 } {
 	const store = new Map<string, unknown>(Object.entries(initial));
 	let reads = 0;
+	let writes = 0;
 	return {
 		store,
 		reads: () => reads,
+		writes: () => writes,
 		memento: {
 			get: (key) => {
 				reads += 1;
 				return store.get(key);
 			},
 			update: async (key, value) => {
+				writes += 1;
 				store.set(key, value);
 			},
 		},
@@ -91,4 +95,48 @@ test("a lookup costs one storage read however many tombstones stand, and its ans
 	expect(await removals.removeTombstone({ label: "Foreign", baseUrl: "http://foreign.test/" })).toBe(true);
 	expect(removals.isTombstoned(stamped("Foreign", "http://foreign.test"))).toBe(false);
 	expect(removals.hasTombstone("Foreign", "http://foreign.test")).toBe(false);
+});
+
+test("a batch of tombstones is one mutation: one change event, one persist, and per-identity answers as addTombstone gives them", async () => {
+	// Every change event is a host re-resolve of every group, so a reconcile recording two or three identities per
+	// removed entry must not fire per identity. Under a session-only salt the group-keyed records stay in memory.
+	const { memento, store, writes } = countingMemento({});
+	const removals = new GroupRemovalStore(memento, { confirmDurable: async () => "session-only" });
+	let changes = 0;
+	removals.onDidChange = () => {
+		changes += 1;
+	};
+	const entry: TombstoneIdentity = { by: "entry", label: "A", baseUrl: "http://a.test/" };
+	const again: TombstoneIdentity = { by: "entry", label: "A", baseUrl: "http://a.test" };
+	const first: TombstoneIdentity = { by: "group", groupId: "client:1", label: "A", baseUrl: "http://a.test" };
+	const second: TombstoneIdentity = { by: "group", groupId: "client:2", label: "A", baseUrl: "http://a.test" };
+
+	const recorded = await removals.addTombstones([entry, first, again, second]);
+	expect(recorded).toEqual([
+		{ identity: entry, persistence: "durable", added: true },
+		{ identity: first, persistence: "session-only", added: true },
+		{ identity: again, persistence: "durable", added: false },
+		{ identity: second, persistence: "session-only", added: true },
+	]);
+	expect(recorded.map((record) => record.identity)).toEqual([entry, first, again, second]);
+	expect(changes).toBe(1);
+	expect(writes()).toBe(1);
+	expect(removals.tombstones()).toEqual([
+		{ by: "entry", label: "A", baseUrl: "http://a.test" },
+		{ by: "group", groupId: "client:1", label: "A", baseUrl: "http://a.test" },
+		{ by: "group", groupId: "client:2", label: "A", baseUrl: "http://a.test" },
+	]);
+	expect(store.get(REMOVED_GROUP_TOMBSTONES_KEY)).toEqual({
+		version: "1",
+		records: [{ by: "entry", label: "A", baseUrl: "http://a.test" }],
+	});
+	expect(removals.isTombstoned(unstamped("client:2", "a.test", "http://a.test"))).toBe(true);
+
+	// Nothing new: no event, and the durable record's re-persist heals an earlier failed write.
+	expect(await removals.addTombstones([entry, second])).toEqual([
+		{ identity: entry, persistence: "durable", added: false },
+		{ identity: second, persistence: "session-only", added: false },
+	]);
+	expect(changes).toBe(1);
+	expect(writes()).toBe(2);
 });

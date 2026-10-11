@@ -54,6 +54,11 @@ export interface TombstoneRecording {
 	readonly added: boolean;
 }
 
+/** One identity's recording inside an addTombstones batch, under the identity object the caller passed. */
+export interface TombstoneRecorded extends TombstoneRecording {
+	readonly identity: TombstoneIdentity;
+}
+
 export interface DeclaredGroupClaim {
 	readonly label: string;
 	readonly baseUrl: string;
@@ -480,32 +485,63 @@ export class GroupRemovalStore {
 	 * hold it: confirmed at the write, like the sync engine's fingerprints, because the salt can downgrade mid-session.
 	 */
 	async addTombstone(identity: TombstoneIdentity): Promise<TombstoneRecording> {
-		const normalized: TombstoneIdentity = { ...identity, baseUrl: normalizeBaseUrl(identity.baseUrl) };
-		const persistence: TombstonePersistence =
-			normalized.by === "group" && (await this.salt.confirmDurable()) !== "durable" ? "session-only" : "durable";
+		const [recorded] = await this.addTombstones([identity]);
+		return { persistence: recorded.persistence, added: recorded.added };
+	}
+
+	/**
+	 * Record several tombstones as one mutation: one commit, one change event, one persist. A reconcile records two or
+	 * three identities per removed entry, and every change event makes the host re-resolve every group it holds, so
+	 * recording them one by one multiplied that re-resolve by the batch size. Each recording answers for one identity
+	 * as addTombstone would have, in the order given.
+	 */
+	async addTombstones(
+		identities: readonly [TombstoneIdentity, ...TombstoneIdentity[]]
+	): Promise<readonly [TombstoneRecorded, ...TombstoneRecorded[]]> {
+		const saltDurable = identities.some((identity) => identity.by === "group")
+			? (await this.salt.confirmDurable()) === "durable"
+			: true;
 		const current = this.tombstoneRegion.list();
-		const changed = !current.some((existing) => sameTombstoneIdentity(existing, normalized));
-		if (!changed) {
-			// The re-persist heals an earlier failed write; a session-only record has nothing of its own to write.
-			if (persistence === "durable") {
+		const standing = [...current];
+		const durableAdded: TombstoneIdentity[] = [];
+		const transientAdded: TombstoneIdentity[] = [];
+		const record = (identity: TombstoneIdentity): TombstoneRecorded => {
+			const normalized: TombstoneIdentity = { ...identity, baseUrl: normalizeBaseUrl(identity.baseUrl) };
+			const persistence: TombstonePersistence = normalized.by === "group" && !saltDurable ? "session-only" : "durable";
+			if (standing.some((existing) => sameTombstoneIdentity(existing, normalized))) {
+				return { identity, persistence, added: false };
+			}
+			standing.push(normalized);
+			(persistence === "durable" ? durableAdded : transientAdded).push(normalized);
+			return { identity, persistence, added: true };
+		};
+		const [first, ...rest] = identities;
+		const recordings = [record(first), ...rest.map(record)] as const;
+		// An existing durable record re-persists to heal an earlier failed write; a session-only record has nothing of
+		// its own to write.
+		const persist = recordings.some((recording) => recording.persistence === "durable");
+		if (durableAdded.length === 0 && transientAdded.length === 0) {
+			if (persist) {
 				await this.tombstoneRegion.persistCommitted();
 			}
-			return { persistence, added: false };
+			return recordings;
 		}
-		if (persistence === "session-only") {
-			this.tombstoneRegion.commitTransient(normalized);
-			this.didChangeListener?.();
-			return { persistence, added: true };
+		if (durableAdded.length > 0) {
+			this.tombstoneRegion.commit([...current, ...durableAdded]);
 		}
-		this.tombstoneRegion.commit([...current, normalized]);
+		for (const identity of transientAdded) {
+			this.tombstoneRegion.commitTransient(identity);
+		}
 		try {
 			this.didChangeListener?.();
 		} finally {
 			// A throwing listener must not skip the persist: the committed state is the effective one and has to reach
 			// storage.
-			await this.tombstoneRegion.persistCommitted();
+			if (persist) {
+				await this.tombstoneRegion.persistCommitted();
+			}
 		}
-		return { persistence, added: true };
+		return recordings;
 	}
 
 	/** Clear every tombstone shown under the identity (the line's row), whatever key each hides by. */
