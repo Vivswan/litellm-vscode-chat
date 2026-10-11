@@ -50,11 +50,19 @@ jobs:
       security-events: write
       vulnerability-alerts: read
 
+  # Repo-owned: edit release-gate.yml, not this file. The release acceptance tier (docs/all-green.md). The branch
+  # prefix is release-please's own, spelled as in fleet.yml's release-pr job; the no-op seed never gates a run red.
+  release-gate:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--'))
+    uses: ./.github/workflows/release-gate.yml
+
   # THE gate: this job's own check run (named all-green, created by the GitHub Actions app) is the ruleset's required
-  # check. It passes only when each needed result is success. `checks` alone may skip (the schedule run); `platform`
-  # never may, so an all-skipped run cannot pass.
+  # check. It passes only when each needed result is success. `checks` (the schedule run) and `release-gate` (every
+  # event but the release PR and a dispatch) may skip; `platform` never may, so an all-skipped run cannot pass.
   all-green:
-    needs: [checks, platform]
+    needs: [checks, platform, release-gate]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -62,7 +70,7 @@ jobs:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-skips: checks
+          allowed-skips: checks, release-gate
 
   # Repo-owned: edit post-green.yml, not this file. No job lane here: a caller holding a lane a called job takes deadlocks the call.
   # !cancelled(): the implicit success() reads the whole needs chain, so a gating job skipped by its condition would skip this job past a green gate.

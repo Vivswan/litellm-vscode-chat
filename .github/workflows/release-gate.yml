@@ -1,0 +1,19 @@
+# Runs this repository's release acceptance tests: the tier that is critical for a release but need not run on every
+# merge (slow, environment-heavy, or network-bound). The managed ci.yml calls it on the release PR and on a dispatch,
+# where all-green blocks on it; the nightly starter calls it on the schedule (docs/all-green.md, "The release-gate hook").
+#
+# This file is repo-owned, seeded once by the fleet sync and never overwritten by a later sync.
+#
+# Replace the no-op job with this repository's tiers; the caller grants no secrets and caps at contents: read.
+
+name: Release Gate
+
+on:
+  workflow_call:
+
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "release-gate hook - nothing configured"
