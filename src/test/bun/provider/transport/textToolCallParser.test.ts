@@ -39,8 +39,8 @@ describe("provider/transport textToolCallParser: a begin sigil that no header fo
 		const parser = new TextToolCallParser();
 
 		const events = [
-			...parser.push(`${BEGIN}get_wea`).events,
-			...parser.push(`ther:3${ARG_BEGIN}{"city":"oslo"}`).events,
+			...parser.push(`${BEGIN}get_weat`).events,
+			...parser.push(`her:3${ARG_BEGIN}{"city":"oslo"}`).events,
 			...parser.push(`${END} done`).events,
 		];
 
