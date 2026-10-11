@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { StreamProcessor } from "../../../provider/transport/streaming/processor";
+import type { ChatCompletionChunk } from "../../../provider/transport/wire";
 import { expectDefined } from "../../pureHelpers";
 import { collector, eventSequenceOf, idSource, toolCallsOf, visibleTextOf } from "./streamingHelpers";
 
@@ -366,4 +367,80 @@ suite("provider/streaming inline token byte-boundary splits", () => {
 			assert.deepEqual(call.input, {}, `Tool args diverged at split offset ${i}`);
 		}
 	});
+});
+
+suite("provider/streaming tool calls without an index", () => {
+	/**
+	 * Servers that omit `index` identify a call by its id alone. Every index-less delta used to normalize to index 0,
+	 * so two parallel calls shared one buffer: the first emitted and retired slot 0, and the second was skipped as a
+	 * late delta of a finished call. It vanished without a log.
+	 */
+	const alpha = { callId: "call_a", name: "alpha", input: { n: 1 } };
+	const bravo = { callId: "call_b", name: "bravo", input: { n: 2 } };
+	const cases: Array<{ shape: string; chunks: ChatCompletionChunk[]; expected: (typeof alpha)[] }> = [
+		{
+			shape: "two complete calls in one chunk",
+			chunks: [
+				{
+					choices: [
+						{
+							delta: {
+								tool_calls: [
+									{ id: "call_a", type: "function", function: { name: "alpha", arguments: '{"n":1}' } },
+									{ id: "call_b", type: "function", function: { name: "bravo", arguments: '{"n":2}' } },
+								],
+							},
+						},
+					],
+				},
+			],
+			expected: [alpha, bravo],
+		},
+		{
+			shape: "two calls interleaved across chunks with the id on every delta",
+			chunks: [
+				{ choices: [{ delta: { tool_calls: [{ id: "call_a", function: { name: "alpha", arguments: '{"n":' } }] } }] },
+				{ choices: [{ delta: { tool_calls: [{ id: "call_b", function: { name: "bravo", arguments: '{"n":' } }] } }] },
+				{ choices: [{ delta: { tool_calls: [{ id: "call_a", function: { arguments: "1}" } }] } }] },
+				{ choices: [{ delta: { tool_calls: [{ id: "call_b", function: { arguments: "2}" } }] } }] },
+			],
+			expected: [alpha, bravo],
+		},
+		{
+			shape: "one call whose continuation deltas carry neither index nor id",
+			chunks: [
+				{ choices: [{ delta: { tool_calls: [{ id: "call_a", function: { name: "alpha", arguments: '{"n":' } }] } }] },
+				{ choices: [{ delta: { tool_calls: [{ function: { arguments: "1}" } }] } }] },
+			],
+			expected: [alpha],
+		},
+		{
+			// Some servers close every call with an empty-arguments frame; one for a call that already emitted is
+			// refused, and the refusal must not strand the bare continuations of the call still streaming.
+			shape: "a trailing empty-arguments frame for an emitted call while a second call streams",
+			chunks: [
+				{ choices: [{ delta: { tool_calls: [{ id: "call_a", function: { name: "alpha", arguments: '{"n":1}' } }] } }] },
+				{ choices: [{ delta: { tool_calls: [{ id: "call_b", function: { name: "bravo", arguments: '{"n":' } }] } }] },
+				{ choices: [{ delta: { tool_calls: [{ id: "call_a", function: { arguments: "" } }] } }] },
+				{ choices: [{ delta: { tool_calls: [{ function: { arguments: "2}" } }] } }] },
+			],
+			expected: [alpha, bravo],
+		},
+	];
+	for (const { shape, chunks, expected } of cases) {
+		test(`${shape}: every call emits once with its own id`, () => {
+			const { parts, progress } = collector();
+			const stream = new StreamProcessor(idSource(), () => {}, progress);
+
+			for (const chunk of chunks) {
+				stream.processDelta(chunk);
+			}
+			stream.endOfStream();
+
+			assert.deepStrictEqual(
+				toolCallsOf(parts).map((p) => ({ callId: p.callId, name: p.name, input: p.input })),
+				expected
+			);
+		});
+	}
 });

@@ -20,7 +20,7 @@ import { tryParseJSONObject } from "../../../shared/util/json";
 import type { TextParseResult, TextToolCall } from "../textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "../textToolCallParser";
 import { streamErrorFrame } from "../transportErrors";
-import type { ChatCompletionChunk, ChunkAudio, ChunkDelta, ChunkSearchResult, ToolCallBuffer } from "../wire";
+import type { ChatCompletionChunk, ChunkAudio, ChunkDelta, ChunkSearchResult } from "../wire";
 import { parseChunk } from "../wire";
 import { ToolCallLedger } from "./dedup";
 import type { AudioBuffer } from "./media";
@@ -33,6 +33,7 @@ import {
 	REASONING_ONLY_RESPONSE_MESSAGE,
 	reasoningOnlyResponseMessage,
 } from "./thinking";
+import { type ToolCallSlot, ToolCallSlots } from "./toolCallSlots";
 import { knownUsageCounts, usageDataPartPayload } from "./usage";
 
 /**
@@ -47,22 +48,8 @@ export interface ResponsePartSink {
 	report(part: vscode.LanguageModelResponsePart): void;
 }
 
-function normalizeToolCallIndex(index: number | string | undefined): number {
-	if (typeof index === "number") {
-		return index;
-	}
-	if (typeof index === "string" && index.trim() !== "") {
-		const parsed = Number(index);
-		if (Number.isFinite(parsed)) {
-			return parsed;
-		}
-	}
-	return 0;
-}
-
 interface RequestState {
-	toolCallBuffers: Map<number, ToolCallBuffer>;
-	completedToolCallIndices: Set<number>;
+	toolCalls: ToolCallSlots;
 	hasEmittedAssistantText: boolean;
 	emittedBeginToolCallsHint: boolean;
 	textParser: TextToolCallParser;
@@ -84,8 +71,7 @@ interface RequestState {
 
 function freshRequestState(): RequestState {
 	return {
-		toolCallBuffers: new Map(),
-		completedToolCallIndices: new Set(),
+		toolCalls: new ToolCallSlots(),
 		hasEmittedAssistantText: false,
 		emittedBeginToolCallsHint: false,
 		textParser: new TextToolCallParser(),
@@ -355,23 +341,10 @@ export class StreamProcessor {
 			}
 
 			for (const tc of delta.tool_calls) {
-				const idx = normalizeToolCallIndex(tc.index);
-				if (this._req.completedToolCallIndices.has(idx)) {
-					continue;
+				const slot = this._req.toolCalls.accept(tc);
+				if (slot !== undefined) {
+					this.tryEmitBufferedToolCall(slot);
 				}
-				const buf = this._req.toolCallBuffers.get(idx) ?? { args: "" };
-				if (tc.id) {
-					buf.id = tc.id;
-				}
-				if (tc.function?.name) {
-					buf.name = tc.function.name;
-				}
-				if (typeof tc.function?.arguments === "string") {
-					buf.args += tc.function.arguments;
-				}
-				this._req.toolCallBuffers.set(idx, buf);
-
-				this.tryEmitBufferedToolCall(idx);
 			}
 		}
 
@@ -525,15 +498,14 @@ export class StreamProcessor {
 
 	private emitToolCall(
 		call: { id?: string | undefined; name: string; parsedArgs: Record<string, unknown> },
-		bufferIndex?: number
+		slot?: ToolCallSlot
 	): boolean {
-		const source = bufferIndex === undefined ? "inline" : "delta";
+		const source = slot === undefined ? "inline" : "delta";
 		const key = `${call.name}:${JSON.stringify(call.parsedArgs)}`;
 
 		const retireBuffer = () => {
-			if (bufferIndex !== undefined) {
-				this._req.toolCallBuffers.delete(bufferIndex);
-				this._req.completedToolCallIndices.add(bufferIndex);
+			if (slot !== undefined) {
+				this._req.toolCalls.retire(slot);
 			}
 		};
 
@@ -551,8 +523,8 @@ export class StreamProcessor {
 		return true;
 	}
 
-	private tryEmitBufferedToolCall(index: number): void {
-		const buf = this._req.toolCallBuffers.get(index);
+	private tryEmitBufferedToolCall(slot: ToolCallSlot): void {
+		const buf = this._req.toolCalls.get(slot);
 		if (!buf?.name) {
 			return;
 		}
@@ -560,7 +532,7 @@ export class StreamProcessor {
 		if (!parsed.ok) {
 			return;
 		}
-		this.emitToolCall({ id: buf.id, name: buf.name, parsedArgs: parsed.value }, index);
+		this.emitToolCall({ id: buf.id, name: buf.name, parsedArgs: parsed.value }, slot);
 	}
 
 	/**
@@ -582,16 +554,18 @@ export class StreamProcessor {
 		const finalArgsText = (args: string) => (emptyArgsAreNoArgs ? StreamProcessor.flushArgsText(args) : args);
 		let invalidCount = 0;
 
-		for (const [index, buf] of this._req.toolCallBuffers) {
+		for (const [slot, buf] of this._req.toolCalls.entries()) {
 			const parsed = tryParseJSONObject(finalArgsText(buf.args));
 			if (!parsed.ok) {
-				// Classification only: buffered arguments are response text.
-				this._log("Invalid JSON for tool call", { index, argsLength: buf.args.length });
+				// Classification only: buffered arguments are response text, and so is a server-minted call id.
+				this._log("Invalid JSON for tool call", {
+					index: typeof slot === "number" ? slot : "none",
+					argsLength: buf.args.length,
+				});
 				invalidCount++;
-				this._req.toolCallBuffers.delete(index);
 				continue;
 			}
-			this.emitToolCall({ id: buf.id, name: buf.name ?? "unknown_tool", parsedArgs: parsed.value }, index);
+			this.emitToolCall({ id: buf.id, name: buf.name ?? "unknown_tool", parsedArgs: parsed.value }, slot);
 		}
 
 		const rest = this._req.textParser.flush();

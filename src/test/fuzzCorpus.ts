@@ -229,6 +229,44 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 		mode: "both",
 		events: [{ label: "empty", chunks: [] }],
 	},
+	{
+		// Parallel calls whose deltas carry no index: keyed to index 0 together, the first emitted and the rest were
+		// skipped as late deltas of a finished call. Direct only: the proxy's handling of index-less deltas is its own.
+		name: "indexless-parallel-tool-calls",
+		mode: "direct",
+		events: [
+			{
+				label: "indexless-parallel-tools",
+				deltaToolChannel: true,
+				tools: [
+					{ name: "get_weather", args: { seq: 0 } },
+					{ name: "search_docs", args: { seq: 1 } },
+				],
+				chunks: [
+					chunk({
+						tool_calls: [
+							{ id: "call_fuzz_0", type: "function", function: { name: "get_weather", arguments: '{"seq":0}' } },
+							{ id: "call_fuzz_1", type: "function", function: { name: "search_docs", arguments: '{"seq":1}' } },
+						],
+					}),
+				],
+			},
+			{
+				label: "indexless-parallel-tools",
+				deltaToolChannel: true,
+				tools: [
+					{ name: "run_query", args: { seq: 2, q: "a" } },
+					{ name: "get_weather", args: { seq: 3, city: "b" } },
+				],
+				chunks: [
+					chunk({ tool_calls: [{ id: "call_fuzz_2", function: { name: "run_query", arguments: '{"seq":2,' } }] }),
+					chunk({ tool_calls: [{ id: "call_fuzz_3", function: { name: "get_weather", arguments: '{"seq":3,' } }] }),
+					chunk({ tool_calls: [{ id: "call_fuzz_2", function: { arguments: '"q":"a"}' } }] }),
+					chunk({ tool_calls: [{ id: "call_fuzz_3", function: { arguments: '"city":"b"}' } }] }),
+				],
+			},
+		],
+	},
 ];
 
 /**
