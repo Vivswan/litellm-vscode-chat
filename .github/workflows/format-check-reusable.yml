@@ -43,8 +43,10 @@ jobs:
       - name: Lint (Biome, then ESLint for the type-aware promise rules and the restricted-API rules)
         run: bun run lint
 
-      - name: Type-check helper scripts
-        run: bunx tsc --noEmit -p tsconfig.scripts.json
+      # The pre-commit hook's check:static runs knip too, but a --no-verify commit or a web edit skips the hook; this is
+      # the gate's one run of it. The typecheck job of checks.yml covers the helper scripts with the other projects.
+      - name: Unused files, exports, and dependencies (knip)
+        run: bun run lint:knip
 
       - name: Check the localization catalogs
         run: bun run l10n:check
