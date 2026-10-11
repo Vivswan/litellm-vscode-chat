@@ -2,6 +2,13 @@ const BEGIN = "<|tool_call_begin|>";
 const ARG_BEGIN = "<|tool_call_argument_begin|>";
 const ARG_END = "<|tool_call_argument_end|>";
 const END = "<|tool_call_end|>";
+/**
+ * The most header text (the tool name and its optional ":index") held behind a begin sigil while its argument-begin or
+ * end token is still to come. The OpenAI API caps function names at 64 characters, so four times that clears longer
+ * MCP-prefixed names, while a sigil a model merely wrote about holds at most this much of the reply instead of all of
+ * it until the end-of-stream flush drops it.
+ */
+export const MAX_TOOL_CALL_HEADER_LENGTH = 256;
 
 export interface TextToolCall {
 	/** Monotonic identity within one parser lifetime; lets callers pair a provisional call with its completion. */
@@ -141,27 +148,41 @@ export class TextToolCallParser {
 
 				const argAt = data.indexOf(ARG_BEGIN);
 				const endAt = data.indexOf(END);
-				if (argAt !== -1 && (endAt === -1 || argAt < endAt)) {
-					const header = parseToolHeader(data.slice(0, argAt));
-					this._active = {
-						seq: ++this._seqCounter,
-						name: header.name,
-						index: header.index,
-						argBuffer: "",
-						argsClosed: false,
-					};
-					data = data.slice(argAt + ARG_BEGIN.length);
-				} else if (endAt !== -1) {
-					const header = parseToolHeader(data.slice(0, endAt));
-					events.push({
-						type: "call",
-						call: { seq: ++this._seqCounter, name: header.name, index: header.index, args: "{}" },
-					});
-					data = data.slice(endAt + END.length);
-				} else {
+				const opensArgs = argAt !== -1 && (endAt === -1 || argAt < endAt);
+				const headerEnd = opensArgs ? argAt : endAt;
+				if (headerEnd !== -1 && headerEnd <= MAX_TOOL_CALL_HEADER_LENGTH) {
+					const header = parseToolHeader(data.slice(0, headerEnd));
+					if (opensArgs) {
+						this._active = {
+							seq: ++this._seqCounter,
+							name: header.name,
+							index: header.index,
+							argBuffer: "",
+							argsClosed: false,
+						};
+						data = data.slice(argAt + ARG_BEGIN.length);
+					} else {
+						events.push({
+							type: "call",
+							call: { seq: ++this._seqCounter, name: header.name, index: header.index, args: "{}" },
+						});
+						data = data.slice(endAt + END.length);
+					}
+					continue;
+				}
+				// The header candidate: everything up to the terminator, or, with none in sight, everything but a tail
+				// that may still grow into one.
+				const candidate = headerEnd !== -1 ? headerEnd : data.length - controlTokenHold(data);
+				if (headerEnd === -1 && candidate <= MAX_TOOL_CALL_HEADER_LENGTH) {
 					this._buffer = BEGIN + data;
 					break;
 				}
+				// Longer than any header: the sigil was prose. The text streams up to the next sigil, which the rescan
+				// judges on its own, so a real call behind the prose still parses.
+				const nextBegin = data.indexOf(BEGIN);
+				const release = nextBegin !== -1 && nextBegin < candidate ? nextBegin : candidate;
+				pushText(stripControlTokens(data.slice(0, release)));
+				data = data.slice(release);
 				continue;
 			}
 

@@ -1,3 +1,4 @@
+import { MAX_TOOL_CALL_HEADER_LENGTH } from "../provider/transport/textToolCallParser";
 import type { ExpectedToolCall, FuzzEvent } from "./fuzzCorpus";
 import { fuzzSeedPrefix } from "./fuzzSeed";
 import { expectDefined } from "./pureHelpers";
@@ -40,6 +41,8 @@ export function mulberry32(seed: number): () => number {
 const WORDS = ["alpha", "bravo", "delta", "echo", "lima", "oscar", "tango", "zulu"];
 export const UNICODE_WORDS = ["日本語", "café", "émoji✨", "مرحبا", "🚀🧠"];
 const TOOL_NAMES = ["get_weather", "search_docs", "run_query"];
+/** The longest control token the parser can be holding as a partial tail when a stray sigil's prose must be past the bound. */
+const ARG_BEGIN_LENGTH = "<|tool_call_argument_begin|>".length;
 /** Arg values that stress JSON escaping through two serialization hops. */
 const TRICKY_ARG_VALUES = [
 	'quo"te',
@@ -520,6 +523,24 @@ function indexlessDeltaToolEvent(state: GeneratorState): FuzzEvent {
 	};
 }
 
+/**
+ * A lone begin sigil inside prose, a model writing about the format. The prose behind it runs past the header bound,
+ * so the parser releases it within this event, and the sigil itself is stripped like any other stray control token.
+ */
+function straySigilProseEvent(state: GeneratorState): FuzzEvent {
+	const pre = `${words(state, 2)} `;
+	let post = "";
+	while (post.length <= MAX_TOOL_CALL_HEADER_LENGTH + ARG_BEGIN_LENGTH) {
+		post += ` ${words(state, 3)}`;
+	}
+	const full = `${pre}<|tool_call_begin|>${post}`;
+	return {
+		label: "stray-sigil-prose",
+		text: pre + post,
+		chunks: randomSlices(state, full).map((slice) => chunkOf({ content: slice })),
+	};
+}
+
 /** Two byte-identical calls on the delta channel: the max(N, M) rule says both emit. */
 function sameChannelTwinsEvent(state: GeneratorState): FuzzEvent {
 	const call = toolCallSpec(state);
@@ -661,6 +682,7 @@ export const PROPERTY_EVENT_KIND_WEIGHTS = [
 	{ kind: "split-inline-tool", weight: 5, directOnly: false },
 	{ kind: "same-channel-twins", weight: 5, directOnly: false },
 	{ kind: "inline-no-index", weight: 5, directOnly: false },
+	{ kind: "stray-sigil-prose", weight: 4, directOnly: false },
 	{ kind: "citation", weight: 6, directOnly: false },
 	{ kind: "reasoning", weight: 9, directOnly: false },
 	{ kind: "junk-fields", weight: 4, directOnly: false },
@@ -695,6 +717,8 @@ function buildEvent(kind: PropertyEventKind, state: GeneratorState): FuzzEvent {
 			return sameChannelTwinsEvent(state);
 		case "inline-no-index":
 			return inlineNoIndexEvent(state);
+		case "stray-sigil-prose":
+			return straySigilProseEvent(state);
 		case "citation":
 			return citationEvent(state);
 		case "reasoning":

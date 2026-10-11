@@ -267,6 +267,22 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 			},
 		],
 	},
+	{
+		// A begin sigil in prose with no header behind it held the rest of the reply until end of stream, where the
+		// flush dropped it as a truncated token: the user saw the text before the sigil and nothing after.
+		name: "stray-begin-sigil-in-prose",
+		mode: "both",
+		events: [
+			{
+				label: "stray-sigil-prose",
+				text: `write  before the name. ${"then the arguments follow. ".repeat(12)}`,
+				chunks: [
+					chunk({ content: "write <|tool_call_begin|> before the name. " }),
+					...Array.from({ length: 12 }, () => chunk({ content: "then the arguments follow. " })),
+				],
+			},
+		],
+	},
 ];
 
 /**

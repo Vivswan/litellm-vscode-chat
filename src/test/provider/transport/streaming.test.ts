@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { StreamProcessor } from "../../../provider/transport/streaming/processor";
+import { MAX_TOOL_CALL_HEADER_LENGTH } from "../../../provider/transport/textToolCallParser";
 import type { ChatCompletionChunk } from "../../../provider/transport/wire";
 import { expectDefined } from "../../pureHelpers";
 import { collector, eventSequenceOf, idSource, toolCallsOf, visibleTextOf } from "./streamingHelpers";
@@ -443,4 +444,28 @@ suite("provider/streaming tool calls without an index", () => {
 			);
 		});
 	}
+});
+
+suite("provider/streaming stray begin sigil in prose", () => {
+	test("a lone begin sigil no longer swallows the reply: the prose behind it streams and survives end of stream", () => {
+		// A model writing about the format. The parser used to hold everything after the sigil waiting for a header
+		// token, and the end-of-stream flush dropped the whole remainder as a truncated token: the user saw "write ".
+		const logs: string[] = [];
+		const { parts, progress } = collector();
+		const stream = new StreamProcessor(idSource(), (message) => logs.push(message), progress);
+		const prose = "The name comes next, then the arguments. ".repeat(Math.ceil(MAX_TOOL_CALL_HEADER_LENGTH / 20));
+
+		stream.processTextContent("write <|tool_call_begin|> before the name. ");
+		for (const piece of prose.match(/.{1,17}/g) ?? []) {
+			stream.processTextContent(piece);
+		}
+		stream.endOfStream();
+
+		assert.strictEqual(visibleTextOf(parts), `write  before the name. ${prose}`);
+		assert.strictEqual(toolCallsOf(parts).length, 0, "prose opens no call");
+		assert.ok(
+			!logs.some((l) => l.includes("Dropping trailing partial control token text")),
+			"nothing is held back to be dropped at end of stream"
+		);
+	});
 });
