@@ -113,16 +113,6 @@ function describeResponse(response: Response, body: Uint8Array): string {
 	);
 }
 
-function concat(chunks: readonly Uint8Array[]): Uint8Array {
-	const out = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
-	let offset = 0;
-	for (const chunk of chunks) {
-		out.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-	return out;
-}
-
 /** The bytes received before an abort are kept: they are the evidence that names a stall. */
 async function readBody(response: Response, signal: AbortSignal): Promise<{ bytes: Uint8Array; error?: unknown }> {
 	const chunks: Uint8Array[] = [];
@@ -146,9 +136,9 @@ async function readBody(response: Response, signal: AbortSignal): Promise<{ byte
 			}
 			chunks.push(value);
 		}
-		return { bytes: concat(chunks) };
+		return { bytes: Buffer.concat(chunks) };
 	} catch (error) {
-		return { bytes: concat(chunks), error };
+		return { bytes: Buffer.concat(chunks), error };
 	} finally {
 		signal.removeEventListener("abort", release);
 	}
