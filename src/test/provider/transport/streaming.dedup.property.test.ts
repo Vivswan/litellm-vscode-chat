@@ -15,6 +15,7 @@ import {
 	resolveFuzzSeed,
 	TAIL_EVENT_KINDS,
 } from "../../fuzzStream";
+import { extractThinkingParts } from "../../hostApiHelpers";
 import { expectDefined } from "../../pureHelpers";
 
 /**
@@ -54,6 +55,12 @@ function visibleTextOf(parts: vscode.LanguageModelResponsePart[]): string {
 	return parts
 		.filter((p): p is vscode.LanguageModelTextPart => p instanceof vscode.LanguageModelTextPart)
 		.map((p) => p.value)
+		.join("");
+}
+
+function thinkingTextOf(parts: vscode.LanguageModelResponsePart[]): string {
+	return extractThinkingParts(parts)
+		.map((part) => part.value ?? "")
 		.join("");
 }
 
@@ -153,7 +160,7 @@ function deltaCallChunk(name: string, index: number, argText: string): Record<st
 }
 
 suite("provider/streaming dedup properties", () => {
-	test("generated streams match the oracle: text verbatim, each call exactly once, ids unique", function () {
+	test("generated streams match the oracle: text and thinking verbatim, each call exactly once, ids unique", function () {
 		this.timeout(Math.max(120000, NUM_RUNS * 50));
 		fc.assert(
 			fc.property(eventsArb, (events) => {
@@ -161,6 +168,7 @@ suite("provider/streaming dedup properties", () => {
 				const { parts } = runChunks(assembled.chunks);
 
 				assert.strictEqual(visibleTextOf(parts), assembled.expectedText, "text diverged");
+				assert.strictEqual(thinkingTextOf(parts), assembled.expectedThinking, "thinking diverged");
 
 				const calls = toolCallsOf(parts);
 				assert.strictEqual(calls.length, assembled.expectedToolCalls.length, "tool call count diverged");

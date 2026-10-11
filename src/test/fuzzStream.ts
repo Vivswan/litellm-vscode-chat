@@ -400,22 +400,28 @@ function citationEvent(state: GeneratorState): FuzzEvent {
 /**
  * Reasoning-only streams are legitimate generator output: every fuzz consumer runs in the pinned extension-host build,
  * which exposes LanguageModelThinkingPart, so reasoning emits as thinking parts instead of the reasoning-only
- * empty-response error a ctor-less host throws.
+ * empty-response error a ctor-less host throws. Each event declares the thinking text it must surface, so a stream
+ * that silently drops reasoning fails the oracle instead of resolving green.
  */
 function reasoningEvent(state: GeneratorState): FuzzEvent {
 	const roll = state.random();
 	if (roll < 0.34) {
-		return { label: "reasoning", chunks: [chunkOf({ reasoning_content: "thinking about it..." })] };
+		const thinking = "thinking about it...";
+		return { label: "reasoning", thinking, chunks: [chunkOf({ reasoning_content: thinking })] };
 	}
 	if (roll < 0.67) {
-		return { label: "reasoning-field", chunks: [chunkOf({ reasoning: "pondering..." })] };
+		const thinking = "pondering...";
+		return { label: "reasoning-field", thinking, chunks: [chunkOf({ reasoning: thinking })] };
 	}
+	// The block outranks the reasoning_content copy of the same text (extractThinking), so it surfaces once.
+	const thinking = "weighing options";
 	return {
 		label: "thinking-blocks",
+		thinking,
 		chunks: [
 			chunkOf({
-				reasoning_content: "weighing options",
-				thinking_blocks: [{ type: "thinking", thinking: "weighing options", signature: `sig-${state.toolIndex}` }],
+				reasoning_content: thinking,
+				thinking_blocks: [{ type: "thinking", thinking, signature: `sig-${state.toolIndex}` }],
 			}),
 		],
 	};
@@ -424,12 +430,13 @@ function reasoningEvent(state: GeneratorState): FuzzEvent {
 function junkFieldsEvent(): FuzzEvent {
 	// Unknown extra fields on otherwise valid chunks; both the proxy and the extension must pass them through or ignore
 	// them.
-	const chunk = chunkOf({ reasoning_content: "noise" }) as Record<string, unknown>;
+	const thinking = "noise";
+	const chunk = chunkOf({ reasoning_content: thinking }) as Record<string, unknown>;
 	chunk.fuzz_extra = { nested: [1, 2, 3] };
 	for (const choice of chunk.choices as Array<Record<string, unknown>>) {
 		choice.fuzz_choice_extra = "x";
 	}
-	return { label: "junk-fields", chunks: [chunk, chunkOf({})] };
+	return { label: "junk-fields", thinking, chunks: [chunk, chunkOf({})] };
 }
 
 function malformedEvent(state: GeneratorState): FuzzEvent {
@@ -771,9 +778,8 @@ export interface AssembledStream {
 	expectedText: string;
 	expectedToolCalls: ExpectedToolCall[];
 	/**
-	 * Thinking text the stream must surface as thinking parts, in stream order. Empty when no event declares an
-	 * expectation, in which case the oracle skips the thinking assertion; corpus entries do declare one, so deleting
-	 * reasoning extraction fails their replay instead of resolving quietly empty.
+	 * Thinking text the stream must surface as thinking parts, in stream order. The in-process oracles assert it on
+	 * every stream, empty included; the docker oracle skips a stream whose events declare none.
 	 */
 	expectedThinking: string;
 }

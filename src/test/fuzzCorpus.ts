@@ -15,7 +15,10 @@ export interface FuzzEvent {
 	chunks: unknown[];
 	/** Visible text this event appends, in stream order. */
 	text?: string;
-	/** Asserted only when at least one event of the stream declares it. */
+	/**
+	 * Thinking text this event must surface. The in-process oracles compare the stream's thinking parts against the
+	 * concatenation always; the docker oracle only when at least one event declares it.
+	 */
 	thinking?: string;
 	tools?: ExpectedToolCall[];
 	/** True when the tool calls arrive on the delta channel (triggers the one-time space hint after text). */
