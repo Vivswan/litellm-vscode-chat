@@ -549,7 +549,7 @@ export function registerTestCommands(
 	provider: ModelInfoProvider & StatusSnapshotProvider,
 	issueReporter: Pick<IssueReporter, "getRecentLogs" | "getLatestError">,
 	syncEngine: Pick<ServerSyncEngine, "getDeclared" | "resolveGroupArgs">,
-	dashboard: Pick<DashboardController, "injectMessageForTest">,
+	dashboard: Pick<DashboardController, "injectMessageForTest" | "dispose">,
 	sessionLogs: Pick<SessionLogTee, "readSince">
 ): void {
 	if (context.extensionMode === vscode.ExtensionMode.Production) {
@@ -607,7 +607,15 @@ export function registerTestCommands(
 		// validation included.
 		vscode.commands.registerCommand("litellm._test.dashboardMessage", async (raw: unknown) => {
 			await vscode.commands.executeCommand(CMD.openDashboard);
-			return dashboard.injectMessageForTest(raw);
+			try {
+				return await dashboard.injectMessageForTest(raw);
+			} finally {
+				// Closed here, not left open: a visible panel makes every later group status report rebuild and push
+				// the whole dashboard state, a cost the fuzzer's long sessions would pay on every report after the
+				// first dashboard action. The injection resolves after its handling completed, and a later open
+				// creates a fresh panel.
+				dashboard.dispose();
+			}
 		}),
 		// SecretStorage has no enumeration API, so secret keys stay out of reach here.
 		vscode.commands.registerCommand("litellm._test.getStorageKeys", () => [...context.globalState.keys()])

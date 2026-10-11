@@ -2210,6 +2210,7 @@
 		"@vscode/test-cli": "^0.0.15",
 		"@vscode/test-electron": "^3.1.0",
 		"@vscode/vsce": "^3.9.2",
+		"escape-string-regexp": "^4.0.0",
 		"eslint": "^10.10.0",
 		"fast-check": "^4.9.0",
 		"github-slugger": "^2.0.0",

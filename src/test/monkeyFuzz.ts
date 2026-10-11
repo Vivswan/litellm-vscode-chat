@@ -61,6 +61,7 @@ import { FAKE_MODELS, PLAYBACK_MODEL } from "./fakeStack/models";
 import { FAKE_OAUTH_CLIENT_ID, FAKE_OAUTH_CLIENT_SECRET } from "./fakeStack/oauth";
 import { collectStream, extractText, waitForHostModels } from "./hostApiHelpers";
 import { expectDefined } from "./pureHelpers";
+import { findSecretLeak } from "./secretLeakScan";
 
 // -- Action alphabet ----------------------------------------------------------
 
@@ -1504,10 +1505,12 @@ export class MonkeySession {
 		// Minted values plus the literals the stack itself uses. Error snapshots ride the same line stream, so
 		// overwritten snapshots are scanned too.
 		const secrets = [...this.minted, this.env.apiKey, FAKE_OAUTH_CLIENT_SECRET];
-		for (const line of batch.lines) {
-			for (const secret of secrets) {
-				assert.ok(!line.includes(secret), "a secret leaked into the issue-report log lines");
-			}
+		const leak = findSecretLeak(batch.lines, secrets);
+		if (leak !== undefined) {
+			// Named by position, never by value: the assertion text lands in the public failure log.
+			assert.fail(
+				`secret ${secrets.indexOf(leak.secret) + 1} of ${secrets.length} leaked into session log line ${batch.next - batch.lines.length + leak.lineIndex}`
+			);
 		}
 	}
 
