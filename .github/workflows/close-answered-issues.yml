@@ -30,6 +30,7 @@ jobs:
       && github.event.comment.user.type != 'Bot'
       && !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       issues: write
     steps:
@@ -41,6 +42,7 @@ jobs:
   close:
     if: github.event_name != 'issue_comment'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       issues: write
       # The action persists its operations state through the Actions cache.
