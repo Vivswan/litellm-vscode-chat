@@ -2,6 +2,7 @@ import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { CMD } from "../../../shared/config/commandIds";
 import {
+	getDiscoveryTimeout,
 	getUsageAlertThresholds,
 	getUsageInitialRefreshDelayMs,
 	getUsagePollIntervalMs,
@@ -24,7 +25,7 @@ export function createUsagePollerEnv(
 	const log = (message: string, data?: unknown) => logger.log(message, data);
 	// A read that warns differently logs again.
 	//
-	//   The setting readers run on every pass
+	//   The setting readers run on every pass, the client's timeout read on every usage GET
 	//     -> their invalid-configuration warnings dedup per rendered line for the session
 	//   the log buffer -> feeds public issue reports and holds a bounded number of lines
 	const seenSettingWarnings = new Set<string>();
@@ -39,7 +40,7 @@ export function createUsagePollerEnv(
 	return {
 		readServersSetting: readRawServersSetting,
 		readSecrets: (label) => readServerSecretsRecord(context.secrets, label),
-		client: new UsageClient({ userAgent, log }),
+		client: new UsageClient({ userAgent, getTimeoutMs: () => getDiscoveryTimeout(settingLog) }),
 		pollIntervalMs: () => getUsagePollIntervalMs(settingLog),
 		initialRefreshDelayMs: () => getUsageInitialRefreshDelayMs(settingLog),
 		serversChangeRefreshDelayMs: () => getUsageServersChangeRefreshDelayMs(settingLog),
