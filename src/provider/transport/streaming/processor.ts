@@ -120,16 +120,21 @@ export class StreamProcessor {
 	}
 
 	/**
-	 * The dropped-reasoning aggregate is logged here so every way a request ends (the finish, an error frame, a reader
-	 * failure) reports it exactly once.
+	 * The dropped-reasoning aggregate and the usage line are logged here so every way a request ends (the finish, an
+	 * error frame, a reader failure) reports each exactly once. Usage is one line per request, never one per chunk: a
+	 * server that stamps running usage on every chunk (vLLM's continuous_usage_stats, some proxies) would otherwise
+	 * push the real errors out of the issue report's bounded line buffer.
 	 */
 	private closeRequest(): void {
-		const dropped = this._req.droppedReasoning;
+		const { droppedReasoning: dropped, usage } = this._req;
 		if (dropped.parts > 0) {
 			this._log("Dropped reasoning output; LanguageModelThinkingPart missing or failed", {
 				parts: dropped.parts,
 				totalLength: dropped.length,
 			});
+		}
+		if (usage !== undefined) {
+			this._log("Token usage", knownUsageCounts(usage));
 		}
 		this._req = freshRequestState();
 	}
@@ -232,9 +237,8 @@ export class StreamProcessor {
 		let emitted = false;
 
 		if (chunk.usage) {
-			this._log("Token usage", knownUsageCounts(chunk.usage));
-			// Retained for the end-of-stream usage DataPart; runs before the empty-choices early return below, so the
-			// standard trailer chunk (choices: []) is captured. The last trailer wins.
+			// Retained for the end-of-stream usage DataPart and log line; runs before the empty-choices early return
+			// below, so the standard trailer chunk (choices: []) is captured. The last trailer wins.
 			this._req.usage = chunk.usage;
 		}
 
