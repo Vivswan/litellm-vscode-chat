@@ -690,8 +690,9 @@ describe("agentTools planner secrets never reach rendered text", () => {
 				);
 				const request = requestsOf(inline).requests[0] as AgentRequest;
 				const payload = request.payload as SavePayload;
-				const summary = [`${field}: set (stored in settings)`];
-				expect(describeServerChange("Prod", { ...base }, { ...payload.server }, summary, [])).not.toContain(secret);
+				expect(describeServerChange("Prod", { ...base }, { ...payload.server }, payload.secrets, [])).not.toContain(
+					secret
+				);
 				expect(JSON.stringify(payload.server)).not.toContain(secret);
 
 				const prompted = planSaveServer(
@@ -705,7 +706,7 @@ describe("agentTools planner secrets never reach rendered text", () => {
 						"Prod",
 						{ ...base },
 						{ ...(typed.payload as SavePayload).server },
-						[],
+						(typed.payload as SavePayload).secrets,
 						requestsOf(prompted).prompts
 					)
 				).not.toContain(secret);

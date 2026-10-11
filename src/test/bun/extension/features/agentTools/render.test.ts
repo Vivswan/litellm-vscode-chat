@@ -16,6 +16,7 @@ import {
 	describeServerChange,
 	describeSettingChange,
 	renderJson,
+	type SecretDirectives,
 	shapeConfiguration,
 	shapeDiagnostics,
 	shapeSubmission,
@@ -43,6 +44,46 @@ describe("agentTools render", () => {
 		);
 		expect(describeAction("remove", `Prod at http://bob:pw@hub.test with ${key}`)).toBe(
 			"```\nremove: Prod at http://[redacted]@hub.test with sk-liv...\n```"
+		);
+	});
+
+	// Drifts silently: a cut that lands between the two halves of an emoji hands the model a lone UTF-16 unit, which
+	// the host serializes as U+FFFD or rejects. The two key spellings put the pair on both parities of the cut, so one
+	// of them straddles whatever the marker's length is.
+	test.each([["a"], ["ab"]])("a reply cut at the bound never severs a surrogate pair (key %j)", (keyName) => {
+		const rendered = renderJson({ [keyName]: "\u{1F600}".repeat(40_000) });
+		expect(rendered).toContain("[truncated:");
+		expect(rendered.isWellFormed()).toBe(true);
+	});
+
+	// Drifts silently: the card is the text the user approves, and a new entry that lists three secrets as "cleared"
+	// claims a change the save does not make (the planner's default on an entry that holds nothing).
+	test("a server card lists a cleared secret only when the entry exists to hold one", () => {
+		const secrets: SecretDirectives = {
+			apiKey: { action: "set", location: "secure", value: "sk-inline" },
+			oauthClientSecret: { action: "clear" },
+			virtualKeyValue: { action: "clear" },
+		};
+		const server = { label: "New", baseUrl: "http://a.test" };
+		expect(describeServerChange("New", undefined, server, secrets, [])).toBe(
+			[
+				"```",
+				'new servers entry "New"',
+				'baseUrl: (absent) -> "http://a.test"',
+				'label: (absent) -> "New"',
+				"apiKey: set (secure)",
+				"```",
+			].join("\n")
+		);
+		expect(describeServerChange("New", server, server, secrets, [])).toBe(
+			[
+				"```",
+				'servers entry "New"',
+				"apiKey: set (secure)",
+				"oauthClientSecret: cleared",
+				"virtualKeyValue: cleared",
+				"```",
+			].join("\n")
 		);
 	});
 
@@ -255,7 +296,7 @@ describe("agentTools render", () => {
 			["configuration read, nested", renderJson(shapeConfiguration(credState, ["servers"])), shownToken],
 			[
 				"server card",
-				describeServerChange("Cred", { baseUrl: "http://old.test" }, { baseUrl: withCredentials }, [], []),
+				describeServerChange("Cred", { baseUrl: "http://old.test" }, { baseUrl: withCredentials }, undefined, []),
 				`baseUrl: "http://old.test" -> "${shownBase}"`,
 			],
 			[
@@ -296,13 +337,9 @@ describe("agentTools render", () => {
 			string
 		>;
 		const card = () =>
-			describeServerChange(
-				"Prod",
-				undefined,
-				{ label: "Prod", baseUrl: "http://a.test" },
-				[],
-				[{ field: "oauthClientSecret", location: "secure" }]
-			);
+			describeServerChange("Prod", undefined, { label: "Prod", baseUrl: "http://a.test" }, undefined, [
+				{ field: "oauthClientSecret", location: "secure" },
+			]);
 		l10n.config({ contents: zhCn });
 		try {
 			expect(card()).toBe(

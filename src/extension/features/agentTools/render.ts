@@ -1,11 +1,14 @@
 import * as l10n from "@vscode/l10n";
+import type { SecretDirective } from "../../../dashboard/endpoints";
 import type { DashboardServer, DashboardState } from "../../../dashboard/viewModels";
 import type { DashboardSubmission } from "../../../extension/dashboard/panel";
 import { failureTexts } from "../../../shared/failureCause";
 import { Logger } from "../../../shared/logger";
-import { isCredentialHeader } from "../../../shared/serverEntry";
+import type { SecretFieldId } from "../../../shared/serverEntry";
+import { isCredentialHeader, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import type { ServerStatus } from "../../../shared/servers";
 import { statusClassification } from "../../../shared/servers";
+import { truncateHeadWithMarker } from "../../../shared/util/text";
 import type { DiagnosticsSnapshot } from "../../ui/issueReporter";
 import type { ConfigurationSection } from "./inputSchema";
 import type { AgentRequest, RefusalReason, SecretPrompt } from "./planner";
@@ -16,15 +19,12 @@ import type { AgentRequest, RefusalReason, SecretPrompt } from "./planner";
  */
 const AGENT_RESULT_CHAR_LIMIT = 60_000;
 
-const TRUNCATION_MARKER = '\n... [truncated: ask for fewer "sections", or inspect one model at a time]';
+const TRUNCATION_MARKER = '... [truncated: ask for fewer "sections", or inspect one model at a time]';
 
 /** JSON for the model, through the one output door, cut at the bound with a visible marker. */
 export function renderJson(value: unknown): string {
 	const text = Logger.redact(JSON.stringify(value, null, 2) ?? "null");
-	if (text.length <= AGENT_RESULT_CHAR_LIMIT) {
-		return text;
-	}
-	return `${text.slice(0, AGENT_RESULT_CHAR_LIMIT - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
+	return truncateHeadWithMarker(text, AGENT_RESULT_CHAR_LIMIT, TRUNCATION_MARKER);
 }
 
 /** The diagnostics read: the report's snapshot plus the per-server rows the report withholds. */
@@ -257,6 +257,28 @@ export function describeRecordChange(
 	]);
 }
 
+export type SecretDirectives = Readonly<Record<SecretFieldId, SecretDirective>>;
+
+/**
+ * The card's secret lines: location and action only, never a value. A new entry has nothing stored, so the planner's
+ * default `clear` on its unnamed fields is no change and gets no line; a valueless `set` is the prompt's line instead.
+ */
+function secretSummary(secrets: SecretDirectives | undefined, existing: boolean): string[] {
+	if (secrets === undefined) {
+		return [];
+	}
+	const lines: string[] = [];
+	for (const field of SECRET_FIELD_IDS) {
+		const directive = secrets[field];
+		if (directive.action === "clear" && existing) {
+			lines.push(l10n.t("{0}: cleared", field));
+		} else if (directive.action === "set" && directive.value.length > 0) {
+			lines.push(l10n.t("{0}: set ({1})", field, directive.location));
+		}
+	}
+	return lines;
+}
+
 /**
  * A server save: field names that change, never their values for secrets. A moved base URL is spelled out because it
  * decides where credentials go.
@@ -265,7 +287,7 @@ export function describeServerChange(
 	label: string,
 	before: Readonly<Record<string, unknown>> | undefined,
 	after: Readonly<Record<string, unknown>>,
-	secrets: readonly string[],
+	secrets: SecretDirectives | undefined,
 	prompts: readonly SecretPrompt[]
 ): string {
 	const lines: string[] = [
@@ -281,9 +303,7 @@ export function describeServerChange(
 			lines.push(`${key}: ${shownPrevious} -> ${shownNext}`);
 		}
 	}
-	for (const line of secrets) {
-		lines.push(line);
-	}
+	lines.push(...secretSummary(secrets, before !== undefined));
 	for (const prompt of prompts) {
 		lines.push(l10n.t("{0}: you will be asked to type it (stored in {1})", prompt.field, prompt.location));
 	}
