@@ -28,7 +28,6 @@ import { GroupDiscovery, HiddenServeClaim } from "./catalog/groupDiscovery";
 import type { EntryCredentialsResolver, GroupServer, LiteLLMModelInfo } from "./catalog/groupModels";
 import {
 	groupClientId,
-	groupServerKnownSecrets,
 	logCredentialRejections,
 	overlayEntryCredentials,
 	parseGroupConfiguration,
@@ -346,7 +345,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			return [];
 		}
 		// Before any line about the group: a group adopted from the host enters the extension here and nowhere else.
-		Logger.registerSecrets(groupServerKnownSecrets(parsed.server));
+		Logger.registerSecrets(parsed.knownSecrets);
 		// The baked copy's rejections are logged, not refused: a declared entry's current copy is judged by the overlay
 		// below, and an external group has no entry to refuse for.
 		logCredentialRejections((message, data) => this.log(message, data), parsed.rejections);
