@@ -356,7 +356,11 @@ function scaledDecimal(prefix: string, factor: number): number | undefined {
 	// The mantissa as significant digits only: leading and trailing zeros spell nothing, so neither counts against the
 	// exponent guard ("1" + 401 zeros + "e-401" is 1).
 	const spelled = `${whole}${fraction}`.replace(/^0+/, "");
-	const digits = spelled.replace(/0+$/, "");
+	let digitsEnd = spelled.length;
+	while (digitsEnd > 0 && spelled.charCodeAt(digitsEnd - 1) === 0x30) {
+		digitsEnd--;
+	}
+	const digits = spelled.slice(0, digitsEnd);
 	if (digits === "") {
 		return 0;
 	}

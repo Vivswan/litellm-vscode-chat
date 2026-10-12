@@ -7,6 +7,7 @@ import {
 	canonicalStoredBaseUrl,
 	canonicalUrl,
 	DEFAULT_API_VERSION,
+	normalizeBaseUrl,
 	serverRootOf,
 } from "../../../../shared/util/baseUrl";
 import { resolveFuzzSeed } from "../../../fuzzStream";
@@ -15,6 +16,34 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
 const SEED = resolveFuzzSeed();
 
 describe("shared/util/baseUrl", () => {
+	test("normalizeBaseUrl strips every trailing slash and nothing else: inner slashes, spaces, and case stay", () => {
+		const cases: readonly { readonly input: string; readonly expected: string }[] = [
+			{ input: "http://Host:4000/", expected: "http://Host:4000" },
+			{ input: "http://h/a///", expected: "http://h/a" },
+			{ input: "http://h//a//b", expected: "http://h//a//b" },
+			{ input: "http://h/a /", expected: "http://h/a " },
+			{ input: " http://h/ ", expected: " http://h/ " },
+			{ input: "///", expected: "" },
+			{ input: "", expected: "" },
+		];
+		assert.deepStrictEqual(
+			cases.map(({ input }) => normalizeBaseUrl(input)),
+			cases.map(({ expected }) => expected)
+		);
+	});
+
+	test("normalizeBaseUrl's work is linear in the text: two hundred thousand slashes before one letter answer at once", () => {
+		const text = `http://h/x${"/".repeat(200_000)}y`;
+		const started = performance.now();
+		const normalized = normalizeBaseUrl(text);
+		const elapsed = performance.now() - started;
+		assert.deepStrictEqual(
+			{ unchanged: normalized === text, fast: elapsed < 200 },
+			{ unchanged: true, fast: true },
+			`${elapsed.toFixed(0)} ms`
+		);
+	});
+
 	test("apiRootOf appends the default version, v1, to a version-less base URL", () => {
 		const base = "http://localhost:4000";
 		assert.strictEqual(apiRootOf(base), "http://localhost:4000/v1");

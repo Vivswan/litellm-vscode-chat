@@ -183,6 +183,27 @@ describe("dashboard: protocol value helpers", () => {
 			assert.ok(suffixedMs < 50, `refusing the suffixed draft took ${suffixedMs} ms`);
 		});
 
+		test("parseNumberDraft: dropping a mantissa's trailing zeros is linear, so a digit after two hundred thousand zeros is refused at once", () => {
+			// The zeros a spelled mantissa ends in move into the exponent, so "1000" and "1" + 20 zeros + "e-17" are one
+			// reading; the same drop must not restart at every zero when the run does not reach the end.
+			assert.deepStrictEqual(
+				[parseNumberDraft("chat.timeout", "1000"), parseNumberDraft("chat.timeout", `1${"0".repeat(20)}e-17`)],
+				[
+					{ kind: "value", value: 1000 },
+					{ kind: "value", value: 1000 },
+				]
+			);
+			const draft = `1${"0".repeat(200_000)}1`;
+			const started = performance.now();
+			const parse = parseNumberDraft("chat.timeout", draft);
+			const elapsed = performance.now() - started;
+			assert.deepStrictEqual(
+				{ kind: parse.kind, fast: elapsed < 200 },
+				{ kind: "invalid", fast: true },
+				`${elapsed.toFixed(0)} ms`
+			);
+		});
+
 		/** The hint the settings form shows for a draft: parse once, then the equivalence of the committed value. */
 		function equivalenceOfDraft(id: NumberSettingId, draft: string): string | undefined {
 			const parse = parseNumberDraft(id, draft);
