@@ -899,6 +899,69 @@ suite("provider/request contract", () => {
 				"a non-audio model must never receive an input_audio block"
 			);
 		});
+
+		test("the model's reasoning replay metadata puts reasoning_content on every replayed assistant message (#551)", async function () {
+			const thinkingPartClass: unknown = Reflect.get(vscode, "LanguageModelThinkingPart");
+			if (typeof thinkingPartClass !== "function") {
+				this.skip();
+				return;
+			}
+			const cls = thinkingPartClass as new (text: string, id?: string, metadata?: unknown) => object;
+			// A DeepSeek thinking model's second turn: its first turn's reasoning came back as unsigned thinking parts.
+			const history = [
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [new cls("plan the lookup"), new vscode.LanguageModelToolCallPart("call-1", "lookup", { q: 1 })],
+					name: undefined,
+				} as vscode.LanguageModelChatRequestMessage,
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelToolResultPart("call-1", [new vscode.LanguageModelTextPart("42")])],
+					name: undefined,
+				} as vscode.LanguageModelChatRequestMessage,
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [new vscode.LanguageModelTextPart("Done.")],
+					name: undefined,
+				} as vscode.LanguageModelChatRequestMessage,
+				userMessage("and now?"),
+			];
+			const replaying = await captureRequestBody(
+				createConfiguredProvider(),
+				makeModelInfo({
+					litellm: {
+						rawModelId: "test-model",
+						supportsPromptCaching: false,
+						defaultMaxTokens: 4096,
+						replayReasoningContent: true,
+						serverDeclared: { kind: "discovered", values: {}, defaultMaxTokens: 4096 },
+					},
+				}),
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+				{ messages: history }
+			);
+			assert.deepStrictEqual(replaying.messages, [
+				{
+					role: "assistant",
+					tool_calls: [{ id: "call-1", type: "function", function: { name: "lookup", arguments: '{"q":1}' } }],
+					reasoning_content: "plan the lookup",
+				},
+				{ role: "tool", tool_call_id: "call-1", content: "42" },
+				{ role: "assistant", content: "Done.", reasoning_content: "" },
+				{ role: "user", content: "and now?" },
+			]);
+
+			const plain = await captureRequestBody(
+				createConfiguredProvider(),
+				makeModelInfo(),
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+				{ messages: history }
+			);
+			assert.ok(
+				!JSON.stringify(plain.messages).includes("reasoning_content"),
+				"a model without the capability sends the wire it sent before"
+			);
+		});
 	});
 
 	suite("max_tokens precedence", () => {

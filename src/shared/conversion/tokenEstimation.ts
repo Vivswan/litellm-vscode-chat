@@ -25,6 +25,7 @@ export const AUDIO_TOKEN_ESTIMATE = 1000;
 export interface TokenEstimationOptions {
 	imageInput: boolean;
 	audioInput: boolean;
+	replayReasoningContent: boolean;
 }
 
 /** Binary blocks price at their fixed estimates; their payload bytes are not the token metric. */
@@ -74,6 +75,9 @@ function wireMessageTokens(message: OpenAIChatMessage): number {
 		}
 		for (const block of message.thinking_blocks ?? []) {
 			total += thinkingBlockTokens(block);
+		}
+		if (message.reasoning_content !== undefined) {
+			total += countTextTokens(message.reasoning_content);
 		}
 	}
 	return total;

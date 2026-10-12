@@ -514,6 +514,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		return estimateMessagesTokens([text], {
 			imageInput: metadata.imageInput,
 			audioInput: metadata.supportsAudioInput,
+			replayReasoningContent: metadata.replayReasoningContent,
 		});
 	}
 }

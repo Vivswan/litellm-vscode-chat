@@ -13,10 +13,10 @@ import {
 } from "../../../shared/conversion/tokenEstimation";
 import type { OpenAIChatMessage } from "../../../shared/conversion/wire";
 
-const fullMultimodal = { imageInput: true, audioInput: true };
-const visionOnly = { imageInput: true, audioInput: false };
-const audioOnly = { imageInput: false, audioInput: true };
-const textOnly = { imageInput: false, audioInput: false };
+const fullMultimodal = { imageInput: true, audioInput: true, replayReasoningContent: false };
+const visionOnly = { imageInput: true, audioInput: false, replayReasoningContent: false };
+const audioOnly = { imageInput: false, audioInput: true, replayReasoningContent: false };
+const textOnly = { imageInput: false, audioInput: false, replayReasoningContent: false };
 
 /** Chars/4 of one transmitted text, the heuristic mode every host test runs under. */
 const textTokens = (text: string): number => Math.ceil(text.length / CHARS_PER_TOKEN);
@@ -295,6 +295,24 @@ suite("shared/conversion/tokenEstimation", () => {
 		// Conversion reads thinking out of assistant history only.
 		const signed = { value: "x".repeat(8), metadata: { signature: "s".repeat(4) } };
 		assert.strictEqual(estimateMessagesTokens([userMessage(signed)], fullMultimodal), 0);
+	});
+
+	test("replayed reasoning_content prices as the text it ships, and only under the gate that ships it", function () {
+		const reasoning = "r".repeat(16);
+		assert.strictEqual(
+			estimateWireMessagesTokens([{ role: "assistant", content: "", reasoning_content: reasoning }]),
+			textTokens(reasoning)
+		);
+		const cls: unknown = Reflect.get(vscode, "LanguageModelThinkingPart");
+		if (typeof cls !== "function") {
+			this.skip();
+			return;
+		}
+		const unsigned = new (cls as new (text: string) => object)(reasoning);
+		const turn = assistantMessage(unsigned, new vscode.LanguageModelTextPart("ok"));
+		const replaying = { ...textOnly, replayReasoningContent: true };
+		assert.strictEqual(estimateMessagesTokens([turn], replaying), textTokens(reasoning) + textTokens("ok"));
+		assert.strictEqual(estimateMessagesTokens([turn], textOnly), textTokens("ok"));
 	});
 
 	test("a redacted payload prices even without a text value: it ships whatever the value field holds", () => {

@@ -176,14 +176,18 @@ describe("shared/config capabilityResolution parseCapabilityRecord", () => {
 			supports_prompt_caching: true,
 			supports_pdf_input: false,
 			supports_response_schema: true,
+			replay_reasoning_content: true,
 			supported_openai_params: ["temperature", "reasoning_effort"],
 		});
 		assert.deepStrictEqual(valid.fields, {
 			supports_prompt_caching: true,
 			supports_pdf_input: false,
 			supports_response_schema: true,
+			replay_reasoning_content: true,
 			supported_openai_params: ["temperature", "reasoning_effort"],
 		});
+		// The docs name replay_reasoning_content as a field a user writes to fix a DeepSeek-shaped server: it must
+		// never come back as an unrecognized-key hint.
 		assert.deepStrictEqual(valid.diagnostics, []);
 
 		const empty = parseCapabilityRecord({ supported_openai_params: [] });

@@ -120,6 +120,15 @@ export function reportedReasoningLevels(providers: readonly LiteLLMProvider[]): 
 	return merged;
 }
 
+/**
+ * Whether every contributor demands reasoning_content on replayed assistant turns; registration stamps this on the
+ * metadata and the baseline carries it to the capability walk. A merged or aggregated entry routes to any of its
+ * contributors, so one that does not demand it keeps the field off the wire for all of them.
+ */
+export function replaysReasoningContent(providers: readonly LiteLLMProvider[]): boolean {
+	return providers.length > 0 && providers.every((p) => p.replay_reasoning_content === true);
+}
+
 export interface DiscoveredBaselineInput {
 	/** The provider entries backing this registered entry; empty for bare /v1/models entries. */
 	readonly providers: readonly LiteLLMProvider[];
@@ -158,6 +167,7 @@ export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): Se
 	);
 	const promptCachingReported = providers.some((p) => typeof p.supports_prompt_caching === "boolean");
 	const responseSchemaReported = providers.some((p) => typeof p.supports_response_schema === "boolean");
+	const reasoningReplayReported = providers.some((p) => typeof p.replay_reasoning_content === "boolean");
 	const supportedParams = intersectReportedParams(providers);
 	const reasoningLevels =
 		input.reasoningEfforts === undefined
@@ -184,6 +194,7 @@ export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): Se
 		...(responseSchemaReported
 			? { supports_response_schema: providers.every((p) => p.supports_response_schema === true) }
 			: {}),
+		...(reasoningReplayReported ? { replay_reasoning_content: replaysReasoningContent(providers) } : {}),
 		...(supportedParams !== undefined ? { supported_openai_params: supportedParams } : {}),
 		...(reasoningLevels !== undefined ? { reasoning_effort_levels: reasoningLevels } : {}),
 		...(input.costs !== undefined ? serverCostValues(input.costs) : {}),

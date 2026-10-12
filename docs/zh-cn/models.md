@@ -181,8 +181,9 @@
 | `input_cost_per_token`、`output_cost_per_token` | 成本 | 选择器和仪表板中的[定价](#定价) |
 | `cache_read_input_token_cost`、`cache_creation_input_token_cost` | 成本 | 缓存定价数字 |
 | `long_context_input_cost_per_token`、`long_context_output_cost_per_token`、`long_context_cache_read_input_token_cost`、`long_context_cache_creation_input_token_cost` | 成本 | 长上下文分层定价。写这些合成名即可; 发现会替你把 LiteLLM 带阈值后缀的线上键 (`input_cost_per_token_above_200k_tokens` 等) 解析成它们 |
-| `supports_prompt_caching` | 布尔 | 是否放置提示缓存标记 - 唯一会改变请求内容的能力。该功能仍是双重门控: [`chat.promptCaching` 设置](settings.md#提示缓存)也必须开启 |
+| `supports_prompt_caching` | 布尔 | 是否放置提示缓存标记 - 会改变请求内容的两个能力之一 (另一个是 `replay_reasoning_content`)。该功能仍是双重门控: [`chat.promptCaching` 设置](settings.md#提示缓存)也必须开启 |
 | `supports_pdf_input`、`supports_response_schema` | 布尔 | 目前什么都不驱动: 两者都会解析并显示在[能力检查器](#检查器)中, 但不门控任何行为 - PDF 无论如何都发给每个模型 ([多模态输入](#多模态输入)) |
+| `replay_reasoning_content` | 布尔 | 每条回放的 assistant 消息是否携带 `reasoning_content` 字段: 该轮模型自己的未签名推理, 该轮没有推理时则为空字符串。DeepSeek 的思考模式没有它就拒绝使用工具的请求。LiteLLM 报告 `litellm_provider: deepseek` 时发现会自动开启; 对以其他提供方名称提供的 DeepSeek 模型请自己开启, 对拒绝该字段的模型则关闭 |
 | `supported_openai_params` | 字符串数组 | 列表中含 `reasoning_effort` 是 Thinking Effort 控件在 `supports_reasoning` 之外的第二个信号; 两者中在更高优先级层解析出的那个说了算, 平局时标志胜出 |
 | `reasoning_effort_levels` | 字符串数组 | Thinking Effort 菜单的档位, 按菜单顺序 ([每模型配置](#每模型配置))。任何档位名都可以 - 菜单原样呈现你的字符串并按原样发送。只决定菜单的内容, 不决定控件是否存在 |
 
@@ -204,6 +205,7 @@
 | 推理 | `supports_reasoning`, 或 `supported_openai_params` 中含 `reasoning_effort` | 显式 `supports_reasoning: false` 胜出 |
 | 推理强度档位 | LiteLLM 在 `/model_group/info` 中解析好的 `supported_reasoning_efforts`; 在没有该字段的旧版代理上, 则是模型信息中的 `supports_<level>_reasoning_effort` 标志和 `reasoning_effort_levels` 列表 | 代理的列表就是 Thinking Effort 菜单 (`null` 表示代理说不知道)。没有该字段时, 扩展套用 LiteLLM 自己的标志规则: 声明的列表整体胜出; 否则 Medium 和 High 总是存在, Minimal 和 Low 除非为 `false`, Extra High 和 Max 仅在为 `true` 时, Off 除非为 `false` (Azure 的 gpt-5 系列需要 `true`)。完全没有标志时菜单回落到内置列表 |
 | 提示缓存 | `supports_prompt_caching` | 与每个字段一样可覆盖; 该功能仍受 `chat.promptCaching` 双重门控 ([设置](settings.md#提示缓存)) |
+| 推理回放 | `litellm_provider`, 或 providers 数组条目的 `provider`, 等于 `deepseek` | 不是模型信息标志: 发现在两种列表形态上都根据提供方名称设置 `replay_reasoning_content`。在 deepseek 与非 deepseek 部署之间负载均衡的模型名什么都不报告, 由你的记录决定。条目混合了 deepseek 与其他提供方的提供方组会解析为 `false`, 因为每个贡献者都必须要求它, 所以 `_fallback` 值在那里不生效; 请改写普通覆盖 |
 | 定价 | 八个成本字段 (`input_cost_per_token` 等) | 恰好为 0/0 的输入/输出对是 LiteLLM「没有定价数据」的印记, 视为完全没有报告 ([定价](#定价)) |
 | Token 限制 | 模型信息的 token 限制字段 | 见 [Token 限制](#token-限制) |
 

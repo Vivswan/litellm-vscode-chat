@@ -86,6 +86,7 @@ export const CONSUMED_CAPABILITY_FIELDS = {
 	supports_prompt_caching: "boolean",
 	supports_pdf_input: "boolean",
 	supports_response_schema: "boolean",
+	replay_reasoning_content: "boolean",
 	supported_openai_params: "string-array",
 	reasoning_effort_levels: "string-array",
 } as const satisfies Record<string, CapabilityValueKind>;

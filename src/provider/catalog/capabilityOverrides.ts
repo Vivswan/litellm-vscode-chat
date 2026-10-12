@@ -94,6 +94,10 @@ function promptCachingFrom(fields: EffectiveCapabilityFields): boolean {
 	return capabilityField(fields, "supports_prompt_caching")?.value === true;
 }
 
+function reasoningReplayFrom(fields: EffectiveCapabilityFields): boolean {
+	return capabilityField(fields, "replay_reasoning_content")?.value === true;
+}
+
 /**
  * One log line per distinct record diagnostic per pass, so a record shared by many models logs once; keys and field
  * names are user configuration, never response-derived text (values never log). An unrecognized key is informational -
@@ -185,6 +189,7 @@ export function applyCapabilityOverrides(
 				supportsPromptCaching: promptCachingFrom(fields),
 				defaultMaxTokens: effective.defaultMaxTokens,
 				supportsAudioInput: fields.supports_audio_input.value,
+				replayReasoningContent: reasoningReplayFrom(fields),
 			},
 		} satisfies PreAttachModelInfo;
 	});
@@ -254,6 +259,7 @@ export function synthesizeDeclaredModels(
 				supportsPromptCaching: promptCachingFrom(fields),
 				defaultMaxTokens: effective.defaultMaxTokens,
 				supportsAudioInput: fields.supports_audio_input.value,
+				replayReasoningContent: reasoningReplayFrom(fields),
 				declared: true,
 				serverDeclared: { kind: "declared" },
 			},

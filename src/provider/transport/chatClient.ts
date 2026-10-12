@@ -216,7 +216,11 @@ export class ChatClient {
 		const apiVersion = this.apiVersionFor(server.label, server.baseUrl);
 		const requestTimeout = getRequestTimeout(this.log);
 		validateRequest(messages);
-		const wireGates = { imageInput: metadata.imageInput, audioInput: metadata.supportsAudioInput };
+		const wireGates = {
+			imageInput: metadata.imageInput,
+			audioInput: metadata.supportsAudioInput,
+			replayReasoningContent: metadata.replayReasoningContent,
+		};
 		const converted = convertMessages(messages, { log: this.log, ...wireGates });
 		const toolConfig = convertTools(options, getAdditionalToolSchemaKeywords(this.log));
 

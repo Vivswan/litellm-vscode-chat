@@ -1112,6 +1112,72 @@ suite("shared/conversion/messages", () => {
 			]);
 		});
 
+		/**
+		 * The shape DeepSeek thinking models leave in the host's history: reasoning streamed as reasoning_content, so
+		 * every thinking part is unsigned, on a tool-calling turn and then a plain text turn.
+		 */
+		function reasoningContentToolHistory(
+			cls: new (text: string, id?: string, metadata?: unknown) => object
+		): vscode.LanguageModelChatMessage[] {
+			return [
+				assistantMessage([
+					new cls("plan the lookup"),
+					new cls(" then call"),
+					new vscode.LanguageModelToolCallPart("call-1", "lookup", { q: 1 }),
+				]),
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelToolResultPart("call-1", [new vscode.LanguageModelTextPart("42")])],
+					name: undefined,
+				} as vscode.LanguageModelChatMessage,
+				assistantMessage([new vscode.LanguageModelTextPart("Done.")]),
+			];
+		}
+
+		test("replayReasoningContent puts reasoning_content on every assistant message: the unsigned text where the turn had it, the empty string where it had none (#551)", function () {
+			const cls = hostThinkingPartClass();
+			if (!cls) {
+				this.skip();
+				return;
+			}
+			// DeepSeek's thinking mode refuses a tool-carrying request whose assistant turns lack the field; presence is
+			// what it checks, so a turn with no reasoning still carries the empty string.
+			assert.deepStrictEqual(convertMessages(reasoningContentToolHistory(cls), { replayReasoningContent: true }), [
+				{
+					role: "assistant",
+					content: undefined,
+					tool_calls: [{ id: "call-1", type: "function", function: { name: "lookup", arguments: '{"q":1}' } }],
+					reasoning_content: "plan the lookup then call",
+				},
+				{ role: "tool", tool_call_id: "call-1", content: "42" },
+				{ role: "assistant", content: "Done.", reasoning_content: "" },
+			]);
+		});
+
+		test("without replayReasoningContent a host thinking part with no signature is dropped and no reasoning_content key is written", function () {
+			const cls = hostThinkingPartClass();
+			if (!cls) {
+				this.skip();
+				return;
+			}
+			// Anthropic rejects replayed thinking it did not sign, and a provider that rejects unknown message fields
+			// would refuse the key: the pre-capability wire stays exactly as it was.
+			const expected = [
+				{
+					role: "assistant",
+					content: undefined,
+					tool_calls: [{ id: "call-1", type: "function", function: { name: "lookup", arguments: '{"q":1}' } }],
+				},
+				{ role: "tool", tool_call_id: "call-1", content: "42" },
+				{ role: "assistant", content: "Done." },
+			];
+			assert.deepStrictEqual(convertMessages(reasoningContentToolHistory(cls)), expected);
+			assert.deepStrictEqual(
+				convertMessages(reasoningContentToolHistory(cls), { replayReasoningContent: false }),
+				expected
+			);
+		});
+
 		test("a thinking-only assistant turn still replays its signed block", () => {
 			const out = convertMessages([
 				assistantMessage([thinkingPart("silent deliberation", { type: "thinking", signature: "sig-only" })]),

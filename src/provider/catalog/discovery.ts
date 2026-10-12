@@ -124,6 +124,15 @@ function longContextCostsOf(record: Record<string, unknown>): (field: LongContex
 	};
 }
 
+/**
+ * LiteLLM's provider name for DeepSeek's own API, the one backend that demands reasoning_content on replay. Authored
+ * here for both listing shapes, so the deployment merge and registration read one field whichever path found the
+ * model; null is "unknown", like the other discovery-authored flags.
+ */
+function replayRequirementOf(providerName: string): boolean | null {
+	return providerName === "deepseek" ? true : null;
+}
+
 /** Exported so tests can drive the same /v1/models normalization path production uses. */
 export function normalizeModelItem(raw: RawModelItem, log: DiscoveryLog): LiteLLMModelItem {
 	const providers: LiteLLMProvider[] = [];
@@ -142,6 +151,7 @@ export function normalizeModelItem(raw: RawModelItem, log: DiscoveryLog): LiteLL
 				...entry,
 				// null is the one "unknown" a discovery-authored provider carries, on both listing paths.
 				reasoning_effort_levels: resolveSupportedReasoningEfforts(entry, UNMAPPED_DEPLOYMENT) ?? null,
+				replay_reasoning_content: replayRequirementOf(entry.provider),
 				context_length: normalizePositiveNumber(entry.context_length),
 				max_tokens: normalizePositiveNumber(entry.max_tokens),
 				max_input_tokens: normalizePositiveNumber(entry.max_input_tokens),
@@ -195,6 +205,7 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo {
 		supports_response_schema: item.model_info?.supports_response_schema ?? null,
 		supports_reasoning: item.model_info?.supports_reasoning ?? null,
 		supports_pdf_input: item.model_info?.supports_pdf_input ?? null,
+		replay_reasoning_content: replayRequirementOf(providerName),
 		supported_openai_params: item.model_info?.supported_openai_params ?? null,
 		reasoning_effort_levels: resolveSupportedReasoningEfforts(item.model_info, UNMAPPED_DEPLOYMENT) ?? null,
 		...serverCostsOf(item.model_info),
@@ -267,6 +278,7 @@ export function mergeModelDeployments(deployments: ModelDeployments): MappedMode
 		supports_response_schema: everyDeploymentSupports(providers.map((p) => p.supports_response_schema)),
 		supports_reasoning: everyDeploymentSupports(providers.map((p) => p.supports_reasoning)),
 		supports_pdf_input: everyDeploymentSupports(providers.map((p) => p.supports_pdf_input)),
+		replay_reasoning_content: everyDeploymentSupports(providers.map((p) => p.replay_reasoning_content)),
 		supported_openai_params: intersectSupportedParams(providers.map((p) => p.supported_openai_params)),
 		reasoning_effort_levels: reportedReasoningLevels(providers) ?? null,
 		...recordFromKeys(COST_FIELDS, (field) => agreedCost(providers.map((p) => p[field]))),

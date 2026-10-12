@@ -9,6 +9,7 @@ import {
 	collapseTokenLimits,
 	deriveTokenConstraints,
 	discoveredCapabilityBaseline,
+	replaysReasoningContent,
 	reportedReasoningLevels,
 } from "./modelCatalog";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema, supportsReasoningEffort } from "./modelConfiguration";
@@ -248,6 +249,7 @@ export function buildModelInfos(
 							supportsPromptCaching: provider.supports_prompt_caching === true,
 							defaultMaxTokens: constraints.defaultMaxTokens,
 							supportsAudioInput: audioInput,
+							replayReasoningContent: replaysReasoningContent([provider]),
 							serverDeclared: baselineFor(
 								[provider],
 								constraints,
@@ -281,6 +283,7 @@ export function buildModelInfos(
 							supportsPromptCaching: false,
 							defaultMaxTokens: constraints.defaultMaxTokens,
 							supportsAudioInput: audioInput,
+							replayReasoningContent: false,
 							serverDeclared: baselineFor([], constraints, true, false),
 						},
 					} satisfies PreAttachModelInfo,
@@ -306,6 +309,7 @@ export function buildModelInfos(
 						supportsPromptCaching: aggregatePromptCaching,
 						defaultMaxTokens: constraints.defaultMaxTokens,
 						supportsAudioInput: audioInput,
+						replayReasoningContent: replaysReasoningContent(toolProviders),
 						serverDeclared: baselineFor(toolProviders, constraints, true, toolProviders.every(supportsReasoningEffort)),
 					};
 					const aggregateConfigurationSchema = configurationSchemaFor(toolProviders, m.reasoningEfforts);
@@ -369,6 +373,7 @@ export function buildModelInfos(
 							supportsPromptCaching: p.supports_prompt_caching === true,
 							defaultMaxTokens: constraints.defaultMaxTokens,
 							supportsAudioInput: audioInput,
+							replayReasoningContent: replaysReasoningContent([p]),
 							serverDeclared: baselineFor([p], constraints, true, supportsReasoningEffort(p), p),
 						},
 					} satisfies PreAttachModelInfo);
@@ -403,6 +408,7 @@ export function buildModelInfos(
 							supportsPromptCaching: providers.every((p) => p.supports_prompt_caching === true),
 							defaultMaxTokens: constraints.defaultMaxTokens,
 							supportsAudioInput: audioInput,
+							replayReasoningContent: replaysReasoningContent(providers),
 							serverDeclared: baselineFor(providers, constraints, false, providers.every(supportsReasoningEffort)),
 						},
 					} satisfies PreAttachModelInfo);

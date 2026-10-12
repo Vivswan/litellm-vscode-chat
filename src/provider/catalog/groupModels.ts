@@ -72,6 +72,11 @@ interface LiteLLMModelMetadataBase {
 	 * metadata lacks it (absent reads as false).
 	 */
 	readonly supportsAudioInput?: boolean;
+	/**
+	 * Gates the reasoning_content replay on assistant history (the resolved replay_reasoning_content capability).
+	 * Optional for the same round-trip reason as supportsAudioInput; absent reads as false.
+	 */
+	readonly replayReasoningContent?: boolean;
 	/** True for a declared model (an entry's discovery.declared; discovery does not list it). */
 	readonly declared?: boolean;
 }
@@ -574,6 +579,7 @@ export function attachGroup(info: PreAttachModelInfo, group: string): AttachedMo
 			supportsPromptCaching: modelSupportsPromptCaching(info),
 			defaultMaxTokens: modelDefaultMaxTokens(info),
 			supportsAudioInput: modelSupportsAudioInput(info),
+			replayReasoningContent: modelReplaysReasoningContent(info),
 			...(info.litellm.declared === true ? { declared: true } : {}),
 			group,
 		},
@@ -616,6 +622,7 @@ export interface ParsedModelMetadata {
 	readonly maxOutputTokens: number;
 	readonly supportsPromptCaching: boolean;
 	readonly supportsAudioInput: boolean;
+	readonly replayReasoningContent: boolean;
 	/** The registered imageInput capability, re-narrowed like the litellm fields; gates image message conversion. */
 	readonly imageInput: boolean;
 	/** See LiteLLMModelMetadataBase.defaultMaxTokens. */
@@ -632,6 +639,7 @@ export function parseModelMetadata(model: LiteLLMModelInfo): ParsedModelMetadata
 		maxOutputTokens: model.maxOutputTokens,
 		supportsPromptCaching: modelSupportsPromptCaching(model),
 		supportsAudioInput: modelSupportsAudioInput(model),
+		replayReasoningContent: modelReplaysReasoningContent(model),
 		imageInput: model.capabilities?.imageInput === true,
 		defaultMaxTokens: modelDefaultMaxTokens(model),
 	};
@@ -644,6 +652,10 @@ export function modelSupportsPromptCaching(model: LiteLLMModelInfo): boolean {
 /** Re-narrowed like every host round trip: absent (older metadata) or malformed reads as false. */
 function modelSupportsAudioInput(model: LiteLLMModelInfo): boolean {
 	return model.litellm?.supportsAudioInput === true;
+}
+
+function modelReplaysReasoningContent(model: LiteLLMModelInfo): boolean {
+	return model.litellm?.replayReasoningContent === true;
 }
 
 function modelDefaultMaxTokens(model: LiteLLMModelInfo): number {

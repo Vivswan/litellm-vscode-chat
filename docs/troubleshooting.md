@@ -194,6 +194,20 @@ Do not guess - open the dashboard's Models section and check the model's paramet
 
 Your VS Code build lacks the thinking-part API, so streamed reasoning is dropped (with a note in the output channel), and a reply that contained nothing but reasoning fails with this error. Update VS Code to a version that supports thinking parts, or use a model that returns final text.
 
+### "The reasoning_content in the thinking mode must be passed back to the API"
+
+A DeepSeek thinking model refuses the second turn of a tool-using conversation (a 400 `invalid_request_error` through LiteLLM) unless every replayed assistant message carries its `reasoning_content`. The extension sends the field when the model's `replay_reasoning_content` capability is on, which discovery sets for models LiteLLM reports as `litellm_provider: deepseek`.
+
+For a DeepSeek model served under another provider name (a gateway, a custom route), turn it on yourself in `models.capabilities` ([Models: capability fields](models.md#capability-fields)):
+
+```json
+{
+  "litellm-vscode-chat.models.capabilities": {
+    "my-deepseek": { "replay_reasoning_content": true }
+  }
+}
+```
+
 ### "The model sent a broken tool call" / "hit the model's output limit in the middle of a tool call"
 
 A tool call must arrive with valid JSON arguments or the extension fails the turn rather than dispatch a call the model did not finish parameterizing. (A tool that takes no parameters and streams empty arguments is fine - that emits a normal call with no input.) The two variants name different causes:

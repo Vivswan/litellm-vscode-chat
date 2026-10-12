@@ -44,6 +44,12 @@ export interface OpenAIAssistantMessage {
 	content?: string | OpenAIChatContentBlock[] | undefined;
 	tool_calls?: OpenAIToolCall[];
 	thinking_blocks?: OpenAIThinkingBlock[];
+	/**
+	 * DeepSeek's thinking mode refuses a tool-carrying request unless every replayed assistant message carries this
+	 * field, presence being what it checks; LiteLLM forwards it. Present on every assistant message, the empty string
+	 * included, exactly when the model's replay_reasoning_content capability is on.
+	 */
+	reasoning_content?: string;
 }
 
 /** Content is always the flattened text. */

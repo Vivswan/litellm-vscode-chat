@@ -947,6 +947,7 @@
 	"Reasoning": "Reasoning",
 	"Reasoning Effort": "Reasoning Effort",
 	"Reasoning effort levels": "Reasoning effort levels",
+	"Reasoning replay": "Reasoning replay",
 	"Reconfigure": "Reconfigure",
 	"Record \"{0}\" inherits nothing from \"{1}\": no record has that name.": "Record \"{0}\" inherits nothing from \"{1}\": no record has that name.",
 	"Record keys to inherit from, comma-separated": "Record keys to inherit from, comma-separated",

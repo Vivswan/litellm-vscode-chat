@@ -56,6 +56,7 @@ const CAPABILITY_DISPLAY_LABELS: Readonly<Record<ConsumedCapabilityField, () => 
 	supports_prompt_caching: () => l10n.t("Prompt caching"),
 	supports_pdf_input: () => l10n.t("PDF input"),
 	supports_response_schema: () => l10n.t("Response schema"),
+	replay_reasoning_content: () => l10n.t("Reasoning replay"),
 	supported_openai_params: () => l10n.t("Supported parameters"),
 	reasoning_effort_levels: () => l10n.t("Reasoning effort levels"),
 	input_cost_per_token: () => l10n.t({ message: "Input", comment: ["Pricing row label: cost of input tokens"] }),
