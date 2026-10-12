@@ -153,7 +153,6 @@ suite("provider groups", () => {
 		const cases: Array<[number, string]> = [
 			[401, "NoPermissions"],
 			[404, "NotFound"],
-			[429, "Blocked"],
 		];
 		for (const [status, code] of cases) {
 			mswServer.use(
@@ -172,11 +171,18 @@ suite("provider groups", () => {
 		}
 
 		// A status outside the documented codes stays the classified RequestError; inventing a code would misinform
-		// consumer backoff logic.
-		mswServer.use(
-			http.post(CHAT_COMPLETIONS_URL, () => HttpResponse.json({ error: { message: "boom" } }, { status: 500 }))
-		);
-		await assert.rejects(send, (e: unknown) => e instanceof RequestError && e.status === 500);
+		// consumer backoff logic. 429 is such a status: Blocked is the API's standing refusal of the requestor, and a
+		// consumer branching on it would retire a model over a transient rate limit.
+		for (const status of [429, 500]) {
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, () => HttpResponse.json({ error: { message: "boom" } }, { status }))
+			);
+			await assert.rejects(
+				send,
+				(e: unknown) => e instanceof RequestError && e.status === status && !(e instanceof vscode.LanguageModelError),
+				`status ${status} stays the classified RequestError`
+			);
+		}
 	});
 
 	test("a keyless group configuration sends no auth header", async () => {

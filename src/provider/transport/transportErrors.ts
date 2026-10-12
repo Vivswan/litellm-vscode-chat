@@ -995,7 +995,7 @@ export function discoveryHttpDetail(status: number, err: APIError, envelope: Err
 /**
  * Constructed here so the stream processor throws a classified transport error instead of ending the request as a
  * silent truncation. There is no HTTP status - the response was already 200 - so the RequestError carries none, and
- * none may be derived from the envelope's code: a synthesized status 429 would re-map the frame as Blocked.
+ * none may be derived from the envelope's code: a synthesized status would claim an HTTP refusal the wire never sent.
  *
  *   An in-band error frame -> a streamed `data: {"error": {...}}` payload, the shape LiteLLM emits when an upstream
  *                             dies after the 200

@@ -190,7 +190,7 @@ describe("provider/transport/errorMapping", () => {
 				new Headers()
 			);
 			const chat = expectRequestError(mapSdkError(err, chatCtx, neverCancelled), "http");
-			assert.strictEqual(chat.status, 429, "Blocked mapping keys off status 429; it must survive");
+			assert.strictEqual(chat.status, 429, "the 429 classification keys off the status; it must survive");
 			assert.ok(
 				chat.message.startsWith(
 					"This key's budget is used up - requests will fail until the budget resets or an admin raises it."
