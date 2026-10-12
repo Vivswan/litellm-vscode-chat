@@ -1,14 +1,15 @@
 /**
- * The matching algorithm behind the one output door (Logger.redact): every spelling of every known value and every
- * URL userinfo is found on the ORIGINAL text, the spans are merged, and the Logger replaces each merged span once,
- * so overlapping values leave no tail. Nothing parses a URL and nothing protects a host, so a value that is also a
- * word blanks that word.
+ * The matching algorithm behind the one output door (Logger.redact): every spelling of every known value is found
+ * on the ORIGINAL text, the spans are merged, and the Logger replaces each merged span once, so overlapping values
+ * leave no tail. Nothing parses a URL and nothing protects a host, so a value that is also a word blanks that word.
+ * Known values are the only rule (a configured URL's password is one: serverSync/setting.ts); a URL-userinfo shape
+ * rule rewrote spaceless code holding an address.
  *
  * Masking is idempotent: a span CONTAINED in an existing marker (REDACTED_MARKER, or the reveal of a registered long
  * value, its first REVEALED_CHARS and "...") is never a match, so text masked where it entered the extension masks to
  * itself again at every exit, and no exit can write "[[redacted]]" or re-mask a reveal once a shorter value joins the
- * set. A span that merely overlaps a marker is still a match: a long value whose own head reads like its reveal, a
- * userinfo run opening with one, so the mask cannot be defeated by text shaped like a marker.
+ * set. A span that merely overlaps a marker is still a match (a long value whose own head reads like its reveal), so
+ * the mask cannot be defeated by text shaped like a marker.
  */
 
 /**
@@ -26,15 +27,6 @@ const REVEALED_CHARS = 6;
 export function revealOf(value: string): string | undefined {
 	return value.length >= REVEAL_FROM_LENGTH ? `${value.slice(0, REVEALED_CHARS)}...` : undefined;
 }
-/**
- * URL userinfo by shape alone: everything from the scheme's "//" to the last "@" before the path, query, or fragment,
- * so a user with or without a password goes, a password that itself holds an "@" goes whole, and an address in a
- * query ("?email=admin@example.com") is no userinfo. A double quote ends the run: a serialized field's URL and a
- * later field's address are two strings, never one authority. Found on the original text like the known values, so
- * a value that eats the "@" ("@host") cannot hide the userinfo from this rule.
- */
-const URL_USERINFO = /:\/\/([^\s/?#"]*)@/g;
-
 type Span = readonly [from: number, to: number];
 
 /** One merged span to replace; `value` is the raw configured value when the span is exactly one raw occurrence of it. */
@@ -46,14 +38,18 @@ export interface SecretSpan {
 
 /**
  * One way a line can carry a value. `raw` is the value as typed, the one spelling whose head the Logger may reveal (a
- * head of an escaped spelling would leave a broken escape behind); `folds` marks the percent-encoded spellings,
- * whose escape hex matches in either case. The raw and JSON spellings match literally.
+ * head of an escaped spelling would leave a broken escape behind). `folds` marks the spellings whose escape hex
+ * matches in either case: the encoded ones, and every spelling of a value holding a complete percent escape (a URL
+ * password written encoded).
  */
 interface Spelling {
 	readonly text: string;
 	readonly raw: boolean;
 	readonly folds: boolean;
 }
+
+/** A complete percent escape, the only "%" whose following hex digits fold: "100%off" and "100%oFf" differ. */
+const PERCENT_ESCAPE = /%[0-9a-fA-F]{2}/;
 
 const ENCODINGS: readonly ((value: string) => string)[] = [
 	encodeURIComponent,
@@ -66,13 +62,14 @@ const ENCODINGS: readonly ((value: string) => string)[] = [
  * U+FFFD, and the one must not cost the other.
  */
 function spellingsOf(value: string): Spelling[] {
-	const spellings: Spelling[] = [{ text: value, raw: true, folds: false }];
+	const holdsEscape = PERCENT_ESCAPE.test(value);
+	const spellings: Spelling[] = [{ text: value, raw: true, folds: holdsEscape }];
 	const add = (text: string, folds: boolean): void => {
 		if (!spellings.some((spelling) => spelling.text === text)) {
 			spellings.push({ text, raw: false, folds });
 		}
 	};
-	add(JSON.stringify(value).slice(1, -1), false);
+	add(JSON.stringify(value).slice(1, -1), holdsEscape);
 	for (const encode of ENCODINGS) {
 		try {
 			add(encode(value), true);
@@ -97,16 +94,18 @@ function isHexDigit(ch: string): boolean {
 	return /[0-9a-fA-F]/.test(ch);
 }
 
-/** Whether `spelling` sits at `at` in `text`; the two hex digits of a percent escape match in either case. */
+/** Whether `spelling[i]` is a hex digit of a complete percent escape ("%HH") in `spelling`. */
+function inEscape(spelling: string, i: number): boolean {
+	const percent = spelling.charAt(i - 1) === "%" ? i - 1 : spelling.charAt(i - 2) === "%" ? i - 2 : -1;
+	return percent >= 0 && isHexDigit(spelling.charAt(percent + 1)) && isHexDigit(spelling.charAt(percent + 2));
+}
+
+/** Whether `spelling` sits at `at` in `text`; the two hex digits of a complete percent escape match in either case. */
 function matchesAt(text: string, at: number, spelling: string): boolean {
 	for (let i = 0; i < spelling.length; i++) {
 		const want = spelling.charAt(i);
 		const have = text.charAt(at + i);
-		if (want === have) {
-			continue;
-		}
-		const inEscape = spelling.charAt(i - 1) === "%" || (i >= 2 && spelling.charAt(i - 2) === "%");
-		if (!(inEscape && isHexDigit(want) && want.toLowerCase() === have.toLowerCase())) {
+		if (want !== have && !(inEscape(spelling, i) && want.toLowerCase() === have.toLowerCase())) {
 			return false;
 		}
 	}
@@ -116,7 +115,7 @@ function matchesAt(text: string, at: number, spelling: string): boolean {
 /** Every occurrence of `spelling` in `text`, overlapping ones included; literal unless the spelling folds its escapes. */
 function occurrences(text: string, spelling: string, folds: boolean): Span[] {
 	const spans: Span[] = [];
-	if (!folds || !spelling.includes("%")) {
+	if (!folds || !PERCENT_ESCAPE.test(spelling)) {
 		for (let at = text.indexOf(spelling); at !== -1; at = text.indexOf(spelling, at + 1)) {
 			spans.push([at, at + spelling.length]);
 		}
@@ -155,10 +154,8 @@ function mergedSpans(spans: readonly (Span & { readonly value?: string })[]): Se
 }
 
 /**
- * Every span of `text` the door replaces: each spelling of each known value and each URL userinfo, merged, minus any
- * span contained in an existing marker (the idempotence rule). Value occurrences are searched up to `upTo` only and
- * userinfo runs only where they start before it (a cut needs nothing past it); a run that starts before the cut is
- * still read to its end, since it may cross the cut.
+ * Every span of `text` the door replaces: each spelling of each known value, merged, minus any span contained in an
+ * existing marker (the idempotence rule). Occurrences are searched up to `upTo` only: a cut needs nothing past it.
  */
 export function secretSpans(text: string, values: readonly string[], upTo = text.length): SecretSpan[] {
 	const markers = occurrences(text, REDACTED_MARKER, false);
@@ -183,32 +180,19 @@ export function secretSpans(text: string, values: readonly string[], upTo = text
 			}
 		}
 	}
-	for (const userinfo of text.matchAll(URL_USERINFO)) {
-		// Lazy: the first run starting past `upTo` ends the walk, so a cut never pays for the discarded suffix; a run
-		// that starts before the cut is read to its "@" wherever that is, since it may cross the cut.
-		if (userinfo.index >= upTo) {
-			break;
-		}
-		const from = userinfo.index + "://".length;
-		const to = from + (userinfo[1] as string).length;
-		if (!insideMarker(from, to)) {
-			spans.push([from, to]);
-		}
-	}
 	return mergedSpans(spans);
 }
 
 /**
  * Where a cut of `text` meant for `at` may land without splitting anything the mask would replace: `at` itself, or
- * the start of the span astride or ending at it, so a prefix cut there holds whole values or none and masks the same
- * in either mode. A cut exactly at a span's end counts as astride: a userinfo run cut just before its "@" is no
- * longer a userinfo run to the mask.
+ * the start of the span astride it, so a prefix cut there holds whole values or none and masks the same in either
+ * mode.
  */
 export function safeCut(text: string, at: number, values: readonly string[]): number {
 	// Only occurrences that can reach `at` matter, so the search stops one spelling past it: the work is bounded by
 	// the cut, not by the text, and a megabyte line with a repeated value does not build a million spans.
 	for (const { from, to } of secretSpans(text, values, at + longestSpelling(values))) {
-		if (from < at && at <= to) {
+		if (from < at && at < to) {
 			return from;
 		}
 	}

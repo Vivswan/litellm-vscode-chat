@@ -36,14 +36,14 @@ const NO_SECRETS = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue:
 const BODY_MARKER = "bearer-marker-9f8e7d";
 
 describe("agentTools render", () => {
-	test("renderJson and a fenced card body pass the output door whole: a registered value and a URL's userinfo mask", () => {
+	test("renderJson and a fenced card body pass the output door whole: a registered value and a URL's registered password mask", () => {
 		const key = `sk-live-${"A".repeat(32)}`;
-		Logger.registerSecrets([key]);
-		expect(renderJson({ key, url: "http://bob:pw@hub.test/v1" })).toBe(
-			'{\n  "key": "sk-liv...",\n  "url": "http://[redacted]@hub.test/v1"\n}'
+		Logger.registerSecrets([key, "url-pass-Q7"]);
+		expect(renderJson({ key, url: "http://bob:url-pass-Q7@hub.test/v1" })).toBe(
+			'{\n  "key": "sk-liv...",\n  "url": "http://bob:[redacted]@hub.test/v1"\n}'
 		);
-		expect(describeAction("remove", `Prod at http://bob:pw@hub.test with ${key}`)).toBe(
-			"```\nremove: Prod at http://[redacted]@hub.test with sk-liv...\n```"
+		expect(describeAction("remove", `Prod at http://bob:url-pass-Q7@hub.test with ${key}`)).toBe(
+			"```\nremove: Prod at http://bob:[redacted]@hub.test with sk-liv...\n```"
 		);
 	});
 
@@ -304,15 +304,17 @@ describe("agentTools render", () => {
 	});
 
 	// Drifts silently: a result or card reaches the agent's context window alone, where no test looks; every exit
-	// passes the one output door, so the userinfo goes and the host stays.
-	test("a base URL keeps its host and loses its userinfo in every result and card", () => {
+	// passes the one output door, so the password the collector registered (serverSync/setting.ts) goes and the host
+	// and user name stay.
+	test("a declared base URL keeps its host and user name and loses its registered password in every result and card", () => {
 		const withCredentials = "http://alice:url-secret-57@localhost:4000";
 		const tokenUrl = "https://bob:url-secret-57@idp.test/token";
-		const shownBase = "http://[redacted]@localhost:4000";
-		const shownToken = "https://[redacted]@idp.test/token";
+		const shownBase = "http://alice:[redacted]@localhost:4000";
+		const shownToken = "https://bob:[redacted]@idp.test/token";
+		Logger.registerSecrets(["url-secret-57"]);
 		const credState = makeState({
 			servers: [
-				makeExternalServer({ label: "Cred", baseUrl: withCredentials }),
+				makeDeclaredServer({ label: "Cred", baseUrl: withCredentials }),
 				makeDeclaredServer({
 					label: "Oauth",
 					baseUrl: "http://oauth.test",

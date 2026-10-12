@@ -114,7 +114,7 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 
 test("Copy diagnostics posts the composed text to the extension, which owns the redaction and the clipboard", () => {
 	// The webview cannot see the known credential values and they never cross the wire, so the text leaves here as
-	// composed; the intent's pin shows the userinfo and values masked on the other side.
+	// composed; the intent's pin shows the values masked on the other side.
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", baseUrl: "http://user:sekret@localhost:4000", servedModelCount: 1 })],
 		models: [makeModel()],

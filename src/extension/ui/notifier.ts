@@ -30,9 +30,8 @@ export function configureNowLabel(): string {
 }
 
 /**
- * The one toast door: the message and a modal's detail pass Logger.redact once before VS Code shows them, so an
- * error that quotes a configured value or a URL's userinfo never reaches a toast whole. An l10n literal carries no
- * value and comes out unchanged; the labels are the caller's own button titles.
+ * The one toast door: an error that quotes a configured value (a URL's password among them) never reaches a toast
+ * whole. An l10n literal carries no value and comes out unchanged; the labels are the caller's own button titles.
  */
 export function showMessage(
 	kind: MessageKind,

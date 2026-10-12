@@ -25,6 +25,7 @@ import { displayUrl } from "../../shared/util/displayUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { HEADER_NAME_PATTERN, type HeaderValue, headerValue, usableHttpText } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
+import { collectKnownSecretValues, urlPasswordsOf } from "../../shared/util/knownSecrets";
 import type { OAuthConfig, VirtualKeyConfig } from "../transport/auth";
 import { oauthCredentialFingerprint } from "../transport/auth";
 
@@ -503,10 +504,36 @@ export function narrowGroupCredentials(raw: RawOptionalFields): NarrowedGroupCre
 	return { credentials: { ...slots, apiKey: slots.apiKey ?? "" }, rejections };
 }
 
-/** A host group configuration as parsed: the connection it describes and the credentials it configured but cannot send. */
+/**
+ * Every credential value a host group's configuration carries, for the output door: an adopted group is in no
+ * `servers` entry for the collector to read, so the provider registers these as it serves. Raw as well as narrowed:
+ * a credentialed URL mistyped into the header-name slot is dropped by the narrowing, and the rejection log names
+ * that header.
+ */
+function groupKnownSecrets(configuration: Record<string, unknown>, server: GroupServer): readonly string[] {
+	const isString = (value: unknown): value is string => typeof value === "string";
+	const rawStrings = Object.values(configuration).filter(isString);
+	const secrets = [
+		...SECRET_FIELD_IDS.map((field) => configuration[field]).filter(isString),
+		...rawStrings.flatMap(urlPasswordsOf),
+		server.apiKey,
+		server.oauth?.clientSecret,
+		server.virtualKey?.value,
+		...urlPasswordsOf(server.baseUrl),
+		...(server.oauth === undefined ? [] : urlPasswordsOf(server.oauth.tokenUrl)),
+	].filter(isString);
+	return collectKnownSecretValues([{ secrets, headers: {}, carriers: [] }], []);
+}
+
+/**
+ * A host group configuration as parsed: the connection it describes, the credentials it configured but cannot send,
+ * and every credential value it carries, for the output door (provider/index.ts registers them before its first line
+ * about the group).
+ */
 export interface ParsedGroupConfiguration {
 	readonly server: GroupServer;
 	readonly rejections: readonly CredentialRejection[];
+	readonly knownSecrets: readonly string[];
 }
 
 /**
@@ -533,10 +560,8 @@ export function parseGroupConfiguration(configuration: unknown): ParsedGroupConf
 		raw[id] = configuration[id];
 	}
 	const narrowed = narrowGroupCredentials(raw);
-	return {
-		server: { baseUrl, ...narrowed.credentials, ...(label !== undefined ? { label } : {}) },
-		rejections: narrowed.rejections,
-	};
+	const server = { baseUrl, ...narrowed.credentials, ...(label !== undefined ? { label } : {}) };
+	return { server, rejections: narrowed.rejections, knownSecrets: groupKnownSecrets(configuration, server) };
 }
 
 /** `detail` is dropped so the host fills it with the group name. */

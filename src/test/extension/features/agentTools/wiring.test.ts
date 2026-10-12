@@ -23,6 +23,7 @@ import {
 	agentToolsState,
 	COPILOT_BASE_URL,
 	CRED_DISPLAY_URL,
+	CRED_PASSWORD,
 } from "../../../bun/extension/features/agentTools/fixture";
 import { assertContains, assertOmits, makeLogger } from "../../../pureHelpers";
 import { withConfig } from "../../../testUtils";
@@ -607,7 +608,8 @@ suite("extension/features/agentTools wiring", () => {
 				// The fields the agent did not place take the secure default.
 				assert.match(card, /oauthClientSecret: copied to secure storage/);
 				// A group named by its credential-free URL: the card resolves the stored group and shows its URL
-				// through the output door, host kept, userinfo gone.
+				// through the output door, host and user name kept, the registered password gone.
+				Logger.registerSecrets([CRED_PASSWORD]);
 				const credentialed = cardText(
 					prepareLive(spies, "saveServer", {
 						label: "Imported2",
@@ -616,7 +618,7 @@ suite("extension/features/agentTools wiring", () => {
 				);
 				assertContains(
 					credentialed,
-					'adopt provider group "Cred" at http://[redacted]@cred.example:4000 as servers entry "Imported2"'
+					'adopt provider group "Cred" at http://alice:[redacted]@cred.example:4000 as servers entry "Imported2"'
 				);
 				// A source the planner cannot find gets no card: the refusal reaches the agent without asking the user
 				// to approve nothing.

@@ -70,14 +70,14 @@ describe("provider/transport/transportErrors", () => {
 
 		test("thrownErrorDisplayText renders a raw throw through the door whole, and a MirroredError's text as built", () => {
 			const key = `sk-live-${"A".repeat(32)}`;
-			Logger.registerSecrets([key]);
+			Logger.registerSecrets([key, "url-pass-Q7"]);
 			assert.deepStrictEqual(
 				[
-					thrownErrorDisplayText(new Error(`failed for ${key} at http://bob:pw@hub.test/v1`)),
+					thrownErrorDisplayText(new Error(`failed for ${key} at http://bob:url-pass-Q7@hub.test/v1`)),
 					thrownErrorDisplayText(`failed for ${key}`),
 					thrownErrorDisplayText(new MirroredError(`failed for ${key}`, { englishMessage: `failed for ${key}` })),
 				],
-				["failed for sk-liv... at http://[redacted]@hub.test/v1", "failed for sk-liv...", "failed for sk-liv..."]
+				["failed for sk-liv... at http://bob:[redacted]@hub.test/v1", "failed for sk-liv...", "failed for sk-liv..."]
 			);
 		});
 

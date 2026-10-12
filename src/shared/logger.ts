@@ -261,9 +261,8 @@ export class Logger {
 
 	/**
 	 * The one masking rule for text that leaves the extension: every registered value in the spellings a line can
-	 * carry it, and every URL userinfo, replaced once per merged span. A value of REVEAL_FROM_LENGTH or more keeps
-	 * its first REVEALED_CHARS ("sk-liv..."), a shorter value and any userinfo go whole. Hosts, paths, and every
-	 * other word stay.
+	 * carry it, replaced once per merged span. A value of REVEAL_FROM_LENGTH or more keeps its first REVEALED_CHARS
+	 * ("sk-liv..."), a shorter value goes whole. Hosts, paths, and every other word stay.
 	 */
 	static redact(text: string): string {
 		let out = "";

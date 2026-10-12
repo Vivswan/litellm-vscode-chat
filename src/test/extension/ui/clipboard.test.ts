@@ -24,13 +24,15 @@ suite("extension/ui/clipboard", () => {
 		assert.deepStrictEqual(written, [text]);
 	});
 
-	test("a registered value and a URL's userinfo are masked before the write", async () => {
+	test("a registered value and a configured URL's registered password are masked before the write", async () => {
 		const { written, clipboard } = recorder();
-		Logger.registerSecrets(["copy-key-Q7-marker"]);
+		Logger.registerSecrets(["copy-key-Q7-marker", "copy-pass-Q7-marker"]);
 		await copyToClipboard(
-			"Prod (http://user:sekret@localhost:4000): 401 for copy-key-Q7-marker at /home/alice",
+			"Prod (http://user:copy-pass-Q7-marker@localhost:4000): 401 for copy-key-Q7-marker at /home/alice",
 			clipboard
 		);
-		assert.deepStrictEqual(written, ["Prod (http://[redacted]@localhost:4000): 401 for [redacted] at /home/alice"]);
+		assert.deepStrictEqual(written, [
+			"Prod (http://user:[redacted]@localhost:4000): 401 for [redacted] at /home/alice",
+		]);
 	});
 });

@@ -7,8 +7,8 @@
  *   inline secret values     -> every flat secret field and every nested position of SECRET_FIELD_NESTED_PATHS
  *   credential header values -> every raw header isCredentialHeader names, the entry's carrier among them
  *   SecretStorage blobs      -> every stored value under every declared label
- * A configured URL's userinfo is no value here: the door masks userinfo by its shape wherever a URL carries it, and a
- * user name registered as a value would blank it everywhere else ("/Users/alice/x").
+ *   configured URL passwords -> every URL position's password, as written and decoded; the user name is none, since
+ *                               registered as a value it would blank "/Users/alice/x" on every line
  */
 
 import { isCredentialHeader } from "../serverEntry";
@@ -19,6 +19,27 @@ export interface CollectableEntry {
 	readonly secrets: readonly string[];
 	readonly headers: Readonly<Record<string, string>>;
 	readonly carriers: readonly string[];
+}
+
+/**
+ * A URL's password as written and as decoded, so the door finds the spelling a line carries; nothing for a URL
+ * without one or for text no parser reads.
+ */
+export function urlPasswordsOf(url: string): string[] {
+	let password: string;
+	try {
+		password = new URL(url).password;
+	} catch {
+		return [];
+	}
+	if (password === "") {
+		return [];
+	}
+	try {
+		return [password, decodeURIComponent(password)];
+	} catch {
+		return [password];
+	}
 }
 
 /** The known values of the parsed entries plus the stored values read for them; short ones out, deduplicated. */

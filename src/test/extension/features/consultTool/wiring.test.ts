@@ -246,17 +246,19 @@ suite("extension/features/consultTool wiring", () => {
 		});
 	});
 
-	test("the whole reply passes the output door: a configured value and a URL's userinfo come back masked", async () => {
+	test("the whole reply passes the output door: a configured value and a configured URL's password come back masked", async () => {
 		const key = `sk-live-${"A".repeat(32)}`;
-		Logger.registerSecrets([key]);
-		mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply(`Use ${key} at http://bob:pw@hub.test/v1.`)));
+		Logger.registerSecrets([key, "url-pass-Q7"]);
+		mswServer.use(
+			http.post(CHAT_COMPLETIONS_URL, () => chatReply(`Use ${key} at http://bob:url-pass-Q7@hub.test/v1.`))
+		);
 		const result = await withWiringSpies(async (spies) =>
 			withConfig(ENABLED_CONFIG, async () => {
 				wireConsultTool(fakeContext(), quietLogger(), { oneShot: new OneShotClient({ userAgent: TEST_AGENT }) });
 				return invokeRecorded(spies, { question: "Which key?" });
 			})
 		);
-		assert.strictEqual(resultText(result), "Use sk-liv... at http://[redacted]@hub.test/v1.");
+		assert.strictEqual(resultText(result), "Use sk-liv... at http://bob:[redacted]@hub.test/v1.");
 	});
 
 	test("no tokenization options means no known budget: the reply travels whole rather than under a guessed one", async () => {

@@ -179,9 +179,11 @@ suite("provider/catalog/groupModels", () => {
 			const noHeader = expectDefined(
 				parseLogged({ baseUrl: "http://litellm.test", apiKey: "sk-live", virtualKeyValue: "vk-dormant" }, log)
 			);
+			// A dormant value is a known value: the door masks it wherever it is quoted.
 			assert.deepStrictEqual(noHeader, {
 				server: { baseUrl: "http://litellm.test", apiKey: "sk-live" },
 				rejections: [],
+				knownSecrets: ["sk-live", "vk-dormant"],
 			});
 			assert.strictEqual(lines.length, 0, "an unconfigured virtual key must not be logged as rejected");
 
@@ -203,6 +205,25 @@ suite("provider/catalog/groupModels", () => {
 			assert.ok(
 				lines.every((line) => !line.includes("secret")),
 				`the virtual key value leaked into the log: ${lines.join(" | ")}`
+			);
+		});
+
+		test("a credentialed URL typed into both virtual-key slots is a known value although the narrowing drops the unit", () => {
+			// The header fails the name pattern, so the unit is dropped and the rejection log names the header text, which
+			// feeds the public issue report; the password and the raw value must be registered before that line.
+			const url = "http://alice:reject-pass-Q7@h.test";
+			const parsed = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", virtualKeyHeader: url, virtualKeyValue: url })
+			);
+			assert.strictEqual(parsed.server.virtualKey, undefined);
+			assert.deepStrictEqual(
+				parsed.rejections.map(({ field, header }) => ({ field, header })),
+				[{ field: "virtualKeyValue", header: url }]
+			);
+			assert.deepStrictEqual(
+				["reject-pass-Q7", url].map((value) => parsed.knownSecrets.includes(value)),
+				[true, true],
+				`known: ${parsed.knownSecrets.join(" | ")}`
 			);
 		});
 

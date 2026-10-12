@@ -44,7 +44,7 @@ import {
 	usableHttpText,
 } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey, objectSlot } from "../../../shared/util/json";
-import type { CollectableEntry } from "../../../shared/util/knownSecrets";
+import { type CollectableEntry, urlPasswordsOf } from "../../../shared/util/knownSecrets";
 import { sameGroupIdentity } from "../groupRemovals";
 import { drawableRejects } from "./rejects";
 
@@ -254,22 +254,7 @@ export function collectableEntries(raw: unknown): CollectableEntry[] {
 	}
 	const strings = (values: readonly unknown[]): string[] =>
 		values.map(usableHttpText).filter((value): value is string => value !== undefined);
-	const passwords = (urls: readonly unknown[]): string[] =>
-		strings(urls).flatMap((url) => {
-			try {
-				const { password } = new URL(url);
-				if (password === "") {
-					return [];
-				}
-				try {
-					return [password, decodeURIComponent(password)];
-				} catch {
-					return [password];
-				}
-			} catch {
-				return [];
-			}
-		});
+	const passwords = (urls: readonly unknown[]): string[] => strings(urls).flatMap(urlPasswordsOf);
 	return raw.filter(isRecord).map((record) => {
 		// A null prototype: a raw header named "__proto__" must become an own entry, not reach the inherited setter.
 		const headers: Record<string, string> = Object.create(null);

@@ -16,7 +16,7 @@ import { ModelResolutionTable } from "../shared/config/resolutionTable";
 import { getDiscoveryStaleServeWindow } from "../shared/config/settings";
 import { countTextTokens } from "../shared/conversion/textTokens";
 import { estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
-import type { Logger } from "../shared/logger";
+import { Logger } from "../shared/logger";
 import { localizedError, type MirroredError } from "../shared/mirroredError";
 import type { ExpectedFailureCategory, NonChatMode } from "../shared/serverEntry";
 import type { AggregatedStatus } from "../shared/servers";
@@ -344,6 +344,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			this.log("Ignoring provider-group refresh with malformed configuration (baseUrl must be a URL with a host)");
 			return [];
 		}
+		// Before any line about the group: a group adopted from the host enters the extension here and nowhere else.
+		Logger.registerSecrets(parsed.knownSecrets);
 		// The baked copy's rejections are logged, not refused: a declared entry's current copy is judged by the overlay
 		// below, and an external group has no entry to refuse for.
 		logCredentialRejections((message, data) => this.log(message, data), parsed.rejections);

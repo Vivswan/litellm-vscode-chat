@@ -671,18 +671,18 @@ suite("extension/ui/notifier", () => {
 		]);
 	});
 
-	test("showMessage masks a registered value in the message and a URL's userinfo in the detail", async () => {
+	test("showMessage masks a registered value in the message and a configured URL's registered password in the detail", async () => {
 		const calls: unknown[][] = [];
 		const origError = vscode.window.showErrorMessage;
 		(vscode.window as Record<string, unknown>).showErrorMessage = async (...args: unknown[]) => {
 			calls.push(args);
 			return undefined;
 		};
-		Logger.registerSecrets(["toast-key-Q7-marker"]);
+		Logger.registerSecrets(["toast-key-Q7-marker", "toast-pass-Q7"]);
 		try {
 			await showMessage("error", "LiteLLM: 401 for toast-key-Q7-marker", ["Reconfigure"], {
 				modal: true,
-				detail: "Seen at http://user:sekret@localhost:4000/v1",
+				detail: "Seen at http://user:toast-pass-Q7@localhost:4000/v1",
 			});
 		} finally {
 			(vscode.window as Record<string, unknown>).showErrorMessage = origError;
@@ -690,7 +690,7 @@ suite("extension/ui/notifier", () => {
 		assert.deepStrictEqual(calls, [
 			[
 				"LiteLLM: 401 for [redacted]",
-				{ modal: true, detail: "Seen at http://[redacted]@localhost:4000/v1" },
+				{ modal: true, detail: "Seen at http://user:[redacted]@localhost:4000/v1" },
 				"Reconfigure",
 			],
 		]);

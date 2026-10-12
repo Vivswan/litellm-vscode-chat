@@ -349,8 +349,9 @@ describe("shared/logger", () => {
 
 	test("the mask applies to the channel alone: the buffer and the recorder hold every line raw", () => {
 		const sinks = makeSinks();
-		const logger = loggerWith(["sk-live-Q7"], () => true, sinks, sinks.recorder);
-		const baseUrl = "http://user:pass@host:4000";
+		// The collector registers a configured URL's password (serverSync/setting.ts), so the door finds it in the URL.
+		const logger = loggerWith(["sk-live-Q7", "url-pass-Q7"], () => true, sinks, sinks.recorder);
+		const baseUrl = "http://user:url-pass-Q7@host:4000";
 		const err = new Error(`connect ECONNREFUSED ${baseUrl} for key sk-live-Q7`);
 		err.stack = `Error: connect ECONNREFUSED ${baseUrl} for key sk-live-Q7\n    at real (x.ts:1:1)`;
 		const stamp = (line: string): string => line.replace(/^\[\d{4}-\d{2}-\d{2}T[^\]]+\]/, "[T]");
@@ -359,7 +360,7 @@ describe("shared/logger", () => {
 		logger.advisory("MCP server resolved", { uri: baseUrl });
 		logger.error(`Failed to fetch models for provider group at ${baseUrl}`, err);
 
-		const masked = "connect ECONNREFUSED http://[redacted]@host:4000 for key [redacted]";
+		const masked = "connect ECONNREFUSED http://user:[redacted]@host:4000 for key [redacted]";
 		// The buffer and the recorded error are public: an unclassified throw leaves them its frames and the word.
 		const publicLine = `Failed to fetch models for provider group at ${baseUrl}: unclassified`;
 		assert.deepStrictEqual(
@@ -371,11 +372,11 @@ describe("shared/logger", () => {
 			},
 			{
 				info: [
-					'Fetching models for provider group: {\n  "baseUrl": "http://[redacted]@host:4000",\n  "key": "[redacted]"\n}',
-					'MCP server resolved: {\n  "uri": "http://[redacted]@host:4000"\n}',
+					'Fetching models for provider group: {\n  "baseUrl": "http://user:[redacted]@host:4000",\n  "key": "[redacted]"\n}',
+					'MCP server resolved: {\n  "uri": "http://user:[redacted]@host:4000"\n}',
 				],
 				error: [
-					`Failed to fetch models for provider group at http://[redacted]@host:4000: ${masked}`,
+					`Failed to fetch models for provider group at http://user:[redacted]@host:4000: ${masked}`,
 					`Stack trace: Error: ${masked}\n    at real (x.ts:1:1)`,
 				],
 				buffer: [
@@ -526,12 +527,6 @@ describe("shared/logger redact: the one output door", () => {
 				expected: "key [redacted] sent",
 			},
 			{
-				title: "URL userinfo is masked whole, whatever its length",
-				text: "GET http://alice:pw-0123456789-0123456789-0123456789@host.test/v1",
-				values: [],
-				expected: "GET http://[redacted]@host.test/v1",
-			},
-			{
 				title: "the percent-encoded spelling the parser writes into a URL, either hex case",
 				text: "GET http://host/?token=pa%20ss%2f1",
 				values: ["pa ss/1"],
@@ -551,9 +546,9 @@ describe("shared/logger redact: the one output door", () => {
 			},
 			{
 				title: "a value that is also a word blanks that word: the accepted cost of no parsing",
-				text: "https://u:pw@proxy.zq7w.host answered",
+				text: "https://proxy.zq7w.host answered",
 				values: ["zq7w"],
-				expected: "https://[redacted]@proxy.[redacted].host answered",
+				expected: "https://proxy.[redacted].host answered",
 			},
 			{
 				title: "a lone surrogate has no percent form (encodeURIComponent throws); the raw spelling still masks",
@@ -575,24 +570,6 @@ describe("shared/logger redact: the one output door", () => {
 				expected: "[redacted]",
 			},
 			{
-				title: "a known value that eats the @ cannot hide the userinfo: both are spans on the original text",
-				text: "GET http://alice:pw@host.test/v1",
-				values: ["@host"],
-				expected: "GET http://[redacted].test/v1",
-			},
-			{
-				title: "a password holding an @ goes whole; an address in a query or fragment is no userinfo",
-				text: "GET http://alice:p@ss@hub.test/ and https://host.test?email=admin@example.com#x@y",
-				values: [],
-				expected: "GET http://[redacted]@hub.test/ and https://host.test?email=admin@example.com#x@y",
-			},
-			{
-				title: "a double quote ends a userinfo run: a serialized URL and a later field's address are two strings",
-				text: 'after: {"webhook":"https://host.test","owner":"admin@example.com"}',
-				values: [],
-				expected: 'after: {"webhook":"https://host.test","owner":"admin@example.com"}',
-			},
-			{
 				title: "the reveal shows raw characters only where the raw spelling stands: an escaped spelling masks whole",
 				text: '{"k":"ab\\"cdefghijklmnopqrstuvwxyz"} and ab"cdefghijklmnopqrstuvwxyz',
 				values: ['ab"cdefghijklmnopqrstuvwxyz'],
@@ -600,16 +577,30 @@ describe("shared/logger redact: the one output door", () => {
 			},
 			{
 				title:
-					"percent-escape case folds in the encoded spellings only; a raw value with a percent sign matches literally",
-				text: "raw key%ABcd-zq7 goes, key%abcd-zq7 stays, pa%20ss%2f1 goes",
-				values: ["key%ABcd-zq7", "pa ss/1"],
-				expected: "raw [redacted] goes, key%abcd-zq7 stays, [redacted] goes",
+					"percent-escape case folds in the encoded spellings and in a raw value holding a percent sign, hex digits only: a URL password written encoded is found in the other case",
+				text: "raw key%ABcd-zq7 goes, key%abcd-zq7 goes, pa%20ss%2f1 goes, key%ZZcd-zq7 stays",
+				values: ["key%ABcd-zq7", "pa ss/1", "key%zzcd-zq7"],
+				expected: "raw [redacted] goes, [redacted] goes, [redacted] goes, key%ZZcd-zq7 stays",
+			},
+			{
+				title:
+					"a percent sign that opens no complete escape folds nothing: a value differing only in the case of a letter after it is another value",
+				text: "100%oFf stays, key%ag-Q7 stays, 100%off goes",
+				values: ["100%off", "key%Ag-Q7"],
+				expected: "100%oFf stays, key%ag-Q7 stays, [redacted] goes",
 			},
 			{
 				title: "a value inside an existing marker is no match, so no exit can write [[redacted]]",
 				text: "value acted] here, marker [redacted] here",
 				values: ["acted]"],
 				expected: "value [redacted] here, marker [redacted] here",
+			},
+			{
+				title:
+					"spaceless code with an @ after a quoted URL passes through whole while a registered value in it masks: a shape rule for URL userinfo once rewrote this reply to fetch('http://[redacted]@b.test'})",
+				text: "fetch('http://hub.test',{email:'a@b.test',key:'code-key-Q7-marker'})",
+				values: ["code-key-Q7-marker"],
+				expected: "fetch('http://hub.test',{email:'a@b.test',key:'[redacted]'})",
 			},
 		];
 		for (const { title, text, values, expected } of rows) {
@@ -633,31 +624,22 @@ describe("shared/logger redact: the one output door", () => {
 		);
 	});
 
-	test("only a span contained in a marker is protected: a value or userinfo run that merely overlaps one still masks", () => {
-		// A long value whose head reads like its own reveal, its percent spelling, and a userinfo run opening with a
-		// reveal: each overlaps a marker without being inside it, so each is a match; the reveal that results is an
-		// exact marker, so the second pass is a no-op.
+	test("only a span contained in a marker is protected: a value that merely overlaps one still masks", () => {
+		// A long value whose head reads like its own reveal, and its percent spelling: each overlaps a marker without
+		// being inside it, so each is a match; the reveal that results is an exact marker, so the second pass is a
+		// no-op.
 		const dotted = `R6dots...${"Z".repeat(31)}`;
 		const spaced = `K17abc...a b/${"Z".repeat(25)}`;
-		const plain = `K17abc${"X".repeat(34)}`;
-		Logger.registerSecrets([dotted, spaced, plain, "R6dots"]);
+		Logger.registerSecrets([dotted, spaced, "R6dots"]);
 		const once = {
 			dotted: Logger.redact(`key ${dotted}`),
 			encoded: Logger.redact(`q=${encodeURIComponent(spaced)}`),
-			userinfo: Logger.redact("http://K17abc...:newPassword@r7.example/path"),
 		};
 		assert.deepStrictEqual(
+			{ once, again: { dotted: Logger.redact(once.dotted), encoded: Logger.redact(once.encoded) } },
 			{
-				once,
-				again: {
-					dotted: Logger.redact(once.dotted),
-					encoded: Logger.redact(once.encoded),
-					userinfo: Logger.redact(once.userinfo),
-				},
-			},
-			{
-				once: { dotted: "key R6dots...", encoded: "q=[redacted]", userinfo: "http://[redacted]@r7.example/path" },
-				again: { dotted: "key R6dots...", encoded: "q=[redacted]", userinfo: "http://[redacted]@r7.example/path" },
+				once: { dotted: "key R6dots...", encoded: "q=[redacted]" },
+				again: { dotted: "key R6dots...", encoded: "q=[redacted]" },
 			}
 		);
 	});

@@ -24,7 +24,7 @@ suite("provider/streaming refusal and annotations", () => {
 
 	// The processor is the chat stream's exit door for the one part it builds whole, the sources trailer; refusal and
 	// content deltas are streamed prose that a chunk boundary can split, so no mask is applied to them.
-	test("a split refusal streams through as prose, while a citation's userinfo and a registered value in its path leave masked", async () => {
+	test("a split refusal streams through as prose, while a registered value in a citation's path leaves masked", async () => {
 		Logger.registerSecrets(["refusal-Q7-marker", "paren(Q7)marker"]);
 		const { parts, progress } = collector();
 		const stream = new StreamProcessor(idSource(), () => {}, progress);
@@ -38,7 +38,7 @@ suite("provider/streaming refusal and annotations", () => {
 						delta: {
 							content: "The sky is blue.",
 							annotations: [
-								{ type: "url_citation", url_citation: { url: "https://user:sekret@example.test/sky", title: "Sky" } },
+								{ type: "url_citation", url_citation: { url: "https://example.test/sky", title: "Sky" } },
 								// Masked before escaping: the title's brackets and the URL's parens are escaped afterwards, so an
 								// escaped spelling cannot slip past.
 								{
@@ -58,7 +58,7 @@ suite("provider/streaming refusal and annotations", () => {
 		assertContains(text, "The sky is blue.", "Content is untouched");
 		assertEndsWith(
 			text,
-			"\n\nSources:\n- [Sky](https://[redacted]@example.test/sky)\n- [Paren \\[redacted\\]](https://example.test/[redacted])",
+			"\n\nSources:\n- [Sky](https://example.test/sky)\n- [Paren \\[redacted\\]](https://example.test/[redacted])",
 			"The trailer passes the door"
 		);
 	});
