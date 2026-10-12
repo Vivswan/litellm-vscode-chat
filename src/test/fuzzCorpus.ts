@@ -15,7 +15,10 @@ export interface FuzzEvent {
 	chunks: unknown[];
 	/** Visible text this event appends, in stream order. */
 	text?: string;
-	/** Asserted only when at least one event of the stream declares it. */
+	/**
+	 * Thinking text this event must surface. The in-process oracles compare the stream's thinking parts against the
+	 * concatenation always; the docker oracle only when at least one event declares it.
+	 */
 	thinking?: string;
 	tools?: ExpectedToolCall[];
 	/** True when the tool calls arrive on the delta channel (triggers the one-time space hint after text). */
@@ -228,6 +231,60 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 		name: "issue-215-empty-stream",
 		mode: "both",
 		events: [{ label: "empty", chunks: [] }],
+	},
+	{
+		// Parallel calls whose deltas carry no index: keyed to index 0 together, the first emitted and the rest were
+		// skipped as late deltas of a finished call. Direct only: the proxy's handling of index-less deltas is its own.
+		name: "indexless-parallel-tool-calls",
+		mode: "direct",
+		events: [
+			{
+				label: "indexless-parallel-tools",
+				deltaToolChannel: true,
+				tools: [
+					{ name: "get_weather", args: { seq: 0 } },
+					{ name: "search_docs", args: { seq: 1 } },
+				],
+				chunks: [
+					chunk({
+						tool_calls: [
+							{ id: "call_fuzz_0", type: "function", function: { name: "get_weather", arguments: '{"seq":0}' } },
+							{ id: "call_fuzz_1", type: "function", function: { name: "search_docs", arguments: '{"seq":1}' } },
+						],
+					}),
+				],
+			},
+			{
+				label: "indexless-parallel-tools",
+				deltaToolChannel: true,
+				tools: [
+					{ name: "run_query", args: { seq: 2, q: "a" } },
+					{ name: "get_weather", args: { seq: 3, city: "b" } },
+				],
+				chunks: [
+					chunk({ tool_calls: [{ id: "call_fuzz_2", function: { name: "run_query", arguments: '{"seq":2,' } }] }),
+					chunk({ tool_calls: [{ id: "call_fuzz_3", function: { name: "get_weather", arguments: '{"seq":3,' } }] }),
+					chunk({ tool_calls: [{ id: "call_fuzz_2", function: { arguments: '"q":"a"}' } }] }),
+					chunk({ tool_calls: [{ id: "call_fuzz_3", function: { arguments: '"city":"b"}' } }] }),
+				],
+			},
+		],
+	},
+	{
+		// A begin sigil in prose with no header behind it held the rest of the reply until end of stream, where the
+		// flush dropped it as a truncated token: the user saw the text before the sigil and nothing after.
+		name: "stray-begin-sigil-in-prose",
+		mode: "both",
+		events: [
+			{
+				label: "stray-sigil-prose",
+				text: `write  before the name. ${"then the arguments follow. ".repeat(12)}`,
+				chunks: [
+					chunk({ content: "write <|tool_call_begin|> before the name. " }),
+					...Array.from({ length: 12 }, () => chunk({ content: "then the arguments follow. " })),
+				],
+			},
+		],
 	},
 ];
 

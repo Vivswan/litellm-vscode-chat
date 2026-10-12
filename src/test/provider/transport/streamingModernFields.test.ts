@@ -411,6 +411,7 @@ suite("provider/streaming pass-through of unhandled modern fields", () => {
 			const stream = new StreamProcessor(idSource(), (message, data) => logged.push({ message, data }), progress);
 
 			stream.processDelta({ choices: [], usage });
+			stream.endOfStream();
 
 			const usageLog = logged.find((l) => l.message === "Token usage");
 			assert.deepStrictEqual(expectDefined(usageLog?.data), expected, reason);

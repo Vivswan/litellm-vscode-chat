@@ -1,3 +1,4 @@
+import { MAX_TOOL_CALL_HEADER_LENGTH } from "../provider/transport/textToolCallParser";
 import type { ExpectedToolCall, FuzzEvent } from "./fuzzCorpus";
 import { fuzzSeedPrefix } from "./fuzzSeed";
 import { expectDefined } from "./pureHelpers";
@@ -40,6 +41,8 @@ export function mulberry32(seed: number): () => number {
 const WORDS = ["alpha", "bravo", "delta", "echo", "lima", "oscar", "tango", "zulu"];
 export const UNICODE_WORDS = ["日本語", "café", "émoji✨", "مرحبا", "🚀🧠"];
 const TOOL_NAMES = ["get_weather", "search_docs", "run_query"];
+/** The longest control token the parser can be holding as a partial tail when a stray sigil's prose must be past the bound. */
+const ARG_BEGIN_LENGTH = "<|tool_call_argument_begin|>".length;
 /** Arg values that stress JSON escaping through two serialization hops. */
 const TRICKY_ARG_VALUES = [
 	'quo"te',
@@ -149,24 +152,53 @@ function argumentsFrame(index: number, slice: string): Record<string, unknown> {
 	return chunkOf({ tool_calls: [{ index, function: { arguments: slice } }] });
 }
 
+/**
+ * How a call's frames identify it on the wire.
+ *
+ *   index  -> the index on every frame and the id on the first, the OpenAI shape
+ *   id     -> the id on every frame and no index, the shape of servers that omit index
+ *   bare   -> the id on the first frame and nothing but arguments after it
+ */
+type FrameIdentity = "index" | "id" | "bare";
+
 function deltaToolFrames(
 	state: GeneratorState,
 	call: ExpectedToolCall,
 	index: number,
+	identity: FrameIdentity = "index",
 	argText = JSON.stringify(call.args)
 ): Record<string, unknown>[] {
 	const slices = randomSlices(state, argText);
+	const id = `call_fuzz_${index}`;
 	const frames = [
 		chunkOf({
 			tool_calls: [
-				{ index, id: `call_fuzz_${index}`, type: "function", function: { name: call.name, arguments: slices[0] } },
+				{
+					...(identity === "index" ? { index } : {}),
+					id,
+					type: "function",
+					function: { name: call.name, arguments: slices[0] },
+				},
 			],
 		}),
 	];
 	for (const slice of slices.slice(1)) {
-		frames.push(argumentsFrame(index, slice));
+		frames.push(
+			identity === "index"
+				? argumentsFrame(index, slice)
+				: chunkOf({ tool_calls: [{ ...(identity === "id" ? { id } : {}), function: { arguments: slice } }] })
+		);
 	}
 	return frames;
+}
+
+/** Frame i of each call before frame i + 1 of either, so two calls stream side by side. */
+function interleave<T>(first: T[], second: T[]): T[] {
+	const merged: T[] = [];
+	for (let i = 0; i < Math.max(first.length, second.length); i++) {
+		merged.push(...first.slice(i, i + 1), ...second.slice(i, i + 1));
+	}
+	return merged;
 }
 
 function inlineCallText(call: ExpectedToolCall, index: number): string {
@@ -261,17 +293,7 @@ function interleavedToolsEvent(state: GeneratorState): FuzzEvent {
 	const firstIndex = state.toolIndex++;
 	const second = toolCallSpec(state);
 	const secondIndex = state.toolIndex++;
-	const firstFrames = deltaToolFrames(state, first, firstIndex);
-	const secondFrames = deltaToolFrames(state, second, secondIndex);
-	const chunks: unknown[] = [];
-	for (let i = 0; i < Math.max(firstFrames.length, secondFrames.length); i++) {
-		if (i < firstFrames.length) {
-			chunks.push(firstFrames[i]);
-		}
-		if (i < secondFrames.length) {
-			chunks.push(secondFrames[i]);
-		}
-	}
+	const chunks = interleave(deltaToolFrames(state, first, firstIndex), deltaToolFrames(state, second, secondIndex));
 	return { label: "interleaved-tools", tools: [first, second], deltaToolChannel: true, chunks };
 }
 
@@ -318,7 +340,7 @@ function splitDeltaToolEvent(state: GeneratorState): FuzzEvent {
 	const index = state.toolIndex++;
 	const { variant, reason } = splitFinishSetup(state);
 	const [headArgs, tailArgs] = cutArgs(state, call);
-	const head = deltaToolFrames(state, call, index, headArgs);
+	const head = deltaToolFrames(state, call, index, "index", headArgs);
 	const tail = randomSlices(state, tailArgs).map((slice) => argumentsFrame(index, slice));
 	const chunks = splitAroundFinish(variant, reason, head, tail);
 	// The text lands behind the call's frames, so the hint-space accounting matches a plain delta-tool event.
@@ -378,22 +400,28 @@ function citationEvent(state: GeneratorState): FuzzEvent {
 /**
  * Reasoning-only streams are legitimate generator output: every fuzz consumer runs in the pinned extension-host build,
  * which exposes LanguageModelThinkingPart, so reasoning emits as thinking parts instead of the reasoning-only
- * empty-response error a ctor-less host throws.
+ * empty-response error a ctor-less host throws. Each event declares the thinking text it must surface, so a stream
+ * that silently drops reasoning fails the oracle instead of resolving green.
  */
 function reasoningEvent(state: GeneratorState): FuzzEvent {
 	const roll = state.random();
 	if (roll < 0.34) {
-		return { label: "reasoning", chunks: [chunkOf({ reasoning_content: "thinking about it..." })] };
+		const thinking = "thinking about it...";
+		return { label: "reasoning", thinking, chunks: [chunkOf({ reasoning_content: thinking })] };
 	}
 	if (roll < 0.67) {
-		return { label: "reasoning-field", chunks: [chunkOf({ reasoning: "pondering..." })] };
+		const thinking = "pondering...";
+		return { label: "reasoning-field", thinking, chunks: [chunkOf({ reasoning: thinking })] };
 	}
+	// The block outranks the reasoning_content copy of the same text (extractThinking), so it surfaces once.
+	const thinking = "weighing options";
 	return {
 		label: "thinking-blocks",
+		thinking,
 		chunks: [
 			chunkOf({
-				reasoning_content: "weighing options",
-				thinking_blocks: [{ type: "thinking", thinking: "weighing options", signature: `sig-${state.toolIndex}` }],
+				reasoning_content: thinking,
+				thinking_blocks: [{ type: "thinking", thinking, signature: `sig-${state.toolIndex}` }],
 			}),
 		],
 	};
@@ -402,12 +430,13 @@ function reasoningEvent(state: GeneratorState): FuzzEvent {
 function junkFieldsEvent(): FuzzEvent {
 	// Unknown extra fields on otherwise valid chunks; both the proxy and the extension must pass them through or ignore
 	// them.
-	const chunk = chunkOf({ reasoning_content: "noise" }) as Record<string, unknown>;
+	const thinking = "noise";
+	const chunk = chunkOf({ reasoning_content: thinking }) as Record<string, unknown>;
 	chunk.fuzz_extra = { nested: [1, 2, 3] };
 	for (const choice of chunk.choices as Array<Record<string, unknown>>) {
 		choice.fuzz_choice_extra = "x";
 	}
-	return { label: "junk-fields", chunks: [chunk, chunkOf({})] };
+	return { label: "junk-fields", thinking, chunks: [chunk, chunkOf({})] };
 }
 
 function malformedEvent(state: GeneratorState): FuzzEvent {
@@ -465,6 +494,58 @@ function lenientDeltaToolEvent(state: GeneratorState): FuzzEvent {
 		);
 	}
 	return { label: `lenient-delta-tool-${variant}`, tools: [call], deltaToolChannel: true, chunks, directOnly: true };
+}
+
+/**
+ * Delta-channel calls whose frames carry no index, the shape of servers that identify a call by its id alone: two
+ * calls interleaved with the id on every frame, or one call whose continuation frames carry nothing but arguments.
+ * Direct only: what the proxy makes of index-less deltas is LiteLLM's behavior, not this processor's.
+ */
+function indexlessDeltaToolEvent(state: GeneratorState): FuzzEvent {
+	if (state.random() < 0.5) {
+		const first = toolCallSpec(state);
+		const firstIndex = state.toolIndex++;
+		const second = toolCallSpec(state);
+		const secondIndex = state.toolIndex++;
+		const chunks = interleave(
+			deltaToolFrames(state, first, firstIndex, "id"),
+			deltaToolFrames(state, second, secondIndex, "id")
+		);
+		return {
+			label: "indexless-parallel-tools",
+			tools: [first, second],
+			deltaToolChannel: true,
+			chunks,
+			directOnly: true,
+		};
+	}
+	const call = toolCallSpec(state);
+	const index = state.toolIndex++;
+	return {
+		label: "indexless-bare-continuation",
+		tools: [call],
+		deltaToolChannel: true,
+		chunks: deltaToolFrames(state, call, index, "bare"),
+		directOnly: true,
+	};
+}
+
+/**
+ * A lone begin sigil inside prose, a model writing about the format. The prose behind it runs past the header bound,
+ * so the parser releases it within this event, and the sigil itself is stripped like any other stray control token.
+ */
+function straySigilProseEvent(state: GeneratorState): FuzzEvent {
+	const pre = `${words(state, 2)} `;
+	let post = "";
+	while (post.length <= MAX_TOOL_CALL_HEADER_LENGTH + ARG_BEGIN_LENGTH) {
+		post += ` ${words(state, 3)}`;
+	}
+	const full = `${pre}<|tool_call_begin|>${post}`;
+	return {
+		label: "stray-sigil-prose",
+		text: pre + post,
+		chunks: randomSlices(state, full).map((slice) => chunkOf({ content: slice })),
+	};
 }
 
 /** Two byte-identical calls on the delta channel: the max(N, M) rule says both emit. */
@@ -608,12 +689,14 @@ export const PROPERTY_EVENT_KIND_WEIGHTS = [
 	{ kind: "split-inline-tool", weight: 5, directOnly: false },
 	{ kind: "same-channel-twins", weight: 5, directOnly: false },
 	{ kind: "inline-no-index", weight: 5, directOnly: false },
+	{ kind: "stray-sigil-prose", weight: 4, directOnly: false },
 	{ kind: "citation", weight: 6, directOnly: false },
 	{ kind: "reasoning", weight: 9, directOnly: false },
 	{ kind: "junk-fields", weight: 4, directOnly: false },
 	{ kind: "refusal", weight: 5, directOnly: true },
 	{ kind: "malformed", weight: 5, directOnly: true },
 	{ kind: "lenient-delta-tool", weight: 5, directOnly: true },
+	{ kind: "indexless-delta-tool", weight: 5, directOnly: true },
 	{ kind: "structured-content", weight: 4, directOnly: true },
 ] as const;
 export type PropertyEventKind = (typeof PROPERTY_EVENT_KIND_WEIGHTS)[number]["kind"];
@@ -641,6 +724,8 @@ function buildEvent(kind: PropertyEventKind, state: GeneratorState): FuzzEvent {
 			return sameChannelTwinsEvent(state);
 		case "inline-no-index":
 			return inlineNoIndexEvent(state);
+		case "stray-sigil-prose":
+			return straySigilProseEvent(state);
 		case "citation":
 			return citationEvent(state);
 		case "reasoning":
@@ -653,6 +738,8 @@ function buildEvent(kind: PropertyEventKind, state: GeneratorState): FuzzEvent {
 			return malformedEvent(state);
 		case "lenient-delta-tool":
 			return lenientDeltaToolEvent(state);
+		case "indexless-delta-tool":
+			return indexlessDeltaToolEvent(state);
 		case "structured-content":
 			return structuredContentEvent(state);
 	}
@@ -691,9 +778,8 @@ export interface AssembledStream {
 	expectedText: string;
 	expectedToolCalls: ExpectedToolCall[];
 	/**
-	 * Thinking text the stream must surface as thinking parts, in stream order. Empty when no event declares an
-	 * expectation, in which case the oracle skips the thinking assertion; corpus entries do declare one, so deleting
-	 * reasoning extraction fails their replay instead of resolving quietly empty.
+	 * Thinking text the stream must surface as thinking parts, in stream order. The in-process oracles assert it on
+	 * every stream, empty included; the docker oracle skips a stream whose events declare none.
 	 */
 	expectedThinking: string;
 }

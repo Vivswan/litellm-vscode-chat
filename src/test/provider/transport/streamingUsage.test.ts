@@ -364,6 +364,27 @@ suite("provider/streaming usage DataPart", () => {
 		);
 	});
 
+	test("usage stamped on every chunk logs once per request, from the final counts", () => {
+		// vLLM's continuous_usage_stats and some proxies send running usage on every chunk. The issue report keeps the
+		// last 50 report-bearing lines, so a line per chunk pushed every real error out of it within 50 chunks.
+		const logged: { message: string; data?: unknown }[] = [];
+		const { progress } = collector();
+		const stream = new StreamProcessor(idSource(), (message, data) => logged.push({ message, data }), progress);
+
+		for (let completion = 1; completion <= 60; completion++) {
+			stream.processDelta({
+				choices: [{ delta: { content: "x" } }],
+				usage: { prompt_tokens: 10, completion_tokens: completion, total_tokens: 10 + completion },
+			});
+		}
+		stream.endOfStream();
+
+		assert.deepStrictEqual(
+			logged.filter((l) => l.message === "Token usage").map((l) => l.data),
+			[{ prompt_tokens: 10, completion_tokens: 60, total_tokens: 70 }]
+		);
+	});
+
 	test("the usage log line carries the top-level cache fields as numbers only", () => {
 		const logged: { message: string; data?: unknown }[] = [];
 		const { progress } = collector();
@@ -380,6 +401,7 @@ suite("provider/streaming usage DataPart", () => {
 				prompt_tokens_details: { cache_creation_input_tokens: "not-a-number" },
 			},
 		});
+		stream.endOfStream();
 
 		const usageLog = logged.find((l) => l.message === "Token usage");
 		assert.deepStrictEqual(expectDefined(usageLog?.data), {

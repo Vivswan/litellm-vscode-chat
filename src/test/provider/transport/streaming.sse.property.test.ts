@@ -12,6 +12,7 @@ import {
 	resolveFuzzSeed,
 	UNICODE_WORDS,
 } from "../../fuzzStream";
+import { extractThinkingParts } from "../../hostApiHelpers";
 
 /**
  * The docker fuzzer cannot reach this layer (the LiteLLM proxy re-frames SSE itself), so framing is fuzzed here,
@@ -142,7 +143,7 @@ const INERT_LINES = [": comment", "event: message", "id: 7", "retry: 100", "", '
 const MALFORMED_DATA_LINES = ["data: {oops", "data: null", "data: [1,2", "data: 42", 'data: "text"', "data: [DONE ]"];
 
 suite("provider/streaming SSE framing properties", () => {
-	test("a well-framed stream matches the oracle: text verbatim, each call exactly once, ids unique", async function () {
+	test("a well-framed stream matches the oracle: text and thinking verbatim, each call exactly once, ids unique", async function () {
 		this.timeout(Math.max(120000, NUM_RUNS * 50));
 		await fc.assert(
 			fc.asyncProperty(framingEventsArb, async (events) => {
@@ -155,6 +156,10 @@ suite("provider/streaming SSE framing properties", () => {
 					.map((p) => p.value)
 					.join("");
 				assert.strictEqual(text, assembled.expectedText, "text diverged");
+				const thinking = extractThinkingParts(parts)
+					.map((part) => part.value ?? "")
+					.join("");
+				assert.strictEqual(thinking, assembled.expectedThinking, "thinking diverged");
 
 				const calls = parts.filter(
 					(p): p is vscode.LanguageModelToolCallPart => p instanceof vscode.LanguageModelToolCallPart
