@@ -518,13 +518,14 @@ suite("provider credential overlay", () => {
 
 		test("a base URL with userinfo never hands its password to the host, labeled or not", async () => {
 			// The identity rides the model object and the status identity rides the dashboard; both are built on the
-			// credential-free URL. Discovery at such a URL may fail; the declared model is served either way.
+			// credential-free URL. Discovery at such a URL may fail; the declared model is served either way. The serve
+			// registers the password in the grow-only door, where a plain word would blank itself in every later test.
 			const cases = [
 				{
 					name: "entry-owned",
-					configuration: { baseUrl: "https://user:pass@vault.test/v1", apiKey: "k", label: "Vault" },
+					configuration: { baseUrl: "https://user:vault-pass-Q7@vault.test/v1", apiKey: "k", label: "Vault" },
 				},
-				{ name: "unlabeled", configuration: { baseUrl: "https://user:pass@vault.test/v1", apiKey: "k" } },
+				{ name: "unlabeled", configuration: { baseUrl: "https://user:vault-pass-Q7@vault.test/v1", apiKey: "k" } },
 			];
 			for (const { name, configuration } of cases) {
 				const provider = makeProvider(undefined, "unused", undefined, {
