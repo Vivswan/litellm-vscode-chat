@@ -890,8 +890,8 @@ export async function executeDashboardIntent(
 			return undefined;
 		}
 		case "copyDiagnostics": {
-			// Composed in the webview from pushed state, which carries no secret values but may quote a configured
-			// URL's userinfo or a server's error text; the clipboard door masks it where the known values are.
+			// Composed in the webview from pushed state, which carries no credential field but may quote a configured
+			// URL with its password, or a server's error text; the clipboard door masks the known values in it.
 			await env.writeClipboard(intent.payload.text);
 			return undefined;
 		}

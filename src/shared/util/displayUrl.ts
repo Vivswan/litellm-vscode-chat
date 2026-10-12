@@ -2,7 +2,8 @@
  * The parser-based reading of a configured URL without its userinfo, for the provider-group identities: a stable key
  * for a configured URL (groupModels.ts, statusWindow.ts, the planner's compare), never shown. Userinfo (user:pass@) is
  * found wherever the WHATWG URL parser reads a URL with it, so every spelling the transport would request is caught by
- * the parser the transport uses. Text that leaves the extension masks userinfo by its shape instead (secretMask.ts).
+ * the parser the transport uses. Text that leaves the extension masks a URL's password as a registered value instead
+ * (knownSecrets.ts urlPasswordsOf).
  */
 
 const SPECIAL_SCHEMES = new Set(["http", "https", "ws", "wss", "ftp", "file"]);
