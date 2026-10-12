@@ -451,6 +451,159 @@ export const LAZY_INFERENCE_FIXTURES: readonly {
 		expected: ["TEXTS", "alias", "pick"],
 	},
 	{
+		name: "a member selected off a thunk table is a thunk or a row: the alias is a table and its reader is lazy",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'const TEXTS = {\n\ta: () => l10n.t("a"),\n};\nconst label = TEXTS.a;\n' +
+					"export function pick(key: string) {\n\treturn label[key];\n}\n",
+			},
+		],
+		expected: ["TEXTS", "label", "pick"],
+	},
+	{
+		name: "a member selected off a plain-string table is not lazy",
+		sources: [
+			{
+				file: "a.ts",
+				contents: 'const DOCS = {\n\ta: "https://example.com/a",\n};\nconst label = DOCS.a;\n',
+			},
+		],
+		expected: [],
+	},
+	{
+		name: "a renamed destructuring of a lazy local namespace member is inferred under the new name",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import * as helpers from "./titles";\nconst { title: localized } = helpers;\n' +
+					"export const wraps = () => localized();\n",
+			},
+		],
+		lazyElsewhere: ["title"],
+		expected: ["localized", "wraps"],
+	},
+	{
+		name: "a renamed destructuring off a thunk table reads into it",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'const TEXTS = {\n\ta: () => l10n.t("a"),\n};\nconst { a: label } = TEXTS;\n' +
+					"export const wraps = () => label();\n",
+			},
+		],
+		expected: ["TEXTS", "label", "wraps"],
+	},
+	{
+		name: "a nested destructuring off a local namespace import reads into the member it selects",
+		sources: [
+			{ file: "tables.ts", contents: 'export const TEXTS = {\n\ta: () => l10n.t("a"),\n};\n' },
+			{
+				file: "a.ts",
+				contents:
+					'import * as tables from "./tables";\nconst { TEXTS: { a: label } } = tables;\n' +
+					"export const wraps = () => label();\n",
+			},
+		],
+		expected: ["TEXTS", "label", "wraps"],
+	},
+	{
+		name: "an assignment pattern renaming a lazy local namespace member is inferred under the new name",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import * as helpers from "./titles";\nlet localized: () => string;\n({ title: localized } = helpers);\n' +
+					"export const wraps = () => localized();\n",
+			},
+		],
+		lazyElsewhere: ["title"],
+		expected: ["localized", "wraps"],
+	},
+	{
+		name: "an assignment pattern off a thunk table reads into it",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'const TEXTS = {\n\ta: () => l10n.t("a"),\n};\nlet label: () => string;\n' +
+					"({ a: label } = TEXTS);\nexport const wraps = () => label();\n",
+			},
+		],
+		expected: ["TEXTS", "label", "wraps"],
+	},
+	{
+		name: "a shorthand default in an assignment pattern aliases like a declaration default",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"let localized: () => string;\n({ localized = manageCommandTitle } = {});\n" +
+					"export const wraps = () => localized();\n",
+			},
+		],
+		lazyElsewhere: ["manageCommandTitle"],
+		expected: ["localized", "wraps"],
+	},
+	{
+		name: "a leaf destructured off a thunk-table literal written in place carries the literal's evidence",
+		sources: [
+			{
+				file: "a.ts",
+				contents: 'const { a: label } = { a: () => l10n.t("x") };\nexport const wraps = () => label();\n',
+			},
+		],
+		expected: ["label", "wraps"],
+	},
+	{
+		name: "a member selected off a thunk-table literal written in place carries the literal's evidence",
+		sources: [
+			{ file: "a.ts", contents: 'const label = { a: () => l10n.t("x") }.a;\nexport const wraps = () => label();\n' },
+		],
+		expected: ["label", "wraps"],
+	},
+	{
+		name: "a leaf destructured off a plain-string literal is not lazy",
+		sources: [{ file: "a.ts", contents: 'const { a: doc } = { a: "https://example.com/a" };\n' }],
+		expected: [],
+	},
+	{
+		name: "an array pattern off an array table of thunks reads into it",
+		sources: [
+			{
+				file: "a.ts",
+				contents: 'const LIST = [() => l10n.t("a")];\nconst [first] = LIST;\nexport const wraps = () => first();\n',
+			},
+		],
+		expected: ["LIST", "first", "wraps"],
+	},
+	{
+		name: "a FUNCTION-LOCAL destructuring off a thunk table marks the enclosing helper",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'const TEXTS = {\n\ta: () => l10n.t("a"),\n};\n' +
+					"export function wraps(): string {\n\tconst { a: label } = TEXTS;\n\treturn label();\n}\n",
+			},
+		],
+		expected: ["TEXTS", "wraps"],
+	},
+	{
+		name: "a renamed destructured parameter marks its function like a shadowing parameter does",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export function wrap({ manageCommandTitle: title }): string {\n\treturn title();\n}\n",
+			},
+		],
+		lazyElsewhere: ["manageCommandTitle"],
+		expected: ["wrap"],
+	},
+	{
 		name: "a table of plain strings is not lazy, and neither is its reader",
 		sources: [
 			{
@@ -691,6 +844,30 @@ export const LAZY_INFERENCE_FIXTURES: readonly {
 			},
 		],
 		expected: ["Manager"],
+	},
+	{
+		name: "a class whose constructor destructures a localizing method off this is inferred",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export class Status {\n\tconstructor() {\n\t\tconst { render: label } = this;\n\t\tlabel();\n\t}\n" +
+					'\tprivate render(): string {\n\t\treturn l10n.t("x");\n\t}\n}\n',
+			},
+		],
+		expected: ["Status"],
+	},
+	{
+		name: "a class whose constructor destructures a plain method off this is not inferred",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export class Status {\n\tconstructor() {\n\t\tconst { render: label } = this;\n\t\tlabel();\n\t}\n" +
+					'\tprivate render(): string {\n\t\treturn "x";\n\t}\n}\n',
+			},
+		],
+		expected: [],
 	},
 	{
 		name: "a class whose constructor reaches a method declared under a literal computed name is inferred",

@@ -1,13 +1,15 @@
 import type { LazyL10nNames } from "../lib";
 
 /**
- * What the tree-wide inference hands the guard, as the fixtures assume it: helpers declared in files they do not show.
- * railSections is lazy so the fixtures can show that an ordinary member call on a same-spelled name stays quiet.
+ * What the tree-wide inference hands the guard, as the fixtures assume it: helpers and one thunk table declared in
+ * files they do not show. railSections is lazy so the fixtures can show that an ordinary member call on a same-spelled
+ * name stays quiet.
  */
 export const GUARD_FIXTURE_LAZY_NAMES: LazyL10nNames = new Map([
 	["manageCommandTitle", "helper"],
 	["DashboardController", "helper"],
 	["railSections", "helper"],
+	["SURFACE_COPY", "table"],
 ]);
 
 /**
@@ -586,6 +588,64 @@ export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: 
 		{
 			name: "a compound logical assignment of a lazy helper, called at module scope",
 			source: 'let title: () => string = () => "";\ntitle ??= manageCommandTitle;\nconst FROZEN = title();\n',
+			flagged: true,
+		},
+		{
+			name: "a thunk-table member bound to a local name and called at module scope",
+			source: 'const TEXTS = {\n\ta: () => l10n.t("x"),\n};\nconst label = TEXTS.a;\nconst FROZEN = label();\n',
+			flagged: true,
+		},
+		{
+			name: "a plain-string table member bound to a local name and called stays quiet",
+			source: 'const DOCS = {\n\ta: "https://example.com/a",\n};\nconst label = DOCS.a;\nconst OK = label();\n',
+			flagged: false,
+		},
+		{
+			name: "a lazy local namespace member destructured under a new name and called at module scope",
+			source:
+				'import * as helpers from "./helpers";\nconst { manageCommandTitle: localized } = helpers;\n' +
+				"const FROZEN = localized();\n",
+			flagged: true,
+		},
+		{
+			name: "an untracked member destructured under a new name and called stays quiet",
+			source: 'import * as helpers from "./helpers";\nconst { plain: localized } = helpers;\nconst OK = localized();\n',
+			flagged: false,
+		},
+		{
+			name: "a nested destructuring off a local namespace import, its leaf called at module scope",
+			source:
+				'import * as helpers from "./helpers";\nconst { SURFACE_COPY: { a: label } } = helpers;\n' +
+				"const FROZEN = label();\n",
+			flagged: true,
+		},
+		{
+			name: "an assignment pattern renaming a lazy local namespace member, called at module scope",
+			source:
+				'import * as helpers from "./helpers";\nlet localized: () => string;\n' +
+				"({ manageCommandTitle: localized } = helpers);\nconst FROZEN = localized();\n",
+			flagged: true,
+		},
+		{
+			name: "a shorthand default in an assignment pattern binding a lazy helper, called at module scope",
+			source: "let localized: () => string;\n({ localized = manageCommandTitle } = {});\nconst FROZEN = localized();\n",
+			flagged: true,
+		},
+		{
+			name: "a leaf destructured off a thunk-table literal written in place, called at module scope",
+			source: 'const { a: label } = { a: () => l10n.t("x") };\nconst FROZEN = label();\n',
+			flagged: true,
+		},
+		{
+			name: "constructing a class whose constructor destructures a localizing method off this",
+			source:
+				"class C {\n\tconstructor() {\n\t\tconst { render: label } = this;\n\t\tlabel();\n\t}\n" +
+				'\trender(): string {\n\t\treturn l10n.t("x");\n\t}\n}\nconst FROZEN = new C();\n',
+			flagged: true,
+		},
+		{
+			name: "a thunk-table member destructured under a new name and called at module scope",
+			source: 'const TEXTS = {\n\ta: () => l10n.t("x"),\n};\nconst { a: label } = TEXTS;\nconst FROZEN = label();\n',
 			flagged: true,
 		},
 	];

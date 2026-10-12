@@ -133,9 +133,12 @@ interface Binding {
 	readonly kind: "function" | "class" | "table" | "alias";
 	/** The declaration (default parameters included) contains a direct l10n.t or vscode.l10n.t call. */
 	readonly direct: boolean;
-	/** Every bare-identifier call-site name inside the declaration; an alias's one entry is the name it stands for. */
+	/** Every bare-identifier call-site name inside the declaration; an alias of a name carries that name here. */
 	readonly callees: ReadonlySet<string>;
-	/** The root names of the member chains the declaration reads into. */
+	/**
+	 * The root names of the member chains the declaration reads into; an alias of a member chain (`TEXTS.a`, or `a`
+	 * destructured off TEXTS) carries the chain's root here.
+	 */
 	readonly reads: ReadonlySet<string>;
 }
 
@@ -277,6 +280,173 @@ function memberChainRoot(node: ts.Expression, sourceFile: ts.SourceFile): string
 	return ts.isIdentifier(current) ? current.text : undefined;
 }
 
+type LiteralTable = ts.ObjectLiteralExpression | ts.ArrayLiteralExpression;
+
+/**
+ * The literal a member chain selects out of when the table is written in place: `{ a: thunk }.a` and `[thunk][0]`
+ * select out of the literal itself (a bare literal is its own root). The whole literal is the evidence, as it is for a
+ * name bound to one.
+ */
+function literalChainRoot(node: ts.Expression): LiteralTable | undefined {
+	let current = unwrapExpression(node);
+	while (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+		current = unwrapExpression(current.expression);
+	}
+	return ts.isObjectLiteralExpression(current) || ts.isArrayLiteralExpression(current) ? current : undefined;
+}
+
+/**
+ * A name a destructuring binds, with the keys selecting it from the value: `{ TEXTS: { a: label } }` binds label at
+ * [TEXTS, a].
+ */
+interface DestructuredName {
+	readonly name: string;
+	readonly path: readonly string[];
+}
+
+/**
+ * The names a destructuring target binds, nested targets flattened: a binding pattern (a declaration or parameter) or
+ * the object/array literal an assignment destructures into. A default (`{ a = x }`, `[a = x]`) binds its left side; a
+ * rest or an unreadable computed key selects nothing, so its name sits at the parent's path; a member target
+ * (`[obj.x] = ...`) binds no name.
+ */
+function destructuredNames(target: ts.Node, path: readonly string[] = []): DestructuredName[] {
+	const names: DestructuredName[] = [];
+	const bound = (node: ts.Node, key: string | undefined): void => {
+		const at = key === undefined ? path : [...path, key];
+		const value = ts.isExpression(node) ? unwrapExpression(node) : node;
+		if (ts.isIdentifier(value)) {
+			names.push({ name: value.text, path: at });
+		} else if (ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+			bound(value.left, key);
+		} else {
+			names.push(...destructuredNames(value, at));
+		}
+	};
+	if (ts.isObjectBindingPattern(target) || ts.isArrayBindingPattern(target)) {
+		const selects = (element: ts.BindingElement, index: number): string | undefined => {
+			if (element.dotDotDotToken !== undefined) {
+				return undefined;
+			}
+			if (element.propertyName !== undefined) {
+				return memberKey(element.propertyName);
+			}
+			// A shorthand `{ a }` selects its own name; an array element its position.
+			return ts.isIdentifier(element.name) ? element.name.text : String(index);
+		};
+		target.elements.forEach((element, index) => {
+			if (!ts.isOmittedExpression(element)) {
+				bound(element.name, selects(element, index));
+			}
+		});
+	} else if (ts.isObjectLiteralExpression(target)) {
+		for (const property of target.properties) {
+			if (ts.isPropertyAssignment(property)) {
+				bound(property.initializer, memberKey(property.name));
+			} else if (ts.isShorthandPropertyAssignment(property)) {
+				bound(property.name, property.name.text);
+			} else if (ts.isSpreadAssignment(property)) {
+				bound(property.expression, undefined);
+			}
+		}
+	} else if (ts.isArrayLiteralExpression(target)) {
+		target.elements.forEach((element, index) => {
+			if (ts.isSpreadElement(element)) {
+				bound(element.expression, undefined);
+			} else if (!ts.isOmittedExpression(element)) {
+				bound(element, String(index));
+			}
+		});
+	}
+	return names;
+}
+
+interface DestructuringEdges {
+	/** A renamed leaf and the key it selects, by spelling: `{ label: localized }` is `label` under a new name. */
+	readonly aliases: AliasSpecifier[];
+	/** A leaf and the name whose member chain it reads into: `{ a } = TEXTS` reads TEXTS exactly as `TEXTS.a` does. */
+	readonly reads: AliasSpecifier[];
+	/** A table written in place and every leaf selected out of it, each carrying the whole literal as evidence. */
+	readonly literals: { readonly literal: LiteralTable; readonly names: string[] }[];
+	/** The members selected off `this`: `const { render: label } = this` reaches render as `this.render` does. */
+	readonly thisMembers: string[];
+}
+
+/**
+ * The edges a destructuring draws. Off a local namespace import the first key is the root read (`{ TEXTS: { a } } =
+ * helpers` reads TEXTS as `helpers.TEXTS.a` does), and a leaf selected by that key alone is its spelling alias and
+ * nothing more.
+ */
+function destructuringEdges(
+	target: ts.Node,
+	value: ts.Expression | undefined,
+	sourceFile: ts.SourceFile
+): DestructuringEdges {
+	const names = destructuredNames(target);
+	const edges: DestructuringEdges = { aliases: [], reads: [], literals: [], thisMembers: [] };
+	for (const { name, path } of names) {
+		const selected = path[path.length - 1];
+		if (selected !== undefined && selected !== name) {
+			edges.aliases.push({ name, of: selected });
+		}
+	}
+	for (const candidate of value === undefined ? [] : calleeCandidates(value, sourceFile)) {
+		if (candidate.kind === ts.SyntaxKind.ThisKeyword) {
+			for (const [member] of names.map(({ path }) => path)) {
+				if (member !== undefined) {
+					edges.thisMembers.push(member);
+				}
+			}
+			continue;
+		}
+		if (ts.isIdentifier(candidate) && localNamespaceImports(sourceFile).has(candidate.text)) {
+			for (const { name, path } of names) {
+				const [member] = path;
+				if (member !== undefined && path.length > 1) {
+					edges.reads.push({ name, of: member });
+				}
+			}
+			continue;
+		}
+		const root = memberChainRoot(candidate, sourceFile);
+		if (root !== undefined) {
+			for (const { name } of names) {
+				edges.reads.push({ name, of: root });
+			}
+			continue;
+		}
+		const literal = literalChainRoot(candidate);
+		if (literal !== undefined) {
+			edges.literals.push({ literal, names: names.map(({ name }) => name) });
+		}
+	}
+	return edges;
+}
+
+/**
+ * A destructuring with the value it reads from, where one is written: a declaration or parameter whose name is a
+ * pattern (the value optional, a bare parameter pattern still renames), an element carrying its own default, or an
+ * assignment into an object or array literal.
+ */
+function destructuringOf(
+	node: ts.Node
+): { readonly target: ts.Node; readonly value: ts.Expression | undefined } | undefined {
+	if (
+		(ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node)) &&
+		(ts.isObjectBindingPattern(node.name) || ts.isArrayBindingPattern(node.name)) &&
+		(!ts.isBindingElement(node) || node.initializer !== undefined)
+	) {
+		return { target: node.name, value: node.initializer };
+	}
+	if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+		const target = unwrapExpression(node.left);
+		if (ts.isObjectLiteralExpression(target) || ts.isArrayLiteralExpression(target)) {
+			return { target, value: node.right };
+		}
+	}
+	return undefined;
+}
+
 /**
  * Every intermediate form the resolution visits - branch flattening and forwarding stripping interleaved to a FIXED
  * POINT, each candidate recorded BEFORE its strip. Stripping can expose a fresh choosing shape underneath (`(flag ?
@@ -409,6 +579,25 @@ function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile
 		if (ts.isBinaryExpression(node) && isAssigningOperator(node.operatorToken.kind)) {
 			noteAliasSources(node.right);
 		}
+		// An assignment pattern's shorthand default is the same default without the `=` node: `({ title = helper } = x)`.
+		if (ts.isShorthandPropertyAssignment(node) && node.objectAssignmentInitializer !== undefined) {
+			noteAliasSources(node.objectAssignmentInitializer);
+		}
+		// A destructuring aliases and reads like the member chains it stands for; a literal it selects out of sits
+		// inside the roots this walk covers whole.
+		const destructured = destructuringOf(node);
+		if (destructured !== undefined) {
+			const edges = destructuringEdges(destructured.target, destructured.value, sourceFile);
+			for (const alias of edges.aliases) {
+				evidence.callees.add(alias.of);
+			}
+			for (const read of edges.reads) {
+				evidence.reads.add(read.of);
+			}
+			for (const member of edges.thisMembers) {
+				evidence.thisMembers.add(member);
+			}
+		}
 		ts.forEachChild(node, dig);
 	};
 	for (const root of roots) {
@@ -492,6 +681,11 @@ function collectBindings(sourceFile: ts.SourceFile, scope: "module" | "file"): B
 	const pushAlias = (alias: AliasSpecifier): void => {
 		bindings.push({ name: alias.name, kind: "alias", direct: false, callees: new Set([alias.of]), reads: new Set() });
 	};
+	// A name bound to a member chain reads into the chain's root: a thunk table's member is a thunk or another row,
+	// and the closure keeps the alias a table so both stay reachable.
+	const pushMemberAlias = (name: string, root: string): void => {
+		bindings.push({ name, kind: "alias", direct: false, callees: new Set(), reads: new Set([root]) });
+	};
 	const isFunctionLiteral = (node: ts.Node): boolean => ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 	// One binding of a name to a right-hand side, judged for EVERY value the RHS can hand over (calleeCandidates
 	// flattens choosing shapes and strips forwarding to a fixed point, so `const t = helper.call` aliases helper).
@@ -511,10 +705,18 @@ function collectBindings(sourceFile: ts.SourceFile, scope: "module" | "file"): B
 				pushAlias({ name, of: source.text });
 			} else {
 				// A local namespace import's member is the same alias by member name: `const t = helpers.title` binds
-				// `title`'s laziness to t.
+				// `title`'s laziness to t. Any other member chain binds the name to a read of its root.
 				const member = namespaceMemberName(source, sourceFile);
 				if (member !== undefined) {
 					pushAlias({ name, of: member });
+				} else {
+					const root = memberChainRoot(source, sourceFile);
+					const literal = root === undefined ? literalChainRoot(source) : undefined;
+					if (root !== undefined) {
+						pushMemberAlias(name, root);
+					} else if (literal !== undefined) {
+						push(name, "table", invocationEvidence([literal], sourceFile));
+					}
 				}
 			}
 		}
@@ -538,6 +740,10 @@ function collectBindings(sourceFile: ts.SourceFile, scope: "module" | "file"): B
 			if (ts.isIdentifier(target)) {
 				bind(target.text, node.right);
 			}
+		} else if (ts.isShorthandPropertyAssignment(node) && node.objectAssignmentInitializer !== undefined) {
+			// An assignment pattern's shorthand default: `({ title = lazyHelper } = x)` binds title like the declaration
+			// form does.
+			bind(node.name.text, node.objectAssignmentInitializer);
 		} else if (ts.isStatement(node)) {
 			// A renaming import/export specifier binds a new local name to whatever it renames, so `new Renamed()` at
 			// module scope is the same freeze as the original.
@@ -547,6 +753,23 @@ function collectBindings(sourceFile: ts.SourceFile, scope: "module" | "file"): B
 			const entityAlias = importEqualsAlias(node);
 			if (entityAlias !== undefined) {
 				pushAlias(entityAlias);
+			}
+		}
+		// Outside the chain above, since a destructured leaf may carry a default the chain already binds.
+		const destructured = destructuringOf(node);
+		if (destructured !== undefined) {
+			const edges = destructuringEdges(destructured.target, destructured.value, sourceFile);
+			for (const alias of edges.aliases) {
+				pushAlias(alias);
+			}
+			for (const read of edges.reads) {
+				pushMemberAlias(read.name, read.of);
+			}
+			for (const { literal, names } of edges.literals) {
+				const evidence = invocationEvidence([literal], sourceFile);
+				for (const name of names) {
+					push(name, "table", evidence);
+				}
 			}
 		}
 		if (scope === "file" || !(ts.isFunctionLike(node) || ts.isClassLike(node))) {
@@ -580,7 +803,7 @@ function closeLazyNames(bindings: readonly Binding[], seed: LazyL10nNames): Lazy
 				continue;
 			}
 			const aliasOfTable =
-				binding.kind === "alias" && [...binding.callees].some((callee) => lazy.get(callee) === "table");
+				binding.kind === "alias" && [...binding.callees, ...binding.reads].some((name) => lazy.get(name) === "table");
 			const kind: LazyKind = binding.kind === "table" || aliasOfTable ? "table" : "helper";
 			const current = lazy.get(binding.name);
 			// An alias of a table upgrades a helper to a table; nothing downgrades.
