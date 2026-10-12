@@ -4,8 +4,8 @@
  * provider's header precedence (buildDefaultHeaders) plus the OAuth and virtual-key overlays the chat path applies per
  * request.
  *
- *   idempotent GETs       -> retry up to DISCOVERY_MAX_RETRIES on network failures and 5xx
- *   the discovery timeout -> is a hard whole-call bound
+ *   idempotent GETs       -> retry up to DISCOVERY_MAX_RETRIES on network failures, timed-out attempts, and 5xx
+ *   the discovery timeout -> is each attempt's clock; the call ends inside retryBudgetMs of it
  *   errors                -> are constructed specific and thrown WITHOUT logging (the poller boundary logs one
  *                            classification)
  *   Usage responses embed hashed key material, aliases, and user IDs
@@ -14,6 +14,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
+import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
 import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
 import { DISCOVERY_MAX_RETRIES } from "../../../provider/catalog/discovery";
 import { narrowGroupCredentials, refusedCredentialFields } from "../../../provider/catalog/groupModels";
@@ -22,6 +23,7 @@ import { OAuthTokenSource } from "../../../provider/transport/auth";
 import type { AuthOverlayScope } from "../../../provider/transport/authOverlay";
 import { applyAuthOverlay, plainFetchBaseHeaders } from "../../../provider/transport/authOverlay";
 import type { BackoffSleep } from "../../../provider/transport/retry";
+import { retryFetch } from "../../../provider/transport/retry";
 import { RequestError } from "../../../provider/transport/transportErrors";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import type { RejectedCredentialField } from "../../../shared/serverEntry";
@@ -193,8 +195,6 @@ export function usageUnavailabilityOf(error: unknown): UsageUnavailableReason | 
 	return [400, 404, 405, 501].includes(error.status) ? "unsupported" : undefined;
 }
 
-const RETRY_DELAY_MS = 200;
-
 /** A non-negative finite JSON number; spend and budgets are never negative, and zero is meaningful. */
 function usageNumber(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
@@ -290,7 +290,7 @@ function parseDailyUsage(payload: unknown): DailyUsage {
 	return { days, totals };
 }
 
-function timeoutError(url: string, timeoutMs: number, cause?: unknown): RequestError {
+function timeoutError(url: string, timeoutMs: number, cause: unknown): RequestError {
 	return new RequestError(
 		l10n.t(
 			'LiteLLM usage request to {0} timed out after {1}ms. Increase the "{2}.discovery.timeout" setting if your server needs more time.',
@@ -339,7 +339,7 @@ function usageHttpError(url: string, status: number): RequestError {
 export interface UsageClientOptions {
 	readonly userAgent: HeaderValue;
 	/**
-	 * The whole-call timeout, read per GET so a setting edit needs no rebuild. The client has no log of its own: the
+	 * Each attempt's timeout, read per GET so a setting edit needs no rebuild. The client has no log of its own: the
 	 * reader's invalid-value warning goes wherever the caller's reader sends it (createUsagePollerEnv dedups it).
 	 */
 	readonly getTimeoutMs: () => number;
@@ -349,7 +349,7 @@ export interface UsageClientOptions {
 
 /**
  * Owns the HTTP side of usage polling: header composition (the provider's precedence rule over the connection's
- * per-entry headers, plus the OAuth/virtual-key overlays), the whole-call timeout, and the idempotent-GET retry budget.
+ * per-entry headers, plus the OAuth/virtual-key overlays), the per-attempt timeout, and the idempotent-GET retry budget.
  * One instance per poller so OAuth tokens cache across polls and invalidate on 401 exactly like the chat path.
  */
 export class UsageClient {
@@ -395,7 +395,7 @@ export class UsageClient {
 	private async resolveHeaders(
 		connection: UsageConnection,
 		timeout: TimeoutBudget,
-		signal: AbortSignal
+		signal: AbortSignal | undefined
 	): Promise<{ headers: Record<string, HeaderValue>; auth: AuthOverlayScope }> {
 		const headers = plainFetchBaseHeaders({
 			apiKey: connection.apiKey,
@@ -412,84 +412,61 @@ export class UsageClient {
 	}
 
 	/**
-	 * One idempotent GET with the discovery retry rules: network failures and 5xx
-	 * retry up to DISCOVERY_MAX_RETRIES, 4xx fail immediately, and the discovery
-	 * timeout bounds the whole call including backoffs and this call's OAuth token
-	 * wait. `outerSignal` (the poller's dispose) ends this call and is rethrown
+	 * One idempotent GET with the discovery retry rules: network failures, timed-out attempts, and 5xx retry up to
+	 * DISCOVERY_MAX_RETRIES, 4xx fail immediately. The token wait and the GET each run to the retry budget of the
+	 * discovery timeout, as the discovery GETs do. `outerSignal` (the poller's dispose) ends this call and is rethrown
 	 * as-is so the caller attributes it truthfully.
 	 */
 	private async getJson(connection: UsageConnection, url: string, outerSignal?: AbortSignal): Promise<unknown> {
-		// Minted at the one read of the clock: this whole-call bound is the discovery timeout (the class doc's
-		// transport convention), so the exchange-timeout advice names discovery.timeout.
+		// Minted at the one read of the clock: the attempt bound is the discovery timeout (the class doc's transport
+		// convention), so the exchange-timeout advice names discovery.timeout.
 		const timeout: TimeoutBudget = { ms: this.getTimeoutMs(), setting: "discovery.timeout" };
-		const timeoutMs = timeout.ms;
-		const timeoutSignal = AbortSignal.timeout(timeoutMs);
-		const signal = outerSignal !== undefined ? AbortSignal.any([timeoutSignal, outerSignal]) : timeoutSignal;
-		const { headers, auth } = await this.resolveHeaders(connection, timeout, signal);
-
-		let lastFailure: unknown;
-		for (let attempt = 0; attempt <= DISCOVERY_MAX_RETRIES; attempt += 1) {
-			if (attempt > 0) {
-				await this.sleep(RETRY_DELAY_MS * attempt, signal);
-				// The outer signal wins the classification when both have fired: an abort the caller asked for must not
-				// be relabeled a timeout.
-				if (outerSignal?.aborted) {
-					throw outerSignal.reason ?? new Error("The operation was aborted");
-				}
-				if (timeoutSignal.aborted) {
-					throw timeoutError(url, timeoutMs, lastFailure);
-				}
+		const { headers, auth } = await this.resolveHeaders(connection, timeout, outerSignal);
+		try {
+			return await retryFetch(
+				(signal) => globalThis.fetch(url, { method: "GET", headers, signal }),
+				({ response, text }) => {
+					if (response.ok) {
+						try {
+							return JSON.parse(text) as unknown;
+						} catch {
+							// The SyntaxError quotes a payload snippet (response-derived), so it does not ride along - not
+							// even as the cause.
+							throw new RequestError(l10n.t("Failed to parse the LiteLLM usage response from {0}.", url), "http", {
+								englishMessage: `Failed to parse the LiteLLM usage response from ${url}.`,
+							});
+						}
+					}
+					if (response.status >= 500) {
+						throw new APIError(response.status, undefined, undefined, undefined);
+					}
+					// The server no longer accepts the token this call sent; the next call performs a fresh exchange, and
+					// the poller grants a scheduled 401 exactly one such retry (UsagePoller.tokenRetryGranted). This call
+					// itself never retries.
+					const failure = usageHttpError(url, response.status);
+					auth.fail(failure);
+					throw failure;
+				},
+				{ attemptTimeoutMs: timeout.ms, maxRetries: DISCOVERY_MAX_RETRIES, signal: outerSignal, sleep: this.sleep }
+			);
+		} catch (error) {
+			if (error instanceof APIConnectionTimeoutError) {
+				throw timeoutError(url, timeout.ms, error);
 			}
-
-			let response: Response;
-			let payload: string;
-			try {
-				response = await globalThis.fetch(url, { method: "GET", headers, signal });
-				payload = await response.text();
-			} catch (error) {
-				if (outerSignal?.aborted) {
-					throw error;
-				}
-				if (timeoutSignal.aborted) {
-					throw timeoutError(url, timeoutMs, error);
-				}
-				lastFailure = error;
-				continue;
+			if (error instanceof APIConnectionError) {
+				throw new RequestError(
+					l10n.t("Network Error: Unable to reach {0} for usage data. Check that the server is reachable.", url),
+					"network",
+					{
+						cause: error.cause,
+						englishMessage: `Network Error: Unable to reach ${url} for usage data. Check that the server is reachable.`,
+					}
+				);
 			}
-
-			if (response.ok) {
-				try {
-					return JSON.parse(payload) as unknown;
-				} catch {
-					// The SyntaxError quotes a payload snippet (response-derived), so it does not ride along - not even
-					// as the cause.
-					throw new RequestError(l10n.t("Failed to parse the LiteLLM usage response from {0}.", url), "http", {
-						englishMessage: `Failed to parse the LiteLLM usage response from ${url}.`,
-					});
-				}
+			if (error instanceof APIError && error.status !== undefined) {
+				throw usageHttpError(url, error.status);
 			}
-			const failure = usageHttpError(url, response.status);
-			if (response.status >= 500) {
-				lastFailure = failure;
-				continue;
-			}
-			// The server no longer accepts the token this call sent; the next call performs a fresh exchange, and the
-			// poller grants a scheduled 401 exactly one such retry (UsagePoller.tokenRetryGranted). This call itself
-			// never retries.
-			auth.fail(failure);
-			throw failure;
+			throw error;
 		}
-
-		if (lastFailure instanceof RequestError) {
-			throw lastFailure;
-		}
-		throw new RequestError(
-			l10n.t("Network Error: Unable to reach {0} for usage data. Check that the server is reachable.", url),
-			"network",
-			{
-				cause: lastFailure,
-				englishMessage: `Network Error: Unable to reach ${url} for usage data. Check that the server is reachable.`,
-			}
-		);
 	}
 }
