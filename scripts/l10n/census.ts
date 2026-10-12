@@ -16,6 +16,8 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"showMessage",
 	"showActionableMessage",
 	"staleRowRefusal",
+	"settingRangeRefusal",
+	"noHiddenGroupRefusal",
 	"hubItems",
 	"manageCommandTitle",
 	"featureDisabledMessage",

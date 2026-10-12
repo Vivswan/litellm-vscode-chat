@@ -1,4 +1,7 @@
 import * as assert from "node:assert";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import * as l10n from "@vscode/l10n";
 import { parseHeaderRows } from "../../../dashboard/recordDraft";
 import { parseDashboardRequest } from "../../../extension/dashboard/intentSchema";
 import {
@@ -11,6 +14,7 @@ import { setOwnedHeader } from "../../../provider/transport/authOverlay";
 import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { normalizeCustomHeaders } from "../../../shared/config/settings";
 import type { HeaderValue } from "../../../shared/util/headers";
+import { REPO_ROOT } from "../../util/repoRoot";
 import { inlineOnlyIdentity, KEEP_ALL, replaceIdentity, serverPayload } from "./recordedEnv";
 
 suite("extension/dashboard/intents: request validation", () => {
@@ -398,21 +402,49 @@ suite("extension/dashboard/intents: request validation", () => {
 				["chat.timeout", 1000, undefined],
 			];
 			for (const [setting, value, verdict] of cases) {
-				assert.strictEqual(validateNumberSetting(setting, value), verdict, `${setting} ${value}`);
+				const refusal = validateNumberSetting(setting, value);
+				assert.strictEqual(refusal?.message, verdict, `${setting} ${value}`);
+				assert.strictEqual(refusal?.englishMessage, verdict, `${setting} ${value} (English twin)`);
 			}
+		});
+
+		// The refusal travels two ways: the webview shows the host's language, the agent tools relay the English twin
+		// to the calling model (model-facing text stays English). A twin frozen in the wrong language would surface
+		// only on a non-English host, so the zh-cn bundle is pinned for the check.
+		test("a number-setting refusal under the zh-cn bundle keeps an English twin beside the localized message", () => {
+			const zhCn = JSON.parse(readFileSync(join(REPO_ROOT, "l10n", "bundle.l10n.zh-cn.json"), "utf8")) as Record<
+				string,
+				string
+			>;
+			const headlineKey = "Enter a whole number between {0} and {1}.";
+			assert.ok(typeof zhCn[headlineKey] === "string" && zhCn[headlineKey] !== headlineKey, "zh-cn translates it");
+			l10n.config({ contents: zhCn });
+			let refusal: ReturnType<typeof validateNumberSetting>;
+			try {
+				refusal = validateNumberSetting("chat.timeout", 999);
+			} finally {
+				l10n.config({ contents: {} });
+			}
+			assert.ok(refusal !== undefined, "a below-minimum value is refused");
+			const localizedHeadline = zhCn[headlineKey].replace("{0}", "1000 ms").replace("{1}", "2147483647 ms");
+			assert.strictEqual(refusal.message.split("\n")[0], localizedHeadline);
+			assert.strictEqual(
+				refusal.englishMessage,
+				"Enter a whole number between 1000 ms and 2147483647 ms.\nsetting chat.timeout: must be a whole number between 1000 and 2147483647"
+			);
 		});
 
 		test("number-setting refusals are two-part: a headline, then a detail line naming the setting id", () => {
 			// The banner is page-global and names no field, so the detail line must carry the setting id while the
 			// headline carries the unit-aware minimum.
-			const below = validateNumberSetting("chat.timeout", 999);
+			const below = validateNumberSetting("chat.timeout", 999)?.message;
 			assert.ok(below !== undefined, "a below-minimum value is refused");
 			const [belowHeadline, belowDetail] = below.split("\n");
 			assert.ok(belowHeadline?.includes("1000 ms"), below);
 			assert.ok(!belowHeadline?.includes("chat.timeout"), "the headline stays jargon-free");
 			assert.ok(belowDetail?.includes("chat.timeout"), below);
 
-			const nulled = validateNumberSetting("chat.timeout", null);
+			const nulled = validateNumberSetting("chat.timeout", null)?.message;
 			assert.ok(nulled !== undefined, "null is refused for a non-nullable setting");
 			assert.ok(nulled.split("\n")[1]?.includes("chat.timeout"), nulled);
 		});

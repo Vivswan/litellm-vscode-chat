@@ -190,6 +190,9 @@ type MessageSource = "webview" | "external";
 /** How many catalog search results one response may carry; the picker shows a short list. */
 const CATALOG_RESULT_LIMIT = 20;
 
+/** The English twin of the generic fail notice, for the calling model (the webview reads the localized text). */
+const NOT_APPLIED_ENGLISH = "The change was not applied; see the LiteLLM output log.";
+
 type ReadRequest = Extract<RpcRequestType, { method: ReadMethod }>;
 
 type NotifyingRequest = Exclude<RpcRequestType, ReadRequest>;
@@ -342,6 +345,7 @@ export class DashboardController implements vscode.Disposable {
 					id: frame.id,
 					method: frame.method,
 					message: l10n.t("The change was not applied; see the LiteLLM output log."),
+					englishMessage: NOT_APPLIED_ENGLISH,
 					failureKind: "validation",
 				} as const;
 				if (source === "webview") {
@@ -672,10 +676,12 @@ export class DashboardController implements vscode.Disposable {
 			// messages travel to the webview only: validation text can quote an entered key, and the log buffer feeds
 			// public issue reports, so the log gets classifications for every failure kind.
 			let message: string;
+			let englishMessage: string | undefined;
 			let failureKind: "validation" | "operation" = "validation";
 			let classification: TransportErrorClassification | undefined;
 			if (error instanceof DashboardValidationError) {
 				message = error.message;
+				englishMessage = error.englishMessage;
 				// Classification only (enum ids and a status) - protocol-legal and log-legal, so it also rides the log
 				// line for issue-report triage.
 				classification = error.classification;
@@ -690,6 +696,7 @@ export class DashboardController implements vscode.Disposable {
 				this.env.log("Dashboard intent partially applied", { method: request.method, kind: "operation" });
 			} else {
 				message = l10n.t("The change was not applied; see the LiteLLM output log.");
+				englishMessage = NOT_APPLIED_ENGLISH;
 				this.env.log("Dashboard intent failed", {
 					method: request.method,
 					error: errorLabel(error),
@@ -703,6 +710,7 @@ export class DashboardController implements vscode.Disposable {
 				id: request.id,
 				method: request.method,
 				message,
+				...(englishMessage !== undefined ? { englishMessage } : {}),
 				failureKind,
 				...(classification !== undefined ? { classification } : {}),
 				...(row !== undefined ? { row } : {}),
@@ -835,7 +843,9 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 			return await syncEngine.resolveDeclaredIdentities();
 		} catch (error) {
 			if (error instanceof IndeterminateServersSettingError) {
-				throw new DashboardValidationError(l10n.t("The servers setting is not an array; fix the setting, then retry"));
+				throw new DashboardValidationError(l10n.t("The servers setting is not an array; fix the setting, then retry"), {
+					englishMessage: "The servers setting is not an array; fix the setting, then retry",
+				});
 			}
 			throw error;
 		}
