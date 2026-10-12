@@ -89,8 +89,17 @@ export interface SecretPrompt {
 	readonly location: "settings" | "secure";
 }
 
+/**
+ * `secrets` rides only a server save: the directives the confirmation card summarizes by location and action, typed
+ * here so no consumer reads them back out of the payload.
+ */
 export type ToolPlan =
-	| { readonly kind: "requests"; readonly requests: readonly AgentRequest[]; readonly prompts: readonly SecretPrompt[] }
+	| {
+			readonly kind: "requests";
+			readonly requests: readonly AgentRequest[];
+			readonly prompts: readonly SecretPrompt[];
+			readonly secrets?: Readonly<Record<SecretFieldId, SecretDirective>>;
+	  }
 	| { readonly kind: "refused"; readonly reason: RefusalReason; readonly detail: Readonly<Record<string, string>> };
 
 function requests(...list: AgentRequest[]): ToolPlan {
@@ -497,6 +506,7 @@ export function planSaveServer(
 			},
 		],
 		prompts: secrets.prompts,
+		secrets: secrets.directives,
 	};
 }
 

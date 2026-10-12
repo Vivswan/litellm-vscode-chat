@@ -58,7 +58,7 @@ A VS Code extension that puts LiteLLM behind GitHub Copilot Chat through the Lan
 - **The two `models.*` record settings are `restricted`; every `.enabled`, `.model`, and `models.openRouterCatalog` is machine-overridable** (`src/shared/config/settingSpec.ts`).
 - **Every `contributes` block of `package.json` and `docs/settings.md` with its zh-cn/zh-tw twins are generated output** (`bun run manifest:generate`, `bun run docs:settings`; the sources are the code constants plus the presentation tables in `scripts/dev/manifest/`). Edit the source, run the generator, commit; the hook's `check:static` and CI refuse drift and name the command.
 - **Pre-commit hooks**: No bun test builds a scratch repository or calls git.
-- **English for the manifest stays in `package.nls.json`** under the keys the generator derives from the ids; a new setting needs a prose entry in all three locales. The agent tools' model-facing text lives in `src/extension/features/agentTools/inputSchema.ts`.
+- **English for the manifest stays in `package.nls.json`** under the keys the generator derives from the ids; a new setting needs a prose entry in all three locales. The agent tools' model-facing text lives in `src/extension/features/agentTools/{inputSchema,render,wiring}.ts`: the input descriptions, the refusals and the truncation marker, and the switched-off and malformed-input refusals.
 - **Fuzz findings are pinned, not fixed in place**: a fuzz-found failure gets a corpus entry in `src/test/fuzzCorpus.ts`.
 - **Dashboard appearance is reviewed, not gated**: `check-overflow` and `check-geometry` gate fit and geometry; looks are judged against `docs/dashboard-visual-language.md`.
 

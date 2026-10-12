@@ -260,7 +260,7 @@ describe("agentTools core fuzz", () => {
 						typeof value === "object" && value !== null && !Array.isArray(value)
 							? (value as Record<string, unknown>)
 							: { value };
-					expect(() => describeServerChange(key, record(before), record(after), [], [])).not.toThrow();
+					expect(() => describeServerChange(key, record(before), record(after), undefined, [])).not.toThrow();
 					expect(renderJson(shapeConfiguration(state, undefined)).length).toBeLessThanOrEqual(60_000);
 					expect(renderJson(after).length).toBeLessThanOrEqual(60_000);
 				}

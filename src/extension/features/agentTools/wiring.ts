@@ -12,7 +12,6 @@ import {
 import type { Logger } from "../../../shared/logger";
 import { localizedError } from "../../../shared/mirroredError";
 import type { SecretFieldId } from "../../../shared/serverEntry";
-import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { isRecord } from "../../../shared/util/json";
 import type { DashboardController } from "../../dashboard/panel";
 import type { DeclaredServerView } from "../../servers/serverSync/engine";
@@ -123,26 +122,6 @@ function frame(request: AgentRequest): unknown {
 function refusalError(tool: AgentToolId, text: string, classification: string): Error {
 	const tag = `AgentTools(${tool}: ${classification})`;
 	return localizedError(text, `Agent tool refused the call: ${tag}`, tag);
-}
-
-/** The card's secret lines: location and action only, never a value. */
-function secretSummary(payload: unknown): string[] {
-	if (!isRecord(payload) || !isRecord(payload.secrets)) {
-		return [];
-	}
-	const lines: string[] = [];
-	for (const field of SECRET_FIELD_IDS) {
-		const directive = payload.secrets[field];
-		if (!isRecord(directive)) {
-			continue;
-		}
-		if (directive.action === "clear") {
-			lines.push(l10n.t("{0}: cleared", field));
-		} else if (directive.action === "set" && typeof directive.value === "string" && directive.value.length > 0) {
-			lines.push(l10n.t("{0}: set ({1})", field, String(directive.location)));
-		}
-	}
-	return lines;
 }
 
 class AgentTool implements vscode.LanguageModelTool<unknown> {
@@ -258,7 +237,7 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 						input.label,
 						existing === undefined ? undefined : { ...savePayloadFromRow(existing) },
 						after,
-						secretSummary(payload),
+						plan.kind === "requests" ? plan.secrets : undefined,
 						prompts
 					)
 				);

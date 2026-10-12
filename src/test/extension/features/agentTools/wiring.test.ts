@@ -368,6 +368,7 @@ suite("extension/features/agentTools wiring", () => {
 				assert.match(inlineCard, /new servers entry "New"/);
 				assert.match(inlineCard, /apiKey: set \(secure\)/);
 				assertOmits(inlineCard, "sk-inline", "the card names the secret's location, never its value");
+				assertOmits(inlineCard, "cleared", "a new entry holds nothing, so its unnamed secrets are not cleared");
 
 				const prompted = prepareLive(spies, "saveServer", {
 					...NEW_SERVER,
