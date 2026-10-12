@@ -425,7 +425,14 @@ export async function runReportIssue(
 			return;
 		}
 	}
-	await openIssue();
+	// The same catch as the two gated paths' Report Anyway actions: a compacted payload whose diagnostics-file write
+	// fails must surface as a toast, not reject into the dashboard's message chain.
+	try {
+		await openIssue();
+	} catch (error) {
+		const detail = thrownErrorDisplayText(error);
+		void showMessage("error", l10n.t("LiteLLM: Could not open the issue report - {0}", detail), []);
+	}
 }
 
 const REPEAT_REPORT_WINDOW_MS = 72 * 60 * 60 * 1000;
