@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import { useEffect, useId, useState } from "react";
 import { latestCheckedMs } from "../../dashboard/presenters";
-import { sectionFailureText } from "../../dashboard/serverForm";
+import { saveFailureDisposition, sectionFailureText } from "../../dashboard/serverForm";
 import { formatPercent, worstSpendTone } from "../../dashboard/spendFormat";
 import type {
 	DashboardServer,
@@ -14,7 +14,7 @@ import type { ExpectedFailureCategory } from "../../shared/serverEntry";
 import { DOCS_LINK_SERVERS } from "./docsLinks";
 import { FailureText } from "./failureText";
 import { helpServersSection } from "./helpText";
-import { useIntentOutcome } from "./hooks";
+import { type IntentOutcome, useIntentOutcome } from "./hooks";
 import { IconAdd } from "./icons";
 import { tupleKey } from "./keys";
 import type { ServerHealthVerdict, SpendContext } from "./serverDiagnostics";
@@ -379,8 +379,8 @@ function ServerRow({
 }
 
 /**
- * The adopt and save banners stay hand-built: a committed write's failure drops the frame, since the message then
- * reports what landed.
+ * An operation failure's message already names the write it followed ("saved, but ..."), so it stands without a
+ * heading; a list-owned intent's failure takes the heading that names the action.
  */
 function IntentFailureBanner({
 	message,
@@ -388,19 +388,27 @@ function IntentFailureBanner({
 	onDismiss,
 }: {
 	message: string;
-	heading: string;
+	heading?: string;
 	onDismiss: () => void;
 }) {
 	return (
 		<div className="banner banner-error" role="alert">
 			<p>
-				<FailureText message={message} frame={(headline) => sectionFailureText(heading, headline)} />
+				<FailureText
+					message={message}
+					{...(heading === undefined ? {} : { frame: (headline: string) => sectionFailureText(heading, headline) })}
+				/>
 			</p>
 			<Button variant="secondary" size="compact" onClick={onDismiss}>
 				{l10n.t("Dismiss")}
 			</Button>
 		</div>
 	);
+}
+
+/** The failures that reach the list from an intent the edit page posts: the page keeps the rest (saveFailureDisposition). */
+function closingFailure(outcome: IntentOutcome | undefined): (IntentOutcome & { result: "fail" }) | undefined {
+	return outcome?.result === "fail" && saveFailureDisposition(outcome.failureKind) === "close" ? outcome : undefined;
 }
 
 /**
@@ -642,9 +650,11 @@ export function ServersSection({
 		const requestId = hideIntent.send({ baseUrl: server.baseUrl, sourceHandle: server.adoptHandle });
 		setPendingHide({ requestId, label: server.label, baseUrl: server.baseUrl });
 	};
-	const saveFailure = saveIntent.outcome?.result === "fail" ? saveIntent.outcome : undefined;
+	// The edit page keeps a validation failure beside the draft it refused; the list hears the same envelope and shows
+	// only the failures whose disposition closed the page.
+	const saveFailure = closingFailure(saveIntent.outcome);
 	const removeFailure = removeIntent.outcome?.result === "fail" ? removeIntent.outcome : undefined;
-	const adoptFailure = adoptIntent.outcome?.result === "fail" ? adoptIntent.outcome : undefined;
+	const adoptFailure = closingFailure(adoptIntent.outcome);
 	const hideFailure = hideIntent.outcome?.result === "fail" ? hideIntent.outcome : undefined;
 	const unhideFailure = unhideIntent.outcome?.result === "fail" ? unhideIntent.outcome : undefined;
 	const manageFailure = manageIntent.outcome?.result === "fail" ? manageIntent.outcome : undefined;
@@ -787,34 +797,10 @@ export function ServersSection({
 				</div>
 			) : null}
 			{adoptFailure !== undefined ? (
-				<div className="banner banner-error" role="alert">
-					<p>
-						<FailureText
-							message={adoptFailure.message}
-							{...(adoptFailure.failureKind === "operation"
-								? {}
-								: { frame: (headline: string) => sectionFailureText(l10n.t("Adopting the server failed:"), headline) })}
-						/>
-					</p>
-					<Button variant="secondary" size="compact" onClick={adoptIntent.reset}>
-						{l10n.t("Dismiss")}
-					</Button>
-				</div>
+				<IntentFailureBanner message={adoptFailure.message} onDismiss={adoptIntent.reset} />
 			) : null}
 			{saveFailure !== undefined ? (
-				<div className="banner banner-error" role="alert">
-					<p>
-						<FailureText
-							message={saveFailure.message}
-							{...(saveFailure.failureKind === "operation"
-								? {}
-								: { frame: (headline: string) => sectionFailureText(l10n.t("Saving the server failed:"), headline) })}
-						/>
-					</p>
-					<Button variant="secondary" size="compact" onClick={saveIntent.reset}>
-						{l10n.t("Dismiss")}
-					</Button>
-				</div>
+				<IntentFailureBanner message={saveFailure.message} onDismiss={saveIntent.reset} />
 			) : null}
 			{removeFailure !== undefined ? (
 				<IntentFailureBanner
