@@ -55,6 +55,10 @@ function unroutableModelError(modelId: string, reason: "no group identity" | "gr
  * Only the taxonomy-backed cases map; everything else - including CancellationError, which is never wrapped or logged
  * - passes through unchanged, and 401s keep their auth classification rather than being re-wrapped as anything else.
  *
+ * A 429 is one of the pass-throughs: the API's only quota code is Blocked, which the host documents as a standing
+ * refusal of the requestor, and a rate limit is transient. The host flattens a plain error to name, message, and
+ * code, so a consumer sees no LanguageModelError code to misread and still gets the message.
+ *
  *   it renders in the chat UI -> the message is preserved
  *   Wrap a classified transport failure in the stable LanguageModelError -> vscode.lm consumers can branch on the
  *     documented codes instead of matching message text
@@ -68,8 +72,6 @@ export function toLanguageModelError(err: unknown): unknown {
 		wrapped = LanguageModelError.NoPermissions(err.message);
 	} else if (err.status === 404) {
 		wrapped = LanguageModelError.NotFound(err.message);
-	} else if (err.status === 429) {
-		wrapped = LanguageModelError.Blocked(err.message);
 	}
 	if (wrapped === undefined) {
 		return err;
