@@ -1,4 +1,5 @@
 import { APIConnectionError, APIError } from "openai";
+import { MAX_TIMER_MS } from "../../shared/config/settingSpec";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 
 /** Spacing between attempts grows linearly: attempt n waits n times this, unless the server named a wait. */
@@ -12,7 +13,10 @@ export type BackoffSleep = (ms: number, signal: AbortSignal) => Promise<void>;
 
 export interface RetryOptions {
 	readonly maxRetries: number;
-	/** The caller's whole-call bound: it ends a sleep and the loop at once, so backoff never outlives it. */
+	/**
+	 * The caller's whole-call bound, a retryBudgetMs deadline or a lifetime cancellation: it ends a sleep and the loop
+	 * at once, so backoff never outlives it.
+	 */
 	readonly signal: AbortSignal;
 	/** The real timer unless a test passes a zero sleep, so a retrying case pays no wall time. */
 	readonly sleep?: BackoffSleep;
@@ -56,6 +60,17 @@ function serverRetryDelayMs(error: unknown): number | undefined {
 				: Number(after) * 1000
 			: Number.NaN;
 	return Number.isFinite(delay) && delay >= 0 && delay <= MAX_SERVER_RETRY_DELAY_MS ? delay : undefined;
+}
+
+/**
+ * The whole-call bound to arm around retryIdempotent when each attempt carries its own timeout: every attempt may run
+ * to that timeout and every backoff may sleep, so the budget is their sum, clamped to what the platform's timers
+ * schedule. Armed at one attempt's timeout instead, a single hung attempt ends the retries the verdict above promises.
+ * A server-named wait is not budgeted: the signal ends that sleep.
+ */
+export function retryBudgetMs(attemptTimeoutMs: number, maxRetries: number): number {
+	const backoffMs = (RETRY_DELAY_MS * maxRetries * (maxRetries + 1)) / 2;
+	return Math.min(MAX_TIMER_MS, (maxRetries + 1) * attemptTimeoutMs + backoffMs);
 }
 
 export async function retryIdempotent<T>(attempt: () => Promise<T>, options: RetryOptions): Promise<T> {

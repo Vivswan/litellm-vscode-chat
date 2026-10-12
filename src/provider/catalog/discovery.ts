@@ -1,8 +1,8 @@
 import * as l10n from "@vscode/l10n";
 import type OpenAI from "openai";
-import { APIConnectionError } from "openai";
+import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
 import { consumedFieldsOfKind } from "../../shared/config/capabilityResolution";
-import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { CONFIG_SECTION, DISCOVERY_MAX_RETRIES } from "../../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
 import type { NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { isNonChatMode } from "../../shared/serverEntry";
@@ -19,7 +19,8 @@ import {
 } from "../transport/clients";
 import { mapSdkError } from "../transport/errorMapping";
 import type { BackoffSleep } from "../transport/retry";
-import { retryIdempotent } from "../transport/retry";
+import { retryBudgetMs, retryIdempotent } from "../transport/retry";
+import type { MapErrorContext } from "../transport/transportErrors";
 import { RequestError, timeoutRequestError } from "../transport/transportErrors";
 import type { DiscoveryLog } from "./discoveryLog";
 import { discoveryLineWriter, failureKindOf, parseWire } from "./discoveryLog";
@@ -47,11 +48,8 @@ import {
 	supportsTools,
 } from "./schemas";
 
-/**
- * The retry budget for discovery GETs: idempotent, so retrying is safe; chat completions never retry. auth.ts reuses
- * this for the OAuth token exchange.
- */
-export const DISCOVERY_MAX_RETRIES = 2;
+/** Discovery GETs are idempotent, so retrying is safe; chat completions never retry. */
+export { DISCOVERY_MAX_RETRIES };
 
 /**
  * Whether LiteLLM's catalog described a deployment is provenance the wire does not carry, so every entry resolves as
@@ -393,42 +391,71 @@ const EMPTY_BODY: DiscoveryBody = { empty: true };
 const bodyValue = (body: DiscoveryBody): unknown => (body.empty ? null : body.value);
 
 /**
- * One discovery GET: the SDK runs without retries because its backoff sleep ignores the signal, so retryIdempotent
- * owns the retries and `signal` bounds the whole call, sleeps included. The per-request timeout keeps the SDK's own
- * 600 s default from overriding ours.
+ * One discovery GET under two clocks: each attempt gets `context.timeoutMs` (discovery.timeout) for its headers and
+ * body together, and the whole call ends at retryBudgetMs of it, so a hung attempt is retried like any other
+ * connection failure.
+ *   the SDK's own retries  -> off: its backoff sleep ignores the signal, so retryIdempotent owns them
+ *   the SDK's own timeout  -> the same value, so its 600 s default cannot cut in under a larger setting; it stops at
+ *                             the headers, so the attempt clock also covers a body that stalls after them
+ *   the budget running out -> the discovery timeout whichever phase it interrupts, rendered here so every caller
+ *                             maps a failure with mapSdkError alone
  */
 async function getJson(
 	client: OpenAI,
 	path: string,
 	endpointUrl: string,
 	options: {
-		readonly signal: AbortSignal;
-		readonly timeoutMs: number;
+		readonly context: MapErrorContext;
 		readonly maxRetries: number;
 		readonly headers: FetchModelsRequest["headers"];
 		readonly sleep: BackoffSleep;
 	}
 ): Promise<DiscoveryBody> {
-	return retryIdempotent(
-		async () => {
-			const response = await client
-				.get(path, { signal: options.signal, timeout: options.timeoutMs, maxRetries: 0, headers: options.headers })
-				.asResponse();
-			let text: string;
-			try {
-				text = await response.text();
-			} catch (readError) {
-				if (options.signal.aborted) {
-					throw readError;
+	const { context, maxRetries, headers, sleep } = options;
+	const budget = AbortSignal.timeout(retryBudgetMs(context.timeoutMs, maxRetries));
+	try {
+		return await retryIdempotent(
+			async () => {
+				const attemptClock = AbortSignal.timeout(context.timeoutMs);
+				let text: string;
+				try {
+					const response = await client
+						.get(path, {
+							signal: AbortSignal.any([budget, attemptClock]),
+							timeout: context.timeoutMs,
+							maxRetries: 0,
+							headers,
+						})
+						.asResponse();
+					// A socket death mid-body classifies like one before the headers.
+					text = await response.text().catch((readError: unknown) => {
+						throw new APIConnectionError({ cause: readError instanceof Error ? readError : undefined });
+					});
+				} catch (error) {
+					// The SDK calls only its own headers clock a timeout; an abort it did not arm is a user abort to it.
+					throw attemptClock.aborted && !budget.aborted && !carriesStatus(error)
+						? new APIConnectionTimeoutError()
+						: error;
 				}
-				// A socket death mid-body classifies like one before the headers.
-				throw new APIConnectionError({ cause: readError instanceof Error ? readError : undefined });
-			}
-			// An empty body, a 204 or a bare 200, is an empty listing, not a parse failure.
-			return text === "" ? EMPTY_BODY : { empty: false, value: parseJsonBody(text, endpointUrl) };
-		},
-		{ maxRetries: options.maxRetries, signal: options.signal, sleep: options.sleep }
-	);
+				// An empty body, a 204 or a bare 200, is an empty listing, not a parse failure.
+				return text === "" ? EMPTY_BODY : { empty: false, value: parseJsonBody(text, endpointUrl) };
+			},
+			{ maxRetries, signal: budget, sleep }
+		);
+	} catch (error) {
+		if (budget.aborted && !carriesStatus(error)) {
+			throw timeoutRequestError(context, error);
+		}
+		throw error;
+	}
+}
+
+/**
+ * A status whose headers arrived is the verdict however the body ended: the SDK reads an error body with a catch and
+ * still raises the status, so a 401 whose body stalls past either clock stays a 401, terminal and never re-wrapped.
+ */
+function carriesStatus(error: unknown): boolean {
+	return error instanceof APIError && typeof error.status === "number";
 }
 
 /** How the model-info probe's failure looked, for the /models leg's same-pass verdict. */
@@ -723,12 +750,11 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			? result
 			: { ...result, models: result.models.map((model) => withServerReasoningEfforts(model, efforts)) };
 	};
-	const infoSignal = AbortSignal.timeout(discoveryTimeout);
+	const errorContext: MapErrorContext = { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout };
 	try {
 		// Retries stay off for an endpoint whose failure the entry declares expected.
 		const infoBody = await getJson(client, MODEL_INFO_PATH, modelInfoUrl(baseUrl, apiVersion), {
-			signal: infoSignal,
-			timeoutMs: discoveryTimeout,
+			context: errorContext,
 			maxRetries: expected?.modelInfo === true ? 0 : DISCOVERY_MAX_RETRIES,
 			headers,
 			sleep,
@@ -759,14 +785,8 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		// Response-derived text can echo credentials into the issue-report buffer, so the log carries only the
 		// classification. This is discovery's one expected-failure log seam, because a /model/info failure is nonfatal
 		// and never reaches the provider boundary.
-		const mapped = mapSdkError(
-			error,
-			{ surface: "discovery", baseUrl, timeoutMs: discoveryTimeout },
-			request.isCancellation
-		);
-		// The signal firing IS the timeout evidence even when the mapped error is not classified as one
-		// (AbortSignal.timeout's TimeoutError maps to the unhandled tail).
-		modelInfo.evidence = infoSignal.aborted ? { kind: "timeout" } : unservedEvidenceOf(mapped);
+		const mapped = mapSdkError(error, errorContext, request.isCancellation);
+		modelInfo.evidence = unservedEvidenceOf(mapped);
 		log("model/info failed; falling back to the models listing", {
 			expected: expected?.modelInfo === true,
 			...failureKindOf(mapped),
@@ -774,8 +794,6 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	}
 
 	log("Fetching models", { endpoint: MODELS_PATH });
-	const timeoutSignal = AbortSignal.timeout(discoveryTimeout);
-	const errorContext = { surface: "discovery" as const, baseUrl, timeoutMs: discoveryTimeout };
 	const failureContext: ModelsFailureContext = {
 		modelInfo,
 		expected,
@@ -787,16 +805,12 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	let listingBody: DiscoveryBody;
 	try {
 		listingBody = await getJson(client, MODELS_PATH, modelsUrl(baseUrl, apiVersion), {
-			signal: timeoutSignal,
-			timeoutMs: discoveryTimeout,
+			context: errorContext,
 			maxRetries: expected?.modelListing === true ? 0 : DISCOVERY_MAX_RETRIES,
 			headers,
 			sleep,
 		});
 	} catch (error) {
-		if (timeoutSignal.aborted) {
-			throw refineModelsListingFailure(timeoutRequestError(errorContext, error), failureContext);
-		}
 		if (error instanceof RequestError && error.logClassification === UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION) {
 			throw error;
 		}
@@ -841,24 +855,14 @@ async function fetchModelGroupReasoningEfforts(
 ): Promise<ModelGroupReasoningEfforts | undefined> {
 	const { client, baseUrl, apiVersion, discoveryTimeout, headers } = request;
 	log("Fetching models", { endpoint: MODEL_GROUP_INFO_PATH });
-	const signal = AbortSignal.timeout(discoveryTimeout);
+	const context: MapErrorContext = { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout };
 	// The absolute URL, since the client's base is the API root (.../v1) and this endpoint sits at the server root.
 	const url = modelGroupInfoUrl(baseUrl, apiVersion);
 	let groupBody: DiscoveryBody;
 	try {
-		groupBody = await getJson(client, url, url, {
-			signal,
-			timeoutMs: discoveryTimeout,
-			maxRetries: DISCOVERY_MAX_RETRIES,
-			headers,
-			sleep,
-		});
+		groupBody = await getJson(client, url, url, { context, maxRetries: DISCOVERY_MAX_RETRIES, headers, sleep });
 	} catch (error) {
-		const context = { surface: "discovery" as const, baseUrl, timeoutMs: discoveryTimeout };
-		// The signal firing IS the timeout, even when it fired during a retry's backoff sleep.
-		const mapped = signal.aborted
-			? timeoutRequestError(context, error)
-			: mapSdkError(error, context, request.isCancellation);
+		const mapped = mapSdkError(error, context, request.isCancellation);
 		log("model_group/info failed; menus follow the deployment flags", failureKindOf(mapped));
 		return undefined;
 	}

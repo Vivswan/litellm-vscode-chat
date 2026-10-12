@@ -2,7 +2,7 @@
  * The behavior column of each locale's settings reference table. Completeness is a type, not a check: Record<SettingId,
  * ...> makes a setting with no prose a compile error, so a feature cannot ship a setting the docs never mention.
  */
-import type { SettingId } from "../../src/shared/config/settingSpec";
+import { DISCOVERY_MAX_RETRIES, type SettingId } from "../../src/shared/config/settingSpec";
 
 /** One setting's behavior prose in every shipped docs locale. */
 export interface SettingProse {
@@ -10,6 +10,9 @@ export interface SettingProse {
 	readonly zhCn: string;
 	readonly zhTw: string;
 }
+
+/** The first try plus every retry; what "about N times this" in the discovery.timeout prose counts. */
+const DISCOVERY_ATTEMPTS = DISCOVERY_MAX_RETRIES + 1;
 
 /** Behavior prose per setting ID (the name without the config section prefix). */
 export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
@@ -87,11 +90,12 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 	},
 	"discovery.timeout": {
 		en:
-			"Hard time budget for each model-discovery request, in milliseconds, its retries included. The model-info " +
-			"listing, the `/v1/models` fallback, and the OAuth token exchange each get a fresh budget, so a discovery " +
-			"pass may take up to their sum",
-		zhCn: "每个模型发现请求的硬性时间预算, 毫秒, 含该请求的重试。模型信息列表、`/v1/models` 回退和 OAuth 令牌交换各自获得一份新预算, 所以一轮发现最长可能耗时到它们之和",
-		zhTw: "每個模型探索請求的硬性時間預算, 毫秒, 含該請求的重試。模型資訊清單、`/v1/models` 退回和 OAuth 權杖交換各自獲得一份新預算, 所以一輪探索最長可能耗時到它們之和",
+			"Time budget for each model-discovery attempt, in milliseconds. A failed or timed-out attempt is retried up " +
+			`to ${DISCOVERY_MAX_RETRIES} more times, so one listing may take about ${DISCOVERY_ATTEMPTS} times this. The ` +
+			"model-info listing, the `/v1/models` fallback, and the whole OAuth token exchange each have their own clock, " +
+			"so a discovery pass may take their sum",
+		zhCn: `每次模型发现尝试的时间预算, 毫秒。失败或超时的尝试最多再重试 ${DISCOVERY_MAX_RETRIES} 次, 所以一次列表请求最长约为此值的 ${DISCOVERY_ATTEMPTS} 倍。模型信息列表、\`/v1/models\` 回退和 整个 OAuth 令牌交换各自计时, 所以一轮发现最长可能耗时到它们之和`,
+		zhTw: `每次模型探索嘗試的時間預算, 毫秒。失敗或逾時的嘗試最多再重試 ${DISCOVERY_MAX_RETRIES} 次, 所以一次清單請求最長約為此值的 ${DISCOVERY_ATTEMPTS} 倍。模型資訊清單、\`/v1/models\` 退回和 整個 OAuth 權杖交換各自計時, 所以一輪探索最長可能耗時到它們之和`,
 	},
 	"discovery.cacheTtl": {
 		en:

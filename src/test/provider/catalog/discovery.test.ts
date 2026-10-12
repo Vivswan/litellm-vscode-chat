@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { delay, HttpResponse, http } from "msw";
 import {
+	DISCOVERY_MAX_RETRIES,
 	fetchModels,
 	isLiteLLMModelItem,
 	type MappedModelInfo,
@@ -18,6 +19,7 @@ import { createServerClient } from "../../../provider/transport/clients";
 import type { TransportFetch } from "../../../provider/transport/nodeHttpFetch";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import type { BackoffSleep } from "../../../provider/transport/retry";
+import { retryBudgetMs } from "../../../provider/transport/retry";
 import { RequestError } from "../../../provider/transport/transportErrors";
 import { CAPABILITY_FLOOR } from "../../../shared/config/capabilityResolution";
 import { publicErrorText } from "../../../shared/logger";
@@ -1172,21 +1174,26 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(attempts.models, 1);
 		});
 
-		test("a large Retry-After cannot stall discovery past the timeout", async () => {
+		test("a large Retry-After cannot stall discovery past the retry budget", async () => {
 			mswServer.use(
 				// 404 is not retryable, so discovery falls straight through to /v1/models.
 				http.get(MODEL_INFO_URL, () => new HttpResponse("not found", { status: 404 })),
 				http.get(MODELS_URL, () => emptyErrorResponse(500, { "Retry-After": "60" }))
 			);
 
+			const attemptTimeoutMs = 500;
+			const budgetMs = retryBudgetMs(attemptTimeoutMs, DISCOVERY_MAX_RETRIES);
 			const started = Date.now();
-			// The real sleep: the subject is the timeout ending a 60 s backoff, which a zero sleep would never start.
+			// The real sleep: the subject is the budget ending a 60 s backoff, which a zero sleep would never start.
 			await assert.rejects(
-				fetchModels({ ...request(), discoveryTimeout: 1000, sleep: sleepUnlessAborted }),
+				fetchModels({ ...request(), discoveryTimeout: attemptTimeoutMs, sleep: sleepUnlessAborted }),
 				/discovery\.timeout/
 			);
 			const elapsed = Date.now() - started;
-			assert.ok(elapsed < 6000, `Timeout must bound the whole call including backoff sleeps, took ${elapsed}ms`);
+			assert.ok(
+				elapsed < 2 * budgetMs,
+				`The retry budget must bound the whole call including a server-named backoff, took ${elapsed}ms`
+			);
 		});
 
 		suite("endpoint-unsupported classification", () => {
