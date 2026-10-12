@@ -69,21 +69,48 @@ import { applyTestServerDraft } from "./testDraftConnection";
  * modelParameters prefix), and the log buffer feeds public issue reports.
  *
  *   The panel boundary -> logs a classification only
+ *   englishMessage     -> the message's English twin, relayed to the agent tools' calling model (model-facing text
+ *                         stays English); a site without one leaves the model the localized message
+ *   logClassification  -> fixed, so the public log surfaces (publicErrorText) record neither text
  */
-export class DashboardValidationError extends Error {
+export class DashboardValidationError extends MirroredError {
 	/**
 	 * The transport classification behind the failure, when a probe supplied one: enum ids and a status number only,
 	 * never message text, so it rides both the fail envelope and the boundary's rejection log line.
 	 */
 	readonly classification?: TransportErrorClassification;
 
-	constructor(message: string, options?: { classification?: TransportErrorClassification | undefined }) {
-		super(message);
+	constructor(
+		message: string,
+		options?: {
+			readonly englishMessage?: string | undefined;
+			readonly classification?: TransportErrorClassification | undefined;
+		}
+	) {
+		super(message, {
+			logClassification: "dashboard validation refused",
+			...(options?.englishMessage !== undefined ? { englishMessage: options.englishMessage } : {}),
+		});
 		this.name = "DashboardValidationError";
 		if (options?.classification !== undefined) {
 			this.classification = options.classification;
 		}
 	}
+}
+
+/** A refusal's two renderings: the localized text the webview shows and its English twin for the calling model. */
+export interface ValidationRefusal {
+	readonly message: string;
+	readonly englishMessage: string;
+}
+
+function refuse(refusal: ValidationRefusal): DashboardValidationError {
+	return new DashboardValidationError(refusal.message, { englishMessage: refusal.englishMessage });
+}
+
+/** A refusal whose text is not localized (field-naming reasons that stay ASCII identifiers). */
+function refuseEnglish(message: string): DashboardValidationError {
+	return new DashboardValidationError(message, { englishMessage: message });
 }
 
 /**
@@ -200,32 +227,64 @@ const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readon
 };
 
 /**
+ * The two-part refusal of a setting write whose payload is outside the setting's range: a localized headline with its
+ * English twin, then the detail line naming the full setting id and the allowed range (both ASCII, outside the
+ * translation).
+ */
+function settingRangeRefusal(
+	headline: string,
+	englishHeadline: string,
+	settingKey: string,
+	range: string
+): ValidationRefusal {
+	const id = `${CONFIG_SECTION}.${settingKey}`;
+	return {
+		message: `${headline}\n${l10n.t("setting {0}: allowed range {1}", id, range)}`,
+		englishMessage: `${englishHeadline}\nsetting ${id}: allowed range ${range}`,
+	};
+}
+
+function noHiddenGroupRefusal(): DashboardValidationError {
+	return new DashboardValidationError(l10n.t("No hidden group matches this identity; it may already be visible"), {
+		englishMessage: "No hidden group matches this identity; it may already be visible",
+	});
+}
+
+/**
  * Value constraints the message schema cannot express. Reasons are two-part - a localized headline, then a technical
  * detail line - and the detail names the setting id because the failure banner is page-global and names no field;
  * the id stays an ASCII identifier outside the translation. The bound is the spec's own (acceptsNumberSetting), the
  * rule the reader applies, so a value this refuses is one settings.json would read as the default.
  */
-export function validateNumberSetting(setting: NumberSettingId, value: number | null): string | undefined {
+export function validateNumberSetting(setting: NumberSettingId, value: number | null): ValidationRefusal | undefined {
 	const spec = NUMBER_SETTING_SPECS[setting];
 	if (value === null && !spec.nullable) {
-		return `${l10n.t("This setting needs a number and cannot be left empty.")}\n${l10n.t(
-			"setting {0}: no value given; the setting is not clearable",
-			setting
-		)}`;
+		return {
+			message: `${l10n.t("This setting needs a number and cannot be left empty.")}\n${l10n.t(
+				"setting {0}: no value given; the setting is not clearable",
+				setting
+			)}`,
+			englishMessage: `This setting needs a number and cannot be left empty.\nsetting ${setting}: no value given; the setting is not clearable`,
+		};
 	}
 	if (!acceptsNumberSetting(setting, value)) {
 		const { boundText } = unitBehavior(setting);
 		const offValue = numberSettingOffValue(setting);
+		const min = boundText(spec.minimum);
+		const max = boundText(spec.maximum);
 		const headline =
 			offValue === undefined
-				? l10n.t("Enter a whole number between {0} and {1}.", boundText(spec.minimum), boundText(spec.maximum))
-				: l10n.t(
-						"Enter a whole number between {0} and {1}, or {2} to turn it off.",
-						boundText(spec.minimum),
-						boundText(spec.maximum),
-						offValue
-					);
-		return `${headline}\n${l10n.t("setting {0}: must be a whole number {1}", setting, numberSettingBoundText(setting))}`;
+				? l10n.t("Enter a whole number between {0} and {1}.", min, max)
+				: l10n.t("Enter a whole number between {0} and {1}, or {2} to turn it off.", min, max, offValue);
+		const englishHeadline =
+			offValue === undefined
+				? `Enter a whole number between ${min} and ${max}.`
+				: `Enter a whole number between ${min} and ${max}, or ${offValue} to turn it off.`;
+		const bound = numberSettingBoundText(setting);
+		return {
+			message: `${headline}\n${l10n.t("setting {0}: must be a whole number {1}", setting, bound)}`,
+			englishMessage: `${englishHeadline}\nsetting ${setting}: must be a whole number ${bound}`,
+		};
 	}
 	return undefined;
 }
@@ -471,7 +530,7 @@ export async function executeDashboardIntent(
 		case "setNumberSetting": {
 			const problem = validateNumberSetting(intent.payload.setting, intent.payload.value);
 			if (problem !== undefined) {
-				throw new DashboardValidationError(problem);
+				throw refuse(problem);
 			}
 			await env.updateSetting(intent.payload.setting, intent.payload.value);
 			return undefined;
@@ -493,7 +552,7 @@ export async function executeDashboardIntent(
 		case "setModelParameters": {
 			const problem = validateModelParametersRecord(intent.payload.value);
 			if (problem !== undefined) {
-				throw new DashboardValidationError(problem);
+				throw refuseEnglish(problem);
 			}
 			await env.updateSetting(MODEL_PARAMETERS_SETTING_KEY, intent.payload.value);
 			return undefined;
@@ -503,7 +562,7 @@ export async function executeDashboardIntent(
 			// lenient, diagnosing parse.
 			const problem = validateModelParametersRecord(intent.payload.value);
 			if (problem !== undefined) {
-				throw new DashboardValidationError(problem);
+				throw refuseEnglish(problem);
 			}
 			await env.updateSetting(MODEL_CAPABILITIES_SETTING_KEY, intent.payload.value);
 			return undefined;
@@ -525,12 +584,13 @@ export async function executeDashboardIntent(
 			// already trims empties away, so anything else is a bypassing caller. Written deduplicated in the given
 			// order - the canonical form normalization would produce anyway.
 			if (intent.payload.values.some((value) => value.length === 0 || isUnsafeRecordKey(value))) {
-				throw new DashboardValidationError(
-					`${l10n.t("Tool schema keywords must be plain, non-empty names, e.g. propertyNames.")}\n${l10n.t(
-						"setting {0}: allowed range {1}",
-						`${CONFIG_SECTION}.${ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY}`,
+				throw refuse(
+					settingRangeRefusal(
+						l10n.t("Tool schema keywords must be plain, non-empty names, e.g. propertyNames."),
+						"Tool schema keywords must be plain, non-empty names, e.g. propertyNames.",
+						ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 						"plain non-empty strings"
-					)}`
+					)
 				);
 			}
 			await env.updateSetting(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY, [...new Set(intent.payload.values)]);
@@ -557,12 +617,13 @@ export async function executeDashboardIntent(
 			const server = trimHttpWhitespace(intent.payload.value.server);
 			const model = trimHttpWhitespace(intent.payload.value.model);
 			if (server.length === 0 || model.length === 0) {
-				throw new DashboardValidationError(
-					`${l10n.t("Pick a server and model, or Not set to clear the pick.")}\n${l10n.t(
-						"setting {0}: allowed range {1}",
-						`${CONFIG_SECTION}.${key}`,
+				throw refuse(
+					settingRangeRefusal(
+						l10n.t("Pick a server and model, or Not set to clear the pick."),
+						"Pick a server and model, or Not set to clear the pick.",
+						key,
 						"non-empty server label and model ID"
-					)}`
+					)
 				);
 			}
 			await env.updateSetting(key, { server, model });
@@ -582,12 +643,13 @@ export async function executeDashboardIntent(
 			// here on the chained channel, so two quick writes from different rows can never revert each other.
 			if (intent.payload.mode === undefined && intent.payload.languages === undefined) {
 				// The rows always name their own field; an empty patch is a bypassing caller.
-				throw new DashboardValidationError(
-					`${l10n.t("A language filter change names a mode, languages, or both.")}\n${l10n.t(
-						"setting {0}: allowed range {1}",
-						`${CONFIG_SECTION}.${INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY}`,
+				throw refuse(
+					settingRangeRefusal(
+						l10n.t("A language filter change names a mode, languages, or both."),
+						"A language filter change names a mode, languages, or both.",
+						INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 						"mode and/or languages"
-					)}`
+					)
 				);
 			}
 			const current = normalizeInlineLanguageFilter(env.readSetting(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY));
@@ -598,12 +660,13 @@ export async function executeDashboardIntent(
 				// canonical form normalization would produce anyway.
 				const trimmed = intent.payload.languages.map((value) => trimHttpWhitespace(value));
 				if (trimmed.some((value) => value.length === 0)) {
-					throw new DashboardValidationError(
-						`${l10n.t("Language IDs must be plain, non-empty identifiers, e.g. typescript.")}\n${l10n.t(
-							"setting {0}: allowed range {1}",
-							`${CONFIG_SECTION}.${INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY}`,
+					throw refuse(
+						settingRangeRefusal(
+							l10n.t("Language IDs must be plain, non-empty identifiers, e.g. typescript."),
+							"Language IDs must be plain, non-empty identifiers, e.g. typescript.",
+							INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 							"plain non-empty strings"
-						)}`
+						)
 					);
 				}
 				languages = [...new Set(trimmed)];
@@ -627,12 +690,13 @@ export async function executeDashboardIntent(
 			// normalization pipeline would produce anyway.
 			const invalid = intent.payload.values.some((value) => !isUsableThreshold(value));
 			if (invalid) {
-				throw new DashboardValidationError(
-					`${l10n.t("Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8.")}\n${l10n.t(
-						"setting {0}: allowed range {1}",
-						`${CONFIG_SECTION}.${USAGE_ALERT_THRESHOLDS_SETTING_KEY}`,
+				throw refuse(
+					settingRangeRefusal(
+						l10n.t("Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8."),
+						"Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8.",
+						USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 						"0 < value <= 1"
-					)}`
+					)
 				);
 			}
 			await env.updateSetting(USAGE_ALERT_THRESHOLDS_SETTING_KEY, usableThresholds(intent.payload.values));
@@ -649,7 +713,7 @@ export async function executeDashboardIntent(
 		case "saveServerSetting": {
 			const problem = validateSaveServerSetting(intent.payload.server, intent.payload.secrets);
 			if (problem !== undefined) {
-				throw new DashboardValidationError(problem);
+				throw refuseEnglish(problem);
 			}
 			await applySaveServerSetting(intent.payload, env);
 			return undefined;
@@ -657,7 +721,7 @@ export async function executeDashboardIntent(
 		case "testServerDraft": {
 			const problem = validateTestServerDraft(intent.payload.server, intent.payload.secrets);
 			if (problem !== undefined) {
-				throw new DashboardValidationError(problem);
+				throw refuseEnglish(problem);
 			}
 			const outcome = await applyTestServerDraft(intent.payload, env);
 			// Static classification plus counts; never payload or response text.
@@ -696,7 +760,8 @@ export async function executeDashboardIntent(
 				// The button renders only where a probe exists, so this is a bypassing caller (or a stale page across
 				// an upgrade).
 				throw new DashboardValidationError(
-					l10n.t("This feature has no model test; pick the model and use it directly.")
+					l10n.t("This feature has no model test; pick the model and use it directly."),
+					{ englishMessage: "This feature has no model test; pick the model and use it directly." }
 				);
 			}
 			let text: string | undefined;
@@ -706,7 +771,10 @@ export async function executeDashboardIntent(
 				// The transport's classified errors render at the button like the draft probe's: the message is the
 				// transport's own text (shown once, stored nowhere), and the classification drives the row's setup hints.
 				if (error instanceof MirroredError) {
-					throw new DashboardValidationError(error.message, { classification: transportClassificationOf(error) });
+					throw new DashboardValidationError(error.message, {
+						englishMessage: error.englishMessage,
+						classification: transportClassificationOf(error),
+					});
 				}
 				throw error;
 			}
@@ -751,14 +819,20 @@ export async function executeDashboardIntent(
 			// prefix stays an ASCII identifier outside the translation: sectionFailureText routes the failure by it.
 			const baseUrl = trimHttpWhitespace(intent.payload.baseUrl);
 			if (baseUrl.length === 0) {
-				throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
+				throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`, {
+					englishMessage: "baseUrl: not a usable http(s) URL",
+				});
 			}
 			const resolved = await env.resolveExternalGroup(baseUrl, intent.payload.sourceHandle);
 			if (resolved.identity === undefined) {
 				throw new DashboardValidationError(
 					`${l10n.t("This row no longer matches a hideable server - it may have just been adopted or removed.")}\n${l10n.t(
 						"The row did not resolve to an external VS Code provider group."
-					)}`
+					)}`,
+					{
+						englishMessage:
+							"This row no longer matches a hideable server - it may have just been adopted or removed.\nThe row did not resolve to an external VS Code provider group.",
+					}
 				);
 			}
 			requireSettingUnchanged(env, resolved.setting);
@@ -778,13 +852,15 @@ export async function executeDashboardIntent(
 		}
 		case "unhideServer": {
 			if (trimHttpWhitespace(intent.payload.label).length === 0) {
-				throw new DashboardValidationError(`label: ${l10n.t("enter a label")}`);
+				throw new DashboardValidationError(`label: ${l10n.t("enter a label")}`, {
+					englishMessage: "label: enter a label",
+				});
 			}
 			// The identity is echoed back verbatim (no trimming): the webview sends exactly what the HiddenGroup row
 			// carried.
 			const removed = await env.unhideGroup({ label: intent.payload.label, baseUrl: intent.payload.baseUrl });
 			if (!removed) {
-				throw new DashboardValidationError(l10n.t("No hidden group matches this identity; it may already be visible"));
+				throw noHiddenGroupRefusal();
 			}
 			return undefined;
 		}
@@ -793,13 +869,17 @@ export async function executeDashboardIntent(
 			// name, never free webview text.
 			const identity = { label: intent.payload.label, baseUrl: intent.payload.baseUrl };
 			if (!env.isGroupHidden(identity)) {
-				throw new DashboardValidationError(l10n.t("No hidden group matches this identity; it may already be visible"));
+				throw noHiddenGroupRefusal();
 			}
 			if (!(await env.openManageLanguageModels(identity.label))) {
 				throw new DashboardValidationError(
 					l10n.t(
 						"This VS Code has no Manage Language Models editor; delete the group's object from the models file instead"
-					)
+					),
+					{
+						englishMessage:
+							"This VS Code has no Manage Language Models editor; delete the group's object from the models file instead",
+					}
 				);
 			}
 			return undefined;

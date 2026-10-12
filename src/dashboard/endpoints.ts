@@ -514,6 +514,11 @@ interface IntentFailMessage {
 	readonly id: string;
 	readonly method: NotifyingMethod;
 	readonly message: string;
+	/**
+	 * The message's English twin, when the thrower supplied one. The webview shows `message`; the agent tools relay
+	 * this to the calling model, since model-facing text stays English.
+	 */
+	readonly englishMessage?: string | undefined;
 	readonly failureKind: "validation" | "operation";
 	readonly classification?: TransportErrorClassification | undefined;
 	readonly row?: SettingRowId | undefined;

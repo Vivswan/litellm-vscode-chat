@@ -168,6 +168,39 @@ describe("agentTools render", () => {
 		});
 	});
 
+	// The dashboard's refusal text is localized for the webview; the model reads prompt text in English, so the fail
+	// envelope's English mirror is what the tool result carries, and the localized message only where no mirror came.
+	test("a fail reply's English mirror is what reaches the model; the localized message is the fallback", () => {
+		const request: AgentRequest = { method: "setNumberSetting", payload: null };
+		const localized = "\u8bf7\u8f93\u5165 1000 ms \u5230 2147483647 ms \u4e4b\u95f4\u7684\u6574\u6570\u3002";
+		const english = "Enter a whole number between 1000 ms and 2147483647 ms.";
+		const reply = (englishMessage: string | undefined) =>
+			shapeSubmission(request, {
+				outcome: "validation-error",
+				reply: {
+					kind: "fail",
+					id: "x",
+					method: "setNumberSetting",
+					message: localized,
+					englishMessage,
+					failureKind: "validation",
+					row: "chat.timeout",
+				},
+			});
+		expect(reply(english)).toEqual({
+			method: "setNumberSetting",
+			ok: false,
+			failureKind: "validation",
+			message: english,
+		});
+		expect(reply(undefined)).toEqual({
+			method: "setNumberSetting",
+			ok: false,
+			failureKind: "validation",
+			message: localized,
+		});
+	});
+
 	const snapshot: DiagnosticsSnapshot = {
 		extensionVersion: "0.6.4",
 		vscodeVersion: "1.104.0",

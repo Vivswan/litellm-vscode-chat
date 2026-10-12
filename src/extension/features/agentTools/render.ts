@@ -138,7 +138,9 @@ export function shapeSubmission(request: AgentRequest, submission: DashboardSubm
 				method: request.method,
 				ok: false,
 				failureKind: submission.reply.failureKind,
-				message: submission.reply.message,
+				// The dashboard localizes refusals for the webview; the model reads English, so the mirror wins where the
+				// thrower supplied one.
+				message: submission.reply.englishMessage ?? submission.reply.message,
 				...(submission.reply.classification !== undefined ? { classification: submission.reply.classification } : {}),
 				...(submission.issues !== undefined ? { issues: submission.issues } : {}),
 			};
