@@ -50,6 +50,80 @@ suite("provider", () => {
 		assert.deepStrictEqual(pruneCalls, [[]], "The no-servers path must prune the client cache to empty");
 	});
 
+	test("an unchanged group's serve prunes no caches; the cycle start prunes once however many groups the sweep serves", async () => {
+		// The discovery keep-set composes one cache key per window entry, each parsing the servers setting twice, so a
+		// prune per serve cost O(groups) parses per serve and O(groups squared) per sweep. A rotation prunes on its own
+		// record instead (the next test).
+		let prunes = 0;
+		const provider = makeProvider(undefined, undefined, undefined, {
+			discoveryCache: new (class extends DiscoveryCache<DiscoveredGroupModels> {
+				override prune(keep: Iterable<string>): void {
+					prunes += 1;
+					super.prune(keep);
+				}
+			})(),
+			fetch: async () =>
+				new Response(JSON.stringify(DEFAULT_DISCOVERY_PAYLOAD), {
+					headers: { "content-type": "application/json" },
+				}),
+		});
+		const token = new vscode.CancellationTokenSource().token;
+		const sweep = async () => {
+			await provider.provideLanguageModelChatInformation({ silent: true }, token);
+			for (const label of ["A", "B", "C"]) {
+				await provider.provideLanguageModelChatInformation(
+					{ silent: true, configuration: { baseUrl: TEST_BASE_URL, apiKey: "k", label } } as { silent: boolean },
+					token
+				);
+			}
+		};
+
+		await sweep();
+		await sweep();
+		assert.strictEqual(prunes, 2, "one prune per cycle start, none per group serve");
+	});
+
+	test("a credential rotation prunes the retired client's caches at the record, so rolling back refetches", async () => {
+		// Under a host that skips the group-agnostic call nothing else prunes between serves: the retired key's cached
+		// discovery would otherwise answer a rollback to the first credentials with the pre-rotation list, healthy,
+		// without a fetch. The rotation is the one event that retires a client ID, so the prune rides on it.
+		// Discovery issues more than one request per listing, so the served ID names the listing, not the request.
+		let listing = 1;
+		let entryKey = "k-first";
+		const provider = makeProvider(undefined, undefined, undefined, {
+			resolveEntryCredentials: async () => ({ kind: "resolved", credentials: { apiKey: fixedHeaderValue(entryKey) } }),
+			fetch: async () => HttpResponse.json({ data: [{ id: `model-${listing}` }] }),
+		});
+		const token = new vscode.CancellationTokenSource().token;
+		const serve = () =>
+			provider.provideLanguageModelChatInformation(
+				{ silent: true, configuration: { baseUrl: TEST_BASE_URL, apiKey: "k-baked", label: "Prod" } } as {
+					silent: boolean;
+				},
+				token
+			);
+
+		assert.deepStrictEqual(
+			(await serve()).map((info) => info.id),
+			["model-1"]
+		);
+		listing = 2;
+		entryKey = "k-second";
+		assert.deepStrictEqual(
+			(await serve()).map((info) => info.id),
+			["model-2"],
+			"new credentials, new fetch"
+		);
+		listing = 3;
+		entryKey = "k-first";
+		assert.deepStrictEqual(
+			(await serve()).map((info) => info.id),
+			["model-3"],
+			"the rollback must not serve the first credentials' retired cache entry"
+		);
+		assert.strictEqual(provider.getServerSnapshots().length, 1, "one owned entry throughout");
+	});
+
 	test("provideTokenCount prices a bare string and a one-text-part message alike at chars/4", async () => {
 		const provider = makeProvider();
 		const model = makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 });

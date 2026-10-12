@@ -3,6 +3,7 @@
  * the host's per-group refresh calls.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import type { SkippedModeCounts } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
 import { displayUrl } from "../../shared/util/displayUrl";
@@ -111,6 +112,19 @@ export interface DiscoveryObservations {
 }
 
 /**
+ * What a record changed beyond the entry's cycle and timestamp; the reporter's fan-out rule (statusReporting.ts) reads
+ * it. `lastChecked` is outside the comparison because every report carries a fresh one.
+ *   entered  -> no entry stood under the identity
+ *   changed  -> the status differs from the recorded one
+ *   repeated -> the status equals the recorded one except for lastChecked
+ */
+export type RecordedStatusChange = "entered" | "changed" | "repeated";
+
+function sameStatusExceptTime(recorded: ServerStatus, status: ServerStatus): boolean {
+	return isDeepStrictEqual({ ...recorded, lastChecked: undefined }, { ...status, lastChecked: undefined });
+}
+
+/**
  * Two fallbacks cover hosts that skip the group-agnostic call: beginCycleOnReSight, and eviction of entries
  * untouched for evictionTtlMs().
  *   the group-agnostic call (normally the first of a refresh cycle) -> advances the cycle counter
@@ -125,6 +139,13 @@ export class StatusWindow {
 	 */
 	private cycleMarked = false;
 	private readonly entries = new Map<string, StatusWindowEntry>();
+	/**
+	 * One entry per client ID: the ID names a connection, so a second entry under another identity is the same host
+	 * group across an ownership change (declared after serving as external, hidden after its entry's removal) and goes
+	 * when the new record lands, or a removed entry's models stay counted and routable for a cycle. getGroupServer
+	 * relies on the uniqueness too.
+	 */
+	private readonly identityByClientId = new Map<string, string>();
 
 	constructor(
 		private readonly now: () => number,
@@ -137,7 +158,12 @@ export class StatusWindow {
 		 * Unlabeled groups fire too: the sync engine joins them to a declared entry by client ID, and that join must run
 		 * in the pass this entry schedules.
 		 */
-		private readonly onGroupEntered: () => void = () => {}
+		private readonly onGroupEntered: () => void = () => {},
+		/**
+		 * A record replaced its entry's client ID in place (a credential rotation): the facade prunes the retired ID's
+		 * caches on it, the one event between cycle boundaries that retires an ID.
+		 */
+		private readonly onClientIdRetired: () => void = () => {}
 	) {}
 
 	/**
@@ -178,9 +204,14 @@ export class StatusWindow {
 		const ttl = this.evictionTtlMs();
 		for (const [identity, entry] of this.entries) {
 			if (entry.cycle < this.cycle - 1 || now - entry.at > ttl) {
-				this.entries.delete(identity);
+				this.evict(identity, entry);
 			}
 		}
+	}
+
+	private evict(identity: string, entry: StatusWindowEntry): void {
+		this.entries.delete(identity);
+		this.identityByClientId.delete(entry.status.serverId);
 	}
 
 	/**
@@ -195,16 +226,28 @@ export class StatusWindow {
 		served: ServedModelSets,
 		groupServer: GroupServer,
 		observations?: DiscoveryObservations
-	): void;
-	record(status: Extract<ServerStatus, { state: "error" }>, served: ServedModelSets, groupServer: GroupServer): void;
+	): RecordedStatusChange;
+	record(
+		status: Extract<ServerStatus, { state: "error" }>,
+		served: ServedModelSets,
+		groupServer: GroupServer
+	): RecordedStatusChange;
 	record(
 		status: ServerStatus,
 		served: ServedModelSets,
 		groupServer: GroupServer,
 		observations: DiscoveryObservations = {}
-	): void {
+	): RecordedStatusChange {
 		const identity = groupIdentity(groupServer, status.serverId);
 		const previous = this.entries.get(identity);
+		const twin = this.identityByClientId.get(status.serverId);
+		if (twin !== undefined && twin !== identity) {
+			this.entries.delete(twin);
+		}
+		if (previous !== undefined && previous.status.serverId !== status.serverId) {
+			this.identityByClientId.delete(previous.status.serverId);
+		}
+		this.identityByClientId.set(status.serverId, identity);
 		this.entries.set(identity, {
 			cycle: this.cycle,
 			at: this.now(),
@@ -220,7 +263,12 @@ export class StatusWindow {
 		});
 		if (previous === undefined) {
 			this.onGroupEntered();
+			return "entered";
 		}
+		if (previous.status.serverId !== status.serverId) {
+			this.onClientIdRetired();
+		}
+		return sameStatusExceptTime(previous.status, status) ? "repeated" : "changed";
 	}
 
 	snapshots(): ServerModelsSnapshot[] {

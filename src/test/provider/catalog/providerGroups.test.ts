@@ -9,7 +9,8 @@ import { RequestError } from "../../../provider/transport/transportErrors";
 import { publicErrorText } from "../../../shared/logger";
 import { MirroredError } from "../../../shared/mirroredError";
 import type { AggregatedStatus } from "../../../shared/servers";
-import { statusClassification } from "../../../shared/servers";
+import { isHiddenGroupServerStatus, statusClassification } from "../../../shared/servers";
+import { fixedHeaderValue } from "../../../shared/util/headers";
 import {
 	CHAT_COMPLETIONS_URL,
 	discoveryHandlers,
@@ -33,6 +34,9 @@ function groupOptions(configuration: unknown, silent = true): { silent: boolean 
 }
 
 const cancellation = () => new vscode.CancellationTokenSource().token;
+
+/** The default discovery payload as an injected-transport response, for tests that count calls instead of using msw. */
+const discoveryResponse = () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
 
 suite("provider groups", () => {
 	useMsw();
@@ -559,6 +563,114 @@ suite("provider groups", () => {
 			restoredStatus.state === "ok" && restoredStatus.hiddenByRemoval !== true,
 			"an unhidden group's status must not keep the flag"
 		);
+	});
+
+	test("a hidden group's serve resolves no entry credentials and records under the client ID the host baked", async () => {
+		// The host re-resolves every registered group per change event and never unregisters one, so a hidden group
+		// that still paid the credential overlay set the floor of every sweep. Nothing but this test notices the overlay
+		// creeping back in front of the suppression check, or the record's identity following the overlay again.
+		let resolverCalls = 0;
+		let fetches = 0;
+		let hidden = false;
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			resolveEntryCredentials: async () => {
+				resolverCalls += 1;
+				return { kind: "resolved", credentials: { apiKey: fixedHeaderValue("sk-rotated") } };
+			},
+			isGroupSuppressed: () => hidden,
+			fetch: async () => {
+				fetches += 1;
+				return discoveryResponse();
+			},
+		});
+		const configuration = { baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Prod" };
+		const bakedId = groupClientId(expectDefined(parseGroupConfiguration(configuration)).server);
+		const serve = () => provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
+
+		assert.strictEqual((await serve()).length, 1, "the owned group serves its discovery first");
+		const fetchesWhileVisible = fetches;
+
+		hidden = true;
+		// Three host serves: the second and third re-sight the hidden record, which ages the owned record out past its
+		// one-cycle grace (the hidden record keys on the baked client ID, the owned one on the label and URL).
+		for (let sweep = 0; sweep < 3; sweep += 1) {
+			assert.deepStrictEqual(await serve(), []);
+		}
+		assert.strictEqual(resolverCalls, 1, "a hidden serve never asks for the entry's credentials");
+		assert.strictEqual(fetches, fetchesWhileVisible, "nor does it touch the network");
+		const [snapshot, ...others] = provider.getServerSnapshots();
+		assert.deepStrictEqual(others, [], "the owned record aged out; the hidden one remains");
+		assert.ok(isHiddenGroupServerStatus(expectDefined(snapshot).status), "recorded as hidden");
+		assert.strictEqual(expectDefined(snapshot).status.serverId, bakedId, "under the client ID a tombstone names");
+
+		hidden = false;
+		assert.strictEqual((await serve()).length, 1, "the unhidden group serves again");
+		assert.strictEqual(resolverCalls, 2, "a visible serve still resolves the entry's current credentials");
+	});
+
+	test("a hidden serve is a host re-sight: under a host that skips the group-agnostic call it still ages others out and publishes the eviction", async () => {
+		// StatusWindow.beginCycleOnReSight is the only cycle boundary such a host has; a hidden fast path that returned
+		// before it would keep every other group's record alive for as long as the hidden one keeps being re-served,
+		// and a hidden group's repeated report fans out nothing, so the boundary itself must publish what it evicted.
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			isGroupSuppressed: (group) => group.entryLabel === "Hidden",
+			fetch: async () => discoveryResponse(),
+		});
+		const fanOuts: AggregatedStatus[] = [];
+		provider.setStatusCallback((status) => fanOuts.push(status));
+		const serve = (label: string) =>
+			provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k", label }),
+				cancellation()
+			);
+
+		await serve("Live");
+		for (let sweep = 0; sweep < 3; sweep += 1) {
+			await serve("Hidden");
+		}
+		assert.deepStrictEqual(
+			provider.getServerSnapshots().map((snapshot) => snapshot.entryLabel),
+			["Hidden"],
+			"two hidden re-sights advanced the cycle past the live group's one-cycle grace"
+		);
+		const published = expectDefined(fanOuts.at(-1));
+		assert.deepStrictEqual(
+			[published.serverStatuses.map((status) => status.entryLabel), published.totalModels],
+			[["Hidden"], 0],
+			"the status bar and dashboard were told the live group left"
+		);
+	});
+
+	test("a hidden group's repeated report fans out no merged status; the first and a change still do", async () => {
+		// The merged status snapshots the whole window and reaches the status bar, the notifier, and the dashboard, so
+		// a hidden group that fanned out per sweep cost O(groups) per hidden group per sweep. Its entry must still take
+		// each report's cycle, or the window would evict it after the one-cycle grace.
+		let hidden = true;
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			isGroupSuppressed: () => hidden,
+			fetch: async () => discoveryResponse(),
+		});
+		const fanOuts: AggregatedStatus[] = [];
+		provider.setStatusCallback((status) => fanOuts.push(status));
+		const configuration = { baseUrl: TEST_BASE_URL, apiKey: "k", label: "Prod" };
+		const sweep = async () => {
+			await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+			await provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
+		};
+
+		await sweep();
+		// The group-agnostic call's own merged report plus the hidden group's first (entering) report.
+		assert.strictEqual(fanOuts.length, 2);
+		await sweep();
+		await sweep();
+		assert.strictEqual(fanOuts.length, 4, "two more sweeps add only the group-agnostic call's reports");
+		assert.strictEqual(provider.getServerSnapshots().length, 1, "the repeated reports kept the entry in the window");
+
+		hidden = false;
+		await sweep();
+		assert.strictEqual(fanOuts.length, 6, "the change to a served group fans out");
+		const latest = expectDefined(expectDefined(fanOuts.at(-1)).serverStatuses[0]);
+		assert.ok(!isHiddenGroupServerStatus(latest) && latest.servedModelCount === 1, "the fan-out carries the change");
 	});
 
 	test("an unlabeled group is judged by its client ID with no stamp, never by its URL-host status label", async () => {

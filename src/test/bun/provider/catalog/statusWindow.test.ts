@@ -180,6 +180,86 @@ describe("provider/catalog/statusWindow: declared models in the served record", 
 	});
 });
 
+describe("provider/catalog/statusWindow: one entry per client ID", () => {
+	test("a record under another identity with the same client ID replaces the standing entry; a rotated ID keeps it", () => {
+		// getGroupServer answers by client ID and assumes one entry per ID. Nothing else says what happens when the same
+		// connection is recorded owned (label plus URL) and then unowned (client ID): hidden after its entry's removal,
+		// or declared after serving as external. Left beside each other, a removed entry's models stayed counted and
+		// routable for a cycle.
+		const { window } = makeWindow(DEFAULT_WINDOW_MS);
+		const unowned: GroupServer = { baseUrl: groupServer.baseUrl, apiKey: groupServer.apiKey, label: "Default" };
+		window.record(okStatus("s1"), served, groupServer, { discoveredRawIds: ["test-model"] });
+		const hidden = { ...okStatus("s1"), servedModelCount: 0, hiddenByRemoval: true };
+
+		expect(window.record(hidden, NOTHING_SERVED, unowned)).toBe("entered");
+		expect(window.snapshots().map((s) => [s.status.serverId, s.status.servedModelCount])).toEqual([["s1", 0]]);
+		expect(window.getGroupServer("s1")).toEqual(unowned);
+
+		// Declared again: the owned record takes the slot back, and the hidden one goes with it.
+		window.record(okStatus("s1"), served, groupServer, { discoveredRawIds: ["test-model"] });
+		expect(window.snapshots().map((s) => s.status.servedModelCount)).toEqual([1]);
+
+		// A rotation moves the ID, so the hidden record of the retired connection is a different entry.
+		expect(window.record({ ...hidden, serverId: "s2" }, NOTHING_SERVED, unowned)).toBe("entered");
+		expect(window.serverIds().sort()).toEqual(["s1", "s2"]);
+		// And the retired ID's index slot went with the rotation: a later record under it enters anew.
+		window.record(okStatus("s3"), served, groupServer, { discoveredRawIds: ["test-model"] });
+		expect(window.getGroupServer("s1")).toBeUndefined();
+		expect(window.serverIds().sort()).toEqual(["s2", "s3"]);
+	});
+});
+
+describe("provider/catalog/statusWindow: the client-ID retirement event", () => {
+	test("fires only when a record replaces its own entry's client ID, not on entering or on replacing a same-ID twin", () => {
+		// The facade prunes the retired ID's caches on this event (index.ts); a rollback to the old credentials would
+		// otherwise serve the retired key's cached listing. A twin replacement retires nothing: the IDs are equal.
+		const clock = { nowMs: 1_000_000 };
+		let retired = 0;
+		const window = new StatusWindow(
+			() => clock.nowMs,
+			() => DEFAULT_WINDOW_MS,
+			() => {},
+			() => {
+				retired += 1;
+			}
+		);
+		const unowned: GroupServer = { baseUrl: groupServer.baseUrl, apiKey: groupServer.apiKey, label: "Default" };
+		window.record(okStatus("s1"), served, groupServer, { discoveredRawIds: ["test-model"] });
+		expect(retired).toBe(0);
+		window.record(okStatus("s2"), served, groupServer, { discoveredRawIds: ["test-model"] });
+		expect(retired).toBe(1);
+		// The same-ID twin replaces the owned entry; the owned record then re-enters. Neither retires an ID.
+		window.record(okStatus("s2"), NOTHING_SERVED, unowned);
+		window.record(okStatus("s2"), served, groupServer, { discoveredRawIds: ["test-model"] });
+		expect(retired).toBe(1);
+	});
+});
+
+describe("provider/catalog/statusWindow: what a record reports as changed", () => {
+	test("a report equal to the recorded status except lastChecked is repeated; a moved count, state, or client ID is changed", () => {
+		// The reporter's fan-out gate (statusReporting.ts) reads this answer; nothing else in the repository says that a
+		// fresh lastChecked alone is no change, so a window that counted it as one would fan out every hidden sweep.
+		const { window } = makeWindow(DEFAULT_WINDOW_MS);
+		const hidden = { ...okStatus(), servedModelCount: 0, hiddenByRemoval: true, lastChecked: "t1" };
+
+		expect(window.record(hidden, NOTHING_SERVED, groupServer)).toBe("entered");
+		expect(window.record({ ...hidden, lastChecked: "t2" }, NOTHING_SERVED, groupServer)).toBe("repeated");
+		expect(window.snapshots().map((s) => s.status.lastChecked)).toEqual(["t2"]);
+
+		const moved = [
+			{ ...hidden, servedModelCount: 1, hiddenByRemoval: undefined },
+			{ ...hidden, serverId: "s2" },
+		];
+		for (const status of moved) {
+			expect(window.record(status, NOTHING_SERVED, groupServer)).toBe("changed");
+			// Back to the hidden status is a change too: the comparison is against what stands, not against history.
+			expect(window.record(hidden, NOTHING_SERVED, groupServer)).toBe("changed");
+		}
+		expect(window.record({ ...errorStatus(), lastChecked: "t3" }, NOTHING_SERVED, groupServer)).toBe("changed");
+		expect(window.record(hidden, NOTHING_SERVED, groupServer)).toBe("changed");
+	});
+});
+
 describe("provider/catalog/statusWindow: a labeled group's entry keys on its identity, never its credentials", () => {
 	test("a credential rotation updates the one entry in place: new client ID, last success carried, no entry event", () => {
 		// The incident: a rotation minted a second entry beside the retired one, double-counting the merged status

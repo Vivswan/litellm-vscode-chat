@@ -24,7 +24,7 @@ import type { HeaderValue } from "../shared/util/headers";
 import { DiscoveryCache } from "./catalog/discoveryCache";
 import { logFailure } from "./catalog/discoveryLog";
 import type { DiscoveredGroupModels, SuppressedGroupKey } from "./catalog/groupDiscovery";
-import { GroupDiscovery } from "./catalog/groupDiscovery";
+import { GroupDiscovery, HiddenServeClaim } from "./catalog/groupDiscovery";
 import type { EntryCredentialsResolver, GroupServer, LiteLLMModelInfo } from "./catalog/groupModels";
 import {
 	groupClientId,
@@ -207,7 +207,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			// Read per consumption so settings changes apply live; the out-of-contract diagnostic routes through the
 			// facade's logger.
 			() => getDiscoveryStaleServeWindow((message, data) => this.log(message, data)),
-			() => this._onDidObserveGroupEmitter.fire()
+			() => this._onDidObserveGroupEmitter.fire(),
+			() => this.pruneServerCaches(this._statusWindow.serverIds())
 		);
 		this._reporter = new GroupStatusReporter(this._statusWindow);
 		this._decorator = new ServedModelDecorator({
@@ -295,8 +296,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/**
 	 * Clients and cached discovery results prune in lockstep, since both key on the group client ID and its
 	 * credential fingerprint. The discovery keep-set composes through GroupDiscovery.cacheKeyFor like the keys
-	 * themselves.
-	 *   root rotated -> the old root's entry is unreachable and ages out here
+	 * themselves, two setting parses per window entry, so this never runs per serve.
+	 *   a cycle boundary                 -> once, for what the boundary evicted
+	 *   a record retiring a client ID    -> once (StatusWindow's onClientIdRetired)
+	 *   a rollback before the boundary   -> may serve the old key's listing while the discovery TTL still holds it:
+	 *                                       the cache's own contract, as for any re-serve inside the TTL
 	 */
 	private pruneServerCaches(keep: readonly string[]): void {
 		this._client.pruneClients(keep);
@@ -342,18 +346,28 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		// below, and an external group has no entry to refuse for.
 		logCredentialRejections((message, data) => this.log(message, data), parsed.rejections);
 		const pending = this._discovery.claimServe(parsed.server);
+		if (pending instanceof HiddenServeClaim) {
+			this.noteReSight(pending.server, silent);
+			return this._discovery.serveHidden(pending, silent);
+		}
 		await pending.ready;
 		const claim = pending.settle();
+		this.noteReSight(claim.server, silent);
+		return this._discovery.fetchGroupModels(claim, silent);
+	}
 
-		const serverId = groupClientId(claim.server);
-		if (this._statusWindow.beginCycleOnReSight(serverId, claim.server)) {
+	/**
+	 * The cycle boundary for hosts that skip the group-agnostic call (StatusWindow.beginCycleOnReSight), run for a
+	 * hidden serve too: it is a host serve like any other, and a hidden group re-served under such a host is what
+	 * advances the cycle that ages the others out. Like the group-agnostic boundary it publishes what it evicted
+	 * itself, since the serve that follows may be a hidden group's repeated report, which fans out nothing.
+	 */
+	private noteReSight(groupServer: GroupServer, silent: boolean): void {
+		const serverId = groupClientId(groupServer);
+		if (this._statusWindow.beginCycleOnReSight(serverId, groupServer)) {
 			this.pruneServerCaches([...this._statusWindow.serverIds(), serverId]);
+			this._reporter.reportMerged(silent);
 		}
-
-		const models = await this._discovery.fetchGroupModels(claim, silent);
-		// A rotation's record replaced the group's client ID in the window, so the retired client's caches prune here.
-		this.pruneServerCaches(this._statusWindow.serverIds());
-		return models;
 	}
 
 	/**
@@ -383,8 +397,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const servedBefore = this.servedModelsKey();
 		this._discoveryCache.clear();
 		await Promise.all(this._statusWindow.currentCycleGroupServers().map((groupServer) => this.probeGroup(groupServer)));
-		// A probe's record may have replaced a rotated group's client ID in the window.
-		this.pruneServerCaches(this._statusWindow.serverIds());
 		// A pass that changed nothing asks no group twice: failed loads are never cached, so the host's re-resolve of a
 		// still-failing group would be a second attempt.
 		if (this.servedModelsKey() !== servedBefore) {
@@ -396,6 +408,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private async probeGroup(groupServer: GroupServer): Promise<void> {
 		try {
 			const pending = this._discovery.claimServe(groupServer);
+			if (pending instanceof HiddenServeClaim) {
+				this._discovery.serveHidden(pending, false);
+				return;
+			}
 			await pending.ready;
 			await this._discovery.fetchGroupModels(pending.settle(), false);
 		} catch {
