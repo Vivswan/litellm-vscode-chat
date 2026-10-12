@@ -1217,6 +1217,33 @@ suite("extension/ui/commands", () => {
 			assert.strictEqual(openedIssueUrls.length, 1);
 		});
 
+		test("an ungated report whose issue open fails settles with an error toast instead of rejecting", async () => {
+			// The gate and the repeat hint catch a failing openIssue inside their button actions; the ungated path awaits
+			// it directly, inside the dashboard's serialized message chain when the Diagnostics tab ran the command.
+			const reporter = new IssueReporter(
+				{
+					writeClipboard: async () => {},
+					openExternal: async () => {
+						throw new Error("no browser handler");
+					},
+				},
+				() => []
+			);
+			const toasts = await withToasts(() =>
+				runReportIssue(
+					() => ({ state: "connected", totalModels: 2, serverStatuses: [makeServerStatus({ servedModelCount: 2 })] }),
+					NO_DECLARED,
+					"1.2.3",
+					"9.9.9",
+					reporter,
+					freshMemento()
+				)
+			);
+			assert.deepStrictEqual(toasts, [
+				{ kind: "error", message: "LiteLLM: Could not open the issue report - no browser handler", buttons: [] },
+			]);
+		});
+
 		test("the command settles while the gate is unanswered, and Report Anyway reports the snapshot built up front", async () => {
 			const openedIssueUrls: string[] = [];
 			let answer: ((choice: string | undefined) => void) | undefined;

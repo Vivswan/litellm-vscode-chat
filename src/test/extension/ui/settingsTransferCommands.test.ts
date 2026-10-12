@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import { setTimeout as sleep } from "node:timers/promises";
 import * as vscode from "vscode";
 import { ServerSyncEngine } from "../../../extension/servers/serverSync/engine";
 import type { SecretStore, StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
@@ -27,14 +28,20 @@ import { serverSecretsKey } from "../../../shared/config/storageKeys";
 import { expectDefined } from "../../pureHelpers";
 import { makeSyncEnv } from "../servers/serverSyncHelpers";
 
-const macrotask = () => new Promise<void>((resolve) => setTimeout(resolve, 1));
+const macrotask = () => sleep(1);
 
-/** A recorded toast: kind, message, and the action labels it carried. */
+/**
+ * A recorded toast: kind, message, and the action labels it carried. Like the host's, it stays up until a button is
+ * pressed (`run`) or it is dismissed, and the notify promise settles only then, so a flow that awaited a toast would
+ * never finish here.
+ */
 interface FakeNotification {
 	kind: "info" | "warning" | "error";
 	message: string;
 	actions: string[];
 	run: (label: string) => Promise<void>;
+	dismiss: () => void;
+	closed: boolean;
 }
 
 /** The per-test prompt script; every field is mutable so a test sets only what it needs. */
@@ -230,16 +237,31 @@ function makeWorld(
 			world.undoConfirmations.push(snapshotAt);
 			return world.answers.confirmUndo;
 		},
-		notify: async (kind, message, actions = []) => {
+		notify: (kind, message, actions = []) => {
 			world.events.push("notify");
-			world.notifications.push({
+			// Settles like showActionableMessage: on close, with the pressed button's failure as its rejection.
+			const shown = Promise.withResolvers<void>();
+			const note: FakeNotification = {
 				kind,
 				message,
 				actions: actions.map((action) => action.label),
 				run: async (label) => {
-					await actions.find((action) => action.label === label)?.run();
+					note.closed = true;
+					try {
+						await actions.find((action) => action.label === label)?.run();
+						shown.resolve();
+					} catch (error) {
+						shown.reject(error);
+					}
 				},
-			});
+				dismiss: () => {
+					note.closed = true;
+					shown.resolve();
+				},
+				closed: false,
+			};
+			world.notifications.push(note);
+			return shown.promise;
 		},
 	};
 	Object.assign(world, {
@@ -498,6 +520,23 @@ suite("settingsTransferCommands export flow", () => {
 		const dialog = expectDefined(world.saveDialogs[0]);
 		assert.strictEqual(dialog.defaultUri.path, "/home/fake/litellm-settings.json");
 		assert.strictEqual(dialog.title, CREDENTIALS_WARNING_KEY);
+	});
+
+	test("the save dialog opens, and the command settles, while both toasts are still up", async () => {
+		// The dashboard's executeCommand intent awaits this command inside its serialized message chain, and a toast
+		// resolves only when it closes, so a flow that waited for one would hold the dialog, and then every later
+		// dashboard write, until the user dismissed it.
+		const world = makeWorld({ "chat.timeout": 5000 });
+		let settled = false;
+		const run = runExportSettingsFlow(world.env).then(() => {
+			settled = true;
+		});
+		await macrotask();
+		assert.deepStrictEqual(
+			{ settled, events: world.events, closed: world.notifications.map((note) => note.closed) },
+			{ settled: true, events: ["notify", "save-dialog", "write-file", "notify"], closed: [false, false] }
+		);
+		await run;
 	});
 
 	test("the file is the stored configuration, stored key at its field and URL unchanged; the warning precedes the counts", async () => {

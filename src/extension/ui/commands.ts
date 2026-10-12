@@ -148,7 +148,8 @@ export async function runConnectionTest(
 		try {
 			refreshedGroups = (await provider.refreshGroups()).refreshedGroups;
 		} catch (error) {
-			// The failing probes already reported their error statuses; the toast below reads them.
+			// Every probe contains its own failure (provider/index.ts probeGroup), so a thrown pass leaves no fresh server
+			// status to read: freshStatus sees a pass with no report.
 			logger.error("Connection test failed", error);
 		}
 
@@ -288,7 +289,8 @@ async function runModelSyncPass(
 		try {
 			refreshedGroups = (await provider.refreshGroups()).refreshedGroups;
 		} catch (error) {
-			// The failing refresh already reported an error status; the toast below reads it.
+			// Every probe contains its own failure (provider/index.ts probeGroup), so a thrown pass leaves no fresh server
+			// status to read: freshStatus sees a pass with no report.
 			logger.error("Model sync failed", error);
 		}
 
@@ -425,7 +427,14 @@ export async function runReportIssue(
 			return;
 		}
 	}
-	await openIssue();
+	// The same catch as the two gated paths' Report Anyway actions: a compacted payload whose diagnostics-file write
+	// fails must surface as a toast, not reject into the dashboard's message chain.
+	try {
+		await openIssue();
+	} catch (error) {
+		const detail = thrownErrorDisplayText(error);
+		void showMessage("error", l10n.t("LiteLLM: Could not open the issue report - {0}", detail), []);
+	}
 }
 
 const REPEAT_REPORT_WINDOW_MS = 72 * 60 * 60 * 1000;
