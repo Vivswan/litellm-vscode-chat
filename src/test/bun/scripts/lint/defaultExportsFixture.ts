@@ -17,6 +17,11 @@ export const DEFAULT_EXPORT_FIXTURES: readonly {
 		flagged: true,
 	},
 	{
+		name: "aliased default export specifier as a string",
+		source: 'const label = () => 1;\nexport { label as "default" };\n',
+		flagged: true,
+	},
+	{
 		name: "namespace export named default",
 		source: 'export * as default from "./foo";\n',
 		flagged: true,
@@ -24,8 +29,23 @@ export const DEFAULT_EXPORT_FIXTURES: readonly {
 	{ name: "namespace export under another name", source: 'export * as helpers from "./foo";\n', flagged: false },
 	{ name: "named export", source: "export const label = () => 1;\n", flagged: false },
 	{
+		name: "export default interface",
+		source: "export default interface Label {\n\ttext: string;\n}\n",
+		flagged: false,
+	},
+	{
 		name: "type-only default-named export",
 		source: "type T = number;\nexport { type T as default };\n",
+		flagged: false,
+	},
+	{
+		name: "type-only export declaration named default",
+		source: "type T = number;\nexport type { T as default };\n",
+		flagged: false,
+	},
+	{
+		name: "type-only namespace export named default",
+		source: 'export type * as default from "./foo";\n',
 		flagged: false,
 	},
 ];

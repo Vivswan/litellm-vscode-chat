@@ -78,6 +78,7 @@ const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["class-variance-authority", "class-name composition"],
 	["clsx", "class-name composition"],
 	["escape-string-regexp", "string arithmetic over a literal"],
+	["eslint", "the Linter class: in-process rule runs over parsed source"],
 	["fast-check", "in-process property generators"],
 	["github-slugger", "string arithmetic over a heading"],
 	["gpt-tokenizer/encoding/cl100k_base", "in-process tokenizer tables"],
@@ -102,6 +103,7 @@ const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["react/jsx-runtime", "the JSX transform's injected runtime"],
 	["tailwind-merge", "class-name composition"],
 	["typescript", "in-process compiler API"],
+	["typescript-eslint", "the parser and config helper; in-process"],
 	["zod", "schema validation"],
 ]);
 /** Modules, globals, and members that run source the parser never sees or load modules past the classifier. */

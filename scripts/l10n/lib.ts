@@ -824,7 +824,8 @@ function parseSource(file: string, contents: string): ts.SourceFile {
 /**
  * Every top-level name in the tree whose invocation resolves l10n.t, inferred from the declarations themselves, so a
  * new helper is guarded the moment it is written. Every file joins the graph: one that never spells "l10n" can still be
- * a LINK in a lazy chain. l10n:check bans default exports beside this, the one shape no name-following walk can chase.
+ * a LINK in a lazy chain. eslint.config.ts bans default exports beside this, the one shape no name-following walk can
+ * chase.
  */
 export function inferLazyL10nNames(sources: readonly SourceFile[]): LazyL10nNames {
 	const bindings: Binding[] = [];

@@ -5,8 +5,6 @@
  * - one message is minted under two different bundle keys (a forked comment);
  * - a localized string is resolved at module scope, directly or through a
  *   helper the tree-wide inference marks as resolving one at call time;
- * - shipped source default-exports anything (it breaks the inference's and
- *   the guard's name-following);
  * - the source localizes through vscode's l10n API instead of @vscode/l10n's
  *   canonical import form;
  * - a translation file's key set drifts from its English reference;
@@ -21,7 +19,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { bannedTypography, placeholderCounts } from "../../src/test/util/l10n";
-import { defaultExportOffenses } from "./defaultExportRule";
 import {
 	BUNDLE_PATH,
 	type BundleFile,
@@ -120,17 +117,9 @@ async function checkExtractionDrift(): Promise<BundleFile | undefined> {
 /**
  * The lazy-catalog guard: no module-scope localization call the name-following walks can see, with the lazy names
  * inferred from the tree itself so a new helper is covered the moment it is written. Default exports break both walks'
- * name-following, so the gate keeps the shape out of shipped source.
+ * name-following; eslint.config.ts keeps the shape out of shipped source.
  */
 function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
-	for (const { file, contents } of sources) {
-		for (const line of defaultExportOffenses(contents, file)) {
-			fail(
-				`${rel(file)}:${line}: default export; the lazy-helper inference follows call-site names, and a default ` +
-					"export lets every importer rename a helper out from under the guard - export it by name."
-			);
-		}
-	}
 	const lazy = inferLazyL10nNames(sources);
 	for (const { file, contents } of sources) {
 		for (const line of moduleScopeL10nOffenses(contents, file, lazy)) {
