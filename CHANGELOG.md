@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.6.9](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.8...v0.6.9) (2026-10-12)
+
+
+### Bug Fixes
+
+* **agent-tools:** dashboard refusals reach the model in English ([#568](https://github.com/Vivswan/litellm-vscode-chat/issues/568)) ([d3c76b0](https://github.com/Vivswan/litellm-vscode-chat/commit/d3c76b036770c2792d9c2630e09e021378f4d48a))
+* **agent-tools:** keep a reply cut whole and stop the new-entry card from clearing secrets ([#561](https://github.com/Vivswan/litellm-vscode-chat/issues/561)) ([97e29e7](https://github.com/Vivswan/litellm-vscode-chat/commit/97e29e7b58ff10cdaee2539f5addbbe2c0ca6120))
+* **ci:** a failed docker leg's artifact carries every compose service's full log ([#553](https://github.com/Vivswan/litellm-vscode-chat/issues/553)) ([d396cfe](https://github.com/Vivswan/litellm-vscode-chat/commit/d396cfec392bd45dc0e6f4cd5ff2933f33b62116))
+* **conversion:** replay reasoning_content on assistant turns for DeepSeek thinking models ([#551](https://github.com/Vivswan/litellm-vscode-chat/issues/551), thanks [@manitra](https://github.com/manitra)) ([#577](https://github.com/Vivswan/litellm-vscode-chat/issues/577)) ([7fddc67](https://github.com/Vivswan/litellm-vscode-chat/commit/7fddc672125bcb66c9be1cbdfb61101766bc5c6d))
+* **dashboard:** hold RPC answers across state pushes and fix four smaller webview defects ([#564](https://github.com/Vivswan/litellm-vscode-chat/issues/564)) ([084785b](https://github.com/Vivswan/litellm-vscode-chat/commit/084785bbf98ba3bd863231edb449738dff0ff8a8))
+* **discovery:** retries cover a timed-out attempt, each attempt on its own clock ([#571](https://github.com/Vivswan/litellm-vscode-chat/issues/571)) ([03ca6a7](https://github.com/Vivswan/litellm-vscode-chat/commit/03ca6a74bef5daa1459fea7f88526e056c550754))
+* **features:** mask every one-shot chat reply where it enters the shared send ([#557](https://github.com/Vivswan/litellm-vscode-chat/issues/557)) ([61e5992](https://github.com/Vivswan/litellm-vscode-chat/commit/61e5992e367f04b6e20c05eaea21676011ed98d3))
+* **logger:** mask registered values alone, dropping the URL-userinfo shape rule that rewrote code ([#572](https://github.com/Vivswan/litellm-vscode-chat/issues/572)) ([90f54b4](https://github.com/Vivswan/litellm-vscode-chat/commit/90f54b42a3f6895b718865877a2714973c8c4cac))
+* **provider:** a 429 surfaces as a transient error, not Blocked ([#567](https://github.com/Vivswan/litellm-vscode-chat/issues/567)) ([9d3adcb](https://github.com/Vivswan/litellm-vscode-chat/commit/9d3adcb751fa234b9274b9fff0ae4a8805f3a89b))
+* **servers:** count refused model ids and log a non-array servers setting once per pass ([#554](https://github.com/Vivswan/litellm-vscode-chat/issues/554)) ([d2797a6](https://github.com/Vivswan/litellm-vscode-chat/commit/d2797a6a787f96491b1c11dcfea301245f0c6ca2))
+* strip trailing runs with linear scans, not backtracking regexes (CodeQL alert 78 and siblings) ([#579](https://github.com/Vivswan/litellm-vscode-chat/issues/579)) ([4b758d3](https://github.com/Vivswan/litellm-vscode-chat/commit/4b758d3e2090a2d6b24b96d7abe00586a6ef6108))
+* **transport:** index-less tool calls all emit, a stray begin sigil frees the reply, usage logs once per request ([#558](https://github.com/Vivswan/litellm-vscode-chat/issues/558)) ([11fa1e0](https://github.com/Vivswan/litellm-vscode-chat/commit/11fa1e090cc2e4bdff06a2ea2ad58b0d06c988a6))
+* **transport:** usage GETs and the OAuth exchange retry a timed-out attempt, each on its own clock ([#573](https://github.com/Vivswan/litellm-vscode-chat/issues/573)) ([7853956](https://github.com/Vivswan/litellm-vscode-chat/commit/78539569dae90620a7447b5dd8a4d25bb5b9e85c))
+* **ui:** transfer toasts stop holding the dashboard chain and the direct issue report catches a failed open ([#565](https://github.com/Vivswan/litellm-vscode-chat/issues/565)) ([5ae11c2](https://github.com/Vivswan/litellm-vscode-chat/commit/5ae11c29c4949c0abbeb7e320300a767004123da))
+* **usage:** warn once on a bad timeout, retry an OAuth 401 once, localize the refresh toast ([#566](https://github.com/Vivswan/litellm-vscode-chat/issues/566)) ([878f011](https://github.com/Vivswan/litellm-vscode-chat/commit/878f0113bd2a421e45fb0f86ec4c104bac9fb7b6))
+
+
+### Performance Improvements
+
+* **provider:** hidden groups serve without the overlay; no prune or fan-out per serve ([#562](https://github.com/Vivswan/litellm-vscode-chat/issues/562)) ([827e0c5](https://github.com/Vivswan/litellm-vscode-chat/commit/827e0c5313cef3e91edc960c7e1b4bd87bcd979d))
+* **servers:** fewer tombstone lookups and change events per host re-resolve ([#560](https://github.com/Vivswan/litellm-vscode-chat/issues/560)) ([c632ca3](https://github.com/Vivswan/litellm-vscode-chat/commit/c632ca3c578cf4d86e00f73fc51386b52ffc855b))
+
 ## [0.6.8](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.7...v0.6.8) (2026-10-09)
 
 
