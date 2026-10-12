@@ -818,8 +818,8 @@
 		   the instant they tab in. The actions get a column of their own instead:
 		   it costs a little width and takes nothing away. */
 	/* OPACITY, never visibility: visibility:hidden takes descendants out of the tab order,
-	   so the buttons could not be focused and :focus-within could never fire FOR them. The
-	   :focus-visible clause lets the buttons reveal themselves. */
+	   so the buttons could not be focused and the :focus-within reveal below could never
+	   fire FOR them. */
 	.server-actions {
 		grid-column: -2 / -1;
 		display: flex;

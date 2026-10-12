@@ -94,7 +94,7 @@ interface IntentFailure {
  * to the posting editors' hooks), which is what lets a state push retire this store wholesale - here, the push IS the
  * success signal.
  */
-export type FailuresByMethod = Readonly<Partial<Record<NotifyingMethod, IntentFailure>>>;
+type FailuresByMethod = Readonly<Partial<Record<NotifyingMethod, IntentFailure>>>;
 
 /**
  * The server intents whose success gets a transient toast, with static base copy (never payload text). Scalar and
@@ -205,7 +205,7 @@ function lastSync(servers: readonly DashboardServer[], now: number): string | un
  * information.
  */
 function railSections(state: DashboardState): readonly RailSection<SectionId>[] {
-	const counts: Readonly<Record<SectionId, { count?: string; countLabel?: string; countTone?: "warn" | "err" }>> = {
+	const counts: Readonly<Record<SectionId, { count?: string; countLabel?: string; countTone?: "warn" }>> = {
 		overview:
 			state.servers.length === 0
 				? {}

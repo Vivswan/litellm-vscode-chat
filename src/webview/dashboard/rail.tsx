@@ -40,7 +40,7 @@ export interface RailSection<Id extends string = string> {
 	 */
 	readonly countLabel?: string | undefined;
 	/** Tints the count when it is something to act on rather than merely a total. */
-	readonly countTone?: "warn" | "err" | undefined;
+	readonly countTone?: "warn" | undefined;
 }
 
 /**
@@ -114,13 +114,7 @@ function RailTab<Id extends string>({
 			</span>
 			<span className="rail-label">{section.label}</span>
 			{section.count !== undefined ? (
-				<span
-					aria-hidden="true"
-					className={cn(
-						"rail-count",
-						section.countTone === "err" ? "text-err" : section.countTone === "warn" ? "text-warn" : undefined
-					)}
-				>
+				<span aria-hidden="true" className={cn("rail-count", section.countTone === "warn" ? "text-warn" : undefined)}>
 					{section.count}
 				</span>
 			) : null}
