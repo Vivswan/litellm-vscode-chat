@@ -22,10 +22,6 @@ import path from "node:path";
 import { z } from "zod";
 import { bannedTypography, placeholderCounts } from "../../src/test/util/l10n";
 import { defaultExportOffenses } from "./defaultExportRule";
-import { DEFAULT_EXPORT_FIXTURES } from "./fixtures/defaultExport";
-import { LAZY_INFERENCE_FIXTURES } from "./fixtures/lazyInference";
-import { GUARD_FIXTURE_LAZY_NAMES, GUARD_FIXTURES } from "./fixtures/moduleScope";
-import { VSCODE_L10N_FIXTURES } from "./fixtures/vscodeL10n";
 import {
 	BUNDLE_PATH,
 	type BundleFile,
@@ -121,49 +117,18 @@ async function checkExtractionDrift(): Promise<BundleFile | undefined> {
 	return committed;
 }
 
-/** A `lazyElsewhere` name as the inference self-check declares it: a plain helper in a file of its own. */
-function declaredElsewhere(name: string): SourceFile {
-	return { file: `${name}.ts`, contents: `export function ${name}(): string {\n\treturn l10n.t("x");\n}\n` };
-}
-
 /**
  * The lazy-catalog guard: no module-scope localization call the name-following walks can see, with the lazy names
- * inferred from the tree itself so a new helper is covered the moment it is written.
+ * inferred from the tree itself so a new helper is covered the moment it is written. Default exports break both walks'
+ * name-following, so the gate keeps the shape out of shipped source.
  */
 function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
-	// The inference's teeth first: each fixture's lazy set is exact, so a walk that stops seeing a shape fails here
-	// instead of silently narrowing what the guard matches.
-	for (const fixture of LAZY_INFERENCE_FIXTURES) {
-		const elsewhere = fixture.lazyElsewhere ?? [];
-		const found = [...inferLazyL10nNames([...fixture.sources, ...elsewhere.map(declaredElsewhere)]).keys()].sort();
-		const expected = [...fixture.expected, ...elsewhere].sort();
-		if (JSON.stringify(found) !== JSON.stringify(expected)) {
-			fail(
-				`guard self-check: lazy inference fixture "${fixture.name}" found [${found.join(", ")}], ` +
-					`expected [${expected.join(", ")}].`
-			);
-		}
-	}
-	// Default exports break both walks' name-following, so the gate keeps the shape out of shipped source - its own
-	// teeth first.
-	for (const fixture of DEFAULT_EXPORT_FIXTURES) {
-		const flagged = defaultExportOffenses(fixture.source, "fixture.ts").length > 0;
-		if (flagged !== fixture.flagged) {
-			fail(`guard self-check: default-export fixture "${fixture.name}" should ${fixture.flagged ? "" : "not "}flag.`);
-		}
-	}
 	for (const { file, contents } of sources) {
 		for (const line of defaultExportOffenses(contents, file)) {
 			fail(
 				`${rel(file)}:${line}: default export; the lazy-helper inference follows call-site names, and a default ` +
 					"export lets every importer rename a helper out from under the guard - export it by name."
 			);
-		}
-	}
-	for (const fixture of GUARD_FIXTURES) {
-		const flagged = moduleScopeL10nOffenses(fixture.source, "fixture.ts", GUARD_FIXTURE_LAZY_NAMES).length > 0;
-		if (flagged !== fixture.flagged) {
-			fail(`guard self-check: "${fixture.name}" should ${fixture.flagged ? "" : "not "}be flagged.`);
 		}
 	}
 	const lazy = inferLazyL10nNames(sources);
@@ -195,16 +160,6 @@ const VSCODE_VALUE_USE_FILES = new Set(
 
 /** The one-API rule: the shipped source localizes through @vscode/l10n's canonical import form only. */
 function checkVscodeL10nUsage(sources: readonly SourceFile[]): void {
-	for (const fixture of VSCODE_L10N_FIXTURES) {
-		const options = {
-			allowBundleReads: fixture.allowBundleReads === true,
-			allowVscodeValueUse: fixture.allowVscodeValueUse === true,
-		};
-		const flagged = vscodeL10nOffenses(fixture.source, fixture.fileName ?? "fixture.ts", options).length > 0;
-		if (flagged !== fixture.flagged) {
-			fail(`guard self-check: "${fixture.name}" should ${fixture.flagged ? "" : "not "}be flagged.`);
-		}
-	}
 	for (const { file, contents } of sources) {
 		const options = {
 			allowBundleReads: BUNDLE_READ_FILES.has(file),

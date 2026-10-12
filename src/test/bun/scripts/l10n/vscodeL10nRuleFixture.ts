@@ -1,7 +1,4 @@
-/**
- * The one-API rule's own teeth, proven like GUARD_FIXTURES: the known laundering forms must flag, and the sanctioned
- * forms must not.
- */
+/** The one-API rule's known laundering forms, beside the sanctioned forms they imitate. */
 export const VSCODE_L10N_FIXTURES: readonly {
 	readonly name: string;
 	readonly source: string;

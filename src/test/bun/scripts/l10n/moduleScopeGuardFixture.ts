@@ -1,4 +1,4 @@
-import type { LazyL10nNames } from "../lib";
+import type { LazyL10nNames } from "../../../../../scripts/l10n/lib";
 
 /**
  * What the tree-wide inference hands the guard, as the fixtures assume it: helpers and one thunk table declared in
@@ -12,10 +12,7 @@ export const GUARD_FIXTURE_LAZY_NAMES: LazyL10nNames = new Map([
 	["SURFACE_COPY", "table"],
 ]);
 
-/**
- * The guard's own teeth, proven before it judges real files: each fixture is a pattern the AST walk must classify
- * correctly, so a guard regression fails the gate instead of silently passing frozen-English catalogs.
- */
+/** One pattern per fixture, judged as a file of its own with the lazy names above handed in rather than inferred. */
 export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string; readonly flagged: boolean }[] =
 	[
 		{
