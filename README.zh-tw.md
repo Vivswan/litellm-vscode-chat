@@ -35,7 +35,7 @@
 
 1. 從 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat) 安裝延伸模組
 2. 開啟 VS Code 的聊天介面 (`Ctrl+Alt+I` / `Cmd+Ctrl+I`, 或標題列的聊天圖示)
-3. 按一下模型選擇器 → 「Manage Models...」 → 「LiteLLM」
+3. 按一下模型選擇器 > 「Manage Models...」 > 「LiteLLM」
 4. 新增伺服器: 輸入標籤、基底 URL (例如 `http://localhost:4000`) 與 API 金鑰
 5. 選取要加入的模型
 6. 回到聊天, 在模型選擇器中挑選其中一個新模型並送出訊息

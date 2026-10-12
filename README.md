@@ -35,7 +35,7 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 
 1. Install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
 2. Open VS Code's chat interface (`Ctrl+Alt+I` / `Cmd+Ctrl+I`, or the chat icon in the title bar)
-3. Click the model picker → "Manage Models..." → "LiteLLM"
+3. Click the model picker > "Manage Models..." > "LiteLLM"
 4. Add a server: enter a label, base URL (e.g., `http://localhost:4000`), and API key
 5. Select models to add
 6. Back in chat, pick one of the new models in the model picker and send a message
