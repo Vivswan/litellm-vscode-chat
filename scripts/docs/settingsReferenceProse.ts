@@ -85,13 +85,16 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 			'o200k_base 分詞器)、`"heuristic"` (純粹按每 4 字元 1 token 計, 從不載入分詞器資料, 對 CJK 低估約 4 倍)、`"o200k_base"` 或 ' +
 			'`"cl100k_base"` (始終載入該分詞器)。載入的分詞器在活躍期間約佔用 10-30 MB 記憶體; 計數開銷可忽略',
 	},
+	// The retry count is DISCOVERY_MAX_RETRIES (src/provider/catalog/discovery.ts), spelled out because that module's
+	// import closure does not compile under the scripts project.
 	"discovery.timeout": {
 		en:
-			"Hard time budget for each model-discovery request, in milliseconds, its retries included. The model-info " +
-			"listing, the `/v1/models` fallback, and the OAuth token exchange each get a fresh budget, so a discovery " +
-			"pass may take up to their sum",
-		zhCn: "每个模型发现请求的硬性时间预算, 毫秒, 含该请求的重试。模型信息列表、`/v1/models` 回退和 OAuth 令牌交换各自获得一份新预算, 所以一轮发现最长可能耗时到它们之和",
-		zhTw: "每個模型探索請求的硬性時間預算, 毫秒, 含該請求的重試。模型資訊清單、`/v1/models` 退回和 OAuth 權杖交換各自獲得一份新預算, 所以一輪探索最長可能耗時到它們之和",
+			"Time budget for each model-discovery attempt, in milliseconds. A failed attempt, a timed-out one included, " +
+			"is retried up to 2 more times with a short backoff, so one listing may take about 3 times this. The " +
+			"model-info listing, the `/v1/models` fallback, and the OAuth token exchange (which it bounds as a whole) " +
+			"each run on their own clock, so a discovery pass may take up to their sum",
+		zhCn: "每次模型发现尝试的时间预算, 毫秒。失败的尝试 (含超时) 最多再重试 2 次并短暂退避, 所以一次列表请求最长约为此值的 3 倍。模型信息列表、`/v1/models` 回退和 OAuth 令牌交换 (整体受其约束) 各自计时, 所以一轮发现最长可能耗时到它们之和",
+		zhTw: "每次模型探索嘗試的時間預算, 毫秒。失敗的嘗試 (含逾時) 最多再重試 2 次並短暫退避, 所以一次清單請求最長約為此值的 3 倍。模型資訊清單、`/v1/models` 退回和 OAuth 權杖交換 (整體受其約束) 各自計時, 所以一輪探索最長可能耗時到它們之和",
 	},
 	"discovery.cacheTtl": {
 		en:
