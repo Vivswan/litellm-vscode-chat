@@ -8,7 +8,7 @@ The lookup reference for every `litellm-vscode-chat.*` setting and every server-
 
 Two equivalent ways to edit everything:
 
-- **Settings UI / settings.json** - `Ctrl+,` / `Cmd+,`, search "litellm-vscode-chat". The settings are grouped into sections (Servers, Models, Chat, Discovery, Usage, UI, Inline completions, Commit message generation).
+- **Settings UI / settings.json** - `Ctrl+,` / `Cmd+,`, search "litellm-vscode-chat". The settings are grouped into sections (Servers, Models, Chat, Discovery, Usage, UI, Logs, Inline completions, Commit message generation, PR description generation, Consult tool, Quick fixes, Review comments, Chat participant, Agent tools).
 - **The dashboard** - "LiteLLM: Open Dashboard", the Settings section. Same values as form controls with validation, units, and defaults inline; a configured row says where its value lives, and Reset clears that scope. See [Dashboard](dashboard.md).
 
 | Fact | Detail |
