@@ -140,7 +140,11 @@ const messagesArb = fc.array(
 	{ maxLength: 6 }
 );
 
-const gatesArb = fc.record({ imageInput: fc.boolean(), audioInput: fc.boolean() });
+const gatesArb = fc.record({
+	imageInput: fc.boolean(),
+	audioInput: fc.boolean(),
+	replayReasoningContent: fc.boolean(),
+});
 
 /**
  * Token counting is non-linear (each priced string ceils on its own and BPE splits at boundaries), so the guard
@@ -167,6 +171,9 @@ function shippedTextSegments(messages: OpenAIChatMessage[]): string[] {
 			}
 			for (const block of message.thinking_blocks ?? []) {
 				segments.push(block.type === "thinking" ? block.thinking + block.signature : block.data);
+			}
+			if (message.reasoning_content !== undefined) {
+				segments.push(message.reasoning_content);
 			}
 		}
 	}

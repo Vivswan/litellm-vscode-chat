@@ -24,6 +24,8 @@ export interface ConvertMessagesOptions {
 	log?: LogFn | undefined;
 	imageInput?: boolean | undefined;
 	audioInput?: boolean | undefined;
+	/** The model's replay_reasoning_content capability: see OpenAIAssistantMessage.reasoning_content. */
+	replayReasoningContent?: boolean | undefined;
 }
 
 function imageDataPartToBlock(part: vscode.LanguageModelDataPart): OpenAIChatImageUrlContentBlock {
@@ -177,12 +179,19 @@ function extractThinkingHistoryEntry(part: unknown): ThinkingHistoryEntry | unde
 	return undefined;
 }
 
+interface FoldedThinking {
+	readonly blocks: OpenAIThinkingBlock[];
+	/** The unsigned text no signature closed: a provider that never signs (DeepSeek's reasoning_content) leaves all of it here. */
+	readonly unsignedText: string;
+}
+
 /**
  * Signatures may stream in a separate, empty-text part after the text they sign, so unsigned text accumulates until a
- * signature closes the block. Trailing unsigned text has no replay value and is dropped, as is plain thinking on
- * providers that never sign.
+ * signature closes the block and belongs to that block. What no signature closed is returned beside the blocks: the
+ * caller replays it as reasoning_content when the model's capability says so, and drops it otherwise, since Anthropic
+ * rejects replayed thinking it did not sign.
  */
-function foldThinkingBlocks(entries: readonly ThinkingHistoryEntry[]): OpenAIThinkingBlock[] {
+function foldThinkingBlocks(entries: readonly ThinkingHistoryEntry[]): FoldedThinking {
 	const blocks: OpenAIThinkingBlock[] = [];
 	let pendingText = "";
 	for (const entry of entries) {
@@ -200,7 +209,7 @@ function foldThinkingBlocks(entries: readonly ThinkingHistoryEntry[]): OpenAIThi
 				break;
 		}
 	}
-	return blocks;
+	return { blocks, unsignedText: pendingText };
 }
 
 /** Prompt-cache markers are not placed here; promptCache.ts owns them as a pass over the converted request. */
@@ -213,6 +222,7 @@ export function convertMessages(
 		imageInput: options?.imageInput === true,
 		audioInput: options?.audioInput === true,
 	};
+	const replayReasoningContent = options?.replayReasoningContent === true;
 	const out: OpenAIChatMessage[] = [];
 	// OpenAI requires every tool message of a tool_calls turn to directly follow its assistant message, so the flush
 	// waits for the first non-tool message: exactly one image message per turn, after its last tool message, never
@@ -347,7 +357,12 @@ export function convertMessages(
 			}
 		}
 
-		const thinkingBlocks = foldThinkingBlocks(thinkingEntries);
+		const { blocks: thinkingBlocks, unsignedText } = foldThinkingBlocks(thinkingEntries);
+		const thinking = {
+			...(thinkingBlocks.length > 0 ? { thinking_blocks: thinkingBlocks } : {}),
+			// Every assistant message of the turn, a turn with no reasoning included: DeepSeek checks presence.
+			...(replayReasoningContent ? { reasoning_content: unsignedText } : {}),
+		};
 
 		if (toolCalls.length > 0) {
 			push({
@@ -356,7 +371,7 @@ export function convertMessages(
 				// copying it here would ship it twice and misattribute the speaker.
 				content: (role === "assistant" ? textParts.join("") : "") || undefined,
 				tool_calls: toolCalls,
-				...(thinkingBlocks.length > 0 ? { thinking_blocks: thinkingBlocks } : {}),
+				...thinking,
 			});
 		}
 
@@ -372,12 +387,10 @@ export function convertMessages(
 		} else if (role === "assistant") {
 			const text = toolCalls.length === 0 ? textParts.join("") : "";
 			if (text) {
-				push(
-					thinkingBlocks.length > 0 ? { role, content: text, thinking_blocks: thinkingBlocks } : { role, content: text }
-				);
+				push({ role, content: text, ...thinking });
 			} else if (toolCalls.length === 0 && thinkingBlocks.length > 0) {
 				// A signed thinking block must replay even when its assistant turn carried no text or tool calls.
-				push({ role, content: "", thinking_blocks: thinkingBlocks });
+				push({ role, content: "", ...thinking });
 			}
 		} else {
 			const text = textParts.join("");

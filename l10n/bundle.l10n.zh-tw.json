@@ -831,6 +831,7 @@
 	"Reasoning": "推理",
 	"Reasoning Effort": "推理強度",
 	"Reasoning effort levels": "推理強度檔位",
+	"Reasoning replay": "推理重播",
 	"Reconfigure": "重新設定",
 	"Record \"{0}\" inherits nothing from \"{1}\": no record has that name.": "記錄「{0}」不會從「{1}」繼承任何內容: 沒有記錄使用該名稱。",
 	"Record keys to inherit from, comma-separated": "要繼承的記錄鍵, 以逗號分隔",

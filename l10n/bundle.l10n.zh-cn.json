@@ -831,6 +831,7 @@
 	"Reasoning": "推理",
 	"Reasoning Effort": "推理强度",
 	"Reasoning effort levels": "推理强度档位",
+	"Reasoning replay": "推理回放",
 	"Reconfigure": "重新配置",
 	"Record \"{0}\" inherits nothing from \"{1}\": no record has that name.": "记录「{0}」不会从「{1}」继承任何内容: 没有记录使用该名称。",
 	"Record keys to inherit from, comma-separated": "要继承的记录键, 以逗号分隔",

@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import OpenAI from "openai";
-import { fetchModels } from "../../../../provider/catalog/discovery";
+import {
+	fetchModels,
+	mapModelInfoEntry,
+	mergeModelDeployments,
+	normalizeModelItem,
+	parseModelInfoItem,
+} from "../../../../provider/catalog/discovery";
+import type { DiscoveryLog } from "../../../../provider/catalog/discoveryLog";
+import { discoveredCapabilityBaseline, replaysReasoningContent } from "../../../../provider/catalog/modelCatalog";
 import type { TransportFetch } from "../../../../provider/transport/nodeHttpFetch";
 import type { BackoffSleep } from "../../../../provider/transport/retry";
 import { retryBudgetMs } from "../../../../provider/transport/retry";
@@ -153,3 +161,83 @@ describe("a stalled error body keeps its status", () => {
 		}
 	);
 });
+
+describe("the reasoning replay default a deployment's provider name sets", () => {
+	/** Through the production parse-and-map path, never by hand. */
+	function deployment(modelInfo: Record<string, unknown>) {
+		const item = parseModelInfoItem({ model_name: "thinking", model_info: modelInfo });
+		if (item === undefined) {
+			throw new Error("the fixture did not parse");
+		}
+		return mapModelInfoEntry(item);
+	}
+
+	/** The server level the capability walk reads for this deployment set. */
+	function serverValues(mapped: ReturnType<typeof deployment>) {
+		const baseline = discoveredCapabilityBaseline({
+			providers: [mapped.provider],
+			limits: mapped.limits,
+			modalities: undefined,
+			toolCalling: true,
+			reasoning: true,
+		});
+		return baseline.kind === "discovered" ? baseline.values : {};
+	}
+
+	test("LiteLLM spells the provider `deepseek`: that deployment's server level carries replay_reasoning_content true, any other leaves the field unset", () => {
+		expect(serverValues(deployment({ litellm_provider: "deepseek" })).replay_reasoning_content).toBe(true);
+		for (const modelInfo of [{}, { litellm_provider: "openai" }, { litellm_provider: "anthropic" }]) {
+			expect(serverValues(deployment(modelInfo))).not.toHaveProperty("replay_reasoning_content");
+		}
+	});
+
+	test("a model_name load-balanced over a deepseek and a non-deepseek deployment reports nothing, so the user's record decides", () => {
+		const merged = mergeModelDeployments([
+			deployment({ litellm_provider: "deepseek" }),
+			deployment({ litellm_provider: "openai" }),
+		]);
+		expect(serverValues(merged)).not.toHaveProperty("replay_reasoning_content");
+		const allDeepseek = mergeModelDeployments([
+			deployment({ litellm_provider: "deepseek" }),
+			deployment({ litellm_provider: "deepseek" }),
+		]);
+		expect(serverValues(allDeepseek).replay_reasoning_content).toBe(true);
+	});
+
+	test("the providers-array shape (/v1/models, and /v1/model/info entries carrying one) stamps each entry from its own provider name, so a DeepSeek route found that way replays too", () => {
+		const noLog = (() => {}) as DiscoveryLog;
+		const groupProviders = (names: readonly string[]) => {
+			const item = normalizeModelItem({ id: "thinking", providers: names.map((provider) => ({ provider })) }, noLog);
+			if (item.shape.kind !== "group") {
+				throw new Error("the fixture did not produce a provider group");
+			}
+			return item.shape.providers;
+		};
+		const groupValues = (names: readonly string[]) => {
+			const providers = groupProviders(names);
+			const baseline = discoveredCapabilityBaseline({
+				providers,
+				limits: mapModelInfoEntry(expectParsed(parseModelInfoItem({ model_name: "thinking", model_info: {} }))).limits,
+				modalities: undefined,
+				toolCalling: true,
+				reasoning: true,
+			});
+			return baseline.kind === "discovered" ? baseline.values : {};
+		};
+
+		expect(replaysReasoningContent(groupProviders(["deepseek"]))).toBe(true);
+		expect(groupValues(["deepseek", "deepseek"]).replay_reasoning_content).toBe(true);
+		// Mixed routes report false: the proxy may route to the deployment that rejects the field.
+		expect(replaysReasoningContent(groupProviders(["deepseek", "openrouter"]))).toBe(false);
+		expect(groupValues(["deepseek", "openrouter"]).replay_reasoning_content).toBe(false);
+		expect(replaysReasoningContent(groupProviders(["openrouter", "anthropic"]))).toBe(false);
+		expect(groupValues(["openrouter", "anthropic"])).not.toHaveProperty("replay_reasoning_content");
+	});
+});
+
+function expectParsed<T>(value: T | undefined): T {
+	if (value === undefined) {
+		throw new Error("the fixture did not parse");
+	}
+	return value;
+}

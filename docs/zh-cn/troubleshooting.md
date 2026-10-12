@@ -194,6 +194,20 @@ LiteLLM `model_info.mode` 指向非聊天终结点 (`embedding`、`image_generat
 
 你的 VS Code 构建缺少 thinking-part API, 所以流式推理被丢弃 (输出通道有说明), 只包含推理的回复以此错误失败。把 VS Code 更新到支持 thinking part 的版本, 或换用返回最终文本的模型。
 
+### 「The reasoning_content in the thinking mode must be passed back to the API」
+
+DeepSeek 思考模型会拒绝使用工具的对话的第二轮 (经由 LiteLLM 表现为 400 `invalid_request_error`), 除非每条回放的 assistant 消息都携带它的 `reasoning_content`。模型的 `replay_reasoning_content` 能力开启时扩展就会发送该字段; 对 LiteLLM 报告为 `litellm_provider: deepseek` 的模型, 发现会自动开启。
+
+对以其他提供方名称提供的 DeepSeek 模型 (网关、自定义路由), 请自己在 `models.capabilities` 中开启 ([模型: 能力字段](models.md#能力字段)):
+
+```json
+{
+  "litellm-vscode-chat.models.capabilities": {
+    "my-deepseek": { "replay_reasoning_content": true }
+  }
+}
+```
+
 ### 「模型发送了损坏的工具调用」/「响应在工具调用中途达到模型的输出上限」
 
 工具调用必须带着有效的 JSON 参数到达, 否则扩展宁可让这一轮失败, 也不派发一个模型没写完参数的调用。(不接受参数、流式发出空参数的工具没有问题 - 那会正常发出一个无输入的调用。) 两种错误各指向不同原因:

@@ -65,6 +65,12 @@ export interface LiteLLMProvider extends PerTokenCosts {
 	supports_response_schema?: boolean | null | undefined;
 	supports_reasoning?: boolean | null | undefined;
 	supports_pdf_input?: boolean | null | undefined;
+	/**
+	 * Authored by discovery from litellm_provider, never passed through raw: true for a deepseek deployment, whose
+	 * thinking mode refuses a tool-carrying request unless every replayed assistant message carries reasoning_content;
+	 * null is "unknown".
+	 */
+	replay_reasoning_content?: boolean | null | undefined;
 	supported_openai_params?: string[] | null | undefined;
 	/**
 	 * Authored by discovery, never passed through raw: modelConfiguration's mirror of LiteLLM's resolver over this
