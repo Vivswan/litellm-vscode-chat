@@ -180,6 +180,17 @@ export class UsagePoller {
 	private probePending = false;
 	/** Deliberately NOT in the store: no carried store state can then replay a stale backoff. */
 	private readonly errorStreaks = new Map<string, Map<UsageEndpointId, EndpointFailureStreak>>();
+	/**
+	 * The one fresh-token retry a usage 401 earns on an OAuth connection: a bearer the server has revoked is rejected
+	 * exactly like a key never allowed to read usage, and the client drops the rejected token on that answer
+	 * (authOverlay.ts), so the next attempt exchanges afresh. Kept out of the store like errorStreaks.
+	 *
+	 *   usage 401, retry not yet granted   -> transient standing; granted
+	 *   usage 401, retry already granted   -> forbidden: the fresh token was rejected too
+	 *   the endpoint succeeds              -> the grant is forgotten
+	 *   OAuth beside a virtual key owning Authorization (no token sent) -> one extra poll before the same verdict
+	 */
+	private readonly tokenRetryGranted = new Map<string, Set<UsageEndpointId>>();
 	private disposed = false;
 
 	constructor(private readonly env: UsagePollerEnv) {
@@ -444,6 +455,9 @@ export class UsagePoller {
 		if (force || !sameServer) {
 			this.errorStreaks.delete(entry.label);
 		}
+		if (!sameServer) {
+			this.tokenRetryGranted.delete(entry.label);
+		}
 		const carried: UsageEndpointStates = !force && sameServer ? previous.endpoints : UNPROBED_ENDPOINTS;
 		const endpoints: Record<UsageEndpointId, UsageEndpointState> = { ...carried };
 		// Log-transition baseline: the server's real previous standings, NOT the force-reset probe states, so an
@@ -521,14 +535,14 @@ export class UsagePoller {
 					keyFetched = true;
 					endpoints.keyInfo = { kind: "ok" };
 					succeededAny = true;
-					this.clearStreak(entry.label, "keyInfo");
+					this.endpointSucceeded(entry.label, "keyInfo");
 					lastUpdatedAt = this.clock.now();
 					// The spend numbers' own age: only a /key/info success advances it, so an activity success can
 					// never relabel old spend fresh.
 					spendUpdatedAt = lastUpdatedAt;
 				} catch (error) {
 					recordFailure("keyInfo", error);
-					endpoints.keyInfo = this.classifyFailure(entry.label, "keyInfo", logBaseline.keyInfo, error);
+					endpoints.keyInfo = this.classifyFailure(entry.label, "keyInfo", logBaseline.keyInfo, error, connection);
 					this.trackFailure(entry.label, "keyInfo", endpoints.keyInfo);
 					if (endpoints.keyInfo.kind === "unavailable") {
 						key = undefined;
@@ -548,7 +562,7 @@ export class UsagePoller {
 					);
 					endpoints.dailyActivity = { kind: "ok" };
 					succeededAny = true;
-					this.clearStreak(entry.label, "dailyActivity");
+					this.endpointSucceeded(entry.label, "dailyActivity");
 					lastUpdatedAt = this.clock.now();
 				} catch (error) {
 					recordFailure("dailyActivity", error);
@@ -556,7 +570,8 @@ export class UsagePoller {
 						entry.label,
 						"dailyActivity",
 						logBaseline.dailyActivity,
-						error
+						error,
+						connection
 					);
 					this.trackFailure(entry.label, "dailyActivity", endpoints.dailyActivity);
 					if (endpoints.dailyActivity.kind === "unavailable") {
@@ -582,11 +597,11 @@ export class UsagePoller {
 					user = await this.env.client.fetchUserInfo(connection, this.abort.signal);
 					endpoints.userInfo = { kind: "ok" };
 					succeededAny = true;
-					this.clearStreak(entry.label, "userInfo");
+					this.endpointSucceeded(entry.label, "userInfo");
 					lastUpdatedAt = this.clock.now();
 				} catch (error) {
 					recordFailure("userInfo", error);
-					endpoints.userInfo = this.classifyFailure(entry.label, "userInfo", logBaseline.userInfo, error);
+					endpoints.userInfo = this.classifyFailure(entry.label, "userInfo", logBaseline.userInfo, error, connection);
 					this.trackFailure(entry.label, "userInfo", endpoints.userInfo);
 					if (endpoints.userInfo.kind === "unavailable") {
 						user = undefined;
@@ -669,11 +684,27 @@ export class UsagePoller {
 
 	private prune(stillDeclared: (label: string) => boolean): void {
 		this.store.prune(stillDeclared);
-		for (const label of [...this.errorStreaks.keys()]) {
-			if (!stillDeclared(label)) {
-				this.errorStreaks.delete(label);
+		for (const memory of [this.errorStreaks, this.tokenRetryGranted]) {
+			for (const label of [...memory.keys()]) {
+				if (!stillDeclared(label)) {
+					memory.delete(label);
+				}
 			}
 		}
+	}
+
+	/** Records the grant; false while this endpoint's retry stands granted and no success has cleared it. */
+	private grantTokenRetry(label: string, endpoint: UsageEndpointId): boolean {
+		let granted = this.tokenRetryGranted.get(label);
+		if (granted === undefined) {
+			granted = new Set();
+			this.tokenRetryGranted.set(label, granted);
+		}
+		if (granted.has(endpoint)) {
+			return false;
+		}
+		granted.add(endpoint);
+		return true;
 	}
 
 	/**
@@ -733,11 +764,13 @@ export class UsagePoller {
 		}
 	}
 
-	private clearStreak(label: string, endpoint: UsageEndpointId): void {
+	/** A success ends the endpoint's backoff streak and restores its fresh-token retry. */
+	private endpointSucceeded(label: string, endpoint: UsageEndpointId): void {
 		if (this.disposed) {
 			// A success racing disposal proves nothing the pass can keep, and a cancellation path must not log.
 			return;
 		}
+		this.tokenRetryGranted.get(label)?.delete(endpoint);
 		const streaks = this.errorStreaks.get(label);
 		const streak = streaks?.get(endpoint);
 		if (streaks === undefined || streak === undefined) {
@@ -760,7 +793,8 @@ export class UsagePoller {
 		label: string,
 		endpoint: UsageEndpointId,
 		previous: UsageEndpointState,
-		error: unknown
+		error: unknown,
+		connection: UsageConnection
 	): UsageEndpointState {
 		if (this.disposed) {
 			// Disposal aborts in-flight fetches; a cancellation is never logged or classified, and the standing it
@@ -769,6 +803,21 @@ export class UsagePoller {
 		}
 		const reason = usageUnavailabilityOf(error);
 		const status = error instanceof RequestError ? error.status : undefined;
+		if (
+			reason === "forbidden" &&
+			status === 401 &&
+			connection.oauth !== undefined &&
+			this.grantTokenRetry(label, endpoint)
+		) {
+			this.env.log(
+				"Usage endpoint answered 401 on an OAuth connection; one more attempt before it stands as forbidden",
+				{
+					label,
+					endpoint,
+				}
+			);
+			return { kind: "error", classification: failureClassificationOf(error), status };
+		}
 		if (reason !== undefined) {
 			if (previous.kind !== "unavailable") {
 				this.env.log("Usage endpoint unavailable on this server; not retried until an explicit refresh", {

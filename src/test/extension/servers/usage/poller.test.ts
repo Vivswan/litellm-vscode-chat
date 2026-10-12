@@ -98,6 +98,13 @@ class FakeClient implements UsageFetchClient {
 	}
 }
 
+/** An entry whose credentials narrow to an OAuth connection; the client's fake never exchanges, so nothing is sent. */
+const OAUTH_SERVER = {
+	label: "alpha",
+	baseUrl: "http://one.test",
+	auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "c1", clientSecret: "shh" } },
+};
+
 function unavailableError(status: number): RequestError {
 	return new RequestError(`status ${status}`, status === 401 || status === 403 ? "auth" : "http", {
 		status,
@@ -840,6 +847,85 @@ suite("extension/servers/usage poller", () => {
 		h.poller.dispose();
 
 		assert.deepStrictEqual(h.timer.pending(), []);
+	});
+
+	test("an OAuth 401 earns one fresh-token retry, which neither a token-endpoint 401 nor a 503 renews or spends", async () => {
+		// The client drops the rejected token (spendClient.test.ts pins the re-exchange), so the retry carries a fresh
+		// one. Without the grace, a token the server revokes mid-session stopped usage until an explicit refresh;
+		// without the one-grant memory, a 503 between two 401s renewed the grace and a key never allowed to read usage
+		// was re-exchanged forever, while a token-endpoint 401 (no token sent) consumed the grace of the usage 401 after it.
+		const h = makeHarness({ intervalMs: 300_000, servers: [OAUTH_SERVER] });
+		const graceLine =
+			"Usage endpoint answered 401 on an OAuth connection; one more attempt before it stands as forbidden";
+		const graceLines = () => h.logEntries.filter((entry) => entry.message === graceLine);
+		h.poller.start();
+		await tick(h, 0);
+		assert.ok(h.client.keyConnections[0]?.oauth !== undefined, "control: the entry reaches the client as OAuth");
+		assert.strictEqual(stateOf(h, "alpha").endpoints.keyInfo.kind, "ok");
+
+		h.client.keyInfoResult = new RequestError("idp rejected", "auth", {
+			status: 401,
+			oauthTokenEndpoint: true,
+			englishMessage: "idp rejected",
+		});
+		await tick(h, 300_000);
+		assert.deepStrictEqual(
+			[stateOf(h, "alpha").endpoints.keyInfo, graceLines().length],
+			[{ kind: "error", classification: "http", status: 401 }, 0],
+			"a token-endpoint 401 stays transient without spending the grant"
+		);
+
+		h.client.keyInfoResult = unavailableError(401);
+		await tick(h, 2_000_000);
+		assert.deepStrictEqual(
+			[stateOf(h, "alpha").endpoints.keyInfo, graceLines()],
+			[
+				{ kind: "error", classification: "http", status: 401 },
+				[{ message: graceLine, data: { label: "alpha", endpoint: "keyInfo" } }],
+			],
+			"the first usage 401 is granted the retry"
+		);
+		assert.strictEqual(stateOf(h, "alpha").key?.spend, 10, "the carried numbers stay through the grace");
+
+		h.client.keyInfoResult = unavailableError(503);
+		await tick(h, 2_000_000);
+		assert.deepStrictEqual(stateOf(h, "alpha").endpoints.keyInfo, {
+			kind: "error",
+			classification: "http",
+			status: 503,
+		});
+
+		h.client.keyInfoResult = unavailableError(401);
+		await tick(h, 2_000_000);
+		assert.deepStrictEqual(
+			[h.client.calls.keyInfo, stateOf(h, "alpha").endpoints.keyInfo, graceLines().length],
+			[5, { kind: "unavailable", reason: "forbidden", status: 401 }, 1],
+			"the second usage 401 is final: the 503 between did not renew the grant"
+		);
+
+		await tick(h, 2_000_000);
+		assert.strictEqual(h.client.calls.keyInfo, 5, "a forbidden standing is never retried by a scheduled poll");
+	});
+
+	test("the fresh-token retry is for an OAuth 401 only: a key's 401 and an OAuth 403 stand forbidden at once", async () => {
+		// A static key cannot change between polls, and a 403 is not the revoked-token answer.
+		const cases = [
+			{ name: "api key 401", servers: undefined, status: 401 },
+			{ name: "oauth 403", servers: [OAUTH_SERVER], status: 403 },
+		];
+		for (const { name, servers, status } of cases) {
+			const h = makeHarness({ intervalMs: 300_000, ...(servers !== undefined ? { servers } : {}) });
+			h.client.keyInfoResult = unavailableError(status);
+			h.poller.start();
+			await tick(h, 0);
+			assert.deepStrictEqual(
+				stateOf(h, "alpha").endpoints.keyInfo,
+				{ kind: "unavailable", reason: "forbidden", status },
+				name
+			);
+			await tick(h, 300_000);
+			assert.strictEqual(h.client.calls.keyInfo, 1, `${name}: no grace poll`);
+		}
 	});
 
 	test("refreshNow resolves with per-server outcomes: what failed, and whether anything answered", async () => {

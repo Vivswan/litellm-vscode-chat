@@ -473,8 +473,9 @@ export class UsageClient {
 				lastFailure = failure;
 				continue;
 			}
-			// The server no longer accepts the token this call sent; the next poll performs a fresh exchange. This call
-			// itself never retries.
+			// The server no longer accepts the token this call sent; the next call performs a fresh exchange, and the
+			// poller grants a scheduled 401 exactly one such retry (UsagePoller.tokenRetryGranted). This call itself
+			// never retries.
 			auth.fail(failure);
 			throw failure;
 		}
