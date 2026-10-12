@@ -1,13 +1,12 @@
 import * as l10n from "@vscode/l10n";
 import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
-import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { CONFIG_SECTION, DISCOVERY_MAX_RETRIES } from "../../shared/config/settingSpec";
 import { Logger } from "../../shared/logger";
 import { collapseWhitespace } from "../../shared/util/errorText";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { type HeaderValue, headerValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { sleepUnlessAborted } from "../../shared/util/timer";
-import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
 import type { BackoffSleep, FetchAnswer } from "./retry";
 import { abortableWait, abortReason, retryBudgetMs, retryFetch } from "./retry";
 import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartTexts } from "./transportErrors";

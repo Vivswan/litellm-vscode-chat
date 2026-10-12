@@ -1,7 +1,6 @@
 import * as assert from "node:assert";
 import { delay, HttpResponse, http } from "msw";
 import {
-	DISCOVERY_MAX_RETRIES,
 	fetchModels,
 	isLiteLLMModelItem,
 	type MappedModelInfo,
@@ -22,6 +21,7 @@ import type { BackoffSleep } from "../../../provider/transport/retry";
 import { retryBudgetMs } from "../../../provider/transport/retry";
 import { RequestError } from "../../../provider/transport/transportErrors";
 import { CAPABILITY_FLOOR } from "../../../shared/config/capabilityResolution";
+import { DISCOVERY_MAX_RETRIES } from "../../../shared/config/settingSpec";
 import { publicErrorText } from "../../../shared/logger";
 import type { NonChatMode, SkippedModeCounts } from "../../../shared/serverEntry";
 import { fixedHeaderValue } from "../../../shared/util/headers";

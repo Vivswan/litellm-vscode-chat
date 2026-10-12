@@ -12,7 +12,6 @@
 import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
 import * as vscode from "vscode";
 import type { CatalogRefreshFailure } from "../dashboard/viewModels";
-import { DISCOVERY_MAX_RETRIES } from "../provider/catalog/discovery";
 import type { BackoffSleep } from "../provider/transport/retry";
 import { retryIdempotent } from "../provider/transport/retry";
 import type { CapabilityCatalogLookup } from "../shared/config/capabilityResolution";
@@ -25,6 +24,7 @@ import {
 	parseCatalogSnapshot,
 	slimCatalogPayload,
 } from "../shared/config/openRouterCatalog";
+import { DISCOVERY_MAX_RETRIES } from "../shared/config/settingSpec";
 import { OPENROUTER_CATALOG_METADATA_KEY } from "../shared/config/storageKeys";
 import type { Logger } from "../shared/logger";
 import { isRecord } from "../shared/util/json";

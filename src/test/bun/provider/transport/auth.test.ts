@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { DISCOVERY_MAX_RETRIES } from "../../../../provider/catalog/discovery";
 import type { OAuthConfig, TimeoutBudget } from "../../../../provider/transport/auth";
 import { OAuthTokenSource } from "../../../../provider/transport/auth";
 import type { BackoffSleep } from "../../../../provider/transport/retry";
 import { retryBudgetMs } from "../../../../provider/transport/retry";
 import { RequestError } from "../../../../provider/transport/transportErrors";
+import { DISCOVERY_MAX_RETRIES } from "../../../../shared/config/settingSpec";
 import { HANG_PHASES, type Hang } from "./hangingFetch";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";

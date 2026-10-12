@@ -48,9 +48,6 @@ import {
 	supportsTools,
 } from "./schemas";
 
-/** Discovery GETs are idempotent, so retrying is safe; chat completions never retry. */
-export { DISCOVERY_MAX_RETRIES };
-
 /**
  * Whether LiteLLM's catalog described a deployment is provenance the wire does not carry, so every entry resolves as
  * unmapped: a flagless one reads as unknown (the built-in menu) rather than as a model that takes no level.
@@ -397,8 +394,9 @@ const bodyValue = (body: DiscoveryBody): unknown => (body.empty ? null : body.va
  *   the SDK's own retries  -> off: its backoff sleep ignores the signal, so retryIdempotent owns them
  *   the SDK's own timeout  -> the same value, so its 600 s default cannot cut in under a larger setting; it stops at
  *                             the headers, so the attempt clock also covers a body that stalls after them
- *   the budget running out -> the discovery timeout whichever phase it interrupts, rendered here so every caller
- *                             maps a failure with mapSdkError alone
+ *   a budget expiry with no HTTP status -> the discovery timeout whichever phase it interrupts, rendered here so
+ *                                          every caller maps a failure with mapSdkError alone
+ *   a status-bearing error              -> keeps its status whatever the clocks did
  */
 async function getJson(
 	client: OpenAI,

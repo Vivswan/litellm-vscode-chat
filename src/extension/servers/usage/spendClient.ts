@@ -16,7 +16,6 @@
 import * as l10n from "@vscode/l10n";
 import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
 import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
-import { DISCOVERY_MAX_RETRIES } from "../../../provider/catalog/discovery";
 import { narrowGroupCredentials, refusedCredentialFields } from "../../../provider/catalog/groupModels";
 import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "../../../provider/transport/auth";
 import { OAuthTokenSource } from "../../../provider/transport/auth";
@@ -25,7 +24,7 @@ import { applyAuthOverlay, plainFetchBaseHeaders } from "../../../provider/trans
 import type { BackoffSleep } from "../../../provider/transport/retry";
 import { retryFetch } from "../../../provider/transport/retry";
 import { RequestError } from "../../../provider/transport/transportErrors";
-import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
+import { CONFIG_SECTION, DISCOVERY_MAX_RETRIES } from "../../../shared/config/settingSpec";
 import type { RejectedCredentialField } from "../../../shared/serverEntry";
 import { normalizeBaseUrl, serverRootOf } from "../../../shared/util/baseUrl";
 import type { HeaderValue } from "../../../shared/util/headers";

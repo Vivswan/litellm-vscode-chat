@@ -1,6 +1,5 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
-import { DISCOVERY_MAX_RETRIES } from "../../../provider/catalog/discovery";
 import {
 	type OAuthConfig,
 	OAuthTokenSource,
@@ -8,6 +7,7 @@ import {
 	type TimeoutBudget,
 } from "../../../provider/transport/auth";
 import { RequestError } from "../../../provider/transport/transportErrors";
+import { DISCOVERY_MAX_RETRIES } from "../../../shared/config/settingSpec";
 import { Logger } from "../../../shared/logger";
 import { mswServer, useMsw } from "../../mocks/handlers";
 
@@ -864,6 +864,11 @@ suite("provider/transport/auth", () => {
 				const signal = init?.signal;
 				assert.ok(signal, "the exchange must arm its fetch with its own signal");
 				signals.push(signal);
+				// The orphan's one request hangs until its abort. Any later request is served at once, so a fresh
+				// exchange ends on its first attempt and the count below is one request per exchange, not per attempt.
+				if (signals.length > 1) {
+					return Promise.resolve(tokenResponse());
+				}
 				return new Promise<Response>((_resolve, reject) => {
 					signal.addEventListener(
 						"abort",
@@ -887,9 +892,15 @@ suite("provider/transport/auth", () => {
 
 				await expectRequestError(patient, "timeout");
 				assert.strictEqual(aborts, 1, "the last departure aborts the exchange exactly once");
+				assert.strictEqual(signals.length, 1, "the orphan put one request on the wire");
 
-				await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget(100)), "timeout");
-				assert.strictEqual(signals.length, 2, "a newcomer after abandonment starts a fresh exchange, not the orphan");
+				const token = await source.getToken(oauthConfig(), "discovery", discoveryBudget(100));
+				assert.strictEqual(
+					token,
+					"tok-1",
+					"a newcomer after abandonment is served by a fresh exchange, not the orphan"
+				);
+				assert.strictEqual(signals.length, 2, "the fresh exchange put exactly one request on the wire");
 				assert.notStrictEqual(signals[1], signals[0]);
 			} finally {
 				globalThis.fetch = realFetch;

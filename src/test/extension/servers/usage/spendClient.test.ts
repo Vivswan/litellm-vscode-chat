@@ -15,9 +15,9 @@ import {
 	usageUnavailabilityOf,
 	userInfoUrl,
 } from "../../../../extension/servers/usage/spendClient";
-import { DISCOVERY_MAX_RETRIES } from "../../../../provider/catalog/discovery";
 import { retryBudgetMs } from "../../../../provider/transport/retry";
 import { RequestError } from "../../../../provider/transport/transportErrors";
+import { DISCOVERY_MAX_RETRIES } from "../../../../shared/config/settingSpec";
 import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 
