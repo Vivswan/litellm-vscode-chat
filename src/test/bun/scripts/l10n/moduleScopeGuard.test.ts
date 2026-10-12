@@ -8,28 +8,32 @@ import { inferLazyL10nNames, moduleScopeL10nOffenses } from "../../../../../scri
  * with nothing registered anywhere.
  */
 describe("l10n module-scope guard over a tree", () => {
-	// One case per shape of lazy helper the old hand-kept list carried. `helpers.ts` declares what the call reaches;
-	// `inner.ts` holds the other file where the shape has one.
+	// One case per shape of lazy helper the old hand-kept list carried. `helpers.ts` declares what the call reaches
+	// under `name`, which both callers import; `inner.ts` holds the other file where the shape has one.
 	const HELPERS: readonly {
 		readonly shape: string;
 		readonly helpers: string;
 		readonly inner?: string;
+		readonly name: string;
 		readonly call: string;
 	}[] = [
 		{
 			shape: "a helper resolving l10n.t directly",
 			helpers: 'export function label(): string {\n\treturn l10n.t("x");\n}\n',
+			name: "label",
 			call: "label()",
 		},
 		{
 			shape: "a helper reaching l10n.t through another file's helper",
 			helpers: 'import { inner } from "./inner";\nexport function label(): string {\n\treturn inner();\n}\n',
 			inner: 'export function inner(): string {\n\treturn l10n.t("x");\n}\n',
+			name: "label",
 			call: "label()",
 		},
 		{
 			shape: "a class whose constructor localizes",
 			helpers: 'export class Label {\n\tconstructor() {\n\t\tl10n.t("x");\n\t}\n}\n',
+			name: "Label",
 			call: "new Label()",
 		},
 		{
@@ -37,6 +41,7 @@ describe("l10n module-scope guard over a tree", () => {
 			helpers:
 				"export class Label {\n\tconstructor() {\n\t\tthis.render();\n\t}\n" +
 				'\tprivate render(): string {\n\t\treturn l10n.t("x");\n\t}\n}\n',
+			name: "Label",
 			call: "new Label()",
 		},
 		{
@@ -44,6 +49,7 @@ describe("l10n module-scope guard over a tree", () => {
 			helpers:
 				'const TEXTS = {\n\ta: () => l10n.t("x"),\n};\n' +
 				"export function label(key: string): string {\n\treturn TEXTS[key]();\n}\n",
+			name: "label",
 			call: 'label("a")',
 		},
 		{
@@ -51,6 +57,7 @@ describe("l10n module-scope guard over a tree", () => {
 			helpers:
 				'const ROWS = {\n\ta: { surface: () => l10n.t("x") },\n};\n' +
 				"export function label(key: string): string {\n\treturn ROWS[key].surface();\n}\n",
+			name: "label",
 			call: 'label("a")',
 		},
 		{
@@ -58,14 +65,16 @@ describe("l10n module-scope guard over a tree", () => {
 			helpers:
 				'import { inner as renamed } from "./inner";\nexport function label(): string {\n\treturn renamed();\n}\n',
 			inner: 'export function inner(): string {\n\treturn l10n.t("x");\n}\n',
+			name: "label",
 			call: "label()",
 		},
 	];
 
-	for (const { shape, helpers, inner, call } of HELPERS) {
+	for (const { shape, helpers, inner, name, call } of HELPERS) {
 		test(`${shape}: a module-scope call in another file is refused, a deferred one accepted, nothing registered`, () => {
-			const frozen = { file: "frozen.ts", contents: `import * as h from "./helpers";\n\nconst FROZEN = ${call};\n` };
-			const deferred = { file: "deferred.ts", contents: `export const text = () => ${call};\n` };
+			const imported = `import { ${name} } from "./helpers";\n`;
+			const frozen = { file: "frozen.ts", contents: `${imported}\nconst FROZEN = ${call};\n` };
+			const deferred = { file: "deferred.ts", contents: `${imported}export const text = () => ${call};\n` };
 			const lazy = inferLazyL10nNames([
 				{ file: "helpers.ts", contents: helpers },
 				...(inner === undefined ? [] : [{ file: "inner.ts", contents: inner }]),
