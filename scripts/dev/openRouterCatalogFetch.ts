@@ -23,12 +23,12 @@ export const FETCH_TIMEOUT_MS = 20_000;
  * Retryable failures (idempotent GET; CI runners hit rate limits) get this many attempts; settled answers and schema
  * drift get one.
  */
-export const FETCH_ATTEMPTS = 3;
+const FETCH_ATTEMPTS = 3;
 
 const RETRY_BASE_DELAY_MS = 5_000;
 
 /** The pause after failed attempt `attempt` (1-based): 5 s, 15 s, 45 s, ... - a rate limit wants room, not a hammer. */
-export function retryDelayMs(attempt: number): number {
+function retryDelayMs(attempt: number): number {
 	return RETRY_BASE_DELAY_MS * 3 ** (attempt - 1);
 }
 

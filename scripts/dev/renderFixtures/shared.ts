@@ -238,7 +238,7 @@ export const USAGE: DashboardUsage = {
  * A realistic full supported_openai_params report (27 entries, the shape a LiteLLM /model/info answer carries for an
  * Anthropic-backed route): the worst case the params-list rendering must stay readable against.
  */
-export const OPENAI_PARAMS_FULL: readonly string[] = [
+const OPENAI_PARAMS_FULL: readonly string[] = [
 	"frequency_penalty",
 	"logit_bias",
 	"logprobs",

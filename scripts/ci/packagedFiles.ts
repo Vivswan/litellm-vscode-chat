@@ -34,7 +34,7 @@ export function listingProblems(listing: readonly string[], required: readonly s
 	return problems;
 }
 
-export interface SizeLimit {
+interface SizeLimit {
 	readonly bytes: number;
 	readonly reason: string;
 }
