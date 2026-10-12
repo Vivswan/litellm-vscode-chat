@@ -152,6 +152,13 @@ export const MIN_TIMEOUT_MS = 1000;
 export const MAX_TIMER_MS = 2 ** 31 - 1;
 
 /**
+ * How many more times an idempotent request (a discovery GET, the OAuth token exchange, the spend poll) is tried
+ * after a retryable failure. Lives here, not in discovery.ts, so the settings-reference prose derives its attempt
+ * counts from it under the scripts tsconfig project.
+ */
+export const DISCOVERY_MAX_RETRIES = 2;
+
+/**
  * The value contract of one number setting, exactly what package.json declares for it; a configured value outside
  * it reads as the default (acceptsNumberSetting), never as a clamped or rounded guess.
  *

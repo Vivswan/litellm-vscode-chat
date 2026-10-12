@@ -2,7 +2,7 @@ import * as l10n from "@vscode/l10n";
 import type OpenAI from "openai";
 import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
 import { consumedFieldsOfKind } from "../../shared/config/capabilityResolution";
-import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { CONFIG_SECTION, DISCOVERY_MAX_RETRIES } from "../../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
 import type { NonChatMode, SkippedModeCounts } from "../../shared/serverEntry";
 import { isNonChatMode } from "../../shared/serverEntry";
@@ -48,11 +48,8 @@ import {
 	supportsTools,
 } from "./schemas";
 
-/**
- * The retry budget for discovery GETs: idempotent, so retrying is safe; chat completions never retry. auth.ts reuses
- * this for the OAuth token exchange.
- */
-export const DISCOVERY_MAX_RETRIES = 2;
+/** Discovery GETs are idempotent, so retrying is safe; chat completions never retry. */
+export { DISCOVERY_MAX_RETRIES };
 
 /**
  * Whether LiteLLM's catalog described a deployment is provenance the wire does not carry, so every entry resolves as
