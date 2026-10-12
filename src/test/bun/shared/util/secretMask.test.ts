@@ -38,6 +38,19 @@ describe("shared/util/secretMask", () => {
 		]);
 	});
 
+	test("only a complete percent escape folds its case: a percent sign followed by one hex digit and a non-hex one is literal", () => {
+		// "100%off" and "100%oFf" are not the same percent encoding (both throw on decodeURIComponent), nor are
+		// "key%Ag-Q7" and "key%ag-Q7": the hex digit after "%o" or before "g" opens no escape.
+		assert.deepStrictEqual(
+			[
+				secretSpans("coupon 100%oFf", ["100%off"]),
+				secretSpans("coupon key%ag-Q7", ["key%Ag-Q7"]),
+				secretSpans("coupon 100%off", ["100%off"]),
+			],
+			[[], [], [{ from: 7, to: 14, value: "100%off" }]]
+		);
+	});
+
 	test("safeCut's work is bounded by the cut, not the text: a two-megabyte line of one repeated value answers at once", () => {
 		const started = performance.now();
 		const at = safeCut("a".repeat(2_000_000), 262_144, ["aaaa"]);

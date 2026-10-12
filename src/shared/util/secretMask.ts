@@ -39,14 +39,17 @@ export interface SecretSpan {
 /**
  * One way a line can carry a value. `raw` is the value as typed, the one spelling whose head the Logger may reveal (a
  * head of an escaped spelling would leave a broken escape behind). `folds` marks the spellings whose escape hex
- * matches in either case: the encoded ones, and every spelling of a value holding a "%" (a URL password written
- * encoded).
+ * matches in either case: the encoded ones, and every spelling of a value holding a complete percent escape (a URL
+ * password written encoded).
  */
 interface Spelling {
 	readonly text: string;
 	readonly raw: boolean;
 	readonly folds: boolean;
 }
+
+/** A complete percent escape, the only "%" whose following hex digits fold: "100%off" and "100%oFf" differ. */
+const PERCENT_ESCAPE = /%[0-9a-fA-F]{2}/;
 
 const ENCODINGS: readonly ((value: string) => string)[] = [
 	encodeURIComponent,
@@ -59,7 +62,7 @@ const ENCODINGS: readonly ((value: string) => string)[] = [
  * U+FFFD, and the one must not cost the other.
  */
 function spellingsOf(value: string): Spelling[] {
-	const holdsEscape = value.includes("%");
+	const holdsEscape = PERCENT_ESCAPE.test(value);
 	const spellings: Spelling[] = [{ text: value, raw: true, folds: holdsEscape }];
 	const add = (text: string, folds: boolean): void => {
 		if (!spellings.some((spelling) => spelling.text === text)) {
@@ -91,16 +94,18 @@ function isHexDigit(ch: string): boolean {
 	return /[0-9a-fA-F]/.test(ch);
 }
 
-/** Whether `spelling` sits at `at` in `text`; the two hex digits of a percent escape match in either case. */
+/** Whether `spelling[i]` is a hex digit of a complete percent escape ("%HH") in `spelling`. */
+function inEscape(spelling: string, i: number): boolean {
+	const percent = spelling.charAt(i - 1) === "%" ? i - 1 : spelling.charAt(i - 2) === "%" ? i - 2 : -1;
+	return percent >= 0 && isHexDigit(spelling.charAt(percent + 1)) && isHexDigit(spelling.charAt(percent + 2));
+}
+
+/** Whether `spelling` sits at `at` in `text`; the two hex digits of a complete percent escape match in either case. */
 function matchesAt(text: string, at: number, spelling: string): boolean {
 	for (let i = 0; i < spelling.length; i++) {
 		const want = spelling.charAt(i);
 		const have = text.charAt(at + i);
-		if (want === have) {
-			continue;
-		}
-		const inEscape = spelling.charAt(i - 1) === "%" || (i >= 2 && spelling.charAt(i - 2) === "%");
-		if (!(inEscape && isHexDigit(want) && want.toLowerCase() === have.toLowerCase())) {
+		if (want !== have && !(inEscape(spelling, i) && want.toLowerCase() === have.toLowerCase())) {
 			return false;
 		}
 	}
@@ -110,7 +115,7 @@ function matchesAt(text: string, at: number, spelling: string): boolean {
 /** Every occurrence of `spelling` in `text`, overlapping ones included; literal unless the spelling folds its escapes. */
 function occurrences(text: string, spelling: string, folds: boolean): Span[] {
 	const spans: Span[] = [];
-	if (!folds || !spelling.includes("%")) {
+	if (!folds || !PERCENT_ESCAPE.test(spelling)) {
 		for (let at = text.indexOf(spelling); at !== -1; at = text.indexOf(spelling, at + 1)) {
 			spans.push([at, at + spelling.length]);
 		}

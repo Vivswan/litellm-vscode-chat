@@ -583,6 +583,13 @@ describe("shared/logger redact: the one output door", () => {
 				expected: "raw [redacted] goes, [redacted] goes, [redacted] goes, key%ZZcd-zq7 stays",
 			},
 			{
+				title:
+					"a percent sign that opens no complete escape folds nothing: a value differing only in the case of a letter after it is another value",
+				text: "100%oFf stays, key%ag-Q7 stays, 100%off goes",
+				values: ["100%off", "key%Ag-Q7"],
+				expected: "100%oFf stays, key%ag-Q7 stays, [redacted] goes",
+			},
+			{
 				title: "a value inside an existing marker is no match, so no exit can write [[redacted]]",
 				text: "value acted] here, marker [redacted] here",
 				values: ["acted]"],
