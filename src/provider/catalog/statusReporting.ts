@@ -2,6 +2,7 @@ import type { UnservedEndpointEvidence } from "../../shared/errorClassification"
 import type { FailureCause } from "../../shared/failureCause";
 import type { LogSafeErrorText } from "../../shared/logger";
 import type { AggregatedStatus, ServerStatus, ServerWithKey } from "../../shared/servers";
+import { isHiddenGroupServerStatus } from "../../shared/servers";
 import type { GroupServer } from "./groupModels";
 import { groupCredentialKind, groupHasCredentials } from "./groupModels";
 import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./statusWindow";
@@ -99,11 +100,19 @@ export class GroupStatusReporter {
 			hasVirtualKey: groupCredentialKind(groupServer) === "virtualKey",
 			...outcome,
 		};
-		if (status.state === "ok") {
-			this._window.record(status, served, groupServer, observations);
-		} else {
-			this._window.record(status, served, groupServer);
+		const change =
+			status.state === "ok"
+				? this._window.record(status, served, groupServer, observations)
+				: this._window.record(status, served, groupServer);
+		// A hidden group's repeat of its recorded status, differing only in lastChecked, fans out nothing: it serves no
+		// models, so its status is its whole observable state, and the entry still took the report's cycle and time.
+		//   a visible group's equal status      -> fans out: its models ride outside the status, so equal is not unchanged
+		//   the hidden group's new lastChecked  -> reaches the surfaces with the next fan-out of any group
+		//   a cycle boundary's evictions        -> published by the boundary itself (index.ts), not by this report
+		//   without this                        -> the host's per-change re-resolve of every lifetime-registered group
+		//                                          fanned out one O(groups) merged status per hidden group per sweep
+		if (change !== "repeated" || !isHiddenGroupServerStatus(status)) {
+			this.reportMerged(silent);
 		}
-		this.reportMerged(silent);
 	}
 }

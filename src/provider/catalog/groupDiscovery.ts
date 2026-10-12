@@ -43,7 +43,28 @@ type AttachedServe = {
 	declared: AttachedModelInfo[];
 };
 
-/** Only an ok serve may carry observations; the failure signature has none, matching StatusWindow.record. */
+/**
+ * What one serve records under, fixed once its claim settled: the hidden serve and the fetched serve record through
+ * the same pipeline (recordServe), so the yield rule and the report shape cannot drift between them.
+ */
+interface ServeRecord {
+	readonly generation: number;
+	readonly server: ServerConnection;
+	readonly groupServer: GroupServer;
+	/** statusWindow.ts groupIdentity: the window's key and the identity a served model carries. */
+	readonly identity: string;
+	/**
+	 * groupClientId of the group as the host handed it over, before the overlay. A hidden serve records under it while
+	 * a visible serve of the same host group records under the owned identity, so supersession between the two keys
+	 * on it as well; see _recordedGenerations.
+	 */
+	readonly hostClientId: string;
+	readonly silent: boolean;
+}
+
+const NOTHING_SERVED: ServedModelSets = { discovered: [], declared: [] };
+
+/** recordServe bound to one serve's record; the overload pair is the same. */
 type RecordAndServe = {
 	(served: ServedModelSets, outcome: OkServeShape, observations?: DiscoveryObservations): AttachedServe;
 	(served: ServedModelSets, outcome: FailureServeShape): AttachedServe;
@@ -104,11 +125,25 @@ class SettledServeClaim {
 	constructor(
 		readonly generation: number,
 		readonly server: GroupServer,
-		readonly failure: MirroredError | undefined
+		readonly failure: MirroredError | undefined,
+		/** See ServeRecord.hostClientId; the overlay may have minted `server` a different one. */
+		readonly hostClientId: string
 	) {}
 }
 
 export type ServeClaim = SettledServeClaim;
+
+/**
+ * A suppressed group's claim, settled at claim time on the server the host handed over: its serve (serveHidden)
+ * resolves no credentials and touches neither the network nor the cache. Nominal like SettledServeClaim.
+ */
+export class HiddenServeClaim {
+	declare private readonly minter: "claimServe";
+	constructor(
+		readonly generation: number,
+		readonly server: GroupServer
+	) {}
+}
 
 export interface GroupDiscoveryOptions {
 	/** The transport's model listing; its errors arrive unlogged and are logged once here at the boundary. */
@@ -146,9 +181,12 @@ export class GroupDiscovery {
 	private readonly _options: GroupDiscoveryOptions;
 	private readonly _serveGenerations = new Map<string, number>();
 	/**
-	 * The newest generation that has RECORDED, keyed by the group's IDENTITY (statusWindow.ts groupIdentity), so two
-	 * unowned twins sharing a claim key never yield to each other. A serve yields to a newer record, never to a newer
-	 * claim: until the newer serve lands, the older one's record is the only thing that makes its served models
+	 * The newest generation that has RECORDED, keyed by the group's IDENTITY (statusWindow.ts groupIdentity) and by
+	 * the host client ID it was served under. Two unowned twins sharing a claim key never yield to each other: they are
+	 * distinct host groups, so neither key is shared. A hidden serve records under the host client ID while a visible
+	 * serve of the same host group records under the owned identity, and the host client ID key is what lets the
+	 * hidden record supersede an older visible serve still in flight. A serve yields to a newer record, never to a
+	 * newer claim: until the newer serve lands, the older one's record is the only thing that makes its served models
 	 * routable, and the newer record replaces it the moment it lands.
 	 */
 	private readonly _recordedGenerations = new Map<string, number>();
@@ -157,18 +195,28 @@ export class GroupDiscovery {
 		this._options = options;
 	}
 
-	/** The overlay never changes label or base URL, so the pre-overlay group is the claim key. */
-	claimServe(groupServer: GroupServer): PendingServeClaim {
-		const claimKey = logicalGroupId(groupServer) ?? groupClientId(groupServer);
+	/**
+	 * The overlay never changes label or base URL, so the pre-overlay group is the claim key, and the suppression
+	 * judgment runs on it too: the host keeps every group registered for life and re-resolves all of them per change
+	 * event, so a hidden group's serve must cost no credential resolution.
+	 *   suppressed -> a HiddenServeClaim, settled here; serveHidden records it
+	 *   otherwise  -> the overlay's pending claim
+	 */
+	claimServe(groupServer: GroupServer): PendingServeClaim | HiddenServeClaim {
+		const hostClientId = groupClientId(groupServer);
+		const claimKey = logicalGroupId(groupServer) ?? hostClientId;
 		const generation = (this._serveGenerations.get(claimKey) ?? 0) + 1;
 		this._serveGenerations.set(claimKey, generation);
+		if (this.isSuppressed(groupServer, hostClientId)) {
+			return new HiddenServeClaim(generation, groupServer);
+		}
 		const overlay = overlayEntryCredentials(groupServer, this._options.resolveEntryCredentials);
 		let settled: ServeClaim | undefined;
 		// Registered before the caller's await, so it has run when the caller's continuation does. A rejection reaches
 		// the caller through that await; this reaction only mints.
 		void overlay.then(
 			(overlaid) => {
-				settled = new SettledServeClaim(generation, overlaid.server, overlaid.failure);
+				settled = new SettledServeClaim(generation, overlaid.server, overlaid.failure, hostClientId);
 			},
 			() => undefined
 		);
@@ -182,6 +230,130 @@ export class GroupDiscovery {
 				return settled;
 			},
 		};
+	}
+
+	/**
+	 * Judged on the group as the host handed it over. A tombstone's group ID is minted from the entry's configuration
+	 * as the host bakes it (the sync engine's expectedClientId), so the pre-overlay client ID is the one it names; the
+	 * label and URL keys are overlay-independent.
+	 */
+	private isSuppressed(groupServer: GroupServer, hostClientId: string): boolean {
+		return this._options.isGroupSuppressed({
+			groupId: hostClientId,
+			label: groupServer.label ?? groupServerLabel(groupServer.baseUrl),
+			entryLabel: groupServer.label,
+			baseUrl: groupServer.baseUrl,
+		});
+	}
+
+	private serveRecordOf(
+		generation: number,
+		groupServer: GroupServer,
+		hostClientId: string,
+		silent: boolean
+	): ServeRecord {
+		const server: ServerConnection = {
+			id: groupClientId(groupServer),
+			label: groupServer.label ?? groupServerLabel(groupServer.baseUrl),
+			baseUrl: groupServer.baseUrl,
+			apiKey: groupServer.apiKey,
+			// The configured label only: an unlabeled group's display fallback (the URL host) must not accidentally
+			// match a declared entry.
+			entryLabel: groupServer.label,
+			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
+			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
+		};
+		return {
+			generation,
+			server,
+			groupServer,
+			identity: groupIdentity(groupServer, server.id),
+			hostClientId,
+			silent,
+		};
+	}
+
+	/**
+	 * The one outcome that serves WITHOUT recording is the superseded yield. Only an ok serve may carry observations;
+	 * the failure signature has none, matching StatusWindow.record.
+	 *   both outcome counts -> derive from the same pair
+	 */
+	private recordServe(
+		record: ServeRecord,
+		served: ServedModelSets,
+		outcome: OkServeShape,
+		observations?: DiscoveryObservations
+	): AttachedServe;
+	private recordServe(record: ServeRecord, served: ServedModelSets, outcome: FailureServeShape): AttachedServe;
+	private recordServe(
+		record: ServeRecord,
+		served: ServedModelSets,
+		outcome: OkServeShape | FailureServeShape,
+		observations: DiscoveryObservations = {}
+	): AttachedServe {
+		const { server, groupServer, identity, hostClientId, silent } = record;
+		const discovered = served.discovered.map((info) => attachGroup(info, identity));
+		const declared = served.declared.map((info) => attachGroup(info, identity));
+		// A serve yields its record once a NEWER serve of the same group has recorded: overwriting would put an older
+		// configuration's models, status, and stale-serve anchor back. The caller still gets its own models.
+		//   a newer claim alone    -> never yields: until it lands, this record is what makes these models routable
+		//   a live apiVersion edit -> the same; the next serve carries it
+		//   rotated credentials    -> arrive only with a LATER serve's overlaid server, so they land as a newer record
+		//   hidden while in flight -> the hidden record lands under the host client ID, not the owned identity
+		const recordedAfter = (key: string): boolean => (this._recordedGenerations.get(key) ?? 0) > record.generation;
+		if (recordedAfter(identity) || recordedAfter(hostClientId)) {
+			this._options.log("Discovery finished for a rotated configuration; leaving the group record to the current one", {
+				baseUrl: server.baseUrl,
+			});
+			return { served: [...discovered, ...declared], discovered, declared };
+		}
+		this._recordedGenerations.set(identity, record.generation);
+		this._recordedGenerations.set(hostClientId, record.generation);
+		// The one served-count derivation.
+		const servedModelCount = served.discovered.length + served.declared.length;
+		if (outcome.state === "ok") {
+			this._options.reporter.reportGroupStatus(
+				server,
+				groupServer,
+				silent,
+				{ ...outcome, servedModelCount },
+				served,
+				observations
+			);
+		} else {
+			this._options.reporter.reportGroupStatus(
+				server,
+				groupServer,
+				silent,
+				{
+					...outcome,
+					servedModelCount,
+					...(served.declared.length > 0 ? { declaredModelCount: served.declared.length } : {}),
+				},
+				served
+			);
+		}
+		return { served: [...discovered, ...declared], discovered, declared };
+	}
+
+	/**
+	 * A group the user hid - removed its entry, or re-pointed the entry at another URL - answers empty and never
+	 * touches the network or the cache. Its status still reports (healthy with zero models, flagged hiddenByRemoval)
+	 * so the status window ages it like any live group and the dashboard's hidden-groups view stays coherent.
+	 *
+	 * Recorded under the group as handed in: the host's baked configuration on a host serve, the window's recorded
+	 * connection on a refresh probe. The overlay that judges ownership never runs, and no other identity is safe.
+	 *   a labeled twin of a declared entry  -> under the entry's identity it would put the entry's models behind its
+	 *                                          own connection
+	 *   an owned record of this connection  -> replaced anyway: the window keeps one entry per client ID
+	 */
+	serveHidden(claim: HiddenServeClaim, silent: boolean): LiteLLMModelInfo[] {
+		// The host's own group, so its client ID is the host client ID.
+		const record = this.serveRecordOf(claim.generation, claim.server, groupClientId(claim.server), silent);
+		this._options.log("Provider group is hidden by the user's configuration; serving no models", {
+			baseUrl: record.server.baseUrl,
+		});
+		return this.recordServe(record, NOTHING_SERVED, { state: "ok", hiddenByRemoval: true }).served;
 	}
 
 	private expectedFailuresFor(entryLabel: string | undefined, baseUrl: string): readonly ExpectedFailureCategory[] {
@@ -219,90 +391,18 @@ export class GroupDiscovery {
 	 */
 	async fetchGroupModels(claim: ServeClaim, silent: boolean): Promise<LiteLLMModelInfo[]> {
 		const groupServer = claim.server;
-		const server: ServerConnection = {
-			id: groupClientId(groupServer),
-			label: groupServer.label ?? groupServerLabel(groupServer.baseUrl),
-			baseUrl: groupServer.baseUrl,
-			apiKey: groupServer.apiKey,
-			// The configured label only: an unlabeled group's display fallback (the URL host) must not accidentally
-			// match a declared entry.
-			entryLabel: groupServer.label,
-			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
-			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
-		};
-		const identity = groupIdentity(groupServer, server.id);
-		const attach = (infos: readonly PreAttachModelInfo[]): AttachedModelInfo[] =>
-			infos.map((info) => attachGroup(info, identity));
+		const record = this.serveRecordOf(claim.generation, groupServer, claim.hostClientId, silent);
+		const { server } = record;
 		// The cache key composes the group with the live apiVersion and includeModes, so an edit lands on a fresh key.
 		const cacheKey = this.cacheKeyFor(groupServer);
-		// The one outcome that serves WITHOUT recording is the superseded yield below.
-		//   both outcome counts -> derive from the same pair
 		const recordAndServe: RecordAndServe = (
 			served: ServedModelSets,
 			outcome: OkServeShape | FailureServeShape,
-			observations: DiscoveryObservations = {}
-		): AttachedServe => {
-			const discovered = attach(served.discovered);
-			const declared = attach(served.declared);
-			// A serve yields its record once a NEWER serve of the same group has recorded, since overwriting would put
-			// an older configuration's models, status, and stale-serve anchor back. The CALLER still gets the models its
-			// call was configured for. Until the newer serve lands, this record is what makes those models routable, so
-			// a newer claim alone (or a live apiVersion edit, which the next serve carries) never yields.
-			//   rotated credentials -> arrive only with a LATER serve's overlaid server, so they land as a newer record
-			if ((this._recordedGenerations.get(identity) ?? 0) > claim.generation) {
-				this._options.log(
-					"Discovery finished for a rotated configuration; leaving the group record to the current one",
-					{
-						baseUrl: server.baseUrl,
-					}
-				);
-				return { served: [...discovered, ...declared], discovered, declared };
-			}
-			this._recordedGenerations.set(identity, claim.generation);
-			// The one served-count derivation.
-			const servedModelCount = served.discovered.length + served.declared.length;
-			if (outcome.state === "ok") {
-				this._options.reporter.reportGroupStatus(
-					server,
-					groupServer,
-					silent,
-					{ ...outcome, servedModelCount },
-					served,
-					observations
-				);
-			} else {
-				this._options.reporter.reportGroupStatus(
-					server,
-					groupServer,
-					silent,
-					{
-						...outcome,
-						servedModelCount,
-						...(served.declared.length > 0 ? { declaredModelCount: served.declared.length } : {}),
-					},
-					served
-				);
-			}
-			return { served: [...discovered, ...declared], discovered, declared };
-		};
-
-		// A group the user hid - removed its entry, or re-pointed the entry at another URL - answers empty and never
-		// touches the network or the cache. Its status still reports (healthy with zero models, flagged
-		// hiddenByRemoval) so the status window ages it like any live group and the dashboard's hidden-groups view
-		// stays coherent.
-		if (
-			this._options.isGroupSuppressed({
-				groupId: server.id,
-				label: server.label,
-				entryLabel: groupServer.label,
-				baseUrl: groupServer.baseUrl,
-			})
-		) {
-			this._options.log("Provider group is hidden by the user's configuration; serving no models", {
-				baseUrl: server.baseUrl,
-			});
-			return recordAndServe({ discovered: [], declared: [] }, { state: "ok", hiddenByRemoval: true }).served;
-		}
+			observations?: DiscoveryObservations
+		): AttachedServe =>
+			outcome.state === "ok"
+				? this.recordServe(record, served, outcome, observations)
+				: this.recordServe(record, served, outcome);
 
 		// Resolved before the cache read: the ok-path hint below gates on the entry's CURRENT declarations, cached
 		// serve or fresh.
