@@ -1,3 +1,15 @@
+import type { LazyL10nNames } from "../lib";
+
+/**
+ * What the tree-wide inference hands the guard, as the fixtures assume it: helpers declared in files they do not show.
+ * railSections is lazy so the fixtures can show that an ordinary member call on a same-spelled name stays quiet.
+ */
+export const GUARD_FIXTURE_LAZY_NAMES: LazyL10nNames = new Map([
+	["manageCommandTitle", "helper"],
+	["DashboardController", "helper"],
+	["railSections", "helper"],
+]);
+
 /**
  * The guard's own teeth, proven before it judges real files: each fixture is a pattern the AST walk must classify
  * correctly, so a guard regression fails the gate instead of silently passing frozen-English catalogs.
@@ -163,13 +175,45 @@ export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: 
 			flagged: true,
 		},
 		{
-			name: "a package namespace member call stays quiet (members are not census names)",
+			name: "a package namespace member call stays quiet (members are not lazy names)",
 			source: 'import * as helpers from "helpers";\nconst OK = helpers.manageCommandTitle();\n',
 			flagged: false,
 		},
 		{
-			name: "a thunk-table property call stays outside the callee match (the documented limit)",
-			source: "const OK = TABLE.manageCommandTitle();\n",
+			name: "a property call on a thunk table stays outside the callee match (the documented limit)",
+			source: 'const TABLE = {\n\tmanageCommandTitle: () => l10n.t("x"),\n};\nconst OK = TABLE.manageCommandTitle();\n',
+			flagged: false,
+		},
+		{
+			name: "a computed member call on a thunk table at module scope",
+			source: 'const TABLE = {\n\ta: () => l10n.t("x"),\n};\nconst FROZEN = TABLE[key]();\n',
+			flagged: true,
+		},
+		{
+			name: "a thunk table merely declared stays quiet",
+			source: 'export const TABLE = {\n\ta: () => l10n.t("x"),\n};\n',
+			flagged: false,
+		},
+		{
+			name: "a resolver reading a thunk table by computed key, called at module scope",
+			source:
+				'const TABLE = {\n\ta: () => l10n.t("x"),\n};\n' +
+				'function pick(key: string): string {\n\treturn TABLE[key]();\n}\nconst FROZEN = pick("a");\n',
+			flagged: true,
+		},
+		{
+			// The read hands the thunks out, so the function counts as lazy whether or not the caller invokes one - the
+			// inference's over-inclusion, pinned intentional.
+			name: "a function handing back a thunk-table member, called at module scope",
+			source:
+				'const TABLE = {\n\ta: () => l10n.t("x"),\n};\n' +
+				'function copy(key: string) {\n\treturn TABLE[key];\n}\nconst HELD = copy("a");\n',
+			flagged: true,
+		},
+		{
+			name: "a function reading a member of a lazy FUNCTION, called at module scope, stays quiet",
+			source:
+				'const label = () => l10n.t("x");\nfunction nameOf(): string {\n\treturn label.name;\n}\nconst NAME = nameOf();\n',
 			flagged: false,
 		},
 		{
@@ -278,7 +322,7 @@ export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: 
 			flagged: true,
 		},
 		{
-			name: "an ordinary member call on a name sharing a census spelling stays quiet",
+			name: "an ordinary member call on a name sharing a lazy spelling stays quiet",
 			source: "const ROWS = railSections.map((entry) => entry);\n",
 			flagged: false,
 		},
@@ -499,6 +543,25 @@ export const GUARD_FIXTURES: readonly { readonly name: string; readonly source: 
 			name: "constructing a renamed import of a lazy class",
 			source: 'import { DashboardController as Renamed } from "./panel";\nconst FROZEN = new Renamed(context);\n',
 			flagged: true,
+		},
+		{
+			name: "constructing an inline class whose constructor calls an instance method that localizes",
+			source:
+				"const FROZEN = new (class {\n\tconstructor() {\n\t\tthis.render();\n\t}\n" +
+				'\trender(): string {\n\t\treturn l10n.t("x");\n\t}\n})();\n',
+			flagged: true,
+		},
+		{
+			name: "constructing an inline class whose constructor reads into a thunk table",
+			source:
+				'const TABLE = {\n\ta: () => l10n.t("x"),\n};\n' +
+				"const FROZEN = new (class {\n\tconstructor(key: string) {\n\t\tTABLE[key];\n\t}\n})(key);\n",
+			flagged: true,
+		},
+		{
+			name: "constructing an inline class whose localizing method the constructor never reaches stays quiet",
+			source: 'const HELD = new (class {\n\trender(): string {\n\t\treturn l10n.t("x");\n\t}\n})();\n',
+			flagged: false,
 		},
 		{
 			name: "constructing an inline class whose constructor PARAMETER DEFAULT localizes",

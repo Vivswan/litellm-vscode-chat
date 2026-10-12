@@ -3,11 +3,10 @@
  *
  * - the committed English bundle is not byte-identical to a fresh extraction;
  * - one message is minted under two different bundle keys (a forked comment);
- * - a localized string is resolved at module scope;
- * - a top-level helper or class reaching a localized string is missing from
- *   the lazy-helper census, or a census entry no longer names a declaration;
- * - shipped source default-exports anything (it breaks the census walks'
- *   name-following);
+ * - a localized string is resolved at module scope, directly or through a
+ *   helper the tree-wide inference marks as resolving one at call time;
+ * - shipped source default-exports anything (it breaks the inference's and
+ *   the guard's name-following);
  * - the source localizes through vscode's l10n API instead of @vscode/l10n's
  *   canonical import form;
  * - a translation file's key set drifts from its English reference;
@@ -22,25 +21,23 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { bannedTypography, placeholderCounts } from "../../src/test/util/l10n";
-import { LAZY_L10N_HELPERS } from "./census";
 import { defaultExportOffenses } from "./defaultExportRule";
 import { DEFAULT_EXPORT_FIXTURES } from "./fixtures/defaultExport";
-import { GUARD_FIXTURES } from "./fixtures/moduleScope";
-import { REVERSE_CENSUS_FIXTURES } from "./fixtures/reverseCensus";
+import { LAZY_INFERENCE_FIXTURES } from "./fixtures/lazyInference";
+import { GUARD_FIXTURE_LAZY_NAMES, GUARD_FIXTURES } from "./fixtures/moduleScope";
 import { VSCODE_L10N_FIXTURES } from "./fixtures/vscodeL10n";
 import {
 	BUNDLE_PATH,
 	type BundleFile,
 	bundleMessage,
 	bundleSchema,
-	declaredCensusNames,
 	extractBundle,
+	inferLazyL10nNames,
 	moduleScopeL10nOffenses,
 	nlsSchema,
 	readSourceFiles,
 	type SourceFile,
 	serializeBundle,
-	uncensusedLazyHelpers,
 } from "./lib";
 import { vscodeL10nOffenses } from "./vscodeL10nRule";
 
@@ -124,60 +121,28 @@ async function checkExtractionDrift(): Promise<BundleFile | undefined> {
 	return committed;
 }
 
-/** Code-unit order by name - what `[...expected].sort()` does to a fixture's own list, so the two line up. */
-function byName(left: { readonly name: string }, right: { readonly name: string }): number {
-	if (left.name < right.name) {
-		return -1;
-	}
-	return left.name > right.name ? 1 : 0;
+/** A `lazyElsewhere` name as the inference self-check declares it: a plain helper in a file of its own. */
+function declaredElsewhere(name: string): SourceFile {
+	return { file: `${name}.ts`, contents: `export function ${name}(): string {\n\treturn l10n.t("x");\n}\n` };
 }
 
-/** The lazy-catalog guard: no module-scope localization call the census's name-following walks can see. */
+/**
+ * The lazy-catalog guard: no module-scope localization call the name-following walks can see, with the lazy names
+ * inferred from the tree itself so a new helper is covered the moment it is written.
+ */
 function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
-	// The census only guards what it can find: an entry naming a deleted or renamed helper is a silently disarmed
-	// guard, so every entry must still resolve to a top-level declaration through the AST - a name in a comment or a
-	// string is not a declaration.
-	const declared = new Set<string>();
-	for (const { file, contents } of sources) {
-		// A substring pre-filter keeps the parse off files that cannot declare a census name; the AST decides for the
-		// candidates.
-		if (!LAZY_L10N_HELPERS.some((helper) => contents.includes(helper))) {
-			continue;
-		}
-		for (const name of declaredCensusNames(contents, file, LAZY_L10N_HELPERS)) {
-			declared.add(name);
-		}
-	}
-	for (const helper of LAZY_L10N_HELPERS) {
-		if (!declared.has(helper)) {
-			fail(`LAZY_L10N_HELPERS names "${helper}", which no shipped source declares; rename or remove the entry.`);
-		}
-	}
-	// The reverse direction: a top-level helper resolving l10n.t at call time that never joined the census leaves its
-	// module-scope call sites unguarded.
-	for (const fixture of REVERSE_CENSUS_FIXTURES) {
-		const findings = [...uncensusedLazyHelpers(fixture.sources, fixture.census)].sort(byName);
-		const found = findings.map((finding) => finding.name);
-		if (JSON.stringify(found) !== JSON.stringify([...fixture.expected].sort())) {
+	// The inference's teeth first: each fixture's lazy set is exact, so a walk that stops seeing a shape fails here
+	// instead of silently narrowing what the guard matches.
+	for (const fixture of LAZY_INFERENCE_FIXTURES) {
+		const elsewhere = fixture.lazyElsewhere ?? [];
+		const found = [...inferLazyL10nNames([...fixture.sources, ...elsewhere.map(declaredElsewhere)]).keys()].sort();
+		const expected = [...fixture.expected, ...elsewhere].sort();
+		if (JSON.stringify(found) !== JSON.stringify(expected)) {
 			fail(
-				`guard self-check: reverse census fixture "${fixture.name}" found [${found.join(", ")}], ` +
-					`expected [${fixture.expected.join(", ")}].`
-			);
-			continue;
-		}
-		const lines = findings.map((finding) => finding.line);
-		if (fixture.expectedLines !== undefined && JSON.stringify(lines) !== JSON.stringify([...fixture.expectedLines])) {
-			fail(
-				`guard self-check: reverse census fixture "${fixture.name}" reported lines [${lines.join(", ")}], ` +
-					`expected [${fixture.expectedLines.join(", ")}].`
+				`guard self-check: lazy inference fixture "${fixture.name}" found [${found.join(", ")}], ` +
+					`expected [${expected.join(", ")}].`
 			);
 		}
-	}
-	for (const finding of uncensusedLazyHelpers(sources, LAZY_L10N_HELPERS)) {
-		fail(
-			`${rel(finding.file)}:${finding.line}: "${finding.name}" resolves l10n.t at call time but is not in ` +
-				"LAZY_L10N_HELPERS (scripts/l10n/census.ts); add it so the module-scope guard covers its call sites."
-		);
 	}
 	// Default exports break both walks' name-following, so the gate keeps the shape out of shipped source - its own
 	// teeth first.
@@ -190,23 +155,24 @@ function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
 	for (const { file, contents } of sources) {
 		for (const line of defaultExportOffenses(contents, file)) {
 			fail(
-				`${rel(file)}:${line}: default export; the lazy-helper census follows call-site names, and a default ` +
-					"export lets every importer rename a helper out from under both guards - export it by name."
+				`${rel(file)}:${line}: default export; the lazy-helper inference follows call-site names, and a default ` +
+					"export lets every importer rename a helper out from under the guard - export it by name."
 			);
 		}
 	}
 	for (const fixture of GUARD_FIXTURES) {
-		const flagged = moduleScopeL10nOffenses(fixture.source, "fixture.ts").length > 0;
+		const flagged = moduleScopeL10nOffenses(fixture.source, "fixture.ts", GUARD_FIXTURE_LAZY_NAMES).length > 0;
 		if (flagged !== fixture.flagged) {
 			fail(`guard self-check: "${fixture.name}" should ${fixture.flagged ? "" : "not "}be flagged.`);
 		}
 	}
+	const lazy = inferLazyL10nNames(sources);
 	for (const { file, contents } of sources) {
-		for (const line of moduleScopeL10nOffenses(contents, file)) {
+		for (const line of moduleScopeL10nOffenses(contents, file, lazy)) {
 			fail(
-				`${rel(file)}:${line}: module-scope localization call (l10n.t, vscode.l10n.t, or ` +
-					`${LAZY_L10N_HELPERS.join("/")}); it evaluates before l10n.config and freezes English. ` +
-					"Resolve at call time (a zero-arg function)."
+				`${rel(file)}:${line}: module-scope localization call (l10n.t, vscode.l10n.t, or a helper that resolves ` +
+					"one at call time); it evaluates before l10n.config and freezes English. Resolve at call time (a " +
+					"zero-arg function)."
 			);
 		}
 	}

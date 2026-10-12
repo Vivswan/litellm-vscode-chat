@@ -1,16 +1,16 @@
 /**
- * The reverse census walk's own teeth: each fixture's expected findings are the exact set the walk must produce.
- * expectedLines pins WHERE a finding points, in the same name-sorted order as expected.
+ * The inference's own teeth: each fixture's expected names are the exact set inferLazyL10nNames must mark lazy over
+ * its sources. `lazyElsewhere` names helpers the sources call into without showing; the self-check declares each in a
+ * file of its own (a plain l10n.t helper) and expects it alongside.
  */
-export const REVERSE_CENSUS_FIXTURES: readonly {
+export const LAZY_INFERENCE_FIXTURES: readonly {
 	readonly name: string;
 	readonly sources: readonly { readonly file: string; readonly contents: string }[];
-	readonly census: readonly string[];
+	readonly lazyElsewhere?: readonly string[];
 	readonly expected: readonly string[];
-	readonly expectedLines?: readonly number[];
 }[] = [
 	{
-		name: "an overload set points the finding at the implementation, not the first signature",
+		name: "an overload set is one name",
 		sources: [
 			{
 				file: "a.ts",
@@ -20,26 +20,22 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'export function label(value: unknown): string {\n\treturn l10n.t("x", String(value));\n}\n',
 			},
 		],
-		census: [],
 		expected: ["label"],
-		expectedLines: [3],
 	},
 	{
-		name: "direct l10n.t caller missing from the census",
+		name: "a direct l10n.t caller is inferred",
 		sources: [{ file: "a.ts", contents: 'export function label(): string {\n\treturn l10n.t("x");\n}\n' }],
-		census: [],
 		expected: ["label"],
 	},
 	{
 		name: "vscode.l10n.t counts as direct",
 		sources: [{ file: "a.ts", contents: 'export const label = () => vscode.l10n.t("x");\n' }],
-		census: [],
 		expected: ["label"],
 	},
 	{
-		name: "transitive through a censused name",
-		sources: [{ file: "a.ts", contents: "export function wrap(): string {\n\treturn censusedHelper();\n}\n" }],
-		census: ["censusedHelper"],
+		name: "transitive through a lazy name",
+		sources: [{ file: "a.ts", contents: "export function wrap(): string {\n\treturn lazyHelper();\n}\n" }],
+		lazyElsewhere: ["lazyHelper"],
 		expected: ["wrap"],
 	},
 	{
@@ -48,29 +44,20 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 			{ file: "a.ts", contents: "export function outer(): string {\n\treturn inner();\n}\n" },
 			{ file: "b.ts", contents: 'export function inner(): string {\n\treturn l10n.t("x");\n}\n' },
 		],
-		census: [],
 		expected: ["inner", "outer"],
 	},
 	{
 		name: "a default parameter resolves l10n.t",
 		sources: [{ file: "a.ts", contents: 'export function f(text = l10n.t("d")): string {\n\treturn text;\n}\n' }],
-		census: [],
 		expected: ["f"],
 	},
 	{
 		name: "an arrow-function variable is a helper too",
 		sources: [{ file: "a.ts", contents: 'export const g = () => l10n.t("x");\n' }],
-		census: [],
 		expected: ["g"],
 	},
 	{
-		name: "a censused helper raises nothing",
-		sources: [{ file: "a.ts", contents: 'export function label(): string {\n\treturn l10n.t("x");\n}\n' }],
-		census: ["label"],
-		expected: [],
-	},
-	{
-		name: "an uppercase component is not reported but still carries edges",
+		name: "an uppercase component is lazy like any helper, and carries its edge",
 		sources: [
 			{
 				file: "a.tsx",
@@ -79,13 +66,11 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					"export function callsComponent(): string {\n\treturn Banner();\n}\n",
 			},
 		],
-		census: [],
-		expected: ["callsComponent"],
+		expected: ["Banner", "callsComponent"],
 	},
 	{
 		name: "a helper with no l10n path raises nothing",
 		sources: [{ file: "a.ts", contents: "export function plain(): number {\n\treturn 1 + 1;\n}\n" }],
-		census: [],
 		expected: [],
 	},
 	{
@@ -93,47 +78,47 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 		// binding's own edge now.
 		name: "an argument-position helper taints the binding it feeds (the parameter name stays unfollowed)",
 		sources: [{ file: "a.ts", contents: "export const wraps = ((title) => () => title())(manageCommandTitle);\n" }],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wraps"],
 	},
 	{
-		name: "a helper passing a censused helper as a direct argument is an obligation",
+		name: "a helper passing a lazy helper as a direct argument is inferred",
 		sources: [{ file: "a.ts", contents: "export function wires(): void {\n\tregister(manageCommandTitle);\n}\n" }],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wires"],
 	},
 	{
-		name: "a helper passing a censused helper behind a ternary argument is an obligation",
+		name: "a helper passing a lazy helper behind a ternary argument is inferred",
 		sources: [
 			{
 				file: "a.ts",
 				contents: "export function wires(): void {\n\tregister(enabled ? manageCommandTitle : plain);\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wires"],
 	},
 	{
 		name: "a helper nested inside an array-literal argument stays invisible (the documented limit)",
 		sources: [{ file: "a.ts", contents: "export function wires(): void {\n\tregister([manageCommandTitle]);\n}\n" }],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: [],
 	},
 	{
 		name: "a spread argument stays invisible (the documented limit)",
 		sources: [{ file: "a.ts", contents: "export function wires(): void {\n\tregister(...[manageCommandTitle]);\n}\n" }],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: [],
 	},
 	{
-		name: "a helper forwarding a censused helper through .call is an obligation",
+		name: "a helper forwarding a lazy helper through .call is inferred",
 		sources: [
 			{
 				file: "a.ts",
 				contents: "export function wraps(): string {\n\treturn manageCommandTitle.call(undefined);\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wraps"],
 	},
 	{
@@ -141,7 +126,6 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 		sources: [
 			{ file: "a.ts", contents: 'export function wraps(): string {\n\treturn l10n.t.call(undefined, "x");\n}\n' },
 		],
-		census: [],
 		expected: ["wraps"],
 	},
 	{
@@ -154,11 +138,10 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 			},
 			{ file: "titles.ts", contents: 'export function title(): string {\n\treturn l10n.t("x");\n}\n' },
 		],
-		census: [],
 		expected: ["title", "wraps"],
 	},
 	{
-		name: "a censused member called through a local namespace import is an obligation",
+		name: "a lazy member called through a local namespace import is inferred",
 		sources: [
 			{
 				file: "a.ts",
@@ -166,7 +149,7 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'import * as helpers from "./titles";\nexport function wraps(): string {\n\treturn helpers.title();\n}\n',
 			},
 		],
-		census: ["title"],
+		lazyElsewhere: ["title"],
 		expected: ["wraps"],
 	},
 	{
@@ -178,11 +161,11 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'import * as helpers from "./titles";\nexport function wires(): void {\n\tregister(helpers.title);\n}\n',
 			},
 		],
-		census: ["title"],
+		lazyElsewhere: ["title"],
 		expected: ["wires"],
 	},
 	{
-		name: "a local namespace member bound to an alias is a member-named obligation",
+		name: "a local namespace member bound to an alias is inferred under the alias",
 		sources: [
 			{
 				file: "a.ts",
@@ -190,11 +173,11 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'import * as helpers from "./titles";\nconst alias = helpers.title;\nexport const wraps = () => alias();\n',
 			},
 		],
-		census: ["title"],
+		lazyElsewhere: ["title"],
 		expected: ["alias", "wraps"],
 	},
 	{
-		name: "a censused member element-accessed through a local namespace import is an obligation",
+		name: "a lazy member element-accessed through a local namespace import is inferred",
 		sources: [
 			{
 				file: "a.ts",
@@ -202,11 +185,11 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'import * as helpers from "./titles";\nexport function wraps(): string {\n\treturn helpers["title"]();\n}\n',
 			},
 		],
-		census: ["title"],
+		lazyElsewhere: ["title"],
 		expected: ["wraps"],
 	},
 	{
-		name: "a package namespace member call stays invisible (members are not census names)",
+		name: "a package namespace member call stays invisible (members are not lazy names)",
 		sources: [
 			{
 				file: "a.ts",
@@ -214,7 +197,7 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'import * as path from "node:path";\nexport function wraps(): string {\n\treturn path.join("a", "b");\n}\n',
 			},
 		],
-		census: ["join"],
+		lazyElsewhere: ["join"],
 		expected: [],
 	},
 	{
@@ -226,7 +209,7 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'import * as helpers from "./titles";\nexport function wraps(): string {\n\treturn helpers.sub.title();\n}\n',
 			},
 		],
-		census: ["title"],
+		lazyElsewhere: ["title"],
 		expected: [],
 	},
 	{
@@ -237,11 +220,11 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 				contents: "export function wraps(): string {\n\treturn manageCommandTitle[member]();\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wraps"],
 	},
 	{
-		name: "a computed member call on a censused local namespace member edges that member",
+		name: "a computed member call on a lazy local namespace member edges that member",
 		sources: [
 			{
 				file: "a.ts",
@@ -249,13 +232,12 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'import * as helpers from "./t";\nexport function wraps(): string {\n\treturn helpers.title[member]();\n}\n',
 			},
 		],
-		census: ["title"],
+		lazyElsewhere: ["title"],
 		expected: ["wraps"],
 	},
 	{
-		name: "a literal element-access thunk-table call stays invisible (the documented limit)",
+		name: "a literal element-access call into an undeclared table stays invisible",
 		sources: [{ file: "a.ts", contents: 'export function via(): string {\n\treturn TABLE["surface"]();\n}\n' }],
-		census: [],
 		expected: [],
 	},
 	{
@@ -266,7 +248,7 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 				contents: 'import * as helpers from "./t";\nexport function wraps(): string {\n\treturn helpers.call();\n}\n',
 			},
 		],
-		census: ["call"],
+		lazyElsewhere: ["call"],
 		expected: ["wraps"],
 	},
 	{
@@ -277,7 +259,7 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 				contents: "export const wraps = () => (enabled ? manageCommandTitle : plain)();\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wraps"],
 	},
 	{
@@ -288,7 +270,7 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 				contents: "export const wraps = () => (enabled ? manageCommandTitle : plain).call(undefined);\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wraps"],
 	},
 	{
@@ -299,7 +281,7 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 				contents: "export const wraps = () => (enabled ? manageCommandTitle : plain)[member]();\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wraps"],
 	},
 	{
@@ -311,7 +293,7 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					"export function wraps(): string {\n\tlet held: (() => string) | undefined;\n\treturn (held ??= manageCommandTitle)();\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wraps"],
 	},
 	{
@@ -322,53 +304,52 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 				contents: "const grab = manageCommandTitle.call;\nexport const wraps = () => grab(undefined);\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["grab", "wraps"],
 	},
 	{
-		name: "a class extending a censused local namespace member is an obligation",
+		name: "a class extending a lazy local namespace member is inferred",
 		sources: [
 			{
 				file: "a.ts",
 				contents: 'import * as helpers from "./t";\nexport class Derived extends helpers.Base {}\n',
 			},
 		],
-		census: ["Base"],
+		lazyElsewhere: ["Base"],
 		expected: ["Derived"],
 	},
 	{
-		// Matching is by spelling, the guard's own rule: a scalar parameter sharing a census name taints its helper.
+		// Matching is by spelling, the guard's own rule: a scalar parameter sharing a lazy name taints its helper.
 		// Deliberate over-inclusion.
-		name: "an argument sharing a census spelling taints its helper (syntactic matching, pinned intentional)",
+		name: "an argument sharing a lazy spelling taints its helper (syntactic matching, pinned intentional)",
 		sources: [
 			{
 				file: "a.ts",
 				contents: "export function sends(formatValue: number): string {\n\treturn String(formatValue);\n}\n",
 			},
 		],
-		census: ["formatValue"],
+		lazyElsewhere: ["formatValue"],
 		expected: ["sends"],
 	},
 	{
-		name: "Reflect.apply of a censused helper taints the caller through the argument edge",
+		name: "Reflect.apply of a lazy helper taints the caller through the argument edge",
 		sources: [
 			{
 				file: "a.ts",
 				contents: "export function wires(): void {\n\tReflect.apply(manageCommandTitle, undefined, []);\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wires"],
 	},
 	{
-		name: "a class localizing only in a STATIC method stays out of the census (the documented limit)",
+		name: "a class localizing only in a STATIC method is not inferred (the documented limit)",
 		sources: [
 			{
 				file: "a.ts",
 				contents: 'export class Statics {\n\tstatic label(): string {\n\t\treturn l10n.t("x");\n\t}\n}\n',
 			},
 		],
-		census: [],
 		expected: [],
 	},
 	{
@@ -380,14 +361,130 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					"export function wrap(): void {\n\tfor (const title of [manageCommandTitle]) {\n\t\ttitle();\n\t}\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: [],
 	},
 	{
-		name: "a thunk-table property call stays invisible (the documented census limit)",
+		name: "a call into a table the sources never declare stays invisible (no declaration, no evidence)",
 		sources: [{ file: "a.ts", contents: "export function viaTable(): string {\n\treturn TABLE.entry.surface();\n}\n" }],
-		census: [],
 		expected: [],
+	},
+	// The thunk-table shapes shipped source resolves localized text through: a literal of l10n.t closures is a lazy
+	// structure, and reading into it (by computed key, by row member, or handed back whole) is the resolver's edge.
+	{
+		name: "a resolver calling a thunk table by computed key is inferred (SERVER_FORM_FIELDS[field]())",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'const FIELDS = {\n\tapiKey: () => l10n.t("API key"),\n\tbaseUrl: () => l10n.t("Base URL"),\n};\n' +
+					"export function fieldLabel(field: string): string {\n\treturn FIELDS[field]();\n}\n",
+			},
+		],
+		expected: ["FIELDS", "fieldLabel"],
+	},
+	{
+		name: "a resolver calling a member of a table row is inferred (PRESENTATION[notice].surface())",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'const PRESENTATION = {\n\tparams: { surface: () => l10n.t("parameters"), docs: "a" },\n};\n' +
+					"export function surfaces(notices: string[]): string {\n" +
+					'\treturn notices.map((notice) => PRESENTATION[notice].surface()).join(", ");\n}\n',
+			},
+		],
+		expected: ["PRESENTATION", "surfaces"],
+	},
+	{
+		name: "a function handing back a member of a thunk table is inferred, and so is its caller (surfaceCopy)",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'const COPY = {\n\tchat: { timeout: (ms: number) => l10n.t("Timed out after {0} ms", ms) },\n};\n' +
+					"export function surfaceCopy(surface: string) {\n\treturn COPY[surface] ?? COPY.chat;\n}\n",
+			},
+			{
+				file: "b.ts",
+				contents:
+					'export function timeoutMessage(ms: number): string {\n\treturn surfaceCopy("chat").timeout(ms);\n}\n',
+			},
+		],
+		expected: ["COPY", "surfaceCopy", "timeoutMessage"],
+	},
+	{
+		name: "an array table of thunks is a lazy structure, and a method chain on it is the resolver's edge",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'const FLAGS = [["vision", () => l10n.t("vision")], ["tools", () => l10n.t("tools")]] as const;\n' +
+					'export function labels(): string[] {\n\treturn FLAGS.filter(([key]) => key !== "x").map(([, label]) => label());\n}\n',
+			},
+		],
+		expected: ["FLAGS", "labels"],
+	},
+	{
+		name: "a thunk table calling a lazy helper is lazy transitively",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"const ROWS = {\n\tfirst: () => manageCommandTitle(),\n};\n" +
+					"export function row(key: string): string {\n\treturn ROWS[key]();\n}\n",
+			},
+		],
+		lazyElsewhere: ["manageCommandTitle"],
+		expected: ["ROWS", "row"],
+	},
+	{
+		name: "an alias of a thunk table is a table: reading into it is the same edge",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'const TEXTS = {\n\ta: () => l10n.t("a"),\n};\nconst alias = TEXTS;\n' +
+					"export function pick(key: string) {\n\treturn alias[key];\n}\n",
+			},
+		],
+		expected: ["TEXTS", "alias", "pick"],
+	},
+	{
+		name: "a table of plain strings is not lazy, and neither is its reader",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'const DOCS = {\n\ta: "https://example.com/a",\n};\n' +
+					"export function doc(key: string): string {\n\treturn DOCS[key];\n}\n",
+			},
+		],
+		expected: [],
+	},
+	{
+		name: "a member read of a lazy FUNCTION hands out no thunk, so the reader is not inferred",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'export function label(): string {\n\treturn l10n.t("x");\n}\n' +
+					"export function nameOf(): string {\n\treturn label.name;\n}\n",
+			},
+		],
+		expected: ["label"],
+	},
+	{
+		name: "a table embedding another table by reference stays invisible (the data-flow boundary)",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'const INNER = {\n\ta: () => l10n.t("a"),\n};\nconst OUTER = { inner: INNER };\n' +
+					"export function viaOuter(): string {\n\treturn OUTER.inner.a();\n}\n",
+			},
+		],
+		expected: ["INNER"],
 	},
 	{
 		name: "an IIFE-assigned variable handing back a closure over l10n.t",
@@ -397,11 +494,10 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 				contents: 'export const label = (() => {\n\treturn () => l10n.t("x");\n})();\n',
 			},
 		],
-		census: [],
 		expected: ["label"],
 	},
 	{
-		name: "an import alias of a censused helper, and the helper calling through it",
+		name: "an import alias of a lazy helper, and the helper calling through it",
 		sources: [
 			{
 				file: "a.ts",
@@ -410,40 +506,39 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					"export function wraps(): string {\n\treturn mct();\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["mct", "wraps"],
 	},
 	{
-		name: "an export alias mints a second census obligation for a lazy helper",
+		name: "an export alias mints a second lazy name for a helper",
 		sources: [
 			{
 				file: "a.ts",
 				contents: 'function label(): string {\n\treturn l10n.t("x");\n}\nexport { label as fancyLabel };\n',
 			},
 		],
-		census: [],
 		expected: ["fancyLabel", "label"],
 	},
 	{
-		name: "a local identifier alias of a censused helper, and the helper calling through it",
+		name: "a local identifier alias of a lazy helper, and the helper calling through it",
 		sources: [
 			{
 				file: "a.ts",
 				contents: "const alias = manageCommandTitle;\nexport const wraps = () => alias();\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["alias", "wraps"],
 	},
 	{
-		name: "a FUNCTION-LOCAL alias of a censused helper marks the enclosing helper",
+		name: "a FUNCTION-LOCAL alias of a lazy helper marks the enclosing helper",
 		sources: [
 			{
 				file: "a.ts",
 				contents: "export function wraps(): string {\n\tconst alias = manageCommandTitle;\n\treturn alias();\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wraps"],
 	},
 	{
@@ -455,11 +550,11 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'export function wraps(): string {\n\tlet alias: () => string = () => "";\n\talias = manageCommandTitle;\n\treturn alias();\n}\n',
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wraps"],
 	},
 	{
-		name: "a top-level reassignment alias is its own census obligation",
+		name: "a top-level reassignment alias is inferred in its own name",
 		sources: [
 			{
 				file: "a.ts",
@@ -467,7 +562,7 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'let alias: () => string = () => "";\nalias = manageCommandTitle;\nexport const wraps = () => alias();\n',
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["alias", "wraps"],
 	},
 	{
@@ -478,13 +573,11 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 				contents: 'let label: () => string;\nlabel = () => l10n.t("x");\nexport const wraps = () => label();\n',
 			},
 		],
-		census: [],
 		expected: ["label", "wraps"],
 	},
 	{
 		name: "a parenthesized direct call still counts as direct",
 		sources: [{ file: "a.ts", contents: 'export function wrapped(): string {\n\treturn (l10n.t)("x");\n}\n' }],
-		census: [],
 		expected: ["wrapped"],
 	},
 	{
@@ -495,19 +588,18 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 				contents: "export function missed(): string {\n\treturn (manageCommandTitle as () => string)();\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["missed"],
 	},
 	{
-		name: "a factory whose returned closure resolves l10n.t is included (the census's over-inclusion rule)",
+		name: "a factory whose returned closure resolves l10n.t is included (the inference's over-inclusion rule)",
 		sources: [
 			{ file: "a.ts", contents: 'export function factory(): () => string {\n\treturn () => l10n.t("x");\n}\n' },
 		],
-		census: [],
 		expected: ["factory"],
 	},
 	{
-		name: "a parameter shadowing a censused name marks its function (syntactic matching, the forward guard's own rule)",
+		name: "a parameter shadowing a lazy name marks its function (syntactic matching, the forward guard's own rule)",
 		sources: [
 			{
 				file: "a.ts",
@@ -515,18 +607,18 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					"export function callsShadow(manageCommandTitle: () => string): string {\n\treturn manageCommandTitle();\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["callsShadow"],
 	},
 	{
-		name: "a helper invoking a censused name as a template tag",
+		name: "a helper invoking a lazy name as a template tag",
 		sources: [
 			{
 				file: "a.ts",
 				contents: "export function tagged(): string {\n\treturn manageCommandTitle`x`;\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["tagged"],
 	},
 	{
@@ -538,7 +630,6 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'let label: () => string = () => "";\nif (enabled) {\n\tlabel = () => l10n.t("x");\n}\nexport const wraps = () => label();\n',
 			},
 		],
-		census: [],
 		expected: ["label", "wraps"],
 	},
 	{
@@ -550,36 +641,107 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'let alias: () => string = () => "";\nfor (alias = manageCommandTitle; keepGoing(); ) {\n\tstep();\n}\nexport const wraps = () => alias();\n',
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["alias", "wraps"],
 	},
 	{
-		name: "a class whose constructor localizes is a census obligation at any case",
+		name: "a class whose constructor localizes is inferred at any case",
 		sources: [
 			{
 				file: "a.ts",
 				contents: 'export class Notifier {\n\tconstructor() {\n\t\tl10n.t("x");\n\t}\n}\n',
 			},
 		],
-		census: [],
 		expected: ["Notifier"],
 	},
 	{
-		name: "a class localizing only in a method stays out of the census",
+		name: "a class whose constructor calls an instance method that localizes is inferred (StatusBarManager)",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export class Manager {\n\tconstructor() {\n\t\tvoid this.render();\n\t}\n" +
+					'\tprivate render(): string {\n\t\treturn l10n.t("x");\n\t}\n}\n',
+			},
+		],
+		expected: ["Manager"],
+	},
+	{
+		name: "a class whose constructor reaches localization through a chain of instance members is inferred",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export class Manager {\n\tconstructor() {\n\t\tthis.refresh();\n\t}\n" +
+					"\tprivate refresh(): void {\n\t\tthis.label;\n\t}\n" +
+					'\tprivate get label(): string {\n\t\treturn l10n.t("x");\n\t}\n}\n',
+			},
+		],
+		expected: ["Manager"],
+	},
+	{
+		name: "a class whose constructor hands an instance method out as a callback is inferred (the over-inclusion rule)",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export class Manager {\n\tconstructor(register: (render: () => string) => void) {\n" +
+					"\t\tregister(() => this.render());\n\t}\n" +
+					'\tprivate render(): string {\n\t\treturn l10n.t("x");\n\t}\n}\n',
+			},
+		],
+		expected: ["Manager"],
+	},
+	{
+		name: "a class whose constructor reaches a method declared under a literal computed name is inferred",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'export class Manager {\n\tconstructor() {\n\t\tthis["render"]();\n\t}\n' +
+					'\t["render"](): string {\n\t\treturn l10n.t("x");\n\t}\n}\n',
+			},
+		],
+		expected: ["Manager"],
+	},
+	{
+		name: "a class whose constructor reaches a method by numeric key is inferred",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export class Manager {\n\tconstructor() {\n\t\tthis[0]();\n\t}\n" +
+					'\t0(): string {\n\t\treturn l10n.t("x");\n\t}\n}\n',
+			},
+		],
+		expected: ["Manager"],
+	},
+	{
+		name: "a class whose constructor calls a method that only calls a plain helper is not inferred",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export class Manager {\n\tconstructor() {\n\t\tthis.render();\n\t}\n" +
+					"\tprivate render(): number {\n\t\treturn plain();\n\t}\n}\n",
+			},
+		],
+		expected: [],
+	},
+	{
+		name: "a class localizing only in a method is not inferred",
 		sources: [
 			{
 				file: "a.ts",
 				contents: 'export class Quiet {\n\tlabel(): string {\n\t\treturn l10n.t("x");\n\t}\n}\n',
 			},
 		],
-		census: [],
 		expected: [],
 	},
-	// The two shapes the real registered classes have: neither runs l10n.t at `new`, and both are obligations because
-	// the roots `new` DOES evaluate are walked whole. Tightening that walk to skip nested function literals would drop
-	// DashboardController and UsageAlerts with no other fixture noticing.
+	// Two shipped shapes (DashboardController, UsageAlerts): neither runs l10n.t at `new`, and both are inferred because
+	// the roots `new` DOES evaluate are walked whole, nested function literals included.
 	{
-		name: "a class whose only evidence is a deferred thunk-table property is an obligation",
+		name: "a class whose only evidence is a deferred thunk-table property is inferred",
 		sources: [
 			{
 				file: "a.ts",
@@ -591,11 +753,11 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					"}\n",
 			},
 		],
-		census: ["executeDashboardIntent"],
+		lazyElsewhere: ["executeDashboardIntent"],
 		expected: ["Runner"],
 	},
 	{
-		name: "a class whose only evidence is a callback registered in the constructor is an obligation",
+		name: "a class whose only evidence is a callback registered in the constructor is inferred",
 		sources: [
 			{
 				file: "a.ts",
@@ -609,11 +771,10 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					"}\n",
 			},
 		],
-		census: [],
 		expected: ["Alerts"],
 	},
 	{
-		name: "an UPPERCASE import alias of an unresolvable lazy name reports (alias resolution fails closed)",
+		name: "an import alias of a lazy class is inferred under the alias",
 		sources: [
 			{
 				file: "a.ts",
@@ -621,13 +782,12 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					'import { DashboardController as RenamedBase } from "./panel";\nexport const boots = () => new RenamedBase(ctx);\n',
 			},
 		],
-		census: ["DashboardController"],
+		lazyElsewhere: ["DashboardController"],
 		expected: ["RenamedBase", "boots"],
 	},
-	// An alias is exempt only where its own spelling AND its target agree. Every direction, for each of the three
-	// aliasing shapes.
+	// Case is no exemption: a component is a helper that localizes, and every alias shape of one is inferred.
 	{
-		name: "an UPPERCASE import alias of an uppercase component inherits its exemption",
+		name: "an import alias of a component is inferred",
 		sources: [
 			{
 				file: "a.tsx",
@@ -635,22 +795,20 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 			},
 			{ file: "banner.tsx", contents: 'export function Banner(): string {\n\treturn l10n.t("x");\n}\n' },
 		],
-		census: [],
-		expected: ["boots"],
+		expected: ["Banner", "Renamed", "boots"],
 	},
 	{
-		name: "an UPPERCASE export alias of an uppercase component inherits its exemption",
+		name: "an export alias of a component is inferred",
 		sources: [
 			{
 				file: "a.tsx",
 				contents: 'export function Banner(): string {\n\treturn l10n.t("x");\n}\nexport { Banner as FancyBanner };\n',
 			},
 		],
-		census: [],
-		expected: [],
+		expected: ["Banner", "FancyBanner"],
 	},
 	{
-		name: "an UPPERCASE identifier alias of an uppercase component inherits its exemption",
+		name: "an identifier alias of a component is inferred",
 		sources: [
 			{
 				file: "a.tsx",
@@ -659,23 +817,22 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					"const Alias = Banner;\nexport const boots = () => Alias();\n",
 			},
 		],
-		census: [],
-		expected: ["boots"],
+		expected: ["Alias", "Banner", "boots"],
 	},
 	{
-		name: "an import-equals entity alias of a censused helper",
+		name: "an import-equals entity alias of a lazy helper",
 		sources: [
 			{ file: "a.ts", contents: "import title = labels.manageCommandTitle;\nexport const wraps = () => title();\n" },
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["title", "wraps"],
 	},
 	{
-		name: "a destructuring default is its own census obligation",
+		name: "a destructuring default is inferred in its own name",
 		sources: [
 			{ file: "a.ts", contents: "const { title = manageCommandTitle } = {};\nexport const wraps = () => title();\n" },
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["title", "wraps"],
 	},
 	{
@@ -686,79 +843,37 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 				contents: "export function wrap({ title = manageCommandTitle } = {}): string {\n\treturn title();\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wrap"],
 	},
 	{
-		name: "a parameter default aliasing a censused helper marks its function",
+		name: "a parameter default aliasing a lazy helper marks its function",
 		sources: [
 			{
 				file: "a.ts",
 				contents: "export function wrap(title = manageCommandTitle): string {\n\treturn title();\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wrap"],
 	},
 	{
 		name: "a string-literal export specifier still mints its alias",
 		sources: [
+			{ file: "m.ts", contents: 'function ab(): string {\n\treturn l10n.t("x");\n}\nexport { ab as "a-b" };\n' },
 			{ file: "a.ts", contents: 'export { "a-b" as title } from "./m";\nexport const wraps = () => title();\n' },
 		],
-		census: ["a-b"],
-		expected: ["title", "wraps"],
+		expected: ["a-b", "ab", "title", "wraps"],
 	},
 	{
-		name: "a LOWERCASE alias of an uppercase component is an obligation (the exemption is the convention, not the code)",
-		sources: [
-			{
-				file: "a.tsx",
-				contents: 'export function Banner(): string {\n\treturn l10n.t("x");\n}\nexport { Banner as label };\n',
-			},
-			{ file: "b.ts", contents: 'import { label } from "./a";\nexport const FROZEN = label();\n' },
-		],
-		census: [],
-		expected: ["label"],
-	},
-	{
-		name: "an UPPERCASE import alias of a lowercase lazy helper is still an obligation",
-		sources: [
-			{ file: "a.ts", contents: 'import { label as Label } from "./labels";\nexport const wraps = () => Label();\n' },
-			{ file: "labels.ts", contents: 'export function label(): string {\n\treturn l10n.t("x");\n}\n' },
-		],
-		census: [],
-		expected: ["Label", "label", "wraps"],
-	},
-	{
-		name: "an UPPERCASE export alias of a lowercase lazy helper is still an obligation",
-		sources: [
-			{ file: "a.ts", contents: 'function label(): string {\n\treturn l10n.t("x");\n}\nexport { label as Label };\n' },
-		],
-		census: [],
-		expected: ["Label", "label"],
-	},
-	{
-		name: "an UPPERCASE identifier alias of a lowercase lazy helper is still an obligation",
-		sources: [
-			{
-				file: "a.ts",
-				contents:
-					'function label(): string {\n\treturn l10n.t("x");\n}\n' +
-					"const Alias = label;\nexport const wraps = () => Alias();\n",
-			},
-		],
-		census: [],
-		expected: ["Alias", "label", "wraps"],
-	},
-	{
-		name: "a ternary binding reaches the census through either branch",
+		name: "a ternary binding is inferred through either branch",
 		sources: [
 			{
 				file: "a.ts",
 				contents: "const title = enabled ? manageCommandTitle : plain;\nexport const wraps = () => title();\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["title", "wraps"],
 	},
 	{
@@ -770,7 +885,7 @@ export const REVERSE_CENSUS_FIXTURES: readonly {
 					"export function wraps(): string {\n\tconst pick = enabled ? manageCommandTitle : plain;\n\treturn pick();\n}\n",
 			},
 		],
-		census: ["manageCommandTitle"],
+		lazyElsewhere: ["manageCommandTitle"],
 		expected: ["wraps"],
 	},
 ];

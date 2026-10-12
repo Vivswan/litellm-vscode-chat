@@ -4,7 +4,6 @@ import path from "node:path";
 import { getL10nJson, type l10nJsonFormat } from "@vscode/l10n-dev";
 import ts from "typescript";
 import { z } from "zod";
-import { LAZY_L10N_HELPERS } from "./census";
 
 /** The English reference bundle: what extract writes and check re-derives. */
 export const BUNDLE_PATH = path.join(process.cwd(), "l10n", "bundle.l10n.json");
@@ -56,11 +55,11 @@ export async function readSourceFiles(): Promise<SourceFile[]> {
 export async function extractBundle(): Promise<l10nJsonFormat> {
 	const files = await readSourceFiles();
 	const extracted = await getL10nJson(files.map(({ file, contents }) => ({ extension: path.extname(file), contents })));
-	const sorted: l10nJsonFormat = {};
-	for (const key of Object.keys(extracted).sort()) {
-		sorted[key] = extracted[key];
-	}
-	return sorted;
+	// Entries, not keys: the bun test project compiles this file under noUncheckedIndexedAccess, where a key lookup
+	// reads as possibly undefined.
+	return Object.fromEntries(
+		Object.entries(extracted).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+	);
 }
 
 /** The bundle's on-disk form; one serializer so extract and check cannot disagree. */
@@ -68,64 +67,10 @@ export function serializeBundle(bundle: l10nJsonFormat): string {
 	return `${JSON.stringify(bundle, null, "\t")}\n`;
 }
 
-/**
- * Which of `names` this file DECLARES as a top-level function, class, or variable - the census-integrity check's
- * evidence that an entry still names something real. Import/export ALIASES count: an alias mints a new call-site name,
- * so the reverse walk can report it as its own obligation.
- *
- *   a name in a comment or a string is not a declaration -> Through the AST
- */
-export function declaredCensusNames(contents: string, fileName: string, names: readonly string[]): Set<string> {
-	const wanted = new Set(names);
-	const found = new Set<string>();
-	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-	const sourceFile = ts.createSourceFile(fileName, contents, ts.ScriptTarget.Latest, false, kind);
-	const note = (name: string): void => {
-		if (wanted.has(name)) {
-			found.add(name);
-		}
-	};
-	const noteBound = (name: ts.BindingName): void => {
-		if (ts.isIdentifier(name)) {
-			note(name.text);
-			return;
-		}
-		for (const element of name.elements) {
-			if (ts.isBindingElement(element)) {
-				noteBound(element.name);
-			}
-		}
-	};
-	// A NODE walk, not a statement walk: the reverse census reaches names through module-level control flow and
-	// for-initializers alike, and a name it can demand has to be one this check can see. Function and class bodies stay
-	// closed - their declarations bind locals, not top-level names.
-	const visit = (node: ts.Node): void => {
-		if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name !== undefined) {
-			note(node.name.text);
-		} else if (ts.isVariableDeclaration(node)) {
-			noteBound(node.name);
-		} else if (ts.isStatement(node)) {
-			for (const alias of aliasSpecifiers(node)) {
-				note(alias.name);
-			}
-			const entityAlias = importEqualsAlias(node);
-			if (entityAlias !== undefined) {
-				note(entityAlias.name);
-			}
-		}
-		if (!ts.isFunctionLike(node) && !ts.isClassLike(node)) {
-			node.forEachChild(visit);
-		}
-	};
-	visit(sourceFile);
-	return found;
-}
-
 /** A renaming import/export specifier's minted name and the name it stands for. */
 interface AliasSpecifier {
 	readonly name: string;
 	readonly of: string;
-	readonly node: ts.Node;
 }
 
 /** The renaming (aliased) import/export specifiers of one top-level statement; a plain re-export mints no new name. */
@@ -136,7 +81,7 @@ function aliasSpecifiers(statement: ts.Statement): AliasSpecifier[] {
 		if (statement.importClause?.isTypeOnly !== true && bindings !== undefined && ts.isNamedImports(bindings)) {
 			for (const element of bindings.elements) {
 				if (!element.isTypeOnly && element.propertyName !== undefined) {
-					aliases.push({ name: element.name.text, of: element.propertyName.text, node: element });
+					aliases.push({ name: element.name.text, of: element.propertyName.text });
 				}
 			}
 		}
@@ -145,7 +90,7 @@ function aliasSpecifiers(statement: ts.Statement): AliasSpecifier[] {
 			for (const element of statement.exportClause.elements) {
 				// The propertyName may be a string literal (`export { "a-b" as t }`); both carry .text.
 				if (!element.isTypeOnly && element.propertyName !== undefined) {
-					aliases.push({ name: element.name.text, of: element.propertyName.text, node: element });
+					aliases.push({ name: element.name.text, of: element.propertyName.text });
 				}
 			}
 		}
@@ -165,37 +110,59 @@ function importEqualsAlias(statement: ts.Statement): AliasSpecifier | undefined 
 	while (ts.isQualifiedName(entity)) {
 		entity = entity.right;
 	}
-	return ts.isIdentifier(entity) ? { name: statement.name.text, of: entity.text, node: statement.name } : undefined;
+	return ts.isIdentifier(entity) ? { name: statement.name.text, of: entity.text } : undefined;
 }
 
-export interface UncensusedLazyHelper {
-	readonly file: string;
-	readonly name: string;
-	/** 1-based line of the declaration. */
-	readonly line: number;
-}
+/**
+ * The names whose invocation resolves l10n.t, closed over every file, each with its kind: the input the module-scope
+ * guard matches call sites against. Matching is by call-site name, so one entry covers same-named bindings in every
+ * file.
+ */
+export type LazyL10nNames = ReadonlyMap<string, LazyKind>;
 
-/** One top-level binding's localization evidence, before the cross-file closure. */
-interface HelperNode {
-	readonly file: string;
+/** A table is a structure handing out thunks: a member READ of one carries the edge a call would. */
+type LazyKind = "helper" | "table";
+
+/** One binding of a name to localization evidence, before the closure. */
+interface Binding {
 	readonly name: string;
-	readonly line: number;
 	/**
-	 * Functions report lowercase-only (components are uppercase by convention); classes report at any case. An alias is
-	 * exempt only where its own spelling AND its target both say so - see reportsAsObligation.
+	 * A table is an object or array literal walked whole: its thunks run later, exactly like a class's deferred members,
+	 * and reading into it is how a resolver reaches them (`TABLE[key]()`, `TABLE[key].surface()`).
 	 */
-	readonly kind: "function" | "class" | "alias";
-	/** For an alias: the name it stands for, one half of its reportability. */
-	readonly aliasOf?: string;
+	readonly kind: "function" | "class" | "table" | "alias";
 	/** The declaration (default parameters included) contains a direct l10n.t or vscode.l10n.t call. */
 	readonly direct: boolean;
-	/** Every bare-identifier call-site name inside the declaration. */
+	/** Every bare-identifier call-site name inside the declaration; an alias's one entry is the name it stands for. */
 	readonly callees: ReadonlySet<string>;
+	/** The root names of the member chains the declaration reads into. */
+	readonly reads: ReadonlySet<string>;
 }
 
 interface InvocationEvidence {
 	direct: boolean;
 	readonly callees: Set<string>;
+	readonly reads: Set<string>;
+	/** The members read or called on `this`: a constructor's path into the class's own methods. */
+	readonly thisMembers: Set<string>;
+}
+
+function isStaticMember(member: ts.ClassElement): boolean {
+	return (
+		ts.canHaveModifiers(member) &&
+		(ts.getModifiers(member) ?? []).some((modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword)
+	);
+}
+
+/** The text a literal key spells: `"render"` and `0` match the member they name, a variable key is unreadable. */
+function literalKeyText(key: ts.Expression): string | undefined {
+	const literal = unwrapExpression(key);
+	return ts.isStringLiteralLike(literal) || ts.isNumericLiteral(literal) ? literal.text : undefined;
+}
+
+/** The name a class member is reached by through `this`: `["render"]()` is reached as `render`. */
+function memberKey(name: ts.PropertyName): string | undefined {
+	return ts.isComputedPropertyName(name) ? literalKeyText(name.expression) : name.text;
 }
 
 /**
@@ -219,9 +186,9 @@ function memberNameOf(node: ts.Expression): { readonly object: ts.Expression; re
 		return { object: node.expression, member: node.name.text };
 	}
 	if (ts.isElementAccessExpression(node)) {
-		const key = unwrapExpression(node.argumentExpression);
-		if (ts.isStringLiteralLike(key)) {
-			return { object: node.expression, member: key.text };
+		const member = literalKeyText(node.argumentExpression);
+		if (member !== undefined) {
+			return { object: node.expression, member };
 		}
 	}
 	return undefined;
@@ -278,7 +245,7 @@ function localNamespaceImports(sourceFile: ts.SourceFile): ReadonlySet<string> {
 /**
  * The member name a member read resolves to when its object is a LOCAL namespace import: `helpers.title` (and
  * `helpers["title"]`) reads as `title`, joining the graph under the member's own name (matching stays by name, the
- * guard's rule). Package and builtin namespaces (`path.join`) resolve to nothing - their members are not census names -
+ * guard's rule). Package and builtin namespaces (`path.join`) resolve to nothing - their members are not lazy names -
  * and deeper chains (`helpers.sub.title`) stay outside.
  */
 function namespaceMemberName(expression: ts.Expression, sourceFile: ts.SourceFile): string | undefined {
@@ -291,6 +258,23 @@ function namespaceMemberName(expression: ts.Expression, sourceFile: ts.SourceFil
 		return read.member;
 	}
 	return undefined;
+}
+
+/**
+ * The name a member chain reads into: the bare identifier at its root (`TABLE[key].surface` reads TABLE), or the member
+ * a LOCAL namespace import is read at (`helpers.TABLE.x` reads TABLE, matching by name like a call). `this.x` and
+ * `make().x` read no name.
+ */
+function memberChainRoot(node: ts.Expression, sourceFile: ts.SourceFile): string | undefined {
+	let current = unwrapExpression(node);
+	while (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+		const member = namespaceMemberName(current, sourceFile);
+		if (member !== undefined) {
+			return member;
+		}
+		current = unwrapExpression(current.expression);
+	}
+	return ts.isIdentifier(current) ? current.text : undefined;
 }
 
 /**
@@ -337,7 +321,7 @@ function calleeCandidates(expression: ts.Expression, sourceFile: ts.SourceFile):
  * deliberately is not.
  */
 function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile): InvocationEvidence {
-	const evidence: InvocationEvidence = { direct: false, callees: new Set<string>() };
+	const evidence: InvocationEvidence = { direct: false, callees: new Set(), reads: new Set(), thisMembers: new Set() };
 	const note = (calleeExpression: ts.Expression): void => {
 		for (const callee of calleeCandidates(calleeExpression, sourceFile)) {
 			const calleeText = callee.getText(sourceFile);
@@ -403,6 +387,16 @@ function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile
 		} else if (ts.isNewExpression(node)) {
 			note(node.expression);
 			noteDirectArgumentEdges(node.arguments);
+		} else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+			// Read or called alike: `SURFACE_COPY[surface]` handed back is as much a path to the thunks as calling one.
+			const root = memberChainRoot(node, sourceFile);
+			if (root !== undefined) {
+				evidence.reads.add(root);
+			}
+			const read = memberNameOf(node);
+			if (read !== undefined && unwrapExpression(read.object).kind === ts.SyntaxKind.ThisKeyword) {
+				evidence.thisMembers.add(read.member);
+			}
 		}
 		// A default aliases exactly like a variable initializer does, wherever it binds: `wrap(title =
 		// manageCommandTitle)` and `{ title = ... } = {}`.
@@ -424,13 +418,13 @@ function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile
 }
 
 /**
- * A class's CONSTRUCTION-time localization evidence: the constructor body and parameter defaults and the instance
- * property initializers, the code `new` reaches; methods stay deferred and do not taint, and each heritage name is an
- * edge. Those roots are walked WHOLE, nested function literals included, so a registered callback or a
- * property-initialized thunk table counts even though neither RUNS at `new` - the census's documented over-inclusion.
+ * A class's CONSTRUCTION-time localization evidence: what `new` runs, including every instance member the constructor
+ * reaches through `this`. The roots are walked WHOLE, nested function literals included, so a registered callback or a
+ * property-initialized thunk table counts even though neither RUNS at `new` - the inference's documented over-inclusion.
  */
 function classConstructionEvidence(cls: ts.ClassLikeDeclaration, sourceFile: ts.SourceFile): InvocationEvidence {
 	const roots: ts.Node[] = [];
+	const byName = new Map<string, ts.ClassElement[]>();
 	for (const member of cls.members) {
 		if (ts.isConstructorDeclaration(member)) {
 			if (member.body !== undefined) {
@@ -438,15 +432,34 @@ function classConstructionEvidence(cls: ts.ClassLikeDeclaration, sourceFile: ts.
 			}
 			// The whole parameter: a default nested in a destructuring pattern evaluates at `new` too.
 			roots.push(...member.parameters);
-		} else if (
-			ts.isPropertyDeclaration(member) &&
-			!(ts.getModifiers(member) ?? []).some((modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword) &&
-			member.initializer !== undefined
-		) {
+		} else if (isStaticMember(member)) {
+		} else if (ts.isPropertyDeclaration(member) && member.initializer !== undefined) {
 			roots.push(member.initializer);
+		} else if ((ts.isMethodDeclaration(member) || ts.isAccessor(member)) && member.name !== undefined) {
+			const key = memberKey(member.name);
+			if (key !== undefined) {
+				byName.set(key, [...(byName.get(key) ?? []), member]);
+			}
 		}
 	}
 	const evidence = invocationEvidence(roots, sourceFile);
+	const reached = new Set<string>();
+	const pending = [...evidence.thisMembers];
+	for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
+		if (reached.has(name)) {
+			continue;
+		}
+		reached.add(name);
+		const found = invocationEvidence(byName.get(name) ?? [], sourceFile);
+		evidence.direct ||= found.direct;
+		for (const callee of found.callees) {
+			evidence.callees.add(callee);
+		}
+		for (const read of found.reads) {
+			evidence.reads.add(read);
+		}
+		pending.push(...found.thisMembers);
+	}
 	for (const clause of cls.heritageClauses ?? []) {
 		for (const type of clause.types) {
 			// A base resolves like a callee: choosing shapes flatten, and a local namespace member reads by member
@@ -467,189 +480,134 @@ function classConstructionEvidence(cls: ts.ClassLikeDeclaration, sourceFile: ts.
 }
 
 /**
- * The uppercase-component convention is the whole exemption, and it applies only where the walk can PROVE the target
- * is a component, so an unresolvable or cyclic alias target reports. Re-spelling a component lowercase (`export {
- * Banner as label }`) mints a helper-shaped name that freezes, so an alias is exempt only when BOTH its own spelling
- * and what it NAMES say so.
+ * Every binding of a name to localization evidence in one file. The module walk stops at function and class bodies,
+ * whose declarations bind locals, not module names; the file walk crosses them, because the module-scope guard matches
+ * by spelling wherever a name is bound (an alias inside an eager IIFE is called at module scope too).
  */
-function reportsAsObligation(
-	node: HelperNode,
-	byName: ReadonlyMap<string, HelperNode[]>,
-	seen: ReadonlySet<string>
-): boolean {
-	if (node.kind === "class") {
-		return true;
-	}
-	if (node.kind === "function") {
-		return /^[a-z]/.test(node.name);
-	}
-	// An alias, judged on its own spelling first: a lowercase name is helper-shaped whatever it stands for.
-	if (/^[a-z]/.test(node.name)) {
-		return true;
-	}
-	const target = node.aliasOf;
-	if (target === undefined || seen.has(target)) {
-		return true;
-	}
-	const targets = byName.get(target);
-	if (targets === undefined || targets.length === 0) {
-		return true;
-	}
-	return targets.some((candidate) => reportsAsObligation(candidate, byName, new Set(seen).add(target)));
-}
-
-/**
- * The census's reverse direction, so never registering a helper cannot disarm the guard; it is deliberately
- * over-inclusive, per the census's own rule. l10n:check bans default exports instead, the one shape no name-following
- * walk can chase.
- */
-export function uncensusedLazyHelpers(
-	sources: readonly SourceFile[],
-	census: readonly string[]
-): UncensusedLazyHelper[] {
-	const nodes: HelperNode[] = [];
-	for (const { file, contents } of sources) {
-		// No substring pre-filter here, unlike the forward check: a file that never spells "l10n" can still be a LINK
-		// in a lazy chain, so every file's top-level functions join the graph.
-		nodes.push(...collectTopLevelFunctions(file, contents));
-	}
-	const lazyNames = new Set<string>(census);
-	for (const node of nodes) {
-		if (node.direct) {
-			lazyNames.add(node.name);
-		}
-	}
-	let grew = true;
-	while (grew) {
-		grew = false;
-		for (const node of nodes) {
-			if (lazyNames.has(node.name)) {
-				continue;
-			}
-			for (const callee of node.callees) {
-				if (lazyNames.has(callee)) {
-					lazyNames.add(node.name);
-					grew = true;
-					break;
-				}
-			}
-		}
-	}
-	const censusSet = new Set(census);
-	const findings: UncensusedLazyHelper[] = [];
-	const seen = new Set<string>();
-	const byName = new Map<string, HelperNode[]>();
-	for (const node of nodes) {
-		const bucket = byName.get(node.name);
-		if (bucket === undefined) {
-			byName.set(node.name, [node]);
-		} else {
-			bucket.push(node);
-		}
-	}
-	for (const node of nodes) {
-		if (!lazyNames.has(node.name) || censusSet.has(node.name) || !reportsAsObligation(node, byName, new Set())) {
-			continue;
-		}
-		// One finding per name per file; a name declared twice in one file is the same census obligation either way.
-		const key = `${node.file}\n${node.name}`;
-		if (!seen.has(key)) {
-			seen.add(key);
-			findings.push({ file: node.file, name: node.name, line: node.line });
-		}
-	}
-	return findings;
-}
-
-function collectTopLevelFunctions(file: string, contents: string): HelperNode[] {
-	const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-	const sourceFile = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, false, kind);
-	const nodes: HelperNode[] = [];
-	const lineOf = (node: ts.Node): number =>
-		sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-	const push = (name: string, at: ts.Node, evidence: InvocationEvidence, nodeKind: "function" | "class"): void => {
-		nodes.push({ file, name, line: lineOf(at), kind: nodeKind, direct: evidence.direct, callees: evidence.callees });
+function collectBindings(sourceFile: ts.SourceFile, scope: "module" | "file"): Binding[] {
+	const bindings: Binding[] = [];
+	const push = (name: string, kind: Binding["kind"], evidence: InvocationEvidence): void => {
+		bindings.push({ name, kind, direct: evidence.direct, callees: evidence.callees, reads: evidence.reads });
 	};
-	const pushAlias = (name: string, at: ts.Node, of: string): void => {
-		nodes.push({ file, name, line: lineOf(at), kind: "alias", aliasOf: of, direct: false, callees: new Set([of]) });
+	const pushAlias = (alias: AliasSpecifier): void => {
+		bindings.push({ name: alias.name, kind: "alias", direct: false, callees: new Set([alias.of]), reads: new Set() });
 	};
 	const isFunctionLiteral = (node: ts.Node): boolean => ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 	// One binding of a name to a right-hand side, judged for EVERY value the RHS can hand over (calleeCandidates
 	// flattens choosing shapes and strips forwarding to a fixed point, so `const t = helper.call` aliases helper).
-	const handleBinding = (name: ts.Identifier, rhs: ts.Expression): void => {
+	const bind = (name: string, rhs: ts.Expression): void => {
 		for (const source of calleeCandidates(rhs, sourceFile)) {
 			if (isFunctionLiteral(source)) {
-				push(name.text, name, invocationEvidence([source], sourceFile), "function");
+				push(name, "function", invocationEvidence([source], sourceFile));
 			} else if (ts.isCallExpression(source) && isFunctionLiteral(unwrapExpression(source.expression))) {
-				push(name.text, name, invocationEvidence([source], sourceFile), "function");
+				// An IIFE-bound name: whatever it hands back is callable under this name, so the whole initializer
+				// counts.
+				push(name, "function", invocationEvidence([source], sourceFile));
 			} else if (ts.isClassExpression(source)) {
-				push(name.text, name, classConstructionEvidence(source, sourceFile), "class");
+				push(name, "class", classConstructionEvidence(source, sourceFile));
+			} else if (ts.isObjectLiteralExpression(source) || ts.isArrayLiteralExpression(source)) {
+				push(name, "table", invocationEvidence([source], sourceFile));
 			} else if (ts.isIdentifier(source)) {
-				pushAlias(name.text, name, source.text);
+				pushAlias({ name, of: source.text });
 			} else {
-				// A local namespace import's member is the same alias by member name: `const t = helpers.title` mints a
-				// `title` obligation.
+				// A local namespace import's member is the same alias by member name: `const t = helpers.title` binds
+				// `title`'s laziness to t.
 				const member = namespaceMemberName(source, sourceFile);
 				if (member !== undefined) {
-					pushAlias(name.text, name, member);
+					pushAlias({ name, of: member });
 				}
 			}
 		}
 	};
-	const handleStatement = (statement: ts.Statement): void => {
-		if (ts.isFunctionDeclaration(statement) && statement.name !== undefined) {
-			// An overload SIGNATURE declares no code, and a node minted from it would point the finding away from the
-			// body. The implementation below it is the declaration that counts.
-			if (statement.body !== undefined) {
-				push(statement.name.text, statement.name, invocationEvidence([statement], sourceFile), "function");
+	const visit = (node: ts.Node): void => {
+		if (ts.isFunctionDeclaration(node) && node.name !== undefined) {
+			push(node.name.text, "function", invocationEvidence([node], sourceFile));
+		} else if (ts.isClassDeclaration(node) && node.name !== undefined) {
+			push(node.name.text, "class", classConstructionEvidence(node, sourceFile));
+		} else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
+			bind(node.name.text, node.initializer);
+		} else if (
+			(ts.isBindingElement(node) || ts.isParameter(node)) &&
+			ts.isIdentifier(node.name) &&
+			node.initializer !== undefined
+		) {
+			// A default binds a name to whatever it defaults TO, wherever it sits: `const { title = lazyHelper } = {}`.
+			bind(node.name.text, node.initializer);
+		} else if (ts.isBinaryExpression(node) && isAssigningOperator(node.operatorToken.kind)) {
+			const target = unwrapExpression(node.left);
+			if (ts.isIdentifier(target)) {
+				bind(target.text, node.right);
 			}
-			return;
-		}
-		if (ts.isClassDeclaration(statement)) {
-			if (statement.name !== undefined) {
-				push(statement.name.text, statement.name, classConstructionEvidence(statement, sourceFile), "class");
+		} else if (ts.isStatement(node)) {
+			// A renaming import/export specifier binds a new local name to whatever it renames, so `new Renamed()` at
+			// module scope is the same freeze as the original.
+			for (const alias of aliasSpecifiers(node)) {
+				pushAlias(alias);
 			}
-			return;
+			const entityAlias = importEqualsAlias(node);
+			if (entityAlias !== undefined) {
+				pushAlias(entityAlias);
+			}
 		}
-		for (const alias of aliasSpecifiers(statement)) {
-			pushAlias(alias.name, alias.node, alias.of);
+		if (scope === "file" || !(ts.isFunctionLike(node) || ts.isClassLike(node))) {
+			ts.forEachChild(node, visit);
 		}
-		const entityAlias = importEqualsAlias(statement);
-		if (entityAlias !== undefined) {
-			pushAlias(entityAlias.name, entityAlias.node, entityAlias.of);
-		}
-		// Bindings and nested statements, wherever module-level code puts them: variable statements, assignments,
-		// for-initializers, and the bodies of top-level if/for/switch/try all bind module-level names. Function and
-		// class bodies stay deferred boundaries - what they do reaches the graph as the enclosing binding's own
-		// evidence.
-		descend(statement);
 	};
-	const descend = (node: ts.Node): void => {
-		node.forEachChild((child) => {
-			if (ts.isStatement(child)) {
-				handleStatement(child);
-				return;
+	visit(sourceFile);
+	return bindings;
+}
+
+/** The closure and the guard's inline-class check judge evidence here and nowhere else, so they cannot drift apart. */
+function reachesLazy(evidence: Pick<Binding, "direct" | "callees" | "reads">, lazy: LazyL10nNames): boolean {
+	return (
+		evidence.direct ||
+		[...evidence.callees].some((callee) => lazy.has(callee)) ||
+		[...evidence.reads].some((read) => lazy.get(read) === "table")
+	);
+}
+
+/**
+ * The fixed point over the bindings. Over-inclusive by name on purpose: nothing it marks is legal to invoke at module
+ * scope, and matching stays syntactic (a parameter sharing a lazy name taints its function, the guard's own rule).
+ */
+function closeLazyNames(bindings: readonly Binding[], seed: LazyL10nNames): LazyL10nNames {
+	const lazy = new Map(seed);
+	for (let grew = true; grew; ) {
+		grew = false;
+		for (const binding of bindings) {
+			if (!lazy.has(binding.name) && !reachesLazy(binding, lazy)) {
+				continue;
 			}
-			if (ts.isVariableDeclaration(child) && ts.isIdentifier(child.name) && child.initializer !== undefined) {
-				handleBinding(child.name, child.initializer);
-			} else if (ts.isBindingElement(child) && ts.isIdentifier(child.name) && child.initializer !== undefined) {
-				// A destructuring default: `const { title = lazyHelper } = {}`.
-				handleBinding(child.name, child.initializer);
-			} else if (ts.isBinaryExpression(child) && isAssigningOperator(child.operatorToken.kind)) {
-				const target = unwrapExpression(child.left);
-				if (ts.isIdentifier(target)) {
-					handleBinding(target, child.right);
-				}
+			const aliasOfTable =
+				binding.kind === "alias" && [...binding.callees].some((callee) => lazy.get(callee) === "table");
+			const kind: LazyKind = binding.kind === "table" || aliasOfTable ? "table" : "helper";
+			const current = lazy.get(binding.name);
+			// An alias of a table upgrades a helper to a table; nothing downgrades.
+			if (current === undefined || (current === "helper" && kind === "table")) {
+				lazy.set(binding.name, kind);
+				grew = true;
 			}
-			if (!ts.isFunctionLike(child) && !ts.isClassLike(child)) {
-				descend(child);
-			}
-		});
-	};
-	for (const statement of sourceFile.statements) {
-		handleStatement(statement);
+		}
 	}
-	return nodes;
+	return lazy;
+}
+
+function parseSource(file: string, contents: string): ts.SourceFile {
+	const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+	return ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, false, kind);
+}
+
+/**
+ * Every top-level name in the tree whose invocation resolves l10n.t, inferred from the declarations themselves, so a
+ * new helper is guarded the moment it is written. Every file joins the graph: one that never spells "l10n" can still be
+ * a LINK in a lazy chain. l10n:check bans default exports beside this, the one shape no name-following walk can chase.
+ */
+export function inferLazyL10nNames(sources: readonly SourceFile[]): LazyL10nNames {
+	const bindings: Binding[] = [];
+	for (const { file, contents } of sources) {
+		bindings.push(...collectBindings(parseSource(file, contents), "module"));
+	}
+	return closeLazyNames(bindings, new Map());
 }
 
 /** Parens and type wrappers do not change what evaluates; strip them so `(fn)()` and `fn as T` read as fn. */
@@ -701,123 +659,17 @@ function possibleValues(rhs: ts.Expression): ts.Expression[] {
 }
 
 /**
- * Matching is by name, scope-insensitively - the guard's documented syntactic semantics - so a name bound anywhere in
- * the file lands in this set however it is renamed or reconstructed. It over-flags rather than under-flags within that
- * scope; the census docstring names what falls outside it.
+ * A module-scope localization call runs before l10n.config and freezes the English text. `shared` is the tree-wide
+ * inference; the file's own bindings close over it so a name bound anywhere in the file, however renamed or
+ * reconstructed, matches by spelling. A destructured `t` is invisible to the text match here; vscodeL10nOffenses bans
+ * destructuring off the canonical l10n binding.
  */
-function fileLazyNames(sourceFile: ts.SourceFile, census: readonly string[]): Set<string> {
-	interface Binding {
-		readonly name: string;
-		readonly direct: boolean;
-		readonly callees: ReadonlySet<string>;
-	}
-	const bindings: Binding[] = [];
-	// The shared evidence walkers, which the reverse census reads too, so the two guards cannot drift shape by shape.
-	const collectFrom = (name: string, declaration: ts.Node): void => {
-		const evidence = invocationEvidence([declaration], sourceFile);
-		bindings.push({ name, direct: evidence.direct, callees: evidence.callees });
-	};
-	const isFunctionLiteral = (node: ts.Node): boolean => ts.isArrowFunction(node) || ts.isFunctionExpression(node);
-	// A class binding is lazy when the roots `new` evaluates reach l10n, which is wider than what `new` RUNS; methods
-	// stay deferred and do not taint (classConstructionEvidence owns the details).
-	const collectClass = (name: string, cls: ts.ClassLikeDeclaration): void => {
-		const evidence = classConstructionEvidence(cls, sourceFile);
-		bindings.push({ name, direct: evidence.direct, callees: evidence.callees });
-	};
-	const bind = (name: string, rhs: ts.Expression): void => {
-		for (const source of calleeCandidates(rhs, sourceFile)) {
-			if (isFunctionLiteral(source)) {
-				collectFrom(name, source);
-			} else if (ts.isCallExpression(source) && isFunctionLiteral(unwrapExpression(source.expression))) {
-				// An IIFE-bound name: whatever it hands back is callable under this name, so the whole initializer
-				// counts.
-				collectFrom(name, source);
-			} else if (ts.isClassExpression(source)) {
-				collectClass(name, source);
-			} else if (ts.isIdentifier(source)) {
-				bindings.push({ name, direct: false, callees: new Set([source.text]) });
-			} else {
-				// A local namespace import's member aliases by member name too.
-				const member = namespaceMemberName(source, sourceFile);
-				if (member !== undefined) {
-					bindings.push({ name, direct: false, callees: new Set([member]) });
-				}
-			}
-		}
-	};
-	const visit = (node: ts.Node): void => {
-		if (ts.isFunctionDeclaration(node) && node.name !== undefined) {
-			collectFrom(node.name.text, node);
-		} else if (ts.isClassDeclaration(node) && node.name !== undefined) {
-			collectClass(node.name.text, node);
-		} else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
-			bind(node.name.text, node.initializer);
-		} else if (
-			(ts.isBindingElement(node) || ts.isParameter(node)) &&
-			ts.isIdentifier(node.name) &&
-			node.initializer !== undefined
-		) {
-			// A default binds a name to whatever it defaults TO, wherever it sits.
-			bind(node.name.text, node.initializer);
-		} else if (ts.isBinaryExpression(node) && isAssigningOperator(node.operatorToken.kind)) {
-			const target = unwrapExpression(node.left);
-			if (ts.isIdentifier(target)) {
-				bind(target.text, node.right);
-			}
-		} else if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-			// A renaming import/export specifier binds a new local name to whatever it renames, so `new Renamed()` at
-			// module scope is the same freeze as the original.
-			for (const alias of aliasSpecifiers(node)) {
-				bindings.push({ name: alias.name, direct: false, callees: new Set([alias.of]) });
-			}
-		} else if (ts.isImportEqualsDeclaration(node)) {
-			const entityAlias = importEqualsAlias(node);
-			if (entityAlias !== undefined) {
-				bindings.push({ name: entityAlias.name, direct: false, callees: new Set([entityAlias.of]) });
-			}
-		}
-		ts.forEachChild(node, visit);
-	};
-	visit(sourceFile);
-	const lazy = new Set<string>(census);
-	for (const binding of bindings) {
-		if (binding.direct) {
-			lazy.add(binding.name);
-		}
-	}
-	let grew = true;
-	while (grew) {
-		grew = false;
-		for (const binding of bindings) {
-			if (!lazy.has(binding.name)) {
-				for (const callee of binding.callees) {
-					if (lazy.has(callee)) {
-						lazy.add(binding.name);
-						grew = true;
-						break;
-					}
-				}
-			}
-		}
-	}
-	return lazy;
-}
-
-/**
- * A module-scope localization call runs before l10n.config and freezes the English text. A destructured `t` is
- * invisible to the text match here; vscodeL10nOffenses bans destructuring off the canonical l10n binding.
- */
-export function moduleScopeL10nOffenses(contents: string, fileName: string): number[] {
-	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-	const sourceFile = ts.createSourceFile(fileName, contents, ts.ScriptTarget.Latest, false, kind);
+export function moduleScopeL10nOffenses(contents: string, fileName: string, shared: LazyL10nNames): number[] {
+	const sourceFile = parseSource(fileName, contents);
 	const offenses: number[] = [];
-	const tracked = fileLazyNames(sourceFile, LAZY_L10N_HELPERS);
+	const tracked = closeLazyNames(collectBindings(sourceFile, "file"), shared);
 
 	const unwrap = unwrapExpression;
-
-	const isStatic = (member: ts.ClassElement): boolean =>
-		ts.canHaveModifiers(member) &&
-		(ts.getModifiers(member) ?? []).some((modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword);
 
 	const candidateIsTracked = (candidate: ts.Expression): boolean => {
 		const callee = stripForwarding(candidate, sourceFile);
@@ -832,7 +684,7 @@ export function moduleScopeL10nOffenses(contents: string, fileName: string): num
 		// A COMPUTED member call on a tracked name or a tracked local-namespace member: the key is unreadable and a
 		// lazy function's only meaningful members are its forwarders; the receiver resolves through the same pipeline
 		// so a choosing receiver flattens. Literal keys resolved above; ordinary member calls on a name that merely
-		// shares a census spelling (`lastSync.toISOString()`) stay quiet.
+		// shares a lazy spelling (`lastSync.toISOString()`) stay quiet.
 		if (ts.isElementAccessExpression(callee)) {
 			const key = unwrap(callee.argumentExpression);
 			if (!ts.isStringLiteralLike(key)) {
@@ -865,8 +717,7 @@ export function moduleScopeL10nOffenses(contents: string, fileName: string): num
 	};
 
 	const flagInlineClass = (node: ts.Node, cls: ts.ClassExpression): void => {
-		const evidence = classConstructionEvidence(cls, sourceFile);
-		if (evidence.direct || [...evidence.callees].some((callee) => tracked.has(callee))) {
+		if (reachesLazy(classConstructionEvidence(cls, sourceFile), tracked)) {
 			offenses.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
 		}
 	};
@@ -995,7 +846,7 @@ export function moduleScopeL10nOffenses(contents: string, fileName: string): num
 				}
 				if (ts.isClassStaticBlockDeclaration(member)) {
 					scan(member.body);
-				} else if (ts.isPropertyDeclaration(member) && isStatic(member) && member.initializer !== undefined) {
+				} else if (ts.isPropertyDeclaration(member) && isStaticMember(member) && member.initializer !== undefined) {
 					scan(member.initializer);
 				}
 			}
