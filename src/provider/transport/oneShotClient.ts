@@ -183,10 +183,11 @@ export class OneShotClient {
 	 * The editor sends these headers itself and owns the 401s, so a token the server stops accepting is corrected by
 	 * the next exchange after expiry, never by a rejection here.
 	 *
-	 * The caller's whole-call `timeout` is the token wait's only clock; nothing here adds a second.
+	 * The caller's `timeout` clocks each attempt of an exchange this call starts, and the token wait runs to its retry
+	 * budget either way; nothing here adds a second clock.
 	 *
-	 *   `timeout` elapses -> the OAuth timeout message naming the setting to raise
-	 *   `token` cancels   -> the cancellation, as-is
+	 *   the token wait times out -> the OAuth timeout message naming the setting to raise
+	 *   `token` cancels          -> the cancellation, as-is
 	 */
 	async authHeaders(
 		connection: OneShotConnection,

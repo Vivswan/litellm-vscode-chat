@@ -636,7 +636,7 @@ export interface DashboardUsage {
 	readonly thresholds: readonly number[];
 	/** The effective poll interval; 0 = background polling off. */
 	readonly pollIntervalMs: number;
-	/** The effective discovery.timeout (the usage requests' whole-call bound); the timeout detail line prints it. */
+	/** The effective discovery.timeout (each usage attempt's clock); the timeout detail line prints it. */
 	readonly discoveryTimeoutMs: number;
 	/** Whether a usage refresh pass is in flight (one serialized engine); disables Refresh now. */
 	readonly refreshing: boolean;
