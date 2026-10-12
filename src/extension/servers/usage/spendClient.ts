@@ -24,7 +24,6 @@ import { applyAuthOverlay, plainFetchBaseHeaders } from "../../../provider/trans
 import type { BackoffSleep } from "../../../provider/transport/retry";
 import { RequestError } from "../../../provider/transport/transportErrors";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
-import { getDiscoveryTimeout } from "../../../shared/config/settings";
 import type { RejectedCredentialField } from "../../../shared/serverEntry";
 import { normalizeBaseUrl, serverRootOf } from "../../../shared/util/baseUrl";
 import type { HeaderValue } from "../../../shared/util/headers";
@@ -339,9 +338,11 @@ function usageHttpError(url: string, status: number): RequestError {
 
 export interface UsageClientOptions {
 	readonly userAgent: HeaderValue;
-	/** The whole-call timeout read, injectable for tests; the default reads the live discovery.timeout setting. */
-	readonly getTimeoutMs?: () => number;
-	readonly log?: ((message: string, data?: unknown) => void) | undefined;
+	/**
+	 * The whole-call timeout, read per GET so a setting edit needs no rebuild. The client has no log of its own: the
+	 * reader's invalid-value warning goes wherever the caller's reader sends it (createUsagePollerEnv dedups it).
+	 */
+	readonly getTimeoutMs: () => number;
 	/** The retry backoff, injectable for tests; the default is the real timer. */
 	readonly sleep?: BackoffSleep;
 }
@@ -357,7 +358,7 @@ export class UsageClient {
 	private readonly sleep: BackoffSleep;
 
 	constructor(private readonly options: UsageClientOptions) {
-		this.getTimeoutMs = options.getTimeoutMs ?? (() => getDiscoveryTimeout(options.log));
+		this.getTimeoutMs = options.getTimeoutMs;
 		this.sleep = options.sleep ?? sleepUnlessAborted;
 		this.oauthTokens = new OAuthTokenSource(this.sleep);
 	}
@@ -472,8 +473,9 @@ export class UsageClient {
 				lastFailure = failure;
 				continue;
 			}
-			// The server no longer accepts the token this call sent; the next poll performs a fresh exchange. This call
-			// itself never retries.
+			// The server no longer accepts the token this call sent; the next call performs a fresh exchange, and the
+			// poller grants a scheduled 401 exactly one such retry (UsagePoller.tokenRetryGranted). This call itself
+			// never retries.
 			auth.fail(failure);
 			throw failure;
 		}

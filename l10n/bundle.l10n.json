@@ -1406,12 +1406,14 @@
 	"everything that reaches it": "everything that reaches it",
 	"exact ID": "exact ID",
 	"external": "external",
+	"failed": "failed",
 	"fallback/Checkbox label on a capability row; applies the value only where the server reports none.": {
 		"message": "fallback",
 		"comment": [
 			"Checkbox label on a capability row; applies the value only where the server reports none."
 		]
 	},
+	"forbidden": "forbidden",
 	"force/Checkbox label on a parameter row; marks the value as forced over runtime options.": {
 		"message": "force",
 		"comment": [
@@ -1494,6 +1496,7 @@
 	},
 	"name the header that carries the key": "name the header that carries the key",
 	"neither this entry nor the key sets one; set one with Edit, or on the key in LiteLLM": "neither this entry nor the key sets one; set one with Edit, or on the key in LiteLLM",
+	"network error": "network error",
 	"never fresh": "never fresh",
 	"new servers entry \"{0}\"": "new servers entry \"{0}\"",
 	"no": "no",
@@ -1584,6 +1587,7 @@
 	"this server does not serve /user/daily/activity (a normal shape on some setups)": "this server does not serve /user/daily/activity (a normal shape on some setups)",
 	"this server doesn't report spend": "this server doesn't report spend",
 	"this server doesn't report spend for this key": "this server doesn't report spend for this key",
+	"timeout": "timeout",
 	"token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}": "token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}",
 	"tools//models table cell: the model supports tool calling": {
 		"message": "tools",
@@ -1728,11 +1732,14 @@
 	"{0}, {1}": "{0}, {1}",
 	"{0}.{1} is a reserved name and cannot be a model matcher; remove it.": "{0}.{1} is a reserved name and cannot be a model matcher; remove it.",
 	"{0}.{1} must be an object; remove it to restore the default.": "{0}.{1} must be an object; remove it to restore the default.",
+	"{0}: a stored secret belongs to a different server address": "{0}: a stored secret belongs to a different server address",
 	"{0}: cleared": "{0}: cleared",
 	"{0}: copied to {1} storage if the group holds one": "{0}: copied to {1} storage if the group holds one",
 	"{0}: set ({1})": "{0}: set ({1})",
+	"{0}: stored secrets unreadable": "{0}: stored secrets unreadable",
 	"{0}: the stored {1} cannot be sent as an HTTP header": "{0}: the stored {1} cannot be sent as an HTTP header",
 	"{0}: you will be asked to type it (stored in {1})": "{0}: you will be asked to type it (stored in {1})",
+	"{0}: {1}": "{0}: {1}",
 	"{0}: {1} of {2} ({3})": "{0}: {1} of {2} ({3})",
 	"{0}: {1} of {2} ({3}) - key reports {4}": "{0}: {1} of {2} ({3}) - key reports {4}",
 	"{0}: {1} spent, no budget": "{0}: {1} spent, no budget"

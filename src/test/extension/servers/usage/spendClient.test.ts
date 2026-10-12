@@ -488,7 +488,7 @@ suite("extension/servers/usage spendClient", () => {
 	});
 
 	suite("OAuth 401 invalidation", () => {
-		test("a usage 401 routes through the overlay scope: the next poll performs a fresh exchange", async () => {
+		test("a usage 401 routes through the overlay scope: the next call performs a fresh exchange", async () => {
 			let exchanges = 0;
 			let usageCalls = 0;
 			mswServer.use(

@@ -34,21 +34,8 @@ const connection = {
 	headers: {},
 } as const;
 
-/**
- * The spend client constructs errors and throws WITHOUT logging (the poller boundary logs one classification), so the
- * suites assert the recording stays EMPTY.
- */
-function recordingClient(): { client: UsageClient; logs: string[] } {
-	const logs: string[] = [];
-	const client = new UsageClient({
-		userAgent: fixedHeaderValue("test-agent"),
-		getTimeoutMs: () => 5000,
-		sleep: noBackoff,
-		log: (message, data) => {
-			logs.push(`${message} ${JSON.stringify(data) ?? ""}`);
-		},
-	});
-	return { client, logs };
+function spendClient(): UsageClient {
+	return new UsageClient({ userAgent: fixedHeaderValue("test-agent"), getTimeoutMs: () => 5000, sleep: noBackoff });
 }
 
 function errorTextSurfaces(error: unknown): string {
@@ -227,7 +214,7 @@ suite("extension/servers/usage spendClient payload properties", () => {
 			http.get(KEY_INFO_URL, () => HttpResponse.json(served as never)),
 			http.get(USER_INFO_URL, () => HttpResponse.json(served as never))
 		);
-		const { client, logs } = recordingClient();
+		const client = spendClient();
 		await fc.assert(
 			fc.asyncProperty(rollupPayloadArb, async (payload) => {
 				served = payload;
@@ -239,14 +226,13 @@ suite("extension/servers/usage spendClient payload properties", () => {
 			}),
 			{ numRuns: Math.min(NUM_RUNS, MSW_RUNS_CAP), seed: SEED }
 		);
-		assert.strictEqual(logs.length, 0, "the spend client constructs errors and throws WITHOUT logging");
 	});
 
 	test("daily activity keeps exactly the pattern-valid days, sorted, typed, and self-summed", async function () {
 		this.timeout(240000);
 		let served: unknown;
 		mswServer.use(http.get(DAILY_ACTIVITY_URL, () => HttpResponse.json(served as never)));
-		const { client, logs } = recordingClient();
+		const client = spendClient();
 		await fc.assert(
 			fc.asyncProperty(dailyPayloadArb, async (payload) => {
 				served = payload;
@@ -284,7 +270,6 @@ suite("extension/servers/usage spendClient payload properties", () => {
 			}),
 			{ numRuns: Math.min(NUM_RUNS, MSW_RUNS_CAP), seed: SEED }
 		);
-		assert.strictEqual(logs.length, 0, "the spend client constructs errors and throws WITHOUT logging");
 	});
 
 	test("non-JSON bodies fail as typed errors with no response-derived text on any surface", async function () {
@@ -297,7 +282,7 @@ suite("extension/servers/usage spendClient payload properties", () => {
 				() => new HttpResponse(servedBody, { status: 200, headers: { "Content-Type": servedContentType } })
 			)
 		);
-		const { client, logs } = recordingClient();
+		const client = spendClient();
 		await fc.assert(
 			fc.asyncProperty(
 				fc.oneof(
@@ -327,7 +312,6 @@ suite("extension/servers/usage spendClient payload properties", () => {
 			),
 			{ numRuns: Math.min(NUM_RUNS, MSW_RUNS_CAP), seed: SEED }
 		);
-		assert.strictEqual(logs.length, 0, "the spend client constructs errors and throws WITHOUT logging");
 	});
 
 	test("non-OK statuses classify deterministically from the status alone; bodies never leak", async function () {
@@ -340,7 +324,7 @@ suite("extension/servers/usage spendClient payload properties", () => {
 				HttpResponse.json({ error: MARKER, detail: { key: MARKER } }, { status: servedStatus })
 			)
 		);
-		const { client, logs } = recordingClient();
+		const client = spendClient();
 		const expectFailure = async (status: number): Promise<RequestError> => {
 			servedStatus = status;
 			let thrown: unknown;
@@ -384,14 +368,13 @@ suite("extension/servers/usage spendClient payload properties", () => {
 		const exhausted = await expectFailure(500);
 		assert.strictEqual(exhausted.kind, "http");
 		assert.strictEqual(usageUnavailabilityOf(exhausted), undefined, "5xx must not read as permanently unavailable");
-		assert.strictEqual(logs.length, 0, "the spend client constructs errors and throws WITHOUT logging");
 	});
 
 	test("a network failure exhausts the retries into a typed error whose cause chain carries no response text", async () => {
 		// HttpResponse.error() makes fetch itself throw, driving the one path that attaches a cause to the thrown
 		// RequestError - so the cause-chain walk in errorTextSurfaces is exercised for real, not vacuously.
 		mswServer.use(http.get(KEY_INFO_URL, () => HttpResponse.error()));
-		const { client, logs } = recordingClient();
+		const client = spendClient();
 		let thrown: unknown;
 		try {
 			await client.fetchKeyInfo(connection);
@@ -403,7 +386,6 @@ suite("extension/servers/usage spendClient payload properties", () => {
 		assert.ok(thrown.cause !== undefined, "the network error must carry the underlying failure as its cause");
 		assertNoMarker(errorTextSurfaces(thrown), "a network error chain");
 		assert.strictEqual(usageUnavailabilityOf(thrown), undefined, "network failures stay transient");
-		assert.strictEqual(logs.length, 0, "the spend client constructs errors and throws WITHOUT logging");
 	});
 });
 

@@ -31,7 +31,7 @@ On a server without a database these endpoints do not exist. The extension detec
 
 That detection sticks: background polls do not re-check an endpoint already found missing. If you enable the database later, run "LiteLLM: Refresh Usage Now" - or edit the server's entry - and the extension re-probes availability.
 
-A key the server refuses is a different case. When `/key/info` or `/user/daily/activity` answers 401 or 403 (a key not permitted to read usage data), the extension treats that as equally permanent - but a permission is something you can fix, so such a refusal is not hidden: the server's row on the dashboard ([the usage panel](#the-usage-panel)) carries a counted problem line stating the denial, naming the refused endpoint and HTTP status.
+A key the server refuses is a different case. When `/key/info` or `/user/daily/activity` answers 401 or 403 (a key not permitted to read usage data), the extension treats that as equally permanent (an OAuth connection gets one more scheduled attempt with a fresh token first) - but a permission is something you can fix, so such a refusal is not hidden: the server's row on the dashboard ([the usage panel](#the-usage-panel)) carries a counted problem line stating the denial, naming the refused endpoint and HTTP status.
 
 A key denied all usage shows no numbers - no spend meter, and the server never alerts; after the key's permissions change, run "LiteLLM: Refresh Usage Now" (or the line's own Refresh now) to re-probe. A key refused on only one endpoint while the other answers keeps its numbers, with the refused part stated on its own line.
 
