@@ -104,7 +104,10 @@ export interface SettingsTransferPrompts {
 	askRenamedLabel(suggested: string, validate: (candidate: string) => string | undefined): Promise<string | undefined>;
 	/** The undo confirmation modal, stating the snapshot time; false on dismissal (silent abort). */
 	confirmUndo(snapshotAt: string): Promise<boolean>;
-	/** Toasts; every user-facing outcome goes through here so tests can record it. */
+	/**
+	 * Toasts; every user-facing outcome goes through here so tests can record it. Settles when the toast closes, which
+	 * a toast with a button never does on its own, so the flows show one through `toast` and never await it.
+	 */
 	notify(kind: "info" | "warning" | "error", message: string, actions?: readonly MessageAction[]): Promise<void>;
 }
 
@@ -323,20 +326,39 @@ function undoImportAction(env: SettingsTransferEnv): MessageAction {
 	return { label: l10n.t("Undo Import"), run: () => runUndoLastImportFlow(env) };
 }
 
+/**
+ * The flows' one way to show a toast, never awaited: the dashboard awaits these commands inside its serialized
+ * message chain (dashboard/endpoints.ts executeCommand), so a flow that waited for the toast to close would stall
+ * every later dashboard write until the user dismissed it. A button's action runs after the flow returned, so its
+ * failure is logged here instead of rejecting into nothing.
+ */
+function toast(
+	env: SettingsTransferEnv,
+	kind: "info" | "warning" | "error",
+	message: string,
+	actions: readonly MessageAction[] = []
+): void {
+	env.prompts.notify(kind, message, actions).catch((error: unknown) => {
+		env.log("Settings transfer toast action failed", { error: errorLabel(error) });
+	});
+}
+
 /** LiteLLM: Export Settings... - the credentials warning, the save dialog, a tab-indented JSON write, a counts toast. */
 export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<void> {
 	try {
 		const probe = env.settings.snapshotReader();
 		if (!ALL_SETTING_KEYS.some((key) => probe.inspect(key)?.globalValue !== undefined)) {
-			await env.prompts.notify(
+			toast(
+				env,
 				"info",
 				l10n.t("LiteLLM: No settings are configured in the user scope, so there is nothing to export.")
 			);
 			return;
 		}
-		// Shown before the dialog: macOS shows no title on a save dialog, and a warning after the write is too late.
+		// Shown before the dialog and left up beside it: macOS shows no title on a save dialog, and a warning after the
+		// write is too late.
 		const credentialsWarning = l10n.t("The file contains your server credentials in plain text, so keep it private.");
-		await env.prompts.notify("info", credentialsWarning);
+		toast(env, "info", credentialsWarning);
 		const target = await env.showSaveDialog(
 			vscode.Uri.joinPath(vscode.Uri.file(env.homeDir()), "litellm-settings.json"),
 			credentialsWarning
@@ -389,12 +411,10 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			unmaterialized: result.unmaterializedSecretCount,
 			mismatched: result.mismatchedSecretCount,
 		});
-		await env.prompts.notify("info", notes.join(" "), [
-			{ label: l10n.t("Reveal File"), run: () => env.revealFile(target) },
-		]);
+		toast(env, "info", notes.join(" "), [{ label: l10n.t("Reveal File"), run: () => env.revealFile(target) }]);
 	} catch (error) {
 		env.log("Settings export failed", { error: errorLabel(error) });
-		await env.prompts.notify("error", l10n.t("LiteLLM: The settings export failed; the file was not written."));
+		toast(env, "error", l10n.t("LiteLLM: The settings export failed; the file was not written."));
 	}
 }
 
@@ -590,7 +610,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		const size = await env.fileSize(source);
 		if (size > MAX_IMPORT_FILE_BYTES) {
 			env.log("Settings import rejected: file exceeds the size cap", { size });
-			await env.prompts.notify("error", l10n.t("LiteLLM: This file is too large to be a settings export (over 5 MB)."));
+			toast(env, "error", l10n.t("LiteLLM: This file is too large to be a settings export (over 5 MB)."));
 			return;
 		}
 		// A leading byte-order mark an editor may add on a round trip is not part of the JSON grammar; a valid export
@@ -601,7 +621,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		const parsed = parseEnvelope(text);
 		if (!parsed.ok) {
 			env.log("Settings import rejected: the file did not parse as an export", { reason: parsed.reason });
-			await env.prompts.notify("error", parseFailureMessage(parsed));
+			toast(env, "error", parseFailureMessage(parsed));
 			return;
 		}
 
@@ -629,7 +649,8 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				skippedKeys: plan.skippedKeys.length,
 			});
 			const dropped = droppedSentence(plan.dropped);
-			await env.prompts.notify(
+			toast(
+				env,
 				"error",
 				[
 					l10n.t("LiteLLM: Nothing in this file can be imported."),
@@ -706,7 +727,8 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			JSON.stringify(env.settings.readGlobal(SERVERS_SETTING_KEY)) !== JSON.stringify(currentServersRaw)
 		) {
 			env.log("Settings import cancelled: the servers setting changed while the prompts were open");
-			await env.prompts.notify(
+			toast(
+				env,
 				"warning",
 				l10n.t(
 					"LiteLLM: The servers setting changed while the import was waiting for confirmation; nothing was changed. Run the import again."
@@ -746,7 +768,8 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				await env.writeSnapshotSlot(JSON.stringify(snapshot));
 			} catch (error) {
 				env.log("Settings import cancelled: the undo snapshot could not be saved", { error: errorLabel(error) });
-				await env.prompts.notify(
+				toast(
+					env,
 					"error",
 					l10n.t("LiteLLM: The import was cancelled because the undo snapshot could not be saved; nothing was changed.")
 				);
@@ -764,12 +787,13 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			env.requestServerSync();
 		} else {
 			const { serversValue, secretWrites, settingsWrites } = application;
-			// The unit is one write to the engine; the toasts wait outside the hold, so the engine runs while they show.
+			// The unit is one write to the engine; the toasts show outside the hold, so the engine runs while they are up.
 			const applied = await env.withServerSyncHold(() =>
 				applyServersUnit(env, currentServersRaw, serversValue, secretWrites, settingsWrites)
 			);
 			if (applied.outcome === "rollback-failed") {
-				await env.prompts.notify(
+				toast(
+					env,
 					"error",
 					`${l10n.t("LiteLLM: The settings import failed, and some stored server secrets could not be restored.")}\n${l10n.t(
 						"Undo Import restores the pre-import state; alternatively, edit each affected server in the dashboard or use the Set Server Secret command."
@@ -781,7 +805,8 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			if (applied.outcome === "stale" || applied.outcome === "rolled-back") {
 				// Nothing landed, so the previous import's undo slot comes back.
 				await restorePreviousSlot();
-				await env.prompts.notify(
+				toast(
+					env,
 					applied.outcome === "stale" ? "warning" : "error",
 					applied.outcome === "stale"
 						? l10n.t(
@@ -884,14 +909,15 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			secretWrites: application.secretWrites.length,
 		});
 		// No snapshot guards a run that wrote nothing (or landed nothing), so it has no undo.
-		await env.prompts.notify(
+		toast(
+			env,
 			failedKeys.length > 0 || fileRemarks > 0 ? "warning" : "info",
 			notes.join(" "),
 			writesNothing || !landedAnything ? [] : [undoImportAction(env)]
 		);
 	} catch (error) {
 		env.log("Settings import failed", { error: errorLabel(error) });
-		await env.prompts.notify("error", l10n.t("LiteLLM: The settings import failed."));
+		toast(env, "error", l10n.t("LiteLLM: The settings import failed."));
 	}
 }
 
@@ -993,8 +1019,9 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 	return { settings, blobs, at: parsed.at };
 }
 
-async function notifyKeptSnapshot(env: SettingsTransferEnv, failures: number): Promise<void> {
-	await env.prompts.notify(
+function notifyKeptSnapshot(env: SettingsTransferEnv, failures: number): void {
+	toast(
+		env,
 		"warning",
 		failures === 1
 			? l10n.t(
@@ -1039,7 +1066,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 	try {
 		const slot = await env.readSnapshotSlot();
 		if (slot === undefined) {
-			await env.prompts.notify("info", l10n.t("LiteLLM: There is no settings import to undo."));
+			toast(env, "info", l10n.t("LiteLLM: There is no settings import to undo."));
 			return;
 		}
 		const snapshot = parseSnapshotSlot(slot);
@@ -1048,10 +1075,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			// it is cleared.
 			env.log("Undo import: the stored snapshot could not be parsed; the slot was cleared");
 			await env.clearSnapshotSlot();
-			await env.prompts.notify(
-				"error",
-				l10n.t("LiteLLM: The stored undo snapshot could not be read, so nothing was restored.")
-			);
+			toast(env, "error", l10n.t("LiteLLM: The stored undo snapshot could not be read, so nothing was restored."));
 			return;
 		}
 		const restore = planSnapshotRestore(snapshot);
@@ -1094,7 +1118,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			targetBlobs
 		).length;
 
-		// The restore is one write to the engine; the toasts wait outside the hold, so the engine runs while they show.
+		// The restore is one write to the engine; the toasts show outside the hold, so the engine runs while they are up.
 		const outcome = await env.withServerSyncHold(
 			async (): Promise<{ kind: "nothing-restored" } | { kind: "restored"; failures: number }> => {
 				try {
@@ -1161,14 +1185,14 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			}
 		);
 		if (outcome.kind === "nothing-restored") {
-			await notifyKeptSnapshot(env, 1);
+			notifyKeptSnapshot(env, 1);
 			return;
 		}
 		if (outcome.failures > 0) {
 			// The slot is kept: what failed this time may succeed on a retry,
 			// and clearing it would strand the un-restored remainder.
 			env.log("Undo import: some restore steps failed; the snapshot was kept", { failures: outcome.failures });
-			await notifyKeptSnapshot(env, outcome.failures);
+			notifyKeptSnapshot(env, outcome.failures);
 			return;
 		}
 		await env.clearSnapshotSlot();
@@ -1192,10 +1216,10 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 						)
 			);
 		}
-		await env.prompts.notify("info", summary.join(" "));
+		toast(env, "info", summary.join(" "));
 	} catch (error) {
 		env.log("Undo import failed", { error: errorLabel(error) });
-		await env.prompts.notify("error", l10n.t("LiteLLM: The undo failed; the snapshot was kept."));
+		toast(env, "error", l10n.t("LiteLLM: The undo failed; the snapshot was kept."));
 	}
 }
 
