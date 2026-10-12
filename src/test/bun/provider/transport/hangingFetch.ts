@@ -13,11 +13,15 @@ function hangBeforeHeaders(signal: Signal): Promise<Response> {
 	});
 }
 
-/** Answers HTTP 200 at once with a body that never flows and never notices the signal. */
-function stallAfterHeaders(): Promise<Response> {
+/** Answers `status` at once with a body that never flows and never notices the signal. */
+export function stalledBody(status: number): Promise<Response> {
 	return Promise.resolve(
-		new Response(new ReadableStream(), { status: 200, headers: { "content-type": "application/json" } })
+		new Response(new ReadableStream(), { status, headers: { "content-type": "application/json" } })
 	);
+}
+
+function stallAfterHeaders(): Promise<Response> {
+	return stalledBody(200);
 }
 
 export type Hang = (signal: Signal) => Promise<Response>;

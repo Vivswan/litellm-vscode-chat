@@ -5,7 +5,7 @@ import type { BackoffSleep } from "../../../../provider/transport/retry";
 import { retryBudgetMs } from "../../../../provider/transport/retry";
 import { RequestError } from "../../../../provider/transport/transportErrors";
 import { DISCOVERY_MAX_RETRIES } from "../../../../shared/config/settingSpec";
-import { HANG_PHASES, type Hang } from "./hangingFetch";
+import { HANG_PHASES, type Hang, stalledBody } from "./hangingFetch";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";
 const CONFIG: OAuthConfig = { tokenUrl: TOKEN_URL, clientId: "client-1", clientSecret: "secret-1" };
@@ -65,4 +65,23 @@ describe("the OAuth token exchange retries a timed-out attempt", () => {
 			expect(elapsed).toBeLessThan(retryBudgetMs(ATTEMPT_TIMEOUT_MS, DISCOVERY_MAX_RETRIES));
 		}
 	);
+
+	test("a 401 whose body stalls is the exchange's final refusal in its own vocabulary, after one request", async () => {
+		// Regression: the stalled body ran out the attempt clock, so the refusal was retried and reported as a timeout.
+		let requests = 0;
+		globalThis.fetch = ((_url: unknown, _init?: RequestInit) => {
+			requests += 1;
+			return stalledBody(401);
+		}) as typeof fetch;
+		const failure = await new OAuthTokenSource(noBackoff).getToken(CONFIG, "discovery", BUDGET).then(
+			() => undefined,
+			(error: unknown) => error
+		);
+		expect(failure).toBeInstanceOf(RequestError);
+		const error = failure as RequestError;
+		expect(error.kind).toBe("auth");
+		expect(error.status).toBe(401);
+		expect(error.message).toContain("refused to issue a token");
+		expect(requests).toBe(1);
+	});
 });

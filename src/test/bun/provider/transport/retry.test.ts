@@ -3,22 +3,26 @@ import { APIConnectionTimeoutError, APIError } from "openai";
 import type { BackoffSleep } from "../../../../provider/transport/retry";
 import { retryBudgetMs, retryFetch } from "../../../../provider/transport/retry";
 import { sleepUnlessAborted } from "../../../../shared/util/timer";
-import { HANG_PHASES, type Hang } from "./hangingFetch";
+import { HANG_PHASES, type Hang, stalledBody } from "./hangingFetch";
 
 /** Per attempt, far below any real setting: the clocks under test are the attempt's and the budget's. */
 const ATTEMPT_TIMEOUT_MS = 50;
 const MAX_RETRIES = 2;
 const noBackoff: BackoffSleep = () => Promise.resolve();
 
-/** Hangs for the first `hangs` attempts and answers `{"served":true}` after; the judge returns the parsed body. */
-function hangingServer(hang: Hang, hangs: number, signal?: AbortSignal) {
+function fakeServer(
+	respond: (attempt: number, signal: AbortSignal) => Promise<Response> | undefined,
+	signal?: AbortSignal
+) {
 	let attempts = 0;
+	const judged: number[] = [];
 	const call = retryFetch(
 		(attemptSignal) => {
 			attempts += 1;
-			return attempts <= hangs ? hang(attemptSignal) : Promise.resolve(Response.json({ served: true }));
+			return respond(attempts, attemptSignal) ?? Promise.resolve(Response.json({ served: true }));
 		},
 		({ response, text }) => {
+			judged.push(response.status);
 			if (!response.ok) {
 				throw new APIError(response.status, undefined, undefined, undefined);
 			}
@@ -26,8 +30,17 @@ function hangingServer(hang: Hang, hangs: number, signal?: AbortSignal) {
 		},
 		{ attemptTimeoutMs: ATTEMPT_TIMEOUT_MS, maxRetries: MAX_RETRIES, signal, sleep: noBackoff }
 	);
-	return { call, attempts: () => attempts };
+	return { call, attempts: () => attempts, judged };
 }
+
+const hangingServer = (hang: Hang, hangs: number, signal?: AbortSignal) =>
+	fakeServer((attempt, attemptSignal) => (attempt <= hangs ? hang(attemptSignal) : undefined), signal);
+
+const stallingServer = (statuses: readonly number[], signal?: AbortSignal) =>
+	fakeServer((attempt) => {
+		const status = statuses[attempt - 1];
+		return status === undefined ? undefined : stalledBody(status);
+	}, signal);
 
 describe("retryFetch runs each attempt on its own clock inside the retry budget", () => {
 	// Regression: the plain-fetch callers (the usage GETs, the OAuth exchange) bounded the whole call with one
@@ -142,5 +155,48 @@ describe("retryFetch runs each attempt on its own clock inside the retry budget"
 		expect(attempts).toBe(2);
 		expect(abortedInsideAttemptMs).toBeLessThan(attemptTimeoutMs);
 		expect(failure).toBe(reason);
+	});
+});
+
+describe("retryFetch keeps a non-OK status whose body stalls", () => {
+	// Regression: the body read ran under the attempt clock with no look at the headers, so a 401 whose body never
+	// flowed was retried as a timeout, every attempt ran, and the callers reported the clock instead of the refusal.
+	test.each([
+		[401, 1],
+		[503, MAX_RETRIES + 1],
+	])(
+		"every attempt answering a %i whose body stalls ends as that status after %i attempt(s), never as the clock",
+		async (status, attempts) => {
+			const server = stallingServer([status, status, status]);
+			const failure = await server.call.then(
+				() => undefined,
+				(error: unknown) => error
+			);
+			expect(failure).toBeInstanceOf(APIError);
+			expect((failure as APIError).status).toBe(status);
+			expect(server.judged).toEqual(Array<number>(attempts).fill(status));
+			expect(server.attempts()).toBe(attempts);
+		}
+	);
+
+	test("a 503 whose body stalls is retried by its status and the next attempt's answer serves", async () => {
+		const server = stallingServer([503]);
+		expect(await server.call).toEqual({ served: true });
+		expect(server.judged).toEqual([503, 200]);
+		expect(server.attempts()).toBe(2);
+	});
+
+	test("the caller's abort during a stalled 401 body ends the call with the caller's reason, unjudged", async () => {
+		const controller = new AbortController();
+		const reason = new Error("caller left");
+		const server = stallingServer([401], controller.signal);
+		setTimeout(() => controller.abort(reason), ATTEMPT_TIMEOUT_MS / 5);
+		const failure = await server.call.then(
+			() => undefined,
+			(error: unknown) => error
+		);
+		expect(failure).toBe(reason);
+		expect(server.judged).toEqual([]);
+		expect(server.attempts()).toBe(1);
 	});
 });

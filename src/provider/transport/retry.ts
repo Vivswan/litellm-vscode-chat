@@ -93,8 +93,10 @@ export async function retryIdempotent<T>(attempt: () => Promise<T>, options: Ret
 }
 
 /**
- * What one attempt answered, the body read whole under the attempt's clock: a stream that stalls after the headers
- * times out like a connect that never finished.
+ * What one attempt answered, the body read whole under the attempt's clock, so an OK stream that stalls after the
+ * headers times out like a connect that never finished. A non-OK response whose body is lost to that clock or the
+ * socket is judged on its status with an empty `text`, as the SDK does. The caller's abort and the budget's still
+ * end the call unjudged.
  */
 export interface FetchAnswer {
 	readonly response: Response;
@@ -140,8 +142,10 @@ export function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Prom
  * `attemptTimeoutMs` for its headers and body together, and the whole call ends at retryBudgetMs of it. Every failure
  * leaves in the SDK's vocabulary, so the one retry rule above judges it and the caller maps it once.
  *   the caller's signal aborting              -> rethrown as-is, never retried
- *   an attempt's clock, or the budget         -> APIConnectionTimeoutError
+ *   the budget                                -> APIConnectionTimeoutError
+ *   an attempt's clock                        -> APIConnectionTimeoutError
  *   a connect failure or a socket death       -> APIConnectionError carrying the cause
+ *   either of those two over a non-OK body    -> judged on its status instead, the body unread, so a 401 is final
  *   what `judge` throws                       -> retried when the rule says so (an APIError 5xx), final otherwise
  */
 export async function retryFetch<T>(
@@ -157,20 +161,24 @@ export async function retryFetch<T>(
 			async () => {
 				const attemptClock = AbortSignal.timeout(attemptTimeoutMs);
 				const signal = AbortSignal.any([bounds, attemptClock]);
-				let answer: FetchAnswer;
-				try {
-					const response = await request(signal);
-					// Raced against the signal, so a body that never flows and never watches it still ends on the clock.
-					answer = { response, text: await abortableWait(response.text(), signal) };
-				} catch (error) {
+				const failAttempt = (error: unknown): never => {
 					if (bounds.aborted) {
 						throw error;
 					}
 					throw attemptClock.aborted
 						? new APIConnectionTimeoutError()
 						: new APIConnectionError({ cause: error instanceof Error ? error : undefined });
-				}
-				return judge(answer);
+				};
+				const response = await request(signal).catch(failAttempt);
+				// Raced against the signal, so a body that never flows and never watches it still ends on the clock.
+				const text = await abortableWait(response.text(), signal).catch((error: unknown) => {
+					// The headers already named the verdict; only the caller's or the budget's abort outranks it.
+					if (response.ok || bounds.aborted) {
+						failAttempt(error);
+					}
+					return "";
+				});
+				return judge({ response, text });
 			},
 			{ maxRetries, signal: bounds, ...(sleep !== undefined ? { sleep } : {}) }
 		);
