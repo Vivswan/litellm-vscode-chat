@@ -75,7 +75,7 @@ const COMMAND_ICONS: Readonly<Partial<Record<CommandKey, string>>> = {
 	reviewDeleteThread: "$(trash)",
 };
 
-export function renderCommands(): ContributedCommand[] {
+function renderCommands(): ContributedCommand[] {
 	return (Object.keys(CMD) as CommandKey[]).map((key): ContributedCommand => {
 		const icon = COMMAND_ICONS[key];
 		return {
@@ -101,7 +101,7 @@ interface ContributedMenus {
 	readonly commandPalette: readonly PaletteItem[];
 }
 
-export interface CommentThreadItem<Key extends string = string> {
+interface CommentThreadItem<Key extends string = string> {
 	readonly command: Key;
 	readonly group: `inline@${number}`;
 	readonly thread?: "resolved" | "unresolved";
@@ -279,7 +279,7 @@ export function renderAgentTool(
  * contributes.languageModelTools: the consult tool, gated on the readiness context key the wiring publishes (the
  * enable boolean alone would advertise the half-configured state), then the agent tools in table order.
  */
-export function renderLanguageModelTools(): ContributedTool[] {
+function renderLanguageModelTools(): ContributedTool[] {
 	return [
 		toolEntry({
 			name: TOOL_NAME,
@@ -295,13 +295,13 @@ export function renderLanguageModelTools(): ContributedTool[] {
 }
 
 /** A disambiguation block: the classifier's category id and how many examples the nls table carries for it. */
-export interface Disambiguation {
+interface Disambiguation {
 	/** Machine-readable and stable, so deliberately not localized. */
 	readonly category: string;
 	readonly examples: number;
 }
 
-export interface SlashCommandPresentation extends Disambiguation {
+interface SlashCommandPresentation extends Disambiguation {
 	/** Whether the command stays in the chat input after an answer. */
 	readonly isSticky: boolean;
 }
@@ -427,7 +427,7 @@ export function renderChatParticipants(inputs: ParticipantInputs = liveParticipa
 	];
 }
 
-export function renderMcpServerDefinitionProviders(): { readonly id: string; readonly label: string }[] {
+function renderMcpServerDefinitionProviders(): { readonly id: string; readonly label: string }[] {
 	return [{ id: MCP_PROVIDER_ID, label: "%litellm.mcp.label%" }];
 }
 

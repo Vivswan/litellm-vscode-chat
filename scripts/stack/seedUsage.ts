@@ -49,7 +49,7 @@ async function callAdmin(baseUrl: string, masterKey: string, route: string, body
  * re-pinned - identity included, so a reused dev database cannot drift - but never its accumulated spend: the budget is
  * deterministic, the spend is the data under test.
  */
-export async function seedUsageBudgetKey(baseUrl: string, masterKey: string): Promise<void> {
+async function seedUsageBudgetKey(baseUrl: string, masterKey: string): Promise<void> {
 	await waitForProxy(baseUrl);
 	const declaredFields = {
 		key_alias: USAGE_SEED_KEY.alias,

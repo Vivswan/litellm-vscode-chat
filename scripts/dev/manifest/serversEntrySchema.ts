@@ -15,7 +15,7 @@ import {
 import { HEADER_SCALAR_TYPES } from "../../../src/shared/util/headers";
 
 export type JsonObject = { readonly [key: string]: JsonValue };
-export type JsonValue = string | number | boolean | null | JsonObject | readonly JsonValue[];
+type JsonValue = string | number | boolean | null | JsonObject | readonly JsonValue[];
 
 function nls(path: string): string {
 	return `%litellm.config.servers.${path}.description%`;
