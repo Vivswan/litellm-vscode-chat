@@ -59,7 +59,19 @@ export type HeaderValue = string & { readonly [headerValueBrand]: true };
  * form, the host boundary, and the request-path narrowing all read through it.
  */
 export function trimHttpWhitespace(value: string): string {
-	return value.replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, "");
+	let start = 0;
+	let end = value.length;
+	while (start < end && isHttpWhitespace(value.charCodeAt(start))) {
+		start++;
+	}
+	while (end > start && isHttpWhitespace(value.charCodeAt(end - 1))) {
+		end--;
+	}
+	return value.slice(start, end);
+}
+
+function isHttpWhitespace(code: number): boolean {
+	return code === 0x09 || code === 0x0a || code === 0x0d || code === 0x20;
 }
 
 /**

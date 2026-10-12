@@ -9,7 +9,11 @@ export type NormalizedBaseUrl = string & { readonly [normalizedBaseUrlBrand]: tr
  * because groupClientId embeds the output in group identities and older records hold spellings as typed.
  */
 export function normalizeBaseUrl(baseUrl: string): NormalizedBaseUrl {
-	return baseUrl.replace(/\/+$/, "") as NormalizedBaseUrl;
+	let end = baseUrl.length;
+	while (end > 0 && baseUrl.charCodeAt(end - 1) === 0x2f) {
+		end--;
+	}
+	return baseUrl.slice(0, end) as NormalizedBaseUrl;
 }
 
 /**
