@@ -148,7 +148,8 @@ export async function runConnectionTest(
 		try {
 			refreshedGroups = (await provider.refreshGroups()).refreshedGroups;
 		} catch (error) {
-			// The failing probes already reported their error statuses; the toast below reads them.
+			// Every probe contains its own failure (provider/index.ts probeGroup), so a thrown pass leaves no fresh server
+			// status to read: freshStatus sees a pass with no report.
 			logger.error("Connection test failed", error);
 		}
 
@@ -288,7 +289,8 @@ async function runModelSyncPass(
 		try {
 			refreshedGroups = (await provider.refreshGroups()).refreshedGroups;
 		} catch (error) {
-			// The failing refresh already reported an error status; the toast below reads it.
+			// Every probe contains its own failure (provider/index.ts probeGroup), so a thrown pass leaves no fresh server
+			// status to read: freshStatus sees a pass with no report.
 			logger.error("Model sync failed", error);
 		}
 
