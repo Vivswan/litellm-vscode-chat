@@ -515,6 +515,34 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	expect(root.textContent).toContain("saved, but the group sync failed");
 });
 
+test("a validation failure stays with the page that refused it: the list behind it raises no banner", () => {
+	// The page keeps a validation failure beside the draft (saveFailureDisposition "edit"); the list's own hook hears
+	// the same envelope, and once showed the refusal a second time to a reader who had left the page.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	fireClick(buttonByText(root, "Add your first server"));
+	fireInput(inputByLabel(root, "Label"), "Prod");
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+	resetPosted();
+	fireClick(buttonByText(root, "Save"));
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	pushToWebview({
+		kind: "fail",
+		id: saved.id,
+		method: "saveServerSetting",
+		message: "label: reserved name",
+		failureKind: "validation",
+	});
+	expect(root.querySelector(".form-card")).not.toBeNull();
+	expect(root.textContent).toContain("Label: reserved name");
+
+	fireClick(buttonByText(root, "Discard changes"));
+	fireClick(buttonByText(document.querySelector(".confirm-dialog") as HTMLElement, "Discard"));
+	expect(root.querySelector(".form-card")).toBeNull();
+	expect(root.querySelector(".banner-error")).toBeNull();
+	expect(root.textContent).not.toContain("reserved name");
+});
+
 function apiVersionControl(root: HTMLElement): { select: HTMLSelectElement } {
 	const select = root.querySelector<HTMLSelectElement>("#server-apiVersion-mode");
 	if (select === null) {

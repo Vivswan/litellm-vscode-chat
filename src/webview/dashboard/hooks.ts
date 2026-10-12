@@ -1,5 +1,7 @@
 /**
- * useRpc (reads): latest send wins, earlier answers are orphaned; two in-flight reads are two hook instances.
+ * useRpc (reads): latest send wins, earlier answers are orphaned; two in-flight reads are two hook instances. A re-send
+ * of the payload already asked is a refresh (every state push re-asks the open views) and keeps the held answer until
+ * the new one lands; a different payload is a new question and drops it.
  * useIntentOutcome (acked intents): holds the method's latest ack/fail, seq-tagged so repeats with equal text still
  * re-fire effects.
  */
@@ -30,16 +32,13 @@ export interface RpcState<K extends ReadMethod> {
 
 export function useRpc<K extends ReadMethod>(method: K): RpcState<K> {
 	const [data, setData] = useState<ResponseFor<K> | undefined>(undefined);
-	const pendingId = useRef<string | undefined>(undefined);
+	// The newest request's id and the question it asked, serialized: payloads are plain wire data built at one call
+	// site each, so equal questions serialize equal.
+	const pending = useRef<{ readonly id: string; readonly question: string } | undefined>(undefined);
 	useEffect(() => {
 		const onMessage = (event: MessageEvent) => {
 			const message = asExtensionMessage(event.data);
-			if (
-				message?.kind === "response" &&
-				message.method === method &&
-				pendingId.current !== undefined &&
-				message.id === pendingId.current
-			) {
+			if (message?.kind === "response" && message.method === method && message.id === pending.current?.id) {
 				setData(message.payload as ResponseFor<K>);
 			}
 		};
@@ -48,13 +47,16 @@ export function useRpc<K extends ReadMethod>(method: K): RpcState<K> {
 	}, [method]);
 	const send = useCallback(
 		(payload: RequestPayload<K>) => {
-			pendingId.current = sendRequest(method, payload);
-			setData(undefined);
+			const question = JSON.stringify(payload);
+			if (pending.current?.question !== question) {
+				setData(undefined);
+			}
+			pending.current = { id: sendRequest(method, payload), question };
 		},
 		[method]
 	);
 	const reset = useCallback(() => {
-		pendingId.current = undefined;
+		pending.current = undefined;
 		setData(undefined);
 	}, []);
 	return { data, send, reset };

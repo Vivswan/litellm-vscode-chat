@@ -239,8 +239,9 @@ test("the record-path figure closes its section in the open: nothing in the pane
 });
 
 test("a state push leaves the record path on screen instead of hiding it under the reader", () => {
-	// A state push orphans the answers (fresh requestIds), so the figure unmounts until the new answer lands; what
-	// comes back must be the same visible figure, never a re-collapsed one.
+	// A state push re-asks with a fresh requestId; the figure stays mounted while the answer is in flight (a blank
+	// here unmounted the open tables on every usage poll), and what comes back is the same visible figure, never a
+	// re-collapsed one.
 	const chains = [
 		{
 			layer: "global" as const,
@@ -266,9 +267,11 @@ test("a state push leaves the record path on screen instead of hiding it under t
 	answer();
 	expect(container.querySelector(".record-chain")).not.toBeNull();
 
+	const figure = container.querySelector(".record-chain");
 	void act(() => {
 		render(<ModelInspector currencySymbol="$" {...props} stateSeq={1} />, container);
 	});
+	expect(container.querySelector(".record-chain")?.isSameNode(figure)).toBe(true);
 	answer();
 	expect(container.querySelector(".record-chain")).not.toBeNull();
 	expect(container.querySelector("details")).toBeNull();
@@ -914,6 +917,28 @@ test("declared, directive-not-found, inherited fields, and diagnostics all rende
 	expect(text).toContain('"supports_web_search" is not a field this extension knows');
 });
 
+test("the directive-not-found note is a standing status: one node across a push, never an alert", () => {
+	// The note is about the configuration, not an event; as a bare role="alert" it was re-spoken on every usage poll,
+	// and the visual-language doc has a standing failure spoken once.
+	const inspected = makeModel();
+	const container = mount(<ModelInspector currencySymbol="$" model={inspected} stateSeq={0} onClose={() => {}} />);
+	const answer = () =>
+		respondTo(lastRequest("readModelCapabilities"), {
+			capabilities: makeCapabilities({ directive: { kind: "not-found", id: "openai/nope" } }),
+		});
+	answer();
+	const note = container.querySelector("p.state-warn");
+	expect(note?.textContent).toContain('"openai/nope" was not found');
+	expect(note?.getAttribute("role")).toBe("status");
+
+	void act(() => {
+		render(<ModelInspector currencySymbol="$" model={inspected} stateSeq={1} onClose={() => {}} />, container);
+	});
+	answer();
+	expect(container.querySelector("p.state-warn")?.isSameNode(note)).toBe(true);
+	expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
 /**
  * A name cell's VISIBLE text: a labeled field renders its label inside the wire-key tip (the tooltip text would
  * otherwise concatenate onto textContent), an open field renders its raw key directly.
@@ -1280,8 +1305,8 @@ test("the Diagnostics jump links open the merged panel scrolled to their section
 });
 
 test("the anchor stops re-scrolling for good once both feeds have answered", () => {
-	// Readiness flips false again on every state push (fresh requestIds orphan the old answers) - a reader who scrolled
-	// away must not be yanked back to the anchor by a configuration change landing minutes later.
+	// A state push re-asks both feeds; whether the held answers stay or are replaced, a reader who scrolled away must
+	// not be yanked back to the anchor by a configuration change landing minutes later.
 	const landings: string[] = [];
 	const original = Element.prototype.scrollIntoView;
 	Element.prototype.scrollIntoView = function (this: Element) {

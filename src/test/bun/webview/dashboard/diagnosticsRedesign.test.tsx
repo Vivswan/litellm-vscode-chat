@@ -12,6 +12,7 @@ import {
 	mount,
 	postedCalls,
 	postedRequests,
+	render,
 	resetPosted,
 	respondTo,
 } from "../harness";
@@ -548,6 +549,38 @@ describe("Resolved models", () => {
 			/>
 		);
 		expect(postedRequests("readResolvedModels")).toHaveLength(0);
+	});
+
+	test("a state push re-asks without taking the table or the filter from under the reader", () => {
+		// The host pushes at the start AND the end of every usage pass; a blank between the re-ask and its answer
+		// unmounted the filter input mid-word and dropped focus on every poll.
+		const props = {
+			servers: [makeDeclaredServer()],
+			verdictRows: [{ state: "ok" as const, servedModelCount: 2 }],
+			modelCount: 2,
+			diagnostics: [],
+			active: true,
+			onInspect: () => undefined,
+		};
+		const root = mount(<DiagnosticsSection currencySymbol="$" {...props} stateSeq={0} />);
+		respondTo(lastRequest("readResolvedModels"), { view: makeView() });
+		const filter = root.querySelector('input[aria-label="Filter resolved models"]') as HTMLInputElement;
+		fireInput(filter, "claude");
+		const modelCells = () =>
+			Array.from(root.querySelectorAll("table.resolved-models tbody tr")).map((row) =>
+				(row.querySelector("td")?.textContent ?? "").trim()
+			);
+		expect(modelCells()).toEqual(["claude-4"]);
+
+		render(<DiagnosticsSection currencySymbol="$" {...props} stateSeq={1} />, root);
+		expect(postedRequests("readResolvedModels")).toHaveLength(2);
+		expect(root.querySelector('input[aria-label="Filter resolved models"]')?.isSameNode(filter)).toBe(true);
+		expect(filter.value).toBe("claude");
+		expect(modelCells()).toEqual(["claude-4"]);
+
+		respondTo(lastRequest("readResolvedModels"), { view: makeView() });
+		expect(root.querySelector('input[aria-label="Filter resolved models"]')?.isSameNode(filter)).toBe(true);
+		expect(modelCells()).toEqual(["claude-4"]);
 	});
 
 	test("draws the tree with fields, marks, barriers, leaves, and invalid keys", () => {

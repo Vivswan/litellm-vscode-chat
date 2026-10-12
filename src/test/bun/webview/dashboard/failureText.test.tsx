@@ -75,12 +75,12 @@ test("a two-part server failure banner renders the framed headline plus a detail
 	pushToWebview({
 		kind: "fail",
 		id: "req-1",
-		method: "saveServerSetting",
+		method: "removeServerSetting",
 		message: "The entry could not be written.\nsettings.json is read-only",
 		failureKind: "validation",
 	});
 	const banner = root.querySelector(".banner-error");
-	expect(banner?.textContent).toContain("Saving the server failed: The entry could not be written.");
+	expect(banner?.textContent).toContain("Removing failed: The entry could not be written.");
 	expect(banner?.querySelector(".failure-detail")?.textContent).toBe("settings.json is read-only");
 });
 

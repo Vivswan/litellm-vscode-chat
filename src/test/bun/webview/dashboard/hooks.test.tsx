@@ -59,6 +59,37 @@ test("useRpc latest-wins: a rapid re-request orphans the in-flight answer, and o
 	expect(output()).toBe("fresh/model");
 });
 
+test("useRpc holds the answer through a same-payload refresh and drops it only for a new question", () => {
+	// Every state push re-asks the open views; a blank between the re-ask and its answer unmounted the resolved-models
+	// filter and the inspector's tables under the reader on every usage poll.
+	const holder: { current?: RpcState<"searchCatalog"> } = {};
+	const root = mount(<RpcProbe holder={holder} />);
+	const output = () => root.querySelector("output")?.textContent;
+
+	send(holder, "query");
+	const [first] = postedRequests("searchCatalog");
+	if (first === undefined) {
+		throw new Error("the send must post");
+	}
+	respondTo(first, { results: [{ id: "held/model", name: "Held" }] });
+	expect(output()).toBe("held/model");
+
+	send(holder, "query");
+	const [, refresh] = postedRequests("searchCatalog");
+	if (refresh === undefined) {
+		throw new Error("the refresh must post");
+	}
+	expect(output()).toBe("held/model");
+	respondTo(first, { results: [{ id: "stale/model", name: "Stale" }] });
+	expect(output()).toBe("held/model");
+	respondTo(refresh, { results: [{ id: "fresh/model", name: "Fresh" }] });
+	expect(output()).toBe("fresh/model");
+
+	send(holder, "other");
+	expect(output()).toBe("loading");
+	expect(holder.current?.data).toBeUndefined();
+});
+
 test("useRpc reset drops the held answer and orphans the in-flight request", () => {
 	const holder: { current?: RpcState<"searchCatalog"> } = {};
 	const root = mount(<RpcProbe holder={holder} />);

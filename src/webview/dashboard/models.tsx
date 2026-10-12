@@ -210,13 +210,14 @@ interface Sort {
 	readonly dir: 1 | -1;
 }
 
+/** The price key is defined exactly where the row prints a price (isPriced), so the sort, the pill, and the row agree. */
 const SORT_VALUES: Record<SortKey, (model: DashboardModel) => string | number | undefined> = {
 	name: (model) => model.name.toLowerCase(),
 	family: (model) => model.family.toLowerCase(),
 	server: (model) => model.serverLabel.toLowerCase(),
 	input: (model) => model.maxInputTokens,
 	output: (model) => model.maxOutputTokens,
-	price: (model) => model.inputCost,
+	price: (model) => (isPriced(model) ? (model.inputCost ?? 0) + (model.outputCost ?? 0) : undefined),
 };
 
 /** Rows without the sorted value (e.g. unpriced models) sink to the bottom in either direction. */

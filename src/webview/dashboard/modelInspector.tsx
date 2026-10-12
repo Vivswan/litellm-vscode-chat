@@ -711,8 +711,8 @@ export function ModelInspector({
 
 	// The Diagnostics jump's landing: move focus once (the slide-over's first-field focus must not win, later re-runs
 	// must not yank), then re-scroll as each answer lands - content filling in above the target moves it. Re-scrolls
-	// stop FOR GOOD once both feeds answered once: readiness flips false on every push, and a reader who scrolled away
-	// must not be yanked back by a configuration change minutes later.
+	// stop FOR GOOD once both feeds answered once: a reader who scrolled away must not be yanked back by whatever
+	// re-renders the panel minutes later.
 	const paramsReady = answeredParams !== undefined;
 	const capsReady = answeredCaps !== undefined;
 	const anchorFocused = useRef(false);
@@ -994,8 +994,10 @@ export function ModelInspector({
 									{l10n.t("Declared model: created by the entry's declared list, not discovered on the server.")}
 								</p>
 							) : null}
+							{/* A standing note about the configuration, not an event: status, never alert, so a push that
+							    re-renders the panel does not re-announce it. */}
 							{caps.directive?.kind === "not-found" ? (
-								<p className="state-warn" role="alert">
+								<p className="state-warn" role="status">
 									{l10n.t(
 										'OpenRouter model "{0}" was not found in the catalog; its fields fill from the remaining levels.',
 										caps.directive.id
