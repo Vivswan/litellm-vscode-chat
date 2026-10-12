@@ -1,9 +1,9 @@
 import ts from "typescript";
 
 /**
- * Line numbers (1-based) of default exports (`export default ...`, `export =`, `export { x as default }`). Both census
- * walks follow call-site NAMES, and a default export is the one shape that breaks that - every importer mints its own
- * name - so the gate keeps it out of shipped source entirely.
+ * Line numbers (1-based) of default exports (`export default ...`, `export =`, `export { x as default }`). The
+ * lazy-helper inference and the module-scope guard both follow call-site NAMES, and a default export is the one shape
+ * that breaks that - every importer mints its own name - so the gate keeps it out of shipped source entirely.
  */
 export function defaultExportOffenses(contents: string, fileName: string): number[] {
 	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;

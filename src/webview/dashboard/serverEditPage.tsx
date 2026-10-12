@@ -84,9 +84,9 @@ import type { FieldRenderProps } from "./serverFormFields";
 import {
 	COMMIT_BAR_CLASS,
 	CompanionNote,
-	FieldRow,
 	FieldSpan,
 	FieldUnderRow,
+	FormFieldRow,
 	FormSection,
 	fieldHasContent,
 	HeaderRowsEditor,
@@ -1079,7 +1079,7 @@ function ServerForm({
 						</p>
 					</FieldUnderRow>
 				) : null}
-				<FieldRow
+				<FormFieldRow
 					htmlFor="server-apiVersion-mode"
 					label={serverFormFieldLabel("apiVersion")}
 					help={
@@ -1102,9 +1102,9 @@ function ServerForm({
 						<option value="none">{l10n.t("No version - use the URL as-is")}</option>
 						<option value="custom">{l10n.t("Custom segment - type it below")}</option>
 					</Select>
-				</FieldRow>
+				</FormFieldRow>
 				{draft.apiVersion.mode === "custom" ? (
-					<FieldRow
+					<FormFieldRow
 						htmlFor="server-apiVersion"
 						label={l10n.t("Version segment")}
 						problem={visibleProblems.apiVersion}
@@ -1125,7 +1125,7 @@ function ServerForm({
 							}
 							onBlur={() => props.touch("apiVersion")}
 						/>
-					</FieldRow>
+					</FormFieldRow>
 				) : null}
 			</FormSection>
 			<FormSection
@@ -1133,7 +1133,7 @@ function ServerForm({
 				help={serverFieldHelp("authForm")}
 				docs={{ href: DOCS_LINK_AUTHENTICATION, label: l10n.t("Open the authentication guide") }}
 			>
-				<FieldRow label={l10n.t("Method")} wide={true}>
+				<FormFieldRow label={l10n.t("Method")} wide={true}>
 					{/* One per line: the four labels are very unequal, so a wrapping row lands differently at
 					    every pane width, and mutually exclusive options are read by scanning down. The cost
 					    is one row's height, paid once. */}
@@ -1154,7 +1154,7 @@ function ServerForm({
 							</label>
 						))}
 					</span>
-				</FieldRow>
+				</FormFieldRow>
 				{draft.authForm === "apiKey" ? (
 					<>
 						<SecretField field="apiKey" props={props} />
@@ -1219,7 +1219,7 @@ function ServerForm({
 				help={serverFieldHelp("modelParameters")}
 				docs={{ href: DOCS_LINK_MODEL_PARAMETERS, label: l10n.t("Open the model parameters guide") }}
 			>
-				<FieldRow label={l10n.t("Matchers")} wide={true}>
+				<FormFieldRow label={l10n.t("Matchers")} wide={true}>
 					{draft.modelParameters.length > 0 ? (
 						<RecordMatcherTable
 							kind="params"
@@ -1250,7 +1250,7 @@ function ServerForm({
 							<IconAdd /> {l10n.t("Add model matcher")}
 						</Button>
 					</div>
-				</FieldRow>
+				</FormFieldRow>
 			</FormSection>
 			<FormSection
 				quiet={true}
@@ -1259,7 +1259,7 @@ function ServerForm({
 				help={serverFieldHelp("modelCapabilities")}
 				docs={{ href: DOCS_LINK_MODEL_CAPABILITIES, label: l10n.t("Open the model capabilities guide") }}
 			>
-				<FieldRow label={l10n.t("Matchers")} wide={true}>
+				<FormFieldRow label={l10n.t("Matchers")} wide={true}>
 					{draft.modelCapabilities.length > 0 ? (
 						<RecordMatcherTable
 							kind="caps"
@@ -1290,7 +1290,7 @@ function ServerForm({
 							<IconAdd /> {l10n.t("Add capability matcher")}
 						</Button>
 					</div>
-				</FieldRow>
+				</FormFieldRow>
 			</FormSection>
 			<FormSection
 				quiet={true}
@@ -1299,7 +1299,7 @@ function ServerForm({
 				help={helpDiscoverySection()}
 				docs={{ href: DOCS_LINK_DECLARED_MODELS, label: l10n.t("Open the declared models guide") }}
 			>
-				<FieldRow
+				<FormFieldRow
 					htmlFor="server-declaredModels"
 					label={serverFormFieldLabel("declaredModels")}
 					help={
@@ -1319,8 +1319,8 @@ function ServerForm({
 						disabled={saving}
 						onChange={(event) => props.patch({ declaredModels: event.currentTarget.value })}
 					/>
-				</FieldRow>
-				<FieldRow
+				</FormFieldRow>
+				<FormFieldRow
 					label={serverFormFieldLabel("expectedFailures")}
 					help={
 						<Help
@@ -1358,9 +1358,9 @@ function ServerForm({
 							</label>
 						))}
 					</fieldset>
-				</FieldRow>
+				</FormFieldRow>
 				{offeredModes.length > 0 && (
-					<FieldRow
+					<FormFieldRow
 						label={serverFormFieldLabel("includeModes")}
 						help={
 							<Help
@@ -1394,7 +1394,7 @@ function ServerForm({
 								</label>
 							))}
 						</fieldset>
-					</FieldRow>
+					</FormFieldRow>
 				)}
 			</FormSection>
 			<FormSection
@@ -1403,18 +1403,18 @@ function ServerForm({
 				aside={l10n.t("optional")}
 				help={serverFieldHelp("headers")}
 			>
-				<FieldRow label={serverFormFieldLabel("headers")} wide={true}>
+				<FormFieldRow label={serverFormFieldLabel("headers")} wide={true}>
 					<HeaderRowsEditor
 						rows={draft.headers}
 						problems={headerRowProblems}
 						disabled={saving}
 						onChange={(next) => props.patch({ headers: next })}
 					/>
-				</FieldRow>
+				</FormFieldRow>
 				<TextField field="budget" narrow={true} placeholder={l10n.t("e.g. 50")} props={props} />
 			</FormSection>
 			<FormSection quiet={true} title={l10n.t("MCP")} aside={l10n.t("optional")} help={helpMcpSection()}>
-				<FieldRow
+				<FormFieldRow
 					label={serverFormFieldLabel("mcp")}
 					help={<Help text={serverFieldHelp("mcp")} name={l10n.t("Help: {0}", serverFormFieldLabel("mcp"))} />}
 				>
@@ -1426,11 +1426,11 @@ function ServerForm({
 						/>
 						{l10n.t("Make this server's MCP tools available in chat")}
 					</label>
-				</FieldRow>
+				</FormFieldRow>
 				{/* The endpoint row follows the API version's idiom: it exists only while the
 				    choice it belongs to is live, so an opted-out entry shows no dead input. */}
 				{draft.mcp.enabled ? (
-					<FieldRow
+					<FormFieldRow
 						htmlFor="server-mcp-url"
 						label={l10n.t("MCP endpoint")}
 						help={<Help text={helpMcpEndpoint()} name={l10n.t("Help: {0}", l10n.t("MCP endpoint"))} />}
@@ -1452,7 +1452,7 @@ function ServerForm({
 							onChange={(event) => props.patch({ mcp: { ...draft.mcp, url: event.currentTarget.value } })}
 							onBlur={() => props.touch("mcp")}
 						/>
-					</FieldRow>
+					</FormFieldRow>
 				) : null}
 			</FormSection>
 			<div className={COMMIT_BAR_CLASS}>

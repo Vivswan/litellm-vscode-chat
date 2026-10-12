@@ -11,7 +11,7 @@ import type { SecretFieldId } from "../../shared/serverEntry";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { BackToServers } from "./backToServers";
 import { helpAdoptionSection } from "./helpText";
-import { COMMIT_BAR_CLASS, FieldRow, FieldSpan, FormSection } from "./serverFormFields";
+import { COMMIT_BAR_CLASS, FieldSpan, FormFieldRow, FormSection } from "./serverFormFields";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Radio } from "./ui/radio";
@@ -78,7 +78,7 @@ export function AdoptForm({
 			    same no-<section> reason. */}
 			<SectionHeader titleId="server-form-title" level={3} title={l10n.t("Adopt {0}", server.label)} className="mt-6" />
 			<FormSection title={l10n.t("Adoption")} help={helpAdoptionSection()}>
-				<FieldRow
+				<FormFieldRow
 					htmlFor="adopt-label"
 					label={l10n.t("Label")}
 					hint={l10n.t(
@@ -101,14 +101,14 @@ export function AdoptForm({
 						}}
 						onBlur={() => setTouched(true)}
 					/>
-				</FieldRow>
-				<FieldRow label={l10n.t("Base URL")} hint={l10n.t("Editable after adopting.")}>
+				</FormFieldRow>
+				<FormFieldRow label={l10n.t("Base URL")} hint={l10n.t("Editable after adopting.")}>
 					{/* Plain dimmed text, never a disabled input, because a value that cannot
 					    be edited here must not look like one that merely refused. */}
 					<span className="readonly-value font-mono text-[12px] break-all text-muted-foreground">{server.baseUrl}</span>
-				</FieldRow>
+				</FormFieldRow>
 				{secretRows.map(({ field, hint }) => (
-					<FieldRow label={serverFormFieldLabel(field)} hint={hint} key={field}>
+					<FormFieldRow label={serverFormFieldLabel(field)} hint={hint} key={field}>
 						<span
 							className="secret-where flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground"
 							role="radiogroup"
@@ -140,7 +140,7 @@ export function AdoptForm({
 								{l10n.t("settings (visible)")}
 							</label>
 						</span>
-					</FieldRow>
+					</FormFieldRow>
 				))}
 				<FieldSpan>
 					<p className="hint m-0 text-[11.5px]">
