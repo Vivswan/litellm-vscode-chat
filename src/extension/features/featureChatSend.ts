@@ -3,6 +3,7 @@ import type { OneShotChatMessage, OneShotClient } from "../../provider/transport
 import { FEATURE_ERROR_SURFACE } from "../../provider/transport/transportErrors";
 import type { FeatureModelId, FeatureModelRef } from "../../shared/config/settingSpec";
 import { getRequestTimeout } from "../../shared/config/settings";
+import { Logger } from "../../shared/logger";
 import { entryConnectionFor } from "../servers/entryConnection";
 import { configuredServerUnavailable } from "./modelSettingError";
 
@@ -17,6 +18,10 @@ export type OneShotChatFeature = Exclude<FeatureModelId, "inlineCompletions">;
  * The one-shot chat features' one send composition, at the features/ root because features may not import each
  * other. models.parameters records deliberately do NOT apply on this send composition, and no max_tokens rides
  * along, so the model's own default bounds the answer.
+ *
+ * The reply enters the extension here, so this is where it passes the door: every feature on this pipeline (the
+ * quick-fix editor, the SCM input box, persisted review comments, the PR fields, the consult result) receives it
+ * masked and masks again only where its own parse may respell a value.
  */
 export async function featureChatSend(
 	feature: OneShotChatFeature,
@@ -30,15 +35,17 @@ export async function featureChatSend(
 	if (resolved.kind !== "resolved") {
 		throw configuredServerUnavailable(feature, ref.server, resolved);
 	}
-	return deps.oneShot.completeChatOnce(
-		resolved.connection,
-		{ model: ref.model, messages },
-		FEATURE_ERROR_SURFACE[feature],
-		{
-			// Minted where the number is read: this whole-call bound is the chat request timeout, so timeout advice
-			// names chat.timeout.
-			timeout: { ms: getRequestTimeout(log), setting: "chat.timeout" },
-			token,
-		}
+	return Logger.redact(
+		await deps.oneShot.completeChatOnce(
+			resolved.connection,
+			{ model: ref.model, messages },
+			FEATURE_ERROR_SURFACE[feature],
+			{
+				// Minted where the number is read: this whole-call bound is the chat request timeout, so timeout advice
+				// names chat.timeout.
+				timeout: { ms: getRequestTimeout(log), setting: "chat.timeout" },
+				token,
+			}
+		)
 	);
 }
