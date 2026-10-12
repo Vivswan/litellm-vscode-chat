@@ -1,3 +1,4 @@
+import type { Linter } from "eslint";
 import tseslint from "typescript-eslint";
 import { outputChannelWrites } from "./scripts/lint/outputChannelWrites";
 import { type AllowedRead, userTextReaders } from "./scripts/lint/userTextReaders";
@@ -12,7 +13,7 @@ const promiseRules = {
 	"@typescript-eslint/no-floating-promises": ["error", { checkThenables: true }],
 	"@typescript-eslint/no-misused-promises": "error",
 	"@typescript-eslint/await-thenable": "error",
-} as const;
+} satisfies Linter.RulesRecord;
 
 const REPO_ROOT_FIX =
 	"Repository paths under src/test come from REPO_ROOT: import it from src/test/util/repoRoot.ts and " +
@@ -23,6 +24,29 @@ const REPO_ROOT_FIX =
 const TEST_FILES = "src/test/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}";
 
 const SOURCE_FILES = "src/**/*.{ts,tsx,mts,cts}";
+
+const DEFAULT_EXPORT_MESSAGE =
+	"default export; the lazy-helper inference follows call-site names, and a default export lets every importer " +
+	"rename a helper out from under the guard - export it by name.";
+
+/**
+ * The l10n gate (scripts/l10n/check.ts) judges module-scope localization by the names call sites use, and a default
+ * export is the one shape where every importer picks its own name. Exported so the test replays the selectors the lint
+ * run applies. Top-level statements only, as the gate's walks read them; a type-only form mints nothing a call site can
+ * name, so it passes.
+ */
+export const DEFAULT_EXPORT_BAN = [
+	// export default <expression | function | class>; export default interface is type-only.
+	'Program > ExportDefaultDeclaration:not([declaration.type="TSInterfaceDeclaration"])',
+	// export = x
+	"Program > TSExportAssignment",
+	// export { x as default } and export { x as "default" }; export type { T as default } and export { type T as default }
+	// pass.
+	'Program > ExportNamedDeclaration[exportKind="value"] > ExportSpecifier[exportKind="value"]' +
+		':matches([exported.name="default"], [exported.value="default"])',
+	// export * as default from "./m"; export type * as default passes.
+	'Program > ExportAllDeclaration[exportKind="value"]:matches([exported.name="default"], [exported.value="default"])',
+].map((selector) => ({ selector, message: DEFAULT_EXPORT_MESSAGE }));
 
 /**
  * The settings readers: where a user's text is taken in, so a trim or number read there must go through the two homes
@@ -105,7 +129,7 @@ const DOORS = [
 
 const DOOR_FILES = [...new Set(DOORS.flatMap((entry) => entry.doors))];
 
-function restrictedApiRules(file?: string) {
+function restrictedApiRules(file?: string): Linter.RulesRecord {
 	const applicable = DOORS.filter((entry) => file === undefined || !(entry.doors as readonly string[]).includes(file));
 	return {
 		"no-restricted-properties": [
@@ -114,6 +138,7 @@ function restrictedApiRules(file?: string) {
 		],
 		"no-restricted-syntax": [
 			"error",
+			...DEFAULT_EXPORT_BAN,
 			...applicable.flatMap((entry) => entry.selectors.map((selector) => ({ selector, message: entry.message }))),
 		],
 	};
