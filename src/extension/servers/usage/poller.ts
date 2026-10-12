@@ -104,16 +104,18 @@ export interface UsageRefreshOutcome {
 	readonly servers: readonly UsageServerRefreshOutcome[];
 }
 
+/** "unsupported" never reaches the toast (actionableFailureText filters it), so only "forbidden" has a word. */
 function describeEndpointFailure(failure: UsageEndpointFailure): string {
 	const how =
 		failure.status !== undefined
 			? String(failure.status)
 			: failure.classification === "timeout"
-				? "timeout"
+				? l10n.t("timeout")
 				: failure.classification === "network"
-					? "network error"
-					: "failed";
-	return `${USAGE_ENDPOINT_PATHS[failure.endpoint]} ${how}${failure.reason !== undefined ? ` ${failure.reason}` : ""}`;
+					? l10n.t("network error")
+					: l10n.t("failed");
+	const reason = failure.reason === "forbidden" ? ` ${l10n.t("forbidden")}` : "";
+	return `${USAGE_ENDPOINT_PATHS[failure.endpoint]} ${how}${reason}`;
 }
 
 /**
@@ -123,10 +125,10 @@ function describeEndpointFailure(failure: UsageEndpointFailure): string {
  */
 function actionableFailureText(server: UsageServerRefreshOutcome): string | undefined {
 	if (server.secretsUnreadable === true) {
-		return `${server.label}: stored secrets unreadable`;
+		return l10n.t("{0}: stored secrets unreadable", server.label);
 	}
 	if (server.secretsMismatched === true) {
-		return `${server.label}: a stored secret belongs to a different server address`;
+		return l10n.t("{0}: a stored secret belongs to a different server address", server.label);
 	}
 	if (server.credentialsRefused !== undefined) {
 		return l10n.t(
@@ -139,11 +141,12 @@ function actionableFailureText(server: UsageServerRefreshOutcome): string | unde
 	if (failures.length === 0) {
 		return undefined;
 	}
-	return `${server.label}: ${failures.map(describeEndpointFailure).join(", ")}`;
+	return l10n.t("{0}: {1}", server.label, failures.map(describeEndpointFailure).join(", "));
 }
 
 /**
- * Template-only by construction: labels, endpoint paths, status numbers, and fixed vocabulary.
+ * Template-only by construction: labels, endpoint paths, status numbers, and fixed vocabulary, every word of it
+ * localized (the text is a user toast, vscodeEnv.ts).
  *
  *   partial failures and all-unsupported servers -> stay toast-free
  */

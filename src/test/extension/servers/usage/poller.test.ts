@@ -1,5 +1,8 @@
 import * as assert from "node:assert";
-import type { UsageFetchClient, UsagePollerEnv } from "../../../../extension/servers/usage/poller";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
+import * as l10n from "@vscode/l10n";
+import type { UsageFetchClient, UsagePollerEnv, UsageRefreshOutcome } from "../../../../extension/servers/usage/poller";
 import {
 	USAGE_ACTIVITY_WINDOW_DAYS,
 	UsagePoller,
@@ -17,6 +20,8 @@ import { activityWindow } from "../../../../extension/servers/usage/spendClient"
 import type { ServerUsageState, UsageAvailability, UsageChangeEvent } from "../../../../extension/servers/usage/store";
 import { RequestError } from "../../../../provider/transport/transportErrors";
 import type { Clock, Timer } from "../../../../shared/util/timer";
+import { expectDefined } from "../../../pureHelpers";
+import { REPO_ROOT } from "../../../util/repoRoot";
 
 class FakeTimer implements Timer {
 	readonly scheduled: { callback: () => void; ms: number; cancelled: boolean }[] = [];
@@ -989,6 +994,57 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(
 			usageRefreshFailureSummary(outcome),
 			"alpha: /key/info 401 forbidden, /user/daily/activity timeout; beta: /key/info 401 forbidden, /user/daily/activity timeout"
+		);
+	});
+
+	test("the refresh toast renders whole under the zh-cn bundle: every template and failure word is localized", () => {
+		// l10n:check sees only l10n.t literals, so a raw template or vocabulary word in the summary passes it and
+		// reaches a zh-cn user as a half-English toast; the English pins above hold under the fallback either way.
+		const zhCn = JSON.parse(readFileSync(path.join(REPO_ROOT, "l10n", "bundle.l10n.zh-cn.json"), "utf8")) as Record<
+			string,
+			string
+		>;
+		const zh = (key: string, ...args: readonly string[]): string =>
+			args.reduce((text, arg, index) => text.replaceAll(`{${index}}`, arg), expectDefined(zhCn[key], key));
+		const outcome: UsageRefreshOutcome = {
+			servers: [
+				{
+					label: "alpha",
+					succeededAny: false,
+					failures: [
+						{ endpoint: "keyInfo", classification: "http", status: 401, reason: "forbidden" },
+						{ endpoint: "dailyActivity", classification: "timeout" },
+						{ endpoint: "userInfo", classification: "network" },
+						{ endpoint: "keyInfo" },
+						{ endpoint: "dailyActivity", classification: "http", status: 404, reason: "unsupported" },
+					],
+				},
+				{ label: "beta", succeededAny: false, failures: [], secretsUnreadable: true },
+				{ label: "gamma", succeededAny: false, failures: [], secretsMismatched: true },
+			],
+		};
+
+		l10n.config({ contents: zhCn });
+		let summary: string | undefined;
+		try {
+			summary = usageRefreshFailureSummary(outcome);
+		} finally {
+			l10n.config({ contents: {} });
+		}
+
+		const endpoints = [
+			`/key/info 401 ${zh("forbidden")}`,
+			`/user/daily/activity ${zh("timeout")}`,
+			`/user/info ${zh("network error")}`,
+			`/key/info ${zh("failed")}`,
+		].join(", ");
+		assert.strictEqual(
+			summary,
+			[
+				zh("{0}: {1}", "alpha", endpoints),
+				zh("{0}: stored secrets unreadable", "beta"),
+				zh("{0}: a stored secret belongs to a different server address", "gamma"),
+			].join("; ")
 		);
 	});
 
