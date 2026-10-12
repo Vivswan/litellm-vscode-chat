@@ -53,6 +53,12 @@ interface ServeRecord {
 	readonly groupServer: GroupServer;
 	/** statusWindow.ts groupIdentity: the window's key and the identity a served model carries. */
 	readonly identity: string;
+	/**
+	 * groupClientId of the group as the host handed it over, before the overlay. A hidden serve records under it while
+	 * a visible serve of the same host group records under the owned identity, so supersession between the two keys
+	 * on it as well; see _recordedGenerations.
+	 */
+	readonly hostClientId: string;
 	readonly silent: boolean;
 }
 
@@ -119,7 +125,9 @@ class SettledServeClaim {
 	constructor(
 		readonly generation: number,
 		readonly server: GroupServer,
-		readonly failure: MirroredError | undefined
+		readonly failure: MirroredError | undefined,
+		/** See ServeRecord.hostClientId; the overlay may have minted `server` a different one. */
+		readonly hostClientId: string
 	) {}
 }
 
@@ -173,9 +181,12 @@ export class GroupDiscovery {
 	private readonly _options: GroupDiscoveryOptions;
 	private readonly _serveGenerations = new Map<string, number>();
 	/**
-	 * The newest generation that has RECORDED, keyed by the group's IDENTITY (statusWindow.ts groupIdentity), so two
-	 * unowned twins sharing a claim key never yield to each other. A serve yields to a newer record, never to a newer
-	 * claim: until the newer serve lands, the older one's record is the only thing that makes its served models
+	 * The newest generation that has RECORDED, keyed by the group's IDENTITY (statusWindow.ts groupIdentity) and by
+	 * the host client ID it was served under. Two unowned twins sharing a claim key never yield to each other: they are
+	 * distinct host groups, so neither key is shared. A hidden serve records under the host client ID while a visible
+	 * serve of the same host group records under the owned identity, and the host client ID key is what lets the
+	 * hidden record supersede an older visible serve still in flight. A serve yields to a newer record, never to a
+	 * newer claim: until the newer serve lands, the older one's record is the only thing that makes its served models
 	 * routable, and the newer record replaces it the moment it lands.
 	 */
 	private readonly _recordedGenerations = new Map<string, number>();
@@ -192,10 +203,11 @@ export class GroupDiscovery {
 	 *   otherwise  -> the overlay's pending claim
 	 */
 	claimServe(groupServer: GroupServer): PendingServeClaim | HiddenServeClaim {
-		const claimKey = logicalGroupId(groupServer) ?? groupClientId(groupServer);
+		const hostClientId = groupClientId(groupServer);
+		const claimKey = logicalGroupId(groupServer) ?? hostClientId;
 		const generation = (this._serveGenerations.get(claimKey) ?? 0) + 1;
 		this._serveGenerations.set(claimKey, generation);
-		if (this.isSuppressed(groupServer)) {
+		if (this.isSuppressed(groupServer, hostClientId)) {
 			return new HiddenServeClaim(generation, groupServer);
 		}
 		const overlay = overlayEntryCredentials(groupServer, this._options.resolveEntryCredentials);
@@ -204,7 +216,7 @@ export class GroupDiscovery {
 		// the caller through that await; this reaction only mints.
 		void overlay.then(
 			(overlaid) => {
-				settled = new SettledServeClaim(generation, overlaid.server, overlaid.failure);
+				settled = new SettledServeClaim(generation, overlaid.server, overlaid.failure, hostClientId);
 			},
 			() => undefined
 		);
@@ -225,16 +237,21 @@ export class GroupDiscovery {
 	 * as the host bakes it (the sync engine's expectedClientId), so the pre-overlay client ID is the one it names; the
 	 * label and URL keys are overlay-independent.
 	 */
-	private isSuppressed(groupServer: GroupServer): boolean {
+	private isSuppressed(groupServer: GroupServer, hostClientId: string): boolean {
 		return this._options.isGroupSuppressed({
-			groupId: groupClientId(groupServer),
+			groupId: hostClientId,
 			label: groupServer.label ?? groupServerLabel(groupServer.baseUrl),
 			entryLabel: groupServer.label,
 			baseUrl: groupServer.baseUrl,
 		});
 	}
 
-	private serveRecordOf(generation: number, groupServer: GroupServer, silent: boolean): ServeRecord {
+	private serveRecordOf(
+		generation: number,
+		groupServer: GroupServer,
+		hostClientId: string,
+		silent: boolean
+	): ServeRecord {
 		const server: ServerConnection = {
 			id: groupClientId(groupServer),
 			label: groupServer.label ?? groupServerLabel(groupServer.baseUrl),
@@ -246,7 +263,14 @@ export class GroupDiscovery {
 			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
 			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
 		};
-		return { generation, server, groupServer, identity: groupIdentity(groupServer, server.id), silent };
+		return {
+			generation,
+			server,
+			groupServer,
+			identity: groupIdentity(groupServer, server.id),
+			hostClientId,
+			silent,
+		};
 	}
 
 	/**
@@ -267,7 +291,7 @@ export class GroupDiscovery {
 		outcome: OkServeShape | FailureServeShape,
 		observations: DiscoveryObservations = {}
 	): AttachedServe {
-		const { server, groupServer, identity, silent } = record;
+		const { server, groupServer, identity, hostClientId, silent } = record;
 		const discovered = served.discovered.map((info) => attachGroup(info, identity));
 		const declared = served.declared.map((info) => attachGroup(info, identity));
 		// A serve yields its record once a NEWER serve of the same group has recorded: overwriting would put an older
@@ -275,13 +299,16 @@ export class GroupDiscovery {
 		//   a newer claim alone    -> never yields: until it lands, this record is what makes these models routable
 		//   a live apiVersion edit -> the same; the next serve carries it
 		//   rotated credentials    -> arrive only with a LATER serve's overlaid server, so they land as a newer record
-		if ((this._recordedGenerations.get(identity) ?? 0) > record.generation) {
+		//   hidden while in flight -> the hidden record lands under the host client ID, not the owned identity
+		const recordedAfter = (key: string): boolean => (this._recordedGenerations.get(key) ?? 0) > record.generation;
+		if (recordedAfter(identity) || recordedAfter(hostClientId)) {
 			this._options.log("Discovery finished for a rotated configuration; leaving the group record to the current one", {
 				baseUrl: server.baseUrl,
 			});
 			return { served: [...discovered, ...declared], discovered, declared };
 		}
 		this._recordedGenerations.set(identity, record.generation);
+		this._recordedGenerations.set(hostClientId, record.generation);
 		// The one served-count derivation.
 		const servedModelCount = served.discovered.length + served.declared.length;
 		if (outcome.state === "ok") {
@@ -321,7 +348,8 @@ export class GroupDiscovery {
 	 *   an owned record of this connection  -> replaced anyway: the window keeps one entry per client ID
 	 */
 	serveHidden(claim: HiddenServeClaim, silent: boolean): LiteLLMModelInfo[] {
-		const record = this.serveRecordOf(claim.generation, claim.server, silent);
+		// The host's own group, so its client ID is the host client ID.
+		const record = this.serveRecordOf(claim.generation, claim.server, groupClientId(claim.server), silent);
 		this._options.log("Provider group is hidden by the user's configuration; serving no models", {
 			baseUrl: record.server.baseUrl,
 		});
@@ -363,7 +391,7 @@ export class GroupDiscovery {
 	 */
 	async fetchGroupModels(claim: ServeClaim, silent: boolean): Promise<LiteLLMModelInfo[]> {
 		const groupServer = claim.server;
-		const record = this.serveRecordOf(claim.generation, groupServer, silent);
+		const record = this.serveRecordOf(claim.generation, groupServer, claim.hostClientId, silent);
 		const { server } = record;
 		// The cache key composes the group with the live apiVersion and includeModes, so an edit lands on a fresh key.
 		const cacheKey = this.cacheKeyFor(groupServer);

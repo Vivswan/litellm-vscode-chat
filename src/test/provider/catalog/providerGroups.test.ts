@@ -608,6 +608,100 @@ suite("provider groups", () => {
 		assert.strictEqual(resolverCalls, 2, "a visible serve still resolves the entry's current credentials");
 	});
 
+	test("a hidden record supersedes an older in-flight visible serve of the same group: the owned record does not reappear beside it", async () => {
+		// Serve 1 overlays the entry's current credentials and waits in discovery; the group is hidden meanwhile and
+		// serve 2 records under the baked client ID. Serve 1's late completion keys on the label and URL, where no
+		// newer record stands, so supersession across the two identities is the only thing that keeps it from putting
+		// the owned record (and its models) back beside the hidden one.
+		let hidden = false;
+		let releaseFirst!: () => void;
+		const firstGate = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		let fetchReached!: () => void;
+		const inDiscovery = new Promise<void>((resolve) => {
+			fetchReached = resolve;
+		});
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			resolveEntryCredentials: async () => ({
+				kind: "resolved",
+				credentials: { apiKey: fixedHeaderValue("sk-current") },
+			}),
+			isGroupSuppressed: () => hidden,
+			fetch: async () => {
+				fetchReached();
+				await firstGate;
+				return discoveryResponse();
+			},
+		});
+		const configuration = { baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Prod" };
+		const bakedId = groupClientId(expectDefined(parseGroupConfiguration(configuration)).server);
+		const serve = () => provider.provideLanguageModelChatInformation(groupOptions(configuration), cancellation());
+
+		const firstServe = serve();
+		await inDiscovery;
+		hidden = true;
+		assert.deepStrictEqual(await serve(), [], "the hidden serve records while the first waits in discovery");
+
+		releaseFirst();
+		assert.strictEqual((await firstServe).length, 1, "the late serve still hands its caller its own models");
+		const [snapshot, ...others] = provider.getServerSnapshots();
+		assert.deepStrictEqual(others, [], "the late completion recorded nothing beside the hidden record");
+		assert.ok(isHiddenGroupServerStatus(expectDefined(snapshot).status), "the hidden record stands");
+		assert.strictEqual(expectDefined(snapshot).status.serverId, bakedId, "under the client ID a tombstone names");
+	});
+
+	test("a hidden external twin of a declared entry does not supersede the entry's own in-flight serve", async () => {
+		// The twin shares the label and URL, so it shares the serve-generation claim key; it is a different host group
+		// (its own baked client ID), so hiding it says nothing about the entry. Supersession across the hidden and
+		// owned identities must key on the host group, not on the label and URL, or the twin's hidden record would
+		// discard the entry's serve.
+		let releaseFirst!: () => void;
+		const firstGate = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		let fetchReached!: () => void;
+		const inDiscovery = new Promise<void>((resolve) => {
+			fetchReached = resolve;
+		});
+		const twin = { baseUrl: TEST_BASE_URL, apiKey: "sk-twin", label: "Prod" };
+		const twinId = groupClientId(expectDefined(parseGroupConfiguration(twin)).server);
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			resolveEntryCredentials: async () => ({
+				kind: "resolved",
+				credentials: { apiKey: fixedHeaderValue("sk-current") },
+			}),
+			isGroupSuppressed: (group) => group.groupId === twinId,
+			fetch: async () => {
+				fetchReached();
+				await firstGate;
+				return discoveryResponse();
+			},
+		});
+		const entry = { baseUrl: TEST_BASE_URL, apiKey: "sk-baked", label: "Prod" };
+
+		const entryServe = provider.provideLanguageModelChatInformation(groupOptions(entry), cancellation());
+		await inDiscovery;
+		assert.deepStrictEqual(
+			await provider.provideLanguageModelChatInformation(groupOptions(twin), cancellation()),
+			[],
+			"the twin serves hidden while the entry waits in discovery"
+		);
+
+		releaseFirst();
+		assert.strictEqual((await entryServe).length, 1, "the entry's serve hands out its models");
+		const serverIds = provider.getServerSnapshots().map((snapshot) => snapshot.status.serverId);
+		assert.strictEqual(serverIds.length, 2, "the entry's record stands beside the hidden twin's");
+		assert.ok(serverIds.includes(twinId), "the twin's hidden record stands");
+		assert.strictEqual(provider.getGroupServer(twinId)?.apiKey, "sk-twin", "the twin keeps its own connection");
+		const entryId = expectDefined(serverIds.find((id) => id !== twinId));
+		assert.strictEqual(
+			provider.getGroupServer(entryId)?.apiKey,
+			"sk-current",
+			"the entry's record carries its overlaid credentials"
+		);
+	});
+
 	test("a hidden serve is a host re-sight: under a host that skips the group-agnostic call it still ages others out and publishes the eviction", async () => {
 		// StatusWindow.beginCycleOnReSight is the only cycle boundary such a host has; a hidden fast path that returned
 		// before it would keep every other group's record alive for as long as the hidden one keeps being re-served,
