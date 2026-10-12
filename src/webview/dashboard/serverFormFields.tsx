@@ -101,7 +101,7 @@ export function FormSection({
 	);
 }
 
-export function FieldRow({
+export function FormFieldRow({
 	htmlFor,
 	label,
 	help,
@@ -308,7 +308,7 @@ export function TextField({
 	const id = `server-${field}`;
 	const errorId = `${id}-error`;
 	return (
-		<FieldRow
+		<FormFieldRow
 			htmlFor={id}
 			label={serverFormFieldLabel(field)}
 			help={<Help text={serverFieldHelp(field)} name={l10n.t("Help: {0}", serverFormFieldLabel(field))} />}
@@ -332,7 +332,7 @@ export function TextField({
 				onChange={(event) => props.patch({ [field]: event.currentTarget.value } as Partial<ServerFormDraft>)}
 				onBlur={() => props.touch(field)}
 			/>
-		</FieldRow>
+		</FormFieldRow>
 	);
 }
 
@@ -380,7 +380,7 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 		value.clear || (!empty && value.location === "settings" && !unchangedPrefill) ? ("warn" as const) : undefined;
 	return (
 		<>
-			<FieldRow
+			<FormFieldRow
 				htmlFor={id}
 				label={serverFormFieldLabel(field)}
 				help={<Help text={help ?? serverFieldHelp(field)} name={l10n.t("Help: {0}", serverFormFieldLabel(field))} />}
@@ -421,7 +421,7 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 						{revealed ? l10n.t("Hide") : l10n.t("Show")}
 					</Button>
 				</span>
-			</FieldRow>
+			</FormFieldRow>
 			<FieldUnderRow className="text-[11.5px] text-muted-foreground">
 				<span
 					className="secret-where flex flex-wrap items-center gap-x-3 gap-y-1"
@@ -511,7 +511,7 @@ export function StoredSecretRow({ field, props }: { field: SecretFieldId; props:
 	const patchSecret = (patch: Partial<SecretFieldDraft>) =>
 		props.patch({ [field]: { ...value, ...patch } } as Partial<ServerFormDraft>);
 	return (
-		<FieldRow
+		<FormFieldRow
 			label={serverFormFieldLabel(field)}
 			hint={
 				value.clear
@@ -534,7 +534,7 @@ export function StoredSecretRow({ field, props }: { field: SecretFieldId; props:
 				/>
 				{l10n.t("Remove the stored {0} on save", serverFormFieldLabel(field))}
 			</label>
-		</FieldRow>
+		</FormFieldRow>
 	);
 }
 
