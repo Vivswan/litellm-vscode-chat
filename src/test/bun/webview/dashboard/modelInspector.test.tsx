@@ -917,6 +917,28 @@ test("declared, directive-not-found, inherited fields, and diagnostics all rende
 	expect(text).toContain('"supports_web_search" is not a field this extension knows');
 });
 
+test("the directive-not-found note is a standing status: one node across a push, never an alert", () => {
+	// The note is about the configuration, not an event; as a bare role="alert" it was re-spoken on every usage poll,
+	// and the visual-language doc has a standing failure spoken once.
+	const inspected = makeModel();
+	const container = mount(<ModelInspector currencySymbol="$" model={inspected} stateSeq={0} onClose={() => {}} />);
+	const answer = () =>
+		respondTo(lastRequest("readModelCapabilities"), {
+			capabilities: makeCapabilities({ directive: { kind: "not-found", id: "openai/nope" } }),
+		});
+	answer();
+	const note = container.querySelector("p.state-warn");
+	expect(note?.textContent).toContain('"openai/nope" was not found');
+	expect(note?.getAttribute("role")).toBe("status");
+
+	void act(() => {
+		render(<ModelInspector currencySymbol="$" model={inspected} stateSeq={1} onClose={() => {}} />, container);
+	});
+	answer();
+	expect(container.querySelector("p.state-warn")?.isSameNode(note)).toBe(true);
+	expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
 /**
  * A name cell's VISIBLE text: a labeled field renders its label inside the wire-key tip (the tooltip text would
  * otherwise concatenate onto textContent), an open field renders its raw key directly.

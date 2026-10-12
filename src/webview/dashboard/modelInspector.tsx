@@ -994,8 +994,10 @@ export function ModelInspector({
 									{l10n.t("Declared model: created by the entry's declared list, not discovered on the server.")}
 								</p>
 							) : null}
+							{/* A standing note about the configuration, not an event: status, never alert, so a push that
+							    re-renders the panel does not re-announce it. */}
 							{caps.directive?.kind === "not-found" ? (
-								<p className="state-warn" role="alert">
+								<p className="state-warn" role="status">
 									{l10n.t(
 										'OpenRouter model "{0}" was not found in the catalog; its fields fill from the remaining levels.',
 										caps.directive.id
