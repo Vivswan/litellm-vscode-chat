@@ -7,6 +7,7 @@ import {
 	type TimeoutBudget,
 } from "../../../provider/transport/auth";
 import { RequestError } from "../../../provider/transport/transportErrors";
+import { DISCOVERY_MAX_RETRIES } from "../../../shared/config/settingSpec";
 import { Logger } from "../../../shared/logger";
 import { mswServer, useMsw } from "../../mocks/handlers";
 
@@ -443,16 +444,26 @@ suite("provider/transport/auth", () => {
 			assert.ok(error.message.includes("didn't return a usable access token"), `unexpected message: ${error.message}`);
 		});
 
-		test("the timeout is a hard bound on the exchange", async () => {
-			mswServer.use(http.post(TOKEN_URL, () => new Promise<Response>(() => {})));
-			const source = new OAuthTokenSource();
+		test("a hung token endpoint is retried on the attempt clock, and the exhausted retries render as the timeout", async () => {
+			let requests = 0;
+			mswServer.use(
+				http.post(TOKEN_URL, () => {
+					requests += 1;
+					return new Promise<Response>(() => {});
+				})
+			);
+			const source = new OAuthTokenSource(noBackoff);
 
 			const error = await expectRequestError(
 				source.getToken(oauthConfig(), "discovery", discoveryBudget(100)),
 				"timeout"
 			);
 
-			assert.ok(error.message.includes("timed out after 100ms"), `unexpected message: ${error.message}`);
+			assert.strictEqual(requests, DISCOVERY_MAX_RETRIES + 1, "a timed-out attempt is retried like the discovery GETs");
+			assert.ok(
+				error.message.includes("timed out after 100ms"),
+				`the message names the attempt timeout: ${error.message}`
+			);
 			assert.ok(error.message.includes("discovery.timeout"), "the message must name the governing setting");
 		});
 
@@ -466,7 +477,7 @@ suite("provider/transport/auth", () => {
 			// setting that cannot extend this bound. The identity rides the budget
 			// from the caller, so the advice cannot drift from the budget choice.
 			const chat = await expectRequestError(
-				new OAuthTokenSource().getToken(oauthConfig(), "chat", discoveryBudget(100)),
+				new OAuthTokenSource(noBackoff).getToken(oauthConfig(), "chat", discoveryBudget(100)),
 				"timeout"
 			);
 			assert.ok(chat.message.includes("discovery.timeout"), `unexpected message: ${chat.message}`);
@@ -474,7 +485,7 @@ suite("provider/transport/auth", () => {
 
 			// The one-shot chat features pass their chat.timeout whole-call budget through.
 			const commit = await expectRequestError(
-				new OAuthTokenSource().getToken(oauthConfig(), "commitGeneration", chatBudget(100)),
+				new OAuthTokenSource(noBackoff).getToken(oauthConfig(), "commitGeneration", chatBudget(100)),
 				"timeout"
 			);
 			assert.ok(commit.message.includes("chat.timeout"), `unexpected message: ${commit.message}`);
@@ -483,7 +494,7 @@ suite("provider/transport/auth", () => {
 			// The inline-completion bound is fixed in code (FIM_TIMEOUT_MS), so its budget names no setting - advice to
 			// raise one would be a lie.
 			const completion = await expectRequestError(
-				new OAuthTokenSource().getToken(oauthConfig(), "completion", fixedBudget(100)),
+				new OAuthTokenSource(noBackoff).getToken(oauthConfig(), "completion", fixedBudget(100)),
 				"timeout"
 			);
 			assert.ok(completion.message.includes("timed out after 100ms"), `unexpected message: ${completion.message}`);
@@ -743,7 +754,7 @@ suite("provider/transport/auth", () => {
 			assert.strictEqual(endpoint.requests(), 1, "both surfaces were served by one exchange");
 		});
 
-		test("the originator's clock ends only its own wait: a joiner keeps the exchange and times out on its own bound", async () => {
+		test("a hung exchange runs every attempt once, and every waiter renders the timeout with the STARTER's bound", async () => {
 			let requests = 0;
 			mswServer.use(
 				http.post(TOKEN_URL, () => {
@@ -751,10 +762,11 @@ suite("provider/transport/auth", () => {
 					return new Promise<Response>(() => {});
 				})
 			);
-			const source = new OAuthTokenSource();
+			const source = new OAuthTokenSource(noBackoff);
 
-			// completion's fixed bound names no setting; the joiner's budget names chat.timeout, so inherited rendering
-			// is distinguishable per waiter.
+			// completion's fixed bound names no setting; the joiner's budget names chat.timeout, so a joiner rendering
+			// its own budget instead of the starter's is distinguishable. Every attempt ran on the starter's 100 ms clock,
+			// so the joiner's 300 ms never governed anything.
 			const originator = source.getToken(oauthConfig(), "completion", fixedBudget(100));
 			const joiner = source.getToken(oauthConfig(), "commitGeneration", chatBudget(300));
 
@@ -763,12 +775,16 @@ suite("provider/transport/auth", () => {
 			assert.ok(!originatorError.message.includes(".timeout"), "no setting can raise the fixed FIM bound");
 
 			const joinerError = await expectRequestError(joiner, "timeout");
-			assert.ok(joinerError.message.includes("timed out after 300ms"), joinerError.message);
-			assert.ok(joinerError.message.includes("chat.timeout"), "the advice must name the JOINER's bound");
-			assert.strictEqual(requests, 1, "the originator's clock must not end the exchange the joiner still awaits");
+			assert.ok(joinerError.message.includes("timed out after 100ms"), joinerError.message);
+			assert.ok(!joinerError.message.includes(".timeout"), "the joiner's setting did not govern the attempts");
+			assert.strictEqual(
+				requests,
+				DISCOVERY_MAX_RETRIES + 1,
+				"the shared exchange's attempts are not multiplied per waiter"
+			);
 		});
 
-		test("a socket failure with a TimeoutError link is one shared failure that each waiter renders with ITS budget", async () => {
+		test("a socket failure with a TimeoutError link is one shared failure that each waiter renders with the STARTER's budget", async () => {
 			const realFetch = globalThis.fetch;
 			let calls = 0;
 			globalThis.fetch = () => {
@@ -789,8 +805,8 @@ suite("provider/transport/auth", () => {
 				assert.ok(originatorError.message.includes("discovery.timeout"), originatorError.message);
 
 				const joinerError = await expectRequestError(joiner, "timeout");
-				assert.ok(joinerError.message.includes("timed out after 7000ms"), "the joiner must quote ITS OWN budget");
-				assert.ok(joinerError.message.includes("chat.timeout"), "the advice must name the JOINER's bound");
+				assert.ok(joinerError.message.includes("timed out after 5000ms"), "the joiner quotes the STARTER's budget");
+				assert.ok(joinerError.message.includes("discovery.timeout"), "the advice names the STARTER's setting");
 				assert.strictEqual(calls, 3, "one exchange, its three socket attempts, serves both waiters");
 			} finally {
 				globalThis.fetch = realFetch;
@@ -861,7 +877,8 @@ suite("provider/transport/auth", () => {
 				});
 			};
 			try {
-				const source = new OAuthTokenSource();
+				// No backoff, so the newcomer's attempts all settle inside its own wait and their count is exact.
+				const source = new OAuthTokenSource(noBackoff);
 				const controller = new AbortController();
 				const cancelled = source.getToken(oauthConfig(), "discovery", discoveryBudget(), controller.signal);
 				const patient = source.getToken(oauthConfig(), "chat", chatBudget(100));
@@ -872,9 +889,14 @@ suite("provider/transport/auth", () => {
 
 				await expectRequestError(patient, "timeout");
 				assert.strictEqual(aborts, 1, "the last departure aborts the exchange exactly once");
+				assert.strictEqual(signals.length, 1, "the orphan put one request on the wire");
 
 				await expectRequestError(source.getToken(oauthConfig(), "discovery", discoveryBudget(100)), "timeout");
-				assert.strictEqual(signals.length, 2, "a newcomer after abandonment starts a fresh exchange, not the orphan");
+				assert.strictEqual(
+					signals.length,
+					1 + DISCOVERY_MAX_RETRIES + 1,
+					"a newcomer after abandonment starts a fresh exchange with its own attempts, not the orphan"
+				);
 				assert.notStrictEqual(signals[1], signals[0]);
 			} finally {
 				globalThis.fetch = realFetch;

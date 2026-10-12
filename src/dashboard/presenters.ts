@@ -483,7 +483,7 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "discovery.timeout":
 			return {
 				label: l10n.t("Discovery timeout"),
-				description: l10n.t("Hard bound for one model discovery call."),
+				description: l10n.t("Hard bound for one model discovery attempt; transient failures are retried."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 			};
 		case "discovery.cacheTtl":

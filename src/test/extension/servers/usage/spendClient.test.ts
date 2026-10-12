@@ -15,7 +15,9 @@ import {
 	usageUnavailabilityOf,
 	userInfoUrl,
 } from "../../../../extension/servers/usage/spendClient";
+import { retryBudgetMs } from "../../../../provider/transport/retry";
 import { RequestError } from "../../../../provider/transport/transportErrors";
+import { DISCOVERY_MAX_RETRIES } from "../../../../shared/config/settingSpec";
 import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 
@@ -27,7 +29,7 @@ const TOKEN_URL = "http://idp.test/oauth2/token";
 
 const WINDOW = { startDate: "2026-07-01", endDate: "2026-07-30" };
 
-/** The retry backoff is setup here, not what any pin reads: no test below asserts on time. */
+/** The retry backoff is setup here, not what any pin reads: the tests count attempts, and the one elapsed-time bound is the retry budget. */
 const noBackoff = () => Promise.resolve();
 
 function client(overrides: Partial<UsageClientOptions> = {}): UsageClient {
@@ -367,15 +369,48 @@ suite("extension/servers/usage spendClient", () => {
 			assert.strictEqual(error.cause, undefined, "the SyntaxError quotes the payload, so it must not ride as cause");
 		});
 
-		test("the discovery timeout is a hard whole-call bound", async () => {
+		// Regression: the discovery timeout bounded the whole call, so one attempt that hung past it spent the retries.
+		test("a first attempt that hangs past the per-attempt timeout is retried and the second attempt's answer serves", async () => {
+			let attempts = 0;
 			mswServer.use(
 				http.get(KEY_INFO_URL, async () => {
+					attempts += 1;
+					if (attempts === 1) {
+						await new Promise((resolve) => setTimeout(resolve, 500));
+					}
+					return HttpResponse.json({ info: { spend: 7 } });
+				})
+			);
+
+			const key = await client({ getTimeoutMs: () => 50 }).fetchKeyInfo(connection());
+
+			assert.strictEqual(key.spend, 7);
+			assert.strictEqual(attempts, 2, "the hung attempt is retried once and the answer serves");
+		});
+
+		test("every attempt hanging ends inside the retry budget with the timeout verdict, which stays transient", async () => {
+			let attempts = 0;
+			mswServer.use(
+				http.get(KEY_INFO_URL, async () => {
+					attempts += 1;
 					await new Promise((resolve) => setTimeout(resolve, 500));
 					return HttpResponse.json({ info: {} });
 				})
 			);
+			const started = Date.now();
 
-			await expectRequestError(client({ getTimeoutMs: () => 50 }).fetchKeyInfo(connection()), "timeout");
+			const error = await expectRequestError(client({ getTimeoutMs: () => 50 }).fetchKeyInfo(connection()), "timeout");
+
+			assert.ok(
+				Date.now() - started < retryBudgetMs(50, DISCOVERY_MAX_RETRIES),
+				"every attempt ran to its clock, no longer"
+			);
+			assert.strictEqual(attempts, DISCOVERY_MAX_RETRIES + 1);
+			assert.ok(
+				error.message.includes("timed out after 50ms"),
+				`the message names the attempt timeout: ${error.message}`
+			);
+			assert.strictEqual(usageUnavailabilityOf(error), undefined, "a timeout must not read as permanently unavailable");
 		});
 	});
 

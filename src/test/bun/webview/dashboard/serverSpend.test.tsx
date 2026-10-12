@@ -589,7 +589,7 @@ describe("the usage diagnostics", () => {
 		expect(textOf(line, ".row-diagnostic-detail")).toBe("LiteLLM /key/info: request failed on the last attempt");
 	});
 
-	test("a timeout detail prints the whole-call bound and the setting to raise", () => {
+	test("a timeout detail prints the attempt clock and the setting to raise", () => {
 		const usage = makeUsage({
 			discoveryTimeoutMs: 45_000,
 			servers: [
@@ -600,7 +600,7 @@ describe("the usage diagnostics", () => {
 			mountServers(usage).querySelector(".row-diagnostic") as HTMLElement,
 			".row-diagnostic-detail"
 		);
-		expect(detail).toContain("timed out after 45000ms");
+		expect(detail).toContain("45000ms per attempt");
 		expect(detail).toContain("discovery.timeout");
 	});
 

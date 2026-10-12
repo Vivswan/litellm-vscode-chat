@@ -29,8 +29,8 @@ import { mcpDefinitionsOf } from "./definitions";
 import type { McpVersionCounters } from "./versions";
 
 /**
- * The token exchange an MCP resolve may trigger is auth plumbing, not a chat call, so it is bounded by
- * `discovery.timeout` and fails toward the discovery surface - whose timeout advice names exactly that setting. The
+ * The token exchange an MCP resolve may trigger is auth plumbing, not a chat call, so each of its attempts runs on
+ * `discovery.timeout` and it fails toward the discovery surface - whose timeout advice names exactly that setting. The
  * publisher itself makes no LiteLLM API request, so it owns no error surface of its own.
  */
 const MCP_AUTH_SURFACE = "discovery" as const;

@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import OpenAI from "openai";
-import { DISCOVERY_MAX_RETRIES, fetchModels } from "../../../../provider/catalog/discovery";
+import { fetchModels } from "../../../../provider/catalog/discovery";
 import type { TransportFetch } from "../../../../provider/transport/nodeHttpFetch";
 import type { BackoffSleep } from "../../../../provider/transport/retry";
 import { retryBudgetMs } from "../../../../provider/transport/retry";
 import { RequestError } from "../../../../provider/transport/transportErrors";
+import { DISCOVERY_MAX_RETRIES } from "../../../../shared/config/settingSpec";
 
 const BASE_URL = "http://litellm.test";
 /** Per attempt, far below any real setting: the clocks under test are the attempt's and the budget's, not the server's. */

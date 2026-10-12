@@ -18,9 +18,10 @@ export interface AuthOverlayContext {
 	readonly tokens: OAuthTokenSource;
 	readonly surface: OAuthErrorSurface;
 	/**
-	 * Bound on this call's token wait plus the identity of the setting that owns it (timeout advice renders from
-	 * that identity): the chat and discovery callers pass the discovery timeout (auth plumbing with its own
-	 * budget), the one-shot callers their whole-call budget.
+	 * The clock of each exchange attempt when this call starts the exchange (the token wait runs to its retry budget
+	 * either way) plus the identity of the setting that owns it (timeout advice renders from that identity): the chat
+	 * and discovery callers pass the discovery timeout (auth plumbing with its own budget), the one-shot callers their
+	 * whole-call budget.
 	 */
 	readonly timeout: TimeoutBudget;
 	/**

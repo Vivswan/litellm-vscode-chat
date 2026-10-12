@@ -1,4 +1,4 @@
-import { APIConnectionError, APIError } from "openai";
+import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
 import { MAX_TIMER_MS } from "../../shared/config/settingSpec";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 
@@ -89,5 +89,105 @@ export async function retryIdempotent<T>(attempt: () => Promise<T>, options: Ret
 		if (options.signal.aborted) {
 			throw options.signal.reason ?? new Error("The operation was aborted");
 		}
+	}
+}
+
+/**
+ * What one attempt answered, the body read whole under the attempt's clock, so an OK stream that stalls after the
+ * headers times out like a connect that never finished. A non-OK response whose body is lost to that clock or the
+ * socket is judged on its status with an empty `text`, as the SDK does. The caller's abort and the budget's still
+ * end the call unjudged.
+ */
+export interface FetchAnswer {
+	readonly response: Response;
+	readonly text: string;
+}
+
+export interface RetryFetchOptions {
+	/** Each attempt's own clock over the headers and the body together. */
+	readonly attemptTimeoutMs: number;
+	readonly maxRetries: number;
+	/** The caller's lifetime bound: its abort ends the call at once and is rethrown as-is, never read as a timeout. */
+	readonly signal?: AbortSignal | undefined;
+	readonly sleep?: BackoffSleep;
+}
+
+export function abortReason(signal: AbortSignal): unknown {
+	return signal.reason ?? new Error("The operation was aborted");
+}
+
+/** `signal` ends only this wait; the promise runs on for its other awaiters. */
+export function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+	if (signal.aborted) {
+		return Promise.reject(abortReason(signal));
+	}
+	return new Promise<T>((resolve, reject) => {
+		const onAbort = () => reject(abortReason(signal));
+		signal.addEventListener("abort", onAbort, { once: true });
+		promise.then(
+			(value) => {
+				signal.removeEventListener("abort", onAbort);
+				resolve(value);
+			},
+			(error) => {
+				signal.removeEventListener("abort", onAbort);
+				reject(error);
+			}
+		);
+	});
+}
+
+/**
+ * retryIdempotent over a plain fetch, under the two clocks the SDK-backed discovery GETs run on: each attempt gets
+ * `attemptTimeoutMs` for its headers and body together, and the whole call ends at retryBudgetMs of it. Every failure
+ * leaves in the SDK's vocabulary, so the one retry rule above judges it and the caller maps it once.
+ *   the caller's signal aborting              -> rethrown as-is, never retried
+ *   the budget                                -> APIConnectionTimeoutError
+ *   an attempt's clock                        -> APIConnectionTimeoutError
+ *   a connect failure or a socket death       -> APIConnectionError carrying the cause
+ *   either of those two over a non-OK body    -> judged on its status instead, the body unread, so a 401 is final
+ *   what `judge` throws                       -> retried when the rule says so (an APIError 5xx), final otherwise
+ */
+export async function retryFetch<T>(
+	request: (signal: AbortSignal) => Promise<Response>,
+	judge: (answer: FetchAnswer) => T,
+	options: RetryFetchOptions
+): Promise<T> {
+	const { attemptTimeoutMs, maxRetries, sleep } = options;
+	const budget = AbortSignal.timeout(retryBudgetMs(attemptTimeoutMs, maxRetries));
+	const bounds = options.signal !== undefined ? AbortSignal.any([options.signal, budget]) : budget;
+	try {
+		return await retryIdempotent(
+			async () => {
+				const attemptClock = AbortSignal.timeout(attemptTimeoutMs);
+				const signal = AbortSignal.any([bounds, attemptClock]);
+				const failAttempt = (error: unknown): never => {
+					if (bounds.aborted) {
+						throw error;
+					}
+					throw attemptClock.aborted
+						? new APIConnectionTimeoutError()
+						: new APIConnectionError({ cause: error instanceof Error ? error : undefined });
+				};
+				const response = await request(signal).catch(failAttempt);
+				// Raced against the signal, so a body that never flows and never watches it still ends on the clock.
+				const text = await abortableWait(response.text(), signal).catch((error: unknown) => {
+					// The headers already named the verdict; only the caller's or the budget's abort outranks it.
+					if (response.ok || bounds.aborted) {
+						failAttempt(error);
+					}
+					return "";
+				});
+				return judge({ response, text });
+			},
+			{ maxRetries, signal: bounds, ...(sleep !== undefined ? { sleep } : {}) }
+		);
+	} catch (error) {
+		// Read after the fact, not from the error: the budget can fire first and the caller leave in the same turn,
+		// before the rejection lands, and the caller's reason is still the verdict.
+		if (options.signal?.aborted) {
+			throw abortReason(options.signal);
+		}
+		throw budget.aborted ? new APIConnectionTimeoutError() : error;
 	}
 }

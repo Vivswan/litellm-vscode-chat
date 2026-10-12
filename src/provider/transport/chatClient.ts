@@ -187,9 +187,9 @@ export class ChatClient {
 	}
 
 	/**
-	 * Both surfaces this client serves bound their token wait by the discovery timeout (auth plumbing, not a chat
-	 * call), so `timeout` arrives minted at the caller's getDiscoveryTimeout read. `signal`, when the triggering
-	 * call carries one, ends this call's token wait, so user cancellation and the chat timeout cut in.
+	 * Both surfaces this client serves clock each attempt of their token wait by the discovery timeout (auth plumbing,
+	 * not a chat call), so `timeout` arrives minted at the caller's getDiscoveryTimeout read. `signal`, when the
+	 * triggering call carries one, ends this call's token wait, so user cancellation and the chat timeout cut in.
 	 */
 	private async resolveAuthHeaders(
 		credentials: { oauth?: OAuthConfig | undefined; virtualKey?: VirtualKeyConfig | undefined },

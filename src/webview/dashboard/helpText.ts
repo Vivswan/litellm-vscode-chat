@@ -377,7 +377,7 @@ const SETTING_ROW_HELP: Readonly<Record<SettingRowHelpId, () => string>> = {
 	"discovery.timeout": () =>
 		l10n.t({
 			message:
-				"Applies per call, and a discovery pass makes several - the model-info listing and the /models fallback each get a fresh budget - so one pass can take a multiple of this. Type 30s, 1m, or plain ms.",
+				"Applies per attempt; a call retries transient failures, so one call can take about three times this, and a discovery pass makes several calls - the model-info listing and the /models fallback each run their own. Type 30s, 1m, or plain ms.",
 			comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
 		}),
 	"discovery.cacheTtl": () =>

@@ -13,7 +13,7 @@ import type { DailyUsage, KeyUsage, UsageUnavailableReason, UserUsage } from "./
 
 /**
  * How a transient endpoint failure failed, as a closed vocabulary (never message text): "http" answered with a status,
- * "network" never reached the server, "timeout" hit the whole-call discovery.timeout bound.
+ * "network" never reached the server, "timeout" timed out in the usage GET or its token wait.
  */
 export type UsageFailureClassification = "http" | "network" | "timeout";
 

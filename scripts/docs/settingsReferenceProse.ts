@@ -91,11 +91,11 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 	"discovery.timeout": {
 		en:
 			"Time budget for each model-discovery attempt, in milliseconds. A failed or timed-out attempt is retried up " +
-			`to ${DISCOVERY_MAX_RETRIES} more times, so one listing may take about ${DISCOVERY_ATTEMPTS} times this. The ` +
-			"model-info listing, the `/v1/models` fallback, and the whole OAuth token exchange each have their own clock, " +
-			"so a discovery pass may take their sum",
-		zhCn: `每次模型发现尝试的时间预算, 毫秒。失败或超时的尝试最多再重试 ${DISCOVERY_MAX_RETRIES} 次, 所以一次列表请求最长约为此值的 ${DISCOVERY_ATTEMPTS} 倍。模型信息列表、\`/v1/models\` 回退和 整个 OAuth 令牌交换各自计时, 所以一轮发现最长可能耗时到它们之和`,
-		zhTw: `每次模型探索嘗試的時間預算, 毫秒。失敗或逾時的嘗試最多再重試 ${DISCOVERY_MAX_RETRIES} 次, 所以一次清單請求最長約為此值的 ${DISCOVERY_ATTEMPTS} 倍。模型資訊清單、\`/v1/models\` 退回和 整個 OAuth 權杖交換各自計時, 所以一輪探索最長可能耗時到它們之和`,
+			`to ${DISCOVERY_MAX_RETRIES} more times, so one request may take about ${DISCOVERY_ATTEMPTS} times this. The ` +
+			"model-info listing, the `/v1/models` fallback, and the OAuth token exchange each run on their own clock, so a " +
+			"discovery pass may take their sum; each usage request follows the same per-attempt rule",
+		zhCn: `每次模型发现尝试的时间预算, 毫秒。失败或超时的尝试最多再重试 ${DISCOVERY_MAX_RETRIES} 次, 所以一次请求最长约为此值的 ${DISCOVERY_ATTEMPTS} 倍。模型信息列表、\`/v1/models\` 回退和 OAuth 令牌交换各自计时, 所以一轮发现最长可能耗时到它们之和; 每次用量请求遵循同样的按次重试规则`,
+		zhTw: `每次模型探索嘗試的時間預算, 毫秒。失敗或逾時的嘗試最多再重試 ${DISCOVERY_MAX_RETRIES} 次, 所以一次請求最長約為此值的 ${DISCOVERY_ATTEMPTS} 倍。模型資訊清單、\`/v1/models\` 退回和 OAuth 權杖交換各自計時, 所以一輪探索最長可能耗時到它們之和; 每次用量請求遵循同樣的按次重試規則`,
 	},
 	"discovery.cacheTtl": {
 		en:
