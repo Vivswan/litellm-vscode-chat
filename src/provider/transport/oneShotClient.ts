@@ -77,9 +77,10 @@ const JSON_CONTENT_TYPE = fixedHeaderValue("application/json");
 
 export interface OneShotCallOptions {
 	/**
-	 * Hard whole-call bound, this call's OAuth token wait and the body read included, with the identity of the
-	 * setting that owns it (undefined for fixed bounds like the inline-completion timeout). Minted where the
-	 * caller reads its number, so timeout advice names the setting that really governs this call's clock or none.
+	 * A one-shot request's hard whole-call bound, its OAuth token wait and the body read included; for authHeaders,
+	 * which sends no request, the clock of each exchange attempt instead. Carries the identity of the setting that
+	 * owns it (undefined for fixed bounds like the inline-completion timeout). Minted where the caller reads its
+	 * number, so timeout advice names the setting that really governs this call's clock or none.
 	 */
 	readonly timeout: TimeoutBudget;
 	readonly token: vscode.CancellationToken;

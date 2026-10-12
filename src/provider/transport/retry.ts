@@ -175,8 +175,10 @@ export async function retryFetch<T>(
 			{ maxRetries, signal: bounds, ...(sleep !== undefined ? { sleep } : {}) }
 		);
 	} catch (error) {
+		// Read after the fact, not from the error: the budget can fire first and the caller leave in the same turn,
+		// before the rejection lands, and the caller's reason is still the verdict.
 		if (options.signal?.aborted) {
-			throw error;
+			throw abortReason(options.signal);
 		}
 		throw budget.aborted ? new APIConnectionTimeoutError() : error;
 	}

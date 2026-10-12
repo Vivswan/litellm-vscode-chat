@@ -89,9 +89,10 @@ export class OAuthTokenSource {
 	constructor(private readonly sleep: BackoffSleep = sleepUnlessAborted) {}
 
 	/**
-	 * No caller's bounds reach the exchange: it is abandoned only when its last waiter leaves, so a waiter never
-	 * renders a bound or a cancellation that was not its own. The one number that does reach it is the starter's
-	 * budget, as the clock of each of its attempts; a waiter's own wait runs to the retry budget of its own.
+	 * No waiter's bounds reach the exchange: it is abandoned only when its last waiter leaves, so a waiter never
+	 * renders another waiter's cancellation or clock. The one number that does reach it is the starter's budget, as
+	 * the clock of each of its attempts and the bound its own timeouts are rendered with for every waiter; a waiter's
+	 * own wait runs to the retry budget of its own, and only that expiry renders with the waiter's.
 	 */
 	async getToken(
 		config: OAuthConfig,
@@ -109,13 +110,13 @@ export class OAuthTokenSource {
 		}
 		const ownClock = AbortSignal.timeout(retryBudgetMs(budget.ms, DISCOVERY_MAX_RETRIES));
 		const ownBounds = signal !== undefined ? AbortSignal.any([signal, ownClock]) : ownClock;
-		const exchange = this.exchanges.get(key) ?? this.startExchange(key, config, budget.ms);
+		const exchange = this.exchanges.get(key) ?? this.startExchange(key, config, budget);
 		exchange.waiters += 1;
 		try {
 			return await abortableWait(exchange.token, ownBounds);
 		} catch (error) {
 			if (error instanceof OAuthExchangeFailure) {
-				throw error.render(surface, budget);
+				throw error.render(surface);
 			}
 			if (signal?.aborted) {
 				throw abortReason(signal);
@@ -133,7 +134,7 @@ export class OAuthTokenSource {
 		}
 	}
 
-	private startExchange(key: string, config: OAuthConfig, attemptTimeoutMs: number): SharedExchange {
+	private startExchange(key: string, config: OAuthConfig, budget: TimeoutBudget): SharedExchange {
 		const controller = new AbortController();
 		const exchange: SharedExchange = {
 			waiters: 0,
@@ -142,7 +143,7 @@ export class OAuthTokenSource {
 			//   fulfilled -> cache the token -> forget -> resolve
 			//   rejected  -> forget -> rethrow
 			token: exchangeClientCredentials(config, {
-				attemptTimeoutMs,
+				budget,
 				signal: controller.signal,
 				sleep: this.sleep,
 			}).then(
@@ -194,7 +195,7 @@ export class OAuthTokenSource {
 
 /** A surface-free exchange failure; `render` mints a fresh RequestError per waiter, so waiters never share one. */
 class OAuthExchangeFailure extends Error {
-	constructor(readonly render: (surface: OAuthErrorSurface, budget: TimeoutBudget) => RequestError) {
+	constructor(readonly render: (surface: OAuthErrorSurface) => RequestError) {
 		super("OAuth token exchange failed");
 		this.name = "OAuthExchangeFailure";
 	}
@@ -346,12 +347,13 @@ class TransientTokenEndpointError extends APIError<number, undefined, undefined>
 
 /**
  * Retries like the discovery GETs, because the grant is idempotent: each attempt on its own clock, the whole exchange
- * inside the retry budget of it. `signal` is the shared exchange's own abandonment, never a caller's, so every failure
- * leaves surface-free for each waiter to render as its own.
+ * inside the retry budget of it. `budget` is the starter's: every attempt ran on its clock, so a timeout renders with
+ * it for every waiter. `signal` is the shared exchange's own abandonment, never a caller's, so every failure leaves
+ * surface-free for each waiter to render as its own.
  */
 async function exchangeClientCredentials(
 	config: OAuthConfig,
-	options: { readonly attemptTimeoutMs: number; readonly signal: AbortSignal; readonly sleep: BackoffSleep }
+	options: { readonly budget: TimeoutBudget; readonly signal: AbortSignal; readonly sleep: BackoffSleep }
 ): Promise<{ accessToken: HeaderValue; expiresInSeconds: number }> {
 	const form = new URLSearchParams({
 		grant_type: "client_credentials",
@@ -454,7 +456,12 @@ async function exchangeClientCredentials(
 					signal,
 				}),
 			judge,
-			{ maxRetries: DISCOVERY_MAX_RETRIES, ...options }
+			{
+				attemptTimeoutMs: options.budget.ms,
+				maxRetries: DISCOVERY_MAX_RETRIES,
+				signal: options.signal,
+				sleep: options.sleep,
+			}
 		);
 	} catch (error) {
 		if (options.signal.aborted) {
@@ -464,13 +471,13 @@ async function exchangeClientCredentials(
 			throw error.failure;
 		}
 		if (error instanceof APIConnectionTimeoutError) {
-			throw new OAuthExchangeFailure((_surface, budget) => timeoutError(config.tokenUrl, budget, error));
+			throw new OAuthExchangeFailure(() => timeoutError(config.tokenUrl, options.budget, error));
 		}
 		if (error instanceof APIConnectionError) {
 			const failure: unknown = error.cause;
-			throw new OAuthExchangeFailure((surface, budget) =>
+			throw new OAuthExchangeFailure((surface) =>
 				socketFailureRequestError(failure, failure, { endpoint: "oauthToken", surface, url: config.tokenUrl }, () =>
-					timeoutError(config.tokenUrl, budget, failure)
+					timeoutError(config.tokenUrl, options.budget, failure)
 				)
 			);
 		}

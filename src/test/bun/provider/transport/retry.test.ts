@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { APIConnectionTimeoutError, APIError } from "openai";
 import type { BackoffSleep } from "../../../../provider/transport/retry";
 import { retryBudgetMs, retryFetch } from "../../../../provider/transport/retry";
+import { sleepUnlessAborted } from "../../../../shared/util/timer";
 import { HANG_PHASES, type Hang } from "./hangingFetch";
 
 /** Per attempt, far below any real setting: the clocks under test are the attempt's and the budget's. */
@@ -95,4 +96,51 @@ describe("retryFetch runs each attempt on its own clock inside the retry budget"
 			expect(server.attempts()).toBe(1);
 		}
 	);
+
+	test("the caller's abort in the same turn as the budget's surfaces the caller's reason, not the budget's", async () => {
+		// The budget fires inside the last attempt when a backoff ran longer than budgeted; a caller leaving in that same
+		// turn, before the rejection reaches the catch, owns the verdict. Regression: the budget's own TimeoutError was
+		// rethrown as if it were the caller's reason.
+		const attemptTimeoutMs = 200;
+		const controller = new AbortController();
+		const reason = new Error("caller left");
+		let attempts = 0;
+		let abortedInsideAttemptMs: number | undefined;
+		const failure = await retryFetch(
+			(signal) => {
+				attempts += 1;
+				const attemptStarted = Date.now();
+				return new Promise<Response>((_resolve, reject) => {
+					signal.addEventListener(
+						"abort",
+						() => {
+							if (attempts === 2) {
+								abortedInsideAttemptMs = Date.now() - attemptStarted;
+								controller.abort(reason);
+							}
+							reject(signal.reason);
+						},
+						{ once: true }
+					);
+				});
+			},
+			() => {
+				throw new Error("never answered");
+			},
+			{
+				attemptTimeoutMs,
+				maxRetries: 1,
+				signal: controller.signal,
+				// Longer than the 200 ms step the budget allows for, so the budget (two attempts plus that step) fires
+				// while attempt two is still inside its own clock.
+				sleep: (_ms, signal) => sleepUnlessAborted(300, signal),
+			}
+		).then(
+			() => undefined,
+			(error: unknown) => error
+		);
+		expect(attempts).toBe(2);
+		expect(abortedInsideAttemptMs).toBeLessThan(attemptTimeoutMs);
+		expect(failure).toBe(reason);
+	});
 });
