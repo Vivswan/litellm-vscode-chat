@@ -577,10 +577,10 @@ describe("shared/logger redact: the one output door", () => {
 			},
 			{
 				title:
-					"percent-escape case folds in the encoded spellings only; a raw value with a percent sign matches literally",
-				text: "raw key%ABcd-zq7 goes, key%abcd-zq7 stays, pa%20ss%2f1 goes",
-				values: ["key%ABcd-zq7", "pa ss/1"],
-				expected: "raw [redacted] goes, key%abcd-zq7 stays, [redacted] goes",
+					"percent-escape case folds in the encoded spellings and in a raw value holding a percent sign, hex digits only: a URL password written encoded is found in the other case",
+				text: "raw key%ABcd-zq7 goes, key%abcd-zq7 goes, pa%20ss%2f1 goes, key%ZZcd-zq7 stays",
+				values: ["key%ABcd-zq7", "pa ss/1", "key%zzcd-zq7"],
+				expected: "raw [redacted] goes, [redacted] goes, [redacted] goes, key%ZZcd-zq7 stays",
 			},
 			{
 				title: "a value inside an existing marker is no match, so no exit can write [[redacted]]",

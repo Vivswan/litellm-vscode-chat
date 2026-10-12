@@ -38,8 +38,9 @@ export interface SecretSpan {
 
 /**
  * One way a line can carry a value. `raw` is the value as typed, the one spelling whose head the Logger may reveal (a
- * head of an escaped spelling would leave a broken escape behind); `folds` marks the percent-encoded spellings,
- * whose escape hex matches in either case. The raw and JSON spellings match literally.
+ * head of an escaped spelling would leave a broken escape behind). `folds` marks the spellings whose escape hex
+ * matches in either case: the encoded ones, and every spelling of a value holding a "%" (a URL password written
+ * encoded).
  */
 interface Spelling {
 	readonly text: string;
@@ -58,13 +59,14 @@ const ENCODINGS: readonly ((value: string) => string)[] = [
  * U+FFFD, and the one must not cost the other.
  */
 function spellingsOf(value: string): Spelling[] {
-	const spellings: Spelling[] = [{ text: value, raw: true, folds: false }];
+	const holdsEscape = value.includes("%");
+	const spellings: Spelling[] = [{ text: value, raw: true, folds: holdsEscape }];
 	const add = (text: string, folds: boolean): void => {
 		if (!spellings.some((spelling) => spelling.text === text)) {
 			spellings.push({ text, raw: false, folds });
 		}
 	};
-	add(JSON.stringify(value).slice(1, -1), false);
+	add(JSON.stringify(value).slice(1, -1), holdsEscape);
 	for (const encode of ENCODINGS) {
 		try {
 			add(encode(value), true);

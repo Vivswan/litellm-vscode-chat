@@ -30,6 +30,14 @@ describe("shared/util/secretMask", () => {
 		]);
 	});
 
+	test("a raw value holding a percent escape matches the escape in either hex case: a password written encoded in a URL", () => {
+		// The collector registers the password as written and decoded ("pass%4Ass", "passJss"); a line that carries
+		// the URL in lowercase escapes holds neither literally.
+		assert.deepStrictEqual(secretSpans("GET http://u:pass%4ass@h.test", ["pass%4Ass", "passJss"]), [
+			{ from: 13, to: 22, value: "pass%4Ass" },
+		]);
+	});
+
 	test("safeCut's work is bounded by the cut, not the text: a two-megabyte line of one repeated value answers at once", () => {
 		const started = performance.now();
 		const at = safeCut("a".repeat(2_000_000), 262_144, ["aaaa"]);
