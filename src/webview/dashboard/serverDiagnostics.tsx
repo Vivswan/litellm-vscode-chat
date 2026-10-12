@@ -869,7 +869,7 @@ export function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: numbe
 				: `${notServedLine(path, standing.status)}; request stats still update`;
 		case "error": {
 			if (standing.classification === "timeout") {
-				return `LiteLLM ${path}: timed out after ${discoveryTimeoutMs}ms (whole-call bound incl. retries). If the server is just slow, raise the discovery.timeout setting.`;
+				return `LiteLLM ${path}: timed out (discovery.timeout allows ${discoveryTimeoutMs}ms per attempt). If the server is just slow, raise the discovery.timeout setting.`;
 			}
 			const how =
 				standing.status !== undefined

@@ -174,8 +174,8 @@
 	"Answers @litellm chat turns with the request's own model; costs nothing until invoked.": "Answers @litellm chat turns with the request's own model; costs nothing until invoked.",
 	"Any model_info field, e.g. context_length, supports_vision, or input_cost_per_token; unknown names apply as-is. _openrouter_model fills from the catalog, _fallback demotes below the server's report.": "Any model_info field, e.g. context_length, supports_vision, or input_cost_per_token; unknown names apply as-is. _openrouter_model fills from the catalog, _fallback demotes below the server's report.",
 	"Applies only on models that advertise support, currently Anthropic Claude models (supports_prompt_caching); the reused prefix bills at the cache rate instead of full price.": "Applies only on models that advertise support, currently Anthropic Claude models (supports_prompt_caching); the reused prefix bills at the cache rate instead of full price.",
-	"Applies per call, and a discovery pass makes several - the model-info listing and the /models fallback each get a fresh budget - so one pass can take a multiple of this. Type 30s, 1m, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
-		"message": "Applies per call, and a discovery pass makes several - the model-info listing and the /models fallback each get a fresh budget - so one pass can take a multiple of this. Type 30s, 1m, or plain ms.",
+	"Applies per attempt; a call retries transient failures, so one call can take about three times this, and a discovery pass makes several calls - the model-info listing and the /models fallback each run their own. Type 30s, 1m, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
+		"message": "Applies per attempt; a call retries transient failures, so one call can take about three times this, and a discovery pass makes several calls - the model-info listing and the /models fallback each run their own. Type 30s, 1m, or plain ms.",
 		"comment": [
 			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
 		]
@@ -473,7 +473,7 @@
 	"GitHub repository": "GitHub repository",
 	"Gives Copilot's agent tools that read this extension's diagnostics and configuration. Each tool that changes something has its own switch below.": "Gives Copilot's agent tools that read this extension's diagnostics and configuration. Each tool that changes something has its own switch below.",
 	"Hard bound for one chat, commit-message, pull-request-description, consult-tool, or quick-fix call.": "Hard bound for one chat, commit-message, pull-request-description, consult-tool, or quick-fix call.",
-	"Hard bound for one model discovery call.": "Hard bound for one model discovery call.",
+	"Hard bound for one model discovery attempt; transient failures are retried.": "Hard bound for one model discovery attempt; transient failures are retried.",
 	"Header name": "Header name",
 	"Header value": "Header value",
 	"Header, e.g. x-routing-env": "Header, e.g. x-routing-env",
