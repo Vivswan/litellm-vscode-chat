@@ -21,6 +21,27 @@ export interface CollectableEntry {
 	readonly carriers: readonly string[];
 }
 
+/**
+ * A URL's password as written and as decoded, so the door finds the spelling a line carries; nothing for a URL
+ * without one or for text no parser reads.
+ */
+export function urlPasswordsOf(url: string): string[] {
+	let password: string;
+	try {
+		password = new URL(url).password;
+	} catch {
+		return [];
+	}
+	if (password === "") {
+		return [];
+	}
+	try {
+		return [password, decodeURIComponent(password)];
+	} catch {
+		return [password];
+	}
+}
+
 /** The known values of the parsed entries plus the stored values read for them; short ones out, deduplicated. */
 export function collectKnownSecretValues(
 	entries: readonly CollectableEntry[],

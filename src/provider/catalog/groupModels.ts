@@ -25,6 +25,7 @@ import { displayUrl } from "../../shared/util/displayUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { HEADER_NAME_PATTERN, type HeaderValue, headerValue, usableHttpText } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
+import { collectKnownSecretValues, urlPasswordsOf } from "../../shared/util/knownSecrets";
 import type { OAuthConfig, VirtualKeyConfig } from "../transport/auth";
 import { oauthCredentialFingerprint } from "../transport/auth";
 
@@ -501,6 +502,21 @@ export function narrowGroupCredentials(raw: RawOptionalFields): NarrowedGroupCre
 		fillSlot(slots, CREDENTIAL_UNITS[field], raw, (rejection) => rejections.push(rejection));
 	}
 	return { credentials: { ...slots, apiKey: slots.apiKey ?? "" }, rejections };
+}
+
+/**
+ * Every credential value a host group carries, for the output door: a group adopted from the host is in no `servers`
+ * entry for the collector (extension/wiring/knownSecrets.ts) to read, so the provider registers these as it serves.
+ */
+export function groupServerKnownSecrets(server: GroupServer): readonly string[] {
+	const secrets = [
+		server.apiKey,
+		server.oauth?.clientSecret,
+		server.virtualKey?.value,
+		...urlPasswordsOf(server.baseUrl),
+		...(server.oauth === undefined ? [] : urlPasswordsOf(server.oauth.tokenUrl)),
+	].filter((value): value is string => value !== undefined);
+	return collectKnownSecretValues([{ secrets, headers: {}, carriers: [] }], []);
 }
 
 /** A host group configuration as parsed: the connection it describes and the credentials it configured but cannot send. */

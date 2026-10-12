@@ -19,7 +19,13 @@ import type { AggregatedStatus } from "../../shared/servers";
 import { fixedHeaderValue } from "../../shared/util/headers";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, deploymentShape, expectDefined, makeModelInfo } from "../pureHelpers";
+import {
+	assertEndsWith,
+	DEFAULT_DISCOVERY_PAYLOAD,
+	deploymentShape,
+	expectDefined,
+	makeModelInfo,
+} from "../pureHelpers";
 import { makeProvider, testGroupServer, userMessage, withConfig } from "../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
@@ -122,6 +128,46 @@ suite("provider", () => {
 			"the rollback must not serve the first credentials' retired cache entry"
 		);
 		assert.strictEqual(provider.getServerSnapshots().length, 1, "one owned entry throughout");
+	});
+
+	test("serving a host group outside the servers setting registers its credentials: a reply quoting its URL password or key comes back masked", async () => {
+		// Drifts silently: the collector (extension/wiring/knownSecrets.ts) reads the servers setting, and a group
+		// adopted from the host is in none, so only the provider's serve can hand its values to the output door.
+		const password = "grp-pass-Q7";
+		const key = "ext-key-Q7-marker";
+		const provider = makeProvider(undefined, undefined, undefined, {
+			fetch: async (_url, init) =>
+				init?.method === "POST"
+					? HttpResponse.json(
+							{ error: { message: `no route for ${key} at http://alice:${password}@ext.test:4000/v1` } },
+							{ status: 404 }
+						)
+					: HttpResponse.json({ data: [{ id: "m" }] }),
+		});
+		const token = new vscode.CancellationTokenSource().token;
+		const [model] = await provider.provideLanguageModelChatInformation(
+			{
+				silent: true,
+				configuration: { baseUrl: `http://alice:${password}@ext.test:4000`, apiKey: key, label: "Adopted" },
+			} as { silent: boolean },
+			token
+		);
+		await assert.rejects(
+			provider.provideLanguageModelChatResponse(
+				expectDefined(model),
+				[userMessage("hi")],
+				{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+				{ report: () => {} },
+				token
+			),
+			(error: unknown) => {
+				assertEndsWith(
+					(error as Error).message,
+					"\n\nDetails: LiteLLM 404: no route for [redacted] at http://alice:[redacted]@ext.test:4000/v1"
+				);
+				return true;
+			}
+		);
 	});
 
 	test("provideTokenCount prices a bare string and a one-text-part message alike at chars/4", async () => {
