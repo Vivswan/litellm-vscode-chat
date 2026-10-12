@@ -63,17 +63,21 @@ test("the sort control picks the key and the toggle picks the direction, and bot
 	expect(sortDirection(root).disabled).toBe(true);
 });
 
-test("models without a price sort last in both directions", () => {
+test("price sorts by the printed parts' sum, and only rows printing no price sink last in both directions", () => {
+	// The sort once keyed on the input cost alone while the row and the priced pill count an output-only price as
+	// priced, so a model showing "$5 out" sank among the unpriced.
 	const models = [
 		makeModel({ id: "free", name: "Unpriced" }),
+		makeModel({ id: "out-only", name: "Output only", outputCost: 5 }),
 		makeModel({ id: "cheap", name: "Cheap", inputCost: 1 }),
 		makeModel({ id: "dear", name: "Dear", inputCost: 10 }),
+		makeModel({ id: "both", name: "Both", inputCost: 2, outputCost: 6 }),
 	];
 	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={1} onInspect={() => {}} />);
 	fireSelect(sortSelect(root), "price");
-	expect(firstColumn(root)).toEqual(["Cheap", "Dear", "Unpriced"]);
+	expect(firstColumn(root)).toEqual(["Cheap", "Output only", "Both", "Dear", "Unpriced"]);
 	fireClick(sortDirection(root));
-	expect(firstColumn(root)).toEqual(["Dear", "Cheap", "Unpriced"]);
+	expect(firstColumn(root)).toEqual(["Dear", "Both", "Output only", "Cheap", "Unpriced"]);
 });
 
 function manyModels(count: number): DashboardModel[] {
