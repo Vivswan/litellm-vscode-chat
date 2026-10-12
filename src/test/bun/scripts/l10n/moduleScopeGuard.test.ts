@@ -1,11 +1,25 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import { inferLazyL10nNames, moduleScopeL10nOffenses } from "../../../../../scripts/l10n/lib";
+import { GUARD_FIXTURE_LAZY_NAMES, GUARD_FIXTURES } from "./moduleScopeGuardFixture";
 
 /**
- * The inference and the guard composed over a tree, which the per-file fixtures in scripts/l10n/fixtures cannot
- * express: a helper is inferred lazy from its own declaration, and a module-scope call to it in ANOTHER file is refused
- * with nothing registered anywhere.
+ * The guard judged one file at a time with the lazy names handed in, so a pattern the AST walk stops classifying fails
+ * here instead of silently passing a frozen-English catalog: over the repository, a blinder guard only goes quieter.
+ */
+describe("l10n module-scope guard per fixture", () => {
+	for (const fixture of GUARD_FIXTURES) {
+		test(fixture.name, () => {
+			const offenses = moduleScopeL10nOffenses(fixture.source, "fixture.ts", GUARD_FIXTURE_LAZY_NAMES);
+			assert.strictEqual(offenses.length > 0, fixture.flagged);
+		});
+	}
+});
+
+/**
+ * The inference and the guard composed over a tree, which the per-file fixtures above cannot express: a helper is
+ * inferred lazy from its own declaration, and a module-scope call to it in ANOTHER file is refused with nothing
+ * registered anywhere.
  */
 describe("l10n module-scope guard over a tree", () => {
 	// One case per shape of lazy helper the old hand-kept list carried. `helpers.ts` declares what the call reaches

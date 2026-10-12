@@ -1,4 +1,4 @@
-/** The default-export ban's own teeth: every shape that mints an importer-named binding must flag. */
+/** Every shape that mints an importer-named binding, beside the look-alikes that mint none. */
 export const DEFAULT_EXPORT_FIXTURES: readonly {
 	readonly name: string;
 	readonly source: string;

@@ -1,7 +1,7 @@
 /**
- * The inference's own teeth: each fixture's expected names are the exact set inferLazyL10nNames must mark lazy over
- * its sources. `lazyElsewhere` names helpers the sources call into without showing; the self-check declares each in a
- * file of its own (a plain l10n.t helper) and expects it alongside.
+ * Each fixture's expected names are the exact set inferLazyL10nNames must mark lazy over its sources. `lazyElsewhere`
+ * names helpers the sources call into without showing; the test declares each in a file of its own (a plain l10n.t
+ * helper) and expects it alongside.
  */
 export const LAZY_INFERENCE_FIXTURES: readonly {
 	readonly name: string;

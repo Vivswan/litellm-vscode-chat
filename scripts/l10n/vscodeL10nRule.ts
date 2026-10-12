@@ -212,7 +212,7 @@ export function vscodeL10nOffenses(contents: string, fileName: string, options: 
 			ts.isCallExpression(node) &&
 			(node.expression.kind === ts.SyntaxKind.ImportKeyword ||
 				(ts.isIdentifier(node.expression) && node.expression.text === "require")) &&
-			node.arguments.length > 0
+			node.arguments[0] !== undefined
 		) {
 			const argument = unwrap(node.arguments[0]);
 			if (ts.isStringLiteralLike(argument) && (argument.text === "vscode" || argument.text === "@vscode/l10n")) {
