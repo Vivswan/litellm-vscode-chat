@@ -1,6 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import type OpenAI from "openai";
-import { APIConnectionError, APIConnectionTimeoutError } from "openai";
+import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
 import { consumedFieldsOfKind } from "../../shared/config/capabilityResolution";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
@@ -436,7 +436,9 @@ async function getJson(
 					});
 				} catch (error) {
 					// The SDK calls only its own headers clock a timeout; an abort it did not arm is a user abort to it.
-					throw attemptClock.aborted && !budget.aborted ? new APIConnectionTimeoutError() : error;
+					throw attemptClock.aborted && !budget.aborted && !carriesStatus(error)
+						? new APIConnectionTimeoutError()
+						: error;
 				}
 				// An empty body, a 204 or a bare 200, is an empty listing, not a parse failure.
 				return text === "" ? EMPTY_BODY : { empty: false, value: parseJsonBody(text, endpointUrl) };
@@ -444,11 +446,19 @@ async function getJson(
 			{ maxRetries, signal: budget, sleep }
 		);
 	} catch (error) {
-		if (budget.aborted) {
+		if (budget.aborted && !carriesStatus(error)) {
 			throw timeoutRequestError(context, error);
 		}
 		throw error;
 	}
+}
+
+/**
+ * A status whose headers arrived is the verdict however the body ended: the SDK reads an error body with a catch and
+ * still raises the status, so a 401 whose body stalls past either clock stays a 401, terminal and never re-wrapped.
+ */
+function carriesStatus(error: unknown): boolean {
+	return error instanceof APIError && typeof error.status === "number";
 }
 
 /** How the model-info probe's failure looked, for the /models leg's same-pass verdict. */

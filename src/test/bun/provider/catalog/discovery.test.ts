@@ -33,6 +33,11 @@ function stallAfterHeaders(signal: Signal): Promise<Response> {
 	return Promise.resolve(new Response(body, { status: 200, headers: { "content-type": "application/json" } }));
 }
 
+/** The headers arrive with an error status and the body never flows; the SDK still raises the status, not the stall. */
+function stallErrorBody(status: number): Hang {
+	return (signal) => stallAfterHeaders(signal).then((answered) => new Response(answered.body, { status }));
+}
+
 type Hang = (signal: Signal) => Promise<Response>;
 const HANG_PHASES: readonly [phase: string, hang: Hang][] = [
 	["before the headers", hangBeforeHeaders],
@@ -116,6 +121,34 @@ describe("discovery GETs retry a timed-out attempt", () => {
 			expect(server.attempts).toEqual({ info: DISCOVERY_MAX_RETRIES + 1, models: DISCOVERY_MAX_RETRIES + 1 });
 			// Two GETs, each with its own budget, every attempt run to its timeout and every backoff slept at zero.
 			expect(elapsed).toBeLessThan(2 * retryBudgetMs(ATTEMPT_TIMEOUT_MS, DISCOVERY_MAX_RETRIES));
+		}
+	);
+});
+
+describe("a stalled error body keeps its status", () => {
+	// Regression: an attempt-clock abort used to replace whatever the SDK threw with its timeout error, so a stalled
+	// 401 body was retried three times and reported as a timeout; with retries off, the budget rendering did the same.
+	// A status that reached the headers keeps its classification under either clock.
+	// Declaring both failures expected turns retries off, so the budget clock and the attempt clock fire together.
+	const retriesOff = { expected: { modelInfo: true, modelListing: true } };
+	test.each([
+		[401, "auth", "retries on", {}],
+		[404, "http", "retries on", {}],
+		[401, "auth", "retries off", retriesOff],
+		[404, "http", "retries off", retriesOff],
+	] as const)(
+		"an HTTP %i whose body stalls past the attempt timeout ends after one attempt as %s (%s)",
+		async (status, kind, _clocks, overrides) => {
+			const server = fakeServer(stallErrorBody(status), Number.POSITIVE_INFINITY);
+			const failure = await fetchModels({ ...request(server.transport), ...overrides }).then(
+				() => undefined,
+				(error: unknown) => error
+			);
+			expect(failure).toBeInstanceOf(RequestError);
+			const mapped = failure as RequestError;
+			expect(mapped.kind).toBe(kind);
+			expect(mapped.status).toBe(status);
+			expect(server.attempts).toEqual({ info: 1, models: 1 });
 		}
 	);
 });
