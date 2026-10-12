@@ -1,4 +1,5 @@
 import * as l10n from "@vscode/l10n";
+import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { Logger } from "../../shared/logger";
 import { collapseWhitespace } from "../../shared/util/errorText";
@@ -7,7 +8,8 @@ import { type HeaderValue, headerValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
-import type { BackoffSleep } from "./retry";
+import type { BackoffSleep, FetchAnswer } from "./retry";
+import { abortableWait, abortReason, retryBudgetMs, retryFetch } from "./retry";
 import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartTexts } from "./transportErrors";
 
 /** Error ownership follows the transport-module convention: construct and throw without logging. */
@@ -35,8 +37,9 @@ export interface VirtualKeyConfig {
 export type OAuthErrorSurface = MapErrorContext["surface"];
 
 /**
- * A hard time bound together with the identity of the setting that owns it, minted at the ONE place the number is read
- * from configuration (or fixed in code) and passed through as a unit.
+ * A per-attempt time bound together with the identity of the setting that owns it, minted at the ONE place the number
+ * is read from configuration (or fixed in code) and passed through as a unit. A token wait runs to retryBudgetMs of it,
+ * like a discovery GET.
  *
  * `setting` is required but may be undefined: a fixed bound no setting can raise states that explicitly instead of
  * omitting it.
@@ -68,8 +71,6 @@ const REFRESH_SKEW_MS = 60_000;
 /** Applied when the token response omits expires_in (RFC 6749 only recommends it). */
 const DEFAULT_EXPIRES_IN_SECONDS = 300;
 
-const RETRY_DELAY_MS = 200;
-
 interface CachedToken {
 	accessToken: HeaderValue;
 	refreshAtMs: number;
@@ -90,7 +91,8 @@ export class OAuthTokenSource {
 
 	/**
 	 * No caller's bounds reach the exchange: it is abandoned only when its last waiter leaves, so a waiter never
-	 * renders a bound or a cancellation that was not its own.
+	 * renders a bound or a cancellation that was not its own. The one number that does reach it is the starter's
+	 * budget, as the clock of each of its attempts; a waiter's own wait runs to the retry budget of its own.
 	 */
 	async getToken(
 		config: OAuthConfig,
@@ -106,9 +108,9 @@ export class OAuthTokenSource {
 		if (signal?.aborted) {
 			throw abortReason(signal);
 		}
-		const ownClock = AbortSignal.timeout(budget.ms);
+		const ownClock = AbortSignal.timeout(retryBudgetMs(budget.ms, DISCOVERY_MAX_RETRIES));
 		const ownBounds = signal !== undefined ? AbortSignal.any([signal, ownClock]) : ownClock;
-		const exchange = this.exchanges.get(key) ?? this.startExchange(key, config);
+		const exchange = this.exchanges.get(key) ?? this.startExchange(key, config, budget.ms);
 		exchange.waiters += 1;
 		try {
 			return await abortableWait(exchange.token, ownBounds);
@@ -132,7 +134,7 @@ export class OAuthTokenSource {
 		}
 	}
 
-	private startExchange(key: string, config: OAuthConfig): SharedExchange {
+	private startExchange(key: string, config: OAuthConfig, attemptTimeoutMs: number): SharedExchange {
 		const controller = new AbortController();
 		const exchange: SharedExchange = {
 			waiters: 0,
@@ -140,7 +142,11 @@ export class OAuthTokenSource {
 			// A settled exchange is never joinable: both arms leave the map before they settle.
 			//   fulfilled -> cache the token -> forget -> resolve
 			//   rejected  -> forget -> rethrow
-			token: exchangeClientCredentials(config, controller.signal, this.sleep).then(
+			token: exchangeClientCredentials(config, {
+				attemptTimeoutMs,
+				signal: controller.signal,
+				sleep: this.sleep,
+			}).then(
 				({ accessToken, expiresInSeconds }) => {
 					const lifetimeMs = expiresInSeconds * 1000;
 					const skewMs = Math.min(REFRESH_SKEW_MS, lifetimeMs / 2);
@@ -185,31 +191,6 @@ export class OAuthTokenSource {
 		}
 		this.tokens.delete(key);
 	}
-}
-
-function abortReason(signal: AbortSignal): unknown {
-	return signal.reason ?? new Error("The operation was aborted");
-}
-
-/** `signal` ends only this wait; the promise runs on for its other awaiters. */
-function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-	if (signal.aborted) {
-		return Promise.reject(abortReason(signal));
-	}
-	return new Promise<T>((resolve, reject) => {
-		const onAbort = () => reject(abortReason(signal));
-		signal.addEventListener("abort", onAbort, { once: true });
-		promise.then(
-			(value) => {
-				signal.removeEventListener("abort", onAbort);
-				resolve(value);
-			},
-			(error) => {
-				signal.removeEventListener("abort", onAbort);
-				reject(error);
-			}
-		);
-	});
 }
 
 /** A surface-free exchange failure; `render` mints a fresh RequestError per waiter, so waiters never share one. */
@@ -352,13 +333,26 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: H
 }
 
 /**
- * Retries like the discovery GETs, because the grant is idempotent. `signal` is the shared exchange's own
- * abandonment, never a caller's, so every failure leaves surface-free for each waiter to render as its own.
+ * A 5xx from the token endpoint in the shape the retry rule reads, carrying the rendering the exchange throws when the
+ * last retry answers the same way.
+ */
+class TransientTokenEndpointError extends APIError<number, undefined, undefined> {
+	constructor(
+		status: number,
+		readonly failure: OAuthExchangeFailure
+	) {
+		super(status, undefined, undefined, undefined);
+	}
+}
+
+/**
+ * Retries like the discovery GETs, because the grant is idempotent: each attempt on its own clock, the whole exchange
+ * inside the retry budget of it. `signal` is the shared exchange's own abandonment, never a caller's, so every failure
+ * leaves surface-free for each waiter to render as its own.
  */
 async function exchangeClientCredentials(
 	config: OAuthConfig,
-	signal: AbortSignal,
-	sleep: BackoffSleep
+	options: { readonly attemptTimeoutMs: number; readonly signal: AbortSignal; readonly sleep: BackoffSleep }
 ): Promise<{ accessToken: HeaderValue; expiresInSeconds: number }> {
 	const form = new URLSearchParams({
 		grant_type: "client_credentials",
@@ -367,34 +361,8 @@ async function exchangeClientCredentials(
 		...(config.clientSecret.length > 0 ? { client_secret: config.clientSecret } : {}),
 		...(config.scopes !== undefined ? { scope: config.scopes } : {}),
 	});
-
-	let lastFailure: unknown;
-	for (let attempt = 0; attempt <= DISCOVERY_MAX_RETRIES; attempt += 1) {
-		if (attempt > 0) {
-			await sleep(RETRY_DELAY_MS * attempt, signal);
-			if (signal.aborted) {
-				throw abortReason(signal);
-			}
-		}
-
-		let response: Response;
-		let payload: string;
-		try {
-			response = await globalThis.fetch(config.tokenUrl, {
-				method: "POST",
-				headers: { "Content-Type": "application/x-www-form-urlencoded" },
-				body: form.toString(),
-				signal,
-			});
-			payload = await response.text();
-		} catch (error) {
-			if (signal.aborted) {
-				throw error;
-			}
-			lastFailure = error;
-			continue;
-		}
-
+	// The verdict over one answer: the parsed token, a retryable 5xx, or a settled refusal in its own rendering.
+	const judge = ({ response, text: payload }: FetchAnswer): { accessToken: HeaderValue; expiresInSeconds: number } => {
 		if (response.ok) {
 			return parseTokenResponse(payload, config.tokenUrl);
 		}
@@ -406,26 +374,28 @@ async function exchangeClientCredentials(
 			const detailLine = collapseWhitespace(
 				`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
-			lastFailure = new OAuthExchangeFailure((surface) => {
-				const texts = twoPartTexts(
-					surface,
-					{
-						display: l10n.t(
-							"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator."
-						),
-						english:
-							"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator.",
-					},
-					detailLine
-				);
-				return new RequestError(texts.message, "http", {
-					status,
-					logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
-					englishMessage: texts.englishMessage,
-					oauthTokenEndpoint: true,
-				});
-			});
-			continue;
+			throw new TransientTokenEndpointError(
+				status,
+				new OAuthExchangeFailure((surface) => {
+					const texts = twoPartTexts(
+						surface,
+						{
+							display: l10n.t(
+								"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator."
+							),
+							english:
+								"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator.",
+						},
+						detailLine
+					);
+					return new RequestError(texts.message, "http", {
+						status,
+						logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
+						englishMessage: texts.englishMessage,
+						oauthTokenEndpoint: true,
+					});
+				})
+			);
 		}
 		if (status === 400 || status === 401 || status === 403) {
 			// Same: the IdP detail can carry correlation IDs and tenant text.
@@ -474,15 +444,37 @@ async function exchangeClientCredentials(
 				oauthTokenEndpoint: true,
 			});
 		});
+	};
+	try {
+		return await retryFetch(
+			(signal) =>
+				globalThis.fetch(config.tokenUrl, {
+					method: "POST",
+					headers: { "Content-Type": "application/x-www-form-urlencoded" },
+					body: form.toString(),
+					signal,
+				}),
+			judge,
+			{ maxRetries: DISCOVERY_MAX_RETRIES, ...options }
+		);
+	} catch (error) {
+		if (options.signal.aborted) {
+			throw error;
+		}
+		if (error instanceof TransientTokenEndpointError) {
+			throw error.failure;
+		}
+		if (error instanceof APIConnectionTimeoutError) {
+			throw new OAuthExchangeFailure((_surface, budget) => timeoutError(config.tokenUrl, budget, error));
+		}
+		if (error instanceof APIConnectionError) {
+			const failure: unknown = error.cause;
+			throw new OAuthExchangeFailure((surface, budget) =>
+				socketFailureRequestError(failure, failure, { endpoint: "oauthToken", surface, url: config.tokenUrl }, () =>
+					timeoutError(config.tokenUrl, budget, failure)
+				)
+			);
+		}
+		throw error;
 	}
-
-	if (lastFailure instanceof OAuthExchangeFailure) {
-		throw lastFailure;
-	}
-	const failure = lastFailure;
-	throw new OAuthExchangeFailure((surface, budget) =>
-		socketFailureRequestError(failure, failure, { endpoint: "oauthToken", surface, url: config.tokenUrl }, () =>
-			timeoutError(config.tokenUrl, budget, failure)
-		)
-	);
 }
