@@ -1,6 +1,5 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import { Logger } from "../../../../shared/logger";
 import { type CollectableEntry, collectKnownSecretValues } from "../../../../shared/util/knownSecrets";
 
 /** A parsed entry as the collector sees it, with the fields a row leaves out empty. */
@@ -54,15 +53,5 @@ describe("shared/util/knownSecrets", () => {
 		for (const { title, entries, stored, expected } of cases) {
 			assert.deepStrictEqual(collectKnownSecretValues(entries, stored), expected, title);
 		}
-	});
-
-	test("a URL's userinfo is the door's shape rule, never a registered value: a user name stays a word elsewhere", () => {
-		// The collector sees the secret positions of a record, and a URL is none of them. Were "alice" or "alice:pw"
-		// registered from a configured http://alice:pw@host, every "/Users/alice/x" on every line would blank.
-		Logger.registerSecrets(collectKnownSecretValues([entry({ secrets: ["cfg-alice-key-Q7"] })], []));
-		assert.strictEqual(
-			Logger.redact("open /Users/alice/x for http://alice:pw@hub.test/v1 with cfg-alice-key-Q7"),
-			"open /Users/alice/x for http://[redacted]@hub.test/v1 with [redacted]"
-		);
 	});
 });

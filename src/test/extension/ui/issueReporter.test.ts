@@ -63,18 +63,19 @@ suite("IssueReporter", () => {
 		assert.ok(body.includes("API key configured: Unknown (key presence not yet determined)"), body);
 	});
 
-	test("buildTitle keeps the host: only credential values and URL userinfo are redacted anywhere", () => {
+	test("buildTitle keeps the host, the user name, and the path: only registered values are redacted anywhere", () => {
+		Logger.registerSecrets(["rep-pass-Q7"]);
 		const reporter = new IssueReporter();
 		const snapshot = makeSnapshot({
 			latestError: {
 				source: "fetchModels",
-				message: "Failed to connect to https://user:pass@internal.corp.com:4000/v1/models",
+				message: "Failed to connect to https://user:rep-pass-Q7@internal.corp.com:4000/v1/models",
 				timestamp: "2026-01-01T00:00:00.000Z",
 			},
 		});
 		assert.strictEqual(
 			reporter.buildTitle(snapshot),
-			"[Bug] fetchModels: Failed to connect to https://[redacted]@internal.corp.com:4000/v1/models"
+			"[Bug] fetchModels: Failed to connect to https://user:[redacted]@internal.corp.com:4000/v1/models"
 		);
 	});
 
@@ -288,13 +289,14 @@ suite("IssueReporter", () => {
 	test("the latest error's source passes through the output door in the title and both bodies", () => {
 		// The Logger names the failing server in the recorder's source ("Failed to fetch models for provider group at
 		// <baseUrl>"), and the title, the Source line, and the clipboard fallback rendered it raw.
+		Logger.registerSecrets(["rep-pass-Q7"]);
 		const reporter = new IssueReporter();
 		const latestError = {
-			source: "Failed at http://user:pass@private.example:4000",
+			source: "Failed at http://user:rep-pass-Q7@private.example:4000",
 			message: "failed",
 			timestamp: "2026-01-01T00:00:00.000Z",
 		};
-		const shown = "Failed at http://[redacted]@private.example:4000";
+		const shown = "Failed at http://user:[redacted]@private.example:4000";
 		assert.strictEqual(reporter.buildTitle(makeSnapshot({ latestError })), `[Bug] ${shown}: failed`);
 		assertContains(reporter.buildBody(makeSnapshot({ latestError })), `- Source: ${shown}\n`);
 		const fallback = getIssueBody(
@@ -304,25 +306,28 @@ suite("IssueReporter", () => {
 		assertContains(fallback, `- Source: ${shown}\n`);
 	});
 
-	test("the registered values and URL userinfo are masked in the title, the error, the logs, and the stack", () => {
+	test("the registered values are masked in the title, the error, the logs, and the stack, in a URL's percent spelling too", () => {
 		// The buffer and the recorder hold every line raw (the Logger masks the channel by its setting), so the report
 		// is where the registered values go, once over the whole snapshot before the title's first-line cut (a value
-		// may span lines). Hosts and paths stay; a value that is also a word blanks that word.
-		Logger.registerSecrets(["sk-live-Q7", "zq7w", "two\nlines"]);
+		// may span lines). Hosts, user names, and paths stay; a value that is also a word blanks that word.
+		Logger.registerSecrets(["sk-live-Q7", "zq7w", "two\nlines", "rep pass-Q7"]);
 		const reporter = new IssueReporter();
 		const latestError = {
-			source: "Failed at http://user:pass@localhost:4000 for sk-live-Q7",
-			message: "connect ECONNREFUSED http://user:pass@localhost:4000 for key sk-live-Q7 two\nlines",
+			source: "Failed at http://user:rep%20pass-Q7@localhost:4000 for sk-live-Q7",
+			message: "connect ECONNREFUSED http://user:rep%20pass-Q7@localhost:4000 for key sk-live-Q7 two\nlines",
 			stack: "Error: for key sk-live-Q7\n    at real (x.ts:1:1)",
 			timestamp: "2026-01-01T00:00:00.000Z",
 		};
 		const snapshot = makeSnapshot({
 			latestError,
-			recentLogs: ["[T] GET http://user:pa%20ss@localhost/ sent sk-live-Q7", "[T] GET https://proxy.zq7w.host.test/v1"],
+			recentLogs: [
+				"[T] GET http://user:rep%20pass-Q7@localhost/ sent sk-live-Q7",
+				"[T] GET https://proxy.zq7w.host.test/v1",
+			],
 		});
 		const body = reporter.buildBody(snapshot);
 		const published = `${reporter.buildTitle(snapshot)}\n${body}\n${getIssueBody(reporter.buildIssueUrl(snapshot))}`;
-		for (const value of ["sk-live-Q7", "user:pass", "pa%20ss", "proxy.zq7w", "two\nlines"]) {
+		for (const value of ["sk-live-Q7", "rep%20pass", "rep pass", "proxy.zq7w", "two\nlines"]) {
 			assertOmits(published, value);
 		}
 		// The title cuts the message's first line at 80 characters AFTER the mask, so its cut may fall inside a marker
@@ -331,7 +336,7 @@ suite("IssueReporter", () => {
 			reporter
 				.buildTitle(snapshot)
 				.startsWith(
-					"[Bug] Failed at http://[redacted]@localhost:4000 for [redacted]: connect ECONNREFUSED http://[redacted]@localhost:4000 for key [redacted] "
+					"[Bug] Failed at http://user:[redacted]@localhost:4000 for [redacted]: connect ECONNREFUSED http://user:[redacted]@localhost:4000 for key [redacted] "
 				),
 			reporter.buildTitle(snapshot)
 		);
@@ -343,9 +348,12 @@ suite("IssueReporter", () => {
 				stack: /Error: for key .*/.exec(body)?.[0],
 			},
 			{
-				source: "- Source: Failed at http://[redacted]@localhost:4000 for [redacted]",
-				message: "- Message: connect ECONNREFUSED http://[redacted]@localhost:4000 for key [redacted] [redacted]",
-				logs: ["[T] GET http://[redacted]@localhost/ sent [redacted]", "[T] GET https://proxy.[redacted].host.test/v1"],
+				source: "- Source: Failed at http://user:[redacted]@localhost:4000 for [redacted]",
+				message: "- Message: connect ECONNREFUSED http://user:[redacted]@localhost:4000 for key [redacted] [redacted]",
+				logs: [
+					"[T] GET http://user:[redacted]@localhost/ sent [redacted]",
+					"[T] GET https://proxy.[redacted].host.test/v1",
+				],
 				stack: "Error: for key [redacted]",
 			}
 		);
@@ -355,24 +363,24 @@ suite("IssueReporter", () => {
 		// Every field passes the door once over the whole snapshot: the report of the raw snapshot is byte for byte the
 		// report of the snapshot with each value replaced by hand, so no field and no section is left out of the mask.
 		const key = `sk-live-${"A".repeat(32)}`;
-		Logger.registerSecrets([key]);
+		Logger.registerSecrets([key, "hand-pass-Q7"]);
 		const raw = makeSnapshot({
 			latestError: {
-				source: `Failed at http://user:pass@localhost:4000 for ${key}`,
-				message: `connect ECONNREFUSED http://user:pass@localhost:4000 for key ${key}`,
+				source: `Failed at http://user:hand-pass-Q7@localhost:4000 for ${key}`,
+				message: `connect ECONNREFUSED http://user:hand-pass-Q7@localhost:4000 for key ${key}`,
 				stack: `Error: for key ${key}\n    at real (x.ts:1:1)`,
 				timestamp: "2026-01-01T00:00:00.000Z",
 			},
-			recentLogs: [`[T] GET http://user:pa%20ss@localhost/ sent ${key}`, "[T] GET https://proxy.host.test/v1"],
+			recentLogs: [`[T] GET http://user:hand-pass-Q7@localhost/ sent ${key}`, "[T] GET https://proxy.host.test/v1"],
 		});
 		const masked = makeSnapshot({
 			latestError: {
-				source: "Failed at http://[redacted]@localhost:4000 for sk-liv...",
-				message: "connect ECONNREFUSED http://[redacted]@localhost:4000 for key sk-liv...",
+				source: "Failed at http://user:[redacted]@localhost:4000 for sk-liv...",
+				message: "connect ECONNREFUSED http://user:[redacted]@localhost:4000 for key sk-liv...",
 				stack: "Error: for key sk-liv...\n    at real (x.ts:1:1)",
 				timestamp: "2026-01-01T00:00:00.000Z",
 			},
-			recentLogs: ["[T] GET http://[redacted]@localhost/ sent sk-liv...", "[T] GET https://proxy.host.test/v1"],
+			recentLogs: ["[T] GET http://user:[redacted]@localhost/ sent sk-liv...", "[T] GET https://proxy.host.test/v1"],
 		});
 		const reporter = new IssueReporter();
 		const rendered = {
@@ -408,18 +416,19 @@ suite("IssueReporter", () => {
 		assert.ok(body.includes("- Classification: http 404 (check-base-url)"), body);
 	});
 
-	test("a classified error keeps its Classification line and its host; the door masks the userinfo alone", () => {
+	test("a classified error keeps its Classification line and its host; the door masks the registered password alone", () => {
+		Logger.registerSecrets(["rep-pass-Q7"]);
 		const reporter = new IssueReporter();
 		const snapshot = makeSnapshot({
 			latestError: {
 				source: "discovery",
-				message: "Failed to connect to https://user:pass@internal.corp.com:4000/v1/models",
+				message: "Failed to connect to https://user:rep-pass-Q7@internal.corp.com:4000/v1/models",
 				timestamp: "2026-01-01T00:00:00.000Z",
 				classification: { kind: "connection", setupHint: "proxy-not-running" },
 			},
 		});
 		const body = reporter.buildBody(snapshot);
-		assertContains(body, "- Message: Failed to connect to https://[redacted]@internal.corp.com:4000/v1/models");
+		assertContains(body, "- Message: Failed to connect to https://user:[redacted]@internal.corp.com:4000/v1/models");
 		assertContains(body, "- Classification: connection (proxy-not-running)");
 	});
 

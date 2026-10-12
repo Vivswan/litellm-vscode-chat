@@ -31,6 +31,7 @@ import {
 import { parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { CMD } from "../../../shared/config/commandIds";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
+import { Logger } from "../../../shared/logger";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fingerprint } from "../../../shared/util/fingerprint";
 import { expectDefined } from "../../pureHelpers";
@@ -852,7 +853,8 @@ suite("extension/servers/serverSync", () => {
 	});
 
 	suite("Set Server Secret palette", () => {
-		test("the entry picker shows each configured URL through the output door: userinfo masked, host kept", async () => {
+		test("the entry picker shows each configured URL through the output door: registered password masked, host kept", async () => {
+			Logger.registerSecrets(["pick-pass-Q7-marker"]);
 			const original = vscode.window.showQuickPick;
 			const shown: { label: string; description?: string }[][] = [];
 			(vscode.window as Record<string, unknown>).showQuickPick = async (
@@ -862,15 +864,18 @@ suite("extension/servers/serverSync", () => {
 				return undefined;
 			};
 			try {
-				await withConfig({ servers: [{ label: "Picker Probe", baseUrl: "http://user:pw@pick.test" }] }, async () => {
-					await vscode.commands.executeCommand(CMD.setServerSecret);
-				});
+				await withConfig(
+					{ servers: [{ label: "Picker Probe", baseUrl: "http://user:pick-pass-Q7-marker@pick.test" }] },
+					async () => {
+						await vscode.commands.executeCommand(CMD.setServerSecret);
+					}
+				);
 			} finally {
 				(vscode.window as Record<string, unknown>).showQuickPick = original;
 			}
 			assert.deepStrictEqual(
 				shown.map((items) => items.map(({ label, description }) => ({ label, description }))),
-				[[{ label: "Picker Probe", description: "http://[redacted]@pick.test" }]]
+				[[{ label: "Picker Probe", description: "http://user:[redacted]@pick.test" }]]
 			);
 		});
 

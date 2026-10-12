@@ -441,12 +441,14 @@ describe("provider/transport/errorMapping", () => {
 			});
 		});
 
-		test("a configured URL keeps its host and loses its userinfo on every surface that echoes it", () => {
-			// The one output door runs where a MirroredError's display message is built and where
-			// thrownErrorDisplayText renders a raw throw, so chat errors and toasts are covered once; the serve log's
-			// rendering (statusLogSafeError) carries a classification or the word, never thrown text.
-			const base = "http://user:sekret@litellm.test:4000";
-			const shown = "http://[redacted]@litellm.test:4000";
+		test("a configured URL keeps its host and user name and loses its registered password on every surface that echoes it", () => {
+			// The collector registers a configured URL's password (serverSync/setting.ts). The one output door runs where
+			// a MirroredError's display message is built and where thrownErrorDisplayText renders a raw throw, so chat
+			// errors and toasts are covered once; the serve log's rendering (statusLogSafeError) carries a
+			// classification or the word, never thrown text.
+			Logger.registerSecrets(["url-pass-Q7"]);
+			const base = "http://user:url-pass-Q7@litellm.test:4000";
+			const shown = "http://user:[redacted]@litellm.test:4000";
 			const notFound = APIError.generate(404, { error: { message: `rejected ${base}` } }, undefined, new Headers());
 			const surfaces: readonly [name: string, rendered: string, expected: string][] = [
 				[
@@ -470,12 +472,12 @@ describe("provider/transport/errorMapping", () => {
 					expectRequestError(
 						mapSdkError(
 							connectionError(Object.assign(new Error("getaddrinfo ENOTFOUND www.localhost"), { code: "ENOTFOUND" })),
-							{ surface: "chat", baseUrl: "http://user:sekret@www.localhost:8001", timeoutMs: 5000 },
+							{ surface: "chat", baseUrl: "http://user:url-pass-Q7@www.localhost:8001", timeoutMs: 5000 },
 							neverCancelled
 						),
 						"connection"
 					).message,
-					"Connection Error: Try http://[redacted]@localhost:8001 instead of http://[redacted]@www.localhost:8001",
+					"Connection Error: Try http://user:[redacted]@localhost:8001 instead of http://user:[redacted]@www.localhost:8001",
 				],
 				[
 					"certificate detail",
@@ -484,24 +486,24 @@ describe("provider/transport/errorMapping", () => {
 							connectionError(new Error("unable to verify the first certificate")),
 							{
 								surface: "chat",
-								baseUrl: "https://user:sekret@litellm.test",
+								baseUrl: "https://user:url-pass-Q7@litellm.test",
 								timeoutMs: 5000,
 							},
 							neverCancelled
 						),
 						"certificate"
 					).message,
-					"SSL certificate error for https://[redacted]@litellm.test",
+					"SSL certificate error for https://user:[redacted]@litellm.test",
 				],
 				[
 					"OAuth token endpoint connection headline",
 					socketFailureRequestError(
 						new Error("connect ECONNREFUSED 127.0.0.1:8080"),
 						undefined,
-						{ endpoint: "oauthToken", surface: "chat", url: "http://user:sekret@idp.test:8080/token" },
+						{ endpoint: "oauthToken", surface: "chat", url: "http://user:url-pass-Q7@idp.test:8080/token" },
 						() => timeoutRequestError(chatCtx, undefined)
 					).message,
-					"http://[redacted]@idp.test:8080/token",
+					"http://user:[redacted]@idp.test:8080/token",
 				],
 				[
 					"cause-chain detail",

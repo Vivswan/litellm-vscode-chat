@@ -18,6 +18,7 @@ import {
 import { retryBudgetMs } from "../../../../provider/transport/retry";
 import { RequestError } from "../../../../provider/transport/transportErrors";
 import { DISCOVERY_MAX_RETRIES } from "../../../../shared/config/settingSpec";
+import { Logger } from "../../../../shared/logger";
 import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 
@@ -207,14 +208,15 @@ suite("extension/servers/usage spendClient", () => {
 			assert.strictEqual(seenVirtual, "vk-1");
 		});
 
-		test("a credentialed base URL is echoed with its host and without its userinfo in usage error messages", async () => {
+		test("a credentialed base URL is echoed with its host and without its registered password in usage error messages", async () => {
 			// fetch itself refuses credentialed URLs, so every attempt throws and the failure surfaces as the network
 			// tail; the echoed URL passes the output door with the message.
+			Logger.registerSecrets(["usage-pass-Q7"]);
 			const error = await expectRequestError(
-				client().fetchKeyInfo(connection({ baseUrl: "http://user:sekret@usage.test:4000" })),
+				client().fetchKeyInfo(connection({ baseUrl: "http://user:usage-pass-Q7@usage.test:4000" })),
 				"network"
 			);
-			assert.ok(error.message.includes("http://[redacted]@usage.test:4000/key/info"), error.message);
+			assert.ok(error.message.includes("http://user:[redacted]@usage.test:4000/key/info"), error.message);
 		});
 	});
 

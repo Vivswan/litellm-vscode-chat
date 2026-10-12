@@ -24,10 +24,12 @@ function chatReply(content: string): Response {
 suite("extension/features featureChatSend", () => {
 	useMsw();
 
-	test("the reply passes the door as received: a configured value and a URL's userinfo come back masked, and a second pass changes nothing", async () => {
+	test("the reply passes the door as received: a configured value and a configured URL's password come back masked, and a second pass changes nothing", async () => {
 		const key = `sk-live-${"A".repeat(32)}`;
-		Logger.registerSecrets([key]);
-		mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => chatReply(`Use ${key} at http://bob:pw@hub.test/v1.`)));
+		Logger.registerSecrets([key, "url-pass-Q7"]);
+		mswServer.use(
+			http.post(CHAT_COMPLETIONS_URL, () => chatReply(`Use ${key} at http://bob:url-pass-Q7@hub.test/v1.`))
+		);
 		const reply = await withConfig(SERVERS_CONFIG, () =>
 			featureChatSend(
 				"quickFix",
@@ -38,7 +40,7 @@ suite("extension/features featureChatSend", () => {
 				() => {}
 			)
 		);
-		assert.strictEqual(reply, "Use sk-liv... at http://[redacted]@hub.test/v1.");
+		assert.strictEqual(reply, "Use sk-liv... at http://bob:[redacted]@hub.test/v1.");
 		// The exits that mask again (the consult result, the PR fields, the toast) must be no-ops over this text.
 		assert.strictEqual(Logger.redact(reply), reply);
 	});

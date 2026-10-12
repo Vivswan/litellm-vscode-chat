@@ -7,8 +7,8 @@
  *   inline secret values     -> every flat secret field and every nested position of SECRET_FIELD_NESTED_PATHS
  *   credential header values -> every raw header isCredentialHeader names, the entry's carrier among them
  *   SecretStorage blobs      -> every stored value under every declared label
- * A configured URL's userinfo is no value here: the door masks userinfo by its shape wherever a URL carries it, and a
- * user name registered as a value would blank it everywhere else ("/Users/alice/x").
+ *   configured URL passwords -> every URL position's password, as written and decoded; the user name is none, since
+ *                               registered as a value it would blank "/Users/alice/x" on every line
  */
 
 import { isCredentialHeader } from "../serverEntry";

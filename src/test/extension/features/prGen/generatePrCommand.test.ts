@@ -247,18 +247,21 @@ suite("extension/features/prGen generatePrCommand", () => {
 		assert.match(shownMessages[0] ?? "", /and its description/);
 	});
 
-	test("the clipboard text and the toast pass the output door: a configured value and a URL's userinfo come back masked", async () => {
+	test("the clipboard text and the toast pass the output door: a configured value and a configured URL's password come back masked", async () => {
 		const key = `sk-live-${"A".repeat(32)}`;
-		Logger.registerSecrets([key]);
+		Logger.registerSecrets([key, "url-pass-Q7"]);
 		await withConfig(ENABLED_CONFIG, () =>
 			runGeneratePrDescription(
-				() => Promise.resolve(`Title: fix: rotate ${key}\nDescription:\nSeen at http://bob:pw@hub.test with ${key}.`),
+				() =>
+					Promise.resolve(
+						`Title: fix: rotate ${key}\nDescription:\nSeen at http://bob:url-pass-Q7@hub.test with ${key}.`
+					),
 				makeDeps(),
 				undefined,
 				fakeGit(readyRepo())
 			)
 		);
-		assert.strictEqual(copied, "fix: rotate sk-liv...\n\nSeen at http://[redacted]@hub.test with sk-liv....");
+		assert.strictEqual(copied, "fix: rotate sk-liv...\n\nSeen at http://bob:[redacted]@hub.test with sk-liv....");
 		assert.match(shownMessages[0] ?? "", /Copied "fix: rotate sk-liv\.\.\." and its description/);
 	});
 

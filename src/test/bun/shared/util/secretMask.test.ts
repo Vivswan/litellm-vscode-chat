@@ -9,14 +9,12 @@ describe("shared/util/secretMask", () => {
 				secretSpans("abc123xyz", ["abc123", "123xyz"]),
 				secretSpans("GET http://host/?token=pa%20ss%2f1", ["pa ss/1"]),
 				secretSpans("key abc%20XYZ", ["abc%20XY", "abc XYZ"]),
-				secretSpans("GET http://alice:pw@host.test/v1", ["@host"]),
 				secretSpans("short abc beside abcd", ["abc", "abcd"]),
 			],
 			[
 				[{ from: 0, to: 9, value: undefined }],
 				[{ from: 23, to: 34, value: undefined }],
 				[{ from: 4, to: 13, value: undefined }],
-				[{ from: 11, to: 24, value: undefined }],
 				[{ from: 17, to: 21, value: "abcd" }],
 			]
 		);
@@ -39,25 +37,15 @@ describe("shared/util/secretMask", () => {
 		assert.deepStrictEqual({ at, fast: elapsed < 1000 }, { at: 0, fast: true }, `${elapsed.toFixed(0)} ms`);
 	});
 
-	test("safeCut reads userinfo runs only up to the cut: a 26 MB line of credentialed URLs answers at once", () => {
-		const started = performance.now();
-		const at = safeCut("http://u:p@h ".repeat(2_000_000), 262_144, []);
-		const elapsed = performance.now() - started;
-		assert.deepStrictEqual({ at, fast: elapsed < 1000 }, { at: 262_144, fast: true }, `${elapsed.toFixed(0)} ms`);
-	});
-
-	test("safeCut moves a cut off a value or userinfo astride it, and leaves a cut between values alone", () => {
+	test("safeCut moves a cut off a value astride it, and leaves a cut at a value's edge or between values alone", () => {
 		assert.deepStrictEqual(
 			[
 				safeCut("abc secret-Q7 def", 9, ["secret-Q7"]),
 				safeCut("abc secret-Q7 def", 4, ["secret-Q7"]),
 				safeCut("abc secret-Q7 def", 3, ["secret-Q7"]),
-				safeCut("GET http://alice:pw@host/", 14, []),
-				// Exactly before the "@": the kept prefix would hold "alice:pw" with no "@" for the mask to read.
-				safeCut("GET http://alice:pw@host/", 19, []),
 				safeCut("abc secret-Q7 def", 13, ["secret-Q7"]),
 			],
-			[4, 4, 3, 11, 11, 4]
+			[4, 4, 3, 13]
 		);
 	});
 });

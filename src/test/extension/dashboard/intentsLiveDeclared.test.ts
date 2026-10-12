@@ -991,16 +991,18 @@ suite("extension/dashboard intents against the live sync truth", () => {
 	// wires the door in, so a bypass there would pass both unit pins and fail here.
 	test("copyDiagnostics through the real environment reaches the clipboard masked", async () => {
 		const fixture = makeFixture();
-		Logger.registerSecrets(["copy-key-Q7-marker"]);
+		Logger.registerSecrets(["copy-key-Q7-marker", "copy-pass-Q7-marker"]);
 		await executeDashboardIntent(
 			{
 				method: "copyDiagnostics",
-				payload: { text: "Prod (http://user:sekret@localhost:4000): 401 for copy-key-Q7-marker at /home/alice" },
+				payload: {
+					text: "Prod (http://user:copy-pass-Q7-marker@localhost:4000): 401 for copy-key-Q7-marker at /home/alice",
+				},
 			},
 			fixture.env
 		);
 		assert.deepStrictEqual(fixture.clipboard, [
-			"Prod (http://[redacted]@localhost:4000): 401 for [redacted] at /home/alice",
+			"Prod (http://user:[redacted]@localhost:4000): 401 for [redacted] at /home/alice",
 		]);
 	});
 

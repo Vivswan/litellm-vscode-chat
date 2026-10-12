@@ -149,13 +149,13 @@ suite("extension/ui/setupGate", () => {
 		};
 		try {
 			const key = `sk-live-${"A".repeat(32)}`;
-			Logger.registerSecrets([key]);
+			Logger.registerSecrets([key, "url-pass-Q7"]);
 			await showSetupProblemGate("check-base-url", () =>
-				Promise.reject(new Error(`clipboard unavailable for ${key} at http://bob:pw@hub.test`))
+				Promise.reject(new Error(`clipboard unavailable for ${key} at http://bob:url-pass-Q7@hub.test`))
 			);
 			// The detail is the thrown message through the output door, whole.
 			assert.deepStrictEqual(errorToasts, [
-				"LiteLLM: Could not open the issue report - clipboard unavailable for sk-liv... at http://[redacted]@hub.test",
+				"LiteLLM: Could not open the issue report - clipboard unavailable for sk-liv... at http://bob:[redacted]@hub.test",
 			]);
 		} finally {
 			(vscode.window as { showWarningMessage: unknown }).showWarningMessage = origWarn;

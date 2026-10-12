@@ -360,7 +360,7 @@ export const AGENT_TOOL_TOGGLE_KEYS = {
 /** Whether agent tool input may carry a secret's value; off, the user types it into a masked input box instead. */
 export const AGENT_TOOLS_SECRET_VALUES_KEY = "agentTools.secretValues.enabled" satisfies BooleanSettingId;
 
-/** Whether the output channel masks known secret values and URL userinfo; the issue report always does. */
+/** Whether the output channel masks known secret values; the issue report always does. */
 export const LOG_REDACTION_SETTING_KEY = "logs.redactSecrets" satisfies BooleanSettingId;
 
 /**

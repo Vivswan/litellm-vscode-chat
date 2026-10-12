@@ -1,14 +1,15 @@
 /**
- * The matching algorithm behind the one output door (Logger.redact): every spelling of every known value and every
- * URL userinfo is found on the ORIGINAL text, the spans are merged, and the Logger replaces each merged span once,
- * so overlapping values leave no tail. Nothing parses a URL and nothing protects a host, so a value that is also a
- * word blanks that word.
+ * The matching algorithm behind the one output door (Logger.redact): every spelling of every known value is found
+ * on the ORIGINAL text, the spans are merged, and the Logger replaces each merged span once, so overlapping values
+ * leave no tail. Nothing parses a URL and nothing protects a host, so a value that is also a word blanks that word.
+ * Known values are the only rule (a configured URL's password is one: serverSync/setting.ts); a URL-userinfo shape
+ * rule rewrote spaceless code holding an address.
  *
  * Masking is idempotent: a span CONTAINED in an existing marker (REDACTED_MARKER, or the reveal of a registered long
  * value, its first REVEALED_CHARS and "...") is never a match, so text masked where it entered the extension masks to
  * itself again at every exit, and no exit can write "[[redacted]]" or re-mask a reveal once a shorter value joins the
- * set. A span that merely overlaps a marker is still a match: a long value whose own head reads like its reveal, a
- * userinfo run opening with one, so the mask cannot be defeated by text shaped like a marker.
+ * set. A span that merely overlaps a marker is still a match (a long value whose own head reads like its reveal), so
+ * the mask cannot be defeated by text shaped like a marker.
  */
 
 /**
@@ -26,15 +27,6 @@ const REVEALED_CHARS = 6;
 export function revealOf(value: string): string | undefined {
 	return value.length >= REVEAL_FROM_LENGTH ? `${value.slice(0, REVEALED_CHARS)}...` : undefined;
 }
-/**
- * URL userinfo by shape alone: everything from the scheme's "//" to the last "@" before the path, query, or fragment,
- * so a user with or without a password goes, a password that itself holds an "@" goes whole, and an address in a
- * query ("?email=admin@example.com") is no userinfo. A double quote ends the run: a serialized field's URL and a
- * later field's address are two strings, never one authority. Found on the original text like the known values, so
- * a value that eats the "@" ("@host") cannot hide the userinfo from this rule.
- */
-const URL_USERINFO = /:\/\/([^\s/?#"]*)@/g;
-
 type Span = readonly [from: number, to: number];
 
 /** One merged span to replace; `value` is the raw configured value when the span is exactly one raw occurrence of it. */
@@ -155,10 +147,8 @@ function mergedSpans(spans: readonly (Span & { readonly value?: string })[]): Se
 }
 
 /**
- * Every span of `text` the door replaces: each spelling of each known value and each URL userinfo, merged, minus any
- * span contained in an existing marker (the idempotence rule). Value occurrences are searched up to `upTo` only and
- * userinfo runs only where they start before it (a cut needs nothing past it); a run that starts before the cut is
- * still read to its end, since it may cross the cut.
+ * Every span of `text` the door replaces: each spelling of each known value, merged, minus any span contained in an
+ * existing marker (the idempotence rule). Occurrences are searched up to `upTo` only: a cut needs nothing past it.
  */
 export function secretSpans(text: string, values: readonly string[], upTo = text.length): SecretSpan[] {
 	const markers = occurrences(text, REDACTED_MARKER, false);
@@ -183,32 +173,19 @@ export function secretSpans(text: string, values: readonly string[], upTo = text
 			}
 		}
 	}
-	for (const userinfo of text.matchAll(URL_USERINFO)) {
-		// Lazy: the first run starting past `upTo` ends the walk, so a cut never pays for the discarded suffix; a run
-		// that starts before the cut is read to its "@" wherever that is, since it may cross the cut.
-		if (userinfo.index >= upTo) {
-			break;
-		}
-		const from = userinfo.index + "://".length;
-		const to = from + (userinfo[1] as string).length;
-		if (!insideMarker(from, to)) {
-			spans.push([from, to]);
-		}
-	}
 	return mergedSpans(spans);
 }
 
 /**
  * Where a cut of `text` meant for `at` may land without splitting anything the mask would replace: `at` itself, or
- * the start of the span astride or ending at it, so a prefix cut there holds whole values or none and masks the same
- * in either mode. A cut exactly at a span's end counts as astride: a userinfo run cut just before its "@" is no
- * longer a userinfo run to the mask.
+ * the start of the span astride it, so a prefix cut there holds whole values or none and masks the same in either
+ * mode.
  */
 export function safeCut(text: string, at: number, values: readonly string[]): number {
 	// Only occurrences that can reach `at` matter, so the search stops one spelling past it: the work is bounded by
 	// the cut, not by the text, and a megabyte line with a repeated value does not build a million spans.
 	for (const { from, to } of secretSpans(text, values, at + longestSpelling(values))) {
-		if (from < at && at <= to) {
+		if (from < at && at < to) {
 			return from;
 		}
 	}

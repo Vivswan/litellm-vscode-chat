@@ -1390,7 +1390,7 @@ suite("extension/ui/commands", () => {
 
 			test("a failing Open Existing Issues or Report Anyway toasts the thrown text through the door", async () => {
 				const key = `sk-live-${"A".repeat(32)}`;
-				Logger.registerSecrets([key]);
+				Logger.registerSecrets([key, "url-pass-Q7"]);
 				const storage = makeExtensionStorage();
 				const openedIssueUrls: string[] = [];
 				// The first report opens and is remembered; the second attempt's opener is down.
@@ -1399,7 +1399,7 @@ suite("extension/ui/commands", () => {
 						writeClipboard: async () => {},
 						openExternal: async (url) => {
 							if (openedIssueUrls.length > 0) {
-								throw new Error(`opener down for ${key} at http://bob:pw@hub.test`);
+								throw new Error(`opener down for ${key} at http://bob:url-pass-Q7@hub.test`);
 							}
 							openedIssueUrls.push(url);
 						},
@@ -1440,7 +1440,7 @@ suite("extension/ui/commands", () => {
 					(vscode.window as Record<string, unknown>).showErrorMessage = origError;
 				}
 				assert.deepStrictEqual(errorToasts, [
-					"LiteLLM: Could not open the issue report - opener down for sk-liv... at http://[redacted]@hub.test",
+					"LiteLLM: Could not open the issue report - opener down for sk-liv... at http://bob:[redacted]@hub.test",
 					"LiteLLM: Could not open the issues list - no opener for sk-liv...",
 				]);
 			});
