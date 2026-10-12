@@ -738,6 +738,21 @@ export const LAZY_INFERENCE_FIXTURES: readonly {
 		],
 		expected: [],
 	},
+	// The construction walk follows `this` into the class's OWN members only. A member inherited from a base is out of
+	// reach, and the heritage edge covers a base that is lazy by its own construction, not one that merely declares the
+	// method. A known boundary: no shipped class localizes through an inherited member at `new`.
+	{
+		name: "a class whose constructor reaches localization through a BASE class member is not inferred (the documented limit)",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'export class Base {\n\trender(): string {\n\t\treturn l10n.t("x");\n\t}\n}\n' +
+					"export class Derived extends Base {\n\tconstructor() {\n\t\tsuper();\n\t\tthis.render();\n\t}\n}\n",
+			},
+		],
+		expected: [],
+	},
 	// Two shipped shapes (DashboardController, UsageAlerts): neither runs l10n.t at `new`, and both are inferred because
 	// the roots `new` DOES evaluate are walked whole, nested function literals included.
 	{

@@ -567,8 +567,9 @@ function reachesLazy(evidence: Pick<Binding, "direct" | "callees" | "reads">, la
 }
 
 /**
- * The fixed point over the bindings. Over-inclusive by name on purpose: nothing it marks is legal to invoke at module
- * scope, and matching stays syntactic (a parameter sharing a lazy name taints its function, the guard's own rule).
+ * The fixed point over the bindings. Over-inclusive by name on purpose: it marks by spelling, so a same-named
+ * non-localizing binding elsewhere is marked too, and matching stays syntactic (a parameter sharing a lazy name taints
+ * its function, the guard's own rule).
  */
 function closeLazyNames(bindings: readonly Binding[], seed: LazyL10nNames): LazyL10nNames {
 	const lazy = new Map(seed);
