@@ -11,6 +11,7 @@
  *   the provider layer cannot import this module -> injected as a predicate at activation
  */
 
+import { Mutex } from "async-mutex";
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../shared/config/storageKeys";
 import { canonicalBaseUrl, canonicalStoredBaseUrl, normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isRecord } from "../../shared/util/json";
@@ -51,6 +52,11 @@ export type TombstonePersistence = "durable" | "session-only";
 export interface TombstoneRecording {
 	readonly persistence: TombstonePersistence;
 	readonly added: boolean;
+}
+
+/** One identity's recording inside an addTombstones batch, under the identity object the caller passed. */
+export interface TombstoneRecorded extends TombstoneRecording {
+	readonly identity: TombstoneIdentity;
 }
 
 export interface DeclaredGroupClaim {
@@ -287,6 +293,22 @@ class VersionedRegion<T> {
 		return this.records;
 	}
 
+	/**
+	 * A view computed from the records and recomputed only when the list was replaced. Every path that changes the
+	 * records assigns a new array (the constructor, adoption, commit, commitTransient), never mutates one, so the
+	 * array's identity is the view's freshness key.
+	 */
+	derived<D>(derive: (records: readonly T[]) => D): () => D {
+		let cache: { readonly from: readonly T[]; readonly value: D } | undefined;
+		return () => {
+			const records = this.list();
+			if (cache === undefined || cache.from !== records) {
+				cache = { from: records, value: derive(records) };
+			}
+			return cache.value;
+		};
+	}
+
 	/** Replace the in-memory list synchronously; callers observe the new state before any event or persist. */
 	commit(records: readonly T[]): void {
 		this.records = records;
@@ -301,14 +323,10 @@ class VersionedRegion<T> {
 	}
 
 	/** Persists run serialized: an out-of-order write would mark a newer failure's records as persisted. */
-	private persistQueue: Promise<void> = Promise.resolve();
+	private readonly persistMutex = new Mutex();
 
 	persistCommitted(): Promise<void> {
-		// Two-handler then: a rejection (a throwing onPersistError listener) must not strand every later write.
-		const write = () => this.writeCommitted();
-		const run = this.persistQueue.then(write, write);
-		this.persistQueue = run;
-		return run;
+		return this.persistMutex.runExclusive(() => this.writeCommitted());
 	}
 
 	private async writeCommitted(): Promise<void> {
@@ -332,6 +350,74 @@ class VersionedRegion<T> {
 		} finally {
 			this.persisting = false;
 		}
+	}
+}
+
+/** A label's canonical URLs; the shape both halves of a GroupIdentity match through (sameGroupIdentity). */
+type IdentityIndex = Map<string, Set<string>>;
+
+function indexIdentity(index: IdentityIndex, identity: GroupIdentity): void {
+	const url = canonicalBaseUrl(identity.baseUrl);
+	if (url === undefined) {
+		return;
+	}
+	let urls = index.get(identity.label);
+	if (urls === undefined) {
+		urls = new Set();
+		index.set(identity.label, urls);
+	}
+	urls.add(url);
+}
+
+function indexedIdentity(index: IdentityIndex, identity: GroupIdentity): boolean {
+	const url = canonicalBaseUrl(identity.baseUrl);
+	return url !== undefined && (index.get(identity.label)?.has(url) ?? false);
+}
+
+/**
+ * The tombstone list keyed the way the suppression predicate asks: the host re-resolves every group it has ever been
+ * handed on each model-change event, so a lookup that scanned the list cost groups times tombstones per event.
+ * Answers exactly what tombstoneHides answers over the same records, by key instead of by scan.
+ *
+ *   group  record -> its client ID
+ *   entry  record -> the group's entry label at the URL
+ *   status record -> the group's status label at the URL
+ */
+class TombstoneIndex {
+	private readonly groupIds = new Set<string>();
+	private readonly entries: IdentityIndex = new Map();
+	private readonly statuses: IdentityIndex = new Map();
+	private readonly shown: IdentityIndex = new Map();
+
+	constructor(records: readonly TombstoneIdentity[]) {
+		for (const record of records) {
+			indexIdentity(this.shown, record);
+			switch (record.by) {
+				case "group":
+					this.groupIds.add(record.groupId);
+					break;
+				case "entry":
+					indexIdentity(this.entries, record);
+					break;
+				case "status":
+					indexIdentity(this.statuses, record);
+					break;
+			}
+		}
+	}
+
+	hides(group: GroupKey): boolean {
+		return (
+			this.groupIds.has(group.groupId) ||
+			(group.entryLabel !== undefined &&
+				indexedIdentity(this.entries, { label: group.entryLabel, baseUrl: group.baseUrl })) ||
+			indexedIdentity(this.statuses, { label: group.label, baseUrl: group.baseUrl })
+		);
+	}
+
+	/** Whether any record, whatever it hides by, is shown under the identity. */
+	shows(identity: GroupIdentity): boolean {
+		return indexedIdentity(this.shown, identity);
 	}
 }
 
@@ -366,6 +452,7 @@ export class GroupRemovalStore {
 	}
 
 	private readonly tombstoneRegion: VersionedRegion<TombstoneIdentity>;
+	private readonly tombstoneIndex: () => TombstoneIndex;
 	private readonly provenanceRegion: VersionedRegion<OrphanedGroupRecord>;
 
 	constructor(
@@ -374,6 +461,7 @@ export class GroupRemovalStore {
 	) {
 		const report = (error: unknown) => this.persistErrorListener?.(error);
 		this.tombstoneRegion = new VersionedRegion(memento, REMOVED_GROUP_TOMBSTONES_KEY, parseTombstoneList, report);
+		this.tombstoneIndex = this.tombstoneRegion.derived((records) => new TombstoneIndex(records));
 		this.provenanceRegion = new VersionedRegion(memento, ORPHANED_GROUP_PROVENANCE_KEY, parseProvenanceList, report);
 	}
 
@@ -383,12 +471,12 @@ export class GroupRemovalStore {
 
 	/** Whether the user explicitly removed this group; the provider-side suppression predicate. */
 	isTombstoned(group: GroupKey): boolean {
-		return this.tombstoneRegion.list().some((record) => tombstoneHides(record, group));
+		return this.tombstoneIndex().hides(group);
 	}
 
 	/** Whether a tombstone is shown under this identity: what the hidden-groups line's rows act on. */
 	hasTombstone(label: string, baseUrl: string): boolean {
-		return this.tombstoneRegion.list().some((record) => sameGroupIdentity(record, { label, baseUrl }));
+		return this.tombstoneIndex().shows({ label, baseUrl });
 	}
 
 	/**
@@ -397,32 +485,63 @@ export class GroupRemovalStore {
 	 * hold it: confirmed at the write, like the sync engine's fingerprints, because the salt can downgrade mid-session.
 	 */
 	async addTombstone(identity: TombstoneIdentity): Promise<TombstoneRecording> {
-		const normalized: TombstoneIdentity = { ...identity, baseUrl: normalizeBaseUrl(identity.baseUrl) };
-		const persistence: TombstonePersistence =
-			normalized.by === "group" && (await this.salt.confirmDurable()) !== "durable" ? "session-only" : "durable";
+		const [recorded] = await this.addTombstones([identity]);
+		return { persistence: recorded.persistence, added: recorded.added };
+	}
+
+	/**
+	 * Record several tombstones as one mutation: one commit, one change event, one persist. A reconcile records two or
+	 * three identities per removed entry, and every change event makes the host re-resolve every group it holds, so
+	 * recording them one by one multiplied that re-resolve by the batch size. Each recording answers for one identity
+	 * as addTombstone would have, in the order given.
+	 */
+	async addTombstones(
+		identities: readonly [TombstoneIdentity, ...TombstoneIdentity[]]
+	): Promise<readonly [TombstoneRecorded, ...TombstoneRecorded[]]> {
+		const saltDurable = identities.some((identity) => identity.by === "group")
+			? (await this.salt.confirmDurable()) === "durable"
+			: true;
 		const current = this.tombstoneRegion.list();
-		const changed = !current.some((existing) => sameTombstoneIdentity(existing, normalized));
-		if (!changed) {
-			// The re-persist heals an earlier failed write; a session-only record has nothing of its own to write.
-			if (persistence === "durable") {
+		const standing = [...current];
+		const durableAdded: TombstoneIdentity[] = [];
+		const transientAdded: TombstoneIdentity[] = [];
+		const record = (identity: TombstoneIdentity): TombstoneRecorded => {
+			const normalized: TombstoneIdentity = { ...identity, baseUrl: normalizeBaseUrl(identity.baseUrl) };
+			const persistence: TombstonePersistence = normalized.by === "group" && !saltDurable ? "session-only" : "durable";
+			if (standing.some((existing) => sameTombstoneIdentity(existing, normalized))) {
+				return { identity, persistence, added: false };
+			}
+			standing.push(normalized);
+			(persistence === "durable" ? durableAdded : transientAdded).push(normalized);
+			return { identity, persistence, added: true };
+		};
+		const [first, ...rest] = identities;
+		const recordings = [record(first), ...rest.map(record)] as const;
+		// An existing durable record re-persists to heal an earlier failed write; a session-only record has nothing of
+		// its own to write.
+		const persist = recordings.some((recording) => recording.persistence === "durable");
+		if (durableAdded.length === 0 && transientAdded.length === 0) {
+			if (persist) {
 				await this.tombstoneRegion.persistCommitted();
 			}
-			return { persistence, added: false };
+			return recordings;
 		}
-		if (persistence === "session-only") {
-			this.tombstoneRegion.commitTransient(normalized);
-			this.didChangeListener?.();
-			return { persistence, added: true };
+		if (durableAdded.length > 0) {
+			this.tombstoneRegion.commit([...current, ...durableAdded]);
 		}
-		this.tombstoneRegion.commit([...current, normalized]);
+		for (const identity of transientAdded) {
+			this.tombstoneRegion.commitTransient(identity);
+		}
 		try {
 			this.didChangeListener?.();
 		} finally {
 			// A throwing listener must not skip the persist: the committed state is the effective one and has to reach
 			// storage.
-			await this.tombstoneRegion.persistCommitted();
+			if (persist) {
+				await this.tombstoneRegion.persistCommitted();
+			}
 		}
-		return { persistence, added: true };
+		return recordings;
 	}
 
 	/** Clear every tombstone shown under the identity (the line's row), whatever key each hides by. */

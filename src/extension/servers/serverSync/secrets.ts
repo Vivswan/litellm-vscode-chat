@@ -11,6 +11,7 @@
  *   a misplaced value                                 -> is still refused where it lands
  */
 
+import { Mutex } from "async-mutex";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
 import type { SecretDestinationEntry, SecretFieldId, SecretLocation, SecretOwner } from "../../../shared/serverEntry";
 import {
@@ -112,22 +113,15 @@ export async function readServerSecretsRecord(secrets: SecretStore, label: strin
  *
  *   Keyed by label alone -> distinct stores sharing a label (tests) merely serialize, which is harmless
  */
-const labelWriteQueues = new Map<string, Promise<unknown>>();
+const labelWriteMutexes = new Map<string, Mutex>();
 
 function serializedWrite<T>(label: string, task: () => Promise<T>): Promise<T> {
-	const tail = labelWriteQueues.get(label) ?? Promise.resolve();
-	const run = tail.then(task, task);
-	const settled = run.then(
-		() => undefined,
-		() => undefined
-	);
-	labelWriteQueues.set(label, settled);
-	void settled.then(() => {
-		if (labelWriteQueues.get(label) === settled) {
-			labelWriteQueues.delete(label);
-		}
-	});
-	return run;
+	let mutex = labelWriteMutexes.get(label);
+	if (mutex === undefined) {
+		mutex = new Mutex();
+		labelWriteMutexes.set(label, mutex);
+	}
+	return mutex.runExclusive(task);
 }
 
 type WrittenListener = (values: readonly string[]) => void;

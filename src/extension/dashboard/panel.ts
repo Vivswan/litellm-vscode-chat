@@ -875,9 +875,9 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 			};
 		},
 		// Tombstone writes fire the store's onDidChange, which the activation
-		// wiring points at the provider's model-change event: the hidden group's
-		// models leave (or return to) the picker without waiting for the next
-		// background refresh.
+		// wiring routes through the debounced model-change notify: the hidden
+		// group's models leave (or return to) the picker within one debounce, not
+		// at the next background refresh.
 		hideGroup: (identity) => removals.addTombstone(identity),
 		retractHide: async (identity) => {
 			await removals.retractTombstone(identity);

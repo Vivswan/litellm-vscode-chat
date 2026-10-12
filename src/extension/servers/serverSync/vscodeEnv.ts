@@ -97,6 +97,21 @@ export interface RecordedTombstone {
 	readonly persistence: TombstonePersistence;
 }
 
+/** A removed-entry event whose ledger URL resolved, so its group identities can be tombstoned. */
+type RemovedEntry = Extract<RemovedEntryEvent, { kind: "removed" }> & { readonly baseUrl: string };
+
+/** The removed event degraded to the untracked notice: no identity is promised hidden. */
+function untrackedRemoval(event: Extract<RemovedEntryEvent, { kind: "removed" }>): NoticeEvent {
+	return {
+		kind: "removed",
+		label: event.label,
+		baseUrl: undefined,
+		groupIds: [],
+		sharedGroupIds: [],
+		outcome: undefined,
+	};
+}
+
 /**
  * Derived from the hide result, never asserted: hidden when a group the host reports is hidden right now by one of
  * the tombstones this removal recorded (an Unhide between the record and this read un-hides it), for this session
@@ -254,6 +269,43 @@ export function createServerSyncEnv(
 			"Server sync will not persist fingerprints this session: the fingerprint salt is session-only, so no later session could recognize them"
 		);
 	}
+	/**
+	 * Every removed entry's identities go into one store mutation, so a reconcile fires one change event however many
+	 * entries it removed (each event is a host re-resolve of every group). A throw degrades the events to the untracked
+	 * wording rather than promising a hiding that may not have reached the provider.
+	 */
+	const recordRemovals = async (removed: readonly RemovedEntry[]): Promise<NoticeEvent[]> => {
+		const plans = removed.map((event) => {
+			// A pre-label group carries no stamp: it hides by the identity the removed entry joined it by.
+			const { label, baseUrl } = event;
+			const identities: readonly [TombstoneIdentity, ...TombstoneIdentity[]] = [
+				{ by: "entry", label, baseUrl },
+				...event.groupIds.map((groupId): TombstoneIdentity => ({ by: "group", groupId, label, baseUrl })),
+			];
+			return { event, identities };
+		});
+		const [first, ...rest] = plans;
+		if (first === undefined) {
+			return [];
+		}
+		const [head, ...tail] = first.identities;
+		let recorded: readonly RecordedTombstone[];
+		try {
+			recorded = await removals.addTombstones([head, ...tail, ...rest.flatMap((plan) => plan.identities)]);
+		} catch (error) {
+			logger.error("Recording removed-group tombstones failed", error);
+			return removed.map(untrackedRemoval);
+		}
+		return plans.map(({ event, identities }) => ({
+			...event,
+			outcome: removalOutcome(
+				event,
+				recorded.filter((record) => identities.includes(record.identity)),
+				observedSnapshots(),
+				(group) => removals.isTombstoned(group)
+			),
+		}));
+	};
 	return {
 		readServersSetting: readRawServersSetting,
 		readSecrets: (label) => readServerSecretsRecord(context.secrets, label),
@@ -301,9 +353,8 @@ export function createServerSyncEnv(
 			} catch (error) {
 				logger.error("Clearing removed-group tombstones failed", error);
 			}
-			// A throw here degrades the event to the untracked wording rather than promising a hiding that may not have
-			// reached the provider.
 			const noticeEvents: NoticeEvent[] = [];
+			const removed: RemovedEntry[] = [];
 			for (const event of events) {
 				try {
 					if (event.kind === "renamed") {
@@ -321,41 +372,18 @@ export function createServerSyncEnv(
 							baseUrl: event.baseUrl,
 							origin: { kind: "removed-entry-leftover", removedLabel: event.label },
 						});
-						// A pre-label group carries no stamp: it hides by the identity the removed entry joined it by.
-						const { label, baseUrl } = event;
-						const identities: TombstoneIdentity[] = [
-							{ by: "entry", label, baseUrl },
-							...event.groupIds.map((groupId): TombstoneIdentity => ({ by: "group", groupId, label, baseUrl })),
-						];
-						const recorded: RecordedTombstone[] = [];
-						for (const identity of identities) {
-							recorded.push({ identity, persistence: (await removals.addTombstone(identity)).persistence });
-						}
-						noticeEvents.push({
-							...event,
-							outcome: removalOutcome(event, recorded, observedSnapshots(), (group) => removals.isTombstoned(group)),
-						});
+						removed.push({ ...event, baseUrl: event.baseUrl });
 					} else {
 						// The ledger predates this label, so no group identity can be resolved: no tombstone, no
 						// provenance, only the notice - never suppress on a guess.
 						noticeEvents.push({ ...event, outcome: undefined });
 					}
 				} catch (error) {
-					logger.error("Recording removed-group bookkeeping failed", error);
-					if (event.kind === "removed") {
-						noticeEvents.push({
-							kind: "removed",
-							label: event.label,
-							baseUrl: undefined,
-							groupIds: [],
-							sharedGroupIds: [],
-							outcome: undefined,
-						});
-					} else {
-						noticeEvents.push(event);
-					}
+					logger.error("Recording removed-group provenance failed", error);
+					noticeEvents.push(event.kind === "removed" ? untrackedRemoval(event) : event);
 				}
 			}
+			noticeEvents.push(...(await recordRemovals(removed)));
 			if (noticeEvents.length > 0) {
 				void notifyRemovalEvents(noticeEvents, showRemovalNotice).catch((error: unknown) => {
 					logger.error("Removal notice failed", error);

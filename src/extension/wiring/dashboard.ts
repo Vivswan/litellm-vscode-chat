@@ -14,6 +14,7 @@ import {
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
+import type { DebouncedAction } from "../../shared/util/debounce";
 import type { HeaderValue } from "../../shared/util/headers";
 import type { FeatureProbes } from "../dashboard/intents";
 import type { DashboardController } from "../dashboard/panel";
@@ -119,26 +120,22 @@ export function wireUsageSurfaces(
 }
 
 /**
- * A tombstone change must reach the picker and the dashboard at once: the model-change event makes the host re-resolve
- * every group, and the refresh re-renders the hidden-groups line.
+ * A tombstone change reaches the picker through the shared debounced notify (one host re-resolve of every group per
+ * burst, so a reconcile that records several batches or a quick hide-and-unhide costs one) and the dashboard through
+ * an immediate refresh, so the hidden-groups line never waits on the debounce.
  */
 export function wireGroupRemovalReactions(
 	logger: Logger,
 	deps: {
 		groupRemovals: GroupRemovalStore;
-		provider: LiteLLMChatModelProvider;
+		notifyModelsChanged: DebouncedAction;
 		dashboard: Pick<DashboardController, "refresh">;
 	}
 ): void {
-	const { groupRemovals, provider, dashboard } = deps;
+	const { groupRemovals, notifyModelsChanged, dashboard } = deps;
 	groupRemovals.onDidChange = () => {
-		// Isolated like the status callback's consumers: one consumer throwing must not starve the other, and a throw
-		// escaping into the store would make its callers report a mutation that DID apply as failed.
-		try {
-			provider.notifyModelInformationChanged();
-		} catch (error) {
-			logger.error("Group-removal change notification failed", error);
-		}
+		notifyModelsChanged.schedule();
+		// A throw escaping into the store would make its callers report a mutation that DID apply as failed.
 		try {
 			dashboard.refresh();
 		} catch (error) {

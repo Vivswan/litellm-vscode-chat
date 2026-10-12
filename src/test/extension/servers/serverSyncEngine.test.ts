@@ -2026,6 +2026,39 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 		);
 	});
 
+	test("one reconcile of several removed entries records every tombstone under one change event", async () => {
+		// Each change event makes the host re-resolve every group it holds, so the monkey's cleanup of k labels cost
+		// 2k to 3k full re-resolves when every identity fired its own.
+		const { env, removals } = makeEnv("durable");
+		let changes = 0;
+		removals.onDidChange = () => {
+			changes += 1;
+		};
+		await env.reconcileEntryIdentities(
+			[],
+			[
+				{ kind: "removed", label: "L1", baseUrl: "http://h1.test", groupIds: ["group:l1"], sharedGroupIds: [] },
+				{ kind: "removed", label: "L2", baseUrl: "http://h2.test", groupIds: [], sharedGroupIds: [] },
+				{
+					kind: "removed",
+					label: "L3",
+					baseUrl: "http://h3.test",
+					groupIds: ["group:l3a", "group:l3b"],
+					sharedGroupIds: [],
+				},
+			]
+		);
+		assert.strictEqual(changes, 1, "six tombstones, one change event");
+		assert.deepStrictEqual(removals.tombstones(), [
+			{ by: "entry", label: "L1", baseUrl: "http://h1.test" },
+			{ by: "group", groupId: "group:l1", label: "L1", baseUrl: "http://h1.test" },
+			{ by: "entry", label: "L2", baseUrl: "http://h2.test" },
+			{ by: "entry", label: "L3", baseUrl: "http://h3.test" },
+			{ by: "group", groupId: "group:l3a", label: "L3", baseUrl: "http://h3.test" },
+			{ by: "group", groupId: "group:l3b", label: "L3", baseUrl: "http://h3.test" },
+		]);
+	});
+
 	test("a durable salt persists the map as before", async () => {
 		const { env, storage } = makeEnv("durable");
 		await env.setFingerprints({ A: "after" });
