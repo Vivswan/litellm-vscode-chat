@@ -88,6 +88,37 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 			'o200k_base 分詞器)、`"heuristic"` (純粹按每 4 字元 1 token 計, 從不載入分詞器資料, 對 CJK 低估約 4 倍)、`"o200k_base"` 或 ' +
 			'`"cl100k_base"` (始終載入該分詞器)。載入的分詞器在活躍期間約佔用 10-30 MB 記憶體; 計數開銷可忽略',
 	},
+	"chat.sessionFingerprint": {
+		en:
+			"What the LiteLLM session id of a chat request is derived from: `off` (no session id rides the request), " +
+			"`conversation` (one fingerprint per chat), `workspace` (one per open folder), `window` (one per editor " +
+			"session). LiteLLM groups the requests that share a session id, so the proxy's session view shows them " +
+			"together. A chat's id is a fingerprint of the last question before the assistant's first answer, never a " +
+			"VS Code conversation id",
+		zhCn:
+			"聊天请求的 LiteLLM 会话 ID 由什么派生: `off` (请求不携带会话 ID)、`conversation` (每个聊天一个指纹)、" +
+			"`workspace` (每个打开的文件夹一个)、`window` (每个编辑器会话一个)。LiteLLM 按会话 ID 对请求分组, " +
+			"代理的会话视图因此把它们放在一起。聊天的 ID 是助手首次回答前最后一个问题的指纹, 绝不是 VS Code 的对话 ID",
+		zhTw:
+			"聊天請求的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`conversation` (每個聊天一個指紋)、" +
+			"`workspace` (每個開啟的資料夾一個)、`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組, " +
+			"代理的工作階段檢視因此把它們放在一起。聊天的 ID 是助理首次回答前最後一個問題的指紋, 絕不是 VS Code 的對話 ID",
+	},
+	"chat.sessionFingerprintStrategy": {
+		en:
+			"How a chat's fingerprint is derived: `durable` (fixed by the last question before the assistant's first " +
+			"answer - it cannot change while the chat is being answered) or `collecting` (a chat that cannot be told " +
+			"apart yet shares the window's id, and moves to a fingerprint of its own as soon as it says something - so " +
+			"one chat can appear under two session ids). Only matters while the fingerprint is the conversation's",
+		zhCn:
+			"聊天的指纹如何派生: `durable` (由助手首次回答前的最后一个问题固定 - 聊天被回答期间它不会改变) 或 " +
+			"`collecting` (暂时无法区分的聊天先共用窗口 ID, 一旦说出可区分的内容就改用自己的指纹 - 因此同一个聊天可能出现在两个会话 ID 下)。" +
+			"只有在指纹取自对话时才起作用",
+		zhTw:
+			"聊天的指紋如何衍生: `durable` (由助理首次回答前的最後一個問題固定 - 聊天被回答期間它不會變更) 或 " +
+			"`collecting` (暫時無法區分的聊天先共用視窗 ID, 一旦說出可區分的內容就改用自己的指紋 - 因此同一個聊天可能出現在兩個工作階段 ID 下)。" +
+			"只有在指紋取自對話時才會作用",
+	},
 	"discovery.timeout": {
 		en:
 			"Time budget for each model-discovery attempt, in milliseconds. A failed or timed-out attempt is retried up " +
@@ -277,11 +308,12 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 	},
 	"agentTools.setSetting.enabled": {
 		en:
-			"Lets the agent change scalar settings (timeouts, toggles, feature models) through the dashboard's validation; " +
-			"never `servers`, the model record settings, or the agent tools' own switches. Needs `agentTools.enabled`. " +
+			"Lets the agent change scalar settings (timeouts, toggles, feature models, the chat's two session fingerprint " +
+			"knobs) through the dashboard's validation; never `servers`, the model record settings, or the agent tools' own " +
+			"switches. Needs `agentTools.enabled`. " +
 			"Recipe: [Let an agent manage your LiteLLM setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
-		zhCn: "允许代理经仪表板的验证更改标量设置 (超时、开关、功能模型); 绝不包括 `servers`、模型记录设置或代理工具自身的开关。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
-		zhTw: "允許代理經儀表板的驗證變更標量設定 (逾時、開關、功能模型); 絕不包括 `servers`、模型記錄設定或代理工具自身的開關。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+		zhCn: "允许代理经仪表板的验证更改标量设置 (超时、开关、功能模型、聊天的两个会话指纹开关); 绝不包括 `servers`、模型记录设置或代理工具自身的开关。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "允許代理經儀表板的驗證變更標量設定 (逾時、開關、功能模型、聊天的兩個工作階段指紋開關); 絕不包括 `servers`、模型記錄設定或代理工具自身的開關。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
 	},
 	"agentTools.editModelRecords.enabled": {
 		en:

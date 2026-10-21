@@ -449,6 +449,7 @@
 	"Filter resolved models": "Filter resolved models",
 	"Filter settings": "Filter settings",
 	"Filter settings, e.g. timeout": "Filter settings, e.g. timeout",
+	"Fingerprint strategy": "Fingerprint strategy",
 	"First poll delay": "First poll delay",
 	"Fix and Explain actions on diagnostics, answered through @litellm chat or the model below.": "Fix and Explain actions on diagnostics, answered through @litellm chat or the model below.",
 	"Fix in settings.json": "Fix in settings.json",
@@ -494,6 +495,7 @@
 			"Reasoning effort level label in the model picker"
 		]
 	},
+	"How a chat fingerprint is generated.": "How a chat fingerprint is generated.",
 	"How long after a servers-setting edit usage data refreshes.": "How long after a servers-setting edit usage data refreshes.",
 	"How long after startup the first usage poll runs.": "How long after startup the first usage poll runs.",
 	"How long an unreachable server's last known models stay in the picker.": "How long an unreachable server's last known models stay in the picker.",
@@ -841,6 +843,12 @@
 			"Reasoning effort level label in the model picker"
 		]
 	},
+	"Off/The session fingerprint's off value: no session id rides the request": {
+		"message": "Off",
+		"comment": [
+			"The session fingerprint's off value: no session id rides the request"
+		]
+	},
 	"One model ID per line, e.g. deepseek-r1": "One model ID per line, e.g. deepseek-r1",
 	"Only while a threshold is crossed": "Only while a threshold is crossed",
 	"Open Chat": "Open Chat",
@@ -921,6 +929,9 @@
 	"Part of \"{0}\" is ignored: it carries an invalid directive value.": "Part of \"{0}\" is ignored: it carries an invalid directive value.",
 	"Partly ignored:": "Partly ignored:",
 	"Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.": "Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.",
+	"Per chat": "Per chat",
+	"Per window": "Per window",
+	"Per workspace": "Per workspace",
 	"Pick a server and model, or Not set to clear the pick.": "Pick a server and model, or Not set to clear the pick.",
 	"Pick how requests authenticate, e.g. a bearer API key. Exactly one form per entry; a gateway that checks a second credential takes it as a companion inside that form.": "Pick how requests authenticate, e.g. a bearer API key. Exactly one form per entry; a gateway that checks a second credential takes it as a companion inside that form.",
 	"Pick the repository to describe": "Pick the repository to describe",
@@ -956,6 +967,7 @@
 	"Record problems": "Record problems",
 	"Redact secrets in the log": "Redact secrets in the log",
 	"Refetch the model list from every server": "Refetch the model list from every server",
+	"Refine once identifiable": "Refine once identifiable",
 	"Refresh": "Refresh",
 	"Refresh now": "Refresh now",
 	"Refresh usage data for {0}": "Refresh usage data for {0}",
@@ -1058,6 +1070,7 @@
 	"Servers, models, and settings in one view": "Servers, models, and settings in one view",
 	"Servers-change poll delay": "Servers-change poll delay",
 	"Serving nothing:": "Serving nothing:",
+	"Session fingerprint": "Session fingerprint",
 	"Set in {0} settings - edit there.": "Set in {0} settings - edit there.",
 	"Settings": "Settings",
 	"Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.": "Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.",
@@ -1069,6 +1082,8 @@
 	"Show models from {0}": "Show models from {0}",
 	"Show the {0}": "Show the {0}",
 	"Show {0} hidden groups": "Show {0} hidden groups",
+	"Single fingerprint per chat": "Single fingerprint per chat",
+	"Single fingerprint per chat fixes a chat's fingerprint to the last question before the assistant's first answer, so it cannot change while the chat is answered; Refine once identifiable starts a chat that cannot be told apart yet under the window id and moves it to a fingerprint of its own as soon as it says something - so one chat can appear under two session ids.": "Single fingerprint per chat fixes a chat's fingerprint to the last question before the assistant's first answer, so it cannot change while the chat is answered; Refine once identifiable starts a chat that cannot be told apart yet under the window id and moves it to a fingerprint of its own as soon as it says something - so one chat can appear under two session ids.",
 	"Skip": "Skip",
 	"Something went wrong while talking to the model. Try again; if it keeps failing, check the model's server connection.": "Something went wrong while talking to the model. Try again; if it keeps failing, check the model's server connection.",
 	"Sort": "Sort",
@@ -1215,6 +1230,7 @@
 	"The servers entry \"{0}\" changed while its MCP server was starting. Try again.": "The servers entry \"{0}\" changed while its MCP server was starting. Try again.",
 	"The servers setting changed while this action ran; retry": "The servers setting changed while this action ran; retry",
 	"The servers setting is not an array; fix the setting, then retry": "The servers setting is not an array; fix the setting, then retry",
+	"The session id LiteLLM groups the requests by. A chat's fingerprint comes from the last question before the assistant's first answer - it is not a VS Code conversation id. A workspace fingerprint comes from the folder's path; a window fingerprint is this editor session. The strategy row below only matters while the fingerprint is the conversation's.": "The session id LiteLLM groups the requests by. A chat's fingerprint comes from the last question before the assistant's first answer - it is not a VS Code conversation id. A workspace fingerprint comes from the folder's path; a window fingerprint is this editor session. The strategy row below only matters while the fingerprint is the conversation's.",
 	"The stored key was saved for a different destination. Clearing the key removes it from secret storage.": "The stored key was saved for a different destination. Clearing the key removes it from secret storage.",
 	"The stored key was saved for {0}. Clearing the key removes it from secret storage.": "The stored key was saved for {0}. Clearing the key removes it from secret storage.",
 	"The stored secrets for \"{0}\" were saved for a different server. Store them again for this entry's current URL, then start its MCP server.": "The stored secrets for \"{0}\" were saved for a different server. Store them again for this entry's current URL, then start its MCP server.",
@@ -1329,6 +1345,7 @@
 	"Which model writes review comments; Not set keeps the feature idle.": "Which model writes review comments; Not set keeps the feature idle.",
 	"Which models do my LiteLLM servers offer?": "Which models do my LiteLLM servers offer?",
 	"Which record set each value on each model, e.g. temperature 0.3 from your gpt-5* record. Read-only, and it never leaves this dashboard.": "Which record set each value on each model, e.g. temperature 0.3 from your gpt-5* record. Read-only, and it never leaves this dashboard.",
+	"Which requests LiteLLM groups as one session.": "Which requests LiteLLM groups as one session.",
 	"Which secret?": "Which secret?",
 	"Which server?": "Which server?",
 	"Workspace": "Workspace",

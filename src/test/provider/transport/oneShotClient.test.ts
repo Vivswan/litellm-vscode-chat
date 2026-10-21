@@ -5,7 +5,7 @@ import type { TimeoutBudget } from "../../../provider/transport/auth";
 import type { OneShotChatMessage, OneShotConnection } from "../../../provider/transport/oneShotClient";
 import { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { RequestError } from "../../../provider/transport/transportErrors";
-import { fixedHeaderValue } from "../../../shared/util/headers";
+import { fixedHeaderValue, type HeaderValue } from "../../../shared/util/headers";
 import {
 	CHAT_COMPLETIONS_URL,
 	COMPLETIONS_URL,
@@ -613,6 +613,57 @@ suite("provider/transport/oneShotClient", () => {
 			);
 			source.cancel();
 			await assert.rejects(() => pending, vscode.CancellationError);
+		});
+	});
+
+	suite("session fingerprint", () => {
+		// The session id the proxy groups by, in the agreed shape: a readable prefix and twelve hex characters.
+		const SESSION_ID = "vscode-chat-0123456789ab";
+
+		/**
+		 * The session id one one-shot request carried, or null when it carried none. The minted header is the caller's
+		 * to pass, so the mint is a parameter: the transport never reads a knob itself.
+		 */
+		async function sessionIdOf(mint: () => HeaderValue | undefined): Promise<string | null> {
+			let seen: string | null = null;
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
+					seen = request.headers.get("x-litellm-session-id");
+					return chatJson("ok");
+				})
+			);
+			await client().completeChatOnce(
+				connection(),
+				{ model: "gpt-test", messages: [{ role: "user", content: "diff" }] },
+				"commitGeneration",
+				{ ...callOptions(), sessionIdHeader: mint() }
+			);
+			return seen;
+		}
+
+		test("the one-shot request carries the session id the caller minted", async () => {
+			const seen = await sessionIdOf(() => fixedHeaderValue(SESSION_ID));
+			assert.strictEqual(seen, SESSION_ID);
+		});
+
+		test("no session id rides the one-shot request when the caller mints none", async () => {
+			const seen = await sessionIdOf(() => undefined);
+			assert.strictEqual(seen, null, "the request must go out as it does with the knob off");
+		});
+
+		test("authHeaders composes the session id the request would carry", async () => {
+			// The header-composing path composes what a request would carry, so the descriptor it builds stays consistent
+			// with the requests that do go out.
+			const headers = await client().authHeaders(connection(), "discovery", {
+				...callOptions(),
+				sessionIdHeader: fixedHeaderValue(SESSION_ID),
+			});
+			assert.strictEqual(headers["x-litellm-session-id"], SESSION_ID);
+		});
+
+		test("authHeaders composes no session id when the caller mints none", async () => {
+			const headers = await client().authHeaders(connection(), "discovery", callOptions());
+			assert.strictEqual(headers["x-litellm-session-id"], undefined);
 		});
 	});
 

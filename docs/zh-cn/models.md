@@ -349,6 +349,10 @@
 - 提供程序拥有的字段无法覆盖: `model`、`messages`、`stream`、`stream_options`, 以及 - 当工具参与时 - `tools` 和 `tool_choice`。
 - 以 `_` 开头的键是扩展指令 ([`_force`](#强制参数-_force)), 从不发送。
 
+### 会话指纹
+
+有一个请求头是扩展自己的, 而且它不是参数: `x-litellm-session-id`, 它告诉 LiteLLM 代理哪些请求属于一起, 因此代理的会话视图会把它们分组。默认关闭, 聊天自选会话 ID 的来源 - 某个聊天、打开的文件夹, 或本编辑器会话 ([`chat.sessionFingerprint`](settings.md#参考))。聊天的 ID 是助手首次回答前最后一个问题的指纹, 绝不是 VS Code 的对话 ID; 除非你主动要求, 否则请求不携带会话 ID。分组在 LiteLLM 的 `request_correlation_in_logs` 关闭时同样有效 - 这个开关默认关闭, 因此代理里不必打开任何开关, 会话视图就能把这些请求分组。它是 LiteLLM 自己的设置 (代理配置里的 `litellm_settings.request_correlation_in_logs`), 打开后额外带来的是 LiteLLM 日志载荷上一个独立的 `session_id` (不打开时它是空字符串), 以及代理每一行日志上的 `trace_id` 与 `session_id` 标记 - 无论如何开销日志 (spend log) 的那一行都带着这个会话 ID, 因为这个标头把 trace ID 与会话 ID 设成了同一个值。
+
 ### `max_tokens` 例外
 
 扩展唯一会自行填入的字段是 `max_tokens`。当运行时选项和所有参数记录都没有设置它时, 请求携带模型解析出的最大输出 token 数:

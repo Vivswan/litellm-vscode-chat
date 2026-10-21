@@ -49,6 +49,28 @@ export async function withConfig<T>(
 }
 
 /**
+ * The extension-host test window opens no folder, so the workspace fingerprint has nothing to hash. The stub hands the
+ * code under test a folder to read, the way a window with a project open would, and restores the host's own answer
+ * afterwards.
+ */
+export async function withWorkspaceFolder<T>(folderPath: string, fn: () => T | Promise<T>): Promise<Awaited<T>> {
+	const descriptor = Object.getOwnPropertyDescriptor(vscode.workspace, "workspaceFolders");
+	Object.defineProperty(vscode.workspace, "workspaceFolders", {
+		configurable: true,
+		value: [{ uri: vscode.Uri.file(folderPath), name: folderPath, index: 0 } satisfies vscode.WorkspaceFolder],
+	});
+	try {
+		return await fn();
+	} finally {
+		if (descriptor === undefined) {
+			Reflect.deleteProperty(vscode.workspace, "workspaceFolders");
+		} else {
+			Object.defineProperty(vscode.workspace, "workspaceFolders", descriptor);
+		}
+	}
+}
+
+/**
  * The group server makeProvider's injected configuration resolves to, mirroring what parseGroupConfiguration produces.
  */
 export function testGroupServer(apiKey: HeaderValue | "" = fixedHeaderValue("test-key")): GroupServer {

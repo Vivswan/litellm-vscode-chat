@@ -32,6 +32,7 @@ import {
 	testGroupServer,
 	userMessage,
 	withConfig,
+	withWorkspaceFolder,
 } from "../../testUtils";
 
 const modelInfo = makeModelInfo();
@@ -740,6 +741,98 @@ suite("provider/request contract", () => {
 				);
 				assert.equal(chatUrl, `${TEST_BASE_URL}${path}`, reason);
 			}
+		});
+	});
+
+	suite("session fingerprint", () => {
+		// The ids the agreed format spells: a readable prefix and twelve hex characters, so a session id in the proxy's
+		// UI says which kind of fingerprint it is.
+		const CHAT_SESSION_ID = /^vscode-chat-[0-9a-f]{12}$/;
+		const WORKSPACE_SESSION_ID = /^vscode-ws-[0-9a-f]{12}$/;
+		const FOLDER = "/home/dev/litellm-workspace-fixture";
+
+		/** The session id one chat request carried, or a failure that says the header never went out. */
+		async function sessionIdOf(
+			messages: vscode.LanguageModelChatRequestMessage[] = [userMessage("test")]
+		): Promise<string> {
+			const { headers } = await withConfig({ "chat.sessionFingerprint": "conversation" }, () =>
+				captureRequest(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ messages }
+				)
+			);
+			const sessionId = headers["x-litellm-session-id"];
+			assert.ok(sessionId !== undefined, "the session id header must ride the chat request");
+			return sessionId;
+		}
+
+		test("the chat request carries the conversation's own session id", async () => {
+			const sessionId = await sessionIdOf();
+			assert.match(sessionId, CHAT_SESSION_ID);
+		});
+
+		test("the workspace fingerprint rides the request as a hash of the folder's path", async () => {
+			const { headers } = await withConfig({ "chat.sessionFingerprint": "workspace" }, () =>
+				withWorkspaceFolder(FOLDER, () =>
+					captureRequest(createConfiguredProvider(), modelInfo, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+				)
+			);
+			const sessionId = headers["x-litellm-session-id"];
+			assert.ok(sessionId !== undefined, "the session id header must ride the chat request");
+			assert.match(sessionId, WORKSPACE_SESSION_ID);
+			assert.ok(!sessionId.includes("litellm-workspace-fixture"), "the folder's path must not ride the header");
+		});
+
+		test("a window with no folder open has no workspace to group by, so no session id rides along", async () => {
+			// The test window opens no folder, which is the shape the rule was written for: there is nothing to group
+			// by, and falling back to the window id would silently mean something else than the user asked for.
+			const { headers } = await withConfig({ "chat.sessionFingerprint": "workspace" }, () =>
+				captureRequest(createConfiguredProvider(), modelInfo, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			);
+			assert.strictEqual(headers["x-litellm-session-id"], undefined);
+		});
+
+		test("the window fingerprint is the editor session id, verbatim", async () => {
+			const { headers } = await withConfig({ "chat.sessionFingerprint": "window" }, () =>
+				captureRequest(createConfiguredProvider(), modelInfo, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			);
+			assert.strictEqual(headers["x-litellm-session-id"], vscode.env.sessionId);
+		});
+
+		test("no session id rides the request when the knob is off", async () => {
+			const { headers } = await withConfig({ "chat.sessionFingerprint": "off" }, () =>
+				captureRequest(createConfiguredProvider(), modelInfo, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			);
+			assert.strictEqual(headers["x-litellm-session-id"], undefined);
+		});
+
+		test("one conversation keeps one session id across its turns", async () => {
+			const first = await sessionIdOf([userMessage("what does this repo do?")]);
+			const second = await sessionIdOf([
+				userMessage("what does this repo do?"),
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [new vscode.LanguageModelTextPart("a test harness")],
+					name: undefined,
+				},
+				userMessage("and how do I run it?"),
+			]);
+			assert.strictEqual(first, second, "a second turn must not move the conversation's session id");
+		});
+
+		test("two conversations with different first questions get different session ids", async () => {
+			const one = await sessionIdOf([userMessage("what does this repo do?")]);
+			const other = await sessionIdOf([userMessage("what is the weather?")]);
+			assert.notStrictEqual(one, other);
+		});
+
+		test("the session id carries neither the question nor the window id", async () => {
+			const sessionId = await sessionIdOf([userMessage("what does this repo do?")]);
+			assert.match(sessionId, CHAT_SESSION_ID);
+			assert.ok(!sessionId.includes("repo"), "the question must not ride the header");
+			assert.ok(!sessionId.includes(vscode.env.sessionId), "the window id must not ride the header");
 		});
 	});
 

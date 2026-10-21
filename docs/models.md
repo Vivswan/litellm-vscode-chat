@@ -349,6 +349,10 @@ When you configure nothing - or nothing that matches a given model - your model 
 - Provider-owned fields cannot be overridden: `model`, `messages`, `stream`, `stream_options`, and - when tools are in play - `tools` and `tool_choice`.
 - Keys starting with `_` are extension directives ([`_force`](#forcing-parameters-_force)) and are never sent.
 
+### The session fingerprint
+
+One header is the extension's own, and it is not a parameter: `x-litellm-session-id`, which tells a LiteLLM proxy which requests belong together, so its session view groups them. It is off by default, and the chat chooses what its session id is derived from - one chat, the open folder, or this editor session ([`chat.sessionFingerprint`](settings.md#reference)). A chat's id is a fingerprint of the last question before the assistant's first answer, never a VS Code conversation id, and no request carries one unless you ask for it. The grouping works with LiteLLM's `request_correlation_in_logs` off - the flag is off by default, and nothing has to be turned on in the proxy for the session view to group the requests. It is LiteLLM's own setting (`litellm_settings.request_correlation_in_logs` in the proxy's config), and turning it on adds an independent `session_id` on LiteLLM's logging payload (an empty string without it) and a `trace_id` / `session_id` stamp on every proxy log line - the spend-log row carries the session id either way, because the header sets the trace id and the session id to the same value.
+
 ### The `max_tokens` exception
 
 The one field the extension fills in on its own is `max_tokens`. When neither runtime options nor any parameters record sets it, the request carries the model's resolved max output tokens:

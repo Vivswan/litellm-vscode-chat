@@ -1697,6 +1697,26 @@
 							"%litellm.config.chat.tokenEstimation.cl100k_base%"
 						],
 						"description": "%litellm.config.chat.tokenEstimation.description%"
+					},
+					"litellm-vscode-chat.chat.sessionFingerprint": {
+						"type": "string",
+						"enum": [
+							"off",
+							"conversation",
+							"workspace",
+							"window"
+						],
+						"default": "off",
+						"description": "%litellm.config.chat.sessionFingerprint.description%"
+					},
+					"litellm-vscode-chat.chat.sessionFingerprintStrategy": {
+						"type": "string",
+						"enum": [
+							"durable",
+							"collecting"
+						],
+						"default": "durable",
+						"description": "%litellm.config.chat.sessionFingerprintStrategy.description%"
 					}
 				}
 			},

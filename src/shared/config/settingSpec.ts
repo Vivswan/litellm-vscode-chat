@@ -83,6 +83,53 @@ export const FEATURE_MODEL_SETTING_KEY_LIST: readonly FeatureModelSettingKey[] =
 );
 
 /**
+ * What a request's LiteLLM session id is derived from.
+ *
+ *   off          -> no session id rides the request at all
+ *   conversation -> the chat the request belongs to (the chat knob alone offers this)
+ *   workspace    -> the folder the window has open
+ *   window       -> the editor session, whatever it is doing
+ */
+export const SESSION_FINGERPRINT_VALUES = ["off", "conversation", "workspace", "window"] as const;
+
+export type SessionFingerprintValue = (typeof SESSION_FINGERPRINT_VALUES)[number];
+
+/**
+ * How a chat's own fingerprint is derived, once it is asked for.
+ *
+ *   durable   -> the fingerprint never changes: the last question before the assistant's first answer, else the first
+ *                message's own bytes
+ *   collecting -> the fingerprint upgrades as soon as there is something to fingerprint: a chat that starts with
+ *                nothing to tell apart collects under the window id and moves to its own
+ */
+export const SESSION_FINGERPRINT_STRATEGIES = ["durable", "collecting"] as const;
+
+export type SessionFingerprintStrategy = (typeof SESSION_FINGERPRINT_STRATEGIES)[number];
+
+/** The default strategy: the one whose fingerprint never changes under a chat. */
+export const DEFAULT_SESSION_FINGERPRINT_STRATEGY: SessionFingerprintStrategy = "durable";
+
+/** The default fingerprint: no session id rides the request until the user opts in. */
+export const DEFAULT_SESSION_FINGERPRINT = "off" satisfies SessionFingerprintValue;
+
+/** The chat knob's key; it covers the Copilot chat, the agent path, and the @litellm participant. */
+export const CHAT_SESSION_FINGERPRINT_SETTING_KEY = "chat.sessionFingerprint";
+
+/** The strategy toggle's key, beside the chat knob in the chat section. */
+export const CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY = "chat.sessionFingerprintStrategy";
+
+/** The two fingerprint knobs: the chat knob and its companion strategy toggle. */
+export type SessionFingerprintSettingId =
+	| typeof CHAT_SESSION_FINGERPRINT_SETTING_KEY
+	| typeof CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY;
+
+/** The two keys, in manifest order. */
+export const SESSION_FINGERPRINT_SETTING_IDS: readonly SessionFingerprintSettingId[] = [
+	CHAT_SESSION_FINGERPRINT_SETTING_KEY,
+	CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
+];
+
+/**
  * The inline-completions language filter's mode vocabulary: "block" runs completions everywhere except the listed
  * languages, "allow" runs them only there.
  */
@@ -429,6 +476,8 @@ const STRUCTURED_SETTING_KEYS = [
 	...FEATURE_MODEL_SETTING_KEY_LIST,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
+	CHAT_SESSION_FINGERPRINT_SETTING_KEY,
+	CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
 ] as const;
 
 /** Every setting key as a literal union, for the surfaces that must be TOTAL over the vocabulary. */
@@ -457,6 +506,8 @@ const SECTIONS = [
 			ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 			"chat.promptCaching",
 			TOKEN_ESTIMATION_SETTING_KEY,
+			CHAT_SESSION_FINGERPRINT_SETTING_KEY,
+			CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
 		],
 	},
 	{ id: "discovery", settings: ["discovery.timeout", "discovery.cacheTtl", "discovery.staleServeWindow"] },
@@ -569,6 +620,8 @@ export const SETTING_PRESENTATION: Readonly<Record<SettingId, SettingPresentatio
 	"chat.additionalToolSchemaKeywords": WINDOW_PLAIN,
 	"chat.promptCaching": WINDOW_PLAIN,
 	"chat.tokenEstimation": { scope: "window", description: "plain", enumDescriptions: true },
+	"chat.sessionFingerprint": WINDOW_PLAIN,
+	"chat.sessionFingerprintStrategy": WINDOW_PLAIN,
 	"discovery.timeout": WINDOW_PLAIN,
 	"discovery.cacheTtl": WINDOW_PLAIN,
 	"discovery.staleServeWindow": WINDOW_PLAIN,

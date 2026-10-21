@@ -2,6 +2,7 @@ import * as l10n from "@vscode/l10n";
 import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseOptions } from "vscode";
 import * as vscode from "vscode";
 import { ModelResolutionTable } from "../../shared/config/resolutionTable";
+import { SESSION_ID_HEADER_NAME } from "../../shared/config/sessionFingerprint";
 import {
 	getAdditionalToolSchemaKeywords,
 	getDiscoveryTimeout,
@@ -34,13 +35,14 @@ import {
 	type VirtualKeyConfig,
 } from "./auth";
 import type { AuthOverlayScope } from "./authOverlay";
-import { applyAuthOverlay } from "./authOverlay";
+import { applyAuthOverlay, setOwnedHeader } from "./authOverlay";
 import { isHostCancellation } from "./cancellation";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
 import { mapSdkError } from "./errorMapping";
 import type { TransportFetch } from "./nodeHttpFetch";
 import { nodeHttpFetch } from "./nodeHttpFetch";
 import { buildRequestBody, resolveMaxTokens } from "./request";
+import { chatSessionFingerprintHeader } from "./sessionFingerprint";
 import type { ToolCallIdSource } from "./streaming/processor";
 import { StreamProcessor } from "./streaming/processor";
 import { bodylessResponseError, timeoutRequestError } from "./transportErrors";
@@ -337,12 +339,21 @@ export class ChatClient {
 				requestSignal
 			);
 			auth = resolvedAuth.auth;
+			// The session fingerprint rides the per-request headers, never the client's own: the client cache keys on
+			// the custom headers, so a per-conversation value among them would rebuild the OpenAI client on every new
+			// chat. It owns its header name, the way the credential overlay owns the names it sets.
+			const headers: Record<string, HeaderValue> =
+				resolvedAuth.headers !== undefined ? { ...resolvedAuth.headers } : {};
+			const sessionIdHeader = chatSessionFingerprintHeader(messages);
+			if (sessionIdHeader !== undefined) {
+				setOwnedHeader(headers, SESSION_ID_HEADER_NAME, sessionIdHeader);
+			}
 			const response = await client
 				.post(CHAT_COMPLETIONS_PATH, {
 					body: requestBody,
 					signal: requestSignal,
 					timeout: requestTimeout,
-					...(resolvedAuth.headers !== undefined ? { headers: resolvedAuth.headers } : {}),
+					...(Object.keys(headers).length > 0 ? { headers } : {}),
 				})
 				.asResponse();
 

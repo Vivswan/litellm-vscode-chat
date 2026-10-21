@@ -301,6 +301,23 @@ export function helpCommitPrompt(): string {
 	);
 }
 
+/**
+ * The chat's fingerprint row: what the session id is, where a chat's comes from, and what the other two are derived
+ * from.
+ */
+export function helpSessionFingerprint(): string {
+	return l10n.t(
+		"The session id LiteLLM groups the requests by. A chat's fingerprint comes from the last question before the assistant's first answer - it is not a VS Code conversation id. A workspace fingerprint comes from the folder's path; a window fingerprint is this editor session. The strategy row below only matters while the fingerprint is the conversation's."
+	);
+}
+
+/** The strategy toggle: what the two strategies do to a chat's own fingerprint. */
+export function helpSessionFingerprintStrategy(): string {
+	return l10n.t(
+		"Single fingerprint per chat fixes a chat's fingerprint to the last question before the assistant's first answer, so it cannot change while the chat is answered; Refine once identifiable starts a chat that cannot be told apart yet under the window id and moves it to a fingerprint of its own as soon as it says something - so one chat can appear under two session ids."
+	);
+}
+
 export function helpLanguageFilterMode(): string {
 	return l10n.t(
 		"Block runs inline completions everywhere except the listed languages; Allow only runs them in the listed ones."

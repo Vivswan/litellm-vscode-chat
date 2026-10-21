@@ -41,6 +41,8 @@ import type {
 } from "../../shared/config/settingSpec";
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
+	CHAT_SESSION_FINGERPRINT_SETTING_KEY,
+	CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	FEATURE_MODEL_IDS,
 	FEATURE_MODEL_SETTING_KEYS,
@@ -62,6 +64,8 @@ import {
 	normalizeInlineLanguageFilter,
 	normalizeModelCapabilities,
 	normalizeModelParameters,
+	normalizeSessionFingerprintStrategy,
+	normalizeSessionFingerprintValue,
 	normalizeTokenEstimationMode,
 	normalizeUiAccent,
 	normalizeUiTheme,
@@ -571,6 +575,14 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 				lossy: normalizedListLossy(rawKeywords, keywords),
 				scope: resolveConfiguredScope(reader.inspect(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY)),
 			},
+			sessionFingerprint: normalizeSessionFingerprintValue(reader.get(CHAT_SESSION_FINGERPRINT_SETTING_KEY)),
+			sessionFingerprintScope: resolveConfiguredScope(reader.inspect(CHAT_SESSION_FINGERPRINT_SETTING_KEY)),
+			sessionFingerprintStrategy: normalizeSessionFingerprintStrategy(
+				reader.get(CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY)
+			),
+			sessionFingerprintStrategyScope: resolveConfiguredScope(
+				reader.inspect(CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY)
+			),
 		},
 		usage: {
 			statusBarMode: normalizeUsageStatusBarMode(reader.get(USAGE_STATUS_BAR_SETTING_KEY)),

@@ -13,6 +13,8 @@ import {
 	CONFIGURATION_SECTIONS,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_INLINE_LANGUAGE_FILTER,
+	DEFAULT_SESSION_FINGERPRINT,
+	DEFAULT_SESSION_FINGERPRINT_STRATEGY,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
@@ -25,6 +27,8 @@ import {
 	NUMBER_SETTING_SPECS,
 	type NumberSettingId,
 	type NumberSettingValueSpec,
+	SESSION_FINGERPRINT_STRATEGIES,
+	SESSION_FINGERPRINT_VALUES,
 	SETTING_PRESENTATION,
 	type SettingId,
 	type SettingPresentation,
@@ -73,6 +77,16 @@ const STRUCTURED_SHAPES = {
 	"ui.accent": { kind: "enum", values: UI_ACCENTS, default: DEFAULT_UI_ACCENT },
 	"inlineCompletions.languageFilter": { kind: "languageFilter" },
 	"commitGeneration.prompt": { kind: "boundedString", maxLength: WIRE_LIMITS.commitPrompt, default: "" },
+	"chat.sessionFingerprint": {
+		kind: "enum",
+		values: SESSION_FINGERPRINT_VALUES,
+		default: DEFAULT_SESSION_FINGERPRINT,
+	},
+	"chat.sessionFingerprintStrategy": {
+		kind: "enum",
+		values: SESSION_FINGERPRINT_STRATEGIES,
+		default: DEFAULT_SESSION_FINGERPRINT_STRATEGY,
+	},
 } as const satisfies Record<StructuredSettingId, SettingShape>;
 
 /** Every setting's shape: the spec tables plus the structured shapes, each total over its own slice of SettingId. */

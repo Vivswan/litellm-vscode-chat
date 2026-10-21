@@ -8,6 +8,7 @@ import {
 	headerValue,
 	isHeaderScalar,
 	trimHttpWhitespace,
+	usableHttpText,
 } from "../util/headers";
 import { cloneJson, isUnsafeRecordKey, objectSlot } from "../util/json";
 import type {
@@ -19,6 +20,8 @@ import type {
 	InlineLanguageFilter,
 	LanguageFilterMode,
 	NumberSettingId,
+	SessionFingerprintStrategy,
+	SessionFingerprintValue,
 	TokenEstimationMode,
 } from "./settingSpec";
 import {
@@ -27,11 +30,15 @@ import {
 	AGENT_TOOLS_SECRET_VALUES_KEY,
 	acceptsNumberSetting,
 	BOOLEAN_SETTING_SPECS,
+	CHAT_SESSION_FINGERPRINT_SETTING_KEY,
+	CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_INLINE_LANGUAGE_FILTER,
+	DEFAULT_SESSION_FINGERPRINT,
+	DEFAULT_SESSION_FINGERPRINT_STRATEGY,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
@@ -49,6 +56,8 @@ import {
 	NUMBER_SETTING_SPECS,
 	numberSettingBoundText,
 	SERVERS_SETTING_KEY,
+	SESSION_FINGERPRINT_STRATEGIES,
+	SESSION_FINGERPRINT_VALUES,
 	TOKEN_ESTIMATION_MODES,
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
@@ -124,6 +133,35 @@ export function normalizeTokenEstimationMode(raw: unknown): TokenEstimationMode 
 /** Read once at activation and on configuration change by the tokenizer wiring, never per count. */
 export function getTokenEstimationMode(): TokenEstimationMode {
 	return normalizeTokenEstimationMode(getConfig().get<unknown>(TOKEN_ESTIMATION_SETTING_KEY));
+}
+
+/**
+ * A vocabulary value out of settings.json: one of the words the spec declares, or the default when the text is not one
+ * of them. The text goes through the one trim rule, so a padded value spells the same fingerprint as its unpadded twin.
+ */
+function readSessionFingerprintValue<T extends string>(raw: unknown, allowed: readonly T[], fallback: T): T {
+	const text = usableHttpText(raw);
+	return text !== undefined && (allowed as readonly string[]).includes(text) ? (text as T) : fallback;
+}
+
+/** The chat's own session fingerprint: off, conversation, workspace, or window. */
+export function getChatSessionFingerprint(): SessionFingerprintValue {
+	return normalizeSessionFingerprintValue(getConfig().get<unknown>(CHAT_SESSION_FINGERPRINT_SETTING_KEY));
+}
+
+/** How the chat's own fingerprint is derived, when it is asked for. */
+export function getChatSessionFingerprintStrategy(): SessionFingerprintStrategy {
+	return normalizeSessionFingerprintStrategy(getConfig().get<unknown>(CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY));
+}
+
+/** The chat's fingerprint vocabulary, read off a raw value: off, conversation, workspace, or window. */
+export function normalizeSessionFingerprintValue(raw: unknown): SessionFingerprintValue {
+	return readSessionFingerprintValue(raw, SESSION_FINGERPRINT_VALUES, DEFAULT_SESSION_FINGERPRINT);
+}
+
+/** The strategy vocabulary, read off a raw value: durable or collecting. */
+export function normalizeSessionFingerprintStrategy(raw: unknown): SessionFingerprintStrategy {
+	return readSessionFingerprintValue(raw, SESSION_FINGERPRINT_STRATEGIES, DEFAULT_SESSION_FINGERPRINT_STRATEGY);
 }
 
 /** 0 is a valid configuration. */

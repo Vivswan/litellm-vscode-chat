@@ -19,6 +19,8 @@ import { parseDashboardRequest, secretDirectiveSchema } from "../../../../extens
 import {
 	FEATURE_MODEL_IDS,
 	LANGUAGE_FILTER_MODES,
+	SESSION_FINGERPRINT_STRATEGIES,
+	SESSION_FINGERPRINT_VALUES,
 	TOKEN_ESTIMATION_MODES,
 	UI_ACCENTS,
 	UI_THEMES,
@@ -148,6 +150,8 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	refreshCatalog: fc.constant(null),
 	refreshUsage: fc.constant(null),
 	setUsageStatusBar: fc.record({ value: fc.constantFrom("always", "alerts-only", "off") }),
+	setChatSessionFingerprint: fc.record({ value: fc.constantFrom(...SESSION_FINGERPRINT_VALUES) }),
+	setChatSessionFingerprintStrategy: fc.record({ value: fc.constantFrom(...SESSION_FINGERPRINT_STRATEGIES) }),
 	setTokenEstimation: fc.record({ value: fc.constantFrom(...TOKEN_ESTIMATION_MODES) }),
 	setCurrencySymbol: fc.record({ value: fc.string({ maxLength: WIRE_LIMITS.currencySymbol }) }),
 	setAdditionalToolSchemaKeywords: fc.record({

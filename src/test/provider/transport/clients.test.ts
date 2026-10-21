@@ -1,11 +1,13 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import type OpenAI from "openai";
+import * as vscode from "vscode";
 import { createServerClient, ServerClientCache, type ServerClientConfig } from "../../../provider/transport/clients";
 import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import { fixedHeaderValue } from "../../../shared/util/headers";
 import { MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
-import { toHeaderMap } from "../../pureHelpers";
+import { makeModelInfo, toHeaderMap } from "../../pureHelpers";
+import { captureRequest, makeProvider, userMessage, withConfig } from "../../testUtils";
 
 function config(overrides: Partial<ServerClientConfig> = {}): ServerClientConfig {
 	return {
@@ -162,6 +164,41 @@ suite("provider/transport/clients", () => {
 				removed,
 				"Removed server's client must be rebuilt after prune"
 			);
+		});
+
+		test("two conversations in a row keep the same client: the fingerprint never enters the client's own headers", async () => {
+			// The cache keys on the client's own headers, so a per-conversation value among them would rebuild the
+			// OpenAI client on every new chat. The clients the cache hands out are the observable: a rebuild would hand
+			// out a second one for the same server.
+			const provider = makeProvider(TEST_BASE_URL);
+			const internals = provider as unknown as { _client: { clients: ServerClientCache } };
+			const cache = internals._client.clients;
+			const handedOut = new Map<string, Set<OpenAI>>();
+			const originalGet = cache.get.bind(cache);
+			cache.get = (config) => {
+				const client = originalGet(config);
+				const forServer = handedOut.get(config.serverId) ?? new Set<OpenAI>();
+				forServer.add(client);
+				handedOut.set(config.serverId, forServer);
+				return client;
+			};
+
+			const modelInfo = makeModelInfo();
+			for (const question of ["what does this repo do?", "what is the weather?"]) {
+				await withConfig({ "chat.sessionFingerprint": "conversation" }, () =>
+					captureRequest(
+						provider,
+						modelInfo,
+						{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+						{ messages: [userMessage(question)] }
+					)
+				);
+			}
+
+			assert.ok(handedOut.size > 0, "the transport must ask the cache for its client");
+			for (const [serverId, clients] of handedOut) {
+				assert.strictEqual(clients.size, 1, `the client for ${serverId} must not be rebuilt by a new conversation`);
+			}
 		});
 
 		test("SDK logging is off regardless of ambient OPENAI_LOG", () => {

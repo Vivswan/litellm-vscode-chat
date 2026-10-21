@@ -84,6 +84,10 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
 			additionalToolSchemaKeywords: { values: [], lossy: false, scope: null },
+			sessionFingerprint: "off",
+			sessionFingerprintScope: null,
+			sessionFingerprintStrategy: "durable",
+			sessionFingerprintStrategyScope: null,
 		},
 		usage: {
 			statusBarMode: "always",

@@ -22,7 +22,13 @@ import type {
 	UiTheme,
 	UsageStatusBarMode,
 } from "../../shared/config/settingSpec";
-import { TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES, USAGE_STATUS_BAR_MODES } from "../../shared/config/settingSpec";
+import {
+	SESSION_FINGERPRINT_VALUES,
+	TOKEN_ESTIMATION_MODES,
+	UI_ACCENTS,
+	UI_THEMES,
+	USAGE_STATUS_BAR_MODES,
+} from "../../shared/config/settingSpec";
 import { useAlertOnce } from "./announceOnce";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink } from "./help";
@@ -31,6 +37,8 @@ import {
 	helpImportExportGroup,
 	helpModelCapabilitiesSection,
 	helpModelParametersSection,
+	helpSessionFingerprint,
+	helpSessionFingerprintStrategy,
 	helpSettingsSection,
 	helpTokenEstimation,
 	helpToolSchemaKeywords,
@@ -47,6 +55,14 @@ import {
 	modelCapabilitiesTitle,
 	modelParametersTitle,
 } from "./recordEditors";
+import {
+	SessionFingerprintSettingRow,
+	SessionFingerprintStrategyRow,
+	sessionFingerprintDescription,
+	sessionFingerprintStrategyDescription,
+	sessionFingerprintStrategyTitle,
+	sessionFingerprintTitle,
+} from "./sessionFingerprintRows";
 import type { SettingWriteFailure } from "./settingRows";
 import {
 	CommaListRow,
@@ -652,6 +668,8 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 		),
 		settings.chat.tokenEstimationScope,
 		settings.chat.additionalToolSchemaKeywords.scope,
+		settings.chat.sessionFingerprintScope,
+		settings.chat.sessionFingerprintStrategyScope,
 		settings.usage.statusBarScope,
 		settings.usage.thresholdsScope,
 		settings.usage.currencySymbolScope,
@@ -770,6 +788,18 @@ export function SettingsSection({
 		"chat.additionalToolSchemaKeywords",
 		helpToolSchemaKeywords()
 	);
+	const sessionFingerprintVisible = matches(
+		sessionFingerprintTitle(),
+		sessionFingerprintDescription(),
+		"chat.sessionFingerprint",
+		helpSessionFingerprint()
+	);
+	const sessionFingerprintStrategyVisible = matches(
+		sessionFingerprintStrategyTitle(),
+		sessionFingerprintStrategyDescription(),
+		"chat.sessionFingerprintStrategy",
+		helpSessionFingerprintStrategy()
+	);
 	const thresholdsCustom = settings.usage.alertThresholds.length > 2;
 	// The editable branch's help joins its haystack only while that branch renders it: a needle from the tip must not
 	// keep the custom row alive.
@@ -803,6 +833,8 @@ export function SettingsSection({
 		!statusBarVisible &&
 		!tokenEstimationVisible &&
 		!toolSchemaKeywordsVisible &&
+		!sessionFingerprintVisible &&
+		!sessionFingerprintStrategyVisible &&
 		!thresholdsVisible &&
 		!currencyVisible &&
 		!themeVisible &&
@@ -823,6 +855,10 @@ export function SettingsSection({
 				return tokenEstimationVisible;
 			case "chat.additionalToolSchemaKeywords":
 				return toolSchemaKeywordsVisible;
+			case "chat.sessionFingerprint":
+				return sessionFingerprintVisible;
+			case "chat.sessionFingerprintStrategy":
+				return sessionFingerprintStrategyVisible;
 			case "usage.alertThresholds":
 				return thresholdsVisible;
 			case "usage.statusBar":
@@ -909,7 +945,11 @@ export function SettingsSection({
 								booleanMeta={booleanMeta}
 								tailVisible={
 									(isModelsGroup && (paramsVisible || capsVisible)) ||
-									(isChatGroup && (tokenEstimationVisible || toolSchemaKeywordsVisible)) ||
+									(isChatGroup &&
+										(tokenEstimationVisible ||
+											toolSchemaKeywordsVisible ||
+											sessionFingerprintVisible ||
+											sessionFingerprintStrategyVisible)) ||
 									(isUsageGroup && (statusBarVisible || thresholdsVisible || currencyVisible)) ||
 									(isUiGroup && (themeVisible || accentVisible))
 								}
@@ -951,6 +991,26 @@ export function SettingsSection({
 											<ToolSchemaKeywordsRow
 												setting={settings.chat.additionalToolSchemaKeywords}
 												hidden={!toolSchemaKeywordsVisible}
+											/>
+											<SessionFingerprintSettingRow
+												settingId="chat.sessionFingerprint"
+												value={settings.chat.sessionFingerprint}
+												options={SESSION_FINGERPRINT_VALUES}
+												help={helpSessionFingerprint()}
+												onPick={(value) => sendRequest("setChatSessionFingerprint", { value })}
+												configuredScope={settings.chat.sessionFingerprintScope}
+												hidden={!sessionFingerprintVisible}
+											/>
+											{/* The strategy only bites while the fingerprint is the conversation's, so
+											    the row hides itself otherwise - a knob that cannot act should not be
+											    on screen. */}
+											<SessionFingerprintStrategyRow
+												value={settings.chat.sessionFingerprintStrategy}
+												configuredScope={settings.chat.sessionFingerprintStrategyScope}
+												hidden={
+													!sessionFingerprintStrategyVisible || settings.chat.sessionFingerprint !== "conversation"
+												}
+												onPick={(value) => sendRequest("setChatSessionFingerprintStrategy", { value })}
 											/>
 										</>
 									) : isUsageGroup ? (

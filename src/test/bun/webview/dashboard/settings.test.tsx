@@ -643,7 +643,7 @@ test("the capabilities editor renders as a second record editor and applies via 
 test("every settings row anchors its actions in one trailing slot: Reset then the settings.json jump", () => {
 	// Fail-closed structural pin behind the "{} renders in two different positions" defect: the slot is the row
 	// template's LAST cell, the jump its LAST child, and no action leaks into the control or hint cells. Counted
-	// against the page's row INVENTORY (every scalar id this page owns plus the seven non-scalar rows - the feature
+	// against the page's row INVENTORY (every scalar id this page owns plus the nine non-scalar rows - the feature
 	// rows live on the Features page now), so it fails both ways.
 	const base = makeSettings();
 	const settings = makeSettings({
@@ -658,7 +658,7 @@ test("every settings row anchors its actions in one trailing slot: Reset then th
 		...Object.keys(settings.configuredScopes.numbers),
 		...Object.keys(settings.configuredScopes.booleans),
 	].filter((id) => settingRowPage(id) === "settings");
-	expect(rows.length).toBe(ownedScalars.length + 7);
+	expect(rows.length).toBe(ownedScalars.length + 9);
 	for (const row of rows) {
 		const slots = Array.from(row.children).filter((child) => child.classList.contains("setting-actions"));
 		expect(slots.length, row.textContent ?? "").toBe(1);
@@ -1098,6 +1098,66 @@ test("the status-bar mode select posts setUsageStatusBar on change", () => {
 	expect(postedCalls()).toEqual([{ method: "setUsageStatusBar", payload: { value: "alerts-only" } }]);
 });
 
+test("the session fingerprint select renders in the Chat group and posts setChatSessionFingerprint on change", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const select = root.querySelector("#setting-chat\\.sessionFingerprint") as HTMLSelectElement;
+	expect(select).not.toBeNull();
+	expect(select.value).toBe("off");
+	// The chat knob is the only one that can point at a conversation.
+	expect(Array.from(select.options).map((option) => option.value)).toEqual([
+		"off",
+		"conversation",
+		"workspace",
+		"window",
+	]);
+	expect(Array.from(select.options).map((option) => option.textContent)).toEqual([
+		"Off",
+		"Per chat",
+		"Per workspace",
+		"Per window",
+	]);
+	const group = select.closest(".settings-group") as HTMLElement;
+	expect(group.querySelector("#setting-chat\\.timeout")).not.toBeNull();
+
+	fireSelect(select, "conversation");
+	expect(postedCalls()).toEqual([{ method: "setChatSessionFingerprint", payload: { value: "conversation" } }]);
+});
+
+test("the fingerprint strategy row hides itself until the fingerprint is the conversation's", () => {
+	// A knob that cannot act should not be on screen: the strategy only bites while the fingerprint is the
+	// conversation's.
+	const off = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const strategy = off.querySelector("#setting-chat\\.sessionFingerprintStrategy") as HTMLSelectElement;
+	expect(strategy).not.toBeNull();
+	expect((strategy.closest(".setting-row") as HTMLElement).hasAttribute("hidden")).toBe(true);
+
+	const conversation = mount(
+		<SettingsSection
+			settings={makeSettings({
+				chat: {
+					tokenEstimation: "auto",
+					tokenEstimationScope: null,
+					additionalToolSchemaKeywords: { values: [], lossy: false, scope: null },
+					sessionFingerprint: "conversation",
+					sessionFingerprintScope: null,
+					sessionFingerprintStrategy: "durable",
+					sessionFingerprintStrategyScope: null,
+				},
+			})}
+			models={[]}
+		/>
+	);
+	const shown = conversation.querySelector("#setting-chat\\.sessionFingerprintStrategy") as HTMLSelectElement;
+	expect((shown.closest(".setting-row") as HTMLElement).hasAttribute("hidden")).toBe(false);
+	expect(Array.from(shown.options).map((option) => option.textContent)).toEqual([
+		"Single fingerprint per chat",
+		"Refine once identifiable",
+	]);
+
+	fireSelect(shown, "collecting");
+	expect(postedCalls()).toEqual([{ method: "setChatSessionFingerprintStrategy", payload: { value: "collecting" } }]);
+});
+
 test("the token-estimation select renders in the Chat group with the default and posts setTokenEstimation on change", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const select = root.querySelector("#setting-chat\\.tokenEstimation") as HTMLSelectElement;
@@ -1133,6 +1193,10 @@ test("a stored keyword list round-trips into the box, and an unchanged blur post
 		chat: {
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
+			sessionFingerprint: "off",
+			sessionFingerprintScope: null,
+			sessionFingerprintStrategy: "durable",
+			sessionFingerprintStrategyScope: null,
 			additionalToolSchemaKeywords: { values: ["propertyNames", "patternProperties"], lossy: false, scope: "global" },
 		},
 	});
@@ -1177,6 +1241,10 @@ test("a lossy stored list (entries normalization dropped) renders read-only even
 		chat: {
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
+			sessionFingerprint: "off",
+			sessionFingerprintScope: null,
+			sessionFingerprintStrategy: "durable",
+			sessionFingerprintStrategyScope: null,
 			additionalToolSchemaKeywords: { values: ["propertyNames"], lossy: true, scope: "global" },
 		},
 	});
@@ -1193,6 +1261,10 @@ test("a stored keyword the comma box cannot round-trip renders read-only with th
 		chat: {
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
+			sessionFingerprint: "off",
+			sessionFingerprintScope: null,
+			sessionFingerprintStrategy: "durable",
+			sessionFingerprintStrategyScope: null,
 			additionalToolSchemaKeywords: { values: ["a,b"], lossy: false, scope: "global" },
 		},
 	});

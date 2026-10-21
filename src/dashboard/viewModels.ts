@@ -12,6 +12,9 @@ import type {
 	FeatureModelSettingKey,
 	LanguageFilterMode,
 	NumberSettingId,
+	SessionFingerprintSettingId,
+	SessionFingerprintStrategy,
+	SessionFingerprintValue,
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
@@ -21,6 +24,7 @@ import {
 	BOOLEAN_SETTING_SPECS,
 	FEATURE_MODEL_SETTING_KEY_LIST,
 	NUMBER_SETTING_SPECS,
+	SESSION_FINGERPRINT_SETTING_IDS,
 } from "../shared/config/settingSpec";
 import type { UnservedEndpointEvidence } from "../shared/errorClassification";
 import type { FailureCause } from "../shared/failureCause";
@@ -364,7 +368,8 @@ export type RevealableSettingId =
 	| "ui.theme"
 	| "ui.accent"
 	| "inlineCompletions.languageFilter"
-	| "commitGeneration.prompt";
+	| "commitGeneration.prompt"
+	| SessionFingerprintSettingId;
 
 /**
  * A readonly list typechecked as naming every member of T: an omitted union member makes the argument unsatisfiable, so
@@ -391,6 +396,7 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<Re
 	"ui.accent",
 	"inlineCompletions.languageFilter",
 	"commitGeneration.prompt",
+	...SESSION_FINGERPRINT_SETTING_IDS,
 ]);
 
 export type ResettableSettingId =
@@ -405,7 +411,8 @@ export type ResettableSettingId =
 	| "ui.theme"
 	| "ui.accent"
 	| "inlineCompletions.languageFilter"
-	| "commitGeneration.prompt";
+	| "commitGeneration.prompt"
+	| SessionFingerprintSettingId;
 
 export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<ResettableSettingId>()([
 	...NUMBER_SETTING_IDS,
@@ -420,6 +427,7 @@ export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<Re
 	"ui.accent",
 	"inlineCompletions.languageFilter",
 	"commitGeneration.prompt",
+	...SESSION_FINGERPRINT_SETTING_IDS,
 ]);
 
 /**
@@ -478,6 +486,14 @@ export interface DashboardSettings {
 		readonly tokenEstimation: TokenEstimationMode;
 		readonly tokenEstimationScope: SettingScope | null;
 		readonly additionalToolSchemaKeywords: StringListSetting;
+		/**
+		 * The chat's session fingerprint and how it is derived, plus where each is configured. The strategy only bites
+		 * while the fingerprint is the conversation's, so the row that owns it hides itself otherwise.
+		 */
+		readonly sessionFingerprint: SessionFingerprintValue;
+		readonly sessionFingerprintScope: SettingScope | null;
+		readonly sessionFingerprintStrategy: SessionFingerprintStrategy;
+		readonly sessionFingerprintStrategyScope: SettingScope | null;
 	};
 	readonly usage: {
 		readonly statusBarMode: UsageStatusBarMode;
@@ -923,6 +939,8 @@ const SETTING_ROW_PAGES: { readonly [K in SettingRowId]: SettingRowPageId } = {
 	"logs.redactSecrets": "settings",
 	"chat.additionalToolSchemaKeywords": "settings",
 	"chat.tokenEstimation": "settings",
+	"chat.sessionFingerprint": "settings",
+	"chat.sessionFingerprintStrategy": "settings",
 	"usage.alertThresholds": "settings",
 	"usage.statusBar": "settings",
 	"usage.currencySymbol": "settings",
