@@ -18,6 +18,7 @@ import {
 import { parseDashboardRequest, secretDirectiveSchema } from "../../../../extension/dashboard/intentSchema";
 import {
 	FEATURE_MODEL_IDS,
+	FEATURE_SESSION_FINGERPRINT_VALUES,
 	LANGUAGE_FILTER_MODES,
 	SESSION_FINGERPRINT_STRATEGIES,
 	SESSION_FINGERPRINT_VALUES,
@@ -139,6 +140,12 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 		setting: fc.constantFrom(...BOOLEAN_SETTING_IDS),
 		value: fc.boolean(),
 	}),
+	setChatSessionFingerprint: fc.record({ value: fc.constantFrom(...SESSION_FINGERPRINT_VALUES) }),
+	setChatSessionFingerprintStrategy: fc.record({ value: fc.constantFrom(...SESSION_FINGERPRINT_STRATEGIES) }),
+	setFeatureSessionFingerprint: fc.record({
+		feature: fc.constantFrom(...FEATURE_MODEL_IDS),
+		value: fc.constantFrom(...FEATURE_SESSION_FINGERPRINT_VALUES),
+	}),
 	resetSetting: fc.record({ setting: fc.constantFrom(...RESETTABLE_SETTING_IDS) }),
 	revealSetting: fc.record({ setting: fc.constantFrom(...REVEALABLE_SETTING_IDS) }),
 	setModelParameters: fc.record({
@@ -150,8 +157,6 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	refreshCatalog: fc.constant(null),
 	refreshUsage: fc.constant(null),
 	setUsageStatusBar: fc.record({ value: fc.constantFrom("always", "alerts-only", "off") }),
-	setChatSessionFingerprint: fc.record({ value: fc.constantFrom(...SESSION_FINGERPRINT_VALUES) }),
-	setChatSessionFingerprintStrategy: fc.record({ value: fc.constantFrom(...SESSION_FINGERPRINT_STRATEGIES) }),
 	setTokenEstimation: fc.record({ value: fc.constantFrom(...TOKEN_ESTIMATION_MODES) }),
 	setCurrencySymbol: fc.record({ value: fc.string({ maxLength: WIRE_LIMITS.currencySymbol }) }),
 	setAdditionalToolSchemaKeywords: fc.record({

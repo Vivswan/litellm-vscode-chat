@@ -46,6 +46,7 @@ import {
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	FEATURE_MODEL_IDS,
 	FEATURE_MODEL_SETTING_KEYS,
+	FEATURE_SESSION_FINGERPRINT_SETTING_KEYS,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	LANGUAGE_FILTER_MODES,
 	NUMBER_SETTING_SPECS,
@@ -61,6 +62,7 @@ import {
 	normalizeCommitGenerationPrompt,
 	normalizeCurrencySymbol,
 	normalizeFeatureModelRef,
+	normalizeFeatureSessionFingerprintValue,
 	normalizeInlineLanguageFilter,
 	normalizeModelCapabilities,
 	normalizeModelParameters,
@@ -598,6 +600,12 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 		),
 		featureModelScopes: recordFromKeys(FEATURE_MODEL_IDS, (feature) =>
 			resolveConfiguredScope(reader.inspect(FEATURE_MODEL_SETTING_KEYS[feature]))
+		),
+		featureSessionFingerprints: recordFromKeys(FEATURE_MODEL_IDS, (feature) =>
+			normalizeFeatureSessionFingerprintValue(reader.get(FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[feature]))
+		),
+		featureSessionFingerprintScopes: recordFromKeys(FEATURE_MODEL_IDS, (feature) =>
+			resolveConfiguredScope(reader.inspect(FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[feature]))
 		),
 		// CR-normalized at this boundary alone: the webview's textarea drafts in \n, so a settings.json prompt written
 		// with \r\n would never compare equal to its own round trip (a phantom "modified" draft on every push). The

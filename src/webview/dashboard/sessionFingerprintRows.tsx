@@ -9,8 +9,8 @@ import { EnumSettingRow } from "./settingRows";
  * The session fingerprint rows: the knob that says what a request's LiteLLM session id is derived from, and the chat's
  * companion toggle for how a chat's own fingerprint is derived.
  *
- *   One component for the fingerprint rows: a knob's row differs from another's only in the values it accepts and in
- *     what the "?" explains, so a row that is a call site and a label function keeps them from drifting apart.
+ *   One component for the eight rows: the six feature knobs and the chat knob differ only in the values they accept and
+ *     in what the "?" explains, so a row that is a call site and a label function keeps them from drifting apart.
  */
 
 /** The row's title; the group heading already says which surface the row belongs to. */
@@ -60,8 +60,9 @@ function sessionFingerprintStrategyLabel(strategy: SessionFingerprintStrategy): 
 }
 
 /**
- * The fingerprint row: the knob that says what a request's LiteLLM session id is derived from. The value type follows
- * the options the caller passes, so the write it fires carries exactly the words that knob accepts.
+ * The fingerprint row, in one of its two shapes: the chat knob, which can point at one conversation, and a feature
+ * knob, which cannot. The value type follows the options the caller passes, so the write it fires carries exactly the
+ * words that knob accepts.
  */
 export function SessionFingerprintSettingRow<T extends SessionFingerprintValue>({
 	settingId,

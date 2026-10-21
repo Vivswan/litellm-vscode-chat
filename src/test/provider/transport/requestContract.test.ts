@@ -834,6 +834,14 @@ suite("provider/request contract", () => {
 			assert.ok(!sessionId.includes("repo"), "the question must not ride the header");
 			assert.ok(!sessionId.includes(vscode.env.sessionId), "the window id must not ride the header");
 		});
+
+		test("a feature's knob never puts a session id on a chat request", async () => {
+			// The knobs are per surface: the chat's own knob is the only one the chat path reads.
+			const { headers } = await withConfig({ "commitGeneration.sessionFingerprint": "window" }, () =>
+				captureRequest(createConfiguredProvider(), modelInfo, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			);
+			assert.strictEqual(headers["x-litellm-session-id"], undefined);
+		});
 	});
 
 	suite("model picker configuration", () => {

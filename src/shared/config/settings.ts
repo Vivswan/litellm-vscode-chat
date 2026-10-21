@@ -17,6 +17,7 @@ import type {
 	FeatureId,
 	FeatureModelId,
 	FeatureModelRef,
+	FeatureSessionFingerprintValue,
 	InlineLanguageFilter,
 	LanguageFilterMode,
 	NumberSettingId,
@@ -46,6 +47,8 @@ import {
 	DEFAULT_USAGE_STATUS_BAR_MODE,
 	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_MODEL_SETTING_KEYS,
+	FEATURE_SESSION_FINGERPRINT_SETTING_KEYS,
+	FEATURE_SESSION_FINGERPRINT_VALUES,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	isUsableThreshold,
 	LANGUAGE_FILTER_MODES,
@@ -154,9 +157,21 @@ export function getChatSessionFingerprintStrategy(): SessionFingerprintStrategy 
 	return normalizeSessionFingerprintStrategy(getConfig().get<unknown>(CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY));
 }
 
+/** One one-shot feature's own session fingerprint: off, workspace, or window. */
+export function getFeatureSessionFingerprint(feature: FeatureModelId): FeatureSessionFingerprintValue {
+	return normalizeFeatureSessionFingerprintValue(
+		getConfig().get<unknown>(FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[feature])
+	);
+}
+
 /** The chat's fingerprint vocabulary, read off a raw value: off, conversation, workspace, or window. */
 export function normalizeSessionFingerprintValue(raw: unknown): SessionFingerprintValue {
 	return readSessionFingerprintValue(raw, SESSION_FINGERPRINT_VALUES, DEFAULT_SESSION_FINGERPRINT);
+}
+
+/** One feature's fingerprint vocabulary, read off a raw value: off, workspace, or window. */
+export function normalizeFeatureSessionFingerprintValue(raw: unknown): FeatureSessionFingerprintValue {
+	return readSessionFingerprintValue(raw, FEATURE_SESSION_FINGERPRINT_VALUES, DEFAULT_SESSION_FINGERPRINT);
 }
 
 /** The strategy vocabulary, read off a raw value: durable or collecting. */

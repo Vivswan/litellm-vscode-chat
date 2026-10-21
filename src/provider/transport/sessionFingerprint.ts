@@ -4,14 +4,21 @@ import {
 	type SessionFingerprintContext,
 	type SessionFingerprintMessage,
 } from "../../shared/config/sessionFingerprint";
-import { getChatSessionFingerprint, getChatSessionFingerprintStrategy } from "../../shared/config/settings";
+import type { FeatureModelId } from "../../shared/config/settingSpec";
+import {
+	getChatSessionFingerprint,
+	getChatSessionFingerprintStrategy,
+	getFeatureSessionFingerprint,
+} from "../../shared/config/settings";
 import type { HeaderValue } from "../../shared/util/headers";
 
 /**
  * The session fingerprint of a request: the LiteLLM session id it carries, so the proxy's session view groups the
  * requests of one chat, one folder, or one editor session together.
  *
- *   The chat path derives a chat's own fingerprint from the conversation it is about to send.
+ *   The two surfaces read different sources: the chat path derives a chat's own fingerprint from the conversation it is
+ *     about to send, and a one-shot feature's fingerprint from its own knob, which the feature's send composition
+ *     already knows the name of.
  */
 
 /** The editor identity the workspace and window fingerprints are derived from. */
@@ -71,4 +78,16 @@ export function chatSessionFingerprintHeader(
 		context: fingerprintContext(),
 		messages: fingerprintMessages(messages),
 	});
+}
+
+/**
+ * The session id header for a one-shot feature's request: the feature's own fingerprint, or nothing when its knob is
+ * off.
+ */
+export function featureSessionFingerprintHeader(feature: FeatureModelId): HeaderValue | undefined {
+	const value = getFeatureSessionFingerprint(feature);
+	if (value === "off") {
+		return undefined;
+	}
+	return resolveSessionFingerprintHeader({ value, context: fingerprintContext() });
 }

@@ -4,7 +4,9 @@ import * as vscode from "vscode";
 import type { TimeoutBudget } from "../../../provider/transport/auth";
 import type { OneShotChatMessage, OneShotConnection } from "../../../provider/transport/oneShotClient";
 import { OneShotClient } from "../../../provider/transport/oneShotClient";
+import { featureSessionFingerprintHeader } from "../../../provider/transport/sessionFingerprint";
 import { RequestError } from "../../../provider/transport/transportErrors";
+import { FEATURE_MODEL_IDS, FEATURE_SESSION_FINGERPRINT_SETTING_KEYS } from "../../../shared/config/settingSpec";
 import { fixedHeaderValue, type HeaderValue } from "../../../shared/util/headers";
 import {
 	CHAT_COMPLETIONS_URL,
@@ -15,6 +17,7 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../../mocks/handlers";
+import { withConfig, withWorkspaceFolder } from "../../testUtils";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";
 
@@ -619,6 +622,7 @@ suite("provider/transport/oneShotClient", () => {
 	suite("session fingerprint", () => {
 		// The session id the proxy groups by, in the agreed shape: a readable prefix and twelve hex characters.
 		const SESSION_ID = "vscode-chat-0123456789ab";
+		const FOLDER = "/home/dev/litellm-workspace-fixture";
 
 		/**
 		 * The session id one one-shot request carried, or null when it carried none. The minted header is the caller's
@@ -664,6 +668,68 @@ suite("provider/transport/oneShotClient", () => {
 		test("authHeaders composes no session id when the caller mints none", async () => {
 			const headers = await client().authHeaders(connection(), "discovery", callOptions());
 			assert.strictEqual(headers["x-litellm-session-id"], undefined);
+		});
+
+		test("each feature reads its own knob, and no other feature's", async () => {
+			for (const feature of FEATURE_MODEL_IDS) {
+				await withConfig({ [FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[feature]]: "window" }, () => {
+					assert.strictEqual(
+						featureSessionFingerprintHeader(feature),
+						vscode.env.sessionId,
+						`${feature} must read its own knob`
+					);
+					for (const other of FEATURE_MODEL_IDS) {
+						if (other !== feature) {
+							assert.strictEqual(
+								featureSessionFingerprintHeader(other),
+								undefined,
+								`${other} must stay without a session id`
+							);
+						}
+					}
+				});
+			}
+		});
+
+		test("the chat knob never mints a one-shot feature's session id", async () => {
+			// The chat's conversation scope is the chat's alone: a feature has no conversation to fingerprint.
+			await withConfig({ "chat.sessionFingerprint": "conversation" }, () => {
+				assert.strictEqual(featureSessionFingerprintHeader("commitGeneration"), undefined);
+			});
+		});
+
+		test("one feature's knob leaves another feature's request without a session id", async () => {
+			const seen: (string | null)[] = [];
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
+					seen.push(request.headers.get("x-litellm-session-id"));
+					return chatJson("ok");
+				})
+			);
+			await withConfig({ "commitGeneration.sessionFingerprint": "window" }, async () => {
+				await client().completeChatOnce(
+					connection(),
+					{ model: "gpt-test", messages: [{ role: "user", content: "diff" }] },
+					"commitGeneration",
+					{ ...callOptions(), sessionIdHeader: featureSessionFingerprintHeader("commitGeneration") }
+				);
+				await client().completeChatOnce(
+					connection(),
+					{ model: "gpt-test", messages: [{ role: "user", content: "title" }] },
+					"prGeneration",
+					{ ...callOptions(), sessionIdHeader: featureSessionFingerprintHeader("prGeneration") }
+				);
+			});
+			assert.deepStrictEqual(seen, [vscode.env.sessionId, null]);
+		});
+
+		test("the feature's own workspace fingerprint rides its request as a hash of the folder's path", async () => {
+			const seen = await withConfig({ "commitGeneration.sessionFingerprint": "workspace" }, () =>
+				withWorkspaceFolder(FOLDER, () => sessionIdOf(() => featureSessionFingerprintHeader("commitGeneration")))
+			);
+			assert.ok(seen !== null, "the session id header must ride the one-shot request");
+			assert.match(seen, /^vscode-ws-[0-9a-f]{12}$/);
+			assert.ok(!seen.includes("litellm-workspace-fixture"), "the folder's path must not ride the header");
 		});
 	});
 

@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { buildFimPrompt, FIM_MAX_TOKENS, FIM_TIMEOUT_MS } from "../../../provider/transport/fim";
 import type { OneShotClient } from "../../../provider/transport/oneShotClient";
+import { featureSessionFingerprintHeader } from "../../../provider/transport/sessionFingerprint";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import type { FeatureModelRef } from "../../../shared/config/settingSpec";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
@@ -49,7 +50,12 @@ function createFimSend(
 			},
 			// The FIM bound is fixed in code, so no setting rides the budget: timeout advice naming one would point at
 			// a setting that cannot raise this bound.
-			{ timeout: { ms: FIM_TIMEOUT_MS, setting: undefined }, token }
+			{
+				timeout: { ms: FIM_TIMEOUT_MS, setting: undefined },
+				token,
+				// The feature's own fingerprint, read through the knob that names it.
+				sessionIdHeader: featureSessionFingerprintHeader("inlineCompletions"),
+			}
 		);
 	};
 }

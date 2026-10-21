@@ -9,12 +9,28 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { MODEL_INFO_URL, mswServer, useMsw } from "../../mocks/handlers";
+import type { OneShotConnection } from "../../../provider/transport/oneShotClient";
+import { OneShotClient } from "../../../provider/transport/oneShotClient";
+import { featureSessionFingerprintHeader } from "../../../provider/transport/sessionFingerprint";
+import { fixedHeaderValue } from "../../../shared/util/headers";
+import { CHAT_COMPLETIONS_URL, MODEL_INFO_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, makeModelInfo } from "../../pureHelpers";
 import { captureRequest, createConfiguredProvider, userMessage, withConfig } from "../../testUtils";
 
 const modelInfo = makeModelInfo();
 const CHAT_FINGERPRINT = /^vscode-chat-[0-9a-f]{12}$/;
+
+function client(): OneShotClient {
+	return new OneShotClient({ userAgent: fixedHeaderValue("test-agent") });
+}
+
+function connection(): OneShotConnection {
+	return { baseUrl: TEST_BASE_URL, apiKey: fixedHeaderValue("sk-test"), headers: {} };
+}
+
+function chatJson(content: string): Response {
+	return HttpResponse.json({ choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }] });
+}
 
 async function chatSessionFingerprintHeaderFor(
 	messages: vscode.LanguageModelChatRequestMessage[]
@@ -90,5 +106,35 @@ suite("provider/transport session fingerprint", () => {
 			)
 		);
 		assert.strictEqual(seenScope, null);
+	});
+
+	test("the one-shot path carries the feature's own fingerprint", async () => {
+		let seenScope: string | null | undefined;
+		mswServer.use(
+			http.post(CHAT_COMPLETIONS_URL, async ({ request }) => {
+				seenScope = request.headers.get("x-litellm-session-id");
+				return chatJson("ok");
+			})
+		);
+		await withConfig({ "commitGeneration.sessionFingerprint": "window" }, async () => {
+			await client().completeChatOnce(
+				connection(),
+				{ model: "gpt-test", messages: [{ role: "user", content: "diff" }] },
+				"commitGeneration",
+				{
+					timeout: { ms: 5000, setting: "chat.timeout" },
+					token: new vscode.CancellationTokenSource().token,
+					sessionIdHeader: featureSessionFingerprintHeader("commitGeneration"),
+				}
+			);
+		});
+		assert.strictEqual(seenScope, vscode.env.sessionId);
+	});
+
+	test("a feature's fingerprint is its own: one feature's knob leaves the others without one", async () => {
+		await withConfig({ "commitGeneration.sessionFingerprint": "window" }, () => {
+			assert.strictEqual(featureSessionFingerprintHeader("commitGeneration"), vscode.env.sessionId);
+			assert.strictEqual(featureSessionFingerprintHeader("prGeneration"), undefined);
+		});
 	});
 });

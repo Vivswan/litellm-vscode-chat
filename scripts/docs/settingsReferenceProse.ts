@@ -224,6 +224,18 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		zhCn: '内联补全的运行范围: mode 为 `"block"` 时在列出的 VS Code 语言 ID (精确匹配) 之外的所有语言中运行, `"allow"` 时仅在列出的语言中运行 (允许列表为空则不在任何语言中运行), 例如 `{ "mode": "block", "languages": ["markdown", "plaintext"] }`。默认不屏蔽任何语言',
 		zhTw: '內嵌補全的執行範圍: mode 為 `"block"` 時在列出的 VS Code 語言 ID (精確比對) 之外的所有語言中執行, `"allow"` 時僅在列出的語言中執行 (允許清單為空則不在任何語言中執行), 例如 `{ "mode": "block", "languages": ["markdown", "plaintext"] }`。預設不封鎖任何語言',
 	},
+	"inlineCompletions.sessionFingerprint": {
+		en:
+			"What the LiteLLM session id of an inline completion is derived from: `off` (no session id rides the request), " +
+			"`workspace` (one per open folder), `window` (one per editor session). LiteLLM groups the requests that " +
+			"share a session id",
+		zhCn:
+			"内联补全的 LiteLLM 会话 ID 由什么派生: `off` (请求不携带会话 ID)、`workspace` (每个打开的文件夹一个)、" +
+			"`window` (每个编辑器会话一个)。LiteLLM 按会话 ID 对请求分组",
+		zhTw:
+			"內嵌補全的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、" +
+			"`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組",
+	},
 	"commitGeneration.enabled": {
 		en:
 			"Opt-in for commit message generation from a LiteLLM model, shipping with the commit generation feature. Off " +
@@ -242,6 +254,18 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		zhCn: "生成提交消息时使用的自定义指令, 会整体替换内置指令。留空使用内置指令 (Conventional Commits 主题行加简短正文)。面向模型的文本, 按原样发送",
 		zhTw: "產生提交訊息時使用的自訂指示, 會整體取代內建指示。留空使用內建指示 (Conventional Commits 主旨行加簡短內文)。面向模型的文字, 按原樣送出",
 	},
+	"commitGeneration.sessionFingerprint": {
+		en:
+			"What the LiteLLM session id of a commit message is derived from: `off` (no session id rides the request), " +
+			"`workspace` (one per open folder), `window` (one per editor session). LiteLLM groups the requests that " +
+			"share a session id",
+		zhCn:
+			"提交消息的 LiteLLM 会话 ID 由什么派生: `off` (请求不携带会话 ID)、`workspace` (每个打开的文件夹一个)、" +
+			"`window` (每个编辑器会话一个)。LiteLLM 按会话 ID 对请求分组",
+		zhTw:
+			"提交訊息的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、" +
+			"`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組",
+	},
 	"prGeneration.enabled": {
 		en:
 			"Opt-in for pull request title and description generation from a LiteLLM model. Off means the command stays " +
@@ -254,6 +278,18 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		en: 'The model that drafts PR descriptions; the same `{ "server", "model" }` shape and rules as `inlineCompletions.model`',
 		zhCn: '起草 PR 描述的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则',
 		zhTw: '起草 PR 描述的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則',
+	},
+	"prGeneration.sessionFingerprint": {
+		en:
+			"What the LiteLLM session id of a pull-request title or description is derived from: `off` (no session id rides the request), " +
+			"`workspace` (one per open folder), `window` (one per editor session). LiteLLM groups the requests that " +
+			"share a session id",
+		zhCn:
+			"PR 标题或描述的 LiteLLM 会话 ID 由什么派生: `off` (请求不携带会话 ID)、`workspace` (每个打开的文件夹一个)、" +
+			"`window` (每个编辑器会话一个)。LiteLLM 按会话 ID 对请求分组",
+		zhTw:
+			"PR 主旨或描述的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、" +
+			"`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組",
 	},
 	"consultTool.enabled": {
 		en:
@@ -269,6 +305,18 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		zhCn: '咨询工具询问的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则',
 		zhTw: '諮詢工具詢問的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則',
 	},
+	"consultTool.sessionFingerprint": {
+		en:
+			"What the LiteLLM session id of the consult tool's second opinion is derived from: `off` (no session id rides the request), " +
+			"`workspace` (one per open folder), `window` (one per editor session). LiteLLM groups the requests that " +
+			"share a session id",
+		zhCn:
+			"咨询工具的第二意见的 LiteLLM 会话 ID 由什么派生: `off` (请求不携带会话 ID)、`workspace` (每个打开的文件夹一个)、" +
+			"`window` (每个编辑器会话一个)。LiteLLM 按会话 ID 对请求分组",
+		zhTw:
+			"諮詢工具的第二意見的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、" +
+			"`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組",
+	},
 	"quickFix.enabled": {
 		en:
 			"Show Fix and Explain quick fixes on diagnostics. Both open the chat view and send the question to " +
@@ -282,6 +330,18 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		zhCn: '仅用于快速修复的后备路径 - 聊天路径使用聊天选择器指定的模型。与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则; `null` 表示后备路径保持闲置',
 		zhTw: '僅用於快速修復的後備路徑 - 聊天路徑使用聊天選擇器指定的模型。與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則; `null` 表示後備路徑保持閒置',
 	},
+	"quickFix.sessionFingerprint": {
+		en:
+			"What the LiteLLM session id of a quick fix is derived from: `off` (no session id rides the request), " +
+			"`workspace` (one per open folder), `window` (one per editor session). LiteLLM groups the requests that " +
+			"share a session id",
+		zhCn:
+			"快速修复的 LiteLLM 会话 ID 由什么派生: `off` (请求不携带会话 ID)、`workspace` (每个打开的文件夹一个)、" +
+			"`window` (每个编辑器会话一个)。LiteLLM 按会话 ID 对请求分组",
+		zhTw:
+			"快速修正的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、" +
+			"`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組",
+	},
 	"reviewComments.enabled": {
 		en: 'Opt-in for AI review comments on your changes. Off by default; no comment threads exist and no review is sent until enabled, except the dashboard\'s explicit "Test model" button ([recipe](getting-started.md#get-review-comments-on-your-code))',
 		zhCn: "选择启用对改动的 AI 评审评论。默认关闭; 启用前不存在任何评审会话, 也不会发出任何评审请求, 仪表板中显式的「测试模型」按钮除外 ([配方](getting-started.md#让模型评审你的代码))",
@@ -291,6 +351,18 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		en: 'The model that writes review comments; the same `{ "server", "model" }` shape and rules as `inlineCompletions.model`',
 		zhCn: '撰写评审评论的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则',
 		zhTw: '撰寫審查評論的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則',
+	},
+	"reviewComments.sessionFingerprint": {
+		en:
+			"What the LiteLLM session id of a review comment is derived from: `off` (no session id rides the request), " +
+			"`workspace` (one per open folder), `window` (one per editor session). LiteLLM groups the requests that " +
+			"share a session id",
+		zhCn:
+			"审查评论的 LiteLLM 会话 ID 由什么派生: `off` (请求不携带会话 ID)、`workspace` (每个打开的文件夹一个)、" +
+			"`window` (每个编辑器会话一个)。LiteLLM 按会话 ID 对请求分组",
+		zhTw:
+			"審查評論的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、" +
+			"`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組",
 	},
 	"chatParticipant.enabled": {
 		en: "The @litellm chat participant, answering with the chat request's own model (no model setting). On by default",
@@ -308,12 +380,12 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 	},
 	"agentTools.setSetting.enabled": {
 		en:
-			"Lets the agent change scalar settings (timeouts, toggles, feature models, the chat's two session fingerprint " +
-			"knobs) through the dashboard's validation; never `servers`, the model record settings, or the agent tools' own " +
-			"switches. Needs `agentTools.enabled`. " +
+			"Lets the agent change scalar settings (timeouts, toggles, feature models, the session fingerprint knobs of " +
+			"the chat and of each one-shot feature) through the dashboard's validation; never `servers`, the model record " +
+			"settings, or the agent tools' own switches. Needs `agentTools.enabled`. " +
 			"Recipe: [Let an agent manage your LiteLLM setup](getting-started.md#let-an-agent-manage-your-litellm-setup)",
-		zhCn: "允许代理经仪表板的验证更改标量设置 (超时、开关、功能模型、聊天的两个会话指纹开关); 绝不包括 `servers`、模型记录设置或代理工具自身的开关。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
-		zhTw: "允許代理經儀表板的驗證變更標量設定 (逾時、開關、功能模型、聊天的兩個工作階段指紋開關); 絕不包括 `servers`、模型記錄設定或代理工具自身的開關。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
+		zhCn: "允许代理经仪表板的验证更改标量设置 (超时、开关、功能模型、聊天与各一次性功能的会话指纹开关); 绝不包括 `servers`、模型记录设置或代理工具自身的开关。需要 `agentTools.enabled`。配方: [让代理管理你的 LiteLLM 设置](getting-started.md#让代理管理你的-litellm-设置)",
+		zhTw: "允許代理經儀表板的驗證變更標量設定 (逾時、開關、功能模型、聊天與各一次性功能的工作階段指紋開關); 絕不包括 `servers`、模型記錄設定或代理工具自身的開關。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定)",
 	},
 	"agentTools.editModelRecords.enabled": {
 		en:

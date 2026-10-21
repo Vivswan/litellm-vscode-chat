@@ -109,6 +109,7 @@
 	"A language filter change names a mode, languages, or both.": "语言过滤器的更改需要指定 mode、languages 或两者。",
 	"A manual budget, e.g. 50, in the server's own billing currency, driving usage alerts. Outranks the key's own max_budget; the server row's drawer shows both.": "手动预算, 例如 50, 以服务器自身的计费货币计, 用于驱动用量警报。优先于密钥自身的 max_budget; 服务器行的抽屉会同时显示两者。",
 	"A new label for the imported server.": "为导入的服务器输入新标签。",
+	"A provider group already appears under this label; if it is this server, adopt it from its row instead - VS Code refuses a second group with one name.": "此标签下似乎已有一个提供程序组; 如果就是这台服务器, 请改为从其所在行采用它 - VS Code 不接受两个同名的组。",
 	"A provider-owned request field: the extension owns it and never sends an override.": "提供程序专有的请求字段: 扩展拥有它, 从不发送覆盖值。",
 	"A request carrying more, e.g. 200 tools against a 128 cap, is refused before sending. Most servers cap at 128.": "携带更多工具的请求, 例如上限 128 却带 200 个工具, 会在发送前被拒绝。多数服务器上限为 128。",
 	"A server named \"{0}\" already exists.": "名为「{0}」的服务器已存在。",
@@ -1110,6 +1111,7 @@
 	"The servers setting changed while this action ran; retry": "此操作进行期间 servers 设置发生了变化; 请重试",
 	"The servers setting is not an array; fix the setting, then retry": "servers 设置不是数组; 请修正设置后重试",
 	"The session id LiteLLM groups the requests by. A chat's fingerprint comes from the last question before the assistant's first answer - it is not a VS Code conversation id. A workspace fingerprint comes from the folder's path; a window fingerprint is this editor session. The strategy row below only matters while the fingerprint is the conversation's.": "LiteLLM 用来给请求分组的会话 ID。聊天的指纹来自助手首次回答前的最后一个问题 - 它不是 VS Code 的对话 ID。工作区指纹来自文件夹的路径; 窗口指纹是本编辑器会话。下面的策略行只在指纹取自对话时才起作用。",
+	"The session id LiteLLM groups the requests by. A workspace fingerprint comes from the folder's path; a window fingerprint is this editor session.": "LiteLLM 用来给请求分组的会话 ID。工作区指纹来自文件夹的路径; 窗口指纹是本编辑器会话。",
 	"The stored key was saved for a different destination. Clearing the key removes it from secret storage.": "已存储的密钥是为另一个目标保存的。清除该密钥会将其从密钥存储中删除。",
 	"The stored key was saved for {0}. Clearing the key removes it from secret storage.": "已存储的密钥是为 {0} 保存的。清除该密钥会将其从密钥存储中删除。",
 	"The stored secrets for \"{0}\" were saved for a different server. Store them again for this entry's current URL, then start its MCP server.": "为「{0}」存储的密钥是为另一台服务器保存的。请为此条目当前的 URL 重新存储一次, 然后再启动它的 MCP 服务器。",
@@ -1197,6 +1199,7 @@
 	"View Models": "查看模型",
 	"View Output": "查看输出",
 	"Violet": "紫色",
+	"Virtual key": "虚拟密钥",
 	"Virtual key header": "虚拟密钥标头",
 	"Virtual key in a custom header": "自定义标头中的虚拟密钥",
 	"Virtual key value": "虚拟密钥值",
@@ -1518,7 +1521,5 @@
 	"{0}: {1}": "{0}: {1}",
 	"{0}: {1} of {2} ({3})": "{0}: {1} / {2} ({3})",
 	"{0}: {1} of {2} ({3}) - key reports {4}": "{0}: {1} / {2} ({3}) - 密钥报告 {4}",
-	"{0}: {1} spent, no budget": "{0}: 已消费 {1}, 无预算",
-	"Virtual key": "虚拟密钥",
-	"A provider group already appears under this label; if it is this server, adopt it from its row instead - VS Code refuses a second group with one name.": "此标签下似乎已有一个提供程序组; 如果就是这台服务器, 请改为从其所在行采用它 - VS Code 不接受两个同名的组。"
+	"{0}: {1} spent, no budget": "{0}: 已消费 {1}, 无预算"
 }

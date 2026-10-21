@@ -351,7 +351,7 @@
 
 ### 工作階段指紋
 
-有一個請求標頭是擴充功能自己的, 而且它不是參數: `x-litellm-session-id`, 它告訴 LiteLLM 代理哪些請求屬於一起, 因此代理的工作階段檢視會把它們分組。預設關閉, 聊天自選工作階段 ID 的來源 - 某個聊天、開啟的資料夾, 或本編輯器工作階段 ([`chat.sessionFingerprint`](settings.md#參考))。聊天的 ID 是助理首次回答前最後一個問題的指紋, 絕不是 VS Code 的對話 ID; 除非您主動要求, 否則請求不帶工作階段 ID。分組在 LiteLLM 的 `request_correlation_in_logs` 關閉時同樣有效 - 這個開關預設關閉, 因此代理裡不必開啟任何開關, 工作階段檢視就能把這些請求分組。它是 LiteLLM 自己的設定 (代理設定裡的 `litellm_settings.request_correlation_in_logs`), 開啟後額外帶來的是 LiteLLM 日誌載荷上一個獨立的工作階段 ID (不開啟時它是空字串), 以及代理每一行日誌上的 `trace_id` 與 `session_id` 標記 - 無論如何開銷日誌 (spend log) 的那一列都帶著這個工作階段 ID, 因為這個標頭把 trace ID 與工作階段 ID 設成了同一個值。
+有一個請求標頭是擴充功能自己的, 而且它不是參數: `x-litellm-session-id`, 它告訴 LiteLLM 代理哪些請求屬於一起, 因此代理的工作階段檢視會把它們分組。預設關閉, 每個功能面自選工作階段 ID 的來源 - 某個聊天、開啟的資料夾, 或本編輯器工作階段 ([`chat.sessionFingerprint` 與各功能的開關](settings.md#參考))。聊天的 ID 是助理首次回答前最後一個問題的指紋, 絕不是 VS Code 的對話 ID; 除非您主動要求, 否則請求不帶工作階段 ID。分組在 LiteLLM 的 `request_correlation_in_logs` 關閉時同樣有效 - 這個開關預設關閉, 因此代理裡不必開啟任何開關, 工作階段檢視就能把這些請求分組。它是 LiteLLM 自己的設定 (代理設定裡的 `litellm_settings.request_correlation_in_logs`), 開啟後額外帶來的是 LiteLLM 日誌載荷上一個獨立的工作階段 ID (不開啟時它是空字串), 以及代理每一行日誌上的 `trace_id` 與 `session_id` 標記 - 無論如何開銷日誌 (spend log) 的那一列都帶著這個工作階段 ID, 因為這個標頭把 trace ID 與工作階段 ID 設成了同一個值。
 
 ### `max_tokens` 例外
 

@@ -86,8 +86,8 @@ export interface OneShotCallOptions {
 	readonly timeout: TimeoutBudget;
 	readonly token: vscode.CancellationToken;
 	/**
-	 * The session id header this call carries, when the caller minted one; undefined means the call carries no session
-	 * id at all. Minted by the fingerprint resolution, never here.
+	 * The session id header this call carries, when the caller's feature has a session fingerprint; undefined means
+	 * the call carries no session id at all. Minted by the fingerprint resolution, never here.
 	 */
 	readonly sessionIdHeader?: HeaderValue | undefined;
 }

@@ -95,6 +95,14 @@ export const SESSION_FINGERPRINT_VALUES = ["off", "conversation", "workspace", "
 export type SessionFingerprintValue = (typeof SESSION_FINGERPRINT_VALUES)[number];
 
 /**
+ * The one-shot surfaces' vocabulary: a completion, a commit message, and a pull-request title have no conversation
+ * behind them, so the chat knob's "conversation" is not on offer to them.
+ */
+export const FEATURE_SESSION_FINGERPRINT_VALUES = ["off", "workspace", "window"] as const;
+
+export type FeatureSessionFingerprintValue = (typeof FEATURE_SESSION_FINGERPRINT_VALUES)[number];
+
+/**
  * How a chat's own fingerprint is derived, once it is asked for.
  *
  *   durable   -> the fingerprint never changes: the last question before the assistant's first answer, else the first
@@ -118,15 +126,37 @@ export const CHAT_SESSION_FINGERPRINT_SETTING_KEY = "chat.sessionFingerprint";
 /** The strategy toggle's key, beside the chat knob in the chat section. */
 export const CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY = "chat.sessionFingerprintStrategy";
 
-/** The two fingerprint knobs: the chat knob and its companion strategy toggle. */
+/**
+ * Each feature's fingerprint knob key; the one map the one-shot send compositions address their own fingerprint
+ * through.
+ */
+export const FEATURE_SESSION_FINGERPRINT_SETTING_KEYS = {
+	inlineCompletions: "inlineCompletions.sessionFingerprint",
+	commitGeneration: "commitGeneration.sessionFingerprint",
+	prGeneration: "prGeneration.sessionFingerprint",
+	consultTool: "consultTool.sessionFingerprint",
+	quickFix: "quickFix.sessionFingerprint",
+	reviewComments: "reviewComments.sessionFingerprint",
+} as const satisfies Record<FeatureModelId, string>;
+
+/** One feature's fingerprint knob key as a literal type; the view-model unions derive their members from it. */
+export type FeatureSessionFingerprintSettingKey = (typeof FEATURE_SESSION_FINGERPRINT_SETTING_KEYS)[FeatureModelId];
+
+/** The six feature fingerprint keys, in feature order; the one list the manifest and the state push iterate. */
+export const FEATURE_SESSION_FINGERPRINT_SETTING_KEY_LIST: readonly FeatureSessionFingerprintSettingKey[] =
+	FEATURE_MODEL_IDS.map((feature) => FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[feature]);
+
+/** The eight fingerprint knobs: the chat pair and the six feature knobs. */
 export type SessionFingerprintSettingId =
 	| typeof CHAT_SESSION_FINGERPRINT_SETTING_KEY
-	| typeof CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY;
+	| typeof CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY
+	| FeatureSessionFingerprintSettingKey;
 
-/** The two keys, in manifest order. */
+/** The eight keys, in manifest order: the chat pair first, then the feature knobs in feature order. */
 export const SESSION_FINGERPRINT_SETTING_IDS: readonly SessionFingerprintSettingId[] = [
 	CHAT_SESSION_FINGERPRINT_SETTING_KEY,
 	CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
+	...FEATURE_SESSION_FINGERPRINT_SETTING_KEY_LIST,
 ];
 
 /**
@@ -478,6 +508,7 @@ const STRUCTURED_SETTING_KEYS = [
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CHAT_SESSION_FINGERPRINT_SETTING_KEY,
 	CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
+	...FEATURE_SESSION_FINGERPRINT_SETTING_KEY_LIST,
 ] as const;
 
 /** Every setting key as a literal union, for the surfaces that must be TOTAL over the vocabulary. */
@@ -531,6 +562,7 @@ const SECTIONS = [
 			FEATURE_ENABLE_SETTING_KEYS.inlineCompletions,
 			FEATURE_MODEL_SETTING_KEYS.inlineCompletions,
 			INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
+			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.inlineCompletions,
 		],
 	},
 	{
@@ -539,14 +571,40 @@ const SECTIONS = [
 			FEATURE_ENABLE_SETTING_KEYS.commitGeneration,
 			FEATURE_MODEL_SETTING_KEYS.commitGeneration,
 			COMMIT_GENERATION_PROMPT_SETTING_KEY,
+			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.commitGeneration,
 		],
 	},
-	{ id: "prGeneration", settings: [FEATURE_ENABLE_SETTING_KEYS.prGeneration, FEATURE_MODEL_SETTING_KEYS.prGeneration] },
-	{ id: "consultTool", settings: [FEATURE_ENABLE_SETTING_KEYS.consultTool, FEATURE_MODEL_SETTING_KEYS.consultTool] },
-	{ id: "quickFix", settings: [FEATURE_ENABLE_SETTING_KEYS.quickFix, FEATURE_MODEL_SETTING_KEYS.quickFix] },
+	{
+		id: "prGeneration",
+		settings: [
+			FEATURE_ENABLE_SETTING_KEYS.prGeneration,
+			FEATURE_MODEL_SETTING_KEYS.prGeneration,
+			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.prGeneration,
+		],
+	},
+	{
+		id: "consultTool",
+		settings: [
+			FEATURE_ENABLE_SETTING_KEYS.consultTool,
+			FEATURE_MODEL_SETTING_KEYS.consultTool,
+			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.consultTool,
+		],
+	},
+	{
+		id: "quickFix",
+		settings: [
+			FEATURE_ENABLE_SETTING_KEYS.quickFix,
+			FEATURE_MODEL_SETTING_KEYS.quickFix,
+			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.quickFix,
+		],
+	},
 	{
 		id: "reviewComments",
-		settings: [FEATURE_ENABLE_SETTING_KEYS.reviewComments, FEATURE_MODEL_SETTING_KEYS.reviewComments],
+		settings: [
+			FEATURE_ENABLE_SETTING_KEYS.reviewComments,
+			FEATURE_MODEL_SETTING_KEYS.reviewComments,
+			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.reviewComments,
+		],
 	},
 	{ id: "chatParticipant", settings: [FEATURE_ENABLE_SETTING_KEYS.chatParticipant] },
 	{ id: "agentTools", settings: AGENT_TOOLS_SETTING_KEYS },
@@ -599,6 +657,7 @@ export interface SettingPresentation {
 }
 
 const MACHINE_OVERRIDABLE_MARKDOWN: SettingPresentation = { scope: "machine-overridable", description: "markdown" };
+const MACHINE_OVERRIDABLE_PLAIN: SettingPresentation = { scope: "machine-overridable", description: "plain" };
 const MACHINE_MARKDOWN: SettingPresentation = { scope: "machine", description: "markdown" };
 const WINDOW_PLAIN: SettingPresentation = { scope: "window", description: "plain" };
 
@@ -639,17 +698,23 @@ export const SETTING_PRESENTATION: Readonly<Record<SettingId, SettingPresentatio
 	"inlineCompletions.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"inlineCompletions.model": MACHINE_OVERRIDABLE_MARKDOWN,
 	"inlineCompletions.languageFilter": { scope: "window", description: "markdown" },
+	"inlineCompletions.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"commitGeneration.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"commitGeneration.model": MACHINE_OVERRIDABLE_MARKDOWN,
 	"commitGeneration.prompt": { scope: "window", description: "markdown", editPresentation: "multilineText" },
+	"commitGeneration.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"prGeneration.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"prGeneration.model": MACHINE_OVERRIDABLE_MARKDOWN,
+	"prGeneration.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"consultTool.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"consultTool.model": MACHINE_OVERRIDABLE_MARKDOWN,
+	"consultTool.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"quickFix.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"quickFix.model": MACHINE_OVERRIDABLE_MARKDOWN,
+	"quickFix.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"reviewComments.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"reviewComments.model": MACHINE_OVERRIDABLE_MARKDOWN,
+	"reviewComments.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"chatParticipant.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"agentTools.enabled": MACHINE_MARKDOWN,
 	"agentTools.setSetting.enabled": MACHINE_MARKDOWN,

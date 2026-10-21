@@ -13,6 +13,7 @@ import type {
 	BooleanSettingId,
 	FeatureModelId,
 	FeatureModelRef,
+	FeatureSessionFingerprintValue,
 	LanguageFilterMode,
 	NumberSettingId,
 	SessionFingerprintStrategy,
@@ -26,6 +27,7 @@ import {
 	CHAT_SESSION_FINGERPRINT_SETTING_KEY,
 	CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
 	FEATURE_MODEL_SETTING_KEYS,
+	FEATURE_SESSION_FINGERPRINT_SETTING_KEYS,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 } from "../shared/config/settingSpec";
 import type { TransportErrorClassification } from "../shared/errorClassification";
@@ -232,6 +234,8 @@ export const DASHBOARD_ENDPOINTS = {
 	/** The chat's own session fingerprint, and how it is derived. */
 	setChatSessionFingerprint: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	setChatSessionFingerprintStrategy: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	/** One one-shot feature's own session fingerprint, addressed by the feature it belongs to. */
+	setFeatureSessionFingerprint: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	/** Refresh the OpenRouter catalog now; the outcome lands in the next push's catalog status. */
 	refreshCatalog: { outcome: "fire-and-forget", channel: "chained", fail: "log-only" },
 	/** Refresh usage data for every server now; the poller's completion re-pushes state. */
@@ -305,6 +309,9 @@ interface DashboardEndpointIO {
 	setUsageStatusBar: { request: { readonly value: UsageStatusBarMode } };
 	setChatSessionFingerprint: { request: { readonly value: SessionFingerprintValue } };
 	setChatSessionFingerprintStrategy: { request: { readonly value: SessionFingerprintStrategy } };
+	setFeatureSessionFingerprint: {
+		request: { readonly feature: FeatureModelId; readonly value: FeatureSessionFingerprintValue };
+	};
 	setTokenEstimation: { request: { readonly value: TokenEstimationMode } };
 	/** Any short string, the empty string included (bare numbers); the extension bounds the length at the schema. */
 	setCurrencySymbol: { request: { readonly value: string } };
@@ -631,6 +638,7 @@ const SETTING_WRITE_ROWS: { readonly [K in SettingWriteMethod]: (payload: Reques
 	setLanguageFilter: () => INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	setChatSessionFingerprint: () => CHAT_SESSION_FINGERPRINT_SETTING_KEY,
 	setChatSessionFingerprintStrategy: () => CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
+	setFeatureSessionFingerprint: (payload) => FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[payload.feature],
 };
 
 export const SETTING_WRITE_METHODS = Object.keys(SETTING_WRITE_ROWS) as readonly SettingWriteMethod[];

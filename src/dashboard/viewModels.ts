@@ -10,6 +10,7 @@ import type {
 	FeatureModelId,
 	FeatureModelRef,
 	FeatureModelSettingKey,
+	FeatureSessionFingerprintValue,
 	LanguageFilterMode,
 	NumberSettingId,
 	SessionFingerprintSettingId,
@@ -514,6 +515,9 @@ export interface DashboardSettings {
 	 */
 	readonly featureModels: Readonly<Record<FeatureModelId, FeatureModelRef | null>>;
 	readonly featureModelScopes: Readonly<Record<FeatureModelId, SettingScope | null>>;
+	/** Each one-shot feature's session fingerprint, and where each is configured. */
+	readonly featureSessionFingerprints: Readonly<Record<FeatureModelId, FeatureSessionFingerprintValue>>;
+	readonly featureSessionFingerprintScopes: Readonly<Record<FeatureModelId, SettingScope | null>>;
 	/** The commitGeneration.prompt row's value; "" means the built-in instruction applies. */
 	readonly commitPrompt: string;
 	readonly commitPromptScope: SettingScope | null;
@@ -949,17 +953,23 @@ const SETTING_ROW_PAGES: { readonly [K in SettingRowId]: SettingRowPageId } = {
 	"inlineCompletions.enabled": "features",
 	"inlineCompletions.model": "features",
 	"inlineCompletions.languageFilter": "features",
+	"inlineCompletions.sessionFingerprint": "features",
 	"commitGeneration.enabled": "features",
 	"commitGeneration.model": "features",
 	"commitGeneration.prompt": "features",
+	"commitGeneration.sessionFingerprint": "features",
 	"prGeneration.enabled": "features",
 	"prGeneration.model": "features",
+	"prGeneration.sessionFingerprint": "features",
 	"consultTool.enabled": "features",
 	"consultTool.model": "features",
+	"consultTool.sessionFingerprint": "features",
 	"quickFix.enabled": "features",
 	"quickFix.model": "features",
+	"quickFix.sessionFingerprint": "features",
 	"reviewComments.enabled": "features",
 	"reviewComments.model": "features",
+	"reviewComments.sessionFingerprint": "features",
 	"chatParticipant.enabled": "features",
 	"agentTools.enabled": "features",
 	"agentTools.setSetting.enabled": "features",

@@ -76,6 +76,20 @@ function rowOf(element: HTMLElement): HTMLElement {
 	return row;
 }
 
+test("each feature's fingerprint row offers the feature's own vocabulary and posts the feature it belongs to", () => {
+	const root = mount(<FeaturesSection settings={makeSettings()} models={MODELS} />);
+	const select = root.querySelector("#setting-commitGeneration\\.sessionFingerprint") as HTMLSelectElement;
+	expect(select).not.toBeNull();
+	expect(select.value).toBe("off");
+	// A one-shot feature has no conversation behind it, so the chat knob's "conversation" is not on offer.
+	expect(Array.from(select.options).map((option) => option.value)).toEqual(["off", "workspace", "window"]);
+
+	fireSelect(select, "workspace");
+	expect(postedCalls()).toEqual([
+		{ method: "setFeatureSessionFingerprint", payload: { feature: "commitGeneration", value: "workspace" } },
+	]);
+});
+
 test("the model picker offers Not set plus the deduplicated (server, model) pairs, once per claimant label", () => {
 	const root = mount(
 		<FeaturesSection settings={makeSettings()} models={MODELS} declaredServerLabels={DECLARED} featureProbes={PROBES} />

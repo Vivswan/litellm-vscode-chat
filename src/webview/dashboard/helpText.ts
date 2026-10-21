@@ -311,6 +311,13 @@ export function helpSessionFingerprint(): string {
 	);
 }
 
+/** The one-shot features' fingerprint row: the same, without the conversation they cannot have. */
+export function helpFeatureSessionFingerprint(): string {
+	return l10n.t(
+		"The session id LiteLLM groups the requests by. A workspace fingerprint comes from the folder's path; a window fingerprint is this editor session."
+	);
+}
+
 /** The strategy toggle: what the two strategies do to a chat's own fingerprint. */
 export function helpSessionFingerprintStrategy(): string {
 	return l10n.t(

@@ -22,6 +22,7 @@ import {
 	DEFAULT_USAGE_STATUS_BAR_MODE,
 	FEATURE_MODEL_IDS,
 	FEATURE_MODEL_SETTING_KEYS,
+	FEATURE_SESSION_FINGERPRINT_VALUES,
 	type FeatureModelSettingKey,
 	LANGUAGE_FILTER_MODES,
 	NUMBER_SETTING_SPECS,
@@ -86,6 +87,36 @@ const STRUCTURED_SHAPES = {
 		kind: "enum",
 		values: SESSION_FINGERPRINT_STRATEGIES,
 		default: DEFAULT_SESSION_FINGERPRINT_STRATEGY,
+	},
+	"inlineCompletions.sessionFingerprint": {
+		kind: "enum",
+		values: FEATURE_SESSION_FINGERPRINT_VALUES,
+		default: DEFAULT_SESSION_FINGERPRINT,
+	},
+	"commitGeneration.sessionFingerprint": {
+		kind: "enum",
+		values: FEATURE_SESSION_FINGERPRINT_VALUES,
+		default: DEFAULT_SESSION_FINGERPRINT,
+	},
+	"prGeneration.sessionFingerprint": {
+		kind: "enum",
+		values: FEATURE_SESSION_FINGERPRINT_VALUES,
+		default: DEFAULT_SESSION_FINGERPRINT,
+	},
+	"consultTool.sessionFingerprint": {
+		kind: "enum",
+		values: FEATURE_SESSION_FINGERPRINT_VALUES,
+		default: DEFAULT_SESSION_FINGERPRINT,
+	},
+	"quickFix.sessionFingerprint": {
+		kind: "enum",
+		values: FEATURE_SESSION_FINGERPRINT_VALUES,
+		default: DEFAULT_SESSION_FINGERPRINT,
+	},
+	"reviewComments.sessionFingerprint": {
+		kind: "enum",
+		values: FEATURE_SESSION_FINGERPRINT_VALUES,
+		default: DEFAULT_SESSION_FINGERPRINT,
 	},
 } as const satisfies Record<StructuredSettingId, SettingShape>;
 

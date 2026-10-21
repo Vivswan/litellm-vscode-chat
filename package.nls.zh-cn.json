@@ -213,5 +213,11 @@
 	"litellm.participant.command.explain.disambiguation.example1": "这条 TypeScript 错误到底是什么意思?",
 	"litellm.participant.command.explain.disambiguation.example2": "为什么代码检查工具会对这一行发出警告?",
 	"litellm.config.chat.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个聊天把一次对话的请求归为一组, 使用聊天自己的指纹, 绝不是 VS Code 的对话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
-	"litellm.config.chat.sessionFingerprintStrategy.description": "聊天指纹如何生成。每个聊天一个指纹把它固定在助手首次回答前的最后一个问题上, 因此聊天被回答期间它不会改变; 可识别后再细化让暂时无法区分的聊天先使用窗口 ID, 一旦说出可区分的内容就改用自己的指纹 - 因此同一个聊天可能出现在两个会话 ID 下。只有在指纹取自对话时才起作用。"
+	"litellm.config.chat.sessionFingerprintStrategy.description": "聊天指纹如何生成。每个聊天一个指纹把它固定在助手首次回答前的最后一个问题上, 因此聊天被回答期间它不会改变; 可识别后再细化让暂时无法区分的聊天先使用窗口 ID, 一旦说出可区分的内容就改用自己的指纹 - 因此同一个聊天可能出现在两个会话 ID 下。只有在指纹取自对话时才起作用。",
+	"litellm.config.inlineCompletions.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
+	"litellm.config.commitGeneration.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
+	"litellm.config.prGeneration.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
+	"litellm.config.consultTool.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
+	"litellm.config.quickFix.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
+	"litellm.config.reviewComments.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。"
 }
