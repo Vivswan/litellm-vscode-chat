@@ -13,7 +13,7 @@
 
 | 事實 | 細節 |
 |---|---|
-| 範圍 | `servers` 是機器範圍的: 僅限使用者設定, 永遠不能被工作區覆寫, 也永遠不由設定同步攜帶。工作區 `.vscode/settings.json` 中的 `servers` 值會被 VS Code 自己忽略 (設定編輯器會說它只能套用於使用者設定)。功能開關與模型選擇 (每個 `*.enabled` 和 `*.model`)、各一次性功能的工作階段指紋開關, 以及 `models.openRouterCatalog` 是機器可覆寫的 (machine-overridable): 按機器保存的使用者設定, 設定同步會跳過它們, 所以它們從不跟著帳號到另一台機器; 工作區仍可開啟功能、重新指向其模型或選擇其工作階段指紋, 但只能在自己的 `.vscode/settings.json` 裡明確寫出項目 - 什麼都不會經同步悄悄到達。兩個模型記錄設定 (`models.parameters` 與 `models.capabilities`) 還帶有受限 (restricted) 標記: VS Code 尚未信任的工作區 (受限模式) 不能提供它們, 因為它們決定送往您伺服器的內容, 並編譯您的正則比對器。其他每個設定都像一般的使用者/工作區設定一樣運作並正常同步 - 包括聊天的兩個工作階段指紋開關。 |
+| 範圍 | `servers` 是機器範圍的: 僅限使用者設定, 永遠不能被工作區覆寫, 也永遠不由設定同步攜帶。工作區 `.vscode/settings.json` 中的 `servers` 值會被 VS Code 自己忽略 (設定編輯器會說它只能套用於使用者設定)。功能開關與模型選擇 (每個 `*.enabled` 和 `*.model`, 加上 `models.openRouterCatalog`) 是機器可覆寫的 (machine-overridable): 按機器保存的使用者設定, 設定同步會跳過它們, 所以它們從不跟著帳號到另一台機器; 工作區仍可開啟功能或重新指向其模型, 但只能在自己的 `.vscode/settings.json` 裡明確寫出項目 - 什麼都不會經同步悄悄到達。兩個模型記錄設定 (`models.parameters` 與 `models.capabilities`) 還帶有受限 (restricted) 標記: VS Code 尚未信任的工作區 (受限模式) 不能提供它們, 因為它們決定送往您伺服器的內容, 並編譯您的正則比對器。其他每個設定都像一般的使用者/工作區設定一樣運作並正常同步。 |
 | 生效 | 變更立即套用 - 不需重新載入。影響模型的變更會重新整理模型清單; 用量變更會重接輪詢器; 逾時變更套用於下一個請求。外觀設定也一樣: 開啟著的儀表板會在 `ui.theme` 或 `ui.accent` 變化的那一刻換裝, 無論變更來自儀表板自己的選擇器還是 settings.json。 |
 | 移轉 | 舊版本的設定在升級時自動重新命名與重構; 見[重新命名表](#重新命名與移除的設定)。不需重新輸入任何東西。當新名稱的設定已經有值時 (比如設定同步先從已升級的機器送來了它), 移轉保留它, 只捨棄舊鍵 - 伺服器 URL 限定鍵有一條注意事項 ([範圍說明](#重新命名與移除的設定))。 |
 | 未知鍵 | 延伸模組未宣告的 `litellm-vscode-chat.*` 鍵 (打錯字, 比如 `chat.timout`) 會被忽略, VS Code 的設定編輯器會在 settings.json 中把它標為未知設定。[重新命名](#重新命名與移除的設定)之後的舊名稱同理。 |
@@ -54,8 +54,7 @@
 | `litellm-vscode-chat.chat.additionalToolSchemaKeywords` | `[]` | 工具輸入 schema 中額外保留的 JSON-Schema 關鍵字, 例如 `["propertyNames"]`。送出前工具 schema 會按內建關鍵字允許清單清理; 此處列出的關鍵字也會保留, 其值原樣透傳。內建允許清單始終生效。伺服器或模型不接受的關鍵字可能導致請求失敗或工具呼叫變差 |
 | `litellm-vscode-chat.chat.promptCaching` | `true` | 在宣告支援的模型上, 跨工作階段回合沿用提供者端的提示快取; [詳情見下](#提示快取) |
 | `litellm-vscode-chat.chat.tokenEstimation` | `"auto"` | 本地 token 預算如何估算提示大小: `"auto"` (識別文字系統的啟發式, 在 VS Code 顯示語言不是英文, 或聊天中含足夠多讓純字元計數低估的文字 - CJK 等非拉丁文字、emoji - 時載入 o200k_base 分詞器)、`"heuristic"` (純粹按每 4 字元 1 token 計, 從不載入分詞器資料, 對 CJK 低估約 4 倍)、`"o200k_base"` 或 `"cl100k_base"` (始終載入該分詞器)。載入的分詞器在活躍期間約佔用 10-30 MB 記憶體; 計數開銷可忽略 |
-| `litellm-vscode-chat.chat.sessionFingerprint` | `"off"` | 聊天請求的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`conversation` (每個聊天一個指紋)、`workspace` (每個開啟的資料夾一個)、`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組, 代理的工作階段檢視因此把它們放在一起。聊天的 ID 是助理首次回答前最後一個問題的指紋, 絕不是 VS Code 的對話 ID |
-| `litellm-vscode-chat.chat.sessionFingerprintStrategy` | `"durable"` | 聊天的指紋如何衍生: `durable` (由助理首次回答前的最後一個問題固定 - 聊天被回答期間它不會變更) 或 `collecting` (暫時無法區分的聊天先共用視窗 ID, 一旦說出可區分的內容就改用自己的指紋 - 因此同一個聊天可能出現在兩個工作階段 ID 下)。只有在指紋取自對話時才會作用 |
+| `litellm-vscode-chat.chat.sessionId` | `"on"` | LiteLLM 把聊天請求歸入哪個工作階段, 以 `x-litellm-session-id` 標頭送出: `on` (每個聊天一個工作階段)、`folder` (每個開啟的資料夾一個)、`window` (每個 VS Code 視窗一個)、`off` (不帶標頭)。每個 ID 由什麼構成: [模型 - 工作階段 ID](models.md#工作階段-id) |
 | `litellm-vscode-chat.discovery.timeout` | `30000` | 每次模型探索嘗試的時間預算, 毫秒。失敗或逾時的嘗試最多再重試 2 次, 所以一次請求最長約為此值的 3 倍。模型資訊清單、`/v1/models` 退回和 OAuth 權杖交換各自計時, 所以一輪探索最長可能耗時到它們之和; 每次用量請求遵循同樣的按次重試規則; `1000` 到 `2147483647` 的整數; 其他值按預設值讀取 |
 | `litellm-vscode-chat.discovery.cacheTtl` | `3600000` | 已探索的模型清單沿用多久, 毫秒。VS Code 重新解析提供者很頻繁 (有時一秒好幾次); 快取把那擋在您的伺服器之外。`0` 表示每次都重新擷取; 失敗從不快取; 同時發生的重新整理共用一個請求; "LiteLLM: Sync Models Now" 略過它; `0` 到 `9007199254740991` 的整數; 其他值按預設值讀取 |
 | `litellm-vscode-chat.discovery.staleServeWindow` | `600000` | 伺服器停止回應後, 其最後已知的模型繼續提供 (標記為過時) 的時長, 毫秒, 從最後一次成功探索起算。若伺服器休眠或重啟超過十分鐘, 可調高它; `0` 表示永不提供過時模型 (重新整理失敗立即清空該伺服器的清單)。詳情: [模型 - 探索](models.md#探索); `0` 到 `9007199254740991` 的整數; 其他值按預設值讀取 |
@@ -73,26 +72,20 @@
 | `litellm-vscode-chat.inlineCompletions.enabled` | `false` | 選擇啟用由 LiteLLM 模型提供的內嵌(幽靈文字)補全, 隨內嵌補全功能一起交付。預設關閉: 啟用前不註冊任何內容、不送出任何要求, 儀表板中明確的「測試模型」按鈕除外; 只啟用而不設定 `inlineCompletions.model` 時功能保持閒置 |
 | `litellm-vscode-chat.inlineCompletions.model` | `null` | 提供內嵌補全的模型: `{ "server": "<項目 label>", "model": "<原始模型 ID>" }`, 指向一個 `servers` 項目及其一個模型 ID。模型永遠由你明確選擇 - 從不自動挑選; `null` 使功能保持閒置 |
 | `litellm-vscode-chat.inlineCompletions.languageFilter` | `{"mode":"block","languages":[]}` | 內嵌補全的執行範圍: mode 為 `"block"` 時在列出的 VS Code 語言 ID (精確比對) 之外的所有語言中執行, `"allow"` 時僅在列出的語言中執行 (允許清單為空則不在任何語言中執行), 例如 `{ "mode": "block", "languages": ["markdown", "plaintext"] }`。預設不封鎖任何語言 |
-| `litellm-vscode-chat.inlineCompletions.sessionFingerprint` | `"off"` | 內嵌補全的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組 |
 | `litellm-vscode-chat.commitGeneration.enabled` | `false` | 選擇啟用由 LiteLLM 模型產生提交訊息, 隨提交訊息產生功能一起交付。預設關閉: 啟用前命令保持隱藏、不送出任何要求, 儀表板中明確的「測試模型」按鈕除外; 只啟用而不設定 `commitGeneration.model` 時功能保持閒置 |
 | `litellm-vscode-chat.commitGeneration.model` | `null` | 起草提交訊息的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
 | `litellm-vscode-chat.commitGeneration.prompt` | `""` | 產生提交訊息時使用的自訂指示, 會整體取代內建指示。留空使用內建指示 (Conventional Commits 主旨行加簡短內文)。面向模型的文字, 按原樣送出 |
-| `litellm-vscode-chat.commitGeneration.sessionFingerprint` | `"off"` | 提交訊息的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組 |
 | `litellm-vscode-chat.prGeneration.enabled` | `false` | 選擇啟用由 LiteLLM 模型產生提取要求標題和描述。關閉時命令保持隱藏、不送出任何要求, 儀表板中明確的「測試模型」按鈕除外 ([配方](getting-started.md#用您自己的模型產生提取要求描述)) |
 | `litellm-vscode-chat.prGeneration.model` | `null` | 起草 PR 描述的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
-| `litellm-vscode-chat.prGeneration.sessionFingerprint` | `"off"` | PR 主旨或描述的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組 |
 | `litellm-vscode-chat.consultTool.enabled` | `false` | 選擇啟用諮詢工具, 它讓聊天代理向第二個 LiteLLM 模型徵求意見。預設關閉: 啟用前不會註冊任何內容, 也不會傳送任何請求, 儀表板中明確的「測試模型」按鈕除外; 啟用但未設定 `consultTool.model` 時, 工具保持未註冊。兩者都設定後, 代理會自行決定何時呼叫 |
 | `litellm-vscode-chat.consultTool.model` | `null` | 諮詢工具詢問的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
-| `litellm-vscode-chat.consultTool.sessionFingerprint` | `"off"` | 諮詢工具的第二意見的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組 |
 | `litellm-vscode-chat.quickFix.enabled` | `false` | 在診斷上顯示「修復」和「解釋」快速修復。兩者都會開啟聊天檢視並把問題直接傳送給 `@litellm`, 附上診斷及其所在的行; 聊天檢視無法作答時改用 `quickFix.model`。參見[快速修復配方](getting-started.md#修復或解釋一條診斷) |
 | `litellm-vscode-chat.quickFix.model` | `null` | 僅用於快速修復的後備路徑 - 聊天路徑使用聊天選擇器指定的模型。與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則; `null` 表示後備路徑保持閒置 |
-| `litellm-vscode-chat.quickFix.sessionFingerprint` | `"off"` | 快速修正的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組 |
 | `litellm-vscode-chat.reviewComments.enabled` | `false` | 選擇啟用對變更的 AI 審查評論。預設關閉; 啟用前不存在任何審查討論串, 也不會送出任何審查請求, 儀表板中明確的「測試模型」按鈕除外 ([配方](getting-started.md#讓模型審查您的程式碼)) |
 | `litellm-vscode-chat.reviewComments.model` | `null` | 撰寫審查評論的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則 |
-| `litellm-vscode-chat.reviewComments.sessionFingerprint` | `"off"` | 審查評論的 LiteLLM 工作階段 ID 由什麼衍生: `off` (請求不帶工作階段 ID)、`workspace` (每個開啟的資料夾一個)、`window` (每個編輯器工作階段一個)。LiteLLM 依工作階段 ID 對請求分組 |
 | `litellm-vscode-chat.chatParticipant.enabled` | `true` | @litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟 |
 | `litellm-vscode-chat.agentTools.enabled` | `false` | 註冊 Copilot 的代理可以呼叫的讀取工具: 診斷、伺服器、模型、有效的能力和參數、近期日誌。預設關閉; 每個會做出變更的工具在下方都有自己的開關。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
-| `litellm-vscode-chat.agentTools.setSetting.enabled` | `false` | 允許代理經儀表板的驗證變更標量設定 (逾時、開關、功能模型、聊天與各一次性功能的工作階段指紋開關); 絕不包括 `servers`、模型記錄設定或代理工具自身的開關。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
+| `litellm-vscode-chat.agentTools.setSetting.enabled` | `false` | 允許代理經儀表板的驗證變更標量設定 (逾時、開關、功能模型); 絕不包括 `servers`、模型記錄設定或代理工具自身的開關。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
 | `litellm-vscode-chat.agentTools.editModelRecords.enabled` | `false` | 允許代理編輯 `models.capabilities` 和 `models.parameters`, 一次一個比對器鍵, 可在全域或某個 servers 項目上。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
 | `litellm-vscode-chat.agentTools.saveServer.enabled` | `false` | 允許代理新增、編輯、重新命名或採納 `servers` 項目。密鑰值由您在輸入框中輸入, 該輸入框預設遮罩顯示 (由 `ui.maskSecretInputs` 控制) 且值絕不進入聊天, 除非 `agentTools.secretValues.enabled` 允許代理傳遞; 保留的密鑰絕不會跟隨變更了的主機。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |
 | `litellm-vscode-chat.agentTools.removeServer.enabled` | `false` | 允許代理移除 `servers` 項目或隱藏外部提供者群組。需要 `agentTools.enabled`。配方: [讓代理管理您的 LiteLLM 設定](getting-started.md#讓代理管理您的-litellm-設定) |

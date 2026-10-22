@@ -7,7 +7,7 @@ import { nodeHttpFetch } from "../../../provider/transport/nodeHttpFetch";
 import { fixedHeaderValue } from "../../../shared/util/headers";
 import { MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { makeModelInfo, toHeaderMap } from "../../pureHelpers";
-import { captureRequest, makeProvider, userMessage, withConfig } from "../../testUtils";
+import { captureRequest, makeProvider, userMessage } from "../../testUtils";
 
 function config(overrides: Partial<ServerClientConfig> = {}): ServerClientConfig {
 	return {
@@ -166,10 +166,10 @@ suite("provider/transport/clients", () => {
 			);
 		});
 
-		test("two conversations in a row keep the same client: the fingerprint never enters the client's own headers", async () => {
-			// The cache keys on the client's own headers, so a per-conversation value among them would rebuild the
-			// OpenAI client on every new chat. The clients the cache hands out are the observable: a rebuild would hand
-			// out a second one for the same server.
+		test("two chats in a row keep the same client: the session id never enters the client's own headers", async () => {
+			// The cache keys on the client's own headers, so a per-chat value among them would rebuild the OpenAI
+			// client on every new chat. The clients the cache hands out are the observable: a rebuild would hand out a
+			// second one for the same server.
 			const provider = makeProvider(TEST_BASE_URL);
 			const internals = provider as unknown as { _client: { clients: ServerClientCache } };
 			const cache = internals._client.clients;
@@ -185,19 +185,17 @@ suite("provider/transport/clients", () => {
 
 			const modelInfo = makeModelInfo();
 			for (const question of ["what does this repo do?", "what is the weather?"]) {
-				await withConfig({ "chat.sessionFingerprint": "conversation" }, () =>
-					captureRequest(
-						provider,
-						modelInfo,
-						{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-						{ messages: [userMessage(question)] }
-					)
+				await captureRequest(
+					provider,
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ messages: [userMessage(question)] }
 				);
 			}
 
 			assert.ok(handedOut.size > 0, "the transport must ask the cache for its client");
 			for (const [serverId, clients] of handedOut) {
-				assert.strictEqual(clients.size, 1, `the client for ${serverId} must not be rebuilt by a new conversation`);
+				assert.strictEqual(clients.size, 1, `the client for ${serverId} must not be rebuilt by a new chat`);
 			}
 		});
 

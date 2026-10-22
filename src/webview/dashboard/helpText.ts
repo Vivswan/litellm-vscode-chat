@@ -301,27 +301,10 @@ export function helpCommitPrompt(): string {
 	);
 }
 
-/**
- * The chat's fingerprint row: what the session id is, where a chat's comes from, and what the other two are derived
- * from.
- */
-export function helpSessionFingerprint(): string {
+/** The session id row: what LiteLLM does with it, and what each value groups by. */
+export function helpSessionId(): string {
 	return l10n.t(
-		"The session id LiteLLM groups the requests by. A chat's fingerprint comes from the last question before the assistant's first answer - it is not a VS Code conversation id. A workspace fingerprint comes from the folder's path; a window fingerprint is this editor session. The strategy row below only matters while the fingerprint is the conversation's."
-	);
-}
-
-/** The one-shot features' fingerprint row: the same, without the conversation they cannot have. */
-export function helpFeatureSessionFingerprint(): string {
-	return l10n.t(
-		"The session id LiteLLM groups the requests by. A workspace fingerprint comes from the folder's path; a window fingerprint is this editor session."
-	);
-}
-
-/** The strategy toggle: what the two strategies do to a chat's own fingerprint. */
-export function helpSessionFingerprintStrategy(): string {
-	return l10n.t(
-		"Single fingerprint per chat fixes a chat's fingerprint to the last question before the assistant's first answer, so it cannot change while the chat is answered; Refine once identifiable starts a chat that cannot be told apart yet under the window id and moves it to a fingerprint of its own as soon as it says something - so one chat can appear under two session ids."
+		"LiteLLM groups requests that share a session id, as other LiteLLM clients send one. On hashes the chat's opening question with this window's id, so no text leaves the machine. Folder hashes the open folder's path; Window hashes this window's own id."
 	);
 }
 

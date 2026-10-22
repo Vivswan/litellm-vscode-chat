@@ -8,6 +8,7 @@ import { groupIdentity } from "../../../provider/catalog/statusWindow";
 import { ChatClient } from "../../../provider/transport/chatClient";
 import type { CapabilityCatalogLookup } from "../../../shared/config/capabilityResolution";
 import { resolveModelParameters } from "../../../shared/config/parameterResolution";
+import { resolveSessionIdHeader } from "../../../shared/config/sessionId";
 import { getModelParametersConfig } from "../../../shared/config/settings";
 import { convertMessages } from "../../../shared/conversion/messages";
 import { estimateWireMessagesTokens } from "../../../shared/conversion/tokenEstimation";
@@ -17,6 +18,7 @@ import { fixedHeaderValue } from "../../../shared/util/headers";
 import {
 	CHAT_COMPLETIONS_URL,
 	discoveryHandlers,
+	MODEL_INFO_URL,
 	mswServer,
 	sseResponse,
 	TEST_BASE_URL,
@@ -744,18 +746,19 @@ suite("provider/request contract", () => {
 		});
 	});
 
-	suite("session fingerprint", () => {
+	suite("session id", () => {
 		// The ids the agreed format spells: a readable prefix and twelve hex characters, so a session id in the proxy's
-		// UI says which kind of fingerprint it is.
+		// UI says what kind of session it is.
 		const CHAT_SESSION_ID = /^vscode-chat-[0-9a-f]{12}$/;
-		const WORKSPACE_SESSION_ID = /^vscode-ws-[0-9a-f]{12}$/;
+		const FOLDER_SESSION_ID = /^vscode-folder-[0-9a-f]{12}$/;
 		const FOLDER = "/home/dev/litellm-workspace-fixture";
 
-		/** The session id one chat request carried, or a failure that says the header never went out. */
-		async function sessionIdOf(
+		/** The session id one chat request carried under the given mode, or undefined when none rode along. */
+		async function sessionIdUnder(
+			mode: string,
 			messages: vscode.LanguageModelChatRequestMessage[] = [userMessage("test")]
-		): Promise<string> {
-			const { headers } = await withConfig({ "chat.sessionFingerprint": "conversation" }, () =>
+		): Promise<string | undefined> {
+			const { headers } = await withConfig({ "chat.sessionId": mode }, () =>
 				captureRequest(
 					createConfiguredProvider(),
 					modelInfo,
@@ -763,84 +766,111 @@ suite("provider/request contract", () => {
 					{ messages }
 				)
 			);
-			const sessionId = headers["x-litellm-session-id"];
-			assert.ok(sessionId !== undefined, "the session id header must ride the chat request");
-			return sessionId;
+			return headers["x-litellm-session-id"];
 		}
 
-		test("the chat request carries the conversation's own session id", async () => {
-			const sessionId = await sessionIdOf();
-			assert.match(sessionId, CHAT_SESSION_ID);
-		});
-
-		test("the workspace fingerprint rides the request as a hash of the folder's path", async () => {
-			const { headers } = await withConfig({ "chat.sessionFingerprint": "workspace" }, () =>
-				withWorkspaceFolder(FOLDER, () =>
-					captureRequest(createConfiguredProvider(), modelInfo, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+		test("the chat request carries the chat's own session id by default: the resolver's answer for this window and question", async () => {
+			const { headers } = await withConfig({}, () =>
+				captureRequest(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ messages: [userMessage("what does this repo do?")] }
 				)
 			);
 			const sessionId = headers["x-litellm-session-id"];
 			assert.ok(sessionId !== undefined, "the session id header must ride the chat request");
-			assert.match(sessionId, WORKSPACE_SESSION_ID);
-			assert.ok(!sessionId.includes("litellm-workspace-fixture"), "the folder's path must not ride the header");
+			assert.match(sessionId, CHAT_SESSION_ID);
+			// The same rule, fed the host's window id and the reduced conversation by hand: pins that the transport
+			// hands the resolver exactly what the host and the conversation reduction produce.
+			assert.strictEqual(
+				sessionId,
+				resolveSessionIdHeader({
+					mode: "on",
+					context: { windowSessionId: vscode.env.sessionId },
+					messages: [{ role: "user", text: "what does this repo do?", data: [] }],
+				})
+			);
 		});
 
-		test("a window with no folder open has no workspace to group by, so no session id rides along", async () => {
+		test("folder rides the request as the resolver's hash of the host's open folder", async () => {
+			const sessionId = await withWorkspaceFolder(FOLDER, () => sessionIdUnder("folder"));
+			assert.ok(sessionId !== undefined, "the session id header must ride the chat request");
+			assert.match(sessionId, FOLDER_SESSION_ID);
+			assert.strictEqual(
+				sessionId,
+				resolveSessionIdHeader({
+					mode: "folder",
+					context: { windowSessionId: vscode.env.sessionId, folderPath: vscode.Uri.file(FOLDER).fsPath },
+				})
+			);
+		});
+
+		test("a window with no folder open has no folder to group by, so no session id rides along", async () => {
 			// The test window opens no folder, which is the shape the rule was written for: there is nothing to group
 			// by, and falling back to the window id would silently mean something else than the user asked for.
-			const { headers } = await withConfig({ "chat.sessionFingerprint": "workspace" }, () =>
-				captureRequest(createConfiguredProvider(), modelInfo, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			assert.strictEqual(await sessionIdUnder("folder"), undefined);
+		});
+
+		test("window rides the request as the resolver's hash of the host's window id", async () => {
+			assert.strictEqual(
+				await sessionIdUnder("window"),
+				resolveSessionIdHeader({ mode: "window", context: { windowSessionId: vscode.env.sessionId } })
 			);
-			assert.strictEqual(headers["x-litellm-session-id"], undefined);
 		});
 
-		test("the window fingerprint is the editor session id, verbatim", async () => {
-			const { headers } = await withConfig({ "chat.sessionFingerprint": "window" }, () =>
-				captureRequest(createConfiguredProvider(), modelInfo, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+		test("off sends no session id, so the request goes out as it did before the setting existed", async () => {
+			assert.strictEqual(await sessionIdUnder("off"), undefined);
+		});
+
+		test("the discovery request carries no session id: the id rides the chat request, never the client", async () => {
+			// The client cache keys on the client's own headers, so a session id among them would rebuild the client on
+			// every new chat, and the discovery requests would carry a session id the proxy would group as a model call.
+			let seen: string | null | undefined;
+			mswServer.use(
+				http.get(MODEL_INFO_URL, ({ request }) => {
+					seen = request.headers.get("x-litellm-session-id");
+					return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+				})
 			);
-			assert.strictEqual(headers["x-litellm-session-id"], vscode.env.sessionId);
-		});
-
-		test("no session id rides the request when the knob is off", async () => {
-			const { headers } = await withConfig({ "chat.sessionFingerprint": "off" }, () =>
-				captureRequest(createConfiguredProvider(), modelInfo, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			await createConfiguredProvider().provideLanguageModelChatInformation(
+				{ silent: true } as { silent: boolean },
+				new vscode.CancellationTokenSource().token
 			);
-			assert.strictEqual(headers["x-litellm-session-id"], undefined);
+			assert.strictEqual(seen, null);
 		});
 
-		test("one conversation keeps one session id across its turns", async () => {
-			const first = await sessionIdOf([userMessage("what does this repo do?")]);
-			const second = await sessionIdOf([
-				userMessage("what does this repo do?"),
-				{
-					role: vscode.LanguageModelChatMessageRole.Assistant,
-					content: [new vscode.LanguageModelTextPart("a test harness")],
-					name: undefined,
-				},
-				userMessage("and how do I run it?"),
-			]);
-			assert.strictEqual(first, second, "a second turn must not move the conversation's session id");
-		});
-
-		test("two conversations with different first questions get different session ids", async () => {
-			const one = await sessionIdOf([userMessage("what does this repo do?")]);
-			const other = await sessionIdOf([userMessage("what is the weather?")]);
-			assert.notStrictEqual(one, other);
-		});
-
-		test("the session id carries neither the question nor the window id", async () => {
-			const sessionId = await sessionIdOf([userMessage("what does this repo do?")]);
-			assert.match(sessionId, CHAT_SESSION_ID);
-			assert.ok(!sessionId.includes("repo"), "the question must not ride the header");
-			assert.ok(!sessionId.includes(vscode.env.sessionId), "the window id must not ride the header");
-		});
-
-		test("a feature's knob never puts a session id on a chat request", async () => {
-			// The knobs are per surface: the chat's own knob is the only one the chat path reads.
-			const { headers } = await withConfig({ "commitGeneration.sessionFingerprint": "window" }, () =>
-				captureRequest(createConfiguredProvider(), modelInfo, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+		test("a credential in the session id's header keeps it: the id yields to the gateway key that owns the name", async () => {
+			// docs/servers.md: extension-managed auth headers win every conflict, and the session id ranks below them
+			// too, so a gateway that reads its key from this header keeps working with the setting on.
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				resolveEntryCredentials: async () => ({
+					kind: "resolved",
+					credentials: {
+						apiKey: "",
+						virtualKey: { header: "X-LiteLLM-Session-Id", value: fixedHeaderValue("gateway-key") },
+					},
+				}),
+			});
+			// The overlay makes the group the entry's own, so the request carries the served model object, the way
+			// the host hands it back.
+			const { headers } = await captureRequest(
+				provider,
+				modelInfo,
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+				{ useDiscoveredModel: true }
 			);
-			assert.strictEqual(headers["x-litellm-session-id"], undefined);
+			assert.strictEqual(headers["x-litellm-session-id"], "gateway-key");
+		});
+
+		test("a custom header named like the session id keeps it: the entry's fixed value rides, not the chat's", async () => {
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryHeaders: () => ({ "x-litellm-session-id": fixedHeaderValue("entry-session") }),
+			});
+			const { headers } = await captureRequest(provider, modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			});
+			assert.strictEqual(headers["x-litellm-session-id"], "entry-session");
 		});
 	});
 

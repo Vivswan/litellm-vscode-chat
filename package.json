@@ -1698,25 +1698,22 @@
 						],
 						"description": "%litellm.config.chat.tokenEstimation.description%"
 					},
-					"litellm-vscode-chat.chat.sessionFingerprint": {
+					"litellm-vscode-chat.chat.sessionId": {
 						"type": "string",
 						"enum": [
 							"off",
-							"conversation",
-							"workspace",
+							"on",
+							"folder",
 							"window"
 						],
-						"default": "off",
-						"description": "%litellm.config.chat.sessionFingerprint.description%"
-					},
-					"litellm-vscode-chat.chat.sessionFingerprintStrategy": {
-						"type": "string",
-						"enum": [
-							"durable",
-							"collecting"
+						"default": "on",
+						"enumDescriptions": [
+							"%litellm.config.chat.sessionId.off%",
+							"%litellm.config.chat.sessionId.on%",
+							"%litellm.config.chat.sessionId.folder%",
+							"%litellm.config.chat.sessionId.window%"
 						],
-						"default": "durable",
-						"description": "%litellm.config.chat.sessionFingerprintStrategy.description%"
+						"description": "%litellm.config.chat.sessionId.description%"
 					}
 				}
 			},
@@ -1919,17 +1916,6 @@
 							"languages": []
 						},
 						"markdownDescription": "%litellm.config.inlineCompletions.languageFilter.description%"
-					},
-					"litellm-vscode-chat.inlineCompletions.sessionFingerprint": {
-						"type": "string",
-						"scope": "machine-overridable",
-						"enum": [
-							"off",
-							"workspace",
-							"window"
-						],
-						"default": "off",
-						"description": "%litellm.config.inlineCompletions.sessionFingerprint.description%"
 					}
 				}
 			},
@@ -1972,17 +1958,6 @@
 						"default": "",
 						"editPresentation": "multilineText",
 						"markdownDescription": "%litellm.config.commitGeneration.prompt.description%"
-					},
-					"litellm-vscode-chat.commitGeneration.sessionFingerprint": {
-						"type": "string",
-						"scope": "machine-overridable",
-						"enum": [
-							"off",
-							"workspace",
-							"window"
-						],
-						"default": "off",
-						"description": "%litellm.config.commitGeneration.sessionFingerprint.description%"
 					}
 				}
 			},
@@ -2018,17 +1993,6 @@
 						},
 						"additionalProperties": false,
 						"markdownDescription": "%litellm.config.prGeneration.model.description%"
-					},
-					"litellm-vscode-chat.prGeneration.sessionFingerprint": {
-						"type": "string",
-						"scope": "machine-overridable",
-						"enum": [
-							"off",
-							"workspace",
-							"window"
-						],
-						"default": "off",
-						"description": "%litellm.config.prGeneration.sessionFingerprint.description%"
 					}
 				}
 			},
@@ -2064,17 +2028,6 @@
 						},
 						"additionalProperties": false,
 						"markdownDescription": "%litellm.config.consultTool.model.description%"
-					},
-					"litellm-vscode-chat.consultTool.sessionFingerprint": {
-						"type": "string",
-						"scope": "machine-overridable",
-						"enum": [
-							"off",
-							"workspace",
-							"window"
-						],
-						"default": "off",
-						"description": "%litellm.config.consultTool.sessionFingerprint.description%"
 					}
 				}
 			},
@@ -2110,17 +2063,6 @@
 						},
 						"additionalProperties": false,
 						"markdownDescription": "%litellm.config.quickFix.model.description%"
-					},
-					"litellm-vscode-chat.quickFix.sessionFingerprint": {
-						"type": "string",
-						"scope": "machine-overridable",
-						"enum": [
-							"off",
-							"workspace",
-							"window"
-						],
-						"default": "off",
-						"description": "%litellm.config.quickFix.sessionFingerprint.description%"
 					}
 				}
 			},
@@ -2156,17 +2098,6 @@
 						},
 						"additionalProperties": false,
 						"markdownDescription": "%litellm.config.reviewComments.model.description%"
-					},
-					"litellm-vscode-chat.reviewComments.sessionFingerprint": {
-						"type": "string",
-						"scope": "machine-overridable",
-						"enum": [
-							"off",
-							"workspace",
-							"window"
-						],
-						"default": "off",
-						"description": "%litellm.config.reviewComments.sessionFingerprint.description%"
 					}
 				}
 			},

@@ -23,10 +23,8 @@ import {
 } from "../../dashboard/viewModels";
 import {
 	FEATURE_MODEL_IDS,
-	FEATURE_SESSION_FINGERPRINT_VALUES,
 	LANGUAGE_FILTER_MODES,
-	SESSION_FINGERPRINT_STRATEGIES,
-	SESSION_FINGERPRINT_VALUES,
+	SESSION_ID_MODES,
 	TOKEN_ESTIMATION_MODES,
 	UI_ACCENTS,
 	UI_THEMES,
@@ -160,12 +158,7 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	setModelParameters: z.strictObject({ value: recordMapSchema }),
 	setModelCapabilities: z.strictObject({ value: recordMapSchema }),
 	setUsageStatusBar: z.strictObject({ value: asEnum(USAGE_STATUS_BAR_MODES) }),
-	setChatSessionFingerprint: z.strictObject({ value: asEnum(SESSION_FINGERPRINT_VALUES) }),
-	setChatSessionFingerprintStrategy: z.strictObject({ value: asEnum(SESSION_FINGERPRINT_STRATEGIES) }),
-	setFeatureSessionFingerprint: z.strictObject({
-		feature: asEnum(FEATURE_MODEL_IDS),
-		value: asEnum(FEATURE_SESSION_FINGERPRINT_VALUES),
-	}),
+	setChatSessionId: z.strictObject({ value: asEnum(SESSION_ID_MODES) }),
 	setTokenEstimation: z.strictObject({ value: asEnum(TOKEN_ESTIMATION_MODES) }),
 	setCurrencySymbol: z.strictObject({ value: z.string().max(WIRE_LIMITS.currencySymbol) }),
 	setAdditionalToolSchemaKeywords: z.strictObject({
@@ -269,9 +262,7 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	setModelParameters: requestSchema("setModelParameters"),
 	setModelCapabilities: requestSchema("setModelCapabilities"),
 	setUsageStatusBar: requestSchema("setUsageStatusBar"),
-	setChatSessionFingerprint: requestSchema("setChatSessionFingerprint"),
-	setChatSessionFingerprintStrategy: requestSchema("setChatSessionFingerprintStrategy"),
-	setFeatureSessionFingerprint: requestSchema("setFeatureSessionFingerprint"),
+	setChatSessionId: requestSchema("setChatSessionId"),
 	setTokenEstimation: requestSchema("setTokenEstimation"),
 	setCurrencySymbol: requestSchema("setCurrencySymbol"),
 	setAdditionalToolSchemaKeywords: requestSchema("setAdditionalToolSchemaKeywords"),

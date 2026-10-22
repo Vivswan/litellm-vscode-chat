@@ -21,13 +21,11 @@ import type { FeatureModelId, FeatureModelRef, KeyedSettingId, NumberSettingId }
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	acceptsNumberSetting,
-	CHAT_SESSION_FINGERPRINT_SETTING_KEY,
-	CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
+	CHAT_SESSION_ID_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	FEATURE_MODEL_SETTING_KEYS,
-	FEATURE_SESSION_FINGERPRINT_SETTING_KEYS,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	isUsableThreshold,
 	NUMBER_SETTING_SPECS,
@@ -573,15 +571,8 @@ export async function executeDashboardIntent(
 		case "setUsageStatusBar":
 			await env.updateSetting(USAGE_STATUS_BAR_SETTING_KEY, intent.payload.value);
 			return undefined;
-		case "setChatSessionFingerprint":
-			await env.updateSetting(CHAT_SESSION_FINGERPRINT_SETTING_KEY, intent.payload.value);
-			return undefined;
-		case "setChatSessionFingerprintStrategy":
-			await env.updateSetting(CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY, intent.payload.value);
-			return undefined;
-		case "setFeatureSessionFingerprint":
-			// The feature names its own knob, so the write lands on that feature's fingerprint key.
-			await env.updateSetting(FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[intent.payload.feature], intent.payload.value);
+		case "setChatSessionId":
+			await env.updateSetting(CHAT_SESSION_ID_SETTING_KEY, intent.payload.value);
 			return undefined;
 		case "setTokenEstimation":
 			// The tokenizer wiring reacts to the configuration change like a hand edit of settings.json.

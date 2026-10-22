@@ -60,6 +60,11 @@ export function setOwnedHeader(headers: Record<string, HeaderValue>, name: strin
 	headers[name] = value;
 }
 
+/** Whether the record already spells `name`, in any case: the test a header that must not displace another runs first. */
+export function hasHeader(headers: Readonly<Record<string, unknown>>, name: string): boolean {
+	return Object.keys(headers).some((existing) => headerNameKey(existing) === headerNameKey(name));
+}
+
 /**
  * The base header record for a plain-fetch call to a LiteLLM server: the provider's static precedence rule
  * (buildDefaultHeaders) with null-valued entries dropped, plus the explicit Bearer Authorization the SDK would add on

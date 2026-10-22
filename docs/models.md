@@ -349,9 +349,20 @@ When you configure nothing - or nothing that matches a given model - your model 
 - Provider-owned fields cannot be overridden: `model`, `messages`, `stream`, `stream_options`, and - when tools are in play - `tools` and `tool_choice`.
 - Keys starting with `_` are extension directives ([`_force`](#forcing-parameters-_force)) and are never sent.
 
-### The session fingerprint
+### The session id
 
-One header is the extension's own, and it is not a parameter: `x-litellm-session-id`, which tells a LiteLLM proxy which requests belong together, so its session view groups them. It is off by default, and each surface chooses what its session id is derived from - one chat, the open folder, or this editor session ([`chat.sessionFingerprint` and the per-feature knobs](settings.md#reference)). A chat's id is a fingerprint of the last question before the assistant's first answer, never a VS Code conversation id, and no request carries one unless you ask for it. The grouping works with LiteLLM's `request_correlation_in_logs` off - the flag is off by default, and nothing has to be turned on in the proxy for the session view to group the requests. It is LiteLLM's own setting (`litellm_settings.request_correlation_in_logs` in the proxy's config), and turning it on adds an independent `session_id` on LiteLLM's logging payload (an empty string without it) and a `trace_id` / `session_id` stamp on every proxy log line - the spend-log row carries the session id either way, because the header sets the trace id and the session id to the same value.
+One header is the extension's own, and it is not a parameter: `x-litellm-session-id`, which a LiteLLM proxy groups requests by on its Logs page. It is on by default, one session per chat, the way Claude Code and opencode send theirs. [`chat.sessionId`](settings.md#reference) picks another grouping or turns it off.
+
+| `chat.sessionId` | The session id |
+|---|---|
+| `on` | A hash of the window's id and the last question before the assistant's first answer, or of the opening image when there is no question. Two chats that open alike in one window share a session |
+| `folder` | A hash of the open folder's path. No folder open sends nothing |
+| `window` | A hash of the VS Code window's own id, which changes when the window closes |
+| `off` | No header |
+
+The hashes keep every question and path on the machine, and nothing has to be turned on in the proxy: LiteLLM writes the value to its spend log's session column as it arrives.
+
+Anything on the server entry already named `x-litellm-session-id` wins: a credential or a custom header there keeps its value. A custom `x-litellm-trace-id` header outranks the session id too, because LiteLLM reads the trace id first.
 
 ### The `max_tokens` exception
 

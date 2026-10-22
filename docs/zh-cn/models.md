@@ -349,9 +349,20 @@
 - 提供程序拥有的字段无法覆盖: `model`、`messages`、`stream`、`stream_options`, 以及 - 当工具参与时 - `tools` 和 `tool_choice`。
 - 以 `_` 开头的键是扩展指令 ([`_force`](#强制参数-_force)), 从不发送。
 
-### 会话指纹
+### 会话 ID
 
-有一个请求头是扩展自己的, 而且它不是参数: `x-litellm-session-id`, 它告诉 LiteLLM 代理哪些请求属于一起, 因此代理的会话视图会把它们分组。默认关闭, 每个功能面自选会话 ID 的来源 - 某个聊天、打开的文件夹, 或本编辑器会话 ([`chat.sessionFingerprint` 与各功能的开关](settings.md#参考))。聊天的 ID 是助手首次回答前最后一个问题的指纹, 绝不是 VS Code 的对话 ID; 除非你主动要求, 否则请求不携带会话 ID。分组在 LiteLLM 的 `request_correlation_in_logs` 关闭时同样有效 - 这个开关默认关闭, 因此代理里不必打开任何开关, 会话视图就能把这些请求分组。它是 LiteLLM 自己的设置 (代理配置里的 `litellm_settings.request_correlation_in_logs`), 打开后额外带来的是 LiteLLM 日志载荷上一个独立的 `session_id` (不打开时它是空字符串), 以及代理每一行日志上的 `trace_id` 与 `session_id` 标记 - 无论如何开销日志 (spend log) 的那一行都带着这个会话 ID, 因为这个标头把 trace ID 与会话 ID 设成了同一个值。
+有一个请求头是扩展自己的, 而且它不是参数: `x-litellm-session-id`, LiteLLM 代理在日志页按它给请求分组。默认开启, 每个聊天一个会话, 与 Claude Code 和 opencode 的做法相同。[`chat.sessionId`](settings.md#参考) 可改选其他分组方式或关闭。
+
+| `chat.sessionId` | 会话 ID 是什么 |
+|---|---|
+| `on` | 窗口 ID 与助手首次回答前最后一个问题的哈希, 没有问题时取开头的图片。同一窗口里开头相同的两个聊天共用一个会话 |
+| `folder` | 打开的文件夹路径的哈希。没有打开文件夹则不发送 |
+| `window` | VS Code 窗口自己 ID 的哈希, 窗口关闭时更换 |
+| `off` | 不带请求头 |
+
+哈希让每个问题和路径都留在本机, 代理端也无需开启任何东西: LiteLLM 把这个值原样写入消费日志的会话列。
+
+服务器条目上已经叫 `x-litellm-session-id` 的任何东西都优先: 那里的凭据或自定义请求头保留自己的值。自定义 `x-litellm-trace-id` 请求头也优先于会话 ID, 因为 LiteLLM 先读 trace id。
 
 ### `max_tokens` 例外
 

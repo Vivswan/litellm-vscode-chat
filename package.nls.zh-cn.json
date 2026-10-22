@@ -130,6 +130,11 @@
 	"litellm.config.chat.tokenEstimation.heuristic": "简单的每 4 字符 1 token 估算。从不加载分词器数据, 对中日韩文字约低估 4 倍。",
 	"litellm.config.chat.tokenEstimation.o200k_base": "始终加载 o200k_base 分词器 (GPT-4o 及更新的模型)。",
 	"litellm.config.chat.tokenEstimation.cl100k_base": "始终加载 cl100k_base 分词器 (GPT-3.5 和 GPT-4 时代的模型)。",
+	"litellm.config.chat.sessionId.description": "LiteLLM 把聊天请求归入哪个会话。请求以 x-litellm-session-id 请求头携带它, 代理的日志页把这些分组显示为会话。",
+	"litellm.config.chat.sessionId.off": "不发送会话 ID。请求与此设置出现之前完全一样。",
+	"litellm.config.chat.sessionId.on": "把一个聊天的各轮归入一个会话, 与其他 LiteLLM 客户端的做法相同。ID 是开启聊天的问题与本窗口 ID 的哈希, 因此没有文本离开本机。",
+	"litellm.config.chat.sessionId.folder": "把打开某个文件夹期间发出的所有聊天请求归入一个会话。ID 是文件夹路径的哈希。",
+	"litellm.config.chat.sessionId.window": "把本 VS Code 窗口的所有聊天请求归入一个会话, 直到窗口关闭。ID 是窗口自己 ID 的哈希。",
 	"litellm.config.discovery.timeout.description": "模型发现请求的超时时间 (毫秒)。默认为 30000ms (30 秒)。",
 	"litellm.config.discovery.cacheTtl.description": "已发现的模型列表在再次询问服务器之前的复用时长 (毫秒)。默认为 3600000 (1 小时)。较大的值可避免 VS Code 突发式重新解析提供程序时的重复发现请求, 但服务器上新增或移除的模型最长需要这么久才会体现; 较小的值能更快感知服务器端变化, 代价是更多请求。设为 0 则每次刷新都询问服务器 (同时发生的刷新仍共享一个请求)。运行「LiteLLM: 立即同步模型」可立即刷新, 不受此设置影响。",
 	"litellm.config.discovery.staleServeWindow.description": "服务器停止响应后, 其最后已知的模型继续提供 (标记为过期) 的时长 (毫秒), 从最后一次成功发现开始计算。默认为 600000 (10 分钟)。若你的服务器会休眠或重启更久, 且希望其间模型仍留在选择器中, 可调大此值; 设为 0 则从不提供过期模型, 刷新失败会立即清空该服务器的模型列表。",
@@ -211,13 +216,5 @@
 	"litellm.participant.command.explain.sampleRequest": "解释这条警告",
 	"litellm.participant.command.explain.disambiguation.description": "用户想弄清楚自己代码上的某条诊断是什么意思, 以及编辑器为什么在这里报告它。",
 	"litellm.participant.command.explain.disambiguation.example1": "这条 TypeScript 错误到底是什么意思?",
-	"litellm.participant.command.explain.disambiguation.example2": "为什么代码检查工具会对这一行发出警告?",
-	"litellm.config.chat.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个聊天把一次对话的请求归为一组, 使用聊天自己的指纹, 绝不是 VS Code 的对话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
-	"litellm.config.chat.sessionFingerprintStrategy.description": "聊天指纹如何生成。每个聊天一个指纹把它固定在助手首次回答前的最后一个问题上, 因此聊天被回答期间它不会改变; 可识别后再细化让暂时无法区分的聊天先使用窗口 ID, 一旦说出可区分的内容就改用自己的指纹 - 因此同一个聊天可能出现在两个会话 ID 下。只有在指纹取自对话时才起作用。",
-	"litellm.config.inlineCompletions.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
-	"litellm.config.commitGeneration.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
-	"litellm.config.prGeneration.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
-	"litellm.config.consultTool.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
-	"litellm.config.quickFix.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。",
-	"litellm.config.reviewComments.sessionFingerprint.description": "哪些请求由 LiteLLM 归为同一个会话。关闭表示完全不发送会话 ID; 每个工作区把打开文件夹期间发出的所有请求归为一组; 每个窗口把本编辑器会话发出的所有请求归为一组。会话 ID 以 x-litellm-session-id 请求头发送, LiteLLM 的会话视图据此把共享它的请求分组。"
+	"litellm.participant.command.explain.disambiguation.example2": "为什么代码检查工具会对这一行发出警告?"
 }

@@ -1,6 +1,5 @@
 import type * as vscode from "vscode";
 import type { OneShotChatMessage, OneShotClient } from "../../provider/transport/oneShotClient";
-import { featureSessionFingerprintHeader } from "../../provider/transport/sessionFingerprint";
 import { FEATURE_ERROR_SURFACE } from "../../provider/transport/transportErrors";
 import type { FeatureModelId, FeatureModelRef } from "../../shared/config/settingSpec";
 import { getRequestTimeout } from "../../shared/config/settings";
@@ -46,9 +45,6 @@ export async function featureChatSend(
 				// names chat.timeout.
 				timeout: { ms: getRequestTimeout(log), setting: "chat.timeout" },
 				token,
-				// The feature's own fingerprint, read through the knob that names it: this call is the one place that
-				// knows which feature it is sending for.
-				sessionIdHeader: featureSessionFingerprintHeader(feature),
 			}
 		)
 	);

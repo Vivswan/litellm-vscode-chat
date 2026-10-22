@@ -13,8 +13,7 @@ import {
 	CONFIGURATION_SECTIONS,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_INLINE_LANGUAGE_FILTER,
-	DEFAULT_SESSION_FINGERPRINT,
-	DEFAULT_SESSION_FINGERPRINT_STRATEGY,
+	DEFAULT_SESSION_ID_MODE,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
@@ -22,14 +21,12 @@ import {
 	DEFAULT_USAGE_STATUS_BAR_MODE,
 	FEATURE_MODEL_IDS,
 	FEATURE_MODEL_SETTING_KEYS,
-	FEATURE_SESSION_FINGERPRINT_VALUES,
 	type FeatureModelSettingKey,
 	LANGUAGE_FILTER_MODES,
 	NUMBER_SETTING_SPECS,
 	type NumberSettingId,
 	type NumberSettingValueSpec,
-	SESSION_FINGERPRINT_STRATEGIES,
-	SESSION_FINGERPRINT_VALUES,
+	SESSION_ID_MODES,
 	SETTING_PRESENTATION,
 	type SettingId,
 	type SettingPresentation,
@@ -67,6 +64,7 @@ const STRUCTURED_SHAPES = {
 	"models.capabilities": { kind: "modelRecord" },
 	"chat.additionalToolSchemaKeywords": { kind: "keywordList" },
 	"chat.tokenEstimation": { kind: "enum", values: TOKEN_ESTIMATION_MODES, default: DEFAULT_TOKEN_ESTIMATION_MODE },
+	"chat.sessionId": { kind: "enum", values: SESSION_ID_MODES, default: DEFAULT_SESSION_ID_MODE },
 	"usage.alertThresholds": { kind: "thresholdList" },
 	"usage.statusBar": { kind: "enum", values: USAGE_STATUS_BAR_MODES, default: DEFAULT_USAGE_STATUS_BAR_MODE },
 	"usage.currencySymbol": {
@@ -78,46 +76,6 @@ const STRUCTURED_SHAPES = {
 	"ui.accent": { kind: "enum", values: UI_ACCENTS, default: DEFAULT_UI_ACCENT },
 	"inlineCompletions.languageFilter": { kind: "languageFilter" },
 	"commitGeneration.prompt": { kind: "boundedString", maxLength: WIRE_LIMITS.commitPrompt, default: "" },
-	"chat.sessionFingerprint": {
-		kind: "enum",
-		values: SESSION_FINGERPRINT_VALUES,
-		default: DEFAULT_SESSION_FINGERPRINT,
-	},
-	"chat.sessionFingerprintStrategy": {
-		kind: "enum",
-		values: SESSION_FINGERPRINT_STRATEGIES,
-		default: DEFAULT_SESSION_FINGERPRINT_STRATEGY,
-	},
-	"inlineCompletions.sessionFingerprint": {
-		kind: "enum",
-		values: FEATURE_SESSION_FINGERPRINT_VALUES,
-		default: DEFAULT_SESSION_FINGERPRINT,
-	},
-	"commitGeneration.sessionFingerprint": {
-		kind: "enum",
-		values: FEATURE_SESSION_FINGERPRINT_VALUES,
-		default: DEFAULT_SESSION_FINGERPRINT,
-	},
-	"prGeneration.sessionFingerprint": {
-		kind: "enum",
-		values: FEATURE_SESSION_FINGERPRINT_VALUES,
-		default: DEFAULT_SESSION_FINGERPRINT,
-	},
-	"consultTool.sessionFingerprint": {
-		kind: "enum",
-		values: FEATURE_SESSION_FINGERPRINT_VALUES,
-		default: DEFAULT_SESSION_FINGERPRINT,
-	},
-	"quickFix.sessionFingerprint": {
-		kind: "enum",
-		values: FEATURE_SESSION_FINGERPRINT_VALUES,
-		default: DEFAULT_SESSION_FINGERPRINT,
-	},
-	"reviewComments.sessionFingerprint": {
-		kind: "enum",
-		values: FEATURE_SESSION_FINGERPRINT_VALUES,
-		default: DEFAULT_SESSION_FINGERPRINT,
-	},
 } as const satisfies Record<StructuredSettingId, SettingShape>;
 
 /** Every setting's shape: the spec tables plus the structured shapes, each total over its own slice of SettingId. */

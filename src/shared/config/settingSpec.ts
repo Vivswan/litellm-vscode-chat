@@ -83,81 +83,21 @@ export const FEATURE_MODEL_SETTING_KEY_LIST: readonly FeatureModelSettingKey[] =
 );
 
 /**
- * What a request's LiteLLM session id is derived from.
+ * What LiteLLM groups a chat request under: the session id the request carries.
  *
- *   off          -> no session id rides the request at all
- *   conversation -> the chat the request belongs to (the chat knob alone offers this)
- *   workspace    -> the folder the window has open
- *   window       -> the editor session, whatever it is doing
+ *   off     -> no session id rides the request
+ *   on      -> one session per chat, the way other LiteLLM clients send theirs
+ *   folder  -> one session per open folder
+ *   window  -> one session per VS Code window, until it closes
  */
-export const SESSION_FINGERPRINT_VALUES = ["off", "conversation", "workspace", "window"] as const;
+export const SESSION_ID_MODES = ["off", "on", "folder", "window"] as const;
 
-export type SessionFingerprintValue = (typeof SESSION_FINGERPRINT_VALUES)[number];
+export type SessionIdMode = (typeof SESSION_ID_MODES)[number];
 
-/**
- * The one-shot surfaces' vocabulary: a completion, a commit message, and a pull-request title have no conversation
- * behind them, so the chat knob's "conversation" is not on offer to them.
- */
-export const FEATURE_SESSION_FINGERPRINT_VALUES = ["off", "workspace", "window"] as const;
+export const DEFAULT_SESSION_ID_MODE: SessionIdMode = "on";
 
-export type FeatureSessionFingerprintValue = (typeof FEATURE_SESSION_FINGERPRINT_VALUES)[number];
-
-/**
- * How a chat's own fingerprint is derived, once it is asked for.
- *
- *   durable   -> the fingerprint never changes: the last question before the assistant's first answer, else the first
- *                message's own bytes
- *   collecting -> the fingerprint upgrades as soon as there is something to fingerprint: a chat that starts with
- *                nothing to tell apart collects under the window id and moves to its own
- */
-export const SESSION_FINGERPRINT_STRATEGIES = ["durable", "collecting"] as const;
-
-export type SessionFingerprintStrategy = (typeof SESSION_FINGERPRINT_STRATEGIES)[number];
-
-/** The default strategy: the one whose fingerprint never changes under a chat. */
-export const DEFAULT_SESSION_FINGERPRINT_STRATEGY: SessionFingerprintStrategy = "durable";
-
-/** The default fingerprint: no session id rides the request until the user opts in. */
-export const DEFAULT_SESSION_FINGERPRINT = "off" satisfies SessionFingerprintValue;
-
-/** The chat knob's key; it covers the Copilot chat, the agent path, and the @litellm participant. */
-export const CHAT_SESSION_FINGERPRINT_SETTING_KEY = "chat.sessionFingerprint";
-
-/** The strategy toggle's key, beside the chat knob in the chat section. */
-export const CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY = "chat.sessionFingerprintStrategy";
-
-/**
- * Each feature's fingerprint knob key; the one map the one-shot send compositions address their own fingerprint
- * through.
- */
-export const FEATURE_SESSION_FINGERPRINT_SETTING_KEYS = {
-	inlineCompletions: "inlineCompletions.sessionFingerprint",
-	commitGeneration: "commitGeneration.sessionFingerprint",
-	prGeneration: "prGeneration.sessionFingerprint",
-	consultTool: "consultTool.sessionFingerprint",
-	quickFix: "quickFix.sessionFingerprint",
-	reviewComments: "reviewComments.sessionFingerprint",
-} as const satisfies Record<FeatureModelId, string>;
-
-/** One feature's fingerprint knob key as a literal type; the view-model unions derive their members from it. */
-export type FeatureSessionFingerprintSettingKey = (typeof FEATURE_SESSION_FINGERPRINT_SETTING_KEYS)[FeatureModelId];
-
-/** The six feature fingerprint keys, in feature order; the one list the manifest and the state push iterate. */
-export const FEATURE_SESSION_FINGERPRINT_SETTING_KEY_LIST: readonly FeatureSessionFingerprintSettingKey[] =
-	FEATURE_MODEL_IDS.map((feature) => FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[feature]);
-
-/** The eight fingerprint knobs: the chat pair and the six feature knobs. */
-export type SessionFingerprintSettingId =
-	| typeof CHAT_SESSION_FINGERPRINT_SETTING_KEY
-	| typeof CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY
-	| FeatureSessionFingerprintSettingKey;
-
-/** The eight keys, in manifest order: the chat pair first, then the feature knobs in feature order. */
-export const SESSION_FINGERPRINT_SETTING_IDS: readonly SessionFingerprintSettingId[] = [
-	CHAT_SESSION_FINGERPRINT_SETTING_KEY,
-	CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
-	...FEATURE_SESSION_FINGERPRINT_SETTING_KEY_LIST,
-];
+/** The session id setting's key; it covers the Copilot chat, the agent path, and the @litellm participant. */
+export const CHAT_SESSION_ID_SETTING_KEY = "chat.sessionId";
 
 /**
  * The inline-completions language filter's mode vocabulary: "block" runs completions everywhere except the listed
@@ -506,9 +446,7 @@ const STRUCTURED_SETTING_KEYS = [
 	...FEATURE_MODEL_SETTING_KEY_LIST,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
-	CHAT_SESSION_FINGERPRINT_SETTING_KEY,
-	CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
-	...FEATURE_SESSION_FINGERPRINT_SETTING_KEY_LIST,
+	CHAT_SESSION_ID_SETTING_KEY,
 ] as const;
 
 /** Every setting key as a literal union, for the surfaces that must be TOTAL over the vocabulary. */
@@ -537,8 +475,7 @@ const SECTIONS = [
 			ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 			"chat.promptCaching",
 			TOKEN_ESTIMATION_SETTING_KEY,
-			CHAT_SESSION_FINGERPRINT_SETTING_KEY,
-			CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
+			CHAT_SESSION_ID_SETTING_KEY,
 		],
 	},
 	{ id: "discovery", settings: ["discovery.timeout", "discovery.cacheTtl", "discovery.staleServeWindow"] },
@@ -562,7 +499,6 @@ const SECTIONS = [
 			FEATURE_ENABLE_SETTING_KEYS.inlineCompletions,
 			FEATURE_MODEL_SETTING_KEYS.inlineCompletions,
 			INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
-			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.inlineCompletions,
 		],
 	},
 	{
@@ -571,40 +507,14 @@ const SECTIONS = [
 			FEATURE_ENABLE_SETTING_KEYS.commitGeneration,
 			FEATURE_MODEL_SETTING_KEYS.commitGeneration,
 			COMMIT_GENERATION_PROMPT_SETTING_KEY,
-			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.commitGeneration,
 		],
 	},
-	{
-		id: "prGeneration",
-		settings: [
-			FEATURE_ENABLE_SETTING_KEYS.prGeneration,
-			FEATURE_MODEL_SETTING_KEYS.prGeneration,
-			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.prGeneration,
-		],
-	},
-	{
-		id: "consultTool",
-		settings: [
-			FEATURE_ENABLE_SETTING_KEYS.consultTool,
-			FEATURE_MODEL_SETTING_KEYS.consultTool,
-			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.consultTool,
-		],
-	},
-	{
-		id: "quickFix",
-		settings: [
-			FEATURE_ENABLE_SETTING_KEYS.quickFix,
-			FEATURE_MODEL_SETTING_KEYS.quickFix,
-			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.quickFix,
-		],
-	},
+	{ id: "prGeneration", settings: [FEATURE_ENABLE_SETTING_KEYS.prGeneration, FEATURE_MODEL_SETTING_KEYS.prGeneration] },
+	{ id: "consultTool", settings: [FEATURE_ENABLE_SETTING_KEYS.consultTool, FEATURE_MODEL_SETTING_KEYS.consultTool] },
+	{ id: "quickFix", settings: [FEATURE_ENABLE_SETTING_KEYS.quickFix, FEATURE_MODEL_SETTING_KEYS.quickFix] },
 	{
 		id: "reviewComments",
-		settings: [
-			FEATURE_ENABLE_SETTING_KEYS.reviewComments,
-			FEATURE_MODEL_SETTING_KEYS.reviewComments,
-			FEATURE_SESSION_FINGERPRINT_SETTING_KEYS.reviewComments,
-		],
+		settings: [FEATURE_ENABLE_SETTING_KEYS.reviewComments, FEATURE_MODEL_SETTING_KEYS.reviewComments],
 	},
 	{ id: "chatParticipant", settings: [FEATURE_ENABLE_SETTING_KEYS.chatParticipant] },
 	{ id: "agentTools", settings: AGENT_TOOLS_SETTING_KEYS },
@@ -657,7 +567,6 @@ export interface SettingPresentation {
 }
 
 const MACHINE_OVERRIDABLE_MARKDOWN: SettingPresentation = { scope: "machine-overridable", description: "markdown" };
-const MACHINE_OVERRIDABLE_PLAIN: SettingPresentation = { scope: "machine-overridable", description: "plain" };
 const MACHINE_MARKDOWN: SettingPresentation = { scope: "machine", description: "markdown" };
 const WINDOW_PLAIN: SettingPresentation = { scope: "window", description: "plain" };
 
@@ -679,8 +588,7 @@ export const SETTING_PRESENTATION: Readonly<Record<SettingId, SettingPresentatio
 	"chat.additionalToolSchemaKeywords": WINDOW_PLAIN,
 	"chat.promptCaching": WINDOW_PLAIN,
 	"chat.tokenEstimation": { scope: "window", description: "plain", enumDescriptions: true },
-	"chat.sessionFingerprint": WINDOW_PLAIN,
-	"chat.sessionFingerprintStrategy": WINDOW_PLAIN,
+	"chat.sessionId": { scope: "window", description: "plain", enumDescriptions: true },
 	"discovery.timeout": WINDOW_PLAIN,
 	"discovery.cacheTtl": WINDOW_PLAIN,
 	"discovery.staleServeWindow": WINDOW_PLAIN,
@@ -698,23 +606,17 @@ export const SETTING_PRESENTATION: Readonly<Record<SettingId, SettingPresentatio
 	"inlineCompletions.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"inlineCompletions.model": MACHINE_OVERRIDABLE_MARKDOWN,
 	"inlineCompletions.languageFilter": { scope: "window", description: "markdown" },
-	"inlineCompletions.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"commitGeneration.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"commitGeneration.model": MACHINE_OVERRIDABLE_MARKDOWN,
 	"commitGeneration.prompt": { scope: "window", description: "markdown", editPresentation: "multilineText" },
-	"commitGeneration.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"prGeneration.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"prGeneration.model": MACHINE_OVERRIDABLE_MARKDOWN,
-	"prGeneration.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"consultTool.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"consultTool.model": MACHINE_OVERRIDABLE_MARKDOWN,
-	"consultTool.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"quickFix.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"quickFix.model": MACHINE_OVERRIDABLE_MARKDOWN,
-	"quickFix.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"reviewComments.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"reviewComments.model": MACHINE_OVERRIDABLE_MARKDOWN,
-	"reviewComments.sessionFingerprint": MACHINE_OVERRIDABLE_PLAIN,
 	"chatParticipant.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"agentTools.enabled": MACHINE_MARKDOWN,
 	"agentTools.setSetting.enabled": MACHINE_MARKDOWN,

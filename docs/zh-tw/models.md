@@ -349,9 +349,20 @@
 - 提供者擁有的欄位無法覆寫: `model`、`messages`、`stream`、`stream_options`, 以及 - 當工具參與時 - `tools` 與 `tool_choice`。
 - 以 `_` 開頭的鍵是延伸模組指示詞 ([`_force`](#強制參數-_force)), 從不送出。
 
-### 工作階段指紋
+### 工作階段 ID
 
-有一個請求標頭是擴充功能自己的, 而且它不是參數: `x-litellm-session-id`, 它告訴 LiteLLM 代理哪些請求屬於一起, 因此代理的工作階段檢視會把它們分組。預設關閉, 每個功能面自選工作階段 ID 的來源 - 某個聊天、開啟的資料夾, 或本編輯器工作階段 ([`chat.sessionFingerprint` 與各功能的開關](settings.md#參考))。聊天的 ID 是助理首次回答前最後一個問題的指紋, 絕不是 VS Code 的對話 ID; 除非您主動要求, 否則請求不帶工作階段 ID。分組在 LiteLLM 的 `request_correlation_in_logs` 關閉時同樣有效 - 這個開關預設關閉, 因此代理裡不必開啟任何開關, 工作階段檢視就能把這些請求分組。它是 LiteLLM 自己的設定 (代理設定裡的 `litellm_settings.request_correlation_in_logs`), 開啟後額外帶來的是 LiteLLM 日誌載荷上一個獨立的工作階段 ID (不開啟時它是空字串), 以及代理每一行日誌上的 `trace_id` 與 `session_id` 標記 - 無論如何開銷日誌 (spend log) 的那一列都帶著這個工作階段 ID, 因為這個標頭把 trace ID 與工作階段 ID 設成了同一個值。
+有一個請求標頭是擴充功能自己的, 而且它不是參數: `x-litellm-session-id`, LiteLLM 代理在記錄頁依它給請求分組。預設開啟, 每個聊天一個工作階段, 與 Claude Code 和 opencode 的做法相同。[`chat.sessionId`](settings.md#參考) 可改選其他分組方式或關閉。
+
+| `chat.sessionId` | 工作階段 ID 是什麼 |
+|---|---|
+| `on` | 視窗 ID 與助理首次回答前最後一個問題的雜湊, 沒有問題時取開頭的圖片。同一視窗裡開頭相同的兩個聊天共用一個工作階段 |
+| `folder` | 開啟的資料夾路徑的雜湊。沒有開啟資料夾則不送出 |
+| `window` | VS Code 視窗自己 ID 的雜湊, 視窗關閉時更換 |
+| `off` | 不帶標頭 |
+
+雜湊讓每個問題和路徑都留在本機, 代理端也無需開啟任何東西: LiteLLM 把這個值原樣寫入消費記錄的工作階段欄。
+
+伺服器項目上已經叫 `x-litellm-session-id` 的任何東西都優先: 那裡的憑證或自訂標頭保留自己的值。自訂 `x-litellm-trace-id` 標頭也優先於工作階段 ID, 因為 LiteLLM 先讀 trace id。
 
 ### `max_tokens` 例外
 

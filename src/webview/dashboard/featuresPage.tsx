@@ -23,8 +23,6 @@ import {
 	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_IDS,
 	FEATURE_MODEL_SETTING_KEYS,
-	FEATURE_SESSION_FINGERPRINT_SETTING_KEYS,
-	FEATURE_SESSION_FINGERPRINT_VALUES,
 	isFeatureModelId,
 	LANGUAGE_FILTER_MODES,
 } from "../../shared/config/settingSpec";
@@ -34,7 +32,6 @@ import { DOCS_LINK_DASHBOARD_FEATURES } from "./docsLinks";
 import {
 	helpCommitPrompt,
 	helpFeatureModel,
-	helpFeatureSessionFingerprint,
 	helpFeaturesSection,
 	helpLanguageFilterList,
 	helpLanguageFilterMode,
@@ -42,11 +39,6 @@ import {
 } from "./helpText";
 import { useIntentOutcome } from "./hooks";
 import { tupleKey } from "./keys";
-import {
-	SessionFingerprintSettingRow,
-	sessionFingerprintDescription,
-	sessionFingerprintTitle,
-} from "./sessionFingerprintRows";
 import type { SettingWriteFailure } from "./settingRows";
 import {
 	CommaListRow,
@@ -584,34 +576,6 @@ interface FeatureTailContext {
 }
 
 /**
- * Whether the feature's fingerprint row matches the filter: the same haystack the row shows, so a needle always finds
- * the row that visibly says it.
- */
-function fingerprintVisible(matches: (...haystack: string[]) => boolean, feature: FeatureModelId): boolean {
-	return matches(
-		sessionFingerprintTitle(),
-		sessionFingerprintDescription(),
-		FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[feature],
-		helpFeatureSessionFingerprint()
-	);
-}
-
-/** The feature's own fingerprint row: its knob, its value, and the write that names the feature. */
-function fingerprintRow(feature: FeatureModelId, settings: DashboardSettings, hidden: boolean): ReactNode {
-	return (
-		<SessionFingerprintSettingRow
-			settingId={FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[feature]}
-			value={settings.featureSessionFingerprints[feature]}
-			options={FEATURE_SESSION_FINGERPRINT_VALUES}
-			help={helpFeatureSessionFingerprint()}
-			onPick={(value) => sendRequest("setFeatureSessionFingerprint", { feature, value })}
-			configuredScope={settings.featureSessionFingerprintScopes[feature]}
-			hidden={hidden}
-		/>
-	);
-}
-
-/**
  * The feature sections, total over FeatureId by mapped type: a new FeatureId fails compilation until it declares its
  * section here, which is what makes a feature a table-row addition instead of a page edit.
  */
@@ -631,14 +595,8 @@ export const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } 
 					languageFilterListDescription(ctx.settings.languageFilter.mode),
 					"inlineCompletions.languageFilter",
 					helpLanguageFilterList(ctx.settings.languageFilter.mode)
-				) ||
-				fingerprintVisible(matches, "inlineCompletions"),
-			rows: (ctx, hidden) => (
-				<>
-					<LanguageFilterRows filter={ctx.settings.languageFilter} hidden={hidden} />
-					{fingerprintRow("inlineCompletions", ctx.settings, hidden)}
-				</>
-			),
+				),
+			rows: (ctx, hidden) => <LanguageFilterRows filter={ctx.settings.languageFilter} hidden={hidden} />,
 		},
 	},
 	commitGeneration: {
@@ -650,47 +608,20 @@ export const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } 
 					commitPromptDescription(),
 					"commitGeneration.prompt",
 					helpCommitPrompt()
-				) || fingerprintVisible(matches, "commitGeneration"),
+				),
 			rows: (ctx, hidden) => (
-				<>
-					<CommitPromptRow
-						value={ctx.settings.commitPrompt}
-						configuredScope={ctx.settings.commitPromptScope}
-						hidden={hidden}
-					/>
-					{fingerprintRow("commitGeneration", ctx.settings, hidden)}
-				</>
+				<CommitPromptRow
+					value={ctx.settings.commitPrompt}
+					configuredScope={ctx.settings.commitPromptScope}
+					hidden={hidden}
+				/>
 			),
 		},
 	},
-	prGeneration: {
-		shipped: true,
-		tail: {
-			visible: (matches) => fingerprintVisible(matches, "prGeneration"),
-			rows: (ctx, hidden) => fingerprintRow("prGeneration", ctx.settings, hidden),
-		},
-	},
-	consultTool: {
-		shipped: true,
-		tail: {
-			visible: (matches) => fingerprintVisible(matches, "consultTool"),
-			rows: (ctx, hidden) => fingerprintRow("consultTool", ctx.settings, hidden),
-		},
-	},
-	quickFix: {
-		shipped: true,
-		tail: {
-			visible: (matches) => fingerprintVisible(matches, "quickFix"),
-			rows: (ctx, hidden) => fingerprintRow("quickFix", ctx.settings, hidden),
-		},
-	},
-	reviewComments: {
-		shipped: true,
-		tail: {
-			visible: (matches) => fingerprintVisible(matches, "reviewComments"),
-			rows: (ctx, hidden) => fingerprintRow("reviewComments", ctx.settings, hidden),
-		},
-	},
+	prGeneration: { shipped: true },
+	consultTool: { shipped: true },
+	quickFix: { shipped: true },
+	reviewComments: { shipped: true },
 	chatParticipant: { shipped: true },
 	agentTools: {
 		shipped: true,
@@ -758,9 +689,6 @@ export function FeaturesSection({
 			if (isFeatureModelId(feature) && row === FEATURE_MODEL_SETTING_KEYS[feature]) {
 				return modelVisible(feature);
 			}
-			if (isFeatureModelId(feature) && row === FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[feature]) {
-				return tailVisible(feature);
-			}
 		}
 		if (row === "inlineCompletions.languageFilter") {
 			return tailVisible("inlineCompletions");
@@ -778,7 +706,6 @@ export function FeaturesSection({
 	const scopes: readonly (SettingScope | null)[] = [
 		...FEATURE_IDS.flatMap((feature) => featureBooleans(feature).map((id) => settings.configuredScopes.booleans[id])),
 		...Object.values(settings.featureModelScopes),
-		...Object.values(settings.featureSessionFingerprintScopes),
 		settings.commitPromptScope,
 		settings.languageFilter.languages.scope,
 	];

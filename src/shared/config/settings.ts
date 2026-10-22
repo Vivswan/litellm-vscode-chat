@@ -8,7 +8,6 @@ import {
 	headerValue,
 	isHeaderScalar,
 	trimHttpWhitespace,
-	usableHttpText,
 } from "../util/headers";
 import { cloneJson, isUnsafeRecordKey, objectSlot } from "../util/json";
 import type {
@@ -17,12 +16,10 @@ import type {
 	FeatureId,
 	FeatureModelId,
 	FeatureModelRef,
-	FeatureSessionFingerprintValue,
 	InlineLanguageFilter,
 	LanguageFilterMode,
 	NumberSettingId,
-	SessionFingerprintStrategy,
-	SessionFingerprintValue,
+	SessionIdMode,
 	TokenEstimationMode,
 } from "./settingSpec";
 import {
@@ -31,15 +28,13 @@ import {
 	AGENT_TOOLS_SECRET_VALUES_KEY,
 	acceptsNumberSetting,
 	BOOLEAN_SETTING_SPECS,
-	CHAT_SESSION_FINGERPRINT_SETTING_KEY,
-	CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY,
+	CHAT_SESSION_ID_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_INLINE_LANGUAGE_FILTER,
-	DEFAULT_SESSION_FINGERPRINT,
-	DEFAULT_SESSION_FINGERPRINT_STRATEGY,
+	DEFAULT_SESSION_ID_MODE,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
@@ -47,8 +42,6 @@ import {
 	DEFAULT_USAGE_STATUS_BAR_MODE,
 	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_MODEL_SETTING_KEYS,
-	FEATURE_SESSION_FINGERPRINT_SETTING_KEYS,
-	FEATURE_SESSION_FINGERPRINT_VALUES,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	isUsableThreshold,
 	LANGUAGE_FILTER_MODES,
@@ -59,8 +52,7 @@ import {
 	NUMBER_SETTING_SPECS,
 	numberSettingBoundText,
 	SERVERS_SETTING_KEY,
-	SESSION_FINGERPRINT_STRATEGIES,
-	SESSION_FINGERPRINT_VALUES,
+	SESSION_ID_MODES,
 	TOKEN_ESTIMATION_MODES,
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
@@ -127,10 +119,13 @@ export function getRequestTimeout(log?: LogFn): number {
 	return readNumberSetting("chat.timeout", log);
 }
 
+/** A vocabulary value out of settings.json: one of the words the spec declares, or the default for anything else. */
+function normalizeEnumSetting<T extends string>(raw: unknown, allowed: readonly T[], fallback: T): T {
+	return z.enum(allowed).catch(fallback).parse(raw);
+}
+
 export function normalizeTokenEstimationMode(raw: unknown): TokenEstimationMode {
-	return typeof raw === "string" && (TOKEN_ESTIMATION_MODES as readonly string[]).includes(raw)
-		? (raw as TokenEstimationMode)
-		: DEFAULT_TOKEN_ESTIMATION_MODE;
+	return normalizeEnumSetting(raw, TOKEN_ESTIMATION_MODES, DEFAULT_TOKEN_ESTIMATION_MODE);
 }
 
 /** Read once at activation and on configuration change by the tokenizer wiring, never per count. */
@@ -138,45 +133,14 @@ export function getTokenEstimationMode(): TokenEstimationMode {
 	return normalizeTokenEstimationMode(getConfig().get<unknown>(TOKEN_ESTIMATION_SETTING_KEY));
 }
 
-/**
- * A vocabulary value out of settings.json: one of the words the spec declares, or the default when the text is not one
- * of them. The text goes through the one trim rule, so a padded value spells the same fingerprint as its unpadded twin.
- */
-function readSessionFingerprintValue<T extends string>(raw: unknown, allowed: readonly T[], fallback: T): T {
-	const text = usableHttpText(raw);
-	return text !== undefined && (allowed as readonly string[]).includes(text) ? (text as T) : fallback;
+/** The session id vocabulary, read off a raw value: off, on, folder, or window. */
+export function normalizeSessionIdMode(raw: unknown): SessionIdMode {
+	return normalizeEnumSetting(raw, SESSION_ID_MODES, DEFAULT_SESSION_ID_MODE);
 }
 
-/** The chat's own session fingerprint: off, conversation, workspace, or window. */
-export function getChatSessionFingerprint(): SessionFingerprintValue {
-	return normalizeSessionFingerprintValue(getConfig().get<unknown>(CHAT_SESSION_FINGERPRINT_SETTING_KEY));
-}
-
-/** How the chat's own fingerprint is derived, when it is asked for. */
-export function getChatSessionFingerprintStrategy(): SessionFingerprintStrategy {
-	return normalizeSessionFingerprintStrategy(getConfig().get<unknown>(CHAT_SESSION_FINGERPRINT_STRATEGY_SETTING_KEY));
-}
-
-/** One one-shot feature's own session fingerprint: off, workspace, or window. */
-export function getFeatureSessionFingerprint(feature: FeatureModelId): FeatureSessionFingerprintValue {
-	return normalizeFeatureSessionFingerprintValue(
-		getConfig().get<unknown>(FEATURE_SESSION_FINGERPRINT_SETTING_KEYS[feature])
-	);
-}
-
-/** The chat's fingerprint vocabulary, read off a raw value: off, conversation, workspace, or window. */
-export function normalizeSessionFingerprintValue(raw: unknown): SessionFingerprintValue {
-	return readSessionFingerprintValue(raw, SESSION_FINGERPRINT_VALUES, DEFAULT_SESSION_FINGERPRINT);
-}
-
-/** One feature's fingerprint vocabulary, read off a raw value: off, workspace, or window. */
-export function normalizeFeatureSessionFingerprintValue(raw: unknown): FeatureSessionFingerprintValue {
-	return readSessionFingerprintValue(raw, FEATURE_SESSION_FINGERPRINT_VALUES, DEFAULT_SESSION_FINGERPRINT);
-}
-
-/** The strategy vocabulary, read off a raw value: durable or collecting. */
-export function normalizeSessionFingerprintStrategy(raw: unknown): SessionFingerprintStrategy {
-	return readSessionFingerprintValue(raw, SESSION_FINGERPRINT_STRATEGIES, DEFAULT_SESSION_FINGERPRINT_STRATEGY);
+/** What LiteLLM groups a chat request under; read per request, so a change applies to the next one. */
+export function getChatSessionIdMode(): SessionIdMode {
+	return normalizeSessionIdMode(getConfig().get<unknown>(CHAT_SESSION_ID_SETTING_KEY));
 }
 
 /** 0 is a valid configuration. */
@@ -274,9 +238,7 @@ export function getUsageAlertThresholds(log?: LogFn): readonly number[] {
 }
 
 export function normalizeUsageStatusBarMode(raw: unknown): UsageStatusBarMode {
-	return typeof raw === "string" && (USAGE_STATUS_BAR_MODES as readonly string[]).includes(raw)
-		? (raw as UsageStatusBarMode)
-		: DEFAULT_USAGE_STATUS_BAR_MODE;
+	return normalizeEnumSetting(raw, USAGE_STATUS_BAR_MODES, DEFAULT_USAGE_STATUS_BAR_MODE);
 }
 
 export function getUsageStatusBarMode(): UsageStatusBarMode {
@@ -297,9 +259,7 @@ export function getCurrencySymbol(): string {
 }
 
 export function normalizeUiTheme(raw: unknown): UiTheme {
-	return typeof raw === "string" && (UI_THEMES as readonly string[]).includes(raw)
-		? (raw as UiTheme)
-		: DEFAULT_UI_THEME;
+	return normalizeEnumSetting(raw, UI_THEMES, DEFAULT_UI_THEME);
 }
 
 export function getUiTheme(): UiTheme {
@@ -307,9 +267,7 @@ export function getUiTheme(): UiTheme {
 }
 
 export function normalizeUiAccent(raw: unknown): UiAccent {
-	return typeof raw === "string" && (UI_ACCENTS as readonly string[]).includes(raw)
-		? (raw as UiAccent)
-		: DEFAULT_UI_ACCENT;
+	return normalizeEnumSetting(raw, UI_ACCENTS, DEFAULT_UI_ACCENT);
 }
 
 export function getUiAccent(): UiAccent {

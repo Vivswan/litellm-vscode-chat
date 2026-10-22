@@ -130,6 +130,11 @@
 	"litellm.config.chat.tokenEstimation.heuristic": "簡單的每 4 字元 1 token 估算。從不載入分詞器資料, 對中日韓文字約低估 4 倍。",
 	"litellm.config.chat.tokenEstimation.o200k_base": "一律載入 o200k_base 分詞器 (GPT-4o 及更新的模型)。",
 	"litellm.config.chat.tokenEstimation.cl100k_base": "一律載入 cl100k_base 分詞器 (GPT-3.5 與 GPT-4 時代的模型)。",
+	"litellm.config.chat.sessionId.description": "LiteLLM 把聊天請求歸入哪個工作階段。請求以 x-litellm-session-id 標頭攜帶它, 代理的記錄頁把這些分組顯示為工作階段。",
+	"litellm.config.chat.sessionId.off": "不送出工作階段 ID。請求與此設定出現之前完全一樣。",
+	"litellm.config.chat.sessionId.on": "把一個聊天的各輪歸入一個工作階段, 與其他 LiteLLM 用戶端的做法相同。ID 是開啟聊天的問題與本視窗 ID 的雜湊, 因此沒有文字離開本機。",
+	"litellm.config.chat.sessionId.folder": "把開啟某個資料夾期間送出的所有聊天請求歸入一個工作階段。ID 是資料夾路徑的雜湊。",
+	"litellm.config.chat.sessionId.window": "把本 VS Code 視窗的所有聊天請求歸入一個工作階段, 直到視窗關閉。ID 是視窗自己 ID 的雜湊。",
 	"litellm.config.discovery.timeout.description": "模型探索請求的逾時 (毫秒)。預設為 30000ms (30 秒)。",
 	"litellm.config.discovery.cacheTtl.description": "已探索的模型清單在再次詢問伺服器前可重複使用多久 (毫秒)。預設為 3600000 (1 小時)。較高的值可避免 VS Code 密集重新解析提供者時重複發出探索請求, 但伺服器上新增或移除的模型最久要這麼長時間才會出現; 較低的值能較快反映伺服器端變更, 代價是更多請求。設為 0 表示每次重新整理都詢問伺服器 (同時發生的重新整理仍共用一個請求)。執行「LiteLLM: 立即同步模型」可不受此設定影響立即重新整理。",
 	"litellm.config.discovery.staleServeWindow.description": "伺服器停止回應後, 其最後已知的模型繼續提供 (標記為過時) 的時長 (毫秒), 從最後一次成功探索起算。預設為 600000 (10 分鐘)。若你的伺服器會休眠或重啟更久, 且希望期間模型仍留在選擇器中, 可調高此值; 設為 0 則永不提供過時模型, 重新整理失敗會立即清空該伺服器的模型清單。",
@@ -211,13 +216,5 @@
 	"litellm.participant.command.explain.sampleRequest": "解釋這條警告",
 	"litellm.participant.command.explain.disambiguation.description": "使用者想弄清楚自己程式碼上的某條診斷是什麼意思, 以及編輯器為什麼在這裡回報它。",
 	"litellm.participant.command.explain.disambiguation.example1": "這條 TypeScript 錯誤到底是什麼意思?",
-	"litellm.participant.command.explain.disambiguation.example2": "為什麼程式碼檢查工具會對這一行發出警告?",
-	"litellm.config.chat.sessionFingerprint.description": "哪些請求由 LiteLLM 歸為同一個工作階段。關閉表示完全不傳送工作階段 ID; 每個聊天把一次對話的請求歸為一組, 使用聊天自己的指紋, 絕不是 VS Code 的對話 ID; 每個工作區把開啟資料夾期間送出的所有請求歸為一組; 每個視窗把本編輯器工作階段送出的所有請求歸為一組。工作階段 ID 以 x-litellm-session-id 請求標頭傳送, LiteLLM 的工作階段檢視據此把共用它的請求分組。",
-	"litellm.config.chat.sessionFingerprintStrategy.description": "聊天指紋如何產生。每個聊天一個指紋將它固定在助理首次回答前的最後一個問題上, 因此聊天被回答期間它不會變更; 可辨識後再細化讓暫時無法區分的聊天先使用視窗 ID, 一旦說出可區分的內容就改用自己的指紋 - 因此同一個聊天可能出現在兩個工作階段 ID 下。只有在指紋取自對話時才會作用。",
-	"litellm.config.inlineCompletions.sessionFingerprint.description": "哪些請求由 LiteLLM 歸為同一個工作階段。關閉表示完全不傳送工作階段 ID; 每個工作區把開啟資料夾期間送出的所有請求歸為一組; 每個視窗把本編輯器工作階段送出的所有請求歸為一組。工作階段 ID 以 x-litellm-session-id 請求標頭傳送, LiteLLM 的工作階段檢視據此把共用它的請求分組。",
-	"litellm.config.commitGeneration.sessionFingerprint.description": "哪些請求由 LiteLLM 歸為同一個工作階段。關閉表示完全不傳送工作階段 ID; 每個工作區把開啟資料夾期間送出的所有請求歸為一組; 每個視窗把本編輯器工作階段送出的所有請求歸為一組。工作階段 ID 以 x-litellm-session-id 請求標頭傳送, LiteLLM 的工作階段檢視據此把共用它的請求分組。",
-	"litellm.config.prGeneration.sessionFingerprint.description": "哪些請求由 LiteLLM 歸為同一個工作階段。關閉表示完全不傳送工作階段 ID; 每個工作區把開啟資料夾期間送出的所有請求歸為一組; 每個視窗把本編輯器工作階段送出的所有請求歸為一組。工作階段 ID 以 x-litellm-session-id 請求標頭傳送, LiteLLM 的工作階段檢視據此把共用它的請求分組。",
-	"litellm.config.consultTool.sessionFingerprint.description": "哪些請求由 LiteLLM 歸為同一個工作階段。關閉表示完全不傳送工作階段 ID; 每個工作區把開啟資料夾期間送出的所有請求歸為一組; 每個視窗把本編輯器工作階段送出的所有請求歸為一組。工作階段 ID 以 x-litellm-session-id 請求標頭傳送, LiteLLM 的工作階段檢視據此把共用它的請求分組。",
-	"litellm.config.quickFix.sessionFingerprint.description": "哪些請求由 LiteLLM 歸為同一個工作階段。關閉表示完全不傳送工作階段 ID; 每個工作區把開啟資料夾期間送出的所有請求歸為一組; 每個視窗把本編輯器工作階段送出的所有請求歸為一組。工作階段 ID 以 x-litellm-session-id 請求標頭傳送, LiteLLM 的工作階段檢視據此把共用它的請求分組。",
-	"litellm.config.reviewComments.sessionFingerprint.description": "哪些請求由 LiteLLM 歸為同一個工作階段。關閉表示完全不傳送工作階段 ID; 每個工作區把開啟資料夾期間送出的所有請求歸為一組; 每個視窗把本編輯器工作階段送出的所有請求歸為一組。工作階段 ID 以 x-litellm-session-id 請求標頭傳送, LiteLLM 的工作階段檢視據此把共用它的請求分組。"
+	"litellm.participant.command.explain.disambiguation.example2": "為什麼程式碼檢查工具會對這一行發出警告?"
 }

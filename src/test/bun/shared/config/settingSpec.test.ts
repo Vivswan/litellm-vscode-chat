@@ -9,7 +9,6 @@ import {
 	type BooleanSettingId,
 	FEATURE_ENABLE_SETTING_KEYS,
 	FEATURE_MODEL_SETTING_KEY_LIST,
-	FEATURE_SESSION_FINGERPRINT_SETTING_KEY_LIST,
 	isIntegerSetting,
 	LOG_REDACTION_SETTING_KEY,
 	MODEL_CAPABILITIES_SETTING_KEY,
@@ -92,7 +91,6 @@ describe("shared/config/settingSpec: presentation rules", () => {
 		const machineOverridable = new Set<string>([
 			...Object.values(FEATURE_ENABLE_SETTING_KEYS).filter((key) => !machineOnly.has(key)),
 			...FEATURE_MODEL_SETTING_KEY_LIST,
-			...FEATURE_SESSION_FINGERPRINT_SETTING_KEY_LIST,
 			catalogKey,
 			LOG_REDACTION_SETTING_KEY,
 		]);

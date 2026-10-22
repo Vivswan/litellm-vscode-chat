@@ -143,11 +143,6 @@ const featureModelRoute =
 	(feature: FeatureModelId): SettingRoute =>
 	(value) => [{ method: "setFeatureModel", payload: { feature, value } }];
 
-/** The one-shot features' own fingerprint knob, addressed by the feature it belongs to. */
-const featureSessionFingerprintRoute =
-	(feature: FeatureModelId): SettingRoute =>
-	(value) => [{ method: "setFeatureSessionFingerprint", payload: { feature, value } }];
-
 /**
  * One half per call, exactly the dashboard's grammar: each row sends only its own half, and the intent reads the stored
  * filter and merges. Two halves in one call are refused rather than split into two requests, because the second
@@ -173,14 +168,7 @@ const STRUCTURED_SETTING_ROUTES = {
 	"reviewComments.model": featureModelRoute("reviewComments"),
 	"inlineCompletions.languageFilter": languageFilterRoute,
 	"commitGeneration.prompt": valueRoute("setCommitPrompt"),
-	"chat.sessionFingerprint": valueRoute("setChatSessionFingerprint"),
-	"chat.sessionFingerprintStrategy": valueRoute("setChatSessionFingerprintStrategy"),
-	"inlineCompletions.sessionFingerprint": featureSessionFingerprintRoute("inlineCompletions"),
-	"commitGeneration.sessionFingerprint": featureSessionFingerprintRoute("commitGeneration"),
-	"prGeneration.sessionFingerprint": featureSessionFingerprintRoute("prGeneration"),
-	"consultTool.sessionFingerprint": featureSessionFingerprintRoute("consultTool"),
-	"quickFix.sessionFingerprint": featureSessionFingerprintRoute("quickFix"),
-	"reviewComments.sessionFingerprint": featureSessionFingerprintRoute("reviewComments"),
+	"chat.sessionId": valueRoute("setChatSessionId"),
 } satisfies Record<StructuredPlainSettingId, SettingRoute>;
 
 const AGENT_TOOLS_KEYS: ReadonlySet<string> = new Set(AGENT_TOOLS_SETTING_KEYS);

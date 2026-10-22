@@ -1,6 +1,5 @@
 import { APIConnectionError, APIError } from "openai";
 import * as vscode from "vscode";
-import { SESSION_ID_HEADER_NAME } from "../../shared/config/sessionFingerprint";
 import { fixedHeaderValue, type HeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "./auth";
@@ -85,11 +84,6 @@ export interface OneShotCallOptions {
 	 */
 	readonly timeout: TimeoutBudget;
 	readonly token: vscode.CancellationToken;
-	/**
-	 * The session id header this call carries, when the caller's feature has a session fingerprint; undefined means
-	 * the call carries no session id at all. Minted by the fingerprint resolution, never here.
-	 */
-	readonly sessionIdHeader?: HeaderValue | undefined;
 }
 
 /**
@@ -111,16 +105,6 @@ function oneShotContentOf(payload: string): string {
 		return "";
 	}
 	return typeof first.message.content === "string" ? first.message.content : "";
-}
-
-/**
- * The session id header this call carries: the extension's own header, so it owns it and wins over anything the
- * server entry or the credential brought. Nothing is set when the call carries no session id.
- */
-function setSessionIdHeader(headers: Record<string, HeaderValue>, opts: OneShotCallOptions): void {
-	if (opts.sessionIdHeader !== undefined) {
-		setOwnedHeader(headers, SESSION_ID_HEADER_NAME, opts.sessionIdHeader);
-	}
 }
 
 /**
@@ -228,7 +212,6 @@ export class OneShotClient {
 				timeout: opts.timeout,
 				signal: cancelController.signal,
 			});
-			setSessionIdHeader(headers, opts);
 			return headers;
 		} catch (err) {
 			if (opts.token.isCancellationRequested) {
@@ -276,7 +259,6 @@ export class OneShotClient {
 				timeout: opts.timeout,
 				signal: requestSignal,
 			});
-			setSessionIdHeader(headers, opts);
 			let response: Response;
 			try {
 				response = await this.fetch(url, { method: "POST", headers, body, signal: requestSignal });

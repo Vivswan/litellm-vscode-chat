@@ -17,13 +17,14 @@ import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, settingRowPage } from "../../d
 import type {
 	BooleanSettingId,
 	NumberSettingId,
+	SessionIdMode,
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
 	UsageStatusBarMode,
 } from "../../shared/config/settingSpec";
 import {
-	SESSION_FINGERPRINT_VALUES,
+	SESSION_ID_MODES,
 	TOKEN_ESTIMATION_MODES,
 	UI_ACCENTS,
 	UI_THEMES,
@@ -37,8 +38,7 @@ import {
 	helpImportExportGroup,
 	helpModelCapabilitiesSection,
 	helpModelParametersSection,
-	helpSessionFingerprint,
-	helpSessionFingerprintStrategy,
+	helpSessionId,
 	helpSettingsSection,
 	helpTokenEstimation,
 	helpToolSchemaKeywords,
@@ -55,14 +55,6 @@ import {
 	modelCapabilitiesTitle,
 	modelParametersTitle,
 } from "./recordEditors";
-import {
-	SessionFingerprintSettingRow,
-	SessionFingerprintStrategyRow,
-	sessionFingerprintDescription,
-	sessionFingerprintStrategyDescription,
-	sessionFingerprintStrategyTitle,
-	sessionFingerprintTitle,
-} from "./sessionFingerprintRows";
 import type { SettingWriteFailure } from "./settingRows";
 import {
 	CommaListRow,
@@ -213,6 +205,10 @@ function tokenEstimationDescription(): string {
 	return l10n.t("How prompts are sized for the local token budget.");
 }
 
+function sessionIdDescription(): string {
+	return l10n.t("What LiteLLM groups this chat's requests under, e.g. one session per chat.");
+}
+
 function toolSchemaKeywordsDescription(): string {
 	// The example lives in the input's own placeholder, one column to the left.
 	return l10n.t("Extra JSON-Schema keywords kept in tool definitions.");
@@ -267,6 +263,23 @@ function tokenEstimationLabel(mode: TokenEstimationMode): string {
 			return l10n.t("o200k_base tokenizer (GPT-4o and newer)");
 		case "cl100k_base":
 			return l10n.t("cl100k_base tokenizer (GPT-4 era)");
+	}
+}
+
+/** The session id modes, as the row shows them: what LiteLLM groups the requests by. */
+function sessionIdLabel(mode: SessionIdMode): string {
+	switch (mode) {
+		case "off":
+			return l10n.t({
+				message: "Off",
+				comment: ["The session id setting's off value: no session id rides the request"],
+			});
+		case "on":
+			return l10n.t("On - one session per chat");
+		case "folder":
+			return l10n.t("Per open folder");
+		case "window":
+			return l10n.t("Per VS Code window");
 	}
 }
 
@@ -668,8 +681,7 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 		),
 		settings.chat.tokenEstimationScope,
 		settings.chat.additionalToolSchemaKeywords.scope,
-		settings.chat.sessionFingerprintScope,
-		settings.chat.sessionFingerprintStrategyScope,
+		settings.chat.sessionIdScope,
 		settings.usage.statusBarScope,
 		settings.usage.thresholdsScope,
 		settings.usage.currencySymbolScope,
@@ -788,18 +800,7 @@ export function SettingsSection({
 		"chat.additionalToolSchemaKeywords",
 		helpToolSchemaKeywords()
 	);
-	const sessionFingerprintVisible = matches(
-		sessionFingerprintTitle(),
-		sessionFingerprintDescription(),
-		"chat.sessionFingerprint",
-		helpSessionFingerprint()
-	);
-	const sessionFingerprintStrategyVisible = matches(
-		sessionFingerprintStrategyTitle(),
-		sessionFingerprintStrategyDescription(),
-		"chat.sessionFingerprintStrategy",
-		helpSessionFingerprintStrategy()
-	);
+	const sessionIdVisible = matches(l10n.t("Session id"), sessionIdDescription(), "chat.sessionId", helpSessionId());
 	const thresholdsCustom = settings.usage.alertThresholds.length > 2;
 	// The editable branch's help joins its haystack only while that branch renders it: a needle from the tip must not
 	// keep the custom row alive.
@@ -833,8 +834,7 @@ export function SettingsSection({
 		!statusBarVisible &&
 		!tokenEstimationVisible &&
 		!toolSchemaKeywordsVisible &&
-		!sessionFingerprintVisible &&
-		!sessionFingerprintStrategyVisible &&
+		!sessionIdVisible &&
 		!thresholdsVisible &&
 		!currencyVisible &&
 		!themeVisible &&
@@ -855,10 +855,8 @@ export function SettingsSection({
 				return tokenEstimationVisible;
 			case "chat.additionalToolSchemaKeywords":
 				return toolSchemaKeywordsVisible;
-			case "chat.sessionFingerprint":
-				return sessionFingerprintVisible;
-			case "chat.sessionFingerprintStrategy":
-				return sessionFingerprintStrategyVisible;
+			case "chat.sessionId":
+				return sessionIdVisible;
 			case "usage.alertThresholds":
 				return thresholdsVisible;
 			case "usage.statusBar":
@@ -945,11 +943,7 @@ export function SettingsSection({
 								booleanMeta={booleanMeta}
 								tailVisible={
 									(isModelsGroup && (paramsVisible || capsVisible)) ||
-									(isChatGroup &&
-										(tokenEstimationVisible ||
-											toolSchemaKeywordsVisible ||
-											sessionFingerprintVisible ||
-											sessionFingerprintStrategyVisible)) ||
+									(isChatGroup && (tokenEstimationVisible || toolSchemaKeywordsVisible || sessionIdVisible)) ||
 									(isUsageGroup && (statusBarVisible || thresholdsVisible || currencyVisible)) ||
 									(isUiGroup && (themeVisible || accentVisible))
 								}
@@ -992,25 +986,17 @@ export function SettingsSection({
 												setting={settings.chat.additionalToolSchemaKeywords}
 												hidden={!toolSchemaKeywordsVisible}
 											/>
-											<SessionFingerprintSettingRow
-												settingId="chat.sessionFingerprint"
-												value={settings.chat.sessionFingerprint}
-												options={SESSION_FINGERPRINT_VALUES}
-												help={helpSessionFingerprint()}
-												onPick={(value) => sendRequest("setChatSessionFingerprint", { value })}
-												configuredScope={settings.chat.sessionFingerprintScope}
-												hidden={!sessionFingerprintVisible}
-											/>
-											{/* The strategy only bites while the fingerprint is the conversation's, so
-											    the row hides itself otherwise - a knob that cannot act should not be
-											    on screen. */}
-											<SessionFingerprintStrategyRow
-												value={settings.chat.sessionFingerprintStrategy}
-												configuredScope={settings.chat.sessionFingerprintStrategyScope}
-												hidden={
-													!sessionFingerprintStrategyVisible || settings.chat.sessionFingerprint !== "conversation"
-												}
-												onPick={(value) => sendRequest("setChatSessionFingerprintStrategy", { value })}
+											<EnumSettingRow
+												settingId="chat.sessionId"
+												title={l10n.t("Session id")}
+												description={sessionIdDescription()}
+												help={helpSessionId()}
+												value={settings.chat.sessionId}
+												options={SESSION_ID_MODES}
+												optionLabel={sessionIdLabel}
+												onPick={(value) => sendRequest("setChatSessionId", { value })}
+												configuredScope={settings.chat.sessionIdScope}
+												hidden={!sessionIdVisible}
 											/>
 										</>
 									) : isUsageGroup ? (
