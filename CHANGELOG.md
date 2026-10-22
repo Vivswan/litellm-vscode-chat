@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.10](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.9...v0.6.10) (2026-10-22)
+
+
+### Features
+
+* send a LiteLLM session id with chat requests ([#588](https://github.com/Vivswan/litellm-vscode-chat/issues/588), thanks [@theodiem](https://github.com/theodiem)) ([#588](https://github.com/Vivswan/litellm-vscode-chat/issues/588)) ([f77b7a0](https://github.com/Vivswan/litellm-vscode-chat/commit/f77b7a075e0b3c3761b57ff058a826c193c56854))
+
 ## [0.6.9](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.8...v0.6.9) (2026-10-12)
 
 
