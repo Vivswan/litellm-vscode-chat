@@ -168,6 +168,7 @@ const STRUCTURED_SETTING_ROUTES = {
 	"reviewComments.model": featureModelRoute("reviewComments"),
 	"inlineCompletions.languageFilter": languageFilterRoute,
 	"commitGeneration.prompt": valueRoute("setCommitPrompt"),
+	"chat.sessionId": valueRoute("setChatSessionId"),
 } satisfies Record<StructuredPlainSettingId, SettingRoute>;
 
 const AGENT_TOOLS_KEYS: ReadonlySet<string> = new Set(AGENT_TOOLS_SETTING_KEYS);

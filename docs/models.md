@@ -349,6 +349,21 @@ When you configure nothing - or nothing that matches a given model - your model 
 - Provider-owned fields cannot be overridden: `model`, `messages`, `stream`, `stream_options`, and - when tools are in play - `tools` and `tool_choice`.
 - Keys starting with `_` are extension directives ([`_force`](#forcing-parameters-_force)) and are never sent.
 
+### The session id
+
+One header is the extension's own, and it is not a parameter: `x-litellm-session-id`, which a LiteLLM proxy groups requests by on its Logs page. It is on by default, one session per chat, the way Claude Code and opencode send theirs. [`chat.sessionId`](settings.md#reference) picks another grouping or turns it off.
+
+| `chat.sessionId` | The session id |
+|---|---|
+| `on` | A hash of the window's id and the last question before the assistant's first answer, or of the opening image when there is no question. Two chats that open alike in one window share a session |
+| `folder` | A hash of the open folder's path. No folder open sends nothing |
+| `window` | A hash of the VS Code window's own id, which changes when the window closes |
+| `off` | No header |
+
+The hashes keep every question and path on the machine, and nothing has to be turned on in the proxy: LiteLLM writes the value to its spend log's session column as it arrives.
+
+Anything on the server entry already named `x-litellm-session-id` wins: a credential or a custom header there keeps its value. A custom `x-litellm-trace-id` header outranks the session id too, because LiteLLM reads the trace id first.
+
 ### The `max_tokens` exception
 
 The one field the extension fills in on its own is `max_tokens`. When neither runtime options nor any parameters record sets it, the request carries the model's resolved max output tokens:

@@ -15,12 +15,14 @@ import type {
 	FeatureModelRef,
 	LanguageFilterMode,
 	NumberSettingId,
+	SessionIdMode,
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
 	UsageStatusBarMode,
 } from "../shared/config/settingSpec";
 import {
+	CHAT_SESSION_ID_SETTING_KEY,
 	FEATURE_MODEL_SETTING_KEYS,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 } from "../shared/config/settingSpec";
@@ -225,6 +227,7 @@ export const DASHBOARD_ENDPOINTS = {
 	setFeatureModel: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	setCommitPrompt: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	setLanguageFilter: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
+	setChatSessionId: { outcome: "fire-and-forget", channel: "chained", fail: "settings-row" },
 	/** Refresh the OpenRouter catalog now; the outcome lands in the next push's catalog status. */
 	refreshCatalog: { outcome: "fire-and-forget", channel: "chained", fail: "log-only" },
 	/** Refresh usage data for every server now; the poller's completion re-pushes state. */
@@ -296,6 +299,7 @@ interface DashboardEndpointIO {
 	setModelParameters: { request: { readonly value: Record<string, Record<string, unknown>> } };
 	setModelCapabilities: { request: { readonly value: Record<string, Record<string, unknown>> } };
 	setUsageStatusBar: { request: { readonly value: UsageStatusBarMode } };
+	setChatSessionId: { request: { readonly value: SessionIdMode } };
 	setTokenEstimation: { request: { readonly value: TokenEstimationMode } };
 	/** Any short string, the empty string included (bare numbers); the extension bounds the length at the schema. */
 	setCurrencySymbol: { request: { readonly value: string } };
@@ -620,6 +624,7 @@ const SETTING_WRITE_ROWS: { readonly [K in SettingWriteMethod]: (payload: Reques
 	setFeatureModel: (payload) => FEATURE_MODEL_SETTING_KEYS[payload.feature],
 	setCommitPrompt: () => "commitGeneration.prompt",
 	setLanguageFilter: () => INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
+	setChatSessionId: () => CHAT_SESSION_ID_SETTING_KEY,
 };
 
 export const SETTING_WRITE_METHODS = Object.keys(SETTING_WRITE_ROWS) as readonly SettingWriteMethod[];

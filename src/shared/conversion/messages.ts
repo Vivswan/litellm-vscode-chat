@@ -80,7 +80,7 @@ function extractPromptTsxText(part: vscode.LanguageModelPromptTsxPart): string |
 	return undefined;
 }
 
-function mapRole(message: vscode.LanguageModelChatRequestMessage, log?: LogFn): Exclude<OpenAIChatRole, "tool"> {
+export function mapRole(message: vscode.LanguageModelChatRequestMessage, log?: LogFn): Exclude<OpenAIChatRole, "tool"> {
 	if (message.role === vscode.LanguageModelChatMessageRole.User) {
 		return "user";
 	}

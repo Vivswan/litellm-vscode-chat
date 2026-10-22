@@ -84,6 +84,8 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
 			additionalToolSchemaKeywords: { values: [], lossy: false, scope: null },
+			sessionId: "on",
+			sessionIdScope: null,
 		},
 		usage: {
 			statusBarMode: "always",

@@ -12,6 +12,7 @@ import type {
 	FeatureModelSettingKey,
 	LanguageFilterMode,
 	NumberSettingId,
+	SessionIdMode,
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
@@ -364,7 +365,8 @@ export type RevealableSettingId =
 	| "ui.theme"
 	| "ui.accent"
 	| "inlineCompletions.languageFilter"
-	| "commitGeneration.prompt";
+	| "commitGeneration.prompt"
+	| "chat.sessionId";
 
 /**
  * A readonly list typechecked as naming every member of T: an omitted union member makes the argument unsatisfiable, so
@@ -391,6 +393,7 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<Re
 	"ui.accent",
 	"inlineCompletions.languageFilter",
 	"commitGeneration.prompt",
+	"chat.sessionId",
 ]);
 
 export type ResettableSettingId =
@@ -405,7 +408,8 @@ export type ResettableSettingId =
 	| "ui.theme"
 	| "ui.accent"
 	| "inlineCompletions.languageFilter"
-	| "commitGeneration.prompt";
+	| "commitGeneration.prompt"
+	| "chat.sessionId";
 
 export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<ResettableSettingId>()([
 	...NUMBER_SETTING_IDS,
@@ -420,6 +424,7 @@ export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<Re
 	"ui.accent",
 	"inlineCompletions.languageFilter",
 	"commitGeneration.prompt",
+	"chat.sessionId",
 ]);
 
 /**
@@ -478,6 +483,9 @@ export interface DashboardSettings {
 		readonly tokenEstimation: TokenEstimationMode;
 		readonly tokenEstimationScope: SettingScope | null;
 		readonly additionalToolSchemaKeywords: StringListSetting;
+		/** What LiteLLM groups a chat request under, and where that is configured. */
+		readonly sessionId: SessionIdMode;
+		readonly sessionIdScope: SettingScope | null;
 	};
 	readonly usage: {
 		readonly statusBarMode: UsageStatusBarMode;
@@ -923,6 +931,7 @@ const SETTING_ROW_PAGES: { readonly [K in SettingRowId]: SettingRowPageId } = {
 	"logs.redactSecrets": "settings",
 	"chat.additionalToolSchemaKeywords": "settings",
 	"chat.tokenEstimation": "settings",
+	"chat.sessionId": "settings",
 	"usage.alertThresholds": "settings",
 	"usage.statusBar": "settings",
 	"usage.currencySymbol": "settings",

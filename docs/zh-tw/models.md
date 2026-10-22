@@ -349,6 +349,21 @@
 - 提供者擁有的欄位無法覆寫: `model`、`messages`、`stream`、`stream_options`, 以及 - 當工具參與時 - `tools` 與 `tool_choice`。
 - 以 `_` 開頭的鍵是延伸模組指示詞 ([`_force`](#強制參數-_force)), 從不送出。
 
+### 工作階段 ID
+
+有一個請求標頭是擴充功能自己的, 而且它不是參數: `x-litellm-session-id`, LiteLLM 代理在記錄頁依它給請求分組。預設開啟, 每個聊天一個工作階段, 與 Claude Code 和 opencode 的做法相同。[`chat.sessionId`](settings.md#參考) 可改選其他分組方式或關閉。
+
+| `chat.sessionId` | 工作階段 ID 是什麼 |
+|---|---|
+| `on` | 視窗 ID 與助理首次回答前最後一個問題的雜湊, 沒有問題時取開頭的圖片。同一視窗裡開頭相同的兩個聊天共用一個工作階段 |
+| `folder` | 開啟的資料夾路徑的雜湊。沒有開啟資料夾則不送出 |
+| `window` | VS Code 視窗自己 ID 的雜湊, 視窗關閉時更換 |
+| `off` | 不帶標頭 |
+
+雜湊讓每個問題和路徑都留在本機, 代理端也無需開啟任何東西: LiteLLM 把這個值原樣寫入消費記錄的工作階段欄。
+
+伺服器項目上已經叫 `x-litellm-session-id` 的任何東西都優先: 那裡的憑證或自訂標頭保留自己的值。自訂 `x-litellm-trace-id` 標頭也優先於工作階段 ID, 因為 LiteLLM 先讀 trace id。
+
 ### `max_tokens` 例外
 
 延伸模組唯一會自行填入的欄位是 `max_tokens`。當執行階段選項與所有參數記錄都沒有設定它時, 請求攜帶模型解析出的最大輸出 token 數:

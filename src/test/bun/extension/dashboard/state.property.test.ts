@@ -19,6 +19,7 @@ import { parseDashboardRequest, secretDirectiveSchema } from "../../../../extens
 import {
 	FEATURE_MODEL_IDS,
 	LANGUAGE_FILTER_MODES,
+	SESSION_ID_MODES,
 	TOKEN_ESTIMATION_MODES,
 	UI_ACCENTS,
 	UI_THEMES,
@@ -137,6 +138,7 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 		setting: fc.constantFrom(...BOOLEAN_SETTING_IDS),
 		value: fc.boolean(),
 	}),
+	setChatSessionId: fc.record({ value: fc.constantFrom(...SESSION_ID_MODES) }),
 	resetSetting: fc.record({ setting: fc.constantFrom(...RESETTABLE_SETTING_IDS) }),
 	revealSetting: fc.record({ setting: fc.constantFrom(...REVEALABLE_SETTING_IDS) }),
 	setModelParameters: fc.record({

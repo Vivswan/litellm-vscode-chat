@@ -13,6 +13,7 @@ import {
 	CONFIGURATION_SECTIONS,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_INLINE_LANGUAGE_FILTER,
+	DEFAULT_SESSION_ID_MODE,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
@@ -25,6 +26,7 @@ import {
 	NUMBER_SETTING_SPECS,
 	type NumberSettingId,
 	type NumberSettingValueSpec,
+	SESSION_ID_MODES,
 	SETTING_PRESENTATION,
 	type SettingId,
 	type SettingPresentation,
@@ -62,6 +64,7 @@ const STRUCTURED_SHAPES = {
 	"models.capabilities": { kind: "modelRecord" },
 	"chat.additionalToolSchemaKeywords": { kind: "keywordList" },
 	"chat.tokenEstimation": { kind: "enum", values: TOKEN_ESTIMATION_MODES, default: DEFAULT_TOKEN_ESTIMATION_MODE },
+	"chat.sessionId": { kind: "enum", values: SESSION_ID_MODES, default: DEFAULT_SESSION_ID_MODE },
 	"usage.alertThresholds": { kind: "thresholdList" },
 	"usage.statusBar": { kind: "enum", values: USAGE_STATUS_BAR_MODES, default: DEFAULT_USAGE_STATUS_BAR_MODE },
 	"usage.currencySymbol": {

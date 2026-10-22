@@ -88,6 +88,18 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 			'o200k_base 分詞器)、`"heuristic"` (純粹按每 4 字元 1 token 計, 從不載入分詞器資料, 對 CJK 低估約 4 倍)、`"o200k_base"` 或 ' +
 			'`"cl100k_base"` (始終載入該分詞器)。載入的分詞器在活躍期間約佔用 10-30 MB 記憶體; 計數開銷可忽略',
 	},
+	"chat.sessionId": {
+		en:
+			"What LiteLLM groups a chat request under, sent as the `x-litellm-session-id` header: `on` (one session per " +
+			"chat), `folder` (one per open folder), `window` (one per VS Code window), `off` (no header). What each id " +
+			"is made of: [Models - The session id](models.md#the-session-id)",
+		zhCn:
+			"LiteLLM 把聊天请求归入哪个会话, 以 `x-litellm-session-id` 请求头发送: `on` (每个聊天一个会话)、`folder` (每个打开的文件夹一个)、" +
+			"`window` (每个 VS Code 窗口一个)、`off` (不带请求头)。每个 ID 由什么构成: [模型 - 会话 ID](models.md#会话-id)",
+		zhTw:
+			"LiteLLM 把聊天請求歸入哪個工作階段, 以 `x-litellm-session-id` 標頭送出: `on` (每個聊天一個工作階段)、`folder` (每個開啟的資料夾一個)、" +
+			"`window` (每個 VS Code 視窗一個)、`off` (不帶標頭)。每個 ID 由什麼構成: [模型 - 工作階段 ID](models.md#工作階段-id)",
+	},
 	"discovery.timeout": {
 		en:
 			"Time budget for each model-discovery attempt, in milliseconds. A failed or timed-out attempt is retried up " +

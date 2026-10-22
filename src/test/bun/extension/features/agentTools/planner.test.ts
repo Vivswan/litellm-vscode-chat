@@ -116,6 +116,7 @@ describe("agentTools planner set_setting", () => {
 		"ui.accent": "teal",
 		"inlineCompletions.languageFilter": { languages: ["python"] },
 		"commitGeneration.prompt": "x",
+		"chat.sessionId": "folder",
 		...Object.fromEntries(FEATURE_MODEL_SETTING_KEY_LIST.map((key) => [key, { server: "Prod", model: "m" }])),
 		[SERVERS_SETTING_KEY]: [],
 		[MODEL_CAPABILITIES_SETTING_KEY]: {},

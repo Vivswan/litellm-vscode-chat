@@ -21,6 +21,7 @@ import type { FeatureModelId, FeatureModelRef, KeyedSettingId, NumberSettingId }
 import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	acceptsNumberSetting,
+	CHAT_SESSION_ID_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
@@ -569,6 +570,9 @@ export async function executeDashboardIntent(
 		}
 		case "setUsageStatusBar":
 			await env.updateSetting(USAGE_STATUS_BAR_SETTING_KEY, intent.payload.value);
+			return undefined;
+		case "setChatSessionId":
+			await env.updateSetting(CHAT_SESSION_ID_SETTING_KEY, intent.payload.value);
 			return undefined;
 		case "setTokenEstimation":
 			// The tokenizer wiring reacts to the configuration change like a hand edit of settings.json.

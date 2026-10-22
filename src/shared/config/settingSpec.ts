@@ -83,6 +83,23 @@ export const FEATURE_MODEL_SETTING_KEY_LIST: readonly FeatureModelSettingKey[] =
 );
 
 /**
+ * What LiteLLM groups a chat request under: the session id the request carries.
+ *
+ *   off     -> no session id rides the request
+ *   on      -> one session per chat, the way other LiteLLM clients send theirs
+ *   folder  -> one session per open folder
+ *   window  -> one session per VS Code window, until it closes
+ */
+export const SESSION_ID_MODES = ["off", "on", "folder", "window"] as const;
+
+export type SessionIdMode = (typeof SESSION_ID_MODES)[number];
+
+export const DEFAULT_SESSION_ID_MODE: SessionIdMode = "on";
+
+/** The session id setting's key; it covers the Copilot chat, the agent path, and the @litellm participant. */
+export const CHAT_SESSION_ID_SETTING_KEY = "chat.sessionId";
+
+/**
  * The inline-completions language filter's mode vocabulary: "block" runs completions everywhere except the listed
  * languages, "allow" runs them only there.
  */
@@ -429,6 +446,7 @@ const STRUCTURED_SETTING_KEYS = [
 	...FEATURE_MODEL_SETTING_KEY_LIST,
 	INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
 	COMMIT_GENERATION_PROMPT_SETTING_KEY,
+	CHAT_SESSION_ID_SETTING_KEY,
 ] as const;
 
 /** Every setting key as a literal union, for the surfaces that must be TOTAL over the vocabulary. */
@@ -457,6 +475,7 @@ const SECTIONS = [
 			ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 			"chat.promptCaching",
 			TOKEN_ESTIMATION_SETTING_KEY,
+			CHAT_SESSION_ID_SETTING_KEY,
 		],
 	},
 	{ id: "discovery", settings: ["discovery.timeout", "discovery.cacheTtl", "discovery.staleServeWindow"] },
@@ -569,6 +588,7 @@ export const SETTING_PRESENTATION: Readonly<Record<SettingId, SettingPresentatio
 	"chat.additionalToolSchemaKeywords": WINDOW_PLAIN,
 	"chat.promptCaching": WINDOW_PLAIN,
 	"chat.tokenEstimation": { scope: "window", description: "plain", enumDescriptions: true },
+	"chat.sessionId": { scope: "window", description: "plain", enumDescriptions: true },
 	"discovery.timeout": WINDOW_PLAIN,
 	"discovery.cacheTtl": WINDOW_PLAIN,
 	"discovery.staleServeWindow": WINDOW_PLAIN,

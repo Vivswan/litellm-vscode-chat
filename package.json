@@ -1697,6 +1697,23 @@
 							"%litellm.config.chat.tokenEstimation.cl100k_base%"
 						],
 						"description": "%litellm.config.chat.tokenEstimation.description%"
+					},
+					"litellm-vscode-chat.chat.sessionId": {
+						"type": "string",
+						"enum": [
+							"off",
+							"on",
+							"folder",
+							"window"
+						],
+						"default": "on",
+						"enumDescriptions": [
+							"%litellm.config.chat.sessionId.off%",
+							"%litellm.config.chat.sessionId.on%",
+							"%litellm.config.chat.sessionId.folder%",
+							"%litellm.config.chat.sessionId.window%"
+						],
+						"description": "%litellm.config.chat.sessionId.description%"
 					}
 				}
 			},

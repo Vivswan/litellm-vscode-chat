@@ -8,6 +8,7 @@ import { groupIdentity } from "../../../provider/catalog/statusWindow";
 import { ChatClient } from "../../../provider/transport/chatClient";
 import type { CapabilityCatalogLookup } from "../../../shared/config/capabilityResolution";
 import { resolveModelParameters } from "../../../shared/config/parameterResolution";
+import { resolveSessionIdHeader } from "../../../shared/config/sessionId";
 import { getModelParametersConfig } from "../../../shared/config/settings";
 import { convertMessages } from "../../../shared/conversion/messages";
 import { estimateWireMessagesTokens } from "../../../shared/conversion/tokenEstimation";
@@ -17,6 +18,7 @@ import { fixedHeaderValue } from "../../../shared/util/headers";
 import {
 	CHAT_COMPLETIONS_URL,
 	discoveryHandlers,
+	MODEL_INFO_URL,
 	mswServer,
 	sseResponse,
 	TEST_BASE_URL,
@@ -32,6 +34,7 @@ import {
 	testGroupServer,
 	userMessage,
 	withConfig,
+	withWorkspaceFolder,
 } from "../../testUtils";
 
 const modelInfo = makeModelInfo();
@@ -740,6 +743,134 @@ suite("provider/request contract", () => {
 				);
 				assert.equal(chatUrl, `${TEST_BASE_URL}${path}`, reason);
 			}
+		});
+	});
+
+	suite("session id", () => {
+		// The ids the agreed format spells: a readable prefix and twelve hex characters, so a session id in the proxy's
+		// UI says what kind of session it is.
+		const CHAT_SESSION_ID = /^vscode-chat-[0-9a-f]{12}$/;
+		const FOLDER_SESSION_ID = /^vscode-folder-[0-9a-f]{12}$/;
+		const FOLDER = "/home/dev/litellm-workspace-fixture";
+
+		/** The session id one chat request carried under the given mode, or undefined when none rode along. */
+		async function sessionIdUnder(
+			mode: string,
+			messages: vscode.LanguageModelChatRequestMessage[] = [userMessage("test")]
+		): Promise<string | undefined> {
+			const { headers } = await withConfig({ "chat.sessionId": mode }, () =>
+				captureRequest(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ messages }
+				)
+			);
+			return headers["x-litellm-session-id"];
+		}
+
+		test("the chat request carries the chat's own session id by default: the resolver's answer for this window and question", async () => {
+			const { headers } = await withConfig({}, () =>
+				captureRequest(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ messages: [userMessage("what does this repo do?")] }
+				)
+			);
+			const sessionId = headers["x-litellm-session-id"];
+			assert.ok(sessionId !== undefined, "the session id header must ride the chat request");
+			assert.match(sessionId, CHAT_SESSION_ID);
+			// The same rule, fed the host's window id and the reduced conversation by hand: pins that the transport
+			// hands the resolver exactly what the host and the conversation reduction produce.
+			assert.strictEqual(
+				sessionId,
+				resolveSessionIdHeader({
+					mode: "on",
+					context: { windowSessionId: vscode.env.sessionId },
+					messages: [{ role: "user", text: "what does this repo do?", data: [] }],
+				})
+			);
+		});
+
+		test("folder rides the request as the resolver's hash of the host's open folder", async () => {
+			const sessionId = await withWorkspaceFolder(FOLDER, () => sessionIdUnder("folder"));
+			assert.ok(sessionId !== undefined, "the session id header must ride the chat request");
+			assert.match(sessionId, FOLDER_SESSION_ID);
+			assert.strictEqual(
+				sessionId,
+				resolveSessionIdHeader({
+					mode: "folder",
+					context: { windowSessionId: vscode.env.sessionId, folderPath: vscode.Uri.file(FOLDER).fsPath },
+				})
+			);
+		});
+
+		test("a window with no folder open has no folder to group by, so no session id rides along", async () => {
+			// The test window opens no folder, which is the shape the rule was written for: there is nothing to group
+			// by, and falling back to the window id would silently mean something else than the user asked for.
+			assert.strictEqual(await sessionIdUnder("folder"), undefined);
+		});
+
+		test("window rides the request as the resolver's hash of the host's window id", async () => {
+			assert.strictEqual(
+				await sessionIdUnder("window"),
+				resolveSessionIdHeader({ mode: "window", context: { windowSessionId: vscode.env.sessionId } })
+			);
+		});
+
+		test("off sends no session id, so the request goes out as it did before the setting existed", async () => {
+			assert.strictEqual(await sessionIdUnder("off"), undefined);
+		});
+
+		test("the discovery request carries no session id: the id rides the chat request, never the client", async () => {
+			// The client cache keys on the client's own headers, so a session id among them would rebuild the client on
+			// every new chat, and the discovery requests would carry a session id the proxy would group as a model call.
+			let seen: string | null | undefined;
+			mswServer.use(
+				http.get(MODEL_INFO_URL, ({ request }) => {
+					seen = request.headers.get("x-litellm-session-id");
+					return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+				})
+			);
+			await createConfiguredProvider().provideLanguageModelChatInformation(
+				{ silent: true } as { silent: boolean },
+				new vscode.CancellationTokenSource().token
+			);
+			assert.strictEqual(seen, null);
+		});
+
+		test("a credential in the session id's header keeps it: the id yields to the gateway key that owns the name", async () => {
+			// docs/servers.md: extension-managed auth headers win every conflict, and the session id ranks below them
+			// too, so a gateway that reads its key from this header keeps working with the setting on.
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				resolveEntryCredentials: async () => ({
+					kind: "resolved",
+					credentials: {
+						apiKey: "",
+						virtualKey: { header: "X-LiteLLM-Session-Id", value: fixedHeaderValue("gateway-key") },
+					},
+				}),
+			});
+			// The overlay makes the group the entry's own, so the request carries the served model object, the way
+			// the host hands it back.
+			const { headers } = await captureRequest(
+				provider,
+				modelInfo,
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+				{ useDiscoveredModel: true }
+			);
+			assert.strictEqual(headers["x-litellm-session-id"], "gateway-key");
+		});
+
+		test("a custom header named like the session id keeps it: the entry's fixed value rides, not the chat's", async () => {
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryHeaders: () => ({ "x-litellm-session-id": fixedHeaderValue("entry-session") }),
+			});
+			const { headers } = await captureRequest(provider, modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			});
+			assert.strictEqual(headers["x-litellm-session-id"], "entry-session");
 		});
 	});
 

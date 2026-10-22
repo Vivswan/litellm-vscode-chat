@@ -17,6 +17,7 @@ Pull requests that were merged, or whose implementations and ideas were folded i
 | [@drajnic](https://github.com/drajnic) | Model info support and prompt caching groundwork ([#32](https://github.com/Vivswan/litellm-vscode-chat/pull/32), merged) |
 | [@manitra](https://github.com/manitra) | Model discovery caching (proposed in [#195](https://github.com/Vivswan/litellm-vscode-chat/pull/195) for [#190](https://github.com/Vivswan/litellm-vscode-chat/issues/190); closed unmerged, reimplemented on main) |
 | [@martinschmatz](https://github.com/martinschmatz) | Multi-anchor prompt caching for agent sessions ([#125](https://github.com/Vivswan/litellm-vscode-chat/issues/125); [#142](https://github.com/Vivswan/litellm-vscode-chat/pull/142) explored a mode/TTL design, closed unmerged); also suggested the README cache TTL note |
+| [@theodiem](https://github.com/theodiem) | The LiteLLM session id on chat requests, so a chat's turns group into one session in the proxy's logs ([#588](https://github.com/Vivswan/litellm-vscode-chat/pull/588), merged) |
 | [@uiop860](https://github.com/uiop860) | Centralized model defaults (proposed in [#83](https://github.com/Vivswan/litellm-vscode-chat/pull/83) for [#82](https://github.com/Vivswan/litellm-vscode-chat/issues/82); closed unmerged, superseded by the maintainer's [#84](https://github.com/Vivswan/litellm-vscode-chat/pull/84)) |
 | [@Unlifate](https://github.com/Unlifate) | Base URL trailing-slash handling ([#55](https://github.com/Vivswan/litellm-vscode-chat/pull/55), merged) |
 

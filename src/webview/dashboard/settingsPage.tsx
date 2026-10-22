@@ -17,12 +17,19 @@ import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, settingRowPage } from "../../d
 import type {
 	BooleanSettingId,
 	NumberSettingId,
+	SessionIdMode,
 	TokenEstimationMode,
 	UiAccent,
 	UiTheme,
 	UsageStatusBarMode,
 } from "../../shared/config/settingSpec";
-import { TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES, USAGE_STATUS_BAR_MODES } from "../../shared/config/settingSpec";
+import {
+	SESSION_ID_MODES,
+	TOKEN_ESTIMATION_MODES,
+	UI_ACCENTS,
+	UI_THEMES,
+	USAGE_STATUS_BAR_MODES,
+} from "../../shared/config/settingSpec";
 import { useAlertOnce } from "./announceOnce";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink } from "./help";
@@ -31,6 +38,7 @@ import {
 	helpImportExportGroup,
 	helpModelCapabilitiesSection,
 	helpModelParametersSection,
+	helpSessionId,
 	helpSettingsSection,
 	helpTokenEstimation,
 	helpToolSchemaKeywords,
@@ -197,6 +205,10 @@ function tokenEstimationDescription(): string {
 	return l10n.t("How prompts are sized for the local token budget.");
 }
 
+function sessionIdDescription(): string {
+	return l10n.t("What LiteLLM groups this chat's requests under, e.g. one session per chat.");
+}
+
 function toolSchemaKeywordsDescription(): string {
 	// The example lives in the input's own placeholder, one column to the left.
 	return l10n.t("Extra JSON-Schema keywords kept in tool definitions.");
@@ -251,6 +263,23 @@ function tokenEstimationLabel(mode: TokenEstimationMode): string {
 			return l10n.t("o200k_base tokenizer (GPT-4o and newer)");
 		case "cl100k_base":
 			return l10n.t("cl100k_base tokenizer (GPT-4 era)");
+	}
+}
+
+/** The session id modes, as the row shows them: what LiteLLM groups the requests by. */
+function sessionIdLabel(mode: SessionIdMode): string {
+	switch (mode) {
+		case "off":
+			return l10n.t({
+				message: "Off",
+				comment: ["The session id setting's off value: no session id rides the request"],
+			});
+		case "on":
+			return l10n.t("On - one session per chat");
+		case "folder":
+			return l10n.t("Per open folder");
+		case "window":
+			return l10n.t("Per VS Code window");
 	}
 }
 
@@ -652,6 +681,7 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 		),
 		settings.chat.tokenEstimationScope,
 		settings.chat.additionalToolSchemaKeywords.scope,
+		settings.chat.sessionIdScope,
 		settings.usage.statusBarScope,
 		settings.usage.thresholdsScope,
 		settings.usage.currencySymbolScope,
@@ -770,6 +800,7 @@ export function SettingsSection({
 		"chat.additionalToolSchemaKeywords",
 		helpToolSchemaKeywords()
 	);
+	const sessionIdVisible = matches(l10n.t("Session id"), sessionIdDescription(), "chat.sessionId", helpSessionId());
 	const thresholdsCustom = settings.usage.alertThresholds.length > 2;
 	// The editable branch's help joins its haystack only while that branch renders it: a needle from the tip must not
 	// keep the custom row alive.
@@ -803,6 +834,7 @@ export function SettingsSection({
 		!statusBarVisible &&
 		!tokenEstimationVisible &&
 		!toolSchemaKeywordsVisible &&
+		!sessionIdVisible &&
 		!thresholdsVisible &&
 		!currencyVisible &&
 		!themeVisible &&
@@ -823,6 +855,8 @@ export function SettingsSection({
 				return tokenEstimationVisible;
 			case "chat.additionalToolSchemaKeywords":
 				return toolSchemaKeywordsVisible;
+			case "chat.sessionId":
+				return sessionIdVisible;
 			case "usage.alertThresholds":
 				return thresholdsVisible;
 			case "usage.statusBar":
@@ -909,7 +943,7 @@ export function SettingsSection({
 								booleanMeta={booleanMeta}
 								tailVisible={
 									(isModelsGroup && (paramsVisible || capsVisible)) ||
-									(isChatGroup && (tokenEstimationVisible || toolSchemaKeywordsVisible)) ||
+									(isChatGroup && (tokenEstimationVisible || toolSchemaKeywordsVisible || sessionIdVisible)) ||
 									(isUsageGroup && (statusBarVisible || thresholdsVisible || currencyVisible)) ||
 									(isUiGroup && (themeVisible || accentVisible))
 								}
@@ -951,6 +985,18 @@ export function SettingsSection({
 											<ToolSchemaKeywordsRow
 												setting={settings.chat.additionalToolSchemaKeywords}
 												hidden={!toolSchemaKeywordsVisible}
+											/>
+											<EnumSettingRow
+												settingId="chat.sessionId"
+												title={l10n.t("Session id")}
+												description={sessionIdDescription()}
+												help={helpSessionId()}
+												value={settings.chat.sessionId}
+												options={SESSION_ID_MODES}
+												optionLabel={sessionIdLabel}
+												onPick={(value) => sendRequest("setChatSessionId", { value })}
+												configuredScope={settings.chat.sessionIdScope}
+												hidden={!sessionIdVisible}
 											/>
 										</>
 									) : isUsageGroup ? (

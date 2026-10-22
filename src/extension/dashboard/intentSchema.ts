@@ -24,6 +24,7 @@ import {
 import {
 	FEATURE_MODEL_IDS,
 	LANGUAGE_FILTER_MODES,
+	SESSION_ID_MODES,
 	TOKEN_ESTIMATION_MODES,
 	UI_ACCENTS,
 	UI_THEMES,
@@ -157,6 +158,7 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	setModelParameters: z.strictObject({ value: recordMapSchema }),
 	setModelCapabilities: z.strictObject({ value: recordMapSchema }),
 	setUsageStatusBar: z.strictObject({ value: asEnum(USAGE_STATUS_BAR_MODES) }),
+	setChatSessionId: z.strictObject({ value: asEnum(SESSION_ID_MODES) }),
 	setTokenEstimation: z.strictObject({ value: asEnum(TOKEN_ESTIMATION_MODES) }),
 	setCurrencySymbol: z.strictObject({ value: z.string().max(WIRE_LIMITS.currencySymbol) }),
 	setAdditionalToolSchemaKeywords: z.strictObject({
@@ -260,6 +262,7 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	setModelParameters: requestSchema("setModelParameters"),
 	setModelCapabilities: requestSchema("setModelCapabilities"),
 	setUsageStatusBar: requestSchema("setUsageStatusBar"),
+	setChatSessionId: requestSchema("setChatSessionId"),
 	setTokenEstimation: requestSchema("setTokenEstimation"),
 	setCurrencySymbol: requestSchema("setCurrencySymbol"),
 	setAdditionalToolSchemaKeywords: requestSchema("setAdditionalToolSchemaKeywords"),
