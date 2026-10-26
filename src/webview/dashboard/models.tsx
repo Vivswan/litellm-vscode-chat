@@ -454,9 +454,12 @@ const OVERSCAN = 10;
 /** The scrollport's height before measurement: too small blanks a strip until a scroll, too large costs rows once. */
 const FALLBACK_VIEWPORT = 1000;
 
-/** What the list's scrollport knows about itself: its element, scroll offset, one row's height, and its own height. */
+/**
+ * What the list's scrollport knows about itself: its element, which the ref callback hands it, the scroll offset, one
+ * row's height, and its own height.
+ */
 interface Scrollport {
-	readonly ref: React.RefObject<HTMLElement | null>;
+	readonly ref: React.RefCallback<HTMLElement>;
 	readonly scrollTop: number;
 	readonly setScrollTop: (top: number) => void;
 	readonly rowHeight: number;
@@ -535,7 +538,9 @@ interface ModelRowActionsProps {
 }
 
 interface ModelListProps {
+	readonly models: readonly DashboardModel[];
 	readonly rows: readonly DashboardModel[];
+	readonly serverCount: number;
 	readonly scopeLabel: string | undefined;
 	readonly showServer: boolean;
 	readonly currencySymbol: string;
@@ -583,10 +588,12 @@ interface NoMatchProps {
  *
  * Measured before paint and re-measured on box changes (first layout, breakpoints reflowing, panel shown - panels stay
  * mounted, so this runs while hidden); a zero box is skipped rather than published as top 0.
+ *
+ * Keyed on the element, not on a ref: the scrollport is absent while a push carries no models and appears with the
+ * first refill, and an effect run once against a stable ref would have measured nothing and never come back.
  */
-function useScrollTopVariable(ref: React.RefObject<HTMLElement | null>): void {
+function useScrollTopVariable(element: HTMLElement | null): void {
 	useLayoutEffect(() => {
-		const element = ref.current;
 		if (element === null) {
 			return;
 		}
@@ -611,7 +618,23 @@ function useScrollTopVariable(ref: React.RefObject<HTMLElement | null>): void {
 			observer.disconnect();
 			window.removeEventListener("resize", publish);
 		};
-	}, [ref]);
+	}, [element]);
+}
+
+/**
+ * An empty push unmounts the scrollport and the refill mounts a fresh one at offset 0, while the remembered offset
+ * still places the window; writing it back shows the viewport the rows the window rendered.
+ *
+ * Retried after every render, not once per element: a scrollport born behind a hidden panel has no layout box, a
+ * write to it does nothing (CSSOM), and the panel's showing is a render. A scrollport at 0 under a remembered offset
+ * is always one that has not taken it, since a scroll to the top reports 0 before anything renders.
+ */
+function useRestoredOffset(element: HTMLElement | null, scrollTop: number): void {
+	useLayoutEffect(() => {
+		if (element !== null && element.scrollTop === 0 && scrollTop !== 0) {
+			element.scrollTop = scrollTop;
+		}
+	});
 }
 
 /**
@@ -623,26 +646,27 @@ function useScrollTopVariable(ref: React.RefObject<HTMLElement | null>): void {
  * drop the reader mid-list (the window clamp keeps it in range, but not at the top).
  */
 function useScrollport(scopeLabel: string | undefined): Scrollport {
-	const ref = useRef<HTMLElement>(null);
+	const [element, setElement] = useState<HTMLElement | null>(null);
 	const [scrollTop, setScrollTop] = useState(0);
 	const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
 	useEffect(() => {
-		const line = ref.current?.querySelector<HTMLElement>(".model-row-line");
+		const line = element?.querySelector<HTMLElement>(".model-row-line");
 		const measured = line?.offsetHeight ?? 0;
 		if (measured > 0 && measured !== rowHeight) {
 			setRowHeight(measured);
 		}
 	});
-	useScrollTopVariable(ref);
+	useScrollTopVariable(element);
+	useRestoredOffset(element, scrollTop);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scopeLabel is the deliberate rewind key (see above)
 	useEffect(() => {
-		if (ref.current !== null) {
-			ref.current.scrollTop = 0;
+		if (element !== null) {
+			element.scrollTop = 0;
 		}
 		setScrollTop(0);
 	}, [scopeLabel]);
-	const height = ref.current?.clientHeight ?? 0;
-	return { ref, scrollTop, setScrollTop, rowHeight, viewport: height > 0 ? height : FALLBACK_VIEWPORT };
+	const height = element?.clientHeight ?? 0;
+	return { ref: setElement, scrollTop, setScrollTop, rowHeight, viewport: height > 0 ? height : FALLBACK_VIEWPORT };
 }
 
 /**
@@ -944,8 +968,12 @@ function ModelRow(props: ModelRowProps) {
  * When windowed, the scrollport is a focusable labelled region (keyboard scrolling) and each row declares its true
  * position in a list only a window of which is in the DOM. Visiting every row by Tab is out of scope: off-window rows
  * are reached by scrolling.
+ *
+ * Mounted through a push that carries no models, with the empty-state copy standing where the list would: a server
+ * resync empties and refills the list, and the open row, the copy flash, the detail height, and the scroll offset
+ * belong to the reader, not to the push. `rows` is what renders; `models` says whether there is a list at all.
  */
-function ModelList({ rows, scopeLabel, showServer, currencySymbol, onInspect }: ModelListProps) {
+function ModelList({ models, rows, serverCount, scopeLabel, showServer, currencySymbol, onInspect }: ModelListProps) {
 	// The one open row, held by row id rather than index: sorting and filtering renumber the list.
 	const [openRow, setOpenRow] = useState<string | undefined>(undefined);
 	const scrollport = useScrollport(scopeLabel);
@@ -953,6 +981,11 @@ function ModelList({ rows, scopeLabel, showServer, currencySymbol, onInspect }: 
 	const copyFlash = useCopyFlash();
 	const { openIndex, slice } = useListLayout(rows, openRow, scrollport, detail);
 	const visible = rows.slice(slice.start, slice.end);
+
+	if (models.length === 0) {
+		return <EmptyModels serverCount={serverCount} />;
+	}
+
 	return (
 		<section
 			className={slice.windowed ? "table-scroll windowed" : "table-scroll"}
@@ -1102,6 +1135,8 @@ export function ModelsSection({
 	const listing = useModelListing(models, serverCount, scope?.label, filter, pills, sort);
 	const reset = useFilterReset(setFilter, setPills);
 	const canClear = trimHttpWhitespace(filter).length > 0 || isFilterActive(pills);
+	// The controls exist only while there are models to control; the list itself stays mounted through an empty push.
+	const hasModels = models.length > 0;
 	return (
 		<Section
 			id="models"
@@ -1110,7 +1145,7 @@ export function ModelsSection({
 			docs={{ href: DOCS_LINK_MODELS, label: l10n.t("Open the models guide") }}
 			meta={showingMeta(listing)}
 			actions={
-				models.length === 0 ? undefined : (
+				hasModels ? (
 					<ModelsToolbar
 						filter={filter}
 						filterInputRef={reset.inputRef}
@@ -1118,32 +1153,30 @@ export function ModelsSection({
 						listing={listing}
 						onSort={setSort}
 					/>
-				)
+				) : undefined
 			}
 		>
-			{models.length === 0 ? (
-				<EmptyModels serverCount={serverCount} />
-			) : (
-				<>
-					{scope === undefined ? null : <ScopeChip scope={scope} />}
-					<FilterPills
-						options={listing.pillOptions}
-						active={pills}
-						showServers={listing.showServerColumn}
-						showClear={isFilterActive(pills) && listing.sorted.length > 0}
-						onChange={setPills}
-						onClearAll={reset.clearFilters}
-					/>
-					<ModelList
-						rows={listing.sorted}
-						scopeLabel={scope?.label}
-						showServer={listing.showServerColumn}
-						currencySymbol={currencySymbol}
-						onInspect={onInspect}
-					/>
-					{listing.sorted.length === 0 ? <NoMatch canClear={canClear} onClear={reset.clearFilters} /> : null}
-				</>
-			)}
+			{hasModels && scope !== undefined ? <ScopeChip scope={scope} /> : null}
+			{hasModels ? (
+				<FilterPills
+					options={listing.pillOptions}
+					active={pills}
+					showServers={listing.showServerColumn}
+					showClear={isFilterActive(pills) && listing.sorted.length > 0}
+					onChange={setPills}
+					onClearAll={reset.clearFilters}
+				/>
+			) : null}
+			<ModelList
+				models={models}
+				rows={listing.sorted}
+				serverCount={serverCount}
+				scopeLabel={scope?.label}
+				showServer={listing.showServerColumn}
+				currencySymbol={currencySymbol}
+				onInspect={onInspect}
+			/>
+			{hasModels && listing.sorted.length === 0 ? <NoMatch canClear={canClear} onClear={reset.clearFilters} /> : null}
 		</Section>
 	);
 }
