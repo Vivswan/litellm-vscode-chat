@@ -855,10 +855,9 @@ interface JudgedCapabilityGroup {
 }
 
 /**
- * Two passes so the group-referencing directives (`_fallback`, `_inheritable`) are judged against the loop's own row
- * VERDICTS: the fields whose values would actually resolve, exactly the set the resolver keeps - a consumed field with
- * an invalid value resolves unset, so a mark naming it hints as stranded here too. Entries and issues are
- * index-aligned holders, so deferring the directive rows reorders neither the issues nor the assembled record's keys.
+ * One group's assembled fields and its row-aligned issues; `draft` is what every row is judged against (the prefixes
+ * and the observed key set). The group-referencing directives settle in a second pass, against the fields the first
+ * pass saw resolve, and the index-aligned holders keep that deferral from reordering the issues or the record's keys.
  */
 function judgeCapabilityGroup(group: PrefixGroup, draft: CapabilityDraftContext): JudgedCapabilityGroup {
 	const context: CapabilityRowContext = {

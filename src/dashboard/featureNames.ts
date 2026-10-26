@@ -15,10 +15,10 @@ import type { FeatureId } from "../shared/config/settingSpec";
 export type FeatureNameForm = "title" | "sentence";
 
 interface FeatureNameEntry {
-	/** The standalone heading form (the dashboard's headings); its own l10n key. */
+	/** The dashboard's headings print this standalone heading form. */
 	readonly title: string;
 
-	/** The mid-sentence form (the features' error sentences); its own l10n key, never the title lowercased. */
+	/** The features' error sentences print this mid-sentence form. */
 	readonly sentence: string;
 
 	/** The sentence form's English mirror, for English-by-policy log surfaces. */

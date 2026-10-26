@@ -480,7 +480,7 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
  * showed, and the unknown-key suppression is the host's advisory filter, run live.
  */
 export interface ServerFormContext {
-	/** Labels of the other declared entries. */
+	/** The labels the other declared entries hold; a rename onto one of them is refused. */
 	readonly takenLabels?: readonly string[];
 
 	/** The entry being edited, as the form displayed it; absent when adding. Rides the intents as `replace`. */

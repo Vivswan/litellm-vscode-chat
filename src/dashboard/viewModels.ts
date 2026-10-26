@@ -304,39 +304,72 @@ export function isEditableServer(server: DashboardServer): server is EditableDas
 /**
  * One served model as the picker and the models page see it. Costs are USD per million tokens, as registration
  * converted them; the long-context tier costs are present only when the tier differs from the base price.
- *
- *   rawId            -> the ID the server knows: what a request's `model` field and a modelParameters prefix match
- *                       against; differs from `id` on registrations that mint exposed IDs of their own (aggregate
- *                       `:cheapest` and `:fastest` variants)
- *   scopeKey         -> opaque per-session handle for the serving server (a salted hash of the server ID): a stale key
- *                       de-resolves instead of hitting another server; never persisted
- *   defaultMaxTokens -> the request's max_tokens when nothing configures one; under maxOutputTokens when a guessed
- *                       limit exceeds the cap
- *   reasoning        -> the model advertises the reasoning-effort configuration control
- *   declared         -> a declared model discovery does not list; drives the declared badge
  */
 export interface DashboardModel {
+	/** The exposed model ID; registration mints its own for the aggregate variants, so it can differ from rawId. */
 	readonly id: string;
+
+	/** The ID the server knows: what a request's `model` field and a modelParameters prefix match against. */
 	readonly rawId: string;
+
+	/** A salted per-session hash of the serving server's ID; a stale key de-resolves, never misroutes. Not persisted. */
 	readonly scopeKey: string;
+
+	/** The display name registration gave the model. */
 	readonly name: string;
+
+	/** The model family registration reported. */
 	readonly family: string;
+
+	/** The label of the serving server. */
 	readonly serverLabel: string;
+
+	/** The input token limit registration reported. */
 	readonly maxInputTokens: number;
+
+	/** The output token limit registration reported. */
 	readonly maxOutputTokens: number;
+
+	/** The request's max_tokens when nothing configures one; under maxOutputTokens when a guess exceeds the cap. */
 	readonly defaultMaxTokens: number;
+
+	/** The price of a million input tokens. */
 	readonly inputCost?: number | undefined;
+
+	/** The price of a million output tokens. */
 	readonly outputCost?: number | undefined;
+
+	/** The price of a million cached input tokens read back. */
 	readonly cacheReadCost?: number | undefined;
+
+	/** The price of a million input tokens written to the cache. */
 	readonly cacheWriteCost?: number | undefined;
+
+	/** The price of a million input tokens in the long-context tier. */
 	readonly longContextInputCost?: number | undefined;
+
+	/** The price of a million output tokens in the long-context tier. */
 	readonly longContextOutputCost?: number | undefined;
+
+	/** The price of a million cached input tokens read back in the long-context tier. */
 	readonly longContextCacheReadCost?: number | undefined;
+
+	/** The price of a million input tokens written to the cache in the long-context tier. */
 	readonly longContextCacheWriteCost?: number | undefined;
+
+	/** Whether the model accepts tool definitions. */
 	readonly toolCalling: boolean;
+
+	/** Whether the model accepts image input. */
 	readonly imageInput: boolean;
+
+	/** Whether the model supports prompt caching, by modelSupportsPromptCaching's reading. */
 	readonly promptCaching: boolean;
+
+	/** Whether the model advertises the reasoning-effort configuration control. */
 	readonly reasoning: boolean;
+
+	/** True for a declared model discovery does not list; it drives the declared badge. */
 	readonly declared?: boolean | undefined;
 }
 
@@ -436,7 +469,7 @@ export type SettingScope = "global" | "workspace" | "workspaceFolder";
  * scope's own record.
  */
 export interface ScopedRecordSetting<V> {
-	/** The one scope whose own record `value` holds; the dashboard writes exactly this scope. */
+	/** The scope whose own record `value` holds. */
 	readonly editScope: SettingScope;
 
 	/** The record the edit scope itself holds; what the editor edits and writes back whole. */
@@ -454,52 +487,99 @@ export interface ScopedRecordSetting<V> {
  * `configuredScopes`, and the rest) is the highest-precedence scope the setting is explicitly configured in, or null
  * when only the default applies: "modified" means the key is set somewhere, matching the native Settings editor, and
  * the named scope is the one a reset removes first.
- *
- *   appearance            -> on every state push, because the webview restamps the root element from it; that is what
- *                            makes a change land on an open dashboard
- *   chat.sessionId        -> what LiteLLM groups a chat request under
- *   usage.alertThresholds -> as normalization reads them: valid fractions, deduplicated, ascending
- *   usage.currencySymbol  -> the prefix every spend and cost figure renders with (display only, never a conversion);
- *                            the empty string renders the bare number
- *   featureModels         -> each feature's configured model ref, null while unset or malformed; user configuration
- *                            only, an entry label and a raw model ID, never a secret
- *   commitPrompt          -> "" means the built-in instruction applies
  */
 export interface DashboardSettings {
+	/** Every number setting's effective value; null is a nullable setting's "none". */
 	readonly numbers: Readonly<Record<NumberSettingId, number | null>>;
+
+	/** Every boolean setting's effective value. */
 	readonly booleans: Readonly<Record<BooleanSettingId, boolean>>;
+
+	/** The scalars' companion scopes. */
 	readonly configuredScopes: {
+		/** Each number setting's companion scope. */
 		readonly numbers: Readonly<Record<NumberSettingId, SettingScope | null>>;
+
+		/** Each boolean setting's companion scope. */
 		readonly booleans: Readonly<Record<BooleanSettingId, SettingScope | null>>;
 	};
+
+	/** The models.parameters record, per scope. */
 	readonly modelParameters: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
+
+	/** The models.capabilities record, per scope. */
 	readonly modelCapabilities: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
+
+	/** The models.openRouterCatalog row's status. */
 	readonly catalog: CatalogStatusView;
+
+	/** The theme and accent, on every push: the webview restamps the root element from it, so a change lands live. */
 	readonly appearance: {
+		/** How the dashboard picks its colors (ui.theme). */
 		readonly theme: UiTheme;
+
+		/** theme's companion scope. */
 		readonly themeScope: SettingScope | null;
+
+		/** The accent color of primary buttons, selection, focus, and links (ui.accent). */
 		readonly accent: UiAccent;
+
+		/** accent's companion scope. */
 		readonly accentScope: SettingScope | null;
 	};
+
+	/** The chat rows' values and scopes. */
 	readonly chat: {
+		/** How prompt sizes are estimated for the local token budget (chat.tokenEstimation). */
 		readonly tokenEstimation: TokenEstimationMode;
+
+		/** tokenEstimation's companion scope. */
 		readonly tokenEstimationScope: SettingScope | null;
+
+		/** The extra JSON-Schema keywords kept in tool input schemas (chat.additionalToolSchemaKeywords). */
 		readonly additionalToolSchemaKeywords: StringListSetting;
+
+		/** What LiteLLM groups a chat request under (chat.sessionId). */
 		readonly sessionId: SessionIdMode;
+
+		/** sessionId's companion scope. */
 		readonly sessionIdScope: SettingScope | null;
 	};
+
+	/** The usage rows' values and scopes. */
 	readonly usage: {
+		/** When the usage status-bar item shows (usage.statusBar). */
 		readonly statusBarMode: UsageStatusBarMode;
+
+		/** statusBarMode's companion scope. */
 		readonly statusBarScope: SettingScope | null;
+
+		/** usage.alertThresholds as normalization reads them: valid fractions, deduplicated, ascending. */
 		readonly alertThresholds: readonly number[];
+
+		/** alertThresholds' companion scope. */
 		readonly thresholdsScope: SettingScope | null;
+
+		/** The prefix on every spend and cost figure, display only, never a conversion; "" renders the bare number. */
 		readonly currencySymbol: string;
+
+		/** currencySymbol's companion scope. */
 		readonly currencySymbolScope: SettingScope | null;
 	};
+
+	/** Each feature's model ref, an entry label plus a raw model ID (never a secret); null while unset or malformed. */
 	readonly featureModels: Readonly<Record<FeatureModelId, FeatureModelRef | null>>;
+
+	/** Each feature model's companion scope. */
 	readonly featureModelScopes: Readonly<Record<FeatureModelId, SettingScope | null>>;
+
+	/** The commitGeneration.prompt row's value; "" means the built-in instruction applies. */
 	readonly commitPrompt: string;
+
+	/** commitPrompt's companion scope. */
 	readonly commitPromptScope: SettingScope | null;
+
+	/** The inlineCompletions.languageFilter setting as its two rows render it. */
 	readonly languageFilter: LanguageFilterSetting;
 }
 
@@ -570,41 +650,62 @@ export type UsageEndpointStandingView =
 
 /**
  * One server's usage facts: numbers, epoch timestamps, user-configured identity, and closed endpoint-standing enums
- * only. Servers whose proxy serves no usage endpoints never appear here.
- *
- *   fresh           -> the polling rule: last fetch OK and younger than two poll intervals (with polling off, than
- *                      usage.pollingOffFreshnessWindow); stale data still renders, labeled with its age
- *   keyInfo         -> the /key/info standing: why spend numbers are missing or not updating
- *   dailyActivity   -> the /user/daily/activity standing: why request statistics are missing
- *   lastUpdatedAt   -> what the "last updated" label renders
- *   spend           -> the key's server-side spend in USD, when /key/info reports one
- *   effectiveBudget -> what the budget bars and alerts run against: entry over key
- *   keyBudget       -> the key-reported max_budget, retained even when the entry's budget wins
- *   spentFraction   -> spend / effectiveBudget; can exceed 1 (the label shows the literal percentage)
- *   budgetResetAt   -> the key's budget_reset_at, when it carries one
- *   requests        -> the recent-window statistics, when /user/daily/activity answers: successRate is
- *                      successfulRequests / total when total > 0, cacheHitRate is cacheReadInputTokens /
- *                      promptTokens when prompt tokens exist
+ * only. Servers whose proxy serves no usage endpoints never appear here, and a stale card still renders, labeled with
+ * its age.
  */
 export interface UsageServerView {
+	/** The full card; a server left with no readable usage by a forbidden standing gets UsageForbiddenServerView. */
 	readonly kind: "usage";
+
+	/** The entry's label, half of the identity the user configured. */
 	readonly label: string;
+
+	/** The entry's base URL, the other half of the configured identity. */
 	readonly baseUrl: string;
+
+	/** True when the last fetch succeeded within two poll intervals (polling off: usage.pollingOffFreshnessWindow). */
 	readonly fresh: boolean;
+
+	/** The /key/info standing: why spend numbers are missing or not updating. */
 	readonly keyInfo: UsageEndpointStandingView;
+
+	/** The /user/daily/activity standing: why request statistics are missing. */
 	readonly dailyActivity: UsageEndpointStandingView;
+
+	/** When the spend last updated; the "last updated" label renders it. */
 	readonly lastUpdatedAt?: number | undefined;
+
+	/** The key's server-side spend in USD, when /key/info reports one. */
 	readonly spend?: number | undefined;
+
+	/** What the budget bars and alerts run against: the entry's budget over the key's. */
 	readonly effectiveBudget?: number | undefined;
+
+	/** The key-reported max_budget, retained even when the entry's budget wins. */
 	readonly keyBudget?: number | undefined;
+
+	/** The entry's manual budget in USD, when set. */
 	readonly entryBudget?: number | undefined;
+
+	/** Which budget effectiveBudget took: the entry's, the key's, or none. */
 	readonly budgetSource: "entry" | "key" | "none";
+
+	/** spend / effectiveBudget; it can exceed 1 (the label shows the literal percentage). */
 	readonly spentFraction?: number | undefined;
+
+	/** The key's budget_reset_at, when it carries one. */
 	readonly budgetResetAt?: number | undefined;
+
+	/** The recent-window statistics, when /user/daily/activity answers. */
 	readonly requests?:
 		| {
+				/** Every API request in the window. */
 				readonly total: number;
+
+				/** successfulRequests / total, when total > 0. */
 				readonly successRate?: number | undefined;
+
+				/** cacheReadInputTokens / promptTokens, when prompt tokens exist. */
 				readonly cacheHitRate?: number | undefined;
 		  }
 		| undefined;
@@ -868,30 +969,36 @@ export interface VerdictRow {
 	readonly failure?: { readonly cause: FailureCause; readonly baseUrl: string } | undefined;
 }
 
-/**
- * One full state push; the webview never holds partial truth.
- *
- *   verdictRows           -> the hero's and the paste line's verdict input: the same row set the status bar and the
- *                            notifier classify
- *   servedModelCount      -> what the hero and the diagnostics paste line read, never models.length: the models table
- *                            lists a multi-claimant snapshot once per claimant, so the row count can overcount what the
- *                            window actually serves
- *   observedModelInfoKeys -> the union of the servers' sets, across exactly the servers that reported one; absent is
- *                            unknown, empty is known and empty, with the per-server field's handling rules
- *   featureProbes         -> the features whose model row offers a host-side test probe (the exact pipeline the
- *                            feature itself runs), derived from the probes activation registered, so the button
- *                            exists exactly where a probe does
- */
+/** One full state push; the webview never holds partial truth. */
 export interface DashboardState {
+	/** Every server row, sorted by label and then base URL. */
 	readonly servers: readonly DashboardServer[];
+
+	/** The provider groups hidden from the tables: removed by tombstone, or superseded by their entry's new base URL. */
 	readonly hiddenGroups: readonly HiddenGroup[];
+
+	/** The hero's and the paste line's verdict input: the same row set the status bar and the notifier classify. */
 	readonly verdictRows: readonly VerdictRow[];
+
+	/** The models table's rows, one per claimant of a multi-claimant snapshot, sorted by server label and then name. */
 	readonly models: readonly DashboardModel[];
+
+	/** What the hero and the paste line read, never models.length, which counts a snapshot once per claimant. */
 	readonly servedModelCount: number;
+
+	/** The union of the servers' sets over exactly the servers that reported one; absent is unknown, empty is known. */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
+
+	/** The settings pages' values and scopes. */
 	readonly settings: DashboardSettings;
+
+	/** The features whose model row offers a test probe: exactly those with a registered probe. */
 	readonly featureProbes: readonly FeatureModelId[];
+
+	/** The usage cards' snapshot. */
 	readonly usage: DashboardUsage;
+
+	/** The Diagnostics tab's rows. */
 	readonly diagnostics: readonly ConfigDiagnosticView[];
 }
 

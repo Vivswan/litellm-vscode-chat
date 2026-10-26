@@ -233,6 +233,7 @@ function servedModelsText(breakdown: ServedModelsBreakdown): string {
 	return stillServedText(breakdown.served);
 }
 
+/** errorOutcomeParts reads exactly this shape: a server row in the "error" state, whatever its origin. */
 type FailingDashboardServer = Extract<DashboardServer, { state: "error" }>;
 
 /**
