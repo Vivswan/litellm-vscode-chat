@@ -13,6 +13,7 @@ import {
 import { compareSpecificity, parseMatcherKey } from "../shared/config/modelMatcher";
 import { isForceableParameter } from "../shared/config/parameterResolution";
 import {
+	canonicalFieldKey,
 	FALLBACK_DIRECTIVE,
 	FORCE_DIRECTIVE,
 	INHERIT_FROM_DIRECTIVE,
@@ -106,7 +107,7 @@ const PARAMETER_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDi
 const CAPABILITY_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDirectives("capabilities"));
 
 /**
- * THE raw-vs-trimmed rule, one reading per record type, mirroring each resolver's parse boundary: capability records
+ * THE raw-vs-trimmed rule, one reading per record type, the resolvers' own canonicalFieldKey: capability records
  * trim field keys and the `_fallback`/`_inheritable` list entries (parseCapabilityRecord), while parameters records
  * are verbatim - a padded key or entry is its own live field on the wire, never a directive. Every draft surface that
  * classifies, marks, or persists a field name reads it through here, so the editor and the resolver cannot disagree.
@@ -114,7 +115,7 @@ const CAPABILITY_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeD
  *   the matcher grammar trims nothing -> Matcher keys and `_inherit_from` entries stay raw in both
  */
 export function resolvedFieldName(kind: "params" | "caps", key: string): string {
-	return kind === "caps" ? trimHttpWhitespace(key) : key;
+	return canonicalFieldKey(kind === "caps" ? "capabilities" : "parameters", key);
 }
 
 /**
@@ -156,7 +157,7 @@ interface KeyProblemMessages {
 	readonly duplicate: string;
 }
 
-function keyProblem(key: string, messages: KeyProblemMessages, dupes: Set<string>): string | undefined {
+function keyProblem(key: string, messages: KeyProblemMessages, dupes: ReadonlySet<string>): string | undefined {
 	// Emptiness is judged trimmed for every kind: a whitespace-only name is almost certainly an accident, and a visible
 	// refusal beats persisting it.
 	if (trimHttpWhitespace(key).length === 0) {
@@ -231,12 +232,19 @@ function parseDirectiveListText(text: string): { ok: true; value: boolean | stri
 	return { ok: false };
 }
 
+/** A directive row's judgement: the blocking problem, or the parsed value beside an optional non-blocking hint. */
+interface DirectiveRowJudgement {
+	problem?: string;
+	hint?: string;
+	value?: boolean | string[];
+}
+
 /** A listed name the group does not set hints without blocking - the resolver diagnoses it at request time. */
 function judgeInheritableRow(
 	kind: "params" | "caps",
 	valueText: string,
 	groupKeys: ReadonlySet<string>
-): { problem?: string; hint?: string; value?: boolean | string[] } {
+): DirectiveRowJudgement {
 	const parsed = parseDirectiveListText(valueText);
 	if (!parsed.ok) {
 		return { problem: l10n.t('Enter true or a list of field names, e.g. ["temperature"]') };
@@ -259,10 +267,7 @@ function judgeInheritableRow(
  * The `_inherit_from` row's verdict, shared by both editors: true, false, or a list of record keys. A named key absent
  * from the draft's own prefixes hints without blocking: the resolver skips it and applies the rest.
  */
-function judgeInheritFromRow(
-	valueText: string,
-	prefixes: ReadonlySet<string>
-): { problem?: string; hint?: string; value?: boolean | string[] } {
+function judgeInheritFromRow(valueText: string, prefixes: ReadonlySet<string>): DirectiveRowJudgement {
 	const parsed = parseDirectiveListText(valueText);
 	if (!parsed.ok) {
 		return { problem: l10n.t('Enter true, false, or a list of record keys, e.g. ["gpt-5*"]') };
@@ -291,6 +296,87 @@ export type GroupsParse =
 	  }
 	| { readonly ok: false; readonly problems: readonly GroupProblems[]; readonly hints: readonly GroupHints[] };
 
+/** One parameter row's verdict: the blocking problem, or the parsed value, beside an optional non-blocking hint. */
+interface ParamRowVerdict {
+	readonly problem?: RowFieldProblem | undefined;
+	readonly value?: unknown;
+	readonly hint?: string | undefined;
+}
+
+/** What one parameter row is judged against: its group's keys and duplicate keys, and the draft's prefixes. */
+interface ParamRowContext {
+	readonly groupKeys: ReadonlySet<string>;
+	readonly prefixes: ReadonlySet<string>;
+	readonly duplicateKeys: ReadonlySet<string>;
+}
+
+/** The hint a `_force` list earns without blocking; `groupKeys` are the fields the record sets. */
+function forceHint(names: readonly string[], groupKeys: ReadonlySet<string>): string | undefined {
+	const unforceable = names.find((name) => !isForceableParameter(name));
+	if (unforceable !== undefined) {
+		return l10n.t('"{0}" cannot be forced: provider-owned fields and _ keys stay extension-owned', unforceable);
+	}
+	const unset = names.find((name) => !groupKeys.has(name));
+	if (unset !== undefined) {
+		return l10n.t('"{0}" is not a parameter this record sets; its force mark is ignored', unset);
+	}
+	return undefined;
+}
+
+/** The `_force` row's verdict: true, false, or a list of parameter names, the list hinted but never blocked. */
+function judgeForceRow(valueText: string, groupKeys: ReadonlySet<string>): ParamRowVerdict {
+	const parsed = parseDirectiveListText(valueText);
+	if (!parsed.ok) {
+		return {
+			problem: { field: "value", message: l10n.t('Enter true or a list of parameter names, e.g. ["temperature"]') },
+		};
+	}
+	if (Array.isArray(parsed.value)) {
+		return { value: parsed.value, hint: forceHint(parsed.value, groupKeys) };
+	}
+	return { value: parsed.value };
+}
+
+/** A directive row's judgement as a row verdict; a directive's problem is always the value's. */
+function directiveVerdict(judged: DirectiveRowJudgement): ParamRowVerdict {
+	if (judged.problem !== undefined) {
+		return { problem: { field: "value", message: judged.problem } };
+	}
+	return { value: judged.value, hint: judged.hint };
+}
+
+/**
+ * One parameter row's verdict. The directive rows are typed where plain rows are open JSON, and entries the resolver
+ * would only diagnose at request time hint without blocking. A sibling record type's directive is hinted from the key
+ * BEFORE the value parse: fixing the value would not make the key any less ignored, so the hint rides beside a value
+ * problem.
+ */
+function judgeParamRow(param: ParamRow, context: ParamRowContext): ParamRowVerdict {
+	const problem = keyProblem(
+		param.key,
+		{ empty: l10n.t("Enter a parameter name"), duplicate: l10n.t("Duplicate parameter name") },
+		context.duplicateKeys
+	);
+	if (problem !== undefined) {
+		return { problem: { field: "name", message: problem } };
+	}
+	if (param.key === FORCE_DIRECTIVE) {
+		return judgeForceRow(param.valueText, context.groupKeys);
+	}
+	if (param.key === INHERITABLE_DIRECTIVE) {
+		return directiveVerdict(judgeInheritableRow("params", param.valueText, context.groupKeys));
+	}
+	if (param.key === INHERIT_FROM_DIRECTIVE) {
+		return directiveVerdict(judgeInheritFromRow(param.valueText, context.prefixes));
+	}
+	const hint = wrongRecordTypeHint("params", param.key);
+	const parsed = parseJsonValue(param.valueText);
+	if (!parsed.ok) {
+		return { problem: { field: "value", message: parsed.error }, hint };
+	}
+	return { value: parsed.value, hint };
+}
+
 /**
  * Field keys are judged and saved VERBATIM, matching parseParameterRecord: only an exact `_`-led key is a directive, so
  * a padded " _fallback" is a live pass-through field the editor must neither badge as ignored nor silently
@@ -305,8 +391,11 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 	let blocked = false;
 	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
 	for (const group of groups) {
-		const duplicateKeys = duplicates(group.params.map((param) => param.key));
-		const groupKeys: ReadonlySet<string> = new Set(group.params.map((param) => param.key));
+		const context: ParamRowContext = {
+			groupKeys: new Set(group.params.map((param) => param.key)),
+			prefixes,
+			duplicateKeys: duplicates(group.params.map((param) => param.key)),
+		};
 		const params: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
 		const paramHints: (string | undefined)[] = group.params.map(() => undefined);
 		const prefixProblem = keyProblem(
@@ -315,67 +404,12 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 			duplicatePrefixes
 		);
 		const paramProblems = group.params.map((param, index): RowFieldProblem | undefined => {
-			const problem = keyProblem(
-				param.key,
-				{ empty: l10n.t("Enter a parameter name"), duplicate: l10n.t("Duplicate parameter name") },
-				duplicateKeys
-			);
-			if (problem !== undefined) {
-				return { field: "name", message: problem };
+			const verdict = judgeParamRow(param, context);
+			paramHints[index] = verdict.hint;
+			if (verdict.problem !== undefined) {
+				return verdict.problem;
 			}
-			// The `_force` directive row is typed where plain rows are open JSON: true, false, or a list of parameter
-			// names. Entries the resolver would only diagnose at request time hint without blocking.
-			if (param.key === FORCE_DIRECTIVE) {
-				const parsed = parseDirectiveListText(param.valueText);
-				if (!parsed.ok) {
-					return {
-						field: "value",
-						message: l10n.t('Enter true or a list of parameter names, e.g. ["temperature"]'),
-					};
-				}
-				params[FORCE_DIRECTIVE] = parsed.value;
-				if (Array.isArray(parsed.value)) {
-					const unforceable = parsed.value.find((name) => !isForceableParameter(name));
-					const unset = parsed.value.find((name) => !groupKeys.has(name));
-					paramHints[index] =
-						unforceable === undefined
-							? unset === undefined
-								? undefined
-								: l10n.t('"{0}" is not a parameter this record sets; its force mark is ignored', unset)
-							: l10n.t('"{0}" cannot be forced: provider-owned fields and _ keys stay extension-owned', unforceable);
-				}
-				return undefined;
-			}
-			if (param.key === INHERITABLE_DIRECTIVE) {
-				const judged = judgeInheritableRow("params", param.valueText, groupKeys);
-				if (judged.problem !== undefined) {
-					return { field: "value", message: judged.problem };
-				}
-				params[INHERITABLE_DIRECTIVE] = judged.value;
-				paramHints[index] = judged.hint;
-				return undefined;
-			}
-			if (param.key === INHERIT_FROM_DIRECTIVE) {
-				const judged = judgeInheritFromRow(param.valueText, prefixes);
-				if (judged.problem !== undefined) {
-					return { field: "value", message: judged.problem };
-				}
-				params[INHERIT_FROM_DIRECTIVE] = judged.value;
-				paramHints[index] = judged.hint;
-				return undefined;
-			}
-			// A sibling record type's directive: the setting keeps the row and the resolver diagnoses it
-			// wrong-record-type, so the editor hints here too. Keyed BEFORE the value parse - fixing the value would
-			// not make the key any less ignored, so the hint rides beside a value problem.
-			const wrongType = wrongRecordTypeHint("params", param.key);
-			if (wrongType !== undefined) {
-				paramHints[index] = wrongType;
-			}
-			const parsed = parseJsonValue(param.valueText);
-			if (!parsed.ok) {
-				return { field: "value", message: parsed.error };
-			}
-			params[param.key] = parsed.value;
+			params[param.key] = verdict.value;
 			return undefined;
 		});
 		blocked = blocked || prefixProblem !== undefined || paramProblems.some((problem) => problem !== undefined);
@@ -622,7 +656,13 @@ function consumedInvalidHint(kind: CapabilityValueKind, key: string): string {
 
 function parseBooleanText(text: string): boolean | undefined {
 	const trimmed = trimHttpWhitespace(text);
-	return trimmed === "true" ? true : trimmed === "false" ? false : undefined;
+	if (trimmed === "true") {
+		return true;
+	}
+	if (trimmed === "false") {
+		return false;
+	}
+	return undefined;
 }
 
 /**
@@ -642,6 +682,233 @@ export function parseCatalogIdText(text: string): string | undefined {
 	return trimmed;
 }
 
+/** What every row of a capability draft is judged against: the draft's prefixes and the observed key set. */
+interface CapabilityDraftContext {
+	readonly prefixes: ReadonlySet<string>;
+	readonly recognizedKeys: ReadonlySet<string> | undefined;
+}
+
+/** A row's context: the draft's, plus its own group's duplicate keys. */
+interface CapabilityRowContext extends CapabilityDraftContext {
+	readonly duplicateKeys: ReadonlySet<string>;
+}
+
+/**
+ * One capability row's verdict: a blocking problem (a wrong-type hint may ride beside it), a deferral to the second
+ * pass, or the entry with whether its field counts as set and an optional non-blocking hint.
+ */
+type CapabilityRowVerdict =
+	| { readonly kind: "problem"; readonly problem: RowFieldProblem; readonly hint?: string | undefined }
+	| { readonly kind: "deferred" }
+	| { readonly kind: "entry"; readonly value: unknown; readonly sets: boolean; readonly hint?: string | undefined };
+
+/** A verdict the second pass has settled: never a deferral. */
+type SettledCapabilityRow = Exclude<CapabilityRowVerdict, { kind: "deferred" }>;
+
+/** A directive row's judgement as a capability verdict; a directive never counts as a set field. */
+function capabilityDirectiveVerdict(judged: DirectiveRowJudgement): SettledCapabilityRow {
+	if (judged.problem !== undefined) {
+		return { kind: "problem", problem: { field: "value", message: judged.problem } };
+	}
+	return { kind: "entry", value: judged.value, sets: false, hint: judged.hint };
+}
+
+/** The `_openrouter_model` row: a catalog ID, bare or quoted; it names a catalog entry, not a field the record sets. */
+function judgeCatalogIdRow(valueText: string): CapabilityRowVerdict {
+	const id = parseCatalogIdText(valueText);
+	if (id === undefined) {
+		return {
+			kind: "problem",
+			problem: { field: "value", message: l10n.t("Enter an OpenRouter model ID, e.g. openai/gpt-4o") },
+		};
+	}
+	return { kind: "entry", value: id, sets: false };
+}
+
+/** A core capability field's row: its kind blocks (a positive whole token count, or true/false). */
+function judgeCoreCapabilityRow(key: CapabilityFieldName, valueText: string): CapabilityRowVerdict {
+	if (CAPABILITY_FIELDS[key] === "number") {
+		const parsed = parseJsonValue(valueText);
+		if (!parsed.ok || !isValidConsumedCapabilityValue("number", parsed.value)) {
+			return {
+				kind: "problem",
+				problem: { field: "value", message: l10n.t("Enter a positive whole number of tokens") },
+			};
+		}
+		return { kind: "entry", value: parsed.value, sets: true };
+	}
+	const parsed = parseBooleanText(valueText);
+	if (parsed === undefined) {
+		return { kind: "problem", problem: { field: "value", message: l10n.t("Enter true or false") } };
+	}
+	return { kind: "entry", value: parsed, sets: true };
+}
+
+/**
+ * An open row. A consumed key with an invalid value is kept but resolves unset, so it hints without blocking and does
+ * not count as set. An underscore key is reserved for future directives and passes silently, a sibling record type's
+ * directive carrying its hint. Anything else applies as-is and hints as a possible typo only against real evidence: a
+ * known, non-empty observed /model/info key set that does not name it.
+ */
+function judgeOpenCapabilityRow(
+	key: string,
+	valueText: string,
+	recognizedKeys: ReadonlySet<string> | undefined
+): CapabilityRowVerdict {
+	const wrongTypeHint = wrongRecordTypeHint("caps", key);
+	const parsed = parseJsonValue(valueText);
+	if (!parsed.ok) {
+		return { kind: "problem", problem: { field: "value", message: parsed.error }, hint: wrongTypeHint };
+	}
+	const consumedKind = consumedFieldKind(key);
+	if (consumedKind !== undefined) {
+		if (isValidConsumedCapabilityValue(consumedKind, parsed.value)) {
+			return { kind: "entry", value: parsed.value, sets: true };
+		}
+		return { kind: "entry", value: parsed.value, sets: false, hint: consumedInvalidHint(consumedKind, key) };
+	}
+	if (key.startsWith("_")) {
+		return { kind: "entry", value: parsed.value, sets: false, hint: wrongTypeHint };
+	}
+	if (recognizedKeys === undefined || recognizedKeys.size === 0 || recognizedKeys.has(key)) {
+		return { kind: "entry", value: parsed.value, sets: true };
+	}
+	return {
+		kind: "entry",
+		value: parsed.value,
+		sets: true,
+		hint: l10n.t('"{0}" is not a field this extension knows; it is applied as an override as-is', key),
+	};
+}
+
+/**
+ * The first pass over one row; the group-referencing directives (`_fallback`, `_inheritable`) wait for the second
+ * pass (judgeDeferredCapabilityRow). A sibling record type's directive is hinted from the key BEFORE the value parse,
+ * so the hint rides beside a value problem.
+ */
+function judgeCapabilityRow(key: string, valueText: string, context: CapabilityRowContext): CapabilityRowVerdict {
+	const problem = keyProblem(
+		key,
+		{ empty: l10n.t("Enter a capability or directive"), duplicate: l10n.t("Duplicate capability name") },
+		context.duplicateKeys
+	);
+	if (problem !== undefined) {
+		return { kind: "problem", problem: { field: "name", message: problem } };
+	}
+	if (key === OPENROUTER_MODEL_DIRECTIVE) {
+		return judgeCatalogIdRow(valueText);
+	}
+	if (key === FALLBACK_DIRECTIVE || key === INHERITABLE_DIRECTIVE) {
+		return { kind: "deferred" };
+	}
+	if (key === INHERIT_FROM_DIRECTIVE) {
+		return capabilityDirectiveVerdict(judgeInheritFromRow(valueText, context.prefixes));
+	}
+	if (isCapabilityFieldName(key)) {
+		return judgeCoreCapabilityRow(key, valueText);
+	}
+	return judgeOpenCapabilityRow(key, valueText, context.recognizedKeys);
+}
+
+/**
+ * The second pass over a `_fallback` or `_inheritable` row, judged against the fields whose values actually resolve
+ * (the first pass's set keys): a mark naming an unset field hints as stranded, without blocking.
+ */
+function judgeDeferredCapabilityRow(
+	key: string,
+	valueText: string,
+	setFieldKeys: ReadonlySet<string>
+): SettledCapabilityRow {
+	if (key !== FALLBACK_DIRECTIVE) {
+		return capabilityDirectiveVerdict(judgeInheritableRow("caps", valueText, setFieldKeys));
+	}
+	const parsed = parseDirectiveListText(valueText);
+	if (!parsed.ok) {
+		return {
+			kind: "problem",
+			problem: {
+				field: "value",
+				message: l10n.t('Enter true or a list of capability fields, e.g. ["context_length"]'),
+			},
+		};
+	}
+	if (!Array.isArray(parsed.value)) {
+		return { kind: "entry", value: parsed.value, sets: false };
+	}
+	const names = parsed.value.map((name) => resolvedFieldName("caps", name));
+	const unknown = names.find((name) => !setFieldKeys.has(name));
+	if (unknown !== undefined) {
+		return {
+			kind: "entry",
+			value: names,
+			sets: false,
+			hint: l10n.t('"{0}" is not a capability field this record sets; its fallback mark is ignored', unknown),
+		};
+	}
+	return { kind: "entry", value: names, sets: false };
+}
+
+/** One capability group's judged rows: the assembled fields (a null-prototype record) and one issue slot per row. */
+interface JudgedCapabilityGroup {
+	readonly fields: Record<string, unknown>;
+	readonly rows: readonly CapabilityRowIssue[];
+}
+
+/**
+ * Two passes so the group-referencing directives (`_fallback`, `_inheritable`) are judged against the loop's own row
+ * VERDICTS: the fields whose values would actually resolve, exactly the set the resolver keeps - a consumed field with
+ * an invalid value resolves unset, so a mark naming it hints as stranded here too. Entries and issues are
+ * index-aligned holders, so deferring the directive rows reorders neither the issues nor the assembled record's keys.
+ */
+function judgeCapabilityGroup(group: PrefixGroup, draft: CapabilityDraftContext): JudgedCapabilityGroup {
+	const context: CapabilityRowContext = {
+		...draft,
+		duplicateKeys: duplicates(group.params.map((param) => resolvedFieldName("caps", param.key))),
+	};
+	const setFieldKeys = new Set<string>();
+	const rowIssues: (CapabilityRowIssue | undefined)[] = new Array<CapabilityRowIssue | undefined>(group.params.length);
+	const rowEntries: (readonly [string, unknown] | undefined)[] = new Array<readonly [string, unknown] | undefined>(
+		group.params.length
+	);
+	const settle = (index: number, key: string, verdict: SettledCapabilityRow): void => {
+		if (verdict.kind === "problem") {
+			rowIssues[index] =
+				verdict.hint === undefined ? { problem: verdict.problem } : { problem: verdict.problem, hint: verdict.hint };
+			return;
+		}
+		rowEntries[index] = [key, verdict.value];
+		if (verdict.sets) {
+			setFieldKeys.add(key);
+		}
+		rowIssues[index] = verdict.hint === undefined ? {} : { hint: verdict.hint };
+	};
+	const deferred: number[] = [];
+	group.params.forEach((param, index) => {
+		const key = resolvedFieldName("caps", param.key);
+		const verdict = judgeCapabilityRow(key, param.valueText, context);
+		if (verdict.kind === "deferred") {
+			deferred.push(index);
+			return;
+		}
+		settle(index, key, verdict);
+	});
+	for (const index of deferred) {
+		const param = group.params[index];
+		if (param === undefined) {
+			continue;
+		}
+		const key = resolvedFieldName("caps", param.key);
+		settle(index, key, judgeDeferredCapabilityRow(key, param.valueText, setFieldKeys));
+	}
+	const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+	for (const entry of rowEntries) {
+		if (entry !== undefined) {
+			fields[entry[0]] = entry[1];
+		}
+	}
+	return { fields, rows: rowIssues.map((issue) => issue ?? {}) };
+}
+
 /**
  * Core fields block on their kinds; a consumed key with an invalid value is kept in the setting but resolves unset, so
  * it hints without blocking; OPEN keys apply as-is, hinted as a possible typo only when `recognizedKeys` is known,
@@ -652,177 +919,21 @@ export function parseCapabilityGroups(
 	recognizedKeys?: ReadonlySet<string> | undefined
 ): CapabilityGroupsParse {
 	const duplicatePrefixes = duplicates(groups.map((group) => group.prefix));
-	const prefixes: ReadonlySet<string> = new Set(groups.map((group) => group.prefix));
+	const draft: CapabilityDraftContext = { prefixes: new Set(groups.map((group) => group.prefix)), recognizedKeys };
 	const issues: CapabilityGroupIssues[] = [];
 	let blocked = false;
 	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
 	for (const group of groups) {
-		const duplicateKeys = duplicates(group.params.map((param) => resolvedFieldName("caps", param.key)));
 		const prefixProblem = keyProblem(
 			group.prefix,
 			{ empty: l10n.t("Enter a model ID or matcher"), duplicate: l10n.t("Duplicate matcher key") },
 			duplicatePrefixes
 		);
-		// Two passes so the group-referencing directives (`_fallback`, `_inheritable`) are judged against the loop's
-		// own row VERDICTS: the fields whose values would actually resolve, exactly the set the resolver keeps - a
-		// consumed field with an invalid value resolves unset, so a mark naming it hints as stranded here too. Entries
-		// and issues are index-aligned holders, so deferring the directive rows reorders neither the issues nor the
-		// assembled record's keys.
-		const setFieldKeys = new Set<string>();
-		const rowIssues: (CapabilityRowIssue | undefined)[] = new Array<CapabilityRowIssue | undefined>(
-			group.params.length
-		);
-		const rowEntries: (readonly [string, unknown] | undefined)[] = new Array<readonly [string, unknown] | undefined>(
-			group.params.length
-		);
-		const deferred: number[] = [];
-		group.params.forEach((param, index) => {
-			const key = resolvedFieldName("caps", param.key);
-			const problem = keyProblem(
-				key,
-				{ empty: l10n.t("Enter a capability or directive"), duplicate: l10n.t("Duplicate capability name") },
-				duplicateKeys
-			);
-			if (problem !== undefined) {
-				rowIssues[index] = { problem: { field: "name", message: problem } };
-				return;
-			}
-			if (key === OPENROUTER_MODEL_DIRECTIVE) {
-				const id = parseCatalogIdText(param.valueText);
-				if (id === undefined) {
-					rowIssues[index] = {
-						problem: { field: "value", message: l10n.t("Enter an OpenRouter model ID, e.g. openai/gpt-4o") },
-					};
-					return;
-				}
-				rowEntries[index] = [key, id];
-				rowIssues[index] = {};
-				return;
-			}
-			if (key === FALLBACK_DIRECTIVE || key === INHERITABLE_DIRECTIVE) {
-				deferred.push(index);
-				return;
-			}
-			if (key === INHERIT_FROM_DIRECTIVE) {
-				const judged = judgeInheritFromRow(param.valueText, prefixes);
-				if (judged.problem !== undefined) {
-					rowIssues[index] = { problem: { field: "value", message: judged.problem } };
-					return;
-				}
-				rowEntries[index] = [key, judged.value];
-				rowIssues[index] = judged.hint === undefined ? {} : { hint: judged.hint };
-				return;
-			}
-			if (isCapabilityFieldName(key)) {
-				if (CAPABILITY_FIELDS[key] === "number") {
-					const parsed = parseJsonValue(param.valueText);
-					if (!parsed.ok || typeof parsed.value !== "number" || !Number.isInteger(parsed.value) || parsed.value <= 0) {
-						rowIssues[index] = {
-							problem: { field: "value", message: l10n.t("Enter a positive whole number of tokens") },
-						};
-						return;
-					}
-					rowEntries[index] = [key, parsed.value];
-					setFieldKeys.add(key);
-					rowIssues[index] = {};
-					return;
-				}
-				const parsed = parseBooleanText(param.valueText);
-				if (parsed === undefined) {
-					rowIssues[index] = { problem: { field: "value", message: l10n.t("Enter true or false") } };
-					return;
-				}
-				rowEntries[index] = [key, parsed];
-				setFieldKeys.add(key);
-				rowIssues[index] = {};
-				return;
-			}
-			// A sibling record type's directive, which the resolver later diagnoses wrong-record-type: minted from the
-			// key BEFORE the value parse - fixing the value would not make the key any less ignored, so the hint rides
-			// beside a value problem.
-			const wrongTypeHint = wrongRecordTypeHint("caps", key);
-			const parsed = parseJsonValue(param.valueText);
-			if (!parsed.ok) {
-				rowIssues[index] = { problem: { field: "value", message: parsed.error }, hint: wrongTypeHint };
-				return;
-			}
-			rowEntries[index] = [key, parsed.value];
-			const consumedKind = consumedFieldKind(key);
-			if (consumedKind !== undefined) {
-				if (isValidConsumedCapabilityValue(consumedKind, parsed.value)) {
-					setFieldKeys.add(key);
-					rowIssues[index] = {};
-				} else {
-					rowIssues[index] = { hint: consumedInvalidHint(consumedKind, key) };
-				}
-				return;
-			}
-			// Underscore keys are reserved for future directives and pass silently, except a sibling record type's
-			// directive, whose hint was minted above. Anything else is an OPEN field the resolver applies as-is (so it
-			// counts as set); it hints as a possible typo only against real evidence - a known, non-empty observed
-			// /model/info key set that does not name it.
-			if (key.startsWith("_")) {
-				rowIssues[index] = wrongTypeHint === undefined ? {} : { hint: wrongTypeHint };
-				return;
-			}
-			setFieldKeys.add(key);
-			rowIssues[index] =
-				recognizedKeys === undefined || recognizedKeys.size === 0 || recognizedKeys.has(key)
-					? {}
-					: { hint: l10n.t('"{0}" is not a field this extension knows; it is applied as an override as-is', key) };
-		});
-		for (const index of deferred) {
-			const param = group.params[index];
-			if (param === undefined) {
-				continue;
-			}
-			const key = resolvedFieldName("caps", param.key);
-			if (key === FALLBACK_DIRECTIVE) {
-				const parsed = parseDirectiveListText(param.valueText);
-				if (!parsed.ok) {
-					rowIssues[index] = {
-						problem: {
-							field: "value",
-							message: l10n.t('Enter true or a list of capability fields, e.g. ["context_length"]'),
-						},
-					};
-					continue;
-				}
-				const value = Array.isArray(parsed.value)
-					? parsed.value.map((name) => resolvedFieldName("caps", name))
-					: parsed.value;
-				rowEntries[index] = [key, value];
-				if (Array.isArray(value)) {
-					const unknown = value.find((name) => !setFieldKeys.has(name));
-					if (unknown !== undefined) {
-						rowIssues[index] = {
-							hint: l10n.t('"{0}" is not a capability field this record sets; its fallback mark is ignored', unknown),
-						};
-						continue;
-					}
-				}
-				rowIssues[index] = {};
-				continue;
-			}
-			const judged = judgeInheritableRow("caps", param.valueText, setFieldKeys);
-			if (judged.problem !== undefined) {
-				rowIssues[index] = { problem: { field: "value", message: judged.problem } };
-				continue;
-			}
-			rowEntries[index] = [key, judged.value];
-			rowIssues[index] = judged.hint === undefined ? {} : { hint: judged.hint };
-		}
-		const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-		for (const entry of rowEntries) {
-			if (entry !== undefined) {
-				fields[entry[0]] = entry[1];
-			}
-		}
-		const rows = rowIssues.map((issue) => issue ?? {});
-		blocked = blocked || prefixProblem !== undefined || rows.some((row) => row.problem !== undefined);
-		issues.push({ prefix: prefixProblem, rows });
+		const judged = judgeCapabilityGroup(group, draft);
+		blocked = blocked || prefixProblem !== undefined || judged.rows.some((row) => row.problem !== undefined);
+		issues.push({ prefix: prefixProblem, rows: judged.rows });
 		if (prefixProblem === undefined) {
-			value[group.prefix] = { ...fields };
+			value[group.prefix] = { ...judged.fields };
 		}
 	}
 	return blocked ? { ok: false, issues } : { ok: true, value: { ...value }, issues };
@@ -942,6 +1053,38 @@ export function directiveRowAbsorbed(
 	return parsed.value.every((entry) => eligible.has(resolvedFieldName(kind, entry)));
 }
 
+/** The raw entries a directive row marks, as readDirectiveValue read them; invalid members ride along. */
+function markedEntries(
+	reading: DirectiveValueReading,
+	kind: "params" | "caps",
+	group: PrefixGroup,
+	directive: FieldDirective
+): readonly unknown[] {
+	if (reading.kind === "list") {
+		return reading.entries;
+	}
+	if (reading.kind === "flag" && reading.value) {
+		return eligibleRowKeys(kind, group, directive);
+	}
+	return [];
+}
+
+/** The entries after `field` is marked or unmarked; `names` is the membership test in the resolver's reading. */
+function toggledEntries(
+	base: readonly unknown[],
+	names: (entry: unknown) => boolean,
+	field: string,
+	enabled: boolean
+): unknown[] {
+	if (!enabled) {
+		return base.filter((entry) => !names(entry));
+	}
+	if (base.some(names)) {
+		return [...base];
+	}
+	return [...base, field];
+}
+
 /**
  * `field` must arrive in the resolver's reading (resolvedFieldName), which membership compares in too, so unmarking
  * removes every spelling that names the field and a padded entry cannot survive its own checkbox.
@@ -957,13 +1100,7 @@ export function toggleDirectiveField(
 	const row = index < 0 ? undefined : group.params[index];
 	const reading = row === undefined ? ({ kind: "unreadable" } as const) : readDirectiveValue(row.valueText);
 	const names = (entry: unknown): boolean => typeof entry === "string" && resolvedFieldName(kind, entry) === field;
-	const base: readonly unknown[] =
-		reading.kind === "list"
-			? reading.entries
-			: reading.kind === "flag" && reading.value
-				? eligibleRowKeys(kind, group, directive)
-				: [];
-	const next = enabled ? (base.some(names) ? [...base] : [...base, field]) : base.filter((entry) => !names(entry));
+	const next = toggledEntries(markedEntries(reading, kind, group, directive), names, field, enabled);
 	if (next.length === 0) {
 		return index < 0 ? group : { ...group, params: group.params.filter((_, i) => i !== index) };
 	}
@@ -1020,6 +1157,17 @@ export function parseInheritKeysText(text: string): readonly [string, ...string[
 	return first === undefined ? undefined : [first, ...rest];
 }
 
+/** The `_inherit_from` row's canonical value text for a non-default choice. */
+function inheritFromValueText(choice: "all" | "none" | { readonly keys: readonly [string, ...string[]] }): string {
+	if (choice === "all") {
+		return "true";
+	}
+	if (choice === "none") {
+		return "false";
+	}
+	return JSON.stringify(choice.keys);
+}
+
 /**
  * Write the group-level `_inherit_from` choice back into the group's rows: "default" removes the directive row, the
  * others write its canonical value.
@@ -1036,7 +1184,7 @@ export function setInheritFromChoice(
 	if (choice === "default") {
 		return index < 0 ? group : { ...group, params: group.params.filter((_, i) => i !== index) };
 	}
-	const valueText = choice === "all" ? "true" : choice === "none" ? "false" : JSON.stringify(choice.keys);
+	const valueText = inheritFromValueText(choice);
 	return index < 0
 		? { ...group, params: [...group.params, newParamRow(INHERIT_FROM_DIRECTIVE, valueText)] }
 		: { ...group, params: group.params.map((param, i) => (i === index ? { ...param, valueText } : param)) };

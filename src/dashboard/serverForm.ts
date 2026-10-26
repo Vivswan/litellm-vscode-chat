@@ -26,7 +26,16 @@ import type { HeaderScalar } from "../shared/util/headers";
 import { headerValue, isValidHeaderName, trimHttpWhitespace } from "../shared/util/headers";
 import { isUnsafeRecordKey } from "../shared/util/json";
 import type { ReplacedEntryIdentity, SaveServerPayload, SecretDirective } from "./endpoints";
-import type { CapabilityGroupIssues, GroupHints, GroupProblems, HeaderRow, PrefixGroup } from "./recordDraft";
+import type {
+	CapabilityGroupIssues,
+	CapabilityGroupsParse,
+	GroupHints,
+	GroupProblems,
+	GroupsParse,
+	HeaderRow,
+	HeaderRowsParse,
+	PrefixGroup,
+} from "./recordDraft";
 import { draftRowsKey, parseCapabilityGroups, parseGroups, parseHeaderRows } from "./recordDraft";
 
 /**
@@ -167,74 +176,6 @@ function sameTokenSet(now: readonly string[], baseline: readonly string[]): bool
 /** Problems keyed by the field they belong to; an empty record means the draft is savable. */
 export type ServerFormProblems = Partial<Record<ServerFormField, string>>;
 
-/**
- * The save bar counts these, so a quiet bar under a move the user can see reads as broken, and one that goes quiet
- * on an edit that blocks is worse: text Save would refuse still counts, by its trimmed form.
- */
-export function changedServerFormFields(draft: ServerFormDraft, baseline: ServerFormDraft): readonly ServerFormField[] {
-	const nowSecrets = parseSecrets(draft);
-	const wasSecrets = parseSecrets(baseline);
-	const nowText = activeOptionalText(draft);
-	const wasText = activeOptionalText(baseline);
-	return SERVER_FORM_FIELD_ORDER.filter((field) => {
-		if (field === "apiKey" || field === "oauthClientSecret" || field === "virtualKeyValue") {
-			return !sameSecretDirective(nowSecrets[field].directive, wasSecrets[field].directive);
-		}
-		if (field === "oauthTokenUrl") {
-			return (usableHttpUrl(nowText[field]) ?? nowText[field]) !== (usableHttpUrl(wasText[field]) ?? wasText[field]);
-		}
-		if (isNonSecretOptionalField(field)) {
-			return nowText[field] !== wasText[field];
-		}
-		if (field === "baseUrl") {
-			const now = trimHttpWhitespace(draft.baseUrl);
-			const was = trimHttpWhitespace(baseline.baseUrl);
-			return (savedBaseUrl(now) ?? now) !== (savedBaseUrl(was) ?? was);
-		}
-		if (field === "label") {
-			return trimHttpWhitespace(draft.label) !== trimHttpWhitespace(baseline.label);
-		}
-		if (field === "apiVersion") {
-			// Save reads the custom text only in custom mode, so another mode's leftover text never counts; a mode
-			// switch always does.
-			const now = draft.apiVersion;
-			const was = baseline.apiVersion;
-			return (
-				now.mode !== was.mode ||
-				(now.mode === "custom" && trimHttpWhitespace(now.custom) !== trimHttpWhitespace(was.custom))
-			);
-		}
-		if (field === "budget") {
-			return !sameBudget(parseBudgetText(draft.budget), parseBudgetText(baseline.budget));
-		}
-		if (field === "mcp") {
-			return !sameMcp(parseMcpDraft(draft.mcp), parseMcpDraft(baseline.mcp));
-		}
-		if (field === "declaredModels") {
-			return (
-				parseDeclaredModelsText(draft.declaredModels).join("\n") !==
-				parseDeclaredModelsText(baseline.declaredModels).join("\n")
-			);
-		}
-		if (field === "expectedFailures" || field === "includeModes") {
-			// A set, not a list: comparing sequences would report a change for a check-then-uncheck round trip (the
-			// toggle canonicalizes the order while a stored entry keeps its author's).
-			return !sameTokenSet(draft[field], baseline[field]);
-		}
-		if (field === "authForm") {
-			// The selector by raw draft: a switch can leave every secret directive "keep" and every optional text empty,
-			// invisible to the parsed comparisons above.
-			return draft.authForm !== baseline.authForm;
-		}
-		// The row grids by raw draft, since a row can sit mid-edit and unparseable.
-		return draftRowsKey(draft[field]) !== draftRowsKey(baseline[field]);
-	});
-}
-
-function isNonSecretOptionalField(field: ServerFormField): field is NonSecretOptionalFieldId {
-	return (NON_SECRET_OPTIONAL_FIELD_IDS as readonly ServerFormField[]).includes(field);
-}
-
 /** A switch, not an if: a fourth directive variant then fails to compile instead of comparing by action alone. */
 function sameSecretDirective(a: SecretDirective, b: SecretDirective): boolean {
 	switch (a.action) {
@@ -311,15 +252,18 @@ function parseInactiveSecret(draft: SecretFieldDraft): SecretParse {
 	return { directive: { action: "keep" }, resolves: draft.existing !== "none", visibleValue: undefined };
 }
 
+/** Which credential fields the picked auth form sends. */
+interface AuthFormActivity {
+	readonly oauth: boolean;
+	readonly apiKey: boolean;
+	readonly virtualKey: boolean;
+}
+
 /**
  * Keyed on the picked selector, NOT on entryUsesSecretField's wire rule, so a stored-but-unsent value can still
  * block a save.
  */
-function authFormActivity(authForm: AuthFormId): {
-	readonly oauth: boolean;
-	readonly apiKey: boolean;
-	readonly virtualKey: boolean;
-} {
+function authFormActivity(authForm: AuthFormId): AuthFormActivity {
 	const oauth = authForm === "oauth";
 	return { oauth, apiKey: authForm === "apiKey" || oauth, virtualKey: authForm !== "none" };
 }
@@ -461,6 +405,79 @@ export function parseDeclaredModelsText(text: string): string[] {
 	];
 }
 
+/** The two readings a changed-field comparison takes of a draft: its secret parses and its active optional text. */
+interface FormReading {
+	readonly draft: ServerFormDraft;
+	readonly secrets: Readonly<Record<SecretFieldId, SecretParse>>;
+	readonly text: Readonly<Record<NonSecretOptionalFieldId, string>>;
+}
+
+/** The token URL in its saved spelling where one exists, else the raw text. */
+function tokenUrlForCompare(text: string): string {
+	return usableHttpUrl(text) ?? text;
+}
+
+/** The base URL in its saved spelling where one exists, else the trimmed text. */
+function baseUrlForCompare(text: string): string {
+	const trimmed = trimHttpWhitespace(text);
+	return savedBaseUrl(trimmed) ?? trimmed;
+}
+
+/**
+ * Save reads the custom text only in custom mode, so another mode's leftover text never counts; a mode switch always
+ * does.
+ */
+function sameApiVersion(now: ApiVersionDraft, was: ApiVersionDraft): boolean {
+	if (now.mode !== was.mode) {
+		return false;
+	}
+	return now.mode !== "custom" || trimHttpWhitespace(now.custom) === trimHttpWhitespace(was.custom);
+}
+
+/** Whether each field differs between two readings; each entry names the comparison that field needs. */
+const FIELD_CHANGED: Readonly<Record<ServerFormField, (now: FormReading, was: FormReading) => boolean>> = {
+	label: (now, was) => trimHttpWhitespace(now.draft.label) !== trimHttpWhitespace(was.draft.label),
+	baseUrl: (now, was) => baseUrlForCompare(now.draft.baseUrl) !== baseUrlForCompare(was.draft.baseUrl),
+	apiVersion: (now, was) => !sameApiVersion(now.draft.apiVersion, was.draft.apiVersion),
+	// The selector by raw draft: a switch can leave every secret directive "keep" and every optional text empty,
+	// invisible to the parsed comparisons.
+	authForm: (now, was) => now.draft.authForm !== was.draft.authForm,
+	apiKey: (now, was) => !sameSecretDirective(now.secrets.apiKey.directive, was.secrets.apiKey.directive),
+	oauthTokenUrl: (now, was) =>
+		tokenUrlForCompare(now.text.oauthTokenUrl) !== tokenUrlForCompare(was.text.oauthTokenUrl),
+	oauthClientId: (now, was) => now.text.oauthClientId !== was.text.oauthClientId,
+	oauthClientSecret: (now, was) =>
+		!sameSecretDirective(now.secrets.oauthClientSecret.directive, was.secrets.oauthClientSecret.directive),
+	oauthScopes: (now, was) => now.text.oauthScopes !== was.text.oauthScopes,
+	virtualKeyHeader: (now, was) => now.text.virtualKeyHeader !== was.text.virtualKeyHeader,
+	virtualKeyValue: (now, was) =>
+		!sameSecretDirective(now.secrets.virtualKeyValue.directive, was.secrets.virtualKeyValue.directive),
+	// The row grids by raw draft, since a row can sit mid-edit and unparseable.
+	modelParameters: (now, was) => draftRowsKey(now.draft.modelParameters) !== draftRowsKey(was.draft.modelParameters),
+	modelCapabilities: (now, was) =>
+		draftRowsKey(now.draft.modelCapabilities) !== draftRowsKey(was.draft.modelCapabilities),
+	declaredModels: (now, was) =>
+		parseDeclaredModelsText(now.draft.declaredModels).join("\n") !==
+		parseDeclaredModelsText(was.draft.declaredModels).join("\n"),
+	// Sets, not lists: comparing sequences would report a change for a check-then-uncheck round trip (the toggle
+	// canonicalizes the order while a stored entry keeps its author's).
+	expectedFailures: (now, was) => !sameTokenSet(now.draft.expectedFailures, was.draft.expectedFailures),
+	includeModes: (now, was) => !sameTokenSet(now.draft.includeModes, was.draft.includeModes),
+	headers: (now, was) => draftRowsKey(now.draft.headers) !== draftRowsKey(was.draft.headers),
+	budget: (now, was) => !sameBudget(parseBudgetText(now.draft.budget), parseBudgetText(was.draft.budget)),
+	mcp: (now, was) => !sameMcp(parseMcpDraft(now.draft.mcp), parseMcpDraft(was.draft.mcp)),
+};
+
+/**
+ * The save bar counts these, so a quiet bar under a move the user can see reads as broken, and one that goes quiet
+ * on an edit that blocks is worse: text Save would refuse still counts, by its trimmed form.
+ */
+export function changedServerFormFields(draft: ServerFormDraft, baseline: ServerFormDraft): readonly ServerFormField[] {
+	const now: FormReading = { draft, secrets: parseSecrets(draft), text: activeOptionalText(draft) };
+	const was: FormReading = { draft: baseline, secrets: parseSecrets(baseline), text: activeOptionalText(baseline) };
+	return SERVER_FORM_FIELD_ORDER.filter((field) => FIELD_CHANGED[field](now, was));
+}
+
 /**
  * The context a draft is parsed against: sibling labels for rename-collision checks, and the hint evidence. The
  * `replace` identity lets the extension refuse a save or probe when the label's entry no longer matches what the form
@@ -592,222 +609,323 @@ type ServerFormAnalysis = {
 	  }
 );
 
-function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): ServerFormAnalysis {
-	// The selector decides which credential fields are live: everything else is excluded from the payload and demoted
-	// to keep/clear directives.
-	//
-	//   Validation and assembly -> both read activeText
-	const active = authFormActivity(draft.authForm);
-	const secrets = parseSecrets(draft);
-	const activeText = activeOptionalText(draft);
+/** A problems record under construction; a field is present only while it has a problem. */
+type ProblemsDraft = { -readonly [K in ServerFormField]?: string };
 
-	const problems: { -readonly [K in ServerFormField]?: string } = {};
-	const label = trimHttpWhitespace(draft.label);
+/** The label's problem: empty, a reserved name, or a rename onto a sibling (two entries with one identity). */
+function labelProblems(label: string, context: ServerFormContext): ProblemsDraft {
 	if (label.length === 0) {
-		problems.label = l10n.t("Enter a label");
-	} else if (isUnsafeRecordKey(label)) {
-		problems.label = l10n.t("This label is a reserved name and cannot be used");
-	} else if (
+		return { label: l10n.t("Enter a label") };
+	}
+	if (isUnsafeRecordKey(label)) {
+		return { label: l10n.t("This label is a reserved name and cannot be used") };
+	}
+	// The extension refuses the collision too (adds keep their replace-by-label upsert).
+	if (
 		context.original !== undefined &&
 		label !== context.original.label &&
 		(context.takenLabels ?? []).includes(label)
 	) {
-		// Renaming onto a sibling would leave two entries with one identity;
-		// the extension refuses it too (adds keep their replace-by-label upsert).
-		problems.label = l10n.t("An entry with this label already exists");
+		return { label: l10n.t("An entry with this label already exists") };
 	}
-	const baseUrlText = trimHttpWhitespace(draft.baseUrl);
-	const baseUrl = savedBaseUrl(baseUrlText);
-	if (baseUrlText.length === 0) {
-		problems.baseUrl = l10n.t("Enter the server URL");
-	} else if (baseUrl === undefined) {
-		problems.baseUrl = l10n.t("Must be a usable http(s) URL, e.g. http://localhost:4000");
-	}
+	return {};
+}
 
-	// Custom text must exist, or a picked "custom" would silently save as "none".
-	//
-	//   Slashes and inner whitespace -> are named problems, not silently rewritten
-	//   "/v2" appended verbatim      -> builds http://host//v2
-	let apiVersion: string | undefined;
-	if (draft.apiVersion.mode === "none") {
-		apiVersion = "";
-	} else if (draft.apiVersion.mode === "custom") {
-		const custom = trimHttpWhitespace(draft.apiVersion.custom);
-		if (custom.length === 0) {
-			problems.apiVersion = l10n.t("Enter the version segment, e.g. v2");
-		} else if (custom.includes("/") || /\s/.test(custom)) {
-			problems.apiVersion = l10n.t("Just the segment, no slashes or spaces - e.g. v2");
-		} else {
-			apiVersion = custom;
-		}
+/** The base URL's problem: empty, or no usable http(s) spelling (`saved` is savedBaseUrl's reading of the text). */
+function baseUrlProblems(text: string, saved: string | undefined): ProblemsDraft {
+	if (text.length === 0) {
+		return { baseUrl: l10n.t("Enter the server URL") };
 	}
-
-	// OAuth is one unit: the request path drops partial configurations silently, so a partial one must not save as if
-	// it worked. On any other form a KEPT stored client secret still blocks - the extension reads it as OAuth-shaped.
-	if (active.oauth) {
-		const tokenUrl = activeText.oauthTokenUrl;
-		const clientId = activeText.oauthClientId;
-		const oauthExtras = secrets.oauthClientSecret.resolves || activeText.oauthScopes.length > 0;
-		if (tokenUrl.length > 0 && !isUsableHttpUrl(tokenUrl)) {
-			problems.oauthTokenUrl = l10n.t("Must be a usable http(s) URL");
-		} else if ((clientId.length > 0 || oauthExtras) && tokenUrl.length === 0) {
-			problems.oauthTokenUrl = l10n.t("OAuth needs the token URL and client ID");
-		}
-		if ((tokenUrl.length > 0 || oauthExtras) && clientId.length === 0) {
-			problems.oauthClientId = l10n.t("OAuth needs the token URL and client ID");
-		}
-	} else if (secrets.oauthClientSecret.resolves) {
-		problems.oauthClientSecret = l10n.t(
-			"A stored OAuth client secret is still attached; remove it with its checkbox, or switch the form to OAuth"
-		);
+	if (saved === undefined) {
+		return { baseUrl: l10n.t("Must be a usable http(s) URL, e.g. http://localhost:4000") };
 	}
+	return {};
+}
 
-	// A newly entered key the platform's Headers would refuse does not save: the request path would read it as keyless,
-	// so the form says so here, beside the field (a kept stored key is not visible here; the Diagnostics tab reports
-	// that one). Edge whitespace is tolerated (trimmed on the way out), an interior control character is not.
-	if (secrets.apiKey.visibleValue !== undefined && headerValue(secrets.apiKey.visibleValue) === undefined) {
-		problems.apiKey = l10n.t("The value cannot be sent as an HTTP header");
+/** The entry apiVersion a draft means (undefined: auto, "": none, trimmed text: custom), or its problem. */
+interface ApiVersionParse {
+	readonly value: string | undefined;
+	readonly problems: ProblemsDraft;
+}
+
+/**
+ * Custom text must exist, or a picked "custom" would silently save as "none". Slashes and inner whitespace are named
+ * problems, not silently rewritten: "/v2" appended verbatim builds http://host//v2.
+ */
+function parseApiVersionDraft(draft: ApiVersionDraft): ApiVersionParse {
+	if (draft.mode === "auto") {
+		return { value: undefined, problems: {} };
 	}
-
-	// Both-or-neither like OAuth, and must be sendable as an HTTP header: the request path drops a value it cannot
-	// send and reports that drop on the Diagnostics tab, while a missing value shows as a missing secret. The
-	// sendability check reads the parsed visible value, so a cleared field's stale text cannot block; on "none" a kept
-	// stored value blocks like the client secret above.
-	const virtualKey = secrets.virtualKeyValue;
-	if (active.virtualKey) {
-		const header = activeText.virtualKeyHeader;
-		if (header.length > 0 && !isValidHeaderName(header)) {
-			problems.virtualKeyHeader = l10n.t("Not a valid HTTP header name");
-		} else if (virtualKey.resolves && header.length === 0) {
-			problems.virtualKeyHeader = l10n.t("Name the header that carries the key");
-		}
-		if (header.length > 0 && !virtualKey.resolves) {
-			problems.virtualKeyValue = l10n.t("Enter the key sent in this header");
-		} else if (virtualKey.visibleValue !== undefined && headerValue(virtualKey.visibleValue) === undefined) {
-			problems.virtualKeyValue = l10n.t("The value cannot be sent as an HTTP header");
-		}
-	} else if (virtualKey.resolves) {
-		problems.virtualKeyValue = l10n.t(
-			"A stored virtual key value is still attached; remove it with its checkbox, or pick a form that sends it"
-		);
+	if (draft.mode === "none") {
+		return { value: "", problems: {} };
 	}
+	const custom = trimHttpWhitespace(draft.custom);
+	if (custom.length === 0) {
+		return { value: undefined, problems: { apiVersion: l10n.t("Enter the version segment, e.g. v2") } };
+	}
+	if (custom.includes("/") || /\s/.test(custom)) {
+		return { value: undefined, problems: { apiVersion: l10n.t("Just the segment, no slashes or spaces - e.g. v2") } };
+	}
+	return { value: custom, problems: {} };
+}
 
-	// The API-key twin of the two rules above: storage counts as part of the shape
-	// (docs/servers.md#secrets-and-secret-storage), so saving a form that does not send the kept key would no-op and
-	// snap back on reopen.
+/** The auth form's activity, secret parses, and active optional text: the one reading every credential rule takes. */
+interface CredentialReading {
+	readonly active: AuthFormActivity;
+	readonly secrets: Readonly<Record<SecretFieldId, SecretParse>>;
+	readonly text: Readonly<Record<NonSecretOptionalFieldId, string>>;
+}
+
+/**
+ * OAuth is one unit: the request path drops partial configurations silently, so a partial one must not save as if it
+ * worked. On any other form a KEPT stored client secret still blocks - the extension reads it as OAuth-shaped.
+ */
+function oauthProblems({ active, secrets, text }: CredentialReading): ProblemsDraft {
+	if (!active.oauth) {
+		if (secrets.oauthClientSecret.resolves) {
+			return {
+				oauthClientSecret: l10n.t(
+					"A stored OAuth client secret is still attached; remove it with its checkbox, or switch the form to OAuth"
+				),
+			};
+		}
+		return {};
+	}
+	const problems: ProblemsDraft = {};
+	const tokenUrl = text.oauthTokenUrl;
+	const clientId = text.oauthClientId;
+	const oauthExtras = secrets.oauthClientSecret.resolves || text.oauthScopes.length > 0;
+	if (tokenUrl.length > 0 && !isUsableHttpUrl(tokenUrl)) {
+		problems.oauthTokenUrl = l10n.t("Must be a usable http(s) URL");
+	} else if ((clientId.length > 0 || oauthExtras) && tokenUrl.length === 0) {
+		problems.oauthTokenUrl = l10n.t("OAuth needs the token URL and client ID");
+	}
+	if ((tokenUrl.length > 0 || oauthExtras) && clientId.length === 0) {
+		problems.oauthClientId = l10n.t("OAuth needs the token URL and client ID");
+	}
+	return problems;
+}
+
+/**
+ * On a form that does not send the key, a kept stored key blocks: storage counts as part of the shape
+ * (docs/servers.md#secrets-and-secret-storage), so saving would no-op and snap back on reopen. Otherwise a newly
+ * entered key the platform's Headers would refuse does not save: the request path would read it as keyless, so the
+ * form says so beside the field (a kept stored key is not visible here; the Diagnostics tab reports that one). Edge
+ * whitespace is tolerated (trimmed on the way out), an interior control character is not.
+ */
+function apiKeyProblems({ active, secrets }: CredentialReading): ProblemsDraft {
 	if (!active.apiKey && secrets.apiKey.resolves) {
-		problems.apiKey = l10n.t(
-			"A stored API key is still attached; remove it with its checkbox, or pick a form that sends it"
-		);
+		return {
+			apiKey: l10n.t("A stored API key is still attached; remove it with its checkbox, or pick a form that sends it"),
+		};
 	}
+	if (secrets.apiKey.visibleValue !== undefined && headerValue(secrets.apiKey.visibleValue) === undefined) {
+		return { apiKey: l10n.t("The value cannot be sent as an HTTP header") };
+	}
+	return {};
+}
 
-	const groupsParse = parseGroups(draft.modelParameters);
-	if (!groupsParse.ok) {
+/**
+ * Both-or-neither like OAuth, and must be sendable as an HTTP header: the request path drops a value it cannot send
+ * and reports that drop on the Diagnostics tab, while a missing value shows as a missing secret. The sendability check
+ * reads the parsed visible value, so a cleared field's stale text cannot block; on "none" a kept stored value blocks
+ * like the client secret.
+ */
+function virtualKeyProblems({ active, secrets, text }: CredentialReading): ProblemsDraft {
+	const virtualKey = secrets.virtualKeyValue;
+	if (!active.virtualKey) {
+		if (virtualKey.resolves) {
+			return {
+				virtualKeyValue: l10n.t(
+					"A stored virtual key value is still attached; remove it with its checkbox, or pick a form that sends it"
+				),
+			};
+		}
+		return {};
+	}
+	const problems: ProblemsDraft = {};
+	const header = text.virtualKeyHeader;
+	if (header.length > 0 && !isValidHeaderName(header)) {
+		problems.virtualKeyHeader = l10n.t("Not a valid HTTP header name");
+	} else if (virtualKey.resolves && header.length === 0) {
+		problems.virtualKeyHeader = l10n.t("Name the header that carries the key");
+	}
+	if (header.length > 0 && !virtualKey.resolves) {
+		problems.virtualKeyValue = l10n.t("Enter the key sent in this header");
+	} else if (virtualKey.visibleValue !== undefined && headerValue(virtualKey.visibleValue) === undefined) {
+		problems.virtualKeyValue = l10n.t("The value cannot be sent as an HTTP header");
+	}
+	return problems;
+}
+
+/** The record rows', header rows', budget's, and MCP control's parses: one derivation each for rules and assembly. */
+interface ValueParses {
+	readonly groups: GroupsParse;
+	readonly capabilities: CapabilityGroupsParse;
+	readonly headers: HeaderRowsParse;
+	readonly budget: BudgetParse;
+	readonly mcp: McpParse;
+}
+
+/**
+ * Each parsed value's summary problem; the row grids' row-aligned detail rides on the parses themselves. The budget
+ * must be empty (none) or a finite number greater than zero, the rule the extension re-checks; the MCP URL, when on
+ * and given, must be a usable http(s) URL.
+ */
+function valueProblems(parses: ValueParses): ProblemsDraft {
+	const problems: ProblemsDraft = {};
+	if (!parses.groups.ok) {
 		problems.modelParameters = l10n.t("Fix the model parameter rows");
 	}
-	const capabilitiesParse = parseCapabilityGroups(
-		draft.modelCapabilities,
-		context.observedModelInfoKeys === undefined ? undefined : new Set(context.observedModelInfoKeys)
-	);
-	if (!capabilitiesParse.ok) {
+	if (!parses.capabilities.ok) {
 		problems.modelCapabilities = l10n.t("Fix the model capability rows");
 	}
-	const headersParse = parseHeaderRows(draft.headers);
-	if (!headersParse.ok) {
+	if (!parses.headers.ok) {
 		problems.headers = l10n.t("Fix the header rows");
 	}
-
-	// Budget: empty means none (the payload's null clear); anything else must be a finite number greater than zero, the
-	// rule the extension re-checks.
-	const budgetParse = parseBudgetText(draft.budget);
-	let budget: number | null = null;
-	if (budgetParse.ok) {
-		budget = budgetParse.value;
-	} else {
+	if (!parses.budget.ok) {
 		problems.budget = l10n.t("Must be a number greater than 0");
 	}
-
-	// MCP: off clears (the payload's null); on publishes the derived endpoint unless a usable URL names another one.
-	const mcpParse = parseMcpDraft(draft.mcp);
-	let mcp: McpOptIn | null = null;
-	if (mcpParse.ok) {
-		mcp = mcpParse.value;
-	} else {
+	if (!parses.mcp.ok) {
 		problems.mcp = l10n.t("Must be a usable http(s) URL");
 	}
+	return problems;
+}
 
-	// Only the active form's text fields reach the payload: an inactive form's leftover text is excluded exactly like
-	// an empty input. The token URL goes in its canonical spelling (it validated above, so one exists).
+/**
+ * Only the active form's text fields reach the payload: an inactive form's leftover text is excluded exactly like an
+ * empty input. The token URL goes in its canonical spelling (it validated already, so one exists).
+ */
+function payloadOptionalText(
+	text: Readonly<Record<NonSecretOptionalFieldId, string>>
+): Readonly<Partial<Record<NonSecretOptionalFieldId, string>>> {
 	const optionalText: { -readonly [K in NonSecretOptionalFieldId]?: string } = {};
 	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
-		const value =
-			field === "oauthTokenUrl" ? (usableHttpUrl(activeText[field]) ?? activeText[field]) : activeText[field];
+		const value = field === "oauthTokenUrl" ? (usableHttpUrl(text[field]) ?? text[field]) : text[field];
 		if (value.length > 0) {
 			optionalText[field] = value;
 		}
 	}
+	return optionalText;
+}
 
-	const directives = secretDirectives(secrets);
-	if (
-		groupsParse.ok &&
-		capabilitiesParse.ok &&
-		headersParse.ok &&
-		baseUrl !== undefined &&
-		!Object.values(problems).some((problem) => problem !== undefined)
-	) {
-		return {
-			blocked: false,
-			values: {
-				label,
-				baseUrl,
-				apiVersion,
-				secrets: directives,
-				optionalText,
-				headers: headersParse.value,
-				modelCapabilities: capabilitiesParse.value,
-				modelParameters: groupsParse.value,
-				budget,
-				mcp,
-			},
-			modelCapabilityIssues: capabilitiesParse.issues,
-			modelParameterHints: groupsParse.hints,
-		};
-	}
-	const connectionProblems: { -readonly [K in ServerFormField]?: string } = {};
+/** The connection half of the assembled values, before the row grids and the save-only fields join. */
+interface ConnectionFacts {
+	readonly label: string;
+	readonly baseUrl: string | undefined;
+	readonly apiVersion: string | undefined;
+	readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
+	readonly optionalText: Readonly<Partial<Record<NonSecretOptionalFieldId, string>>>;
+}
+
+/** The problems on CONNECTION_FIELDS alone: what blocks the draft-connection probe. */
+function connectionProblemsOf(problems: ProblemsDraft): ProblemsDraft {
+	const connectionProblems: ProblemsDraft = {};
 	for (const field of CONNECTION_FIELDS) {
 		const problem = problems[field];
 		if (problem !== undefined) {
 			connectionProblems[field] = problem;
 		}
 	}
-	// headers is a connection field, so a clean connection implies clean header rows; the narrowing states the half the
-	// type system cannot see.
+	return connectionProblems;
+}
+
+/**
+ * The blocked arm, its connection slice discriminated again. headers is a connection field, so a clean connection
+ * implies clean header rows; the narrowing states the half the type system cannot see.
+ */
+function blockedAnalysis(parses: ValueParses, problems: ProblemsDraft, facts: ConnectionFacts): ServerFormAnalysis {
+	const connectionProblems = connectionProblemsOf(problems);
 	const connection =
-		headersParse.ok &&
-		baseUrl !== undefined &&
+		parses.headers.ok &&
+		facts.baseUrl !== undefined &&
 		!Object.values(connectionProblems).some((problem) => problem !== undefined)
 			? {
 					blocked: false as const,
 					values: {
-						label,
-						baseUrl,
-						apiVersion,
-						secrets: directives,
-						optionalText,
-						headers: headersParse.value,
-						modelCapabilities: capabilitiesParse.ok ? capabilitiesParse.value : {},
+						...facts,
+						baseUrl: facts.baseUrl,
+						headers: parses.headers.value,
+						modelCapabilities: parses.capabilities.ok ? parses.capabilities.value : {},
 					},
 				}
 			: { blocked: true as const, problems: connectionProblems };
 	return {
 		blocked: true,
 		problems,
-		modelParameterProblems: groupsParse.ok ? [] : groupsParse.problems,
-		headerProblems: headersParse.ok ? [] : headersParse.problems,
+		modelParameterProblems: parses.groups.ok ? [] : parses.groups.problems,
+		headerProblems: parses.headers.ok ? [] : parses.headers.problems,
 		connection,
-		modelCapabilityIssues: capabilitiesParse.issues,
-		modelParameterHints: groupsParse.hints,
+		modelCapabilityIssues: parses.capabilities.issues,
+		modelParameterHints: parses.groups.hints,
 	};
+}
+
+function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): ServerFormAnalysis {
+	// The selector decides which credential fields are live: everything else is excluded from the payload and demoted
+	// to keep/clear directives. Validation and assembly both read this one reading.
+	const reading: CredentialReading = {
+		active: authFormActivity(draft.authForm),
+		secrets: parseSecrets(draft),
+		text: activeOptionalText(draft),
+	};
+	const label = trimHttpWhitespace(draft.label);
+	const baseUrlText = trimHttpWhitespace(draft.baseUrl);
+	const baseUrl = savedBaseUrl(baseUrlText);
+	const apiVersion = parseApiVersionDraft(draft.apiVersion);
+	const parses: ValueParses = {
+		groups: parseGroups(draft.modelParameters),
+		capabilities: parseCapabilityGroups(
+			draft.modelCapabilities,
+			context.observedModelInfoKeys === undefined ? undefined : new Set(context.observedModelInfoKeys)
+		),
+		headers: parseHeaderRows(draft.headers),
+		budget: parseBudgetText(draft.budget),
+		mcp: parseMcpDraft(draft.mcp),
+	};
+
+	const problems: ProblemsDraft = {
+		...labelProblems(label, context),
+		...baseUrlProblems(baseUrlText, baseUrl),
+		...apiVersion.problems,
+		...oauthProblems(reading),
+		...apiKeyProblems(reading),
+		...virtualKeyProblems(reading),
+		...valueProblems(parses),
+	};
+	const facts: ConnectionFacts = {
+		label,
+		baseUrl,
+		apiVersion: apiVersion.value,
+		secrets: secretDirectives(reading.secrets),
+		optionalText: payloadOptionalText(reading.text),
+	};
+
+	if (
+		parses.groups.ok &&
+		parses.capabilities.ok &&
+		parses.headers.ok &&
+		parses.budget.ok &&
+		parses.mcp.ok &&
+		baseUrl !== undefined &&
+		!Object.values(problems).some((problem) => problem !== undefined)
+	) {
+		return {
+			blocked: false,
+			values: {
+				...facts,
+				baseUrl,
+				headers: parses.headers.value,
+				modelCapabilities: parses.capabilities.value,
+				modelParameters: parses.groups.value,
+				budget: parses.budget.value,
+				mcp: parses.mcp.value,
+			},
+			modelCapabilityIssues: parses.capabilities.issues,
+			modelParameterHints: parses.groups.hints,
+		};
+	}
+	return blockedAnalysis(parses, problems, facts);
 }
 
 /**

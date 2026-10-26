@@ -214,6 +214,50 @@ export interface ServerOutcomeParts {
 	readonly notice: readonly string[];
 }
 
+/** The "N model(s) still served" phrase of a failing row that keeps serving. */
+function stillServedText(served: number): string {
+	return served === 1 ? "1 model still served" : `${served} models still served`;
+}
+
+/**
+ * The models phrase of an expected-failure row that still serves: the served total, with the declared subset riding
+ * as a qualifier that owns the wording only when it IS the whole set.
+ */
+function servedModelsText(breakdown: ServedModelsBreakdown): string {
+	if (breakdown.kind === "declared") {
+		return breakdown.declared === 1 ? "1 declared model" : `${breakdown.declared} declared models`;
+	}
+	if (breakdown.kind === "mixed") {
+		return `${breakdown.served} models, ${breakdown.declared} declared`;
+	}
+	return stillServedText(breakdown.served);
+}
+
+type FailingDashboardServer = Extract<DashboardServer, { state: "error" }>;
+
+/**
+ * An error row's parts. An expected failure keeps a truthful error with the English "(expected)" annotation (it lands
+ * in issue reports); while the row still serves (declared models, or the stale window's last known list) it reads as
+ * OK-with-note, the same quiet verdict the row pill gives it. An unexpected failure that still serves says so beside
+ * the error, so the paste line agrees with the row pill that the server is degraded, not dead.
+ */
+function errorOutcomeParts(server: FailingDashboardServer, notice: readonly string[]): ServerOutcomeParts {
+	const english = failureTexts(server.cause, server.baseUrl).english;
+	const served = server.servedModelCount;
+	if (server.expected === true) {
+		const error = `${english} (expected)`;
+		if (served > 0) {
+			const models = servedModelsText(servedModelsBreakdown(served, server.declaredModelCount ?? 0));
+			return { status: "OK", models, error, notice };
+		}
+		return { status: "Error", error, notice };
+	}
+	if (served > 0) {
+		return { status: "Error", models: stillServedText(served), error: english, notice };
+	}
+	return { status: "Error", error: english, notice };
+}
+
 export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts {
 	const notice = (server.notices ?? []).map(noticeText);
 	if (server.origin === "misconfigured") {
@@ -224,43 +268,22 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 	switch (server.state) {
 		case "ok":
 			return { status: "OK", models: `${server.servedModelCount} models`, notice };
-		case "error": {
-			if (server.expected === true) {
-				// Truthful error, expected presentation: the "(expected)" annotation stays English (it lands in issue
-				// reports). A row still serving - declared models, or the stale window's last known list - reads as
-				// OK-with-note, the same quiet verdict the row pill gives it.
-				const error = `${failureTexts(server.cause, server.baseUrl).english} (expected)`;
-				const served = server.servedModelCount;
-				if (served > 0) {
-					// The models part always states the served total (the count the row and the merged surfaces show);
-					// the declared subset rides as a qualifier, owning the wording only when it IS the whole set.
-					const breakdown = servedModelsBreakdown(served, server.declaredModelCount ?? 0);
-					const models =
-						breakdown.kind === "declared"
-							? breakdown.declared === 1
-								? "1 declared model"
-								: `${breakdown.declared} declared models`
-							: breakdown.kind === "mixed"
-								? `${breakdown.served} models, ${breakdown.declared} declared`
-								: breakdown.served === 1
-									? "1 model still served"
-									: `${breakdown.served} models still served`;
-					return { status: "OK", models, error, notice };
-				}
-				return { status: "Error", error, notice };
-			}
-			// An unexpected failure that still serves (stale-window or declared models) says so beside the truthful
-			// error, so the paste line agrees with the row pill that the server is degraded, not dead.
-			if (server.servedModelCount > 0) {
-				const models =
-					server.servedModelCount === 1 ? "1 model still served" : `${server.servedModelCount} models still served`;
-				return { status: "Error", models, error: failureTexts(server.cause, server.baseUrl).english, notice };
-			}
-			return { status: "Error", error: failureTexts(server.cause, server.baseUrl).english, notice };
-		}
+		case "error":
+			return errorOutcomeParts(server, notice);
 		case "unchecked":
 			return { status: "Not checked yet", notice };
 	}
+}
+
+/**
+ * The error's join onto the state line: an aside after an OK status ("OK (2 declared models) - <error (expected)>"),
+ * the object of an Error one ("Error: <error>").
+ */
+function errorClause(parts: ServerOutcomeParts): string {
+	if (parts.error === undefined) {
+		return "";
+	}
+	return parts.status === "OK" ? ` - ${parts.error}` : `: ${parts.error}`;
 }
 
 /**
@@ -269,14 +292,11 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
  */
 export function serverOutcomeText(server: DashboardServer): string {
 	const parts = serverOutcomeParts(server);
-	// "OK (2 declared models) - <error (expected)>" vs "Error: <error>": the error joins an OK line as an aside and an
-	// Error line as its object.
 	const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
-	const error = parts.error === undefined ? "" : parts.status === "OK" ? ` - ${parts.error}` : `: ${parts.error}`;
 	// Notices ride alongside whatever the state line says: a noticed row is usually healthy ("ok"), which is exactly
 	// why it needs calling out.
 	const notice = parts.notice.map((text) => ` - ${text}`).join("");
-	return `${status}${error}${notice}`;
+	return `${status}${errorClause(parts)}${notice}`;
 }
 
 export function latestCheckedMs(servers: readonly Pick<DashboardServer, "lastChecked">[]): number | undefined {
@@ -374,8 +394,8 @@ function scaledDecimal(prefix: string, factor: number): number | undefined {
 		return 0;
 	}
 	const power = Number(exponent) - fraction.length + (spelled.length - digits.length);
-	// The value has digits.length + power integer digits; past 16 it exceeds every setting maximum before the unit factor
-	// is applied, so a pasted million-digit draft is refused without building its BigInt.
+	// The value has digits.length + power integer digits; past 16 it exceeds every setting maximum before the unit
+	// factor is applied, so a pasted million-digit draft is refused without building its BigInt.
 	if (!Number.isSafeInteger(power) || Math.abs(power) > 400 || digits.length + power > 16) {
 		return Number.NaN;
 	}
@@ -390,7 +410,10 @@ function scaledDecimal(prefix: string, factor: number): number | undefined {
 		return Number.NaN;
 	}
 	const result = Number(product / scale);
-	return Number.isFinite(result) ? (sign === "-" ? -result : result) : Number.NaN;
+	if (!Number.isFinite(result)) {
+		return Number.NaN;
+	}
+	return sign === "-" ? -result : result;
 }
 
 /**
@@ -584,129 +607,108 @@ export interface BooleanSettingPresentation {
 	readonly description: string;
 }
 
-/**
- * The presentation of one boolean setting the dashboard edits; a function for the same lazy-localization reason as
- * numberSettingPresentation.
- */
+/** Each boolean setting's row texts, as thunks: a module-level string freezes the English before l10n.config runs. */
+const BOOLEAN_SETTING_PRESENTATIONS: Readonly<Record<BooleanSettingId, () => BooleanSettingPresentation>> = {
+	"chat.promptCaching": () => ({
+		label: l10n.t("Prompt caching"),
+		description: l10n.t("Reuse the cached prompt prefix between turns."),
+	}),
+	"ui.maskSecretInputs": () => ({
+		label: l10n.t("Mask secret inputs"),
+		description: l10n.t("Hide API keys and other credentials while typing them into configuration prompts."),
+	}),
+	"logs.redactSecrets": () => ({
+		label: l10n.t("Redact secrets in the log"),
+		description: l10n.t(
+			"Mask configured secret values and URL credentials in the LiteLLM output channel. The issue report always masks them."
+		),
+	}),
+	"models.openRouterCatalog": () => ({
+		label: l10n.t("OpenRouter catalog"),
+		// Not rendered (the row shows the live status cluster instead) and so not filtered: this key and the tip's
+		// translate independently.
+		description: l10n.t("Fill missing model capabilities from the OpenRouter catalog, refreshed weekly."),
+	}),
+	"inlineCompletions.enabled": () => ({
+		label: l10n.t("Enable inline completions"),
+		description: l10n.t(
+			"Ghost text suggestions from a LiteLLM model. Requires enabling this and choosing a model below."
+		),
+	}),
+	"commitGeneration.enabled": () => ({
+		label: l10n.t("Enable commit message generation"),
+		description: l10n.t(
+			"Drafts the commit message from your changes with a LiteLLM model. Requires enabling this and choosing a model below."
+		),
+	}),
+	"prGeneration.enabled": () => ({
+		label: l10n.t("Enable PR description generation"),
+		description: l10n.t(
+			"Drafts PR titles and descriptions from your commits with a LiteLLM model. Requires enabling this and choosing a model below."
+		),
+	}),
+	"consultTool.enabled": () => ({
+		label: l10n.t("Enable the consult tool"),
+		description: l10n.t(
+			"Lets a chat agent ask a second LiteLLM model for another opinion. Requires enabling this and choosing a model below."
+		),
+	}),
+	"quickFix.enabled": () => ({
+		label: l10n.t("Enable quick fixes"),
+		description: l10n.t("Fix and Explain actions on diagnostics, answered through @litellm chat or the model below."),
+	}),
+	"reviewComments.enabled": () => ({
+		label: l10n.t("Enable review comments"),
+		description: l10n.t("AI review comments on your changes from a LiteLLM model."),
+	}),
+	"chatParticipant.enabled": () => ({
+		label: l10n.t("Enable the @litellm participant"),
+		description: l10n.t("Answers @litellm chat turns with the request's own model; costs nothing until invoked."),
+	}),
+	"agentTools.enabled": () => ({
+		label: l10n.t("Enable agent tools"),
+		description: l10n.t(
+			"Gives Copilot's agent tools that read this extension's diagnostics and configuration. Each tool that changes something has its own switch below."
+		),
+	}),
+	"agentTools.setSetting.enabled": () => ({
+		label: l10n.t("Let the agent change plain settings"),
+		description: l10n.t(
+			"Timeouts, toggles, feature models, and other scalar settings, through the dashboard's validation. Never servers, model records, or these switches."
+		),
+	}),
+	"agentTools.editModelRecords.enabled": () => ({
+		label: l10n.t("Let the agent edit model records"),
+		description: l10n.t(
+			"models.capabilities and models.parameters, one matcher key at a time, globally or on a servers entry."
+		),
+	}),
+	"agentTools.saveServer.enabled": () => ({
+		label: l10n.t("Let the agent add and edit servers"),
+		description: l10n.t(
+			"Add, edit, rename, or adopt a servers entry. You type secret values unless the switch below allows the agent to pass them."
+		),
+	}),
+	"agentTools.removeServer.enabled": () => ({
+		label: l10n.t("Let the agent remove servers"),
+		description: l10n.t("Remove a servers entry or hide an external provider group."),
+	}),
+	"agentTools.runAction.enabled": () => ({
+		label: l10n.t("Let the agent run actions"),
+		description: l10n.t(
+			"Test a stored server's connection, re-sync models, refresh the catalog or usage numbers, or send a fixed probe prompt to a feature's picked model (a billable model request)."
+		),
+	}),
+	"agentTools.secretValues.enabled": () => ({
+		label: l10n.t("Let the agent pass secret values"),
+		description: l10n.t(
+			"Off, the agent chooses only where a key is stored and VS Code asks you to type it. On, tool input may carry the key itself."
+		),
+	}),
+};
+
 export function booleanSettingPresentation(id: BooleanSettingId): BooleanSettingPresentation {
-	switch (id) {
-		case "chat.promptCaching":
-			return {
-				label: l10n.t("Prompt caching"),
-				description: l10n.t("Reuse the cached prompt prefix between turns."),
-			};
-		case "ui.maskSecretInputs":
-			return {
-				label: l10n.t("Mask secret inputs"),
-				description: l10n.t("Hide API keys and other credentials while typing them into configuration prompts."),
-			};
-		case "logs.redactSecrets":
-			return {
-				label: l10n.t("Redact secrets in the log"),
-				description: l10n.t(
-					"Mask configured secret values and URL credentials in the LiteLLM output channel. The issue report always masks them."
-				),
-			};
-		case "models.openRouterCatalog":
-			return {
-				label: l10n.t("OpenRouter catalog"),
-				// Not rendered (the row shows the live status cluster instead) and so not filtered: this key and the
-				// tip's translate independently.
-				description: l10n.t("Fill missing model capabilities from the OpenRouter catalog, refreshed weekly."),
-			};
-		case "inlineCompletions.enabled":
-			return {
-				label: l10n.t("Enable inline completions"),
-				description: l10n.t(
-					"Ghost text suggestions from a LiteLLM model. Requires enabling this and choosing a model below."
-				),
-			};
-		case "commitGeneration.enabled":
-			return {
-				label: l10n.t("Enable commit message generation"),
-				description: l10n.t(
-					"Drafts the commit message from your changes with a LiteLLM model. Requires enabling this and choosing a model below."
-				),
-			};
-		case "prGeneration.enabled":
-			return {
-				label: l10n.t("Enable PR description generation"),
-				description: l10n.t(
-					"Drafts PR titles and descriptions from your commits with a LiteLLM model. Requires enabling this and choosing a model below."
-				),
-			};
-		case "consultTool.enabled":
-			return {
-				label: l10n.t("Enable the consult tool"),
-				description: l10n.t(
-					"Lets a chat agent ask a second LiteLLM model for another opinion. Requires enabling this and choosing a model below."
-				),
-			};
-		case "quickFix.enabled":
-			return {
-				label: l10n.t("Enable quick fixes"),
-				description: l10n.t(
-					"Fix and Explain actions on diagnostics, answered through @litellm chat or the model below."
-				),
-			};
-		case "reviewComments.enabled":
-			return {
-				label: l10n.t("Enable review comments"),
-				description: l10n.t("AI review comments on your changes from a LiteLLM model."),
-			};
-		case "chatParticipant.enabled":
-			return {
-				label: l10n.t("Enable the @litellm participant"),
-				description: l10n.t("Answers @litellm chat turns with the request's own model; costs nothing until invoked."),
-			};
-		case "agentTools.enabled":
-			return {
-				label: l10n.t("Enable agent tools"),
-				description: l10n.t(
-					"Gives Copilot's agent tools that read this extension's diagnostics and configuration. Each tool that changes something has its own switch below."
-				),
-			};
-		case "agentTools.setSetting.enabled":
-			return {
-				label: l10n.t("Let the agent change plain settings"),
-				description: l10n.t(
-					"Timeouts, toggles, feature models, and other scalar settings, through the dashboard's validation. Never servers, model records, or these switches."
-				),
-			};
-		case "agentTools.editModelRecords.enabled":
-			return {
-				label: l10n.t("Let the agent edit model records"),
-				description: l10n.t(
-					"models.capabilities and models.parameters, one matcher key at a time, globally or on a servers entry."
-				),
-			};
-		case "agentTools.saveServer.enabled":
-			return {
-				label: l10n.t("Let the agent add and edit servers"),
-				description: l10n.t(
-					"Add, edit, rename, or adopt a servers entry. You type secret values unless the switch below allows the agent to pass them."
-				),
-			};
-		case "agentTools.removeServer.enabled":
-			return {
-				label: l10n.t("Let the agent remove servers"),
-				description: l10n.t("Remove a servers entry or hide an external provider group."),
-			};
-		case "agentTools.runAction.enabled":
-			return {
-				label: l10n.t("Let the agent run actions"),
-				description: l10n.t(
-					"Test a stored server's connection, re-sync models, refresh the catalog or usage numbers, or send a fixed probe prompt to a feature's picked model (a billable model request)."
-				),
-			};
-		case "agentTools.secretValues.enabled":
-			return {
-				label: l10n.t("Let the agent pass secret values"),
-				description: l10n.t(
-					"Off, the agent chooses only where a key is stored and VS Code asks you to type it. On, tool input may carry the key itself."
-				),
-			};
-	}
+	return BOOLEAN_SETTING_PRESENTATIONS[id]();
 }
 
 /**

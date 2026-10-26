@@ -45,6 +45,20 @@ export function formatMoney(amount: number, currencySymbol: string): string {
 }
 
 /**
+ * The raw floor of `fraction * 100`, moved one step to align with the `>=` comparison itself: the product lands within
+ * an ulp of the true value (0.57 * 100 floats to 56.999...), so one bounded step is all it takes.
+ */
+function alignedFloor(fraction: number, scaled: number): number {
+	if (fraction >= (scaled + 1) / 100) {
+		return scaled + 1;
+	}
+	if (fraction < scaled / 100) {
+		return scaled - 1;
+	}
+	return scaled;
+}
+
+/**
  * A floor, never a round, because every threshold test is `fraction >= threshold`, so 0.995 must print "99%" (it has
  * not reached a threshold of 1) and a lossy request rate must never round up to a clean "100%". Whole percents only,
  * because every consumer is a compact chip and a decimal would add width without adding truth.
@@ -54,10 +68,7 @@ export function formatPercent(fraction: number): string {
 	if (!Number.isFinite(scaled)) {
 		return `${scaled}%`;
 	}
-	//   fraction * 100   -> lands within an ulp of the true product (0.57 * 100 floats to 56.999...)
-	//   One bounded step -> aligns the raw floor with the >= comparison itself
-	const percent = fraction >= (scaled + 1) / 100 ? scaled + 1 : fraction < scaled / 100 ? scaled - 1 : scaled;
-	return `${percent}%`;
+	return `${alignedFloor(fraction, scaled)}%`;
 }
 
 /**
@@ -84,11 +95,13 @@ export function spendTone(fraction: number, thresholds: readonly number[]): Spen
 	const usable = usableThresholds(thresholds);
 	const lowest = usable[0];
 	const highest = usable.at(-1);
-	return highest !== undefined && fraction >= highest
-		? "error"
-		: lowest !== undefined && fraction >= lowest
-			? "warn"
-			: "ok";
+	if (highest !== undefined && fraction >= highest) {
+		return "error";
+	}
+	if (lowest !== undefined && fraction >= lowest) {
+		return "warn";
+	}
+	return "ok";
 }
 
 export function barPresentation(
