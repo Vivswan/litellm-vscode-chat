@@ -181,13 +181,13 @@ export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): Se
 		...(reported.output ? { max_output_tokens: limits.maxOutputTokens } : {}),
 		...(toolsReported ? { supports_function_calling: toolCalling } : {}),
 		...(reasoningReported ? { supports_reasoning: reasoning } : {}),
-		...(modalities !== undefined
-			? {
+		...(modalities === undefined
+			? {}
+			: {
 					supports_vision: modalities.includes("image"),
 					supports_audio_input: modalities.includes("audio"),
 					supports_pdf_input: modalities.includes("pdf"),
-				}
-			: {}),
+				}),
 		...(promptCachingReported
 			? { supports_prompt_caching: providers.every((p) => p.supports_prompt_caching === true) }
 			: {}),
@@ -195,9 +195,9 @@ export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): Se
 			? { supports_response_schema: providers.every((p) => p.supports_response_schema === true) }
 			: {}),
 		...(reasoningReplayReported ? { replay_reasoning_content: replaysReasoningContent(providers) } : {}),
-		...(supportedParams !== undefined ? { supported_openai_params: supportedParams } : {}),
-		...(reasoningLevels !== undefined ? { reasoning_effort_levels: reasoningLevels } : {}),
-		...(input.costs !== undefined ? serverCostValues(input.costs) : {}),
+		...(supportedParams === undefined ? {} : { supported_openai_params: supportedParams }),
+		...(reasoningLevels === undefined ? {} : { reasoning_effort_levels: reasoningLevels }),
+		...(input.costs === undefined ? {} : serverCostValues(input.costs)),
 	};
 	return { kind: "discovered", values, defaultMaxTokens: limits.defaultMaxTokens };
 }

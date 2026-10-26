@@ -530,24 +530,24 @@ function modelListingUnservedError(mapped: Error, evidence: EndpointFailureEvide
 	// See FetchModelsRequest.entryLabel: empty means no nameable entry.
 	const namedEntry = ctx.entryLabel !== undefined && ctx.entryLabel.length > 0 ? ctx.entryLabel : undefined;
 	const headline =
-		namedEntry !== undefined
+		namedEntry === undefined
 			? l10n.t(
-					'The models listing failed, but this server answers. If it never serves the models listing, declare that on the "{0}" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".',
-					namedEntry
-				)
-			: l10n.t(
 					'The models listing failed, but this server answers. If it never serves the models listing, add an entry for it in the "{0}" setting declaring "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".',
 					`${CONFIG_SECTION}.servers`
+				)
+			: l10n.t(
+					'The models listing failed, but this server answers. If it never serves the models listing, declare that on the "{0}" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".',
+					namedEntry
 				);
 	const englishHeadline =
-		namedEntry !== undefined
-			? `The models listing failed, but this server answers. If it never serves the models listing, declare that on the "${namedEntry}" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`
-			: `The models listing failed, but this server answers. If it never serves the models listing, add an entry for it in the "${CONFIG_SECTION}.servers" setting declaring "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`;
+		namedEntry === undefined
+			? `The models listing failed, but this server answers. If it never serves the models listing, add an entry for it in the "${CONFIG_SECTION}.servers" setting declaring "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`
+			: `The models listing failed, but this server answers. If it never serves the models listing, declare that on the "${namedEntry}" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`;
 	const detail = `GET ${modelsUrl(ctx.baseUrl, ctx.apiVersion)} ${evidenceText(evidence, ctx.timeoutMs)}; model info ${
 		ctx.modelInfo.answered ? "answered" : "is declared an expected failure"
 	}`;
 	return new RequestError(`${headline}\n${detail}`, kind, {
-		...(status !== undefined ? { status } : {}),
+		...(status === undefined ? {} : { status }),
 		cause: mapped,
 		unsupportedEndpoint: "modelListing",
 		logClassification: `RequestError(${token}, discovery, models listing unserved)`,
@@ -588,7 +588,7 @@ function noEndpointServedError(
 		ctx.timeoutMs
 	)}`;
 	return new RequestError(`${headline}\n${detail}`, errorKind, {
-		...(status !== undefined ? { status } : {}),
+		...(status === undefined ? {} : { status }),
 		cause: mapped,
 		setupHint: "check-base-url",
 		logClassification: `RequestError(${token}, discovery, no endpoint served)`,

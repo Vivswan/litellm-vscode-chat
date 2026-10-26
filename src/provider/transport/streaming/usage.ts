@@ -66,8 +66,8 @@ export function usageDataPartPayload(usage: Record<string, unknown>): Record<str
 		total_tokens: totalTokens,
 	};
 	const details: Record<string, number> = {
-		...(cachedTokens !== undefined ? { cached_tokens: cachedTokens } : {}),
-		...(cacheCreationTokens !== undefined ? { cache_creation_input_tokens: cacheCreationTokens } : {}),
+		...(cachedTokens === undefined ? {} : { cached_tokens: cachedTokens }),
+		...(cacheCreationTokens === undefined ? {} : { cache_creation_input_tokens: cacheCreationTokens }),
 	};
 	if (Object.keys(details).length > 0) {
 		payload.prompt_tokens_details = details;

@@ -27,7 +27,7 @@ function thinkingBlockContents(blocks: readonly ThinkingBlockDelta[] | undefined
 			return block.data ? [{ text: "", metadata: { type: block.type, data: block.data } }] : [];
 		}
 		const text = block.thinking ?? "";
-		const metadata = block.signature !== undefined ? { type: block.type, signature: block.signature } : undefined;
+		const metadata = block.signature === undefined ? undefined : { type: block.type, signature: block.signature };
 		return text || metadata ? [{ text, metadata }] : [];
 	});
 }

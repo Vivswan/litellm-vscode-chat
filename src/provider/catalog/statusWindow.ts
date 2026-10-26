@@ -16,9 +16,9 @@ import type { GroupServer, PreAttachModelInfo } from "./groupModels";
  * model objects the host receives) must be free of userinfo.
  */
 export function logicalGroupId(groupServer: Pick<GroupServer, "label" | "baseUrl">): string | undefined {
-	return groupServer.label !== undefined
-		? JSON.stringify([groupServer.label, displayUrl(groupServer.baseUrl)])
-		: undefined;
+	return groupServer.label === undefined
+		? undefined
+		: JSON.stringify([groupServer.label, displayUrl(groupServer.baseUrl)]);
 }
 
 /**
@@ -275,9 +275,9 @@ export class StatusWindow {
 		return [...this.entries.values()].map((entry) => ({
 			status: entry.status,
 			models: entry.models,
-			...(entry.observedModelInfoKeys !== undefined ? { observedModelInfoKeys: entry.observedModelInfoKeys } : {}),
-			...(entry.skippedModeCounts !== undefined ? { skippedModeCounts: entry.skippedModeCounts } : {}),
-			...(entry.groupServer.label !== undefined ? { entryLabel: entry.groupServer.label } : {}),
+			...(entry.observedModelInfoKeys === undefined ? {} : { observedModelInfoKeys: entry.observedModelInfoKeys }),
+			...(entry.skippedModeCounts === undefined ? {} : { skippedModeCounts: entry.skippedModeCounts }),
+			...(entry.groupServer.label === undefined ? {} : { entryLabel: entry.groupServer.label }),
 		}));
 	}
 

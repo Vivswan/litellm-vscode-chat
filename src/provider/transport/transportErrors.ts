@@ -201,7 +201,7 @@ function linkText(link: ChainLink | undefined): string {
 	if (link === undefined) {
 		return "";
 	}
-	return link.message !== "" ? link.message : (link.code ?? "");
+	return link.message === "" ? (link.code ?? "") : link.message;
 }
 
 /** Compacted so a multi-line cause cannot break the two-line message shape. */
@@ -340,7 +340,7 @@ export function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: n
 		return contextWindowMarks || contextWindowMention ? "context_window_exceeded" : "invalid_request";
 	}
 	if (status === 403) {
-		return envelope !== undefined ? "model_access" : "forbidden";
+		return envelope === undefined ? "forbidden" : "model_access";
 	}
 	if (status === 402) {
 		return "billing";
@@ -409,11 +409,11 @@ function standardNotFoundDetail(err: APIError, envelope: ErrorEnvelope | undefin
 	const kind =
 		envelope?.code !== undefined && !/^\d+$/.test(envelope.code)
 			? ` ${envelope.code}`
-			: envelope?.type !== undefined
-				? ` ${envelope.type}`
-				: "";
-	const text = envelope?.message !== undefined ? compactText(envelope.message, 300) : recoveredSdkText(404, err, 200);
-	return text !== "" ? `LiteLLM 404${kind}: ${text}` : `LiteLLM 404${kind}`;
+			: envelope?.type === undefined
+				? ""
+				: ` ${envelope.type}`;
+	const text = envelope?.message === undefined ? recoveredSdkText(404, err, 200) : compactText(envelope.message, 300);
+	return text === "" ? `LiteLLM 404${kind}` : `LiteLLM 404${kind}: ${text}`;
 }
 
 /**
@@ -421,12 +421,12 @@ function standardNotFoundDetail(err: APIError, envelope: ErrorEnvelope | undefin
  * rest.
  */
 function discoveryNotFoundDetail(_err: APIError, envelope: ErrorEnvelope | undefined): string {
-	const typeSeg = envelope?.type !== undefined ? ` ${envelope.type}` : "";
-	return envelope?.message !== undefined ? `LiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}` : "";
+	const typeSeg = envelope?.type === undefined ? "" : ` ${envelope.type}`;
+	return envelope?.message === undefined ? "" : `LiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}`;
 }
 
 function midResponseDroppedDetail(url: string, chainText: string): string {
-	return `Connection to ${url} closed mid-response${chainText !== "" ? `: ${chainText}` : ""}`;
+	return `Connection to ${url} closed mid-response${chainText === "" ? "" : `: ${chainText}`}`;
 }
 
 const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
@@ -964,14 +964,14 @@ export function httpHeadline(surface: TransportErrorSurface, cls: HttpErrorClass
 /** Response-derived, so it rides only in message/englishMessage, never the logClassification. */
 export function chatHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope | undefined): string {
 	const kind =
-		envelope?.type !== undefined
-			? ` ${envelope.type}`
-			: envelope?.code !== undefined && !/^\d+$/.test(envelope.code)
+		envelope?.type === undefined
+			? envelope?.code !== undefined && !/^\d+$/.test(envelope.code)
 				? ` ${envelope.code}`
-				: "";
+				: ""
+			: ` ${envelope.type}`;
 	const text =
-		envelope?.message !== undefined ? compactText(envelope.message, 300) : recoveredSdkText(status, err, 300);
-	return text !== "" ? `LiteLLM ${status}${kind}: ${text}` : `LiteLLM ${status}${kind}`;
+		envelope?.message === undefined ? recoveredSdkText(status, err, 300) : compactText(envelope.message, 300);
+	return text === "" ? `LiteLLM ${status}${kind}` : `LiteLLM ${status}${kind}: ${text}`;
 }
 
 /**
@@ -981,15 +981,15 @@ export function chatHttpDetail(status: number, err: APIError, envelope: ErrorEnv
 export function discoveryHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope | undefined): string {
 	if (envelope?.message !== undefined) {
 		const kind =
-			envelope.type !== undefined
-				? ` ${envelope.type}`
-				: envelope.code !== undefined && !/^\d+$/.test(envelope.code)
+			envelope.type === undefined
+				? envelope.code !== undefined && !/^\d+$/.test(envelope.code)
 					? ` ${envelope.code}`
-					: "";
+					: ""
+				: ` ${envelope.type}`;
 		return `LiteLLM ${status}${kind}: ${compactText(envelope.message, 300)}`;
 	}
 	const recovered = recoveredSdkText(status, err, 200);
-	return recovered !== "" ? `HTTP ${status}: ${recovered}` : `HTTP ${status}`;
+	return recovered === "" ? `HTTP ${status}` : `HTTP ${status}: ${recovered}`;
 }
 
 /**
@@ -1007,15 +1007,15 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 	// quoting it.
 	const knownClass = classifyEnvelope(envelope);
 	const headline: LocalizedText =
-		knownClass !== undefined
-			? httpHeadline("chat", knownClass)
-			: {
+		knownClass === undefined
+			? {
 					display: l10n.t(
 						"The server reported an error while it was streaming this reply, so the response was interrupted. This is often temporary - trying again may work; if it repeats, the detail below shows what the server said."
 					),
 					english:
 						"The server reported an error while it was streaming this reply, so the response was interrupted. This is often temporary - trying again may work; if it repeats, the detail below shows what the server said.",
-				};
+				}
+			: httpHeadline("chat", knownClass);
 	let detail = "LiteLLM stream error";
 	if (envelope === undefined) {
 		detail = "LiteLLM stream error (no detail provided by the server)";
@@ -1221,9 +1221,9 @@ export function socketFailureRequestError(
 			[...chain].reverse().find((link) => link.message.includes("certificate") || (link.code ?? "").includes("CERT")) ??
 			chain.at(-1);
 		const certMessage = compactText(certLink?.message ?? "", 300);
-		const certCode = certLink?.code !== undefined ? compactText(certLink.code, 80) : "";
-		const certText = certMessage !== "" ? `${certMessage}${certCode !== "" ? ` (${certCode})` : ""}` : certCode;
-		const detail = `SSL certificate error for ${ctx.url}${certText !== "" ? `: ${certText}` : ""}`;
+		const certCode = certLink?.code === undefined ? "" : compactText(certLink.code, 80);
+		const certText = certMessage === "" ? certCode : `${certMessage}${certCode === "" ? "" : ` (${certCode})`}`;
+		const detail = `SSL certificate error for ${ctx.url}${certText === "" ? "" : `: ${certText}`}`;
 		const texts = twoPartTexts(ctx.surface, unverifiedCertificateHeadline(ctx), detail);
 		return new RequestError(texts.message, "certificate", {
 			cause,
@@ -1244,15 +1244,15 @@ export function socketFailureRequestError(
 			ctx.endpoint !== "oauthToken" && haystack.includes("ENOTFOUND") ? bareLocalhostUrl(ctx.url) : undefined;
 		const texts = twoPartTexts(ctx.surface, connectionHeadline(ctx, suggestedUrl), detail);
 		const setupHint =
-			suggestedUrl !== undefined
-				? ("use-bare-localhost" as const)
-				: ctx.endpoint !== "oauthToken" && haystack.includes("ECONNREFUSED")
+			suggestedUrl === undefined
+				? ctx.endpoint !== "oauthToken" && haystack.includes("ECONNREFUSED")
 					? ("proxy-not-running" as const)
-					: undefined;
+					: undefined
+				: ("use-bare-localhost" as const);
 		return new RequestError(texts.message, "connection", {
 			cause,
 			englishMessage: texts.englishMessage,
-			...(setupHint !== undefined ? { setupHint } : {}),
+			...(setupHint === undefined ? {} : { setupHint }),
 			...oauthMark,
 		});
 	}

@@ -172,7 +172,7 @@ export class TextToolCallParser {
 				}
 				// The header candidate: everything up to the terminator, or, with none in sight, everything but a tail
 				// that may still grow into one.
-				const candidate = headerEnd !== -1 ? headerEnd : data.length - controlTokenHold(data);
+				const candidate = headerEnd === -1 ? data.length - controlTokenHold(data) : headerEnd;
 				if (headerEnd === -1 && candidate <= MAX_TOOL_CALL_HEADER_LENGTH) {
 					this._buffer = BEGIN + data;
 					break;

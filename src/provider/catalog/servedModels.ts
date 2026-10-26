@@ -50,9 +50,9 @@ export class ServedModelDecorator {
 		return {
 			globalCapabilities: getModelCapabilitiesConfig((message, data) => this._options.logAdvisory(message, data)),
 			entryCapabilities:
-				entryLabel !== undefined ? this._options.getEntryModelCapabilities(entryLabel, server.baseUrl) : undefined,
+				entryLabel === undefined ? undefined : this._options.getEntryModelCapabilities(entryLabel, server.baseUrl),
 			entryDeclaredModels:
-				entryLabel !== undefined ? this._options.getEntryDeclaredModels(entryLabel, server.baseUrl) : undefined,
+				entryLabel === undefined ? undefined : this._options.getEntryDeclaredModels(entryLabel, server.baseUrl),
 			catalog: this._options.getCatalogLookup(),
 			resolution: this._options.resolution,
 			log: (message, data) => this._options.log(message, data),

@@ -134,7 +134,7 @@ export function groupCredentialKind(server: GroupCredentials): "oauth" | "apiKey
 	if (server.apiKey.length > 0) {
 		return "apiKey";
 	}
-	return server.virtualKey !== undefined ? "virtualKey" : undefined;
+	return server.virtualKey === undefined ? undefined : "virtualKey";
 }
 
 /**
@@ -149,9 +149,9 @@ function overlayGroupCredentials(server: GroupServer, credentials: GroupCredenti
 	return {
 		baseUrl,
 		apiKey: credentials.apiKey,
-		...(label !== undefined ? { label } : {}),
-		...(credentials.oauth !== undefined ? { oauth: credentials.oauth } : {}),
-		...(credentials.virtualKey !== undefined ? { virtualKey: credentials.virtualKey } : {}),
+		...(label === undefined ? {} : { label }),
+		...(credentials.oauth === undefined ? {} : { oauth: credentials.oauth }),
+		...(credentials.virtualKey === undefined ? {} : { virtualKey: credentials.virtualKey }),
 		entryOwned: true,
 	};
 }
@@ -226,7 +226,7 @@ export function failureCauseOf(error: unknown): FailureCause {
 		return error.failure;
 	}
 	const classification = transportClassificationOf(error);
-	return classification !== undefined ? { kind: "transport", classification } : { kind: "unclassified" };
+	return classification === undefined ? { kind: "unclassified" } : { kind: "transport", classification };
 }
 
 /** The extension layer's resolver of a declared entry's current credentials; see GroupCredentialsResolution. */
@@ -340,7 +340,7 @@ function narrowOAuth(raw: RawOptionalFields): OAuthConfig | undefined {
 		tokenUrl,
 		clientId: carriers.oauthClientId,
 		clientSecret: typeof raw.oauthClientSecret === "string" ? raw.oauthClientSecret : "",
-		...(fields.oauthScopes !== undefined ? { scopes: fields.oauthScopes } : {}),
+		...(fields.oauthScopes === undefined ? {} : { scopes: fields.oauthScopes }),
 	};
 }
 
@@ -565,7 +565,7 @@ export function parseGroupConfiguration(configuration: unknown): ParsedGroupConf
 		raw[id] = configuration[id];
 	}
 	const narrowed = narrowGroupCredentials(raw);
-	const server = { baseUrl, ...narrowed.credentials, ...(label !== undefined ? { label } : {}) };
+	const server = { baseUrl, ...narrowed.credentials, ...(label === undefined ? {} : { label }) };
 	return { server, rejections: narrowed.rejections, knownSecrets: groupKnownSecrets(configuration, server) };
 }
 

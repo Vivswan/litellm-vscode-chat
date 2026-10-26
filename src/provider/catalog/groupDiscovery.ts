@@ -260,8 +260,8 @@ export class GroupDiscovery {
 			// The configured label only: an unlabeled group's display fallback (the URL host) must not accidentally
 			// match a declared entry.
 			entryLabel: groupServer.label,
-			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
-			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
+			...(groupServer.oauth === undefined ? {} : { oauth: groupServer.oauth }),
+			...(groupServer.virtualKey === undefined ? {} : { virtualKey: groupServer.virtualKey }),
 		};
 		return {
 			generation,
@@ -357,11 +357,11 @@ export class GroupDiscovery {
 	}
 
 	private expectedFailuresFor(entryLabel: string | undefined, baseUrl: string): readonly ExpectedFailureCategory[] {
-		return (entryLabel !== undefined ? this._options.getExpectedFailures(entryLabel, baseUrl) : undefined) ?? [];
+		return (entryLabel === undefined ? undefined : this._options.getExpectedFailures(entryLabel, baseUrl)) ?? [];
 	}
 
 	private includeModesFor(entryLabel: string | undefined, baseUrl: string): readonly NonChatMode[] {
-		return (entryLabel !== undefined ? this._options.getEntryIncludeModes(entryLabel, baseUrl) : undefined) ?? [];
+		return (entryLabel === undefined ? undefined : this._options.getEntryIncludeModes(entryLabel, baseUrl)) ?? [];
 	}
 
 	private expectedDiscoveryFailures(entryLabel: string | undefined, baseUrl: string): ExpectedDiscoveryFailures {
@@ -373,9 +373,9 @@ export class GroupDiscovery {
 	cacheKeyFor(groupServer: GroupServer): string {
 		const apiRoot = apiRootOf(
 			groupServer.baseUrl,
-			groupServer.label !== undefined
-				? this._options.getEntryApiVersion(groupServer.label, groupServer.baseUrl)
-				: undefined
+			groupServer.label === undefined
+				? undefined
+				: this._options.getEntryApiVersion(groupServer.label, groupServer.baseUrl)
 		);
 		return discoveryCacheKey(
 			groupClientId(groupServer),
@@ -444,15 +444,15 @@ export class GroupDiscovery {
 			}
 			// A throwing serve still records the stale set every silent pass keeps serving.
 			const failureServe = recordAndServe(
-				stale !== undefined
-					? decorateFailure({ infos: stale.models, discoveredRawIds: stale.discoveredRawIds })
-					: (declaredOnly ?? decorateFailure({ infos: [], discoveredRawIds: [] })),
+				stale === undefined
+					? (declaredOnly ?? decorateFailure({ infos: [], discoveredRawIds: [] }))
+					: decorateFailure({ infos: stale.models, discoveredRawIds: stale.discoveredRawIds }),
 				outcome
 			);
 			if (silent) {
 				// An empty literal, not the attached set, so a decorator surprise cannot serve unmarked models.
 				const staleServed =
-					stale !== undefined ? markStale(failureServe.discovered, new Date(stale.lastSuccessAt).toLocaleString()) : [];
+					stale === undefined ? [] : markStale(failureServe.discovered, new Date(stale.lastSuccessAt).toLocaleString());
 				return [...staleServed, ...failureServe.declared];
 			}
 			// A non-Error throw is rebuilt from the cause's rendering, with the status's log-safe rendering as its mirror.
@@ -504,9 +504,9 @@ export class GroupDiscovery {
 						discoveryLineWriter((message, line) => this._options.log(message, line))
 					).infos,
 					discoveredRawIds: models.map((model) => model.id),
-					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
-					...(skippedModeCounts !== undefined ? { skippedModeCounts } : {}),
-					...(modelInfoUnsupported !== undefined ? { modelInfoUnsupported } : {}),
+					...(observedModelInfoKeys === undefined ? {} : { observedModelInfoKeys }),
+					...(skippedModeCounts === undefined ? {} : { skippedModeCounts }),
+					...(modelInfoUnsupported === undefined ? {} : { modelInfoUnsupported }),
 				};
 			};
 			const discovered = await this._options.cache.fetch(cacheKey, load);

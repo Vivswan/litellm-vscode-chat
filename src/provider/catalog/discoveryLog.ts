@@ -179,12 +179,12 @@ export function discoveryLineWriter(sink: (message: string, data: unknown) => vo
 			if (value === undefined) {
 				continue;
 			}
-			if (!ACCEPTS[kind](value)) {
-				line[key] = "[rejected]";
-			} else {
+			if (ACCEPTS[kind](value)) {
 				line[key] = ClassificationText.isOne(value)
 					? ClassificationText.textOf(value)
 					: (value as number | boolean | string);
+			} else {
+				line[key] = "[rejected]";
 			}
 		}
 		sink(message, line);
@@ -216,7 +216,7 @@ export function failureKindOf(error: unknown): { kind: FailureKind; status?: num
 	}
 	return {
 		kind: classification.kind,
-		...(classification.status !== undefined ? { status: classification.status } : {}),
+		...(classification.status === undefined ? {} : { status: classification.status }),
 	};
 }
 
@@ -232,7 +232,7 @@ export function logFailure(sink: FailureSink, message: FailureLineMessage, error
 	const classification = ownClassificationOf(error);
 	discoveryLineWriter((text, line) => sink(text, line, error))(message, {
 		...failureKindOf(error),
-		...(classification !== undefined ? { classification: new ClassificationText(mint, classification) } : {}),
+		...(classification === undefined ? {} : { classification: new ClassificationText(mint, classification) }),
 	});
 }
 

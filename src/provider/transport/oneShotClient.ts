@@ -133,7 +133,7 @@ export class OneShotClient {
 			model: request.model,
 			messages: request.messages,
 			stream: false,
-			...(request.maxTokens !== undefined ? { max_tokens: request.maxTokens } : {}),
+			...(request.maxTokens === undefined ? {} : { max_tokens: request.maxTokens }),
 		});
 		return oneShotContentOf(await this.postJson(url, body, connection, surface, opts));
 	}
@@ -151,7 +151,7 @@ export class OneShotClient {
 		const body = JSON.stringify({
 			model: request.model,
 			prompt: request.prompt,
-			...(request.suffix !== undefined ? { suffix: request.suffix } : {}),
+			...(request.suffix === undefined ? {} : { suffix: request.suffix }),
 			max_tokens: request.maxTokens,
 			stream: false,
 		});

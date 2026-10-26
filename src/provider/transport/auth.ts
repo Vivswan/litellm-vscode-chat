@@ -109,7 +109,7 @@ export class OAuthTokenSource {
 			throw abortReason(signal);
 		}
 		const ownClock = AbortSignal.timeout(retryBudgetMs(budget.ms, DISCOVERY_MAX_RETRIES));
-		const ownBounds = signal !== undefined ? AbortSignal.any([signal, ownClock]) : ownClock;
+		const ownBounds = signal === undefined ? ownClock : AbortSignal.any([signal, ownClock]);
 		const exchange = this.exchanges.get(key) ?? this.startExchange(key, config, budget);
 		exchange.waiters += 1;
 		try {
@@ -360,7 +360,7 @@ async function exchangeClientCredentials(
 		client_id: config.clientId,
 		// RFC 6749 2.3.1: public clients authenticate with the client ID alone.
 		...(config.clientSecret.length > 0 ? { client_secret: config.clientSecret } : {}),
-		...(config.scopes !== undefined ? { scope: config.scopes } : {}),
+		...(config.scopes === undefined ? {} : { scope: config.scopes }),
 	});
 	// The verdict over one answer: the parsed token, a retryable 5xx, or a settled refusal in its own rendering.
 	const judge = ({ response, text: payload }: FetchAnswer): { accessToken: HeaderValue; expiresInSeconds: number } => {

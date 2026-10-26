@@ -155,7 +155,7 @@ export async function retryFetch<T>(
 ): Promise<T> {
 	const { attemptTimeoutMs, maxRetries, sleep } = options;
 	const budget = AbortSignal.timeout(retryBudgetMs(attemptTimeoutMs, maxRetries));
-	const bounds = options.signal !== undefined ? AbortSignal.any([options.signal, budget]) : budget;
+	const bounds = options.signal === undefined ? budget : AbortSignal.any([options.signal, budget]);
 	try {
 		return await retryIdempotent(
 			async () => {
@@ -180,7 +180,7 @@ export async function retryFetch<T>(
 				});
 				return judge({ response, text });
 			},
-			{ maxRetries, signal: bounds, ...(sleep !== undefined ? { sleep } : {}) }
+			{ maxRetries, signal: bounds, ...(sleep === undefined ? {} : { sleep }) }
 		);
 	} catch (error) {
 		// Read after the fact, not from the error: the budget can fire first and the caller leave in the same turn,

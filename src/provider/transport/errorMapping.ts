@@ -108,7 +108,7 @@ export function mapSdkError(
 				cause: err,
 				logClassification: `RequestError(http, status 404, ${ctx.surface})`,
 				englishMessage: texts.englishMessage,
-				...(copy.setupHint !== undefined ? { setupHint: copy.setupHint } : {}),
+				...(copy.setupHint === undefined ? {} : { setupHint: copy.setupHint }),
 			});
 		}
 		const cls = classifyEnvelope(envelope, err.status);
@@ -218,7 +218,7 @@ export function mapSdkError(
 	}
 	const rawText = errorMessageText(err);
 	const text = compactText(typeof rawText === "string" ? rawText : "", 300);
-	const detail = `Unexpected ${name} during the ${surfaceCopy(ctx.surface).phrase} request to ${ctx.baseUrl}${text !== "" ? `: ${text}` : ""}`;
+	const detail = `Unexpected ${name} during the ${surfaceCopy(ctx.surface).phrase} request to ${ctx.baseUrl}${text === "" ? "" : `: ${text}`}`;
 	const tailHeadline: LocalizedText = {
 		display: l10n.t(
 			"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it."

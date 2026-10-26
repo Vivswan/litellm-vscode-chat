@@ -137,12 +137,12 @@ export class ChatClient {
 
 	/** Copied because the client cache expects an owned record. */
 	private customHeadersFor(entryLabel: string | undefined, baseUrl: string): Record<string, HeaderValue> {
-		const headers = entryLabel !== undefined ? this.getEntryHeaders(entryLabel, baseUrl) : undefined;
-		return headers !== undefined ? { ...headers } : {};
+		const headers = entryLabel === undefined ? undefined : this.getEntryHeaders(entryLabel, baseUrl);
+		return headers === undefined ? {} : { ...headers };
 	}
 
 	private apiVersionFor(entryLabel: string | undefined, baseUrl: string): string | undefined {
-		return entryLabel !== undefined ? this.getEntryApiVersion(entryLabel, baseUrl) : undefined;
+		return entryLabel === undefined ? undefined : this.getEntryApiVersion(entryLabel, baseUrl);
 	}
 
 	pruneClients(serverIds: Iterable<string>): void {
@@ -179,9 +179,9 @@ export class ChatClient {
 				entryLabel: server.entryLabel,
 				log: this.log,
 				isCancellation: isHostCancellation,
-				...(expected !== undefined ? { expected } : {}),
-				...(includeModes !== undefined ? { includeModes } : {}),
-				...(headers !== undefined ? { headers } : {}),
+				...(expected === undefined ? {} : { expected }),
+				...(includeModes === undefined ? {} : { includeModes }),
+				...(headers === undefined ? {} : { headers }),
 			});
 		} catch (error) {
 			auth.fail(error);
@@ -279,7 +279,7 @@ export class ChatClient {
 		// at another URL, stale from a label reuse or a baseUrl edit.
 		//   two entries may share a base URL -> the label tells them apart
 		const entryModelParameters =
-			server.label !== undefined ? this.getEntryModelParameters(server.label, server.baseUrl) : undefined;
+			server.label === undefined ? undefined : this.getEntryModelParameters(server.label, server.baseUrl);
 		const { params: modelParams, forcedParams } = this.resolution.resolveParameters(serverId, metadata.rawModelId, {
 			globalParameters: getModelParametersConfig(this.advise),
 			entryParameters: entryModelParameters,
@@ -344,7 +344,7 @@ export class ChatClient {
 			// headers, so a per-chat value among them would rebuild the OpenAI client on every new chat. It yields to
 			// any header already spelling its name: a credential's, which owns its name, or a custom header the user set.
 			const headers: Record<string, HeaderValue> =
-				resolvedAuth.headers !== undefined ? { ...resolvedAuth.headers } : {};
+				resolvedAuth.headers === undefined ? {} : { ...resolvedAuth.headers };
 			const sessionIdTaken =
 				hasHeader(headers, SESSION_ID_HEADER_NAME) || hasHeader(customHeaders, SESSION_ID_HEADER_NAME);
 			const sessionIdHeader = sessionIdTaken ? undefined : chatSessionIdHeader(messages);
