@@ -56,7 +56,7 @@ const CHILD_PROCESS_ONLY_MEMBERS = new Set(["exec"]);
 /** The Bun surface's process-starting members, as `Bun.<name>` and as named exports of "bun". */
 const BUN_SPAWN_EXPORTS = new Set(["spawn", "spawnSync", "$", "openInEditor", "WebView"]);
 
-/** Globals a safe module adds whose constructor may spawn: happy-dom's sync XMLHttpRequest runs in a node child. */
+/** Globals a safe module adds that spawn: happy-dom's sync XMLHttpRequest runs in a node child; the async form shares its constructor, so any use counts. */
 const SPAWNING_GLOBALS = new Set(["XMLHttpRequest"]);
 
 /** The only members of `require` the walk follows; `require.call` or `.main.require` would hide a load. */

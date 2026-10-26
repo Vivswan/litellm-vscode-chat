@@ -6,10 +6,10 @@ export const LAZY_INFERENCE_FIXTURES: readonly {
 	/** The files the inference reads, by path and contents. */
 	readonly sources: readonly { readonly file: string; readonly contents: string }[];
 
-	/** Helpers the sources call without showing; the test declares each in its own file and expects it alongside. */
+	/** Helpers the sources call without showing; the test declares each in its own file. */
 	readonly lazyElsewhere?: readonly string[];
 
-	/** The names the inference must mark lazy, beside the lazyElsewhere helpers. */
+	/** The lazy names among the declarations `sources` show. */
 	readonly expected: readonly string[];
 }[] = [
 	{

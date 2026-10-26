@@ -4,10 +4,13 @@
  *
  *   The capability resolver's safety argument -> mirrored from the parameterResolution property suite
  *
- * Generated record keys are slash-free so a pre-migration URL key can never collide with a plain key, and
- * underscore-free so a random field name can never spell a directive. Values land on kind-matched and kind-mismatched
- * fields alike, so the valid path and the invalid-value fallthrough stay common, and structured JSON values keep the
- * verbatim-extras path alive. Server baselines carry the consumed vocabulary too, so its server level stays exercised.
+ * The plain-key alphabet is slash-free, so a pre-migration URL key can never collide with a plain key, and
+ * underscore-free, so a random field name can never spell a directive; the underscore fields and URL-prefixed keys the
+ * generators add are built on purpose.
+ *
+ * Values land on kind-matched and kind-mismatched fields alike, so the valid path and the invalid-value fallthrough
+ * stay common, and structured JSON values keep the verbatim-extras path alive. Server baselines carry the consumed
+ * vocabulary too, so its server level stays exercised.
  *
  * The directive level is not user-set: both catalog paths stay guesses on the wire. The directive pool holds the two
  * IDs the generated catalog can hold plus one it never does.

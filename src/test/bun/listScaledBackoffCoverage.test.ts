@@ -363,8 +363,9 @@ function descendExecuted(child: ts.Node, visit: ExecutedVisit): void {
 }
 
 /**
- * A nested function is followed only where a call receives it: a thunk built for later never runs in the loop.
- * descendExecuted and this walk recurse into each other, so the step sits above the entry point that calls it first.
+ * Calls `visit` on `node` and on everything under it that runs when `node` runs, type positions skipped; a false from
+ * `visit` stops the walk below that node. `asCallback` says a call receives `node`, which is the one place a nested
+ * function is followed: a thunk built for later never runs in the loop.
  */
 function eachExecuted(node: ts.Node, asCallback: boolean, visit: ExecutedVisit): void {
 	if (isTypePosition(node)) {

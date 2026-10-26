@@ -165,4 +165,5 @@ export function sanctioned(value: string): number {
 	return parseFloat(trimmed); // seen
 }
 
-export const assigned = (value: string): string => value.trim(); // seen
+// seen
+export const assigned = (value: string): string => value.trim();
