@@ -54,6 +54,20 @@ import { fixedHeaderValue } from "../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { deploymentShape } from "../../pureHelpers";
 
+// The generators share a few deliberate choices.
+//
+//   idChar              -> slash-free so a scoped key can never collide with a plain key, colon-free so no cut spells
+//                          ":cheapest", underscore-free so no field name spells a directive
+//   PROTOTYPE_NAMES     -> legal open fields that shadow Object.prototype members
+//   validCost           -> -0 rides JSON.parse("-0") in real settings files, so it belongs in the pool
+//   DIRECTIVE_POOL      -> the two directive IDs the generated catalogs can hold, plus one they never do
+//   fieldValueArb       -> values land on kind-matched and mismatched fields alike, keeping the invalid-value and
+//                          verbatim-extras paths common
+//   extraField*Arb      -> keys and values guaranteed OUTSIDE the consumed vocabulary, so the two injection
+//                          properties stay behavior-neutral by construction
+//   capabilityRecordArb -> carries `_force` too, the parameters record type's directive, so a wrong-record-type
+//                          directive is exercised
+
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
@@ -67,12 +81,8 @@ const BOOLEAN_FIELD_NAMES = FIELD_NAMES.filter(
 const CONSUMED_EXTRA_NAMES = Object.keys(CONSUMED_CAPABILITY_FIELDS).filter(
 	(name) => !Object.hasOwn(CAPABILITY_FIELDS, name)
 );
-
-// Legal open fields that shadow Object.prototype members.
 const PROTOTYPE_NAMES = ["toString", "valueOf", "constructor", "hasOwnProperty"] as const;
-
 const USER_SET_LEVELS: readonly CapabilityLevel[] = ["entry", "global", "entry-fallback", "global-fallback"];
-
 const COST_FIELD_NAMES = consumedFieldsOfKind("cost");
 
 const MODEL_PRICING_KEYS = Object.keys({
@@ -88,18 +98,10 @@ const MODEL_PRICING_KEYS = Object.keys({
 	pricing: true,
 } satisfies Record<keyof ModelPricing, true>) as readonly (keyof ModelPricing)[];
 
-// Slash-free so a scoped key can never collide with a plain key, colon-free so no cut spells ":cheapest",
-// underscore-free so no field name spells a directive.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
-
 const modelId = fc.string({ unit: idChar, minLength: 1, maxLength: 10 });
-
 const validNumber = fc.integer({ min: 1, max: 1_000_000 });
-
-// -0 rides JSON.parse("-0") in real settings files, so it belongs in the pool.
 const validCost = fc.constantFrom<number>(0, -0, 1e-7, 0.000003, 0.5);
-
-// The two directive IDs the generated catalogs can hold, plus one they never do.
 const DIRECTIVE_POOL = ["cat/one", "cat/two", "cat/none"] as const;
 
 const validFieldsArb: fc.Arbitrary<Partial<CapabilityFieldValues>> = fc.record(
@@ -115,7 +117,6 @@ const validFieldsArb: fc.Arbitrary<Partial<CapabilityFieldValues>> = fc.record(
 	{ requiredKeys: [] }
 );
 
-// Values land on kind-matched and mismatched fields alike, keeping the invalid-value and verbatim-extras paths common.
 const fieldValueArb = fc.oneof(
 	{ arbitrary: validNumber, weight: 3 },
 	{ arbitrary: fc.boolean(), weight: 3 },
@@ -134,10 +135,7 @@ const recordKeyArb = fc.oneof(
 	{ arbitrary: fc.constantFrom<string>(...PROTOTYPE_NAMES), weight: 1 }
 );
 
-// Keys and values guaranteed OUTSIDE the consumed vocabulary, so the two injection properties stay behavior-neutral by
-// construction.
 const extraFieldKeyArb = fc.oneof(modelId, fc.constantFrom<string>(...PROTOTYPE_NAMES));
-
 const extraFieldValueArb = fc.constantFrom<unknown>(true, 7, "text", ["a"], { nested: [1] }, null);
 
 /** Object.fromEntries is CreateDataProperty, so "__proto__" becomes an own key, never a prototype write. */
@@ -145,10 +143,7 @@ function recordFromEntries(entries: readonly (readonly [string, unknown])[]): Re
 	return Object.fromEntries(entries);
 }
 
-/**
- * One capability record: random fields, an optional own "__proto__" key minted through JSON.parse (the one way a
- * settings file can carry it), and every directive including the wrong-record-type `_force`.
- */
+/** A record: random fields, every directive, sometimes an own "__proto__" via JSON.parse, as a settings file has. */
 const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 	.tuple(
 		fc.array(fc.tuple(recordKeyArb, fieldValueArb), { maxLength: 5 }),
@@ -250,10 +245,7 @@ function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): C
 	};
 }
 
-/**
- * Server baselines are resolver INPUT here, so unlike the seam's discovery-built baselines they may carry hostile
- * shapes on purpose: the resolver, not the baseline builder, is under test.
- */
+/** Resolver INPUT, not discovery output, so it may carry hostile shapes on purpose: the resolver is under test. */
 const serverValuesArb: fc.Arbitrary<Partial<ServerCapabilityValues>> = fc
 	.tuple(
 		validFieldsArb,
@@ -285,6 +277,7 @@ const serverValuesArb: fc.Arbitrary<Partial<ServerCapabilityValues>> = fc
 			]) as Partial<ServerCapabilityValues>
 	);
 
+/** A declared-only server, or a discovered one carrying serverValuesArb's hostile values. */
 const serverDeclaredArb: fc.Arbitrary<ServerDeclaredCapabilities> = fc.oneof(
 	fc.constant<ServerDeclaredCapabilities>({ kind: "declared" }),
 	fc
@@ -422,12 +415,10 @@ function coreProjection(fields: Readonly<Record<string, EffectiveCapabilityField
 	return Object.fromEntries(FIELD_NAMES.map((name) => [name, fields[name]]));
 }
 
-// --- Seam scenario: real discovery shapes through the real registration path.
+// --- Seam scenario: real discovery shapes through the real registration path. Post-ingest limits are positive numbers
+// or undefined by construction (discovery narrows them at the mapping sites), so no null survives to here.
 
-// Post-ingest limits are positive numbers or undefined by construction (discovery narrows them at the mapping sites);
-// no null survives to here.
 const limitValue = fc.option(validNumber, { nil: undefined });
-
 const flagValue = fc.option(fc.oneof(fc.boolean(), fc.constant<null>(null)), { nil: undefined });
 const providerCost = fc.option(fc.oneof(fc.constantFrom(0, -0, 0.000003, 0.000015), fc.constant<null>(null)), {
 	nil: undefined,

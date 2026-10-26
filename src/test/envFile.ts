@@ -6,13 +6,11 @@
  * variable interpolation inside values.
  *
  *   Quote stripping -> ONE layer only
+ *   STACK_DEFAULTS  -> the scripts and docker suites take their fallbacks from here, so a rotated default changes
+ *                      every consumer at once; stackDrift.test.ts pins the docs restatements
  */
 
-/**
- * The docker stack's default connection settings, one per compose variable. The compose file, .env.example, and
- * docs/development.md restate them (stackDrift.test.ts pins the docs); the scripts and docker suites take their
- * fallbacks from here, so a rotated default changes every consumer at once.
- */
+/** The docker stack's defaults, one per compose variable; the compose file, .env.example, and docs restate them. */
 export const STACK_DEFAULTS = {
 	LITELLM_PORT: "4000",
 	FAKE_OPENAI_PORT: "8090",

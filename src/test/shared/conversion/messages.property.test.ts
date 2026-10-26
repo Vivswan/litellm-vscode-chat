@@ -6,7 +6,10 @@ import { validateRequest } from "../../../shared/validation";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { expectDefined } from "../../pureHelpers";
 
+/** The property run count; checks.yml's fuzz leg and nightly raise it through FUZZ_RUNS. */
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
+
+/** FUZZ_SEED when set, else the pinned default, so PR and pre-commit runs stay deterministic (fuzzStream.ts). */
 const SEED = resolveFuzzSeed();
 
 /** convertMessages -> only inspects the MIME type and bytes */
@@ -18,10 +21,7 @@ type ConversationEvent =
 	| { kind: "user-image"; text: string }
 	| { kind: "tool-exchange"; callId: string; name: string; args: Record<string, unknown>; result: string };
 
-/**
- * Each way an adversarial generator corrupts one tool exchange, and whether the exchange still closes on the wire: a
- * history of only sendable kinds must pass validation, and a rejected kind must be refused before send.
- */
+/** How the generator corrupts one exchange: a sendable history passes validation, a rejected one is refused first. */
 const EXCHANGE_CORRUPTIONS = {
 	none: "sendable",
 	"empty-pair": "sendable",
@@ -48,8 +48,9 @@ interface AdversarialEvent {
 	corruption: ExchangeCorruption;
 }
 
-// Nonempty: the converter intentionally drops messages whose only content is the empty string, and an empty
+// textArb is nonempty: the converter intentionally drops messages whose only content is the empty string, and an empty
 // conversation is rejected by validateRequest.
+
 const textArb = fc.string({ minLength: 1, maxLength: 40 });
 
 const callIdArb = fc
@@ -115,10 +116,10 @@ interface WireMessage {
 	tool_call_id?: string;
 }
 
-const corruptionArb: fc.Arbitrary<ExchangeCorruption> = fc.constantFrom(...CORRUPTION_KINDS);
+// adversarialEventArb's tiny id pool (with the mint's own prefix in it) makes cross-exchange reuse, duplicate-live ids,
+// and mint collisions all reachable.
 
-// A tiny id pool (with the mint's own prefix in it) makes cross-exchange reuse, duplicate-live ids, and mint collisions
-// all reachable.
+const corruptionArb: fc.Arbitrary<ExchangeCorruption> = fc.constantFrom(...CORRUPTION_KINDS);
 const adversarialEventArb: fc.Arbitrary<AdversarialEvent> = fc.record({
 	callId: fc.constantFrom("call_1", "call_2", "call_synth_0"),
 	corruption: corruptionArb,

@@ -19,7 +19,10 @@ import { fixedHeaderValue, type HeaderValue } from "../../../shared/util/headers
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { expectDefined, makeModelInfo } from "../../pureHelpers";
 
+/** The property run count; checks.yml's fuzz leg and nightly raise it through FUZZ_RUNS. */
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
+
+/** FUZZ_SEED when set, else the pinned default, so PR and pre-commit runs stay deterministic (fuzzStream.ts). */
 const SEED = resolveFuzzSeed();
 
 // Spelled out: the typography gate refuses a literal non-breaking space, and the test is about that very byte.
@@ -28,6 +31,7 @@ const NBSP = String.fromCharCode(0xa0);
 /** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
+/** A complete OAuth configuration as the host hands it; tests override single fields to probe identity and units. */
 const OAUTH_FIELDS = {
 	oauthTokenUrl: "http://idp.test/oauth2/token",
 	oauthClientId: "client-1",

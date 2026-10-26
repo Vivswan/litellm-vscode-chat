@@ -2,26 +2,26 @@
  * The source of truth is the model catalog in models.ts; scenario shapes are addressed per request via the %play
  * command rather than through the config. No filesystem or environment access here - real-provider decisions arrive
  * through an injected env lookup, so the unit suite pins the emission on every CI OS without docker.
+ *
+ *   FAKE_BACKEND_PORT -> the compose file restates it three times (the service's PORT env, the host mapping's
+ *                        container side, the healthcheck URL); a mismatch fails the healthcheck or every proxied chat
+ *   REAL_PROVIDERS    -> docker/docker-compose.yml must pass every envVar through to the litellm service and
+ *                        .env.example templates it; stackDrift.test.ts pins the passthrough
+ *   COPILOT_TOKEN_DIR -> compose restates it in the litellm mount, the fake-openai masking volume, and the
+ *                        GITHUB_COPILOT_TOKEN_DIR env; stackDrift.test.ts pins those copies
  */
 
 import { COMMAND_SIGIL } from "./commands";
 import type { FakeModel, FakeModelCapabilities, FakeModelPricing } from "./models";
 import { FAKE_MODELS } from "./models";
 
-/**
- * The container-internal port the fake OpenAI backend binds. The compose file restates it three times (the service's
- * PORT env, the host mapping's container side, the healthcheck URL); a mismatch fails the stack's healthcheck or every
- * proxied chat in the docker suites.
- */
+/** The container-internal port the fake OpenAI backend binds; the compose file restates it (file comment). */
 export const FAKE_BACKEND_PORT = 8080;
 
+/** Where every fake deployment points: the compose service by name, reachable inside the stack's network alone. */
 const FAKE_API_BASE = `http://fake-openai:${FAKE_BACKEND_PORT}/v1`;
 
-/**
- * The real-provider wildcard routes the generated config may emit, keyed by the API-key variable each route reads via
- * os.environ inside the container. docker/docker-compose.yml must pass every envVar through to the litellm service
- * (stackDrift.test.ts pins that) and .env.example templates it.
- */
+/** The real-provider wildcard routes the config may emit, keyed by the API-key variable each reads via os.environ. */
 export const REAL_PROVIDERS: ReadonlyArray<{ prefix: string; envVar: string }> = [
 	{ prefix: "openai", envVar: "OPENAI_API_KEY" },
 	{ prefix: "anthropic", envVar: "ANTHROPIC_API_KEY" },
@@ -72,11 +72,7 @@ const PRICING_WIRE_KEYS: Readonly<Record<keyof FakeModelPricing, string>> = {
 	cacheCreationInputTokenCostAbove200k: "cache_creation_input_token_cost_above_200k_tokens",
 };
 
-/**
- * Every key is emitted explicitly, true or false (models.ts says why omission is not a negative). tools is excluded
- * because it fans out to two keys, and reasoningEffortLevels because it emits one supports_<level>_reasoning_effort
- * flag per level below rather than a single boolean key.
- */
+/** Each flag's wire key, emitted true or false (models.ts says why); tools fans out to two keys, levels to one each. */
 const CAPABILITY_WIRE_KEYS: Readonly<
 	Record<Exclude<keyof FakeModelCapabilities, "tools" | "reasoningEffortLevels">, string>
 > = {
@@ -187,11 +183,12 @@ function realProviderEntry(prefix: string, envVar: string): string {
 	].join("\n");
 }
 
-/** The real-provider model_list entries, split by what gates the expansion flag. */
+/**
+ * The real-provider model_list entries, split by what gates the expansion flag: `keyed` counts the entries from keyed
+ * REAL_PROVIDERS rows, and the bare "*" passthrough is not one.
+ */
 interface RealProviderEntries {
 	entries: string[];
-
-	/** Entries from keyed REAL_PROVIDERS rows; the bare "*" passthrough is not one. */
 	keyed: number;
 }
 
@@ -230,14 +227,11 @@ function expansionSection(keyedEntries: number): string[] {
 	return ["litellm_settings:", "  check_provider_endpoint: true", ""];
 }
 
-/**
- * Where the GitHub Copilot device-flow token lives on the host, relative to the repo root. The compose file restates it
- * in the litellm mount, the fake-openai masking volume, and the GITHUB_COPILOT_TOKEN_DIR env; stackDrift.test.ts pins
- * those copies.
- */
+/** Where the GitHub Copilot device-flow token lives on the host, relative to the repo root; compose restates it. */
 export const COPILOT_TOKEN_DIR = "docker/.copilot-token";
 
 export interface CopilotModel {
+	/** The catalog's id, emitted into YAML unquoted (COPILOT_ID_PATTERN gates it). */
 	readonly id: string;
 
 	/** The catalog's capabilities.type: "chat", "embeddings", ... */
@@ -250,10 +244,9 @@ export interface CopilotModel {
 /** Copilot ids are emitted into YAML unquoted, so gate them hard. */
 const COPILOT_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
+/** The parsed Copilot catalog: the usable models, and the entries dropped for an unusable or unsafe id (names only). */
 export interface CopilotCatalogParse {
 	models: CopilotModel[];
-
-	/** Entries dropped for an unusable or unsafe id; names only, never secrets. */
 	rejected: string[];
 }
 

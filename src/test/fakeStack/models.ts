@@ -43,38 +43,31 @@ export interface FakeModelPricing {
 	cacheCreationInputTokenCostAbove200k?: number;
 }
 
+/**
+ * One LiteLLM deployment of a model. `upstreamModel` is the bare upstream id (the generator emits
+ * model: openai/<upstreamModel>), and omitted limits are omitted from model_info (llama-4-scout's shape).
+ */
 interface FakeDeployment {
-	/** Bare upstream id; the generator emits model: openai/<upstreamModel>. */
 	upstreamModel: string;
-
-	/** Omitted limits are omitted from model_info (llama-4-scout's shape). */
 	maxInputTokens?: number;
-
 	maxOutputTokens?: number;
 }
 
+/**
+ * The capability flags a model declares. An omitted boolean is emitted as false (see the file comment).
+ * reasoningEffortLevels is emitted as one supports_<level>_reasoning_effort: true flag per level; omission emits no
+ * per-level flags at all, so the extension's picker menu falls back to its built-in level list. The menu follows
+ * LiteLLM's flag rule, not this list verbatim: medium and high are always on, none, minimal and low are on unless
+ * flagged false, so only xhigh and max need listing to appear.
+ */
 export interface FakeModelCapabilities {
 	tools: boolean;
-
-	/** Omitted here means emitted as false (see the file comment). */
 	vision?: boolean;
-
 	pdfInput?: boolean;
-
 	reasoning?: boolean;
-
 	promptCaching?: boolean;
-
 	audioInput?: boolean;
-
 	audioOutput?: boolean;
-
-	/**
-	 * Emitted as one supports_<level>_reasoning_effort: true flag per level; omission emits no per-level flags at
-	 * all, so the extension's picker menu falls back to its built-in level list. The menu follows LiteLLM's flag rule,
-	 * not this list verbatim: medium and high are always on, none, minimal and low are on unless flagged false, so
-	 * only xhigh and max need listing to appear.
-	 */
 	reasoningEffortLevels?: readonly string[];
 }
 
@@ -82,21 +75,16 @@ export interface FakeModel {
 	/** The model_name LiteLLM serves; what the host registers. */
 	alias: string;
 
+	/** Emitted on every deployment alike: discovery merges deployments, and a disagreement nulls the merged value. */
 	capabilities: FakeModelCapabilities;
 
-	/**
-	 * More than one deployment makes the alias a LiteLLM load-balancing group. Pricing and capabilities are declared
-	 * ONCE per model and emitted identically on every deployment, because discovery merges deployments and any
-	 * disagreement would silently null the merged value.
-	 */
+	/** More than one makes the alias a LiteLLM load-balancing group. */
 	deployments: readonly FakeDeployment[];
 
+	/** Emitted on every deployment alike, as capabilities are; absent pricing arrives as zero pricing (file comment). */
 	pricing?: FakeModelPricing;
 
-	/**
-	 * Emitted as model_info mode. "completion" declares the alias a text-completion model - metadata for clients and
-	 * health checks, not dispatch (LiteLLM routes by the endpoint the client calls).
-	 */
+	/** Emitted as model_info mode; "completion" is client and health-check metadata, since LiteLLM routes by endpoint. */
 	mode?: "completion";
 
 	/** Emitted as model_info blocked: true; the model must never register. */
@@ -106,8 +94,7 @@ export interface FakeModel {
 /** Flat pricing shared byte-identically by both gpt-5.2 deployments (the merge trap). */
 const GPT_52_PRICING: FakeModelPricing = { inputCostPerToken: 1.25e-6, outputCostPerToken: 1e-5 };
 
-// Declared `as const` so FakeModelAlias can derive the literal alias union; FAKE_MODELS below re-exposes it at the
-// plain catalog type.
+// `as const` so FakeModelAlias can derive the literal alias union; FAKE_MODELS below re-exposes it at the catalog type.
 const FAKE_MODEL_DEFS = [
 	{
 		// The flagship: full capabilities, cache costs, and the above-200k tier (reachable: 1M declared input) so the
@@ -193,6 +180,7 @@ const FAKE_MODEL_DEFS = [
 	},
 ] as const satisfies readonly FakeModel[];
 
+/** The catalog at its plain type, for consumers that iterate the models rather than name one. */
 export const FAKE_MODELS: readonly FakeModel[] = FAKE_MODEL_DEFS;
 
 /**
@@ -206,14 +194,11 @@ export const FAKE_MODEL_UPSTREAM_IDS: readonly string[] = FAKE_MODELS.filter((mo
 	(model) => model.deployments.map((deployment) => deployment.upstreamModel)
 );
 
-/**
- * A catalog rename does NOT flow through automatically: the lookup is by alias literal, so renaming the model throws
- * here and the maintainer updates this one literal. The docker suites' own alias and upstream literals stay independent
- * oracles and must NOT be derived from this.
- *
- *   The designated playback target, exported -> target-selection plumbing reads one declaration
- */
+/** The designated playback target, exported so the target-selection plumbing reads one declaration. */
 export const PLAYBACK_MODEL: { readonly alias: string } = (() => {
+	// The lookup is by alias literal on purpose: a catalog rename does NOT flow through, it throws here and the
+	// maintainer updates this one literal. The docker suites' own alias and upstream literals stay independent oracles
+	// and must NOT be derived from this.
 	const alias = "gpt-5.2-mini";
 	const model = FAKE_MODELS.find((candidate) => candidate.alias === alias);
 	if (model === undefined) {

@@ -1,9 +1,10 @@
 /**
- * The docker-stack orchestrator's suite labels in canonical execution order, shared by the orchestrator and the drift
- * guards that pin the CI shard lists to this set. The order is load-bearing: docker-monkey stays last because its walks
- * deliberately dirty host state no later suite should inherit, so any --only selection replays this order rather than
- * the flag's.
+ * The docker-stack orchestrator's suite labels, shared with the drift guards that pin the CI shard lists to this set.
+ * The order is load-bearing: docker-monkey stays last because its walks deliberately dirty host state no later suite
+ * should inherit, so any --only selection replays this order rather than the flag's.
  */
+
+/** Canonical execution order; parseOnlyLabels replays it whatever order --only names. */
 export const DOCKER_TEST_LABELS = [
 	"docker",
 	"docker-usage",
@@ -20,10 +21,7 @@ export const DOCKER_TEST_LABELS = [
 
 export type DockerTestLabel = (typeof DOCKER_TEST_LABELS)[number];
 
-/**
- * The orchestrator's --skip-* flag per skippable label, shared by the orchestrator and the nightly-fuzz drift guard.
- * The base `docker` label has no skip flag on purpose: the default full run always includes it.
- */
+/** The --skip-* flag per label; `docker` has none on purpose, since the default full run always includes it. */
 export const DOCKER_SKIP_FLAGS: Readonly<Partial<Record<DockerTestLabel, string>>> = {
 	"docker-usage": "--skip-usage",
 	"docker-transport": "--skip-transport",
@@ -37,11 +35,7 @@ export const DOCKER_SKIP_FLAGS: Readonly<Partial<Record<DockerTestLabel, string>
 	"docker-monkey": "--skip-monkey",
 };
 
-/**
- * The labels nightly-fuzz.yml's seeded docker legs run under one explicit seed; its unseeded leg runs the complement
- * through these labels' skip flags (scripts/ci/nightly-fuzz-leg.ts), and checks.yml's fuzz-docker shards restate
- * them, which stackDrift.test.ts pins.
- */
+/** The labels nightly-fuzz.yml's seeded legs run under one seed; checks.yml's fuzz-docker shards restate them. */
 export const SEEDED_FUZZ_LABELS = [
 	"docker-fuzz",
 	"docker-conversation",

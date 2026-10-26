@@ -25,24 +25,31 @@ import {
 } from "./hostApiHelpers";
 import { assertOmits, assertShows, expectDefined } from "./pureHelpers";
 
-/** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
-const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
-
 /**
  * Models come from src/test/fakeStack/models.ts; response shapes are selected with the %play command against
  * gpt-5.2-mini, other commands drive their own behavior. Unlike the in-process capture suite, LiteLLM re-serializes
  * requests and streams here, so these tests pin what survives the proxy hop.
  */
 
+/** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
+const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
+
+/** The docker LiteLLM proxy; empty when the stack is not up, and the suite then registers only its SKIPPED test. */
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
 
+/** Authenticates both the declared entry and the suite's own fetches against the proxy. */
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
+
+/** The fake OpenAI backend behind the proxy, reached directly for its /_test endpoints and its own model listing. */
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 
 /** The six host-visible consolidated survivors; gpt-4-turbo is blocked and must never appear. */
 const SURVIVOR_IDS = ["claude-opus-4-5", "deepseek-r2", "gpt-5.2", "gpt-5.2-mini", "gpt-5.2-omni", "llama-4-scout"];
 
+/** A paced stream long enough for a cancel to land mid-way; the chunk count below proves it stopped early. */
 const CANCEL_STREAM_COMMAND = `${COMMAND_SIGIL}stream:50:100`;
+
+/** Parsed back out of the command, so the assertion's bound and the stream's length cannot disagree. */
 const CANCEL_STREAM_COUNT = Number(CANCEL_STREAM_COMMAND.split(":")[1]);
 
 /** Minimal 1x1 red PNG for multimodal request-shape tests. */

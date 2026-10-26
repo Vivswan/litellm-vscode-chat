@@ -19,19 +19,22 @@ import type { OpenAIChatMessage } from "../../../shared/conversion/wire";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { withConfig } from "../../testUtils";
 
+// The generators share a few deliberate choices.
+//
+//   RESERVED_KEYS  -> "constructor" and "prototype" are reachable in this alphabet and normalizeModelParameters drops
+//                     them, which would void the wrapper property
+//   paramKey       -> a small shared pool makes cross-layer key collisions (the shadowing branch) common; owned and
+//                     underscore keys exercise the not-sent classifications, and max_tokens the derivation hand-off;
+//                     "_force" is generated deliberately by forceDirective, never at random
+//   forceDirective -> a `_force` value: all-fields, a list cut from the record's own keys plus noise, or an invalid
+//                     shape
+
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
-
-// "constructor" and "prototype" are reachable in this alphabet and normalizeModelParameters drops them, which would
-// void the wrapper property.
 const RESERVED_KEYS = new Set(["constructor", "prototype"]);
 
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
 const rawIdArb = fc.string({ unit: idChar, minLength: 1, maxLength: 10 }).filter((key) => !RESERVED_KEYS.has(key));
-
-// A small shared pool makes cross-layer key collisions (the shadowing branch) common;
-// owned and underscore keys exercise the not-sent classifications, and max_tokens the
-// derivation hand-off. "_force" is generated deliberately below, not at random.
 const paramKey = fc.oneof(
 	{ arbitrary: fc.constantFrom("temperature", "top_p", "seed", "max_tokens"), weight: 3 },
 	{ arbitrary: fc.constantFrom("model", "messages", "stream", "stream_options", "tools", "tool_choice"), weight: 1 },
@@ -40,8 +43,6 @@ const paramKey = fc.oneof(
 );
 
 const paramRecord = fc.dictionary(paramKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 5 });
-
-/** A `_force` value: all-fields, a list cut from the record's own keys plus noise, or an invalid shape. */
 const forceDirective = (record: Record<string, unknown>) =>
 	fc.oneof(
 		{ arbitrary: fc.boolean(), weight: 2 },
@@ -90,12 +91,7 @@ interface Scenario {
 	defaultMaxTokens: number;
 }
 
-/**
- * Records may carry the full directive set.
- *
- *   glob keys are cuts of the raw ID plus "*" -> matches are the common case
- *   "*" -> keeps the catch-all alive
- */
+/** A full chain: glob keys cut from the raw ID plus "*", so matches are common and the catch-all stays alive. */
 const scenarioArb: fc.Arbitrary<Scenario> = fc
 	.record({
 		rawModelId: rawIdArb,
@@ -174,7 +170,10 @@ const scenarioArb: fc.Arbitrary<Scenario> = fc
 			});
 	});
 
+/** The one-turn conversation every scenario sends; the properties are about parameters, not messages. */
 const MESSAGES: OpenAIChatMessage[] = [{ role: "user", content: "hi" }];
+
+/** The keys the body builder always writes; the oracle compares every other key of the body against the chain. */
 const BASE_KEYS: ReadonlySet<string> = new Set(["model", "messages", "stream", "stream_options", "max_tokens"]);
 
 suite("shared/config parameterResolution equivalence properties", () => {

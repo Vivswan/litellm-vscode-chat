@@ -24,11 +24,13 @@ import { expectDefined } from "./pureHelpers";
  * unique label per scenario; the scenarios are sequential and each builds on the previous ones' groups.
  */
 
-// Env-derived URLs can arrive slash-suffixed; stripping keeps the derived NO_DISCOVERY_URL and every base-URL
-// comparison canonical.
+/** Slash-stripped, so NO_DISCOVERY_URL and every base-URL comparison stay canonical whatever the env value ends in. */
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");
 
+/** The proxy's master key: the inline, stored, virtual-key, and rotated-to credential the scenarios declare. */
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
+
+/** The fake OpenAI backend: the OAuth scenarios declare its /authed mirror, and /_test/* reports its counters. */
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
 
 /** The fake backend's discovery-less mirror: chat serves, the discovery GETs 404. */
@@ -40,27 +42,46 @@ const ALIAS = PLAYBACK_MODEL.alias;
 /** Discovery against the fake backend directly registers upstream ids; this one anchors the OAuth group. */
 const OAUTH_MODEL = "fake-mini";
 
+/** Scenario 1's entry, an inline apiKey; scenario 6 re-points it and reverts. */
 const LABEL_INLINE = "SyncSuite Inline";
+
+/** Scenario 2's entry, a SecretStorage-stored apiKey; scenario 7 removes and re-declares it. */
 const LABEL_STORED = "SyncSuite Stored";
+
+/** Scenario 3's entry: an inline apiKey over a stored garbage value. */
 const LABEL_PRECEDENCE = "SyncSuite Precedence";
+
+/** Scenario 4's entry: a virtual key header and no apiKey. */
 const LABEL_VIRTUAL = "SyncSuite Virtual";
+
+/** Scenario 5a's entry: OAuth with a wrong client secret. */
 const LABEL_OAUTH_BAD = "SyncSuite OAuth Bad";
+
+/** Scenarios 5b and 5c's entry: OAuth against the authed fake backend, then revoked. */
 const LABEL_OAUTH = "SyncSuite OAuth";
+
+/** Scenario 8's first same-URL entry, with its own per-entry model parameters. */
 const LABEL_PARAMS_A = "SyncSuite Params A";
+
+/** Scenario 8's second same-URL entry; the two must not leak parameters into each other. */
 const LABEL_PARAMS_B = "SyncSuite Params B";
+
+/** Scenario 9's entry, carrying the per-entry modelCapabilities record. */
 const LABEL_CAPS = "SyncSuite Caps";
+
+/** Scenario 10's entry: expectedFailures declared, so its discovery failure is downgraded. */
 const LABEL_EXPECTED = "SyncSuite Expected";
+
+/** Scenario 11's entry: a declared model with discovery failing UNEXPECTEDLY. */
 const LABEL_DECLARED_UNEXPECTED = "SyncSuite Declared Unexpected";
+
+/** Scenario 12's entry: a wrong stored key, healed by rotation without recreating the group (#277). */
 const LABEL_ROTATED = "SyncSuite Rotated";
 
 /** Scenario 12's initial wrong key: baked into the group, then healed by the stored rotation. */
 const WRONG_ROTATED_KEY = "sk-rotated-wrong-MARKER";
 
-/**
- * Scenario 9's override target: llama-4-scout declares no token limits, so un-overridden copies carry the
- * min(4096, guess) cap. The realistic alias can match the OpenRouter catalog, so those copies are asserted
- * against the clamp bound rather than one exact guess.
- */
+/** Scenario 9's target: it declares no token limits, so un-overridden copies carry the min(4096, guess) cap. */
 const CAPS_MODEL = "llama-4-scout";
 
 /** Scenario 11's declared model; the ID is not in the fake catalog, only the declared list creates it. */
@@ -69,6 +90,7 @@ const UNEXPECTED_DECLARED_MODEL = "fake-declared";
 /** Scenario 11's entry key: its bucket in the fake backend's discovery-attempt counters. */
 const UNEXPECTED_DECLARED_KEY = "declared-unexpected-key";
 
+/** Scenario 10's declared model; not in the fake catalog, so only the declared list creates it. */
 const EXPECTED_DECLARED_MODEL = "fake-expected";
 
 /** Scenario 10's entry key, unique so its discovery-attempt bucket counts only its own group. */
@@ -576,7 +598,8 @@ suite("Docker server sync", () => {
 		// The host exposes no group identity on the model object (see scenario 4), so the chat runs through EVERY
 		// copy and collects the max_tokens each request carried. Exactly one copy (the entry's group) sends the
 		// overridden declared limit; the model declares no limits itself, so every other copy keeps the
-		// min(4096, guess) cap.
+		// min(4096, guess) cap. The realistic alias can match the OpenRouter catalog, so those copies are asserted
+		// against the clamp bound rather than one exact guess.
 		const capsModels = models.filter((candidate) => candidate.id === CAPS_MODEL);
 		const maxTokens: number[] = [];
 		for (const model of capsModels) {

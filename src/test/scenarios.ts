@@ -54,15 +54,13 @@ interface RawScenario {
 
 export type Scenario = SseScenario | SseDelayedScenario | ErrorScenario | SseAbortScenario | RawScenario;
 
+/** How long a stall tail holds the connection silent when the scenario names no stallMs. */
 export const STALL_MS_DEFAULT = 10000;
 
 /** Hard bound on stall durations, pacing delays, and the playback deadline, so a leaked test cannot wedge the stack. */
 export const MAX_STALL_MS = 60000;
 
-/**
- * Upper bound on a runtime-registered scenario's chunks/frames: the 1 MiB body cap alone admits hundreds of thousands
- * of entries, whose paced playback would occupy the socket far past every delay cap.
- */
+/** Cap on a registered scenario's items; the 1 MiB body cap alone admits enough to pace past every delay cap. */
 export const MAX_SCENARIO_ITEMS = 10000;
 
 /** Total content chunks in the "slow-stream" scenario; cancellation tests assert against this. */
@@ -554,8 +552,8 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 //
 // Shared by the capture server and the containerized fake OpenAI server.
 
-export const readBody = (req: IncomingMessage): Promise<string> =>
-	new Promise((resolve, reject) => {
+export function readBody(req: IncomingMessage): Promise<string> {
+	return new Promise((resolve, reject) => {
 		// Decode as one utf8 stream: per-chunk Buffer.toString would corrupt a multi-byte character split across TCP
 		// reads.
 		req.setEncoding("utf8");
@@ -566,15 +564,16 @@ export const readBody = (req: IncomingMessage): Promise<string> =>
 		req.on("end", () => resolve(data));
 		req.on("error", reject);
 	});
+}
 
-export const sendJson = (res: ServerResponse, statusCode: number, body: unknown): void => {
+export function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
 	const json = JSON.stringify(body);
 	res.writeHead(statusCode, {
 		"Content-Type": "application/json",
 		"Content-Length": Buffer.byteLength(json),
 	});
 	res.end(json);
-};
+}
 
 const SSE_HEADERS = {
 	"Content-Type": "text/event-stream",
@@ -582,16 +581,16 @@ const SSE_HEADERS = {
 	Connection: "keep-alive",
 } as const;
 
-const sendSse = (res: ServerResponse, chunks: unknown[]): void => {
+function sendSse(res: ServerResponse, chunks: unknown[]): void {
 	res.writeHead(200, SSE_HEADERS);
 	for (const chunk of chunks) {
 		res.write(`data: ${JSON.stringify(chunk)}\n\n`);
 	}
 	res.write("data: [DONE]\n\n");
 	res.end();
-};
+}
 
-const sendSseDelayed = (res: ServerResponse, chunks: unknown[], delayMs: number): void => {
+function sendSseDelayed(res: ServerResponse, chunks: unknown[], delayMs: number): void {
 	res.writeHead(200, SSE_HEADERS);
 	runPaced(
 		res,
@@ -603,37 +602,36 @@ const sendSseDelayed = (res: ServerResponse, chunks: unknown[], delayMs: number)
 			res.end();
 		}
 	);
-};
+}
 
-/**
- * Delay between the last written bytes and a destroy tail. Destroying in the same tick sends an RST while headers and
- * chunks still sit in local buffers, and the peer then sees a zero-byte failure instead of a mid-stream abort.
- */
+/** Delay between the last written bytes and a destroy tail (destroyAfterFlush says why). */
 const DESTROY_FLUSH_MS = 100;
 
 /** A timer that dies with the response, so a cancelled request never keeps it retained by a pending callback. */
-const armTimer = (res: ServerResponse, fn: () => void, ms: number): void => {
+function armTimer(res: ServerResponse, fn: () => void, ms: number): void {
 	// codeql[js/resource-exhaustion] -- fake-backend timer; every duration here is capped at MAX_STALL_MS
 	const timer = setTimeout(fn, ms);
 	res.once("close", () => clearTimeout(timer));
-};
+}
 
 /**
  * Hold the connection silent, then destroy it server-side; the duration is capped at MAX_STALL_MS regardless of the
  * ask.
  */
-const stallThenDestroy = (res: ServerResponse, stallMs: number | undefined): void => {
+function stallThenDestroy(res: ServerResponse, stallMs: number | undefined): void {
 	armTimer(res, () => res.destroy(), Math.min(stallMs ?? STALL_MS_DEFAULT, MAX_STALL_MS));
-};
+}
 
 /**
  * The peer sees a plain FIN with the chunked body unterminated - the only death shape available here: bun's node:http
  * hands out a facade socket whose writes never reach the wire and whose resetAndDestroy() is a no-op (bun 1.4.0), so
- * neither an RST nor hand-framed garbage can be sent through it.
+ * neither an RST nor hand-framed garbage can be sent through it. The destroy waits DESTROY_FLUSH_MS: destroying in the
+ * same tick sends an RST while headers and chunks still sit in local buffers, and the peer then sees a zero-byte
+ * failure instead of a mid-stream abort.
  */
-const destroyAfterFlush = (res: ServerResponse): void => {
+function destroyAfterFlush(res: ServerResponse): void {
 	armTimer(res, () => res.destroy(), DESTROY_FLUSH_MS);
-};
+}
 
 /**
  * A whole-playback deadline destroys the response MAX_STALL_MS after the first write and stays armed through the finish
@@ -673,7 +671,7 @@ function runPaced(
 	next();
 }
 
-const sendSseAbort = (res: ServerResponse, scenario: SseAbortScenario): void => {
+function sendSseAbort(res: ServerResponse, scenario: SseAbortScenario): void {
 	res.writeHead(200, SSE_HEADERS);
 	const finish = (): void => {
 		if (res.destroyed) {
@@ -698,9 +696,9 @@ const sendSseAbort = (res: ServerResponse, scenario: SseAbortScenario): void => 
 	} else {
 		runPaced(res, scenario.chunks.length, writeChunk, scenario.delayMs, finish);
 	}
-};
+}
 
-const sendRaw = (res: ServerResponse, scenario: RawScenario): void => {
+function sendRaw(res: ServerResponse, scenario: RawScenario): void {
 	res.writeHead(scenario.statusCode, scenario.headers);
 	const finish = (): void => {
 		if (res.destroyed) {
@@ -726,7 +724,7 @@ const sendRaw = (res: ServerResponse, scenario: RawScenario): void => {
 	} else {
 		runPaced(res, scenario.frames.length, writeFrame, scenario.frameDelayMs, finish);
 	}
-};
+}
 
 /**
  * `raw` plays verbatim regardless of the stream flag; `sse-abort` collapses for stream:false, because abort is
@@ -752,28 +750,37 @@ export function playScenario(res: ServerResponse, scenario: Scenario, stream: bo
 
 // Runtime-registration validation
 
-const isBoundedList = (value: unknown): value is unknown[] =>
-	Array.isArray(value) && value.length <= MAX_SCENARIO_ITEMS;
+function isBoundedList(value: unknown): value is unknown[] {
+	return Array.isArray(value) && value.length <= MAX_SCENARIO_ITEMS;
+}
 
-const isBoundedMs = (value: unknown): boolean =>
-	typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_STALL_MS;
-const isOptionalBoundedMs = (value: unknown): boolean => value === undefined || isBoundedMs(value);
+function isBoundedMs(value: unknown): boolean {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_STALL_MS;
+}
+
+function isOptionalBoundedMs(value: unknown): boolean {
+	return value === undefined || isBoundedMs(value);
+}
 
 /** Statuses a scenario may answer with: writeHead-safe, no 1xx interim responses. */
-const isStatusCode = (value: unknown): boolean =>
-	typeof value === "number" && Number.isInteger(value) && value >= 200 && value <= 599;
+function isStatusCode(value: unknown): boolean {
+	return typeof value === "number" && Number.isInteger(value) && value >= 200 && value <= 599;
+}
 
-const isStringRecord = (value: unknown): value is Record<string, string> =>
-	typeof value === "object" &&
-	value !== null &&
-	!Array.isArray(value) &&
-	Object.values(value).every((entry) => typeof entry === "string");
+function isStringRecord(value: unknown): value is Record<string, string> {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		Object.values(value).every((entry) => typeof entry === "string")
+	);
+}
 
 /**
  * Raw frames are written as latin1, one char per byte; a code point above 0xFF would silently mojibake, so it is
  * rejected here.
  */
-const isByteString = (value: unknown): value is string => {
+function isByteString(value: unknown): value is string {
 	if (typeof value !== "string") {
 		return false;
 	}
@@ -783,7 +790,7 @@ const isByteString = (value: unknown): value is string => {
 		}
 	}
 	return true;
-};
+}
 
 /**
  * Validator for PUT /_test/custom-scenario payloads. Built-in scenarios skip it; the caps exist so a runtime

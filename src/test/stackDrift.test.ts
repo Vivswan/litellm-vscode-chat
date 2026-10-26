@@ -14,6 +14,7 @@ import { REPO_ROOT } from "./util/repoRoot";
  * cannot import them, so these tests pin the restatements whose drift nothing else would surface. Captured values are
  * compared whole, never as substrings, so a stale number that happens to prefix the live one still fails.
  */
+
 const fileCache = new Map<string, string>();
 
 function read(name: string): string {

@@ -185,14 +185,14 @@ function routes(peer: () => string): http.RequestListener {
 	};
 }
 
+/**
+ * A local http server under test: its URL, the handle, and the sockets opened and closed on the server side (with
+ * keep-alive off, a gap between them is a client holding one).
+ */
 interface TestServer {
 	readonly url: string;
-
 	readonly server: http.Server;
-
-	/** Sockets opened and closed on the server side; with keep-alive off, a gap between them is a client holding one. */
 	readonly openedSockets: number;
-
 	readonly closedSockets: number;
 }
 

@@ -90,22 +90,22 @@ function descriptorsOf(parts: vscode.LanguageModelResponsePart[]): unknown[] {
 	});
 }
 
+/** Per-event seeds; each reseeds the PRNG, so an event depends on its (kind, seed) pair and the state before it. */
 const seedArb = fc.integer({ min: 0, max: 0x7fffffff });
 
-// Kind frequencies mirror the docker fuzzer's weights, so both fuzzers explore the same shape mix;
-// cross-shrink lets counterexamples collapse toward the first (simplest) kind.
+/** Kind frequencies mirror the docker fuzzer's weights; cross-shrink collapses counterexamples toward the first. */
 const kindArb = fc.oneof(
 	{ withCrossShrink: true },
 	...PROPERTY_EVENT_KIND_WEIGHTS.map((entry) => ({ arbitrary: fc.constant(entry.kind), weight: entry.weight }))
 );
 
+/** One event's coordinates: the kind picks the generator, the seed reseeds its draws (makePropertyEvent). */
 const eventSpecArb = fc.tuple(kindArb, seedArb);
+
+/** An optional tail, one of the kinds that only make sense as a stream's last event (TAIL_EVENT_KINDS). */
 const tailSpecArb = fc.option(fc.tuple(fc.constantFrom(...TAIL_EVENT_KINDS), seedArb), { nil: undefined });
 
-/**
- * A whole stream as (kind, seed) coordinates: fast-check shrinks by dropping events and simplifying seeds, and each
- * list rebuilds deterministically.
- */
+/** A whole stream as coordinates: fast-check shrinks by dropping events and simplifying seeds, and each rebuilds. */
 const eventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 	.tuple(fc.array(eventSpecArb, { minLength: 1, maxLength: 8 }), tailSpecArb)
 	.map(([specs, tail]) => {

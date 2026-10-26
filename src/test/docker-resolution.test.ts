@@ -31,18 +31,24 @@ import {
 } from "./hostApiHelpers";
 import { expectDefined } from "./pureHelpers";
 
-/** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
-const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
-
 /**
  * The catalog backfill world runs catalog ON here alone, since every other docker host runs catalog OFF for
  * hermeticity, and the record-directive world sharing this label stays OFF.
  */
 
+/** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
+const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
+
+/** The docker LiteLLM proxy; an env URL may end in a slash, so both are stripped before anything derives from them. */
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");
 
+/** Authenticates the proxy entries the parameter scenarios declare. */
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
+
+/** The fake OpenAI backend: the no-discovery entries point at its mirror, and /_test/last-request reads what it saw. */
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
+
+/** The fake backend's discovery-less mirror: chat serves, the discovery GETs 404. */
 const NO_DISCOVERY_URL = `${FAKE_URL}${NO_DISCOVERY_PREFIX}`;
 
 /** The catalog suite's declared entry; the declared IDs below are its whole serve. */
@@ -60,6 +66,7 @@ const AMBIGUOUS_ID = "llama-3-8b-instruct";
 /** Implicitly matches mistralai/mistral-tiny; the explicit directive points it at openai/gpt-4o-mini instead. */
 const DIRECTIVE_ID = "mistral-tiny";
 
+/** The catalog entry's declared list: one ID per resolution case above, created by declaration alone. */
 const DECLARED_IDS = [EXACT_ID, SUFFIX_ID, AMBIGUOUS_ID, DIRECTIVE_ID];
 
 /** The built-in floors (128000 context, 16000 max output): input derives as the difference. */
@@ -74,6 +81,7 @@ const CLAUDE_MAX_INPUT = 1000000 - 64000;
 /** The directive suite's declared entry; its per-entry record is the entry-beats-global oracle. */
 const ENTRY_LABEL = uniqueName("ResolutionSuite Entry");
 
+/** The playback model's alias, the proxy-served model the parameter scenarios chat through. */
 const ALIAS = PLAYBACK_MODEL.alias;
 
 type ServersSettingEntry = Record<string, unknown>;

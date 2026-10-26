@@ -33,6 +33,7 @@ function groupOptions(configuration: unknown, silent = true): { silent: boolean 
 	return { silent, configuration } as { silent: boolean };
 }
 
+/** A fresh token per call, never cancelled. */
 const cancellation = () => new vscode.CancellationTokenSource().token;
 
 /** The default discovery payload as an injected-transport response, for tests that count calls instead of using msw. */

@@ -38,8 +38,13 @@ export function mulberry32(seed: number): () => number {
 	};
 }
 
+/** The plain text pool: ASCII words, so a chunk boundary inside one never splits a code point. */
 const WORDS = ["alpha", "bravo", "delta", "echo", "lima", "oscar", "tango", "zulu"];
+
+/** Multi-byte and astral text; exported for the framing properties, which cut streams inside these sequences. */
 export const UNICODE_WORDS = ["日本語", "café", "émoji✨", "مرحبا", "🚀🧠"];
+
+/** The names a generated tool call draws from; the oracle checks each call's name and arguments together. */
 const TOOL_NAMES = ["get_weather", "search_docs", "run_query"];
 
 /** The longest control token the parser can be holding as a partial tail when a stray sigil's prose must be past the bound. */
@@ -68,14 +73,14 @@ export function chunkOf(delta: Record<string, unknown>, finishReason?: string): 
 
 // ── Event generators ─────────────────────────────────────────────────────────
 
+/**
+ * The generator's per-stream state: its PRNG, the next tool-call and citation indices, and whether a text chunk may
+ * split a surrogate pair (direct mode may; the proxy cannot take those).
+ */
 export interface GeneratorState {
 	random: () => number;
-
 	toolIndex: number;
-
 	citationIndex: number;
-
-	/** Direct mode may split surrogate pairs across chunks; the proxy cannot take those. */
 	allowSurrogateSplit: boolean;
 }
 
@@ -302,12 +307,7 @@ function interleavedToolsEvent(state: GeneratorState): FuzzEvent {
 	return { label: "interleaved-tools", tools: [first, second], deltaToolChannel: true, chunks };
 }
 
-/**
- * Where a finish_reason lands relative to a call whose arguments are still arriving (#456, #476). A finish_reason
- * never finalizes a call: the processor holds the half-read call through it and emits it once, complete, when the
- * rest of the arguments land. In same-chunk, the class's boundary, the last delta rides the finish chunk, so the call
- * completes before the finish_reason is read.
- */
+/** Where a finish_reason lands relative to a call whose arguments are still arriving (#456, #476). */
 const SPLIT_FINISH_VARIANTS = ["before-last", "same-chunk", "empty-delta-between", "text-after"] as const;
 
 type SplitFinishVariant = (typeof SPLIT_FINISH_VARIANTS)[number];
@@ -317,7 +317,12 @@ function withFinishReason(chunk: Record<string, unknown>, reason: string): Recor
 	return { ...chunk, choices: [{ ...choice, finish_reason: reason }] };
 }
 
-/** `head` and `tail` each carry argument bytes of the call: the finish_reason never lands before it starts. */
+/**
+ * The call's chunks with the finish_reason placed per `variant`. A finish_reason never finalizes a call: the processor
+ * holds the half-read call through it and emits it once, complete, when the rest of the arguments land. In same-chunk,
+ * the class's boundary, the last delta rides the finish chunk, so the call completes before the finish_reason is read.
+ * `head` and `tail` each carry argument bytes of the call: the finish_reason never lands before it starts.
+ */
 function splitAroundFinish(
 	variant: SplitFinishVariant,
 	reason: string,
@@ -677,14 +682,12 @@ export function generateEvents(random: () => number, directMode: boolean): FuzzE
 }
 
 // ── Deterministic per-kind construction for the fast-check property suites ───
+//
+// Everything the direct docker target generates is valid in-process too: StreamProcessor is the same code with no
+// proxy in front to reject lenient shapes. generateEvents draws from PROPERTY_EVENT_KIND_WEIGHTS, the property suites
+// mirror it through fc.oneof, and PropertyEventKind derives from it, so a new kind cannot exist without a weight row.
 
-/**
- * Everything the direct docker target generates is valid in-process too: StreamProcessor is the same code with no proxy
- * in front to reject lenient shapes.
- *
- *   generateEvents draws from it, the property suites mirror it through fc.oneof, and PropertyEventKind derives from it
- *     -> a new kind cannot exist without a weight row
- */
+/** Every event kind with its draw weight and whether only the direct target may generate it. */
 export const PROPERTY_EVENT_KIND_WEIGHTS = [
 	{ kind: "text", weight: 26, directOnly: false },
 	{ kind: "delta-tool", weight: 12, directOnly: false },
@@ -780,17 +783,15 @@ export function makeTailEvent(kind: TailEventKind, seed: number, state: Generato
 
 // ── Assembly: events to chunks plus the exact expected outcome ───────────────
 
+/**
+ * A stream's chunks with the exact outcome the oracle expects. expectedThinking is the thinking text the stream must
+ * surface as thinking parts, in stream order: the in-process oracles assert it on every stream, empty included; the
+ * docker oracle skips a stream whose events declare none.
+ */
 export interface AssembledStream {
 	chunks: unknown[];
-
 	expectedText: string;
-
 	expectedToolCalls: ExpectedToolCall[];
-
-	/**
-	 * Thinking text the stream must surface as thinking parts, in stream order. The in-process oracles assert it on
-	 * every stream, empty included; the docker oracle skips a stream whose events declare none.
-	 */
 	expectedThinking: string;
 }
 

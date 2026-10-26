@@ -7,6 +7,10 @@
  *
  *   Each row also names the one severity class its aggregate surfaces belong to
  *     -> a reader can see at a glance which rows a green bar beside a red hero would violate
+ *   ALL_PILL_WORDS: the vocabulary lives webview-side (ServerPillWord in servers.tsx) and this table must stay
+ *   importable by the host suite, whose project cannot reach a .tsx module
+ *     -> the bun webview suite owns the pin: a compile-level both-ways check of the list against ServerPillWord,
+ *        beside the rendered-word equality
  */
 
 import type { OverallVerdict } from "../dashboard/presenters";
@@ -32,34 +36,46 @@ interface BarExpectation {
 
 type NotifierExpectation = { readonly kind: "info" | "warning" | "error"; readonly contains: string } | "none";
 
-/** One rendered pill: its visible word (compile-pinned to the vocabulary below) and its dot tone class. */
+/** Every pill word the health walk can produce; "Connected" covers the clean and the expected-serving states alike. */
+export const ALL_PILL_WORDS = [
+	"Connected",
+	"Sync issue",
+	"Error",
+	"Not checked",
+	"Expected failure",
+	"Misconfigured",
+] as const;
+
+/** One rendered pill: its visible word (compile-pinned to the vocabulary above) and its dot tone class. */
 interface PillExpectation {
 	readonly word: (typeof ALL_PILL_WORDS)[number];
 	readonly tone: "ok" | "warn" | "error" | "muted";
 }
 
+/**
+ * One window state with what every headline surface must say about it. The host suite feeds syncFailures to the bar
+ * and notifier as declared views carrying syncFailure; one with no live status is synthesized as an error serving
+ * nothing, whatever its class. connectionIds is how two entries share one live group whose report carries that ID as
+ * its serverId. hiddenGroups' groups ride the window as hiddenByRemoval ok statuses, which the host mirror tombstones;
+ * the verdict rows count them from the window.
+ */
 export interface WindowStateRow {
+	/** The row's name in failure messages, unique across the table. */
 	readonly name: string;
 
 	/** The provider-reported status window, exactly as handleAggregatedStatus and the notifier receive it. */
 	readonly window: readonly ServerStatus[];
 
-	/**
-	 * Declared entries whose provider-group sync failed, by entry label: the sync-failure overlay's input beside the
-	 * window. The host suite feeds them to the bar and notifier as declared views carrying syncFailure; one with no
-	 * live status is synthesized as an error serving nothing, whatever its class.
-	 */
+	/** Declared entries whose group sync failed, by entry label: the sync-failure overlay's input beside the window. */
 	readonly syncFailures?: readonly {
+		/** The entry label, as the servers setting spells it. */
 		readonly label: string;
 
 		/** Derived from the engine union, so a new class can never leave this registry silently narrower. */
 		readonly failureClass: NonNullable<DeclaredServerView["syncFailure"]>["class"];
 	}[];
 
-	/**
-	 * The label-agnostic connection ID a declared entry mirrors (DeclaredServerView.expectedConnectionId), by entry
-	 * label: how two entries share one live group whose report carries that ID as its serverId.
-	 */
+	/** The label-agnostic connection ID a declared entry mirrors (DeclaredServerView.expectedConnectionId), by label. */
 	readonly connectionIds?: Readonly<Record<string, string>>;
 
 	/** The merged count reportMerged would derive from the window (asserted, not assumed). */
@@ -71,18 +87,18 @@ export interface WindowStateRow {
 	/** The same state as the dashboard's server rows; the host suite pins this mirror against the REAL builder. */
 	readonly rows: readonly DashboardServer[];
 
-	/**
-	 * How many provider groups the user's configuration hides (state.hiddenGroups). The window carries the same groups
-	 * as hiddenByRemoval ok statuses, which the host mirror tombstones; the verdict rows count them from the window.
-	 */
+	/** How many provider groups the user's configuration hides (state.hiddenGroups). */
 	readonly hiddenGroups?: number;
 
+	/** The host suite checks verdict, bar, statusLine, and notifier; the bun webview suite checks hero and pills. */
 	readonly expect: {
+		/** The one class every aggregate surface below must agree on. */
 		readonly severityClass: SeverityClass;
 
 		/** classifyOverall over the verdict rows (the window joined with the declared views, plus the refused entries). */
 		readonly verdict: OverallVerdict;
 
+		/** The status bar's state and severity, its half of severityClass (a setup row prompts with a warning tint). */
 		readonly bar: BarExpectation;
 
 		/** The dashboard hero's word (English bundle) and tone. */
@@ -91,6 +107,7 @@ export interface WindowStateRow {
 		/** The overallStatusText paste line (English by policy). */
 		readonly statusLine: string;
 
+		/** The toast, or "none" when the state change stays silent. */
 		readonly notifier: NotifierExpectation;
 
 		/** The row pills, in `rows` order (English bundle words plus dot tones). */
@@ -275,9 +292,13 @@ function syncFailedRow(name: string, failureClass: SyncErrorClass, live?: Server
 	};
 }
 
-const HTTP_500: FailureCause = { kind: "transport", classification: { kind: "http", status: 500 } };
+// The fixture statuses the rows share.
+//
+//   LISTING_404   -> the 404 discovery proved, with the hint that the entry can declare the listing unsupported
+//   sharedEmpty   -> a pre-label group answering with an empty listing, reporting under its connection ID
+//   UPSERT_FAILED -> the upsert failure's English rendering (failureTexts), as the paste line and the toast carry it
 
-/** A model listing the entry declares unsupported: the 404 discovery proved, with the hint that the entry can declare it. */
+const HTTP_500: FailureCause = { kind: "transport", classification: { kind: "http", status: 500 } };
 const LISTING_404: FailureCause = {
 	kind: "transport",
 	classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
@@ -311,23 +332,17 @@ const expectedDead = errorStatus({ serverId: "gw", servedModelCount: 0, expected
 const unexpectedDead = errorStatus({ serverId: "down", servedModelCount: 0 });
 const healthy = okStatus({ servedModelCount: 3 });
 const liveBeforeSyncFailure = okStatus({ serverId: "live", servedModelCount: 2 });
-
-/** A pre-label group answering with an empty listing, reporting under its connection ID. */
 const sharedEmpty = okStatus({ serverId: "shared", servedModelCount: 0 });
-
-/** The upsert failure's English rendering (failureTexts), as the paste line and the toast carry it. */
 const UPSERT_FAILED = "The host rejected the provider group upsert";
 
-/**
- * The never-checked and misconfigured rows have an EMPTY window on purpose, since neither reaches a discovery
- * pass, and the three sync-failure rows pin the applySyncFailures overlay. One residual stays, needing a vocabulary
- * ruling of its own:
- *
- *   sync-failed claimants sharing one snapshot     -> one window status against one row each; zero served beside a
- *                                                     clean claimant reads "error" in the window and "degraded" in the
- *                                                     rows
- */
 export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
+	// The never-checked and misconfigured rows have an EMPTY window on purpose, since neither reaches a discovery
+	// pass, and the three sync-failure rows pin the applySyncFailures overlay. One residual stays, needing a vocabulary
+	// ruling of its own:
+	//
+	//   sync-failed claimants sharing one snapshot -> one window status against one row each; zero served beside a
+	//                                                 clean claimant reads "error" in the window and "degraded" in the
+	//                                                 rows
 	{
 		name: "all servers failed unexpectedly, but declared models keep serving",
 		window: [allFailedDeclaredServing],
@@ -716,19 +731,3 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 		},
 	},
 ];
-
-/**
- * Every pill word the row health walk can produce (serverHealth's seven verdicts collapse onto these six words;
- * "Connected" covers both the clean and the expected-serving states). The vocabulary lives webview-side (ServerPillWord
- * in servers.tsx) and this table must stay importable by the host suite, whose project cannot reach a .tsx module - so
- * the bun webview suite owns the pin: a compile-level both-ways check of this list against ServerPillWord, beside the
- * rendered-word equality.
- */
-export const ALL_PILL_WORDS = [
-	"Connected",
-	"Sync issue",
-	"Error",
-	"Not checked",
-	"Expected failure",
-	"Misconfigured",
-] as const;

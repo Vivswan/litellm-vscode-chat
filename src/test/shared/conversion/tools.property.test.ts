@@ -12,10 +12,7 @@ function isPlainRecord(value: unknown): boolean {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * Recursive schema-shaped values: real JSON Schema keywords with nested branches, salted with arbitrary JSON so unknown
- * and malformed keywords get exercised alongside meaningful ones.
- */
+/** Schema-shaped values: real JSON Schema keywords, nested, salted with arbitrary JSON so malformed keywords run. */
 const schemaShaped = fc.letrec<{ schema: unknown }>((tie) => ({
 	schema: fc.oneof(
 		{ maxDepth: 3, withCrossShrink: true },

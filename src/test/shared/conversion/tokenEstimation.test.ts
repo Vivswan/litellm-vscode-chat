@@ -19,12 +19,14 @@ const audioOnly = { imageInput: false, audioInput: true, replayReasoningContent:
 const textOnly = { imageInput: false, audioInput: false, replayReasoningContent: false };
 
 /** Chars/4 of one transmitted text, the heuristic mode every host test runs under. */
-const textTokens = (text: string): number => Math.ceil(text.length / CHARS_PER_TOKEN);
+function textTokens(text: string): number {
+	return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
 
-/**
- * The synthesized image message's fixed lead-in (messages.ts). The estimate prices the converted request, so this
- * constant is priced with it; the literal is restated here so a reworded lead-in shows up as a count change.
- */
+// The estimate prices the converted request, so the synthesized image message's fixed lead-in (messages.ts) is priced
+// with it.
+
+/** The lead-in's token count; the literal is restated so a reworded lead-in shows up as a count change. */
 const LEAD_IN_TOKENS = textTokens("Images returned by the tool calls above:");
 
 function message(role: vscode.LanguageModelChatMessageRole, content: unknown[]): vscode.LanguageModelChatMessage {

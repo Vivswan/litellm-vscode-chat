@@ -25,12 +25,13 @@ import { resolveFuzzSeed } from "../../fuzzStream";
 import { MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { expectDefined } from "../../pureHelpers";
 
+// Shared arbitraries. LONG_CONTEXT_FIELD_BY_BASE keys each long-context field by the base LiteLLM reports it under as
+// `<base>_above_<N>k_tokens`; LOOKALIKE_KEYS resemble tier keys but must never participate in tier selection.
+
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 const noLog = () => {};
-
-// --- Shared arbitraries
 
 const costValue = fc.oneof(
 	fc.double({ noNaN: true, noDefaultInfinity: true, min: 0, max: 1 }),
@@ -38,15 +39,10 @@ const costValue = fc.oneof(
 );
 
 const COST_FIELDS = consumedFieldsOfKind("cost");
-
-/** The long-context field LiteLLM reports as `<base>_above_<N>k_tokens`, keyed by that base. */
 const LONG_CONTEXT_FIELD_BY_BASE: ReadonlyMap<string, LongContextCostField> = new Map(
 	LONG_CONTEXT_COST_FIELDS.map((field) => [field.slice(LONG_CONTEXT_COST_PREFIX.length), field])
 );
-
 const LONG_CONTEXT_BASES = [...LONG_CONTEXT_FIELD_BY_BASE.keys()];
-
-/** Keys that resemble tier keys but must never participate in tier selection. */
 const LOOKALIKE_KEYS = [
 	"input_cost_per_token_above_1hr",
 	"input_cost_per_token_priority",

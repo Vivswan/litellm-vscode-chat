@@ -35,24 +35,27 @@ import { fixedHeaderValue } from "../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { deploymentShape } from "../../pureHelpers";
 
+// The generators share a few deliberate choices.
+//
+//   idChar         -> slash-free so a scoped key "<scope>/<prefix>" can never collide with an unscoped key or match a
+//                     foreign scope; colon-free so no cut of a raw ID spells a synthetic ":cheapest" variant
+//   limitValue     -> post-ingest limits are positive numbers or undefined by construction (discovery narrows them at
+//                     the mapping sites); no null survives to here
+//   DIRECTIVE_POOL -> the catalog IDs directives can point at (one miss kept alive), plus an implicit entry keyed by
+//                     the model's own raw ID under a vendor prefix
+//   fieldValueArb  -> valid cost and params-list values too, so the consumed cost/caching/params fields get well-typed
+//                     user overrides alongside the invalid noise
+
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 const SERVER = { id: "srv1", label: "Default", baseUrl: "http://a.test", apiKey: fixedHeaderValue("k") };
 const SCOPE = "http://a.test";
 
-// Slash-free so a scoped key "<scope>/<prefix>" can never collide with an unscoped key or match a foreign scope;
-// colon-free so no cut of a raw ID spells a synthetic ":cheapest" variant.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
-
 const modelId = fc.string({ unit: idChar, minLength: 1, maxLength: 10 });
-
 const validNumber = fc.integer({ min: 1, max: 1_000_000 });
-
-// Post-ingest limits are positive numbers or undefined by construction (discovery narrows them at the mapping sites);
-// no null survives to here.
 const limitValue = fc.option(validNumber, { nil: undefined });
-
 const flagValue = fc.option(fc.oneof(fc.boolean(), fc.constant<null>(null)), { nil: undefined });
 
 const providerArb: fc.Arbitrary<LiteLLMProvider> = fc.record(
@@ -112,8 +115,6 @@ const modelItemArb = (id: string): fc.Arbitrary<LiteLLMModelItem> =>
 		)
 		.map(([shape, architecture]) => ({ id, shape, architecture }));
 
-// The catalog IDs directives can point at (one miss kept alive), plus an implicit entry keyed by the model's own raw ID
-// under a vendor prefix.
 const DIRECTIVE_POOL = ["cat/one", "cat/none"] as const;
 
 const validFieldsArb: fc.Arbitrary<Partial<CapabilityFieldValues>> = fc.record(
@@ -132,8 +133,6 @@ const validFieldsArb: fc.Arbitrary<Partial<CapabilityFieldValues>> = fc.record(
 const fieldValueArb = fc.oneof(
 	{ arbitrary: validNumber, weight: 3 },
 	{ arbitrary: fc.boolean(), weight: 3 },
-	// Valid cost and params-list values, so the consumed cost/caching/params fields get well-typed user overrides
-	// alongside the invalid noise.
 	{ arbitrary: fc.constantFrom<unknown>(0, 0.000001, 0.000003), weight: 2 },
 	{
 		arbitrary: fc.constantFrom<unknown>(["reasoning_effort"], ["temperature"], ["reasoning_effort", "temperature"], []),

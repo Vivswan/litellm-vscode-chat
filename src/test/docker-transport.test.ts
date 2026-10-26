@@ -37,12 +37,10 @@ async function registerScenario(name: string, config: Record<string, unknown>): 
 	assert.ok(registered.ok, `custom-scenario registration failed (${name}): ${registered.status}`);
 }
 
+/** A stream run to its end or its failure; `error` is undefined when the stream completed cleanly. */
 interface StreamOutcome {
 	parts: unknown[];
-
-	/** Undefined when the stream completed cleanly. */
 	error: unknown;
-
 	elapsedMs: number;
 }
 
@@ -67,18 +65,23 @@ async function runToOutcome(model: vscode.LanguageModelChat, text: string): Prom
 /** A minimal but valid streaming chunk for raw frames; parseChunk needs nothing beyond choices. */
 const rawChunk = (content: string): Record<string, unknown> => ({ choices: [{ index: 0, delta: { content } }] });
 
+/** One SSE event: its data line and the blank line that ends it. */
 const sseEvent = (chunk: unknown): string => `data: ${JSON.stringify(chunk)}\n\n`;
+
+/** The OpenAI-shaped end-of-stream frame; raw scenarios append it by hand. */
 const SSE_DONE = "data: [DONE]\n\n";
+
+/** The header a raw scenario answers with, so the transport reads the body as an event stream. */
 const SSE_CONTENT_TYPE = { "Content-Type": "text/event-stream" };
 
-/**
- * One declared entry and resolved model per target (proxy/direct) for the whole label host, shared by the transport and
- * error-mapping suites: the stack's model ids are fixed, so a second same-URL group would serve indistinguishable
- * twins. The memo key IS the target, and each target's URL and key are derived here so the memo cannot disagree with a
- * caller's arguments.
- */
+/** The resolved model per target ("proxy" or "direct"): one declared entry each for the whole label host. */
 const targetModels = new Map<string, Promise<vscode.LanguageModelChat>>();
 
+/**
+ * The target's model, declared on first use and memoized, shared by the transport and error-mapping suites: the
+ * stack's model ids are fixed, so a second same-URL group would serve indistinguishable twins. The memo key IS the
+ * target, and each target's URL and key are derived here so the memo cannot disagree with a caller's arguments.
+ */
 function resolveTargetModel(directMode: boolean): Promise<vscode.LanguageModelChat> {
 	const target = directMode ? "direct" : "proxy";
 	let resolved = targetModels.get(target);
@@ -373,12 +376,7 @@ function transportSuite(title: string, directMode: boolean): void {
 /** The statuses %error covers minus 400/401/429, which docker-litellm.test.ts already exercises through the proxy. */
 const ERROR_SWEEP = [403, 404, 408, 409, 422, 500, 502, 503, 504] as const;
 
-/**
- * What the proxy answers when the upstream returns each swept status, pinned from observation against the docker stack
- * (LiteLLM v1.93 and v1.99.1 alike): identity for all nine - it wraps each upstream body in its own exception envelope
- * but forwards the status unchanged. The direct target always carries the exact upstream status; pinning the proxy here
- * turns a rewriting upgrade into a diff.
- */
+/** What the proxy answers per swept upstream status: identity for every one, as observed (errorMappingSuite). */
 const PROXY_FORWARDED_STATUS: Readonly<Record<number, number>> = {
 	403: 403,
 	404: 404,
@@ -408,6 +406,12 @@ async function sessionLogLines(): Promise<string[]> {
 	return batch.lines;
 }
 
+/**
+ * The deliberate-error sweep against one target. The proxy's forwarding in PROXY_FORWARDED_STATUS is pinned from
+ * observation against the docker stack (LiteLLM v1.93 and v1.99.1 alike): it wraps each upstream body in its own
+ * exception envelope but forwards the status unchanged, so a rewriting upgrade turns into a diff here. The direct
+ * target always carries the exact upstream status.
+ */
 function errorMappingSuite(title: string, directMode: boolean): void {
 	suite(title, () => {
 		let model: vscode.LanguageModelChat;

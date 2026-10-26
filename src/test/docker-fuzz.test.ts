@@ -28,19 +28,17 @@ import { expectDefined } from "./pureHelpers";
 /**
  * The event generators and the assembly oracle live in fuzzStream.ts, shared with the in-process property
  * suites. Failures shrink to a minimal event list, fuzzCorpus.ts replays past failures first, and the seed is
- * always logged (`FUZZ_SEED=<seed> bun run test:docker` reproduces a run).
+ * always logged.
+ *
+ *   FUZZ_SEED=<seed> -> reproduces a run exactly, 0 included; unset or invalid draws a fresh seed
+ *                       (src/test/fuzzSeed.ts)
+ *   the env URLs     -> trailing slashes stripped, so prefixing NO_DISCOVERY_PREFIX onto FAKE_URL never mints "//"
  */
 
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
-
-// Trailing slashes stripped: the prefix concatenation below must not mint a double slash.
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
-
-// Explicit seeds reproduce exactly, including 0; anything unset or invalid draws a fresh pid- and time-mixed seed (see
-// src/test/fuzzSeed.ts).
 const SEED = resolveDockerFuzzSeed();
-
 const ITERATIONS = Math.max(1, Math.floor(Number(process.env.FUZZ_ITERATIONS)) || 10);
 const MAX_SHRINK_RUNS = 32;
 
@@ -147,18 +145,16 @@ async function fuzzIteration(
 	}
 }
 
+/**
+ * One fuzz suite's target. Direct-mode targets skip the proxy, so the generator adds the shapes LiteLLM would reject;
+ * `entry` is the declared servers-setting entry (unique label) whose group carries the fuzzed streams, and `seedSalt`
+ * is XORed into SEED so each target draws its own event sequences from the shared seed.
+ */
 interface FuzzTarget {
 	readonly title: string;
-
-	/** Direct-mode targets skip the proxy, so the generator adds the shapes LiteLLM would reject. */
 	readonly directMode: boolean;
-
-	/** The declared servers-setting entry (unique label) whose group carries the fuzzed streams. */
 	readonly entry: ServerSettingEntry;
-
 	readonly modelId: string;
-
-	/** XORed into SEED so each target draws its own event sequences from the shared seed. */
 	readonly seedSalt: number;
 }
 

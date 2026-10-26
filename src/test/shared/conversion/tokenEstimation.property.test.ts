@@ -8,23 +8,33 @@ import { estimateMessagesTokens } from "../../../shared/conversion/tokenEstimati
 import type { OpenAIChatMessage } from "../../../shared/conversion/wire";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
-const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
-const SEED = resolveFuzzSeed();
-
 /**
  * The one-pipeline guard: whatever part shapes a request holds, the text the token estimate prices is exactly the text
  * conversion ships. The estimate reads conversion's own output, so this property is what makes a second message-part
  * walk impossible to reintroduce silently - the last one drifted, the budget undercounted, the host skipped trimming,
  * and the request overflowed server-side.
+ *
+ * The generators share a few deliberate choices.
+ *
+ *   textArb            -> multibyte samples exercise the decode paths (UTF-8 text parts, CJK pricing)
+ *   mimeArb            -> every mime class the wire-form seam distinguishes, mappable and not
+ *   toolCallInputArb   -> inputs across the whole serialization behavior space: plain JSON, no rendering, throwing,
+ *                         circular
+ *   toolCallPartArb    -> an empty callId takes the generated-id path; ids are wire scaffolding and unpriced
+ *   toolResultEntryArb -> what a tool result's content array can hold, recognized classes and raw junk alike; a nested
+ *                         tool call is nothing the walk recognizes, so it ships as the JSON fallback's rendering
+ *   thinkingShapedArb  -> signed, redacted, plain, and wrong-typed fields, plus real host thinking parts when this host
+ *                         exposes the class
+ *   roleArb            -> role 3 is the proposed system role; 7 pins the unknown-role fallback
  */
+
+const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
+const SEED = resolveFuzzSeed();
 
 const textArb = fc.oneof(
 	fc.string({ maxLength: 24 }),
-	// Multibyte text exercises the decode paths (UTF-8 text parts, CJK pricing).
 	fc.constantFrom("你好世界", "こんにちは、テスト", "signature-payload", "")
 );
-
-/** Every mime class the wire-form seam distinguishes, mappable and not. */
 const mimeArb = fc.constantFrom(
 	"image/png",
 	"image/foo+json",
@@ -47,7 +57,6 @@ const circularInput = ((): object => {
 	return self;
 })();
 
-/** Tool-call inputs across the whole serialization behavior space: plain JSON, no rendering, throwing, circular. */
 const toolCallInputArb = fc.oneof(
 	fc.dictionary(fc.stringMatching(/^[a-z]{1,6}$/), fc.jsonValue({ maxDepth: 1 }), { maxKeys: 3 }),
 	fc.constant(undefined),
@@ -60,7 +69,6 @@ const toolCallInputArb = fc.oneof(
 	fc.constant(circularInput)
 );
 
-// An empty callId takes the generated-id path; ids are wire scaffolding and unpriced.
 const toolCallPartArb = fc
 	.tuple(fc.constantFrom("call_1", "call_2", ""), fc.stringMatching(/^[a-z_]{1,10}$/), toolCallInputArb)
 	.map(([callId, name, input]) => new vscode.LanguageModelToolCallPart(callId, name, input as object));
@@ -75,7 +83,6 @@ const promptTsxPartArb = fc
 	)
 	.map((value) => new vscode.LanguageModelPromptTsxPart(value));
 
-/** Entries a tool result's content array can hold, recognized classes and raw junk alike. */
 const toolResultEntryArb: fc.Arbitrary<unknown> = fc.oneof(
 	textArb.map((text) => new vscode.LanguageModelTextPart(text)),
 	dataPartArb,
@@ -89,8 +96,6 @@ const toolResultEntryArb: fc.Arbitrary<unknown> = fc.oneof(
 			throw new Error("boom");
 		},
 	}),
-	// A nested tool call is nothing the tool-result walk recognizes; it ships as the JSON fallback's rendering like any
-	// other stray object.
 	toolCallPartArb
 );
 
@@ -100,10 +105,6 @@ const toolResultPartArb = fc
 		([callId, content]) => new vscode.LanguageModelToolResultPart(callId, content as vscode.LanguageModelTextPart[])
 	);
 
-/**
- * Thinking-shaped history objects: signed, redacted, plain, and wrong-typed fields, plus real host thinking parts when
- * this host exposes the class.
- */
 const hostThinkingCtor = thinkingPartCtor;
 
 const thinkingShapedArb: fc.Arbitrary<unknown> = fc.oneof(
@@ -126,7 +127,6 @@ const partArb: fc.Arbitrary<unknown> = fc.oneof(
 	fc.constantFrom<unknown>(null, 17, "a stray string", { some: "object" })
 );
 
-// Role 3 is the proposed system role; 7 pins the unknown-role fallback.
 const roleArb = fc.constantFrom(
 	vscode.LanguageModelChatMessageRole.User,
 	vscode.LanguageModelChatMessageRole.Assistant,

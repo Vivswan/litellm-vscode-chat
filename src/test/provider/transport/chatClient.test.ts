@@ -64,6 +64,7 @@ const server: GroupServer = {
 /** Transport never routes, so the fixture needs no group identity: send reads only what the parse carries. */
 const model = makeModelInfo();
 
+/** One user turn; these tests are about the transport, not the conversion. */
 const messages: vscode.LanguageModelChatRequestMessage[] = [
 	{
 		role: vscode.LanguageModelChatMessageRole.User,
@@ -72,6 +73,7 @@ const messages: vscode.LanguageModelChatRequestMessage[] = [
 	},
 ];
 
+/** The least the provider hands send; the cast stands in for the host-only fields the stable typings require. */
 const options = {
 	toolMode: vscode.LanguageModelChatToolMode.Auto,
 } as unknown as vscode.ProvideLanguageModelChatResponseOptions;

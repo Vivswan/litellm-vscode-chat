@@ -11,19 +11,19 @@ export interface ExpectedToolCall {
 
 /** Serializable, so failures can be shrunk, reported, and replayed verbatim. */
 export interface FuzzEvent {
+	/** The generator kind that produced the event, as failure reports and corpus entries name it. */
 	label: string;
 
+	/** The raw chunk envelopes the fake backend plays back for this event, in stream order. */
 	chunks: unknown[];
 
 	/** Visible text this event appends, in stream order. */
 	text?: string;
 
-	/**
-	 * Thinking text this event must surface. The in-process oracles compare the stream's thinking parts against the
-	 * concatenation always; the docker oracle only when at least one event declares it.
-	 */
+	/** Thinking text this event must surface; which oracles compare it is AssembledStream.expectedThinking's rule. */
 	thinking?: string;
 
+	/** The tool calls the stream must yield for this event, each exactly once, by name and parsed arguments. */
 	tools?: ExpectedToolCall[];
 
 	/** True when the tool calls arrive on the delta channel (triggers the one-time space hint after text). */
@@ -36,15 +36,13 @@ export interface FuzzEvent {
 	directOnly?: boolean;
 }
 
+/**
+ * One pinned failure. `mode` keeps a direct-mode repro off the proxy: it can carry shapes the proxy rejects outright,
+ * so a direct failure must never replay through the proxy.
+ */
 export interface CorpusEntry {
 	name: string;
-
-	/**
-	 * Direct-mode repros can carry shapes the proxy rejects outright, so a direct failure must never replay through
-	 * the proxy.
-	 */
 	mode: "proxy" | "direct" | "both";
-
 	events: FuzzEvent[];
 }
 
@@ -300,12 +298,11 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 /**
  * Corpus for the settings-redesign migration fuzzer: old-world configuration snapshots that once failed an invariant,
  * replayed before the random iterations. To add one, take the shrunken counterexample's snapshot from the failure
- * report and append it with a name referencing the issue.
+ * report and append it with a name referencing the issue. `snapshot` maps setting id -> configured layers, exactly the
+ * pure transform's snapshot shape.
  */
 export interface MigrationCorpusEntry {
 	name: string;
-
-	/** Setting id -> configured layers, exactly the pure transform's snapshot shape. */
 	snapshot: Record<string, { globalValue?: unknown; workspaceValue?: unknown; workspaceFolderValue?: unknown }>;
 }
 
@@ -315,12 +312,10 @@ export const MIGRATION_FUZZ_CORPUS: MigrationCorpusEntry[] = [];
  * Corpus for the dashboard request-schema fuzzer: webview envelopes that parseDashboardRequest once ACCEPTED and must
  * refuse, replayed by the schema property suite before its random mutation runs so the hole stays covered after the
  * generators change. To add one, take the shrunken counterexample's mutant request from the failure report and append
- * it with a name referencing the seed or issue.
+ * it with a name referencing the seed or issue. `request` is the full envelope, exactly as the mutation run posted it.
  */
 export interface RefusedDashboardRequestEntry {
 	name: string;
-
-	/** The full envelope, exactly as the mutation run posted it. */
 	request: unknown;
 }
 

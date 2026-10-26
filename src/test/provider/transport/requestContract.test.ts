@@ -37,6 +37,7 @@ import {
 	withWorkspaceFolder,
 } from "../../testUtils";
 
+/** The fixture as makeModelInfo builds it, before any group is attached. */
 const modelInfo = makeModelInfo();
 
 /** The Default group as the host serves it, for requests that bypass captureRequest. */
@@ -1143,24 +1144,18 @@ suite("provider/request contract", () => {
 				},
 			}) as unknown as LiteLLMModelInfo;
 
+		/**
+		 * One max_tokens case. `discovery` is the listing the model registers from (a row without one sends `model` by
+		 * hand), `advertised` is maxOutputTokens as the host sees it, and `wire` is max_tokens as the server receives it.
+		 */
 		interface MaxTokensCase {
 			readonly name: string;
-
-			/** The listing the model registers from; a row without one sends `model` by hand. */
 			readonly discovery?: unknown;
-
 			readonly model?: LiteLLMModelInfo;
-
 			readonly config?: Record<string, unknown>;
-
 			readonly modelOptions?: Record<string, unknown>;
-
 			readonly catalog?: CapabilityCatalogLookup;
-
-			/** maxOutputTokens as the host sees it. */
 			readonly advertised: number;
-
-			/** max_tokens as the server receives it. */
 			readonly wire: number;
 		}
 

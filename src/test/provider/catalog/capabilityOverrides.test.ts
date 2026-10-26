@@ -20,7 +20,10 @@ import { deploymentShape, makeModelInfo } from "../../pureHelpers";
 /** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
+/** The one server every override scenario resolves against. */
 const SERVER = { id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: fixedHeaderValue("k") };
+
+/** SERVER's base URL, as a scoped record key spells it. */
 const SCOPE = "http://litellm.test";
 
 function options(overrides: Partial<CapabilityOverrideOptions> = {}): CapabilityOverrideOptions {

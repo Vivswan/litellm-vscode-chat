@@ -111,27 +111,21 @@ function cutAt(bytes: Uint8Array, offsets: number[]): Uint8Array[] {
 	return pieces;
 }
 
+/** Per-event seeds; each reseeds the PRNG, so an event depends on its (kind, seed) pair and the state before it. */
 const seedArb = fc.integer({ min: 0, max: 0x7fffffff });
 
-/**
- * Streams for framing properties: generated events led by a fixed multi-byte unicode text event, so every byte layout
- * contains UTF-8 sequences a cut can split. Tails are omitted because the framing properties re-terminate streams in
- * ways that would change what "end of stream" means for a tail event.
- */
+/** Kind frequencies mirror the docker fuzzer's weights; cross-shrink collapses counterexamples toward the first. */
+const kindArb = fc.oneof(
+	{ withCrossShrink: true },
+	...PROPERTY_EVENT_KIND_WEIGHTS.map((entry) => ({ arbitrary: fc.constant(entry.kind), weight: entry.weight }))
+);
+
+/** Framing streams, led by a fixed multi-byte unicode event so every byte layout has UTF-8 a cut can split. */
 const framingEventsArb: fc.Arbitrary<FuzzEvent[]> = fc
-	.array(
-		fc.tuple(
-			// Kind frequencies mirror the docker fuzzer's weights, so both fuzzers explore the same shape mix;
-			// cross-shrink lets counterexamples collapse toward the first (simplest) kind.
-			fc.oneof(
-				{ withCrossShrink: true },
-				...PROPERTY_EVENT_KIND_WEIGHTS.map((entry) => ({ arbitrary: fc.constant(entry.kind), weight: entry.weight }))
-			),
-			seedArb
-		),
-		{ minLength: 1, maxLength: 6 }
-	)
+	.array(fc.tuple(kindArb, seedArb), { minLength: 1, maxLength: 6 })
 	.map((specs) => {
+		// No tail events: the framing properties re-terminate streams in ways that would change what "end of stream"
+		// means for a tail event.
 		const state = newGeneratorState(true);
 		const unicodeText = `${UNICODE_WORDS.join(" ")} `;
 		const lead: FuzzEvent = { label: "text", text: unicodeText, chunks: [chunkOf({ content: unicodeText })] };
@@ -141,6 +135,7 @@ const framingEventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 /** Lines the splitter must ignore or log-and-skip; none may parse into a chunk or read as [DONE]. */
 const INERT_LINES = [": comment", "event: message", "id: 7", "retry: 100", "", 'data:{"no":"space"}'];
 
+/** data: lines parsing to no chunk; the splitter must log-and-skip each, and "data: [DONE ]" is no terminator. */
 const MALFORMED_DATA_LINES = ["data: {oops", "data: null", "data: [1,2", "data: 42", 'data: "text"', "data: [DONE ]"];
 
 suite("provider/streaming SSE framing properties", () => {

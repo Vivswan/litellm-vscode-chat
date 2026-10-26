@@ -7,20 +7,24 @@ import { mswServer, useMsw } from "../../mocks/handlers";
 import { makeModelInfo } from "../../pureHelpers";
 import { captureRequestBody, createConfiguredProvider, userMessage, withConfig } from "../../testUtils";
 
+// The generators share a few deliberate choices.
+//
+//   RESERVED_KEYS    -> normalizeModelParameters drops these outright, which would void the oracle
+//   SHARED_POOL_KEYS -> a small shared pool makes cross-source collisions common enough for the precedence branch to
+//                       run; reasoning_effort collides with the picker mapping on purpose, and max_tokens stays out
+//                       because it has its own property below
+//   pickerArb        -> the picker's reasoningEffort choice: built-in levels, an unknown level string (the vocabulary
+//                       is open, so it forwards as-is), the default sentinel, non-string junk, or no configuration
+
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 const OWNED_KEYS = ["model", "messages", "stream", "stream_options", "max_tokens", "tools", "tool_choice"] as const;
 const OWNED_KEY_SET: ReadonlySet<string> = new Set(OWNED_KEYS);
-
-// normalizeModelParameters drops these outright, which would void the oracle.
 const RESERVED_KEYS = new Set(["constructor", "prototype", "__proto__"]);
 
 const safeKeyChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
 const safeKey = fc.string({ unit: safeKeyChar, minLength: 1, maxLength: 10 }).filter((key) => !RESERVED_KEYS.has(key));
-
-// A small shared pool makes cross-source collisions common enough for the precedence branch to run; reasoning_effort
-// collides with the picker mapping on purpose. max_tokens stays out: it has its own property below.
 const SHARED_POOL_KEYS = ["temperature", "top_p", "seed", "reasoning_effort"] as const;
 
 const bodyKey = fc.oneof(
@@ -30,11 +34,6 @@ const bodyKey = fc.oneof(
 	{ arbitrary: safeKey.map((key) => `_${key}`), weight: 1 }
 );
 const sourceRecord = fc.dictionary(bodyKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 5 });
-
-/**
- * The picker's reasoningEffort choice: built-in levels, an unknown level string (the vocabulary is open, so it forwards
- * as-is), the default sentinel, non-string junk, or no configuration at all.
- */
 const pickerArb = fc.constantFrom<unknown>(...DEFAULT_REASONING_EFFORT_LEVELS, "default", "extreme", 42, undefined);
 
 const toolsArb = fc

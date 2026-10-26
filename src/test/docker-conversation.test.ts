@@ -22,16 +22,14 @@ import { expectDefined } from "./pureHelpers";
  *   its oracle is relational, and a directed docker test covers it -> %deployment excluded
  *   CONVERSATION_ITERATIONS (default 10) -> own knob
  *   own knob -> nightly's FUZZ_ITERATIONS=500 cannot multiply multi-round-trip conversations into the job budget
- *   FUZZ_SEED=<seed> -> reproduces a run (shared with the stream fuzzer, always logged)
+ *   FUZZ_SEED=<seed> -> reproduces the whole walk exactly (src/test/fuzzSeed.ts); shared with the stream fuzzer and
+ *                       always logged
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
-
-// An explicit FUZZ_SEED reproduces exactly: one seed means one conversation walk (see src/test/fuzzSeed.ts).
 const SEED = resolveDockerFuzzSeed();
-
 const ITERATIONS = Math.max(1, Math.floor(Number(process.env.CONVERSATION_ITERATIONS)) || 10);
 
 /** Deterministic PRNG, same family as the stream fuzzer. */

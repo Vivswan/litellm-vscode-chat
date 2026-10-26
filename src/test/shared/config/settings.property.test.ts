@@ -5,19 +5,16 @@ import { HEADER_NAME_PATTERN, headerValue } from "../../../shared/util/headers";
 import { isUnsafeRecordKey } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
-const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
-const SEED = resolveFuzzSeed();
-
 /**
  * The platform's Headers embeds the full plaintext in its TypeError, and header values can be secrets. So the headline
  * property is totality: whatever the setting holds, normalizeCustomHeaders returns a record, never throws, and
- * everything it returns is sendable.
+ * everything it returns is sendable. fast-check 4's default string unit is ASCII-only, so the "binary" arms below are
+ * what supply unicode, lone surrogates, and control characters.
  */
 
-/**
- * Header-name-ish keys. fast-check 4's default string unit is ASCII-only, so the "binary" arm is what supplies unicode,
- * lone surrogates, and control characters.
- */
+const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
+const SEED = resolveFuzzSeed();
+
 const tokenChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'*+-.^_`|~");
 
 const headerNameArb = fc.oneof(
@@ -27,7 +24,6 @@ const headerNameArb = fc.oneof(
 	fc.constantFrom("__proto__", "constructor", "prototype", "x header", "x\theader", "", " x", "héader", "x:y")
 );
 
-/** Header-value-ish values: sendable strings, CR/LF smuggling, arbitrary code points, non-scalars, junk numbers. */
 const headerValueArb = fc.oneof(
 	fc.string({ maxLength: 24 }),
 	fc.string({ unit: "binary", maxLength: 24 }),

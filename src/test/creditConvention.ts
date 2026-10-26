@@ -7,20 +7,19 @@
 /** The commit that introduced ACKNOWLEDGMENTS.md; subjects before it predate the convention and stay exempt. */
 export const ACKNOWLEDGMENTS_BOUNDARY = "f2bc448402ad42f31fca74a5a9ec7d5359448d5e";
 
+/** Read from the repository root by the history guard and the commit-msg hook alike. */
 export const ACKNOWLEDGMENTS_FILE = "ACKNOWLEDGMENTS.md";
 
 /** A GitHub login: alphanumeric with single interior hyphens. */
 const LOGIN_SOURCE = "[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*";
 
-/**
- * A parenthesized credit group: one or more issue/PR refs, then "thanks" and a list of @logins. Only logins inside such
- * a group count - a subject that merely mentions an @login, or thanks someone in prose, is not a credit.
- */
+/** A parenthesized credit group: refs, then "thanks" and @logins; a bare @mention or prose thanks is not a credit. */
 const CREDIT_GROUP = new RegExp(
 	String.raw`\(#\d+(?:,\s*#\d+)*,\s*thanks\s+(@${LOGIN_SOURCE}(?:(?:,\s*(?:and\s+)?|\s+and\s+)@${LOGIN_SOURCE})*)\)`,
 	"gi"
 );
 
+/** One @login inside a credit group, captured without its @. */
 const LOGIN = new RegExp(`@(${LOGIN_SOURCE})`, "g");
 
 export interface SubjectCredit {

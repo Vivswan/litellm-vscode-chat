@@ -2,7 +2,8 @@
  * The chat input is the fake OpenAI backend's control surface, and "%" is the sigil because every obvious one is
  * intercepted before the text reaches the model (verified in VS Code Copilot Chat and Claude Code, other chat
  * surfaces by docs only). Everything here is deterministic (no clocks, no Math.random) and node builtins only,
- * since the fake-openai container runs it from a read-only repo mount without node_modules.
+ * since the fake-openai container runs it from a read-only repo mount without node_modules. The whole grammar derives
+ * from COMMAND_SIGIL, so swapping the sigil is a one-character edit here plus the prose doc (docs/development.md).
  *
  *   "/", "@", "#"     -> Copilot Chat claims them (slash commands, participants, references); a typed /help
  *                        rendered as a chip and the host got plain fallback text back
@@ -25,10 +26,9 @@ export interface CommandContext {
 	scenarios: ReadonlyMap<string, Scenario>;
 }
 
+/** What a command answers: the scenario to play and, for %delay alone, the wait before the first response byte. */
 export interface CommandResult {
 	scenario: Scenario;
-
-	/** Wait this long before the first response byte (%delay only). */
 	firstByteDelayMs?: number;
 }
 
@@ -54,13 +54,7 @@ const MAX_DELAY_MS = 60000;
 const MAX_SEED = 4294967295;
 const MAX_TOOL_ARGS_BYTES = 16 * 1024;
 const ERROR_STATUSES = new Set([400, 401, 403, 404, 408, 409, 422, 429, 500, 502, 503, 504]);
-
-/**
- * The whole grammar derives from this constant, so swapping it is a one-character edit here plus the prose doc
- * (docs/development.md).
- */
 export const COMMAND_SIGIL = "%";
-
 export const FALLBACK_TEXT =
 	`This fake model only answers ${COMMAND_SIGIL} commands, so plain text always gets this same fixed reply. ` +
 	`Send ${COMMAND_SIGIL}help on its own line to list every command and playback scenario.`;
@@ -105,16 +99,14 @@ function lastUserIndex(messages: WireMessage[]): number {
 	return -1;
 }
 
-/**
- * Copilot Chat rebuilds the typed request as "<userRequest>\n%help\n</userRequest>", so without transparency every
- * interactively typed command would get the fallback. An INDENTED closing tag (the usual shape inside pasted markup)
- * is not transparent.
- */
+/** A closing tag alone on a line; Copilot Chat wraps the typed request as "<userRequest>\n%help\n</userRequest>". */
 const ENVELOPE_CLOSER = /^<\/[A-Za-z][A-Za-z0-9._-]*>$/;
 
 /**
  * The last non-empty, non-envelope-closer line with ONLY its trailing \r stripped - never trimmed, so a leading space
- * disqualifies the line from being a command and %echo keeps trailing bytes.
+ * disqualifies the line from being a command and %echo keeps trailing bytes. Without the closer transparency every
+ * interactively typed command would get the fallback; an INDENTED closing tag (the usual shape inside pasted markup) is
+ * not transparent.
  */
 function lastNonEmptyLine(text: string): string | undefined {
 	const lines = text.split("\n");
@@ -132,19 +124,21 @@ function lastNonEmptyLine(text: string): string | undefined {
 /** Fixed epoch constant: realistic-looking, never clock-derived. */
 const CREATED = 1740000000;
 
+/** Fixed and OpenAI-shaped; LiteLLM forwards it verbatim (see envelope). */
 const SYSTEM_FINGERPRINT = "fp_fake_litellm";
 
 function sha256Hex(data: string | Uint8Array): string {
 	return createHash("sha256").update(data).digest("hex");
 }
 
-/**
- * Cached per request rather than per chunk, because large attachment bodies would hash quadratically. Against
- * LiteLLM v1.93, id, system_fingerprint, and service_tier transit VERBATIM and only created is rewritten, so
- * assertions still belong on extracted content, never raw bytes.
- */
+/** The envelope per request object, since hashing large attachment bodies per chunk would go quadratic. */
 const envelopeCache = new WeakMap<object, Record<string, unknown>>();
 
+/**
+ * The fields every chunk of one request shares, its id a hash of the request. Against LiteLLM v1.93, id,
+ * system_fingerprint, and service_tier transit VERBATIM and only created is rewritten, so assertions still belong on
+ * extracted content, never raw bytes.
+ */
 function envelope(context: CommandContext): Record<string, unknown> {
 	const cached = envelopeCache.get(context.request);
 	if (cached !== undefined) {
@@ -630,6 +624,7 @@ function bare(run: (context: CommandContext) => CommandResult) {
 		arg === undefined ? run(context) : diagnostic(context, command);
 }
 
+/** Every command, its run taking the CommandInfo so a bare verb's diagnostic can quote its own usage. */
 const COMMAND_TABLE: ReadonlyArray<{
 	verb: string;
 	usage: string;
@@ -986,6 +981,7 @@ export const COMMANDS: ReadonlyArray<FakeCommand> = COMMAND_TABLE.map((entry) =>
 	run: (arg, context) => entry.run(arg, context, entry),
 }));
 
+/** Verb to command; recognition dispatches through it, and an unknown verb falls through to the fallback. */
 const COMMANDS_BY_VERB = new Map(COMMANDS.map((command) => [command.verb, command]));
 
 // ── Recognition and dispatch ─────────────────────────────────────────────────

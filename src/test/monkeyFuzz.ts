@@ -443,6 +443,13 @@ export function generateWalk(random: () => number, stepCount: number): MonkeyAct
 /** The health class a label's FIRST synced configuration establishes, permanently. */
 type HealthKind = "proxy" | "fake" | "dark";
 
+/**
+ * The oracle's record of one declared label. hidden marks copies that left the model-count floors: a redeclare made
+ * its live group a superseded leftover (the provider serves nothing from a labeled group whose entry declares another
+ * URL), or a removal tombstoned it; the flag guards the floor subtraction against being taken twice. Entry-scoped
+ * configuration reaches a group only while the entry matches it on label AND base URL, so the probes stop expecting
+ * the declared model once syncedBaseUrl and the entry's URL diverge.
+ */
 interface OracleEntry {
 	/** The raw settings entry as currently declared (post any redeclare mutation). */
 	entry: Record<string, unknown>;
@@ -450,31 +457,19 @@ interface OracleEntry {
 	/** JSON of the resolved group args at the label's first sync: the host group's immutable content. */
 	hostArgs: string;
 
+	/** The class the label's FIRST synced configuration established, permanently. */
 	health: HealthKind;
 
-	/**
-	 * True once the label's healthy discovery was proven (its model wait passed), so a later removal must subtract from
-	 * the model-count floors.
-	 */
+	/** True once the label's model wait passed, so a later removal must subtract from the model-count floors. */
 	provenHealthy: boolean;
 
-	/**
-	 * True once the label's copies left the model-count floors: a redeclare made its live group a superseded leftover
-	 * (the provider serves nothing from a labeled group whose entry declares another URL), or a removal tombstoned it.
-	 * Guards the subtraction against being taken twice.
-	 */
+	/** True once the label's copies left the model-count floors (see above); the subtraction is taken once. */
 	hidden: boolean;
 
-	/**
-	 * The entry's unique discovery.declared model ID, when its extras carried one. Unlike the shared anchor IDs exactly
-	 * one label owns it, so its presence and its post-removal absence are both provable.
-	 */
+	/** The unique discovery.declared ID the extras carried, if any; one label owns it, so its absence is provable. */
 	declaredId?: string;
 
-	/**
-	 * The baseUrl the label's group was synced with. Entry-scoped configuration reaches a group only while the entry
-	 * matches it on label AND base URL, so the probes stop expecting the declared model once these two diverge.
-	 */
+	/** The baseUrl the label's group was synced with (see above). */
 	syncedBaseUrl: string;
 }
 
@@ -489,10 +484,7 @@ interface StoredBlobMirror {
 	owners: Partial<Record<SecretFieldId, SecretOwner>>;
 }
 
-/**
- * Every Memento key storageKeys.ts declares as globalState; the storage probe admits nothing else. SecretStorage key
- * names stay OUT on purpose: one of them in globalState would mean secret material landed in the wrong store.
- */
+/** Every Memento key storageKeys.ts declares as globalState; SecretStorage key names stay OUT (probeStorageKeys). */
 const KNOWN_MEMENTO_KEYS: readonly string[] = [
 	SERVER_REGISTRY_KEY,
 	HAS_SHOWN_WELCOME_KEY,
@@ -540,6 +532,7 @@ export interface MonkeyEnv {
 	/** The proxy master key. */
 	apiKey: string;
 
+	/** Drives every walk's PRNG and names the session's labels, so one seed's replay collides with no other's. */
 	seed: number;
 }
 
@@ -550,8 +543,16 @@ const MODEL_WAIT_MS = 60000;
 /**
  * One monkey session per extension host: the oracle state spans walks because provider groups and settings do.
  * runActions namespaces each run's labels freshly, so shrink candidates and replays never collide with earlier runs.
+ *
+ * The live model-count floor per health class is baselineCopies + everSyncedHealthy - hiddenHealthy. hiddenHealthy
+ * counts healthy ever-synced groups the provider now answers with zero models: their entry was explicitly removed (the
+ * removal tombstones the group) or re-pointed at another URL (the group is a superseded leftover). baselineCopies keeps
+ * a NEW healthy group that fails discovery from hiding behind pre-existing groups' copies satisfying a bare count. The
+ * log cursor scans every line once, which sees every secret a line could carry: a line can only carry secrets that
+ * existed when it was logged.
  */
 export class MonkeySession {
+	/** The oracle's record of each declared label (OracleEntry), by its real label. */
 	private declared = new Map<string, OracleEntry>();
 
 	/** SecretStorage blob mirrors by real label; kept across removals like the real store keeps them. */
@@ -560,48 +561,37 @@ export class MonkeySession {
 	/** Add-only across the whole session: healthy group counts only ever grow. */
 	private everSyncedHealthy = { proxy: 0, fake: 0 };
 
-	/**
-	 * Healthy ever-synced groups the provider now answers with zero models: their entry was explicitly removed (the
-	 * removal tombstones the group) or re-pointed at another URL (the group is a superseded leftover). The live
-	 * model-count floor is everSyncedHealthy minus this.
-	 */
+	/** Healthy ever-synced groups now answering zero models (class doc); subtracted from the model-count floor. */
 	private hiddenHealthy = { proxy: 0, fake: 0 };
 
+	/** What each touched setting key should read back; UNSET marks a key a reset removed. */
 	private expectedSettings = new Map<string, unknown | typeof UNSET>();
 
+	/** Every secret value this session minted; the hygiene probe scans the log tee for each of them. */
 	private minted: string[] = [];
 
-	/**
-	 * Labels declared with the ambiguous auth shape: the parser must skip them, so they never join `declared`, sync, or
-	 * produce a declared view.
-	 */
+	/** Labels declared with the ambiguous auth shape; the parser must skip them, so they never sync or get a view. */
 	private misconfigured = new Set<string>();
 
-	/**
-	 * Declared-model IDs this session's entries carry: they register whenever discovery does not list them, so the
-	 * unknown-model probe must admit them.
-	 */
+	/** Declared-model IDs the entries carry; they register without discovery, so the unknown-model probe admits them. */
 	private declaredIds = new Set<string>();
 
-	/**
-	 * Cursor into the session log tee: each hygiene probe scans the lines logged since the previous one. A line can
-	 * only carry secrets that existed when it was logged, so scanning every line once sees every secret it could
-	 * contain.
-	 */
+	/** Cursor into the session log tee; each hygiene probe scans only the lines logged since the previous one. */
 	private logCursor = 0;
 
+	/** Model IDs the host served before the session; the unknown-model probe admits them too. */
 	private baselineModelIds: ReadonlySet<string> = new Set();
 
-	/**
-	 * Pre-session copies of the two anchor IDs: the model-count floors are baseline + newly-synced, so a NEW healthy
-	 * group failing discovery cannot hide behind pre-existing groups' copies satisfying a bare count.
-	 */
+	/** Pre-session copies of the two anchor IDs, the model-count floors' base (class doc). */
 	private baselineCopies = { proxy: 0, fake: 0 };
 
+	/** Counts runActions calls; each run's label namespace carries the count. */
 	private executionCounter = 0;
 
+	/** Serial behind the declared IDs and probe markers this session mints, unique within it. */
 	private probeCounter = 0;
 
+	/** The label every session declares first; its proxy group serves the live chat targets (PROXY_CHAT_ALIASES). */
 	private anchorLabel: string;
 
 	constructor(private readonly env: MonkeyEnv) {
@@ -1536,6 +1526,10 @@ export class MonkeySession {
 		}
 	}
 
+	/**
+	 * Every globalState key must be one KNOWN_MEMENTO_KEYS declares. SecretStorage key names are kept out of that list
+	 * on purpose: one of them in globalState would mean secret material landed in the wrong store.
+	 */
 	private async probeStorageKeys(): Promise<void> {
 		const keys = (await vscode.commands.executeCommand("litellm._test.getStorageKeys")) as string[];
 		for (const key of keys) {

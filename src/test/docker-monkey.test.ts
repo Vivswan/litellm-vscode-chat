@@ -15,21 +15,19 @@ import { generateWalk, MAX_SHRINK_RUNS, MonkeySession, monkeyFailureReport, shri
  * the host lifetime and walks deliberately dirty host state no later suite should inherit (pre-existing groups are
  * tolerated via a baseline snapshot). `FUZZ_SEED=<seed> bun run test:docker` reproduces a run, and failing walks
  * shrink to a minimal action trace to pin in monkeyCorpus.ts.
+ *
+ *   FUZZ_SEED=<seed> -> reproduces a run exactly; unset or invalid draws a fresh pid- and time-mixed seed
+ *                       (src/test/fuzzSeed.ts)
+ *   WALK_BUDGET_MS   -> generous on purpose: declares wait on host model propagation, and every step can sync
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
-
-// An explicit FUZZ_SEED reproduces exactly; otherwise a fresh pid- and time-mixed seed is drawn (see
-// src/test/fuzzSeed.ts).
 const SEED = resolveDockerFuzzSeed();
-
 const WALKS = Math.max(1, Math.floor(Number(process.env.MONKEY_ITERATIONS)) || 5);
 const MIN_STEPS = 12;
 const MAX_STEPS = 20;
-
-/** Generous per-walk budget: declares wait on host model propagation and every step can sync. */
 const WALK_BUDGET_MS = 300000;
 
 suite("Docker LiteLLM monkey fuzzer", () => {

@@ -6,7 +6,10 @@
  *   Counters reset only on a process restart -> tests assert deltas, not absolutes
  */
 
+/** The one client id the fake provider accepts. */
 export const FAKE_OAUTH_CLIENT_ID = "fake-oauth-client";
+
+/** Its secret; the sync suite also declares a wrong one to drive the rejection path. */
 export const FAKE_OAUTH_CLIENT_SECRET = "fake-oauth-secret";
 
 /** Every issued access token is this prefix plus the issue counter. */
@@ -15,19 +18,16 @@ export const FAKE_OAUTH_TOKEN_PREFIX = "fake-token-";
 /** Advertised token lifetime; long enough that no test ever sees a natural expiry. */
 export const FAKE_OAUTH_EXPIRES_IN_SECONDS = 3600;
 
-/** The identity provider's whole state; the counters only ever grow. */
+/**
+ * The identity provider's whole state; the counters only ever grow. authedChatRequests counts wire attempts on the
+ * bearer-guarded chat endpoint, auth outcome included: the no-retry assertions read it as "how many times did the
+ * extension actually hit the endpoint", which token-issuance counters cannot answer, since a background discovery sweep
+ * may legitimately re-exchange.
+ */
 export interface OAuthProviderState {
 	issued: number;
-
 	rejected: number;
-
-	/**
-	 * Wire attempts on the bearer-guarded chat endpoint, auth outcome included. The no-retry assertions read this as
-	 * "how many times did the extension actually hit the endpoint", which token-issuance counters cannot answer: a
-	 * background discovery sweep may legitimately re-exchange.
-	 */
 	authedChatRequests: number;
-
 	readonly live: Set<string>;
 }
 

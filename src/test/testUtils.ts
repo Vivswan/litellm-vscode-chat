@@ -144,25 +144,28 @@ export function systemMessage(text: string): vscode.LanguageModelChatRequestMess
 	};
 }
 
+/**
+ * What captureRequest saw: the body and headers sent, and the model object the request went out with (the discovered
+ * one under useDiscoveredModel, else the attached copy).
+ */
 export interface CapturedRequest {
 	body: Record<string, unknown>;
-
 	headers: Record<string, string>;
-
-	/** The model object the request went out with: the discovered one under useDiscoveredModel, else the attached copy. */
 	model: LiteLLMModelInfo;
 }
 
+/**
+ * Overrides for captureRequest. useDiscoveredModel mirrors the host contract of handing the provider's own info objects
+ * back, and is required for behavior that rides on the model object, such as prompt-caching support.
+ */
 export interface CaptureRequestOverrides {
+	/** The conversation sent; one user message when omitted. */
 	messages?: vscode.LanguageModelChatRequestMessage[];
 
+	/** What the discovery handlers answer; DEFAULT_DISCOVERY_PAYLOAD when omitted. */
 	discoveryPayload?: JsonBodyType;
 
-	/**
-	 * Send the chat request with the model object discovery returned (matched by id), mirroring the host contract of
-	 * handing the provider's own info objects back. Required for behavior that rides on the model object, such as
-	 * prompt-caching support.
-	 */
+	/** Send the chat request with the model object discovery returned, matched by id (see above). */
 	useDiscoveredModel?: boolean;
 
 	/** The group the host serves and the request routes through, as its flat host configuration; defaults to testGroupServer(). */
@@ -230,6 +233,10 @@ export async function captureRequestBody(
 	return (await captureRequest(provider, model, opts, overrides)).body;
 }
 
+/**
+ * makeServerStatus's inputs. In the error branch, `error` is the log rendering's source when no logSafeError is given,
+ * never the display text.
+ */
 type ServerStatusOverrides = Partial<
 	Pick<
 		ServerStatus,
@@ -245,20 +252,12 @@ type ServerStatusOverrides = Partial<
 		  }
 		| {
 				state: "error";
-
-				/** The log rendering's source when no logSafeError is given; never the display text. */
 				error?: string;
-
 				cause?: FailureCause;
-
 				logSafeError?: string;
-
 				classification?: TransportErrorClassification;
-
 				expected?: boolean;
-
 				servedModelCount?: number;
-
 				declaredModelCount?: number;
 		  }
 	);

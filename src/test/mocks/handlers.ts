@@ -1,3 +1,16 @@
+/**
+ * The msw server every unit suite shares, and the URLs its handlers answer on. The initial handlers survive
+ * resetHandlers() and per-test use() handlers take precedence, so the baselines below absorb the requests no suite
+ * registers for. msw intercepts nothing between a file's close() and the next file's listen(), so the unit label's
+ * primary catalog guard stays util/fingerprintSalt.ts's mochaGlobalSetup.
+ *
+ *   localhost:49999/*     -> refreshes of panelIntegration's leftover host provider group (no group-removal API)
+ *   OPENROUTER_MODELS_URL -> any OpenRouter catalog refresh that fires while msw is listening
+ *   * /model_group/info   -> a proxy from before the endpoint, on every origin a suite serves model/info from, so
+ *                            suites that never mention the group endpoint exercise the fallback; the extension probes
+ *                            this root-level endpoint only after /v1/model/info answered
+ */
+
 import { HttpResponse, http, type JsonBodyType, type RequestHandler } from "msw";
 import { setupServer } from "msw/node";
 import { OPENROUTER_MODELS_URL } from "../../shared/config/openRouterCatalog";
@@ -5,23 +18,10 @@ import { OPENROUTER_MODELS_URL } from "../../shared/config/openRouterCatalog";
 export const TEST_BASE_URL = "http://litellm.test";
 export const MODEL_INFO_URL = `${TEST_BASE_URL}/v1/model/info`;
 export const MODELS_URL = `${TEST_BASE_URL}/v1/models`;
-
-/** LiteLLM's root-level group endpoint; the extension probes it only after /v1/model/info answered. */
 export const MODEL_GROUP_INFO_URL = `${TEST_BASE_URL}/model_group/info`;
-
 export const CHAT_COMPLETIONS_URL = `${TEST_BASE_URL}/v1/chat/completions`;
 export const COMPLETIONS_URL = `${TEST_BASE_URL}/v1/completions`;
 
-/**
- * Initial handlers survive resetHandlers() and per-test use() handlers take precedence, so these baselines
- * absorb the requests no suite registers for. msw intercepts nothing between a file's close() and the next file's
- * listen(), so the unit label's primary catalog guard stays util/fingerprintSalt.ts's mochaGlobalSetup.
- *
- *   localhost:49999/*     -> refreshes of panelIntegration's leftover host provider group (no group-removal API)
- *   OPENROUTER_MODELS_URL -> any OpenRouter catalog refresh that fires while msw is listening
- *   * /model_group/info   -> a proxy from before the endpoint, on every origin a suite serves model/info from, so
- *                            suites that never mention the group endpoint exercise the fallback
- */
 export const mswServer = setupServer(
 	http.all("http://localhost:49999/*", () => emptyErrorResponse(503)),
 	http.get(OPENROUTER_MODELS_URL, () => emptyErrorResponse(503)),

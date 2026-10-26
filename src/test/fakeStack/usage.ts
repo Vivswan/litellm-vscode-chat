@@ -1,11 +1,13 @@
 /**
- * The virtual key the docker stack seeds for spend/budget tests, shared by the seeder and the docker-usage suite so the
- * two can never disagree on what was seeded. Every value is a deliberately low-entropy test fixture: it authenticates
- * only against the local compose stack and must look obviously fake.
+ * Shared by the seeder and the docker-usage suite so the two can never disagree on what was seeded. Every value is a
+ * deliberately low-entropy test fixture: it authenticates only against the local compose stack and must look obviously
+ * fake.
  *
  *   The stack's postgres service -> is what makes /key/info and /user/daily/activity exist at all
  *   this key                     -> authenticates them
  */
+
+/** The virtual key the docker stack seeds for spend/budget tests. */
 export const USAGE_SEED_KEY = {
 	/** The literal bearer token; /key/generate accepts a caller-chosen value. */
 	key: "sk-usage-seed-1234",

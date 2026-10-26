@@ -17,6 +17,7 @@ import { REPO_ROOT } from "./util/repoRoot";
  *
  *   every commit subject carrying "(#N, thanks @login)" -> must have a row for that login in ACKNOWLEDGMENTS.md
  */
+
 const git = async (...args: string[]): Promise<string> =>
 	(await promisify(execFile)("git", args, { cwd: REPO_ROOT, maxBuffer: 16 * 1024 * 1024 })).stdout;
 

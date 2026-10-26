@@ -110,10 +110,7 @@ export function makeModelInfo(overrides: Partial<PreAttachModelInfo> = {}): PreA
 	};
 }
 
-/**
- * A /v1/model/info discovery payload registering "test-model" with the same token limits as `makeModelInfo()`. Prompt
- * caching is not advertised.
- */
+/** A /v1/model/info payload: "test-model" at makeModelInfo()'s token limits, prompt caching not advertised. */
 export const DEFAULT_DISCOVERY_PAYLOAD = {
 	data: [
 		{

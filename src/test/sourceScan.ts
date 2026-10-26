@@ -8,10 +8,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { REPO_ROOT } from "./util/repoRoot";
 
+/** One shipped source file; `file` is its repo-relative posix path (src/...), the same string on every OS. */
 export interface ShippedSource {
-	/** Repo-relative posix path (src/...), the same string on every OS. */
 	readonly file: string;
-
 	readonly text: string;
 }
 
