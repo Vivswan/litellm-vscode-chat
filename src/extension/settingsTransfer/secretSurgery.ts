@@ -147,9 +147,12 @@ export interface MaterializedEntry {
 
 /**
  * Place one blob value at its position, mirroring buildGroupArgs: a usable inline occupant wins, an undefined or
- * non-usable-string occupant is replaced, and a non-string occupant reads as no legal home.
+ * non-usable-string occupant is replaced, and a non-string occupant or no container at all reads as no legal home.
  */
-function placeSecret(container: Record<string, unknown>, key: string, value: string): { placed: boolean } {
+function placeSecret(container: Record<string, unknown> | undefined, key: string, value: string): { placed: boolean } {
+	if (container === undefined) {
+		return { placed: false };
+	}
 	const existing = container[key];
 	if (usableHttpText(existing) !== undefined) {
 		return { placed: true };
@@ -161,15 +164,7 @@ function placeSecret(container: Record<string, unknown>, key: string, value: str
 	return { placed: true };
 }
 
-/** Whether `value` found a home at `key` of `container`; no container is no legal home. */
-function placedAt(container: Record<string, unknown> | undefined, key: string, value: string): boolean {
-	return container !== undefined && placeSecret(container, key, value).placed;
-}
-
-/**
- * Places the blob's API key where the auth shape puts it: a missing auth object is created around it, an oauth object
- * takes it over the auth root, and a non-record auth is no legal home. Returns whether it landed.
- */
+/** The oauth position takes the key over the auth root, matching the strip walk's later-position-wins order. */
 function placeApiKey(entry: Record<string, unknown>, apiKey: string): boolean {
 	const auth = entry.auth;
 	if (auth === undefined) {
@@ -202,33 +197,25 @@ function virtualKeyHome(auth: unknown): Record<string, unknown> | undefined {
 	return undefined;
 }
 
-/**
- * Blob values ride verbatim: readServerSecrets and buildGroupArgs use the stored string untransformed, so the file
- * must too. Only the empty string reads as no value.
- */
-function blobValue(value: string | undefined): string | undefined {
-	return value !== undefined && value.length > 0 ? value : undefined;
-}
-
 export function materializeEntrySecrets(
 	rawEntry: Readonly<Record<string, unknown>>,
 	blob: StoredServerSecrets
 ): MaterializedEntry {
 	const entry = cloneJson(rawEntry) as Record<string, unknown>;
 	let unmaterialized = 0;
+	// Blob values ride verbatim: readServerSecrets and buildGroupArgs use the stored string untransformed, so the file
+	// must too. Only an absent or empty value reads as no value.
+	const { apiKey = "", oauthClientSecret = "", virtualKeyValue = "" } = blob;
 
-	const apiKey = blobValue(blob.apiKey);
-	if (apiKey !== undefined && !placeApiKey(entry, apiKey)) {
+	if (apiKey !== "" && !placeApiKey(entry, apiKey)) {
 		unmaterialized += 1;
 	}
 
-	const clientSecret = blobValue(blob.oauthClientSecret);
-	if (clientSecret !== undefined && !placedAt(oauthOf(entry.auth), "clientSecret", clientSecret)) {
+	if (oauthClientSecret !== "" && !placeSecret(oauthOf(entry.auth), "clientSecret", oauthClientSecret).placed) {
 		unmaterialized += 1;
 	}
 
-	const virtualKeyValue = blobValue(blob.virtualKeyValue);
-	if (virtualKeyValue !== undefined && !placedAt(virtualKeyHome(entry.auth), "value", virtualKeyValue)) {
+	if (virtualKeyValue !== "" && !placeSecret(virtualKeyHome(entry.auth), "value", virtualKeyValue).placed) {
 		unmaterialized += 1;
 	}
 

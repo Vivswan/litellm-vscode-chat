@@ -18,6 +18,7 @@ import type {
 	ScopedRecordSetting,
 } from "../../../dashboard/viewModels";
 import { isEditableServer } from "../../../dashboard/viewModels";
+import type { ModelRecordMap } from "../../../shared/config/modelMatcher";
 import type {
 	AgentToolsSettingId,
 	BooleanSettingId,
@@ -581,7 +582,7 @@ export function planRemoveServer(input: AgentToolInput<"removeServer">, state: D
 // Model records: one matcher key patched into the scope the dashboard edits
 // ---------------------------------------------------------------------------
 
-export type RecordMap = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+type RecordMap = ModelRecordMap;
 
 interface RecordPatch {
 	readonly key: string;

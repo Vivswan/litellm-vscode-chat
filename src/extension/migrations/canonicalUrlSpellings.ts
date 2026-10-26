@@ -34,7 +34,7 @@ import { acceptedEntries, respellEntryUrls } from "../servers/serverSync/setting
 import { createSettingsAccess } from "../settingsAccess";
 import type { ServersSettingStore } from "../settingsWriteTurn";
 import { replaceServersSetting } from "../settingsWriteTurn";
-import type { FingerprintMemento } from "./fingerprintProjection";
+import { type FingerprintMemento, persistFingerprintRewrites } from "./fingerprintProjection";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
 /** One raw entry after respellEntryUrls: the record to write, whether it changed, and the base URL it had before. */
@@ -60,40 +60,6 @@ function fingerprintRewrites(
 		}
 	}
 	return printRewrites;
-}
-
-/**
- * Persists the print rewrites and returns how many landed, or undefined when the write failed (logged; the next
- * activation retries). Merged over a FRESH read and applied only where the value still equals the record this pass
- * judged, so another window's newer records survive (the whole-key write hazard of #220).
- */
-async function persistFingerprintRewrites(
-	globalState: FingerprintMemento,
-	stored: Readonly<Record<string, string>>,
-	printRewrites: Readonly<Record<string, string>>,
-	logger: Logger
-): Promise<number | undefined> {
-	try {
-		const fresh = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));
-		const merged = { ...fresh };
-		let rewrites = 0;
-		for (const [label, print] of Object.entries(printRewrites)) {
-			if (fresh[label] === stored[label]) {
-				merged[label] = print;
-				rewrites += 1;
-			}
-		}
-		if (rewrites > 0) {
-			await globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, merged);
-		}
-		return rewrites;
-	} catch (error) {
-		// Classification only: log lines feed the public issue-report buffer.
-		logger.log("Persisting sync fingerprints for the canonical URL spelling failed; retrying on next activation", {
-			error: errorLabel(error),
-		});
-		return undefined;
-	}
 }
 
 /**
@@ -141,11 +107,15 @@ export async function canonicalizeUrlSpellingsFor(
 	const stored = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));
 	const printRewrites = fingerprintRewrites(carriers, respelled, stored);
 	if (Object.keys(printRewrites).length > 0) {
-		const persisted = await persistFingerprintRewrites(globalState, stored, printRewrites, logger);
-		if (persisted === undefined) {
+		try {
+			rewrites += await persistFingerprintRewrites(globalState, stored, printRewrites);
+		} catch (error) {
+			// Classification only: log lines feed the public issue-report buffer.
+			logger.log("Persisting sync fingerprints for the canonical URL spelling failed; retrying on next activation", {
+				error: errorLabel(error),
+			});
 			return "in-progress";
 		}
-		rewrites += persisted;
 	}
 
 	if (respelled.some((item) => item.changed)) {

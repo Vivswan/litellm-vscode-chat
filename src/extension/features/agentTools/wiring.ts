@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import type { DashboardState } from "../../../dashboard/viewModels";
 import type { AgentToolContribution, AgentToolId } from "../../../shared/config/commandIds";
 import { AGENT_TOOL_IDS, AGENT_TOOLS } from "../../../shared/config/commandIds";
+import type { ModelRecordMap } from "../../../shared/config/modelMatcher";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import {
 	agentToolsAcceptSecretValues,
@@ -26,7 +27,7 @@ import { featureDisabledMessage, featureDisabledMessageEnglish } from "../featur
 import { preparedInvocation, toolResult } from "../modelFacingExit";
 import type { AgentToolInput } from "./inputSchema";
 import { parseAgentToolInput } from "./inputSchema";
-import type { AgentRequest, RecordMap, SecretPrompt, ToolPlan } from "./planner";
+import type { AgentRequest, SecretPrompt, ToolPlan } from "./planner";
 import {
 	applyRecordPatch,
 	declaredRow,
@@ -129,7 +130,7 @@ function refusalError(tool: AgentToolId, text: string, classification: string): 
 }
 
 /** The record map a patch applies to: the scoped setting's, or the named entry's, empty when the entry is unknown. */
-function currentRecordMap(input: AgentToolInput<"editModelRecords">, state: DashboardState): RecordMap {
+function currentRecordMap(input: AgentToolInput<"editModelRecords">, state: DashboardState): ModelRecordMap {
 	if (input.server === undefined) {
 		return input.kind === "capabilities"
 			? state.settings.modelCapabilities.value

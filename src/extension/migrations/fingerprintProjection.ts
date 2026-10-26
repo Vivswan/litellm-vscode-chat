@@ -103,20 +103,37 @@ async function projectedPrint(entry: DeclaredServer, reads: ProjectionReads): Pr
 }
 
 /**
- * How a persist of the projected prints ended: how many landed, deferred on an unconfirmed salt, or failed
- * (logged).
+ * Rewrites sync fingerprint records and returns how many landed; a failing write throws to the caller. The merge is
+ * over a FRESH read, never the pass-start `stored` snapshot, and nothing is written when no rewrite still applies.
+ *
+ * A label is rewritten only while its fresh value still equals the record the pass judged: another window may have
+ * added labels (a whole-key write of the stale snapshot would destroy them, #220) or re-synced a label itself (its
+ * newer record outranks the pass's now-stale rewrite).
  */
-type ProjectionPersist =
-	| { readonly kind: "applied"; readonly count: number }
-	| { readonly kind: "deferred" | "failed" };
+export async function persistFingerprintRewrites(
+	globalState: FingerprintMemento,
+	stored: Readonly<Record<string, string>>,
+	rewrites: Readonly<Record<string, string>>
+): Promise<number> {
+	const fresh = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));
+	const next = { ...fresh };
+	let applied = 0;
+	for (const [label, print] of Object.entries(rewrites)) {
+		if (fresh[label] === stored[label]) {
+			next[label] = print;
+			applied += 1;
+		}
+	}
+	if (applied > 0) {
+		await globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, next);
+	}
+	return applied;
+}
 
 /**
- * Persists the projected prints. Re-gated on the salt at write time like the engine's own persists: a store mutation
- * since the pass-start check must not persist unrecognizable records over the durable ones. Merged over a FRESH read,
- * never the pass-start snapshot, and a rewrite applies only where the fresh value STILL equals the record this pass
- * judged: another window may have added labels (a whole-key write of the stale snapshot would destroy them, #220's
- * failure class) or re-synced a candidate label itself (its newer record must win over this pass's now-stale
- * projection). Nothing is written when no rewrite still applies.
+ * How many projected prints landed, or undefined when the salt is no longer confirmed or the write failed (logged; the
+ * next activation retries). Re-gated on the salt at write time like the engine's own persists: a store mutation since
+ * the pass-start check must not persist unrecognizable records over the durable ones.
  */
 async function persistProjection(
 	globalState: FingerprintMemento,
@@ -124,29 +141,17 @@ async function persistProjection(
 	rewrites: Readonly<Record<string, string>>,
 	confirmSaltDurable: () => Promise<boolean>,
 	logger: Logger
-): Promise<ProjectionPersist> {
+): Promise<number | undefined> {
 	try {
 		if (!(await confirmSaltDurable())) {
-			return { kind: "deferred" };
+			return undefined;
 		}
-		const fresh = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));
-		const next = { ...fresh };
-		let applied = 0;
-		for (const [label, print] of Object.entries(rewrites)) {
-			if (fresh[label] === stored[label]) {
-				next[label] = print;
-				applied += 1;
-			}
-		}
-		if (applied > 0) {
-			await globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, next);
-		}
-		return { kind: "applied", count: applied };
+		return await persistFingerprintRewrites(globalState, stored, rewrites);
 	} catch (error) {
 		logger.log("Persisting projected sync fingerprints failed; retrying on next activation", {
 			error: errorLabel(error),
 		});
-		return { kind: "failed" };
+		return undefined;
 	}
 }
 
@@ -194,11 +199,11 @@ export async function projectSyncFingerprintsFor(
 	}
 	const { rewrites, failures } = await projectCandidates(candidates, { stored, ledger, readSecrets, logger });
 	if (Object.keys(rewrites).length > 0) {
-		const persisted = await persistProjection(globalState, stored, rewrites, confirmSaltDurable, logger);
-		if (persisted.kind !== "applied") {
+		const applied = await persistProjection(globalState, stored, rewrites, confirmSaltDurable, logger);
+		if (applied === undefined) {
 			return "in-progress";
 		}
-		if (persisted.count === 0) {
+		if (applied === 0) {
 			return failures > 0 ? "in-progress" : "nothing-to-do";
 		}
 	}
