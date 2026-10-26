@@ -231,6 +231,60 @@ function readProfileFile(...relative: string[]): string | undefined {
 }
 
 /**
+ * The index past a comment opening at `at`: undefined when none opens there, "unterminated" for a block comment that
+ * never closes. A line comment ends before its newline, so line structure survives.
+ */
+function pastComment(text: string, at: number): number | "unterminated" | undefined {
+	if (text[at] !== "/") {
+		return undefined;
+	}
+	if (text[at + 1] === "/") {
+		let end = at + 2;
+		while (end < text.length && text[end] !== "\n") {
+			end++;
+		}
+		return end;
+	}
+	if (text[at + 1] === "*") {
+		const end = text.indexOf("*/", at + 2);
+		return end < 0 ? "unterminated" : end + 2;
+	}
+	return undefined;
+}
+
+/** The index past a string literal opening at `at`, escapes honored; the text's end when it never closes. */
+function pastString(text: string, at: number): number {
+	for (let i = at + 1; i < text.length; i++) {
+		if (text[i] === "\\") {
+			i++;
+			continue;
+		}
+		if (text[i] === '"') {
+			return i + 1;
+		}
+	}
+	return text.length;
+}
+
+/**
+ * The pending dangling-comma slot after `ch`: the index in `out` of a comma a later `]` or `}` must cut, or -1 when
+ * none is pending. `prev` is the last non-whitespace character before `ch`: a comma after a value opens a slot, a
+ * closing bracket cuts the pending one, whitespace keeps it, and anything else clears it.
+ */
+function trackDanglingComma(out: string[], ch: string, prev: string, danglingComma: number): number {
+	if (ch === ",") {
+		return /["\]}0-9A-Za-z]/.test(prev) ? out.length : -1;
+	}
+	if (ch === "]" || ch === "}") {
+		if (danglingComma >= 0) {
+			out.splice(danglingComma, 1);
+		}
+		return -1;
+	}
+	return /\s/.test(ch) ? danglingComma : -1;
+}
+
+/**
  * settings.json is JSONC, and either extension would make a strict parse read a seeded profile as unseeded.
  * String-aware, so a comma or slash inside a value never changes it.
  *
@@ -239,67 +293,36 @@ function readProfileFile(...relative: string[]): string | undefined {
  */
 function stripJsoncExtensions(text: string): string {
 	const out: string[] = [];
-	let inString = false;
 	let prev = "";
 	let danglingComma = -1;
-	for (let i = 0; i < text.length; i++) {
+	let i = 0;
+	while (i < text.length) {
 		const ch = text[i] as string;
-		if (inString) {
-			out.push(ch);
-			if (ch === "\\" && i + 1 < text.length) {
-				out.push(text[i + 1] as string);
-				i++;
-			} else if (ch === '"') {
-				inString = false;
-				prev = '"';
-			}
-			continue;
-		}
-		if (ch === "/" && text[i + 1] === "/") {
-			out.push(" ");
-			while (i + 1 < text.length && text[i + 1] !== "\n") {
-				i++;
-			}
-			continue;
-		}
-		if (ch === "/" && text[i + 1] === "*") {
-			const end = text.indexOf("*/", i + 2);
-			if (end < 0) {
-				// Unterminated: malformed, not strippable. The unmodified text makes JSON.parse reject it, and the
-				// caller keeps the profile.
-				return text;
-			}
-			out.push(" ");
-			i = end + 1;
-			continue;
-		}
 		if (ch === '"') {
-			inString = true;
+			const end = pastString(text, i);
+			out.push(text.slice(i, end));
 			danglingComma = -1;
-			prev = "";
-			out.push(ch);
+			prev = '"';
+			i = end;
 			continue;
 		}
-		if (ch === ",") {
-			danglingComma = /["\]}0-9A-Za-z]/.test(prev) ? out.length : -1;
-			prev = ch;
-			out.push(ch);
+		const commentEnd = pastComment(text, i);
+		if (commentEnd === "unterminated") {
+			// Unterminated: malformed, not strippable. The unmodified text makes JSON.parse reject it, and the
+			// caller keeps the profile.
+			return text;
+		}
+		if (commentEnd !== undefined) {
+			out.push(" ");
+			i = commentEnd;
 			continue;
 		}
-		if (ch === "]" || ch === "}") {
-			if (danglingComma >= 0) {
-				out.splice(danglingComma, 1);
-			}
-			danglingComma = -1;
-			prev = ch;
-			out.push(ch);
-			continue;
-		}
+		danglingComma = trackDanglingComma(out, ch, prev, danglingComma);
 		if (!/\s/.test(ch)) {
-			danglingComma = -1;
 			prev = ch;
 		}
 		out.push(ch);
+		i++;
 	}
 	return out.join("");
 }

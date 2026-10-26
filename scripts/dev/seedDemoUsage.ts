@@ -205,6 +205,35 @@ async function fireChat(baseUrl: string, spec: DemoUsageKeySpec, words: number):
 	await response.text();
 }
 
+/** A key's latest spend reading while the flush is awaited, and how many consecutive polls it has held. */
+interface FlushReading {
+	readonly spend: number;
+	readonly stablePolls: number;
+}
+
+/** The flush wait's state: each key's pre-chat baseline, its readings so far, and the keys still unsettled. */
+interface FlushState {
+	readonly baselines: ReadonlyMap<string, number>;
+	readonly lastSeen: Map<string, FlushReading>;
+	readonly pending: Set<string>;
+}
+
+/** One poll of every pending key; one whose spend rose above its baseline and held for FLUSH_STABLE_POLLS settles. */
+async function pollPending(baseUrl: string, masterKey: string, flush: FlushState): Promise<void> {
+	for (const key of [...flush.pending]) {
+		const spend = await readSpend(baseUrl, masterKey, key);
+		if (spend === undefined || spend <= (flush.baselines.get(key) ?? 0)) {
+			continue;
+		}
+		const seen = flush.lastSeen.get(key);
+		const stablePolls = seen !== undefined && seen.spend === spend ? seen.stablePolls + 1 : 0;
+		flush.lastSeen.set(key, { spend, stablePolls });
+		if (stablePolls >= FLUSH_STABLE_POLLS) {
+			flush.pending.delete(key);
+		}
+	}
+}
+
 /**
  * Poll /key/info until every key's spend has risen above its pre-chat baseline AND held steady for FLUSH_STABLE_POLLS
  * consecutive readings: risen means the async flush started landing, steady means no partial batch is still queued
@@ -213,26 +242,14 @@ async function fireChat(baseUrl: string, spec: DemoUsageKeySpec, words: number):
  */
 async function awaitSpendFlush(baseUrl: string, masterKey: string, baselines: Map<string, number>): Promise<void> {
 	const deadline = Date.now() + FLUSH_TIMEOUT_MS;
-	const lastSeen = new Map<string, { spend: number; stablePolls: number }>();
-	const pending = new Set(baselines.keys());
+	const flush: FlushState = { baselines, lastSeen: new Map(), pending: new Set(baselines.keys()) };
 	for (;;) {
-		for (const key of [...pending]) {
-			const spend = await readSpend(baseUrl, masterKey, key);
-			if (spend === undefined || spend <= (baselines.get(key) ?? 0)) {
-				continue;
-			}
-			const seen = lastSeen.get(key);
-			const stablePolls = seen !== undefined && seen.spend === spend ? seen.stablePolls + 1 : 0;
-			lastSeen.set(key, { spend, stablePolls });
-			if (stablePolls >= FLUSH_STABLE_POLLS) {
-				pending.delete(key);
-			}
-		}
-		if (pending.size === 0) {
+		await pollPending(baseUrl, masterKey, flush);
+		if (flush.pending.size === 0) {
 			return;
 		}
 		if (Date.now() >= deadline) {
-			throw new Error(`spend flush did not settle within ${FLUSH_TIMEOUT_MS}ms for ${pending.size} key(s)`);
+			throw new Error(`spend flush did not settle within ${FLUSH_TIMEOUT_MS}ms for ${flush.pending.size} key(s)`);
 		}
 		await new Promise((resolve) => setTimeout(resolve, FLUSH_POLL_MS));
 	}

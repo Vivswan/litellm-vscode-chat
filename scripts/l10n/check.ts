@@ -17,6 +17,7 @@
  */
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { l10nJsonFormat } from "@vscode/l10n-dev";
 import { z } from "zod";
 import { bannedTypography, placeholderCounts } from "../../src/test/util/l10n";
 import {
@@ -81,6 +82,22 @@ async function exists(file: string): Promise<boolean> {
 	}
 }
 
+/** Key-level drift hints before the verdict, so the failure reads without a manual diff. */
+function reportDriftHints(committed: BundleFile, extracted: l10nJsonFormat): void {
+	for (const key of Object.keys(extracted)) {
+		if (!(key in committed)) {
+			fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} is in the source but not in the bundle.`);
+		} else if (bundleMessage(extracted[key]) !== bundleMessage(committed[key])) {
+			fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} has a different message in the source.`);
+		}
+	}
+	for (const key of Object.keys(committed)) {
+		if (!(key in extracted)) {
+			fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} is in the bundle but no longer in the source.`);
+		}
+	}
+}
+
 /** (a) The bundle is 100% generated, so drift is a byte comparison against a fresh extraction. */
 async function checkExtractionDrift(): Promise<BundleFile | undefined> {
 	if (!(await exists(BUNDLE_PATH))) {
@@ -91,20 +108,8 @@ async function checkExtractionDrift(): Promise<BundleFile | undefined> {
 	const committed = parseTable(BUNDLE_PATH, committedText, bundleSchema);
 	const extracted = await extractBundle();
 	if (serializeBundle(extracted) !== committedText) {
-		// Key-level hints before the verdict, so the failure reads without a manual diff.
 		if (committed !== undefined) {
-			for (const key of Object.keys(extracted)) {
-				if (!(key in committed)) {
-					fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} is in the source but not in the bundle.`);
-				} else if (bundleMessage(extracted[key]) !== bundleMessage(committed[key])) {
-					fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} has a different message in the source.`);
-				}
-			}
-			for (const key of Object.keys(committed)) {
-				if (!(key in extracted)) {
-					fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} is in the bundle but no longer in the source.`);
-				}
-			}
+			reportDriftHints(committed, extracted);
 		}
 		fail(
 			`${rel(BUNDLE_PATH)} is not byte-identical to a fresh extraction; ` +
@@ -268,45 +273,23 @@ function localesOf(names: readonly string[], pattern: RegExp): Set<string> {
 	return locales;
 }
 
-async function checkTranslationFiles(
-	englishBundle: BundleFile | undefined,
-	englishNls: Readonly<Record<string, string>> | undefined
+/** One translated table against its English reference, when that parsed: the preserved tokens, then typography. */
+async function checkTranslatedTable(
+	file: string,
+	reference: Readonly<Record<string, string>> | undefined
 ): Promise<void> {
-	const root = process.cwd();
-	const l10nDir = path.dirname(BUNDLE_PATH);
-	const bundleFiles = (await exists(l10nDir))
-		? (await fs.readdir(l10nDir)).filter((name) => /^bundle\.l10n\.[\w-]+\.json$/.test(name)).sort()
-		: [];
-	for (const name of bundleFiles) {
-		const file = path.join(l10nDir, name);
-		// Strings only: the webview bootstrap drops a bundle with any non-string value, so a {message, comment} object
-		// here would revert the dashboard to English while the host stays translated.
-		const translated = await readTable(file, nlsSchema);
-		if (translated === undefined) {
-			continue;
-		}
-		if (englishBundle !== undefined) {
-			checkAgainstReference(file, translated, bundleMessages(englishBundle));
-		}
-		checkTypography(file, translated);
+	const translated = await readTable(file, nlsSchema);
+	if (translated === undefined) {
+		return;
 	}
+	if (reference !== undefined) {
+		checkAgainstReference(file, translated, reference);
+	}
+	checkTypography(file, translated);
+}
 
-	const nlsFiles = (await fs.readdir(root)).filter((name) => /^package\.nls\.[\w-]+\.json$/.test(name)).sort();
-	if (englishNls !== undefined) {
-		checkTypography(path.join(root, "package.nls.json"), englishNls);
-	}
-	for (const name of nlsFiles) {
-		const file = path.join(root, name);
-		const translated = await readTable(file, nlsSchema);
-		if (translated === undefined) {
-			continue;
-		}
-		if (englishNls !== undefined) {
-			checkAgainstReference(file, translated, englishNls);
-		}
-		checkTypography(file, translated);
-	}
-
+/** Every bundle locale has its package.nls twin and the other way round. */
+function checkLocalePairing(bundleFiles: readonly string[], nlsFiles: readonly string[]): void {
 	const bundleLocales = localesOf(bundleFiles, /^bundle\.l10n\.([\w-]+)\.json$/);
 	const nlsLocales = localesOf(nlsFiles, /^package\.nls\.([\w-]+)\.json$/);
 	for (const locale of bundleLocales) {
@@ -319,6 +302,33 @@ async function checkTranslationFiles(
 			fail(`locale ${locale}: package.nls.${locale}.json exists but l10n/bundle.l10n.${locale}.json is missing.`);
 		}
 	}
+}
+
+async function checkTranslationFiles(
+	englishBundle: BundleFile | undefined,
+	englishNls: Readonly<Record<string, string>> | undefined
+): Promise<void> {
+	const root = process.cwd();
+	const l10nDir = path.dirname(BUNDLE_PATH);
+	const bundleFiles = (await exists(l10nDir))
+		? (await fs.readdir(l10nDir)).filter((name) => /^bundle\.l10n\.[\w-]+\.json$/.test(name)).sort()
+		: [];
+	// Strings only: the webview bootstrap drops a bundle with any non-string value, so a {message, comment} object
+	// here would revert the dashboard to English while the host stays translated.
+	const bundleReference = englishBundle === undefined ? undefined : bundleMessages(englishBundle);
+	for (const name of bundleFiles) {
+		await checkTranslatedTable(path.join(l10nDir, name), bundleReference);
+	}
+
+	const nlsFiles = (await fs.readdir(root)).filter((name) => /^package\.nls\.[\w-]+\.json$/.test(name)).sort();
+	if (englishNls !== undefined) {
+		checkTypography(path.join(root, "package.nls.json"), englishNls);
+	}
+	for (const name of nlsFiles) {
+		await checkTranslatedTable(path.join(root, name), englishNls);
+	}
+
+	checkLocalePairing(bundleFiles, nlsFiles);
 }
 
 function collectNlsReferences(node: unknown, into: Set<string>): void {

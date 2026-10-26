@@ -49,6 +49,10 @@ export type SettingShape =
 	| { readonly kind: "languageFilter" }
 	| { readonly kind: "servers" };
 
+type ScalarShape = Extract<SettingShape, { readonly kind: "number" | "boolean" | "enum" | "boundedString" }>;
+type ObjectShape = Extract<SettingShape, { readonly kind: "featureModel" | "modelRecord" | "languageFilter" }>;
+type ArrayShape = Extract<SettingShape, { readonly kind: "keywordList" | "thresholdList" | "servers" }>;
+
 /** The renderer's inputs, string-keyed so a test can inject a mini-spec; the spec's own tables are the defaults. */
 export interface ConfigurationInputs {
 	readonly sections: readonly { readonly id: string; readonly settings: readonly string[] }[];
@@ -128,8 +132,8 @@ const FEATURE_MODEL_PROPERTIES: JsonObject = {
 	model: { type: "string", description: "%litellm.config.featureModel.model.description%" },
 };
 
-/** One property's schema, keys in the order the manifest carries them. */
-export function renderProperty(id: string, shape: SettingShape, presentation: SettingPresentation): JsonObject {
+/** A scalar setting's schema (number, boolean, enum, bounded string), keys in the order the manifest carries them. */
+function renderScalarProperty(id: string, shape: ScalarShape, presentation: SettingPresentation): JsonObject {
 	switch (shape.kind) {
 		case "number": {
 			const scalar = shape.spec.integer === true ? "integer" : "number";
@@ -173,6 +177,12 @@ export function renderProperty(id: string, shape: SettingShape, presentation: Se
 				...editPresentation(presentation),
 				...description(id, presentation),
 			};
+	}
+}
+
+/** An object setting's schema (feature model, model record, language filter), keys in manifest order. */
+function renderObjectProperty(id: string, shape: ObjectShape, presentation: SettingPresentation): JsonObject {
+	switch (shape.kind) {
 		case "featureModel":
 			return {
 				type: ["object", "null"],
@@ -192,27 +202,6 @@ export function renderProperty(id: string, shape: SettingShape, presentation: Se
 				...restricted(presentation),
 				...description(id, presentation),
 				additionalProperties: { type: "object" },
-			};
-		case "keywordList":
-			return {
-				type: "array",
-				...scope(presentation),
-				default: [],
-				...restricted(presentation),
-				items: { type: "string", minLength: 1 },
-				uniqueItems: true,
-				...description(id, presentation),
-			};
-		case "thresholdList":
-			return {
-				type: "array",
-				...scope(presentation),
-				default: DEFAULT_USAGE_ALERT_THRESHOLDS,
-				...restricted(presentation),
-				// The bound is isUsableThreshold's: finite, in (0, 1].
-				items: { type: "number", exclusiveMinimum: 0, maximum: 1 },
-				uniqueItems: true,
-				...description(id, presentation),
 			};
 		case "languageFilter":
 			return {
@@ -237,6 +226,33 @@ export function renderProperty(id: string, shape: SettingShape, presentation: Se
 				...restricted(presentation),
 				...description(id, presentation),
 			};
+	}
+}
+
+/** An array setting's schema (keyword list, threshold list, servers), keys in the order the manifest carries them. */
+function renderArrayProperty(id: string, shape: ArrayShape, presentation: SettingPresentation): JsonObject {
+	switch (shape.kind) {
+		case "keywordList":
+			return {
+				type: "array",
+				...scope(presentation),
+				default: [],
+				...restricted(presentation),
+				items: { type: "string", minLength: 1 },
+				uniqueItems: true,
+				...description(id, presentation),
+			};
+		case "thresholdList":
+			return {
+				type: "array",
+				...scope(presentation),
+				default: DEFAULT_USAGE_ALERT_THRESHOLDS,
+				...restricted(presentation),
+				// The bound is isUsableThreshold's: finite, in (0, 1].
+				items: { type: "number", exclusiveMinimum: 0, maximum: 1 },
+				uniqueItems: true,
+				...description(id, presentation),
+			};
 		case "servers":
 			assertServersSchemaCoversEntryFields();
 			return {
@@ -247,6 +263,25 @@ export function renderProperty(id: string, shape: SettingShape, presentation: Se
 				...description(id, presentation),
 				items: SERVERS_ENTRY_SCHEMA,
 			};
+	}
+}
+
+/** One property's schema, keys in the order the manifest carries them. */
+export function renderProperty(id: string, shape: SettingShape, presentation: SettingPresentation): JsonObject {
+	switch (shape.kind) {
+		case "number":
+		case "boolean":
+		case "enum":
+		case "boundedString":
+			return renderScalarProperty(id, shape, presentation);
+		case "featureModel":
+		case "modelRecord":
+		case "languageFilter":
+			return renderObjectProperty(id, shape, presentation);
+		case "keywordList":
+		case "thresholdList":
+		case "servers":
+			return renderArrayProperty(id, shape, presentation);
 	}
 }
 

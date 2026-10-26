@@ -136,6 +136,32 @@ async function measurePane(cdp: CdpConnection): Promise<number> {
 	return typeof measured === "number" ? measured : 0;
 }
 
+/** What one search needs: the pane width wanted, the window width it starts from, and the fixed viewport axes. */
+interface PaneSearch {
+	readonly pane: number;
+	readonly start: number;
+	readonly height: number;
+	readonly dpr: number;
+}
+
+/** The window width that lands the pane at `pane`, solved by measuring; undefined when the search stalls or dies. */
+async function solveWindowWidth(cdp: CdpConnection, search: PaneSearch): Promise<number | undefined> {
+	let candidate = search.start;
+	for (let attempt = 0; attempt < 5; attempt++) {
+		await setWidth(cdp, candidate, search.height, search.dpr);
+		const measured = await measurePane(cdp);
+		if (measured === search.pane) {
+			return candidate;
+		}
+		const next = candidate + (search.pane - measured);
+		if (next < 1 || next === candidate) {
+			return undefined;
+		}
+		candidate = next;
+	}
+	return undefined;
+}
+
 /**
  * The breakpoints are container queries on the pane, so a window set to a pane threshold tests a width no breakpoint
  * cares about; each target is SOLVED by measuring rather than modelled from the layout, and a capped or discontinuous
@@ -152,19 +178,9 @@ export async function windowWidthsForPanes(
 	for (const pane of panes) {
 		const found = new Set<number>();
 		for (const start of [NARROW_PROBE_WIDTH, WIDE_PROBE_WIDTH]) {
-			let candidate = start;
-			for (let attempt = 0; attempt < 5; attempt++) {
-				await setWidth(cdp, candidate, height, dpr);
-				const measured = await measurePane(cdp);
-				if (measured === pane) {
-					found.add(candidate);
-					break;
-				}
-				const next = candidate + (pane - measured);
-				if (next < 1 || next === candidate) {
-					break;
-				}
-				candidate = next;
+			const window = await solveWindowWidth(cdp, { pane, start, height, dpr });
+			if (window !== undefined) {
+				found.add(window);
 			}
 		}
 		for (const window of found) {

@@ -150,177 +150,255 @@ function fimCompletionText(prompt: string, suffix: string): string {
 	return suffix === "" ? `fim(${head})` : `fim(${head}|${suffix.slice(0, 12)})`;
 }
 
+/**
+ * A request body as JSON, or undefined for invalid JSON. An empty body, or a document that is a number, string,
+ * boolean, or null, reads as {}; an array passes through under the record type, as the chat and FIM handlers read it.
+ */
+function parseRequestBody(raw: string): Record<string, unknown> | undefined {
+	try {
+		const parsed: unknown = raw ? JSON.parse(raw) : {};
+		return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+	} catch {
+		return undefined;
+	}
+}
+
+/** The OAuth token grant: a bounded body, then the provider state's verdict. */
+async function handleOAuthToken(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	const read = await readBodyBounded(req, MAX_CUSTOM_SCENARIO_BYTES);
+	if (read.overflow) {
+		req.resume();
+		sendJson(res, 413, { error: { message: "Token request body exceeds 1 MiB" } });
+		return;
+	}
+	const outcome = grantToken(oauthState, parseTokenRequestBody(read.body, req.headers["content-type"]));
+	sendJson(res, outcome.status, outcome.body);
+}
+
+/** The routes outside the /authed and /nodiscovery mirrors: the OAuth grant and the test counters. True once sent. */
+async function handleProviderRoutes(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+	if (req.method === "POST" && url.pathname === "/oauth/token") {
+		await handleOAuthToken(req, res);
+		return true;
+	}
+	if (req.method === "GET" && url.pathname === "/_test/oauth-stats") {
+		sendJson(res, 200, oauthStats(oauthState));
+		return true;
+	}
+	if (req.method === "POST" && url.pathname === "/_test/oauth-revoke") {
+		sendJson(res, 200, { revoked: revokeAllTokens(oauthState) });
+		return true;
+	}
+	if (req.method === "GET" && url.pathname === "/_test/nodiscovery-stats") {
+		sendJson(res, 200, noDiscoveryStats(noDiscoveryState));
+		return true;
+	}
+	return false;
+}
+
+/**
+ * The /authed prefix is the bearer-guarded mirror of every route below: a live token strips the prefix and dispatches
+ * to the normal handlers, so the OAuth suites drive real discovery and chat over a real socket without a second port.
+ * Anything else gets the LiteLLM-shaped 401 the extension's error mapping classifies as an auth failure. The path with
+ * the prefix stripped, or undefined once the 401 went out.
+ */
+function authedPathname(req: IncomingMessage, res: ServerResponse, pathname: string): string | undefined {
+	if (!(pathname === "/authed" || pathname.startsWith("/authed/"))) {
+		return pathname;
+	}
+	if (req.method === "POST" && pathname === "/authed/v1/chat/completions") {
+		// Every wire attempt counts, auth outcome included: the suite's no-retry assertions read this as "how many
+		// times did the client actually hit the guarded chat endpoint".
+		oauthState.authedChatRequests += 1;
+	}
+	if (!isLiveBearer(oauthState, req.headers.authorization)) {
+		sendJson(res, 401, authErrorBody("Authentication Error: invalid or revoked bearer token"));
+		return undefined;
+	}
+	return pathname.slice("/authed".length) || "/";
+}
+
+/**
+ * The /nodiscovery prefix is the discovery-less mirror: a gateway that serves chat but cannot list models. The routed
+ * path, or undefined once a discovery route was refused. The OpenAI SDK never retries a plain 404, which would make the
+ * expectedFailures no-retry assertions vacuous; x-should-retry: true overrides its policy, so only a zeroed retry
+ * budget yields one attempt against the counters.
+ */
+function noDiscoveryPathname(req: IncomingMessage, res: ServerResponse, pathname: string): string | undefined {
+	const routed = stripNoDiscoveryPrefix(pathname);
+	if (routed.noDiscovery && req.method === "GET" && isDiscoveryRoute(routed.pathname)) {
+		recordDiscoveryAttempt(noDiscoveryState, routed.pathname, req.headers.authorization);
+		res.setHeader("x-should-retry", "true");
+		sendJson(res, 404, { error: { message: "Not found" } });
+		return undefined;
+	}
+	return routed.pathname;
+}
+
+/**
+ * The custom-scenario upload. A fast 413 on the declared length; the bounded read still guards chunked or lying
+ * senders, and resume() drains the unread remainder so the client can complete its upload and read the 413.
+ */
+async function handleCustomScenario(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	const oversized = { error: { message: "Custom scenario body exceeds 1 MiB" } };
+	const declared = Number(req.headers["content-length"]);
+	if (Number.isFinite(declared) && declared > MAX_CUSTOM_SCENARIO_BYTES) {
+		req.resume();
+		sendJson(res, 413, oversized);
+		return;
+	}
+	const read = await readBodyBounded(req, MAX_CUSTOM_SCENARIO_BYTES);
+	if (read.overflow) {
+		req.resume();
+		sendJson(res, 413, oversized);
+		return;
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(read.body);
+	} catch {
+		sendJson(res, 400, { error: { message: "Body must be JSON: {name, config}" } });
+		return;
+	}
+	const record = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+	const name = typeof record.name === "string" ? record.name : "";
+	if (!name || !isScenario(record.config)) {
+		sendJson(res, 400, {
+			error: { message: "Expected {name: string, config: {type: sse|sse-delayed|error|sse-abort|raw, ...}}" },
+		});
+		return;
+	}
+	scenarios.set(name, record.config);
+	sendJson(res, 200, { scenario: name });
+}
+
+/**
+ * The text-completions (FIM) route. Always a plain JSON body: the extension's FIM requests are non-streaming by
+ * contract, so a stream flag is ignored rather than answered with a second SSE grammar.
+ */
+async function handleCompletions(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	const body = parseRequestBody(await readBody(req));
+	if (body === undefined) {
+		sendJson(res, 400, { error: { message: "Invalid JSON" } });
+		return;
+	}
+	// The completions-side observation point: the docker suites' only proof of what actually reached the wire (no
+	// injected params, no underscore directives, stream: false).
+	lastCompletionRequest = body;
+	const prompt = typeof body.prompt === "string" ? body.prompt : "";
+	const suffix = typeof body.suffix === "string" ? body.suffix : "";
+	const text = fimCompletionText(prompt, suffix);
+	const promptTokens = Math.max(1, Math.ceil((prompt.length + suffix.length) / 4));
+	const completionTokens = Math.max(1, Math.ceil(text.length / 4));
+	sendJson(res, 200, {
+		id: "cmpl-fake",
+		object: "text_completion",
+		created: 0,
+		model: typeof body.model === "string" ? body.model : "fake-fim",
+		choices: [{ index: 0, text, logprobs: null, finish_reason: "stop" }],
+		usage: {
+			prompt_tokens: promptTokens,
+			completion_tokens: completionTokens,
+			total_tokens: promptTokens + completionTokens,
+		},
+	});
+}
+
+/**
+ * The chat route: the request recorded (a parse failure under its own marker), the command grammar dispatched, the
+ * result played.
+ */
+async function handleChatCompletions(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	const raw = await readBody(req);
+	const body = parseRequestBody(raw);
+	if (body === undefined) {
+		lastRequest = { _parseError: true, _raw: raw };
+		sendJson(res, 400, { error: { message: "Invalid JSON" } });
+		return;
+	}
+	lastRequest = body;
+
+	const context = { request: body, scenarios };
+	const stream = body.stream === true;
+
+	const command = dispatchCommand(context);
+	logChatRequest(context, stream, command !== undefined);
+	const result = command ?? fallbackReply(context);
+	if (VERBOSE) {
+		logChatExchange(context, result, stream);
+	}
+	playResult(res, result, stream);
+}
+
+/** The read-only routes behind the mirrors; a miss is a 404. */
+function handleRead(res: ServerResponse, pathname: string): void {
+	if (pathname === "/health") {
+		sendJson(res, 200, { status: "ok" });
+		return;
+	}
+	if (pathname === "/v1/models") {
+		// The consolidated fake- upstream ids only; blocked deployments are excluded exactly as a real provider would
+		// not list a decommissioned model. Scenarios are not models - they are %play targets.
+		sendJson(res, 200, {
+			object: "list",
+			data: FAKE_MODEL_UPSTREAM_IDS.map((id) => ({ id, object: "model", created: 0, owned_by: "fake-openai" })),
+		});
+		return;
+	}
+	if (pathname === "/_test/last-request") {
+		sendJson(res, 200, lastRequest || {});
+		return;
+	}
+	if (pathname === "/_test/last-completion-request") {
+		sendJson(res, 200, lastCompletionRequest || {});
+		return;
+	}
+	sendJson(res, 404, { error: { message: "Not found" } });
+}
+
+/** The routes behind the mirrors, by method and path; a miss is a 404. */
+async function dispatch(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<void> {
+	if (req.method === "GET") {
+		handleRead(res, pathname);
+		return;
+	}
+	if (req.method === "PUT" && pathname === "/_test/custom-scenario") {
+		await handleCustomScenario(req, res);
+		return;
+	}
+	if (req.method === "POST" && pathname === "/v1/completions") {
+		await handleCompletions(req, res);
+		return;
+	}
+	if (req.method === "POST" && pathname === "/v1/chat/completions") {
+		await handleChatCompletions(req, res);
+		return;
+	}
+	sendJson(res, 404, { error: { message: "Not found" } });
+}
+
 const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
 	const rawUrl = req.url || "/";
 	// Checked on the RAW request line, before URL parsing: new URL() folds dot segments away, so "/authed/../v1/models"
 	// (or a percent-encoded spelling) would otherwise dodge the /authed guard below. No served route contains ".." or
 	// "%2e", so the blanket rejection is total.
 	if (hasDotSegmentBypass(rawUrl)) {
-		return sendJson(res, 404, { error: { message: "Not found" } });
+		sendJson(res, 404, { error: { message: "Not found" } });
+		return;
 	}
 	const url = new URL(rawUrl, `http://${req.headers.host}`);
-
-	if (req.method === "POST" && url.pathname === "/oauth/token") {
-		const read = await readBodyBounded(req, MAX_CUSTOM_SCENARIO_BYTES);
-		if (read.overflow) {
-			req.resume();
-			return sendJson(res, 413, { error: { message: "Token request body exceeds 1 MiB" } });
-		}
-		const outcome = grantToken(oauthState, parseTokenRequestBody(read.body, req.headers["content-type"]));
-		return sendJson(res, outcome.status, outcome.body);
+	if (await handleProviderRoutes(req, res, url)) {
+		return;
 	}
-
-	if (req.method === "GET" && url.pathname === "/_test/oauth-stats") {
-		return sendJson(res, 200, oauthStats(oauthState));
+	const authed = authedPathname(req, res, url.pathname);
+	if (authed === undefined) {
+		return;
 	}
-
-	if (req.method === "POST" && url.pathname === "/_test/oauth-revoke") {
-		return sendJson(res, 200, { revoked: revokeAllTokens(oauthState) });
+	const pathname = noDiscoveryPathname(req, res, authed);
+	if (pathname === undefined) {
+		return;
 	}
-
-	if (req.method === "GET" && url.pathname === "/_test/nodiscovery-stats") {
-		return sendJson(res, 200, noDiscoveryStats(noDiscoveryState));
-	}
-
-	// The /authed prefix is the bearer-guarded mirror of every route below: a live token strips the prefix and
-	// dispatches to the normal handlers, so the OAuth suites drive real discovery and chat over a real socket without a
-	// second port. Anything else gets the LiteLLM-shaped 401 the extension's error mapping classifies as an auth
-	// failure.
-	let pathname = url.pathname;
-	if (pathname === "/authed" || pathname.startsWith("/authed/")) {
-		if (req.method === "POST" && pathname === "/authed/v1/chat/completions") {
-			// Every wire attempt counts, auth outcome included: the suite's no-retry assertions read this as "how many
-			// times did the client actually hit the guarded chat endpoint".
-			oauthState.authedChatRequests += 1;
-		}
-		if (!isLiveBearer(oauthState, req.headers.authorization)) {
-			return sendJson(res, 401, authErrorBody("Authentication Error: invalid or revoked bearer token"));
-		}
-		pathname = pathname.slice("/authed".length) || "/";
-	}
-
-	// The /nodiscovery prefix is the discovery-less mirror: a gateway that serves chat but cannot list models.
-	const routed = stripNoDiscoveryPrefix(pathname);
-	pathname = routed.pathname;
-	if (routed.noDiscovery && req.method === "GET" && isDiscoveryRoute(pathname)) {
-		recordDiscoveryAttempt(noDiscoveryState, pathname, req.headers.authorization);
-		// The OpenAI SDK never retries a plain 404, which would make the expectedFailures no-retry assertions vacuous;
-		// x-should-retry: true overrides its policy, so only a zeroed retry budget yields one attempt against the
-		// counters above.
-		res.setHeader("x-should-retry", "true");
-		return sendJson(res, 404, { error: { message: "Not found" } });
-	}
-
-	if (req.method === "GET" && pathname === "/health") {
-		return sendJson(res, 200, { status: "ok" });
-	}
-
-	if (req.method === "GET" && pathname === "/v1/models") {
-		// The consolidated fake- upstream ids only; blocked deployments are excluded exactly as a real provider would
-		// not list a decommissioned model. Scenarios are not models - they are %play targets.
-		return sendJson(res, 200, {
-			object: "list",
-			data: FAKE_MODEL_UPSTREAM_IDS.map((id) => ({ id, object: "model", created: 0, owned_by: "fake-openai" })),
-		});
-	}
-
-	if (req.method === "GET" && pathname === "/_test/last-request") {
-		return sendJson(res, 200, lastRequest || {});
-	}
-
-	if (req.method === "GET" && pathname === "/_test/last-completion-request") {
-		return sendJson(res, 200, lastCompletionRequest || {});
-	}
-
-	if (req.method === "PUT" && pathname === "/_test/custom-scenario") {
-		const oversized = { error: { message: "Custom scenario body exceeds 1 MiB" } };
-		// Fast path on the declared length; the bounded read below still guards chunked or lying senders. resume()
-		// drains the unread remainder so the client can complete its upload and read the 413.
-		const declared = Number(req.headers["content-length"]);
-		if (Number.isFinite(declared) && declared > MAX_CUSTOM_SCENARIO_BYTES) {
-			req.resume();
-			return sendJson(res, 413, oversized);
-		}
-		const read = await readBodyBounded(req, MAX_CUSTOM_SCENARIO_BYTES);
-		if (read.overflow) {
-			req.resume();
-			return sendJson(res, 413, oversized);
-		}
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(read.body);
-		} catch {
-			return sendJson(res, 400, { error: { message: "Body must be JSON: {name, config}" } });
-		}
-		const record = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
-		const name = typeof record.name === "string" ? record.name : "";
-		if (!name || !isScenario(record.config)) {
-			return sendJson(res, 400, {
-				error: { message: "Expected {name: string, config: {type: sse|sse-delayed|error|sse-abort|raw, ...}}" },
-			});
-		}
-		scenarios.set(name, record.config);
-		return sendJson(res, 200, { scenario: name });
-	}
-
-	if (req.method === "POST" && pathname === "/v1/completions") {
-		const raw = await readBody(req);
-		let body: Record<string, unknown>;
-		try {
-			const parsed: unknown = raw ? JSON.parse(raw) : {};
-			body = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
-		} catch {
-			return sendJson(res, 400, { error: { message: "Invalid JSON" } });
-		}
-		// The completions-side observation point: the docker suites' only proof of what actually reached the wire (no
-		// injected params, no underscore directives, stream: false).
-		lastCompletionRequest = body;
-		const prompt = typeof body.prompt === "string" ? body.prompt : "";
-		const suffix = typeof body.suffix === "string" ? body.suffix : "";
-		const text = fimCompletionText(prompt, suffix);
-		const promptTokens = Math.max(1, Math.ceil((prompt.length + suffix.length) / 4));
-		const completionTokens = Math.max(1, Math.ceil(text.length / 4));
-		// Always a plain JSON body: the extension's FIM requests are non-streaming by contract, so a stream flag is
-		// ignored rather than answered with a second SSE grammar.
-		return sendJson(res, 200, {
-			id: "cmpl-fake",
-			object: "text_completion",
-			created: 0,
-			model: typeof body.model === "string" ? body.model : "fake-fim",
-			choices: [{ index: 0, text, logprobs: null, finish_reason: "stop" }],
-			usage: {
-				prompt_tokens: promptTokens,
-				completion_tokens: completionTokens,
-				total_tokens: promptTokens + completionTokens,
-			},
-		});
-	}
-
-	if (req.method === "POST" && pathname === "/v1/chat/completions") {
-		const raw = await readBody(req);
-		let body: Record<string, unknown>;
-		try {
-			const parsed: unknown = raw ? JSON.parse(raw) : {};
-			body = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
-		} catch {
-			lastRequest = { _parseError: true, _raw: raw };
-			return sendJson(res, 400, { error: { message: "Invalid JSON" } });
-		}
-		lastRequest = body;
-
-		const context = { request: body, scenarios };
-		const stream = body.stream === true;
-
-		const command = dispatchCommand(context);
-		logChatRequest(context, stream, command !== undefined);
-		const result = command ?? fallbackReply(context);
-		if (VERBOSE) {
-			logChatExchange(context, result, stream);
-		}
-		return playResult(res, result, stream);
-	}
-
-	sendJson(res, 404, { error: { message: "Not found" } });
+	await dispatch(req, res, pathname);
 };
 
 const server = http.createServer((req, res) => {

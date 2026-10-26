@@ -159,12 +159,19 @@ function numberReaderOf(program: ts.Program, declaration: ts.Declaration): strin
 		: undefined;
 }
 
+/** The spelled name of a callee: a bare identifier's text or a property access's member name. */
+function accessName(access: ts.Expression): string | undefined {
+	if (ts.isIdentifier(access)) {
+		return access.text;
+	}
+	if (ts.isPropertyAccessExpression(access)) {
+		return access.name.text;
+	}
+	return undefined;
+}
+
 function unresolvedReaderName(access: ts.Expression): string | undefined {
-	const name = ts.isIdentifier(access)
-		? access.text
-		: ts.isPropertyAccessExpression(access)
-			? access.name.text
-			: undefined;
+	const name = accessName(access);
 	return name === "Number" || (name !== undefined && NUMBER_PARSERS.has(name)) ? name : undefined;
 }
 

@@ -48,14 +48,23 @@ export async function readSourceFiles(): Promise<SourceFile[]> {
 	return Promise.all(files.map(async (file) => ({ file, contents: await fs.readFile(file, "utf8") })));
 }
 
+/** Code-unit order, so the serialized bundle is stable; localeCompare would vary by locale. */
+function compareKeys(left: string, right: string): number {
+	if (left < right) {
+		return -1;
+	}
+	if (left > right) {
+		return 1;
+	}
+	return 0;
+}
+
 export async function extractBundle(): Promise<l10nJsonFormat> {
 	const files = await readSourceFiles();
 	const extracted = await getL10nJson(files.map(({ file, contents }) => ({ extension: path.extname(file), contents })));
 	// Entries, not keys: the bun test project compiles this file under noUncheckedIndexedAccess, where a key lookup
 	// reads as possibly undefined.
-	return Object.fromEntries(
-		Object.entries(extracted).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-	);
+	return Object.fromEntries(Object.entries(extracted).sort(([left], [right]) => compareKeys(left, right)));
 }
 
 /** The bundle's on-disk form; one serializer so extract and check cannot disagree. */
@@ -69,29 +78,42 @@ interface AliasSpecifier {
 	readonly of: string;
 }
 
-/** The renaming (aliased) import/export specifiers of one top-level statement; a plain re-export mints no new name. */
-function aliasSpecifiers(statement: ts.Statement): AliasSpecifier[] {
+/**
+ * A renaming specifier's alias, or undefined for a plain or type-only one. The propertyName may be a string literal
+ * (`export { "a-b" as t }`); both carry .text.
+ */
+function aliasOf(element: ts.ImportSpecifier | ts.ExportSpecifier): AliasSpecifier | undefined {
+	if (element.isTypeOnly || element.propertyName === undefined) {
+		return undefined;
+	}
+	return { name: element.name.text, of: element.propertyName.text };
+}
+
+/** The aliases among a statement's specifiers. */
+function aliasesOf(elements: readonly (ts.ImportSpecifier | ts.ExportSpecifier)[]): AliasSpecifier[] {
 	const aliases: AliasSpecifier[] = [];
-	if (ts.isImportDeclaration(statement)) {
-		const bindings = statement.importClause?.namedBindings;
-		if (statement.importClause?.isTypeOnly !== true && bindings !== undefined && ts.isNamedImports(bindings)) {
-			for (const element of bindings.elements) {
-				if (!element.isTypeOnly && element.propertyName !== undefined) {
-					aliases.push({ name: element.name.text, of: element.propertyName.text });
-				}
-			}
-		}
-	} else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly && statement.exportClause !== undefined) {
-		if (ts.isNamedExports(statement.exportClause)) {
-			for (const element of statement.exportClause.elements) {
-				// The propertyName may be a string literal (`export { "a-b" as t }`); both carry .text.
-				if (!element.isTypeOnly && element.propertyName !== undefined) {
-					aliases.push({ name: element.name.text, of: element.propertyName.text });
-				}
-			}
+	for (const element of elements) {
+		const alias = aliasOf(element);
+		if (alias !== undefined) {
+			aliases.push(alias);
 		}
 	}
 	return aliases;
+}
+
+/** The renaming (aliased) import/export specifiers of one top-level statement; a plain re-export mints no new name. */
+function aliasSpecifiers(statement: ts.Statement): AliasSpecifier[] {
+	if (ts.isImportDeclaration(statement)) {
+		const bindings = statement.importClause?.namedBindings;
+		if (statement.importClause?.isTypeOnly === true || bindings === undefined || !ts.isNamedImports(bindings)) {
+			return [];
+		}
+		return aliasesOf(bindings.elements);
+	}
+	if (ts.isExportDeclaration(statement) && !statement.isTypeOnly && statement.exportClause !== undefined) {
+		return ts.isNamedExports(statement.exportClause) ? aliasesOf(statement.exportClause.elements) : [];
+	}
+	return [];
 }
 
 /**
@@ -153,6 +175,21 @@ function isStaticMember(member: ts.ClassElement): boolean {
 		ts.canHaveModifiers(member) &&
 		(ts.getModifiers(member) ?? []).some((modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword)
 	);
+}
+
+/** Parens and type wrappers do not change what evaluates; strip them so `(fn)()` and `fn as T` read as fn. */
+export function unwrapExpression(node: ts.Expression): ts.Expression {
+	let current = node;
+	while (
+		ts.isParenthesizedExpression(current) ||
+		ts.isAsExpression(current) ||
+		ts.isSatisfiesExpression(current) ||
+		ts.isNonNullExpression(current) ||
+		ts.isTypeAssertionExpression(current)
+	) {
+		current = current.expression;
+	}
+	return current;
 }
 
 /** The text a literal key spells: `"render"` and `0` match the member they name, a variable key is unreadable. */
@@ -373,53 +410,81 @@ interface DestructuringEdges {
 	readonly thisMembers: string[];
 }
 
+/** The leaves a destructuring renames: a leaf selected by a key other than its own name is that key's alias. */
+function renamedLeaves(names: readonly DestructuredName[]): AliasSpecifier[] {
+	const aliases: AliasSpecifier[] = [];
+	for (const { name, path } of names) {
+		const selected = path[path.length - 1];
+		if (selected !== undefined && selected !== name) {
+			aliases.push({ name, of: selected });
+		}
+	}
+	return aliases;
+}
+
+/** The first key of each leaf's path: the member a destructuring off `this` selects. */
+function firstKeys(names: readonly DestructuredName[]): string[] {
+	const keys: string[] = [];
+	for (const { path } of names) {
+		const [member] = path;
+		if (member !== undefined) {
+			keys.push(member);
+		}
+	}
+	return keys;
+}
+
 /**
- * The edges a destructuring draws. Off a local namespace import the first key is the root read (`{ TEXTS: { a } } =
- * helpers` reads TEXTS as `helpers.TEXTS.a` does), and a leaf selected by that key alone is its spelling alias and
- * nothing more.
+ * Off a local namespace import the first key is the root read (`{ TEXTS: { a } } = helpers` reads TEXTS as
+ * `helpers.TEXTS.a` does), and a leaf selected by that key alone is its spelling alias and nothing more.
  */
+function namespaceReads(names: readonly DestructuredName[]): AliasSpecifier[] {
+	const reads: AliasSpecifier[] = [];
+	for (const { name, path } of names) {
+		const [member] = path;
+		if (member !== undefined && path.length > 1) {
+			reads.push({ name, of: member });
+		}
+	}
+	return reads;
+}
+
+/** The edges one resolved value of the destructuring draws, added to `edges`. */
+function addValueEdges(
+	edges: DestructuringEdges,
+	candidate: ts.Expression,
+	names: readonly DestructuredName[],
+	sourceFile: ts.SourceFile
+): void {
+	if (candidate.kind === ts.SyntaxKind.ThisKeyword) {
+		edges.thisMembers.push(...firstKeys(names));
+		return;
+	}
+	if (ts.isIdentifier(candidate) && localNamespaceImports(sourceFile).has(candidate.text)) {
+		edges.reads.push(...namespaceReads(names));
+		return;
+	}
+	const root = memberChainRoot(candidate, sourceFile);
+	if (root !== undefined) {
+		edges.reads.push(...names.map(({ name }) => ({ name, of: root })));
+		return;
+	}
+	const literal = literalChainRoot(candidate);
+	if (literal !== undefined) {
+		edges.literals.push({ literal, names: names.map(({ name }) => name) });
+	}
+}
+
+/** The edges a destructuring draws, for every value its right-hand side can hand over. */
 function destructuringEdges(
 	target: ts.Node,
 	value: ts.Expression | undefined,
 	sourceFile: ts.SourceFile
 ): DestructuringEdges {
 	const names = destructuredNames(target);
-	const edges: DestructuringEdges = { aliases: [], reads: [], literals: [], thisMembers: [] };
-	for (const { name, path } of names) {
-		const selected = path[path.length - 1];
-		if (selected !== undefined && selected !== name) {
-			edges.aliases.push({ name, of: selected });
-		}
-	}
+	const edges: DestructuringEdges = { aliases: renamedLeaves(names), reads: [], literals: [], thisMembers: [] };
 	for (const candidate of value === undefined ? [] : calleeCandidates(value, sourceFile)) {
-		if (candidate.kind === ts.SyntaxKind.ThisKeyword) {
-			for (const [member] of names.map(({ path }) => path)) {
-				if (member !== undefined) {
-					edges.thisMembers.push(member);
-				}
-			}
-			continue;
-		}
-		if (ts.isIdentifier(candidate) && localNamespaceImports(sourceFile).has(candidate.text)) {
-			for (const { name, path } of names) {
-				const [member] = path;
-				if (member !== undefined && path.length > 1) {
-					edges.reads.push({ name, of: member });
-				}
-			}
-			continue;
-		}
-		const root = memberChainRoot(candidate, sourceFile);
-		if (root !== undefined) {
-			for (const { name } of names) {
-				edges.reads.push({ name, of: root });
-			}
-			continue;
-		}
-		const literal = literalChainRoot(candidate);
-		if (literal !== undefined) {
-			edges.literals.push({ literal, names: names.map(({ name }) => name) });
-		}
+		addValueEdges(edges, candidate, names, sourceFile);
 	}
 	return edges;
 }
@@ -487,152 +552,217 @@ function calleeCandidates(expression: ts.Expression, sourceFile: ts.SourceFile):
 	);
 }
 
+/** The name a resolved callee is tracked by: a bare identifier's text, or a local namespace member's own name. */
+function calleeName(candidate: ts.Expression, sourceFile: ts.SourceFile): string | undefined {
+	if (ts.isIdentifier(candidate)) {
+		return candidate.text;
+	}
+	return namespaceMemberName(candidate, sourceFile);
+}
+
+/**
+ * A computed member call on a bare name or a local-namespace member: the member is unreadable, so the receiver carries
+ * the edge (a lazy function's only meaningful members are its forwarders), resolved through the same pipeline so a
+ * choosing receiver flattens. Literal keys resolve as members; a key on any other receiver stays the thunk-table
+ * boundary.
+ */
+function noteComputedReceiver(
+	evidence: InvocationEvidence,
+	callee: ts.ElementAccessExpression,
+	sourceFile: ts.SourceFile
+): void {
+	const key = unwrapExpression(callee.argumentExpression);
+	if (ts.isStringLiteralLike(key)) {
+		return;
+	}
+	for (const receiver of calleeCandidates(callee.expression, sourceFile)) {
+		const name = calleeName(receiver, sourceFile);
+		if (name !== undefined) {
+			evidence.callees.add(name);
+		}
+	}
+}
+
+/** The edges a call's callee draws: a direct l10n.t, a tracked name, or a computed member call's receiver. */
+function noteCallee(evidence: InvocationEvidence, calleeExpression: ts.Expression, sourceFile: ts.SourceFile): void {
+	for (const callee of calleeCandidates(calleeExpression, sourceFile)) {
+		const calleeText = callee.getText(sourceFile);
+		if (calleeText === "l10n.t" || calleeText === "vscode.l10n.t") {
+			evidence.direct = true;
+			continue;
+		}
+		const name = calleeName(callee, sourceFile);
+		if (name !== undefined) {
+			evidence.callees.add(name);
+			continue;
+		}
+		if (ts.isElementAccessExpression(callee)) {
+			noteComputedReceiver(evidence, callee, sourceFile);
+		}
+	}
+}
+
+/** Every value a right-hand side can hand over, as callee edges: an alias's source is callable under the new name. */
+function noteSources(evidence: InvocationEvidence, rhs: ts.Expression, sourceFile: ts.SourceFile): void {
+	for (const source of calleeCandidates(rhs, sourceFile)) {
+		const name = calleeName(source, sourceFile);
+		if (name !== undefined) {
+			evidence.callees.add(name);
+		}
+	}
+}
+
+/**
+ * A member read or call alike: `SURFACE_COPY[surface]` handed back is as much a path to the thunks as calling one, so
+ * the chain's root is read; a member of `this` is the class's own.
+ */
+function noteMemberRead(
+	evidence: InvocationEvidence,
+	node: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+	sourceFile: ts.SourceFile
+): void {
+	const root = memberChainRoot(node, sourceFile);
+	if (root !== undefined) {
+		evidence.reads.add(root);
+	}
+	const read = memberNameOf(node);
+	if (read !== undefined && unwrapExpression(read.object).kind === ts.SyntaxKind.ThisKeyword) {
+		evidence.thisMembers.add(read.member);
+	}
+}
+
+/**
+ * The right-hand side a node binds to a name, where aliasing happens: a variable initializer or a default
+ * (`wrap(title = manageCommandTitle)`, `{ title = ... } = {}`), an assignment, or an assignment pattern's shorthand
+ * default, which is the same default without the `=` node (`({ title = helper } = x)`).
+ */
+function boundValueOf(node: ts.Node): ts.Expression | undefined {
+	if (
+		(ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node)) &&
+		node.initializer !== undefined
+	) {
+		return node.initializer;
+	}
+	if (ts.isBinaryExpression(node) && isAssigningOperator(node.operatorToken.kind)) {
+		return node.right;
+	}
+	if (ts.isShorthandPropertyAssignment(node) && node.objectAssignmentInitializer !== undefined) {
+		return node.objectAssignmentInitializer;
+	}
+	return undefined;
+}
+
+/**
+ * A destructuring aliases and reads like the member chains it stands for; a literal it selects out of sits inside the
+ * roots this walk covers whole.
+ */
+function noteDestructuring(evidence: InvocationEvidence, node: ts.Node, sourceFile: ts.SourceFile): void {
+	const destructured = destructuringOf(node);
+	if (destructured === undefined) {
+		return;
+	}
+	const edges = destructuringEdges(destructured.target, destructured.value, sourceFile);
+	for (const alias of edges.aliases) {
+		evidence.callees.add(alias.of);
+	}
+	for (const read of edges.reads) {
+		evidence.reads.add(read.of);
+	}
+	for (const member of edges.thisMembers) {
+		evidence.thisMembers.add(member);
+	}
+}
+
+/**
+ * One node of the walk, then its children. An argument is the caller's edge, since the walk cannot see whether the
+ * callee invokes it; an identifier nested in an array or object literal, or behind a spread, is a value in a structure,
+ * the data-flow boundary.
+ */
+function digEvidence(evidence: InvocationEvidence, node: ts.Node, sourceFile: ts.SourceFile): void {
+	if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+		noteCallee(evidence, node.expression, sourceFile);
+		for (const argument of node.arguments ?? []) {
+			noteSources(evidence, argument, sourceFile);
+		}
+	} else if (ts.isTaggedTemplateExpression(node)) {
+		noteCallee(evidence, node.tag, sourceFile);
+	} else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+		noteMemberRead(evidence, node, sourceFile);
+	}
+	const bound = boundValueOf(node);
+	if (bound !== undefined) {
+		noteSources(evidence, bound, sourceFile);
+	}
+	noteDestructuring(evidence, node, sourceFile);
+	ts.forEachChild(node, (child) => digEvidence(evidence, child, sourceFile));
+}
+
 /**
  * The walk follows bound NAMES, never values in flight: following those would be data-flow analysis, which the gate
  * deliberately is not.
  */
 function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile): InvocationEvidence {
 	const evidence: InvocationEvidence = { direct: false, callees: new Set(), reads: new Set(), thisMembers: new Set() };
-	const note = (calleeExpression: ts.Expression): void => {
-		for (const callee of calleeCandidates(calleeExpression, sourceFile)) {
-			const calleeText = callee.getText(sourceFile);
-			if (calleeText === "l10n.t" || calleeText === "vscode.l10n.t") {
-				evidence.direct = true;
-				continue;
-			}
-			if (ts.isIdentifier(callee)) {
-				evidence.callees.add(callee.text);
-				continue;
-			}
-			const member = namespaceMemberName(callee, sourceFile);
-			if (member !== undefined) {
-				evidence.callees.add(member);
-				continue;
-			}
-			// A computed member call on a bare name or a local-namespace member: the member is unreadable, so the
-			// receiver carries the edge (a lazy function's only meaningful members are its forwarders), resolved
-			// through the same pipeline so a choosing receiver flattens. Literal keys resolved above; a key on any
-			// other receiver stays the thunk-table boundary.
-			if (ts.isElementAccessExpression(callee)) {
-				const key = unwrapExpression(callee.argumentExpression);
-				if (!ts.isStringLiteralLike(key)) {
-					for (const receiver of calleeCandidates(callee.expression, sourceFile)) {
-						if (ts.isIdentifier(receiver)) {
-							evidence.callees.add(receiver.text);
-						} else {
-							const receiverMember = namespaceMemberName(receiver, sourceFile);
-							if (receiverMember !== undefined) {
-								evidence.callees.add(receiverMember);
-							}
-						}
-					}
-				}
-			}
-		}
-	};
-	const noteAliasSources = (rhs: ts.Expression): void => {
-		for (const source of calleeCandidates(rhs, sourceFile)) {
-			if (ts.isIdentifier(source)) {
-				evidence.callees.add(source.text);
-			} else {
-				const member = namespaceMemberName(source, sourceFile);
-				if (member !== undefined) {
-					evidence.callees.add(member);
-				}
-			}
-		}
-	};
-	// An argument is the caller's edge, since the walk cannot see whether the callee invokes it. An identifier nested in
-	// an array or object literal, or behind a spread, is a value in a structure - the data-flow boundary.
-	const noteDirectArgumentEdges = (args: readonly ts.Expression[] | undefined): void => {
-		for (const argument of args ?? []) {
-			noteAliasSources(argument);
-		}
-	};
-	const dig = (node: ts.Node): void => {
-		if (ts.isCallExpression(node)) {
-			note(node.expression);
-			noteDirectArgumentEdges(node.arguments);
-		} else if (ts.isTaggedTemplateExpression(node)) {
-			note(node.tag);
-		} else if (ts.isNewExpression(node)) {
-			note(node.expression);
-			noteDirectArgumentEdges(node.arguments);
-		} else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-			// Read or called alike: `SURFACE_COPY[surface]` handed back is as much a path to the thunks as calling one.
-			const root = memberChainRoot(node, sourceFile);
-			if (root !== undefined) {
-				evidence.reads.add(root);
-			}
-			const read = memberNameOf(node);
-			if (read !== undefined && unwrapExpression(read.object).kind === ts.SyntaxKind.ThisKeyword) {
-				evidence.thisMembers.add(read.member);
-			}
-		}
-		// A default aliases exactly like a variable initializer does, wherever it binds: `wrap(title =
-		// manageCommandTitle)` and `{ title = ... } = {}`.
-		if (
-			(ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node)) &&
-			node.initializer !== undefined
-		) {
-			noteAliasSources(node.initializer);
-		}
-		if (ts.isBinaryExpression(node) && isAssigningOperator(node.operatorToken.kind)) {
-			noteAliasSources(node.right);
-		}
-		// An assignment pattern's shorthand default is the same default without the `=` node: `({ title = helper } = x)`.
-		if (ts.isShorthandPropertyAssignment(node) && node.objectAssignmentInitializer !== undefined) {
-			noteAliasSources(node.objectAssignmentInitializer);
-		}
-		// A destructuring aliases and reads like the member chains it stands for; a literal it selects out of sits
-		// inside the roots this walk covers whole.
-		const destructured = destructuringOf(node);
-		if (destructured !== undefined) {
-			const edges = destructuringEdges(destructured.target, destructured.value, sourceFile);
-			for (const alias of edges.aliases) {
-				evidence.callees.add(alias.of);
-			}
-			for (const read of edges.reads) {
-				evidence.reads.add(read.of);
-			}
-			for (const member of edges.thisMembers) {
-				evidence.thisMembers.add(member);
-			}
-		}
-		ts.forEachChild(node, dig);
-	};
 	for (const root of roots) {
-		dig(root);
+		digEvidence(evidence, root, sourceFile);
 	}
 	return evidence;
 }
 
+/** What `new` runs, and the instance members a constructor may reach through `this`, by the name it reaches them by. */
+interface ConstructionRoots {
+	readonly roots: ts.Node[];
+	readonly byName: Map<string, ts.ClassElement[]>;
+}
+
 /**
- * A class's CONSTRUCTION-time localization evidence: what `new` runs, including every instance member the constructor
- * reaches through `this`. The roots are walked WHOLE, nested function literals included, so a registered callback or a
- * property-initialized thunk table counts even though neither RUNS at `new` - the inference's documented over-inclusion.
+ * What one member runs at `new`: a constructor's body and its whole parameters (a default nested in a destructuring
+ * pattern evaluates at `new` too), or an instance property's initializer.
  */
-function classConstructionEvidence(cls: ts.ClassLikeDeclaration, sourceFile: ts.SourceFile): InvocationEvidence {
+function constructionRootsOf(member: ts.ClassElement): ts.Node[] {
+	if (ts.isConstructorDeclaration(member)) {
+		return member.body === undefined ? [...member.parameters] : [member.body, ...member.parameters];
+	}
+	if (ts.isPropertyDeclaration(member) && member.initializer !== undefined) {
+		return [member.initializer];
+	}
+	return [];
+}
+
+/** The name `this` reaches a method or accessor by, or undefined for any other member or a name no literal spells. */
+function reachableMemberKey(member: ts.ClassElement): string | undefined {
+	if (!(ts.isMethodDeclaration(member) || ts.isAccessor(member)) || member.name === undefined) {
+		return undefined;
+	}
+	return memberKey(member.name);
+}
+
+/**
+ * The construction roots of every instance member. A static member runs at class definition, never at `new`; the
+ * parser also accepts `static constructor()`, which the scanner still reads as the constructor.
+ */
+function constructionRoots(cls: ts.ClassLikeDeclaration): ConstructionRoots {
 	const roots: ts.Node[] = [];
 	const byName = new Map<string, ts.ClassElement[]>();
 	for (const member of cls.members) {
-		if (ts.isConstructorDeclaration(member)) {
-			if (member.body !== undefined) {
-				roots.push(member.body);
-			}
-			// The whole parameter: a default nested in a destructuring pattern evaluates at `new` too.
-			roots.push(...member.parameters);
-		} else if (isStaticMember(member)) {
-		} else if (ts.isPropertyDeclaration(member) && member.initializer !== undefined) {
-			roots.push(member.initializer);
-		} else if ((ts.isMethodDeclaration(member) || ts.isAccessor(member)) && member.name !== undefined) {
-			const key = memberKey(member.name);
-			if (key !== undefined) {
-				byName.set(key, [...(byName.get(key) ?? []), member]);
-			}
+		if (isStaticMember(member) && !ts.isConstructorDeclaration(member)) {
+			continue;
+		}
+		roots.push(...constructionRootsOf(member));
+		const key = reachableMemberKey(member);
+		if (key !== undefined) {
+			byName.set(key, [...(byName.get(key) ?? []), member]);
 		}
 	}
-	const evidence = invocationEvidence(roots, sourceFile);
+	return { roots, byName };
+}
+
+/** The instance members the constructor reaches through `this`, transitively, folded into the evidence. */
+function reachThisMembers(
+	evidence: InvocationEvidence,
+	byName: ReadonlyMap<string, ts.ClassElement[]>,
+	sourceFile: ts.SourceFile
+): void {
 	const reached = new Set<string>();
 	const pending = [...evidence.thisMembers];
 	for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
@@ -650,23 +780,200 @@ function classConstructionEvidence(cls: ts.ClassLikeDeclaration, sourceFile: ts.
 		}
 		pending.push(...found.thisMembers);
 	}
+}
+
+/** A base resolves like a callee: choosing shapes flatten, and a local namespace member reads by member name. */
+function noteHeritage(evidence: InvocationEvidence, cls: ts.ClassLikeDeclaration, sourceFile: ts.SourceFile): void {
 	for (const clause of cls.heritageClauses ?? []) {
 		for (const type of clause.types) {
-			// A base resolves like a callee: choosing shapes flatten, and a local namespace member reads by member
-			// name.
 			for (const base of calleeCandidates(type.expression, sourceFile)) {
-				if (ts.isIdentifier(base)) {
-					evidence.callees.add(base.text);
-				} else {
-					const member = namespaceMemberName(base, sourceFile);
-					if (member !== undefined) {
-						evidence.callees.add(member);
-					}
+				const name = calleeName(base, sourceFile);
+				if (name !== undefined) {
+					evidence.callees.add(name);
 				}
 			}
 		}
 	}
+}
+
+/**
+ * A class's CONSTRUCTION-time localization evidence: what `new` runs, including every instance member the constructor
+ * reaches through `this`. The roots are walked WHOLE, nested function literals included, so a registered callback or a
+ * property-initialized thunk table counts even though neither RUNS at `new` - the inference's documented over-inclusion.
+ */
+function classConstructionEvidence(cls: ts.ClassLikeDeclaration, sourceFile: ts.SourceFile): InvocationEvidence {
+	const { roots, byName } = constructionRoots(cls);
+	const evidence = invocationEvidence(roots, sourceFile);
+	reachThisMembers(evidence, byName, sourceFile);
+	noteHeritage(evidence, cls, sourceFile);
 	return evidence;
+}
+
+/** A binding of `name` to the evidence a walk found. */
+function pushBinding(bindings: Binding[], name: string, kind: Binding["kind"], evidence: InvocationEvidence): void {
+	bindings.push({ name, kind, direct: evidence.direct, callees: evidence.callees, reads: evidence.reads });
+}
+
+/** A name bound to another by spelling alone. */
+function pushAlias(bindings: Binding[], alias: AliasSpecifier): void {
+	bindings.push({ name: alias.name, kind: "alias", direct: false, callees: new Set([alias.of]), reads: new Set() });
+}
+
+/**
+ * A name bound to a member chain reads into the chain's root: a thunk table's member is a thunk or another row, and the
+ * closure keeps the alias a table so both stay reachable.
+ */
+function pushMemberAlias(bindings: Binding[], name: string, root: string): void {
+	bindings.push({ name, kind: "alias", direct: false, callees: new Set(), reads: new Set([root]) });
+}
+
+function isFunctionLiteral(node: ts.Node): boolean {
+	return ts.isArrowFunction(node) || ts.isFunctionExpression(node);
+}
+
+/**
+ * A local namespace import's member is the same alias by member name: `const t = helpers.title` binds `title`'s
+ * laziness to t. Any other member chain binds the name to a read of its root, and a chain off a literal written in
+ * place binds the name to that literal as a table.
+ */
+function bindMemberChain(bindings: Binding[], name: string, source: ts.Expression, sourceFile: ts.SourceFile): void {
+	const member = namespaceMemberName(source, sourceFile);
+	if (member !== undefined) {
+		pushAlias(bindings, { name, of: member });
+		return;
+	}
+	const root = memberChainRoot(source, sourceFile);
+	if (root !== undefined) {
+		pushMemberAlias(bindings, name, root);
+		return;
+	}
+	const literal = literalChainRoot(source);
+	if (literal !== undefined) {
+		pushBinding(bindings, name, "table", invocationEvidence([literal], sourceFile));
+	}
+}
+
+/**
+ * One resolved value bound to `name`: a function literal, an IIFE (whatever it hands back is callable under this name,
+ * so the whole initializer counts), a class, a table, a plain alias, or a member chain.
+ */
+function bindSource(bindings: Binding[], name: string, source: ts.Expression, sourceFile: ts.SourceFile): void {
+	if (isFunctionLiteral(source)) {
+		pushBinding(bindings, name, "function", invocationEvidence([source], sourceFile));
+	} else if (ts.isCallExpression(source) && isFunctionLiteral(unwrapExpression(source.expression))) {
+		pushBinding(bindings, name, "function", invocationEvidence([source], sourceFile));
+	} else if (ts.isClassExpression(source)) {
+		pushBinding(bindings, name, "class", classConstructionEvidence(source, sourceFile));
+	} else if (ts.isObjectLiteralExpression(source) || ts.isArrayLiteralExpression(source)) {
+		pushBinding(bindings, name, "table", invocationEvidence([source], sourceFile));
+	} else if (ts.isIdentifier(source)) {
+		pushAlias(bindings, { name, of: source.text });
+	} else {
+		bindMemberChain(bindings, name, source, sourceFile);
+	}
+}
+
+/**
+ * One binding of a name to a right-hand side, judged for EVERY value the RHS can hand over (calleeCandidates flattens
+ * choosing shapes and strips forwarding to a fixed point, so `const t = helper.call` aliases helper).
+ */
+function bindValue(bindings: Binding[], name: string, rhs: ts.Expression, sourceFile: ts.SourceFile): void {
+	for (const source of calleeCandidates(rhs, sourceFile)) {
+		bindSource(bindings, name, source, sourceFile);
+	}
+}
+
+/**
+ * The name a node binds to a right-hand side by a plain identifier: a declaration, a default wherever it sits
+ * (`const { title = lazyHelper } = {}`), an assignment, or an assignment pattern's shorthand default
+ * (`({ title = lazyHelper } = x)`), which binds title like the declaration form does.
+ */
+function namedBindingOf(node: ts.Node): { readonly name: string; readonly rhs: ts.Expression } | undefined {
+	if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
+		return { name: node.name.text, rhs: node.initializer };
+	}
+	if (
+		(ts.isBindingElement(node) || ts.isParameter(node)) &&
+		ts.isIdentifier(node.name) &&
+		node.initializer !== undefined
+	) {
+		return { name: node.name.text, rhs: node.initializer };
+	}
+	if (ts.isBinaryExpression(node) && isAssigningOperator(node.operatorToken.kind)) {
+		const target = unwrapExpression(node.left);
+		return ts.isIdentifier(target) ? { name: target.text, rhs: node.right } : undefined;
+	}
+	if (ts.isShorthandPropertyAssignment(node) && node.objectAssignmentInitializer !== undefined) {
+		return { name: node.name.text, rhs: node.objectAssignmentInitializer };
+	}
+	return undefined;
+}
+
+/**
+ * The bindings one node declares: a function or class by name, a named right-hand side, or the renaming specifiers of
+ * a top-level statement, which bind a new local name to whatever they rename, so `new Renamed()` at module scope is the
+ * same freeze as the original.
+ */
+function bindNode(bindings: Binding[], node: ts.Node, sourceFile: ts.SourceFile): void {
+	if (ts.isFunctionDeclaration(node) && node.name !== undefined) {
+		pushBinding(bindings, node.name.text, "function", invocationEvidence([node], sourceFile));
+		return;
+	}
+	if (ts.isClassDeclaration(node) && node.name !== undefined) {
+		pushBinding(bindings, node.name.text, "class", classConstructionEvidence(node, sourceFile));
+		return;
+	}
+	const bound = namedBindingOf(node);
+	if (bound !== undefined) {
+		bindValue(bindings, bound.name, bound.rhs, sourceFile);
+		return;
+	}
+	if (!ts.isStatement(node)) {
+		return;
+	}
+	for (const alias of aliasSpecifiers(node)) {
+		pushAlias(bindings, alias);
+	}
+	const entityAlias = importEqualsAlias(node);
+	if (entityAlias !== undefined) {
+		pushAlias(bindings, entityAlias);
+	}
+}
+
+/**
+ * A destructuring's bindings: its renamed leaves as aliases, its reads as member aliases, and every leaf selected out
+ * of a literal written in place as a table.
+ */
+function bindDestructuring(bindings: Binding[], node: ts.Node, sourceFile: ts.SourceFile): void {
+	const destructured = destructuringOf(node);
+	if (destructured === undefined) {
+		return;
+	}
+	const edges = destructuringEdges(destructured.target, destructured.value, sourceFile);
+	for (const alias of edges.aliases) {
+		pushAlias(bindings, alias);
+	}
+	for (const read of edges.reads) {
+		pushMemberAlias(bindings, read.name, read.of);
+	}
+	for (const { literal, names } of edges.literals) {
+		const evidence = invocationEvidence([literal], sourceFile);
+		for (const name of names) {
+			pushBinding(bindings, name, "table", evidence);
+		}
+	}
+}
+
+/**
+ * The walk: a node's own bindings, its destructuring (outside bindNode, since a destructured leaf may carry a default
+ * that already binds), then its children.
+ */
+function visitBindings(bindings: Binding[], node: ts.Node, scope: "module" | "file", sourceFile: ts.SourceFile): void {
+	bindNode(bindings, node, sourceFile);
+	bindDestructuring(bindings, node, sourceFile);
+	if (scope === "file" || !(ts.isFunctionLike(node) || ts.isClassLike(node))) {
+		ts.forEachChild(node, (child) => visitBindings(bindings, child, scope, sourceFile));
+	}
 }
 
 /**
@@ -676,108 +983,7 @@ function classConstructionEvidence(cls: ts.ClassLikeDeclaration, sourceFile: ts.
  */
 function collectBindings(sourceFile: ts.SourceFile, scope: "module" | "file"): Binding[] {
 	const bindings: Binding[] = [];
-	const push = (name: string, kind: Binding["kind"], evidence: InvocationEvidence): void => {
-		bindings.push({ name, kind, direct: evidence.direct, callees: evidence.callees, reads: evidence.reads });
-	};
-	const pushAlias = (alias: AliasSpecifier): void => {
-		bindings.push({ name: alias.name, kind: "alias", direct: false, callees: new Set([alias.of]), reads: new Set() });
-	};
-	// A name bound to a member chain reads into the chain's root: a thunk table's member is a thunk or another row,
-	// and the closure keeps the alias a table so both stay reachable.
-	const pushMemberAlias = (name: string, root: string): void => {
-		bindings.push({ name, kind: "alias", direct: false, callees: new Set(), reads: new Set([root]) });
-	};
-	const isFunctionLiteral = (node: ts.Node): boolean => ts.isArrowFunction(node) || ts.isFunctionExpression(node);
-	// One binding of a name to a right-hand side, judged for EVERY value the RHS can hand over (calleeCandidates
-	// flattens choosing shapes and strips forwarding to a fixed point, so `const t = helper.call` aliases helper).
-	const bind = (name: string, rhs: ts.Expression): void => {
-		for (const source of calleeCandidates(rhs, sourceFile)) {
-			if (isFunctionLiteral(source)) {
-				push(name, "function", invocationEvidence([source], sourceFile));
-			} else if (ts.isCallExpression(source) && isFunctionLiteral(unwrapExpression(source.expression))) {
-				// An IIFE-bound name: whatever it hands back is callable under this name, so the whole initializer
-				// counts.
-				push(name, "function", invocationEvidence([source], sourceFile));
-			} else if (ts.isClassExpression(source)) {
-				push(name, "class", classConstructionEvidence(source, sourceFile));
-			} else if (ts.isObjectLiteralExpression(source) || ts.isArrayLiteralExpression(source)) {
-				push(name, "table", invocationEvidence([source], sourceFile));
-			} else if (ts.isIdentifier(source)) {
-				pushAlias({ name, of: source.text });
-			} else {
-				// A local namespace import's member is the same alias by member name: `const t = helpers.title` binds
-				// `title`'s laziness to t. Any other member chain binds the name to a read of its root.
-				const member = namespaceMemberName(source, sourceFile);
-				if (member === undefined) {
-					const root = memberChainRoot(source, sourceFile);
-					const literal = root === undefined ? literalChainRoot(source) : undefined;
-					if (root !== undefined) {
-						pushMemberAlias(name, root);
-					} else if (literal !== undefined) {
-						push(name, "table", invocationEvidence([literal], sourceFile));
-					}
-				} else {
-					pushAlias({ name, of: member });
-				}
-			}
-		}
-	};
-	const visit = (node: ts.Node): void => {
-		if (ts.isFunctionDeclaration(node) && node.name !== undefined) {
-			push(node.name.text, "function", invocationEvidence([node], sourceFile));
-		} else if (ts.isClassDeclaration(node) && node.name !== undefined) {
-			push(node.name.text, "class", classConstructionEvidence(node, sourceFile));
-		} else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
-			bind(node.name.text, node.initializer);
-		} else if (
-			(ts.isBindingElement(node) || ts.isParameter(node)) &&
-			ts.isIdentifier(node.name) &&
-			node.initializer !== undefined
-		) {
-			// A default binds a name to whatever it defaults TO, wherever it sits: `const { title = lazyHelper } = {}`.
-			bind(node.name.text, node.initializer);
-		} else if (ts.isBinaryExpression(node) && isAssigningOperator(node.operatorToken.kind)) {
-			const target = unwrapExpression(node.left);
-			if (ts.isIdentifier(target)) {
-				bind(target.text, node.right);
-			}
-		} else if (ts.isShorthandPropertyAssignment(node) && node.objectAssignmentInitializer !== undefined) {
-			// An assignment pattern's shorthand default: `({ title = lazyHelper } = x)` binds title like the declaration
-			// form does.
-			bind(node.name.text, node.objectAssignmentInitializer);
-		} else if (ts.isStatement(node)) {
-			// A renaming import/export specifier binds a new local name to whatever it renames, so `new Renamed()` at
-			// module scope is the same freeze as the original.
-			for (const alias of aliasSpecifiers(node)) {
-				pushAlias(alias);
-			}
-			const entityAlias = importEqualsAlias(node);
-			if (entityAlias !== undefined) {
-				pushAlias(entityAlias);
-			}
-		}
-		// Outside the chain above, since a destructured leaf may carry a default the chain already binds.
-		const destructured = destructuringOf(node);
-		if (destructured !== undefined) {
-			const edges = destructuringEdges(destructured.target, destructured.value, sourceFile);
-			for (const alias of edges.aliases) {
-				pushAlias(alias);
-			}
-			for (const read of edges.reads) {
-				pushMemberAlias(read.name, read.of);
-			}
-			for (const { literal, names } of edges.literals) {
-				const evidence = invocationEvidence([literal], sourceFile);
-				for (const name of names) {
-					push(name, "table", evidence);
-				}
-			}
-		}
-		if (scope === "file" || !(ts.isFunctionLike(node) || ts.isClassLike(node))) {
-			ts.forEachChild(node, visit);
-		}
-	};
-	visit(sourceFile);
+	visitBindings(bindings, sourceFile, scope, sourceFile);
 	return bindings;
 }
 
@@ -788,6 +994,13 @@ function reachesLazy(evidence: Pick<Binding, "direct" | "callees" | "reads">, la
 		[...evidence.callees].some((callee) => lazy.has(callee)) ||
 		[...evidence.reads].some((read) => lazy.get(read) === "table")
 	);
+}
+
+/** The kind a binding joins the lazy set as: a table, or an alias of one, hands out thunks; the rest are helpers. */
+function lazyKindOf(binding: Binding, lazy: LazyL10nNames): LazyKind {
+	const aliasOfTable =
+		binding.kind === "alias" && [...binding.callees, ...binding.reads].some((name) => lazy.get(name) === "table");
+	return binding.kind === "table" || aliasOfTable ? "table" : "helper";
 }
 
 /**
@@ -803,9 +1016,7 @@ function closeLazyNames(bindings: readonly Binding[], seed: LazyL10nNames): Lazy
 			if (!lazy.has(binding.name) && !reachesLazy(binding, lazy)) {
 				continue;
 			}
-			const aliasOfTable =
-				binding.kind === "alias" && [...binding.callees, ...binding.reads].some((name) => lazy.get(name) === "table");
-			const kind: LazyKind = binding.kind === "table" || aliasOfTable ? "table" : "helper";
+			const kind = lazyKindOf(binding, lazy);
 			const current = lazy.get(binding.name);
 			// An alias of a table upgrades a helper to a table; nothing downgrades.
 			if (current === undefined || (current === "helper" && kind === "table")) {
@@ -834,21 +1045,6 @@ export function inferLazyL10nNames(sources: readonly SourceFile[]): LazyL10nName
 		bindings.push(...collectBindings(parseSource(file, contents), "module"));
 	}
 	return closeLazyNames(bindings, new Map());
-}
-
-/** Parens and type wrappers do not change what evaluates; strip them so `(fn)()` and `fn as T` read as fn. */
-function unwrapExpression(node: ts.Expression): ts.Expression {
-	let current = node;
-	while (
-		ts.isParenthesizedExpression(current) ||
-		ts.isAsExpression(current) ||
-		ts.isSatisfiesExpression(current) ||
-		ts.isNonNullExpression(current) ||
-		ts.isTypeAssertionExpression(current)
-	) {
-		current = current.expression;
-	}
-	return current;
 }
 
 /**
@@ -885,6 +1081,290 @@ function possibleValues(rhs: ts.Expression): ts.Expression[] {
 }
 
 /**
+ * One file's module-scope scan: its source, the names tracked as lazy once the file's own bindings closed over the
+ * tree-wide inference, and the offending lines so far.
+ */
+interface ModuleScan {
+	readonly sourceFile: ts.SourceFile;
+	readonly tracked: LazyL10nNames;
+	readonly offenses: number[];
+}
+
+/** Records the 1-based line `node` starts on. */
+function flagOffense(scan: ModuleScan, node: ts.Node): void {
+	scan.offenses.push(scan.sourceFile.getLineAndCharacterOfPosition(node.getStart(scan.sourceFile)).line + 1);
+}
+
+/**
+ * A COMPUTED member call on a tracked name or a tracked local-namespace member: the key is unreadable and a lazy
+ * function's only meaningful members are its forwarders; the receiver resolves through the same pipeline so a choosing
+ * receiver flattens. Literal keys resolve as members, and ordinary member calls on a name that merely shares a lazy
+ * spelling (`lastSync.toISOString()`) stay quiet.
+ */
+function computedReceiverTracked(scan: ModuleScan, callee: ts.ElementAccessExpression): boolean {
+	const key = unwrapExpression(callee.argumentExpression);
+	if (ts.isStringLiteralLike(key)) {
+		return false;
+	}
+	for (const receiver of calleeCandidates(callee.expression, scan.sourceFile)) {
+		const name = calleeName(receiver, scan.sourceFile);
+		if (name !== undefined && scan.tracked.has(name)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Whether a resolved callee is tracked: l10n.t itself, a tracked name or local-namespace member, or a computed member
+ * call on one.
+ */
+function candidateIsTracked(scan: ModuleScan, candidate: ts.Expression): boolean {
+	const callee = stripForwarding(candidate, scan.sourceFile);
+	const calleeText = callee.getText(scan.sourceFile);
+	if (calleeText === "l10n.t" || calleeText === "vscode.l10n.t" || scan.tracked.has(calleeText)) {
+		return true;
+	}
+	const member = namespaceMemberName(callee, scan.sourceFile);
+	if (member !== undefined && scan.tracked.has(member)) {
+		return true;
+	}
+	return ts.isElementAccessExpression(callee) && computedReceiverTracked(scan, callee);
+}
+
+/**
+ * The caller-side forwarders invoke what they are handed: stripping Reflect.apply / Function.prototype.call/apply
+ * leaves their bare receivers, and Reflect.construct strips nothing. Matching is by TEXT, so
+ * `globalThis.Reflect.apply` or a rebound `const R = Reflect` stays quiet - deliberate obfuscation, left outside
+ * like every custom wrapper, because treating arbitrary arguments as callees would contradict the sanctioned
+ * `register(helper)` reference pattern.
+ */
+function isCallerForwarder(sourceFile: ts.SourceFile, candidate: ts.Expression): boolean {
+	const stripped = stripForwarding(candidate, sourceFile);
+	const strippedText = stripped.getText(sourceFile);
+	return (
+		strippedText === "Reflect.construct" ||
+		(stripped !== candidate && (strippedText === "Reflect" || strippedText === "Function.prototype"))
+	);
+}
+
+/**
+ * Whether the callee resolves to a recognized forwarder anywhere in its resolution TRACE: the resolved forms erase the
+ * forwarding spelling that identifies one, so detection reads the whole trace.
+ */
+function forwardsThroughCaller(scan: ModuleScan, calleeExpression: ts.Expression): boolean {
+	return resolutionTrace(calleeExpression, scan.sourceFile).some((candidate) =>
+		isCallerForwarder(scan.sourceFile, candidate)
+	);
+}
+
+function flagInlineClass(scan: ModuleScan, node: ts.Node, cls: ts.ClassExpression): void {
+	if (reachesLazy(classConstructionEvidence(cls, scan.sourceFile), scan.tracked)) {
+		flagOffense(scan, node);
+	}
+}
+
+/**
+ * Whether any argument of a recognized forwarder resolves to a tracked callee: EVERY argument, not just the first
+ * (`Reflect.apply.call(...)` shifts its target one slot right), since a tracked name has no business in any forwarder
+ * slot at module scope.
+ */
+function forwardsTracked(scan: ModuleScan, args: readonly ts.Expression[]): boolean {
+	for (const argument of args) {
+		for (const target of calleeCandidates(argument, scan.sourceFile)) {
+			if (candidateIsTracked(scan, target)) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+/**
+ * Flags a call-like node whose callee resolves to a tracked name, or a recognized forwarder handed one.
+ * calleeCandidates resolves the callee to a fixed point, so no choosing shape, paren, type wrapper, or
+ * .call/.apply/.bind link - however nested - may launder a freeze past this match.
+ */
+function flagIfTracked(
+	scan: ModuleScan,
+	node: ts.Node,
+	calleeExpression: ts.Expression,
+	args?: readonly ts.Expression[]
+): void {
+	for (const candidate of calleeCandidates(calleeExpression, scan.sourceFile)) {
+		if (candidateIsTracked(scan, candidate)) {
+			flagOffense(scan, node);
+			return;
+		}
+	}
+	if (args !== undefined && forwardsThroughCaller(scan, calleeExpression) && forwardsTracked(scan, args)) {
+		flagOffense(scan, node);
+	}
+}
+
+/**
+ * A function invoked ON THE SPOT evaluates its parameter defaults as well as its body, whether a call or a template tag
+ * runs it. The whole parameter, not just its initializer: a default nested in a destructuring pattern evaluates with
+ * the invocation too.
+ */
+function scanInvoked(scan: ModuleScan, invoked: ts.ArrowFunction | ts.FunctionExpression): void {
+	for (const parameter of invoked.parameters) {
+		scanNode(scan, parameter);
+	}
+	scanNode(scan, invoked.body);
+}
+
+/**
+ * Every inline function a callee can resolve to: a plain branch, one under forwarding (`(fn).call(...)`), or one
+ * behind a computed member read (`(fn)[key]()` invokes some member of fn - its forwarders in practice), the receiver
+ * resolved through the same pipeline.
+ */
+function scanInvokedCandidates(scan: ModuleScan, expression: ts.Expression): void {
+	for (const candidate of calleeCandidates(expression, scan.sourceFile)) {
+		if (ts.isArrowFunction(candidate) || ts.isFunctionExpression(candidate)) {
+			scanInvoked(scan, candidate);
+			continue;
+		}
+		if (!ts.isElementAccessExpression(candidate)) {
+			continue;
+		}
+		for (const receiver of calleeCandidates(candidate.expression, scan.sourceFile)) {
+			if (ts.isArrowFunction(receiver) || ts.isFunctionExpression(receiver)) {
+				scanInvoked(scan, receiver);
+			}
+		}
+	}
+}
+
+/** A recognized forwarder's arguments evaluate its inline function and class targets as a direct call would. */
+function scanForwardedTargets(scan: ModuleScan, node: ts.CallExpression): void {
+	if (!forwardsThroughCaller(scan, node.expression)) {
+		return;
+	}
+	for (const argument of node.arguments) {
+		for (const target of calleeCandidates(argument, scan.sourceFile)) {
+			if (ts.isArrowFunction(target) || ts.isFunctionExpression(target)) {
+				scanInvoked(scan, target);
+			} else if (ts.isClassExpression(target)) {
+				flagInlineClass(scan, node, target);
+			}
+		}
+	}
+}
+
+/**
+ * A call: its callee flagged if tracked; a function literal in ANY branch of the callee evaluates eagerly when that
+ * branch is picked, however deep choosing shapes and forwarding nest, and a computed member call on an inline function
+ * evaluates it too; then the callee and the arguments themselves.
+ */
+function scanCall(scan: ModuleScan, node: ts.CallExpression): void {
+	flagIfTracked(scan, node, node.expression, node.arguments);
+	scanInvokedCandidates(scan, node.expression);
+	scanForwardedTargets(scan, node);
+	scanNode(scan, node.expression);
+	for (const argument of node.arguments) {
+		scanNode(scan, argument);
+	}
+}
+
+/**
+ * A `new` runs its callee like a call. Constructing an INLINE class runs its constructor, parameter defaults, and
+ * instance property initializers on the spot, and extends invokes the base constructor - in ANY callee branch; an
+ * inline FUNCTION constructed with new runs its body the same way.
+ */
+function scanNew(scan: ModuleScan, node: ts.NewExpression): void {
+	flagIfTracked(scan, node, node.expression, node.arguments);
+	for (const candidate of calleeCandidates(node.expression, scan.sourceFile)) {
+		if (ts.isClassExpression(candidate)) {
+			flagInlineClass(scan, node, candidate);
+		} else if (ts.isFunctionExpression(candidate)) {
+			scanInvoked(scan, candidate);
+		}
+	}
+	scanNode(scan, node.expression);
+	for (const argument of node.arguments ?? []) {
+		scanNode(scan, argument);
+	}
+}
+
+/**
+ * A decorator: a bare name invokes that name at definition time; a factory decorator is a call the walk flags by its
+ * own callee.
+ */
+function scanDecorators(scan: ModuleScan, node: ts.HasDecorators): void {
+	for (const decorator of ts.getDecorators(node) ?? []) {
+		flagIfTracked(scan, decorator, decorator.expression);
+		scanNode(scan, decorator.expression);
+	}
+}
+
+/** One member at definition time: its decorators, a computed name, a static block's body, a static initializer. */
+function scanClassMember(scan: ModuleScan, member: ts.ClassElement): void {
+	if (ts.canHaveDecorators(member)) {
+		scanDecorators(scan, member);
+	}
+	if (member.name !== undefined && ts.isComputedPropertyName(member.name)) {
+		scanNode(scan, member.name.expression);
+	}
+	if (ts.isClassStaticBlockDeclaration(member)) {
+		scanNode(scan, member.body);
+	} else if (ts.isPropertyDeclaration(member) && isStaticMember(member) && member.initializer !== undefined) {
+		scanNode(scan, member.initializer);
+	}
+}
+
+/** A class runs at definition: its decorators, its heritage expressions, and each member's definition-time parts. */
+function scanClass(scan: ModuleScan, node: ts.ClassDeclaration | ts.ClassExpression): void {
+	scanDecorators(scan, node);
+	for (const clause of node.heritageClauses ?? []) {
+		for (const type of clause.types) {
+			scanNode(scan, type.expression);
+		}
+	}
+	for (const member of node.members) {
+		scanClassMember(scan, member);
+	}
+}
+
+/**
+ * The module-scope walk. A call, a tagged template (its tag runs, tag-IIFE included), and a `new` are module-load
+ * invocations; a class runs at definition; a function body does not run until called, so the walk stops at every
+ * function-like node.
+ */
+function scanNode(scan: ModuleScan, node: ts.Node): void {
+	if (ts.isCallExpression(node)) {
+		scanCall(scan, node);
+		return;
+	}
+	if (ts.isTaggedTemplateExpression(node)) {
+		flagIfTracked(scan, node, node.tag);
+		scanInvokedCandidates(scan, node.tag);
+		scanNode(scan, node.tag);
+		scanNode(scan, node.template);
+		return;
+	}
+	if (ts.isNewExpression(node)) {
+		scanNew(scan, node);
+		return;
+	}
+	if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
+		scanClass(scan, node);
+		return;
+	}
+	if (
+		ts.isArrowFunction(node) ||
+		ts.isFunctionExpression(node) ||
+		ts.isFunctionDeclaration(node) ||
+		ts.isMethodDeclaration(node) ||
+		ts.isGetAccessorDeclaration(node) ||
+		ts.isSetAccessorDeclaration(node)
+	) {
+		return;
+	}
+	ts.forEachChild(node, (child) => scanNode(scan, child));
+}
+
+/**
  * A module-scope localization call runs before l10n.config and freezes the English text. `shared` is the tree-wide
  * inference; the file's own bindings close over it so a name bound anywhere in the file, however renamed or
  * reconstructed, matches by spelling. A destructured `t` is invisible to the text match here; vscodeL10nOffenses bans
@@ -892,209 +1372,15 @@ function possibleValues(rhs: ts.Expression): ts.Expression[] {
  */
 export function moduleScopeL10nOffenses(contents: string, fileName: string, shared: LazyL10nNames): number[] {
 	const sourceFile = parseSource(fileName, contents);
-	const offenses: number[] = [];
-	const tracked = closeLazyNames(collectBindings(sourceFile, "file"), shared);
-
-	const unwrap = unwrapExpression;
-
-	const candidateIsTracked = (candidate: ts.Expression): boolean => {
-		const callee = stripForwarding(candidate, sourceFile);
-		const calleeText = callee.getText(sourceFile);
-		if (calleeText === "l10n.t" || calleeText === "vscode.l10n.t" || tracked.has(calleeText)) {
-			return true;
-		}
-		const member = namespaceMemberName(callee, sourceFile);
-		if (member !== undefined && tracked.has(member)) {
-			return true;
-		}
-		// A COMPUTED member call on a tracked name or a tracked local-namespace member: the key is unreadable and a
-		// lazy function's only meaningful members are its forwarders; the receiver resolves through the same pipeline
-		// so a choosing receiver flattens. Literal keys resolved above; ordinary member calls on a name that merely
-		// shares a lazy spelling (`lastSync.toISOString()`) stay quiet.
-		if (ts.isElementAccessExpression(callee)) {
-			const key = unwrap(callee.argumentExpression);
-			if (!ts.isStringLiteralLike(key)) {
-				for (const receiver of calleeCandidates(callee.expression, sourceFile)) {
-					if (ts.isIdentifier(receiver) && tracked.has(receiver.text)) {
-						return true;
-					}
-					const receiverMember = namespaceMemberName(receiver, sourceFile);
-					if (receiverMember !== undefined && tracked.has(receiverMember)) {
-						return true;
-					}
-				}
-			}
-		}
-		return false;
+	const scan: ModuleScan = {
+		sourceFile,
+		tracked: closeLazyNames(collectBindings(sourceFile, "file"), shared),
+		offenses: [],
 	};
-
-	// The caller-side forwarders invoke what they are handed: stripping Reflect.apply / Function.prototype.call/apply
-	// leaves their bare receivers, and Reflect.construct strips nothing. Matching is by TEXT, so
-	// `globalThis.Reflect.apply` or a rebound `const R = Reflect` stays quiet - deliberate obfuscation, left outside
-	// like every custom wrapper, because treating arbitrary arguments as callees would contradict the sanctioned
-	// `register(helper)` reference pattern.
-	const isCallerForwarder = (candidate: ts.Expression): boolean => {
-		const stripped = stripForwarding(candidate, sourceFile);
-		const strippedText = stripped.getText(sourceFile);
-		return (
-			strippedText === "Reflect.construct" ||
-			(stripped !== candidate && (strippedText === "Reflect" || strippedText === "Function.prototype"))
-		);
-	};
-
-	const flagInlineClass = (node: ts.Node, cls: ts.ClassExpression): void => {
-		if (reachesLazy(classConstructionEvidence(cls, sourceFile), tracked)) {
-			offenses.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
-		}
-	};
-
-	const flagIfTracked = (node: ts.Node, calleeExpression: ts.Expression, args?: readonly ts.Expression[]): void => {
-		// calleeCandidates resolves the callee to a fixed point, so no choosing shape, paren, type wrapper, or
-		// .call/.apply/.bind link - however nested - may launder a freeze past this match.
-		for (const candidate of calleeCandidates(calleeExpression, sourceFile)) {
-			if (candidateIsTracked(candidate)) {
-				offenses.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
-				return;
-			}
-		}
-		// EVERY argument of a recognized forwarder, not just the first: `Reflect.apply.call(...)` shifts its target one
-		// slot right, and a tracked name has no business in any forwarder slot at module scope. Forwarder detection
-		// reads the whole resolution TRACE - the resolved forms erase the forwarding spelling that identifies one.
-		if (args !== undefined && resolutionTrace(calleeExpression, sourceFile).some(isCallerForwarder)) {
-			for (const argument of args) {
-				for (const target of calleeCandidates(argument, sourceFile)) {
-					if (candidateIsTracked(target)) {
-						offenses.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
-						return;
-					}
-				}
-			}
-		}
-	};
-	// A function invoked ON THE SPOT evaluates its parameter defaults as well as its body, whether a call or a template
-	// tag runs it.
-	const scanInvoked = (invoked: ts.ArrowFunction | ts.FunctionExpression): void => {
-		// The whole parameter, not just its initializer: a default nested in a destructuring pattern evaluates with the
-		// invocation too.
-		for (const parameter of invoked.parameters) {
-			scan(parameter);
-		}
-		scan(invoked.body);
-	};
-	// Every inline function a callee can resolve to: a plain branch, one under forwarding (`(fn).call(...)`), or one
-	// behind a computed member read (`(fn)[key]()` invokes some member of fn - its forwarders in practice), the
-	// receiver resolved through the same pipeline.
-	const scanInvokedCandidates = (expression: ts.Expression): void => {
-		for (const candidate of calleeCandidates(expression, sourceFile)) {
-			if (ts.isArrowFunction(candidate) || ts.isFunctionExpression(candidate)) {
-				scanInvoked(candidate);
-			} else if (ts.isElementAccessExpression(candidate)) {
-				for (const receiver of calleeCandidates(candidate.expression, sourceFile)) {
-					if (ts.isArrowFunction(receiver) || ts.isFunctionExpression(receiver)) {
-						scanInvoked(receiver);
-					}
-				}
-			}
-		}
-	};
-	const scan = (node: ts.Node): void => {
-		if (ts.isCallExpression(node)) {
-			flagIfTracked(node, node.expression, node.arguments);
-			// A function literal in ANY branch of the callee evaluates eagerly when that branch is picked, however deep
-			// choosing shapes and forwarding nest; a computed member call on an inline function evaluates it too, and a
-			// recognized forwarder's arguments evaluate its inline function and class targets the same way.
-			scanInvokedCandidates(node.expression);
-			if (resolutionTrace(node.expression, sourceFile).some(isCallerForwarder)) {
-				for (const argument of node.arguments) {
-					for (const target of calleeCandidates(argument, sourceFile)) {
-						if (ts.isArrowFunction(target) || ts.isFunctionExpression(target)) {
-							scanInvoked(target);
-						} else if (ts.isClassExpression(target)) {
-							flagInlineClass(node, target);
-						}
-					}
-				}
-			}
-			scan(node.expression);
-			for (const argument of node.arguments) {
-				scan(argument);
-			}
-			return;
-		}
-		// A tagged template runs its tag and a `new` runs its callee: both are module-load invocations exactly like a
-		// call, tag-IIFE included.
-		if (ts.isTaggedTemplateExpression(node)) {
-			flagIfTracked(node, node.tag);
-			scanInvokedCandidates(node.tag);
-			scan(node.tag);
-			scan(node.template);
-			return;
-		}
-		if (ts.isNewExpression(node)) {
-			flagIfTracked(node, node.expression, node.arguments);
-			// Constructing an INLINE class runs its constructor, parameter defaults, and instance property initializers
-			// on the spot, and extends invokes the base constructor - in ANY callee branch; an inline FUNCTION
-			// constructed with new runs its body the same way.
-			for (const candidate of calleeCandidates(node.expression, sourceFile)) {
-				if (ts.isClassExpression(candidate)) {
-					flagInlineClass(node, candidate);
-				} else if (ts.isFunctionExpression(candidate)) {
-					scanInvoked(candidate);
-				}
-			}
-			scan(node.expression);
-			for (const argument of node.arguments ?? []) {
-				scan(argument);
-			}
-			return;
-		}
-		if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
-			for (const decorator of ts.getDecorators(node) ?? []) {
-				// A bare-name decorator invokes that name at class definition time; a factory decorator is a
-				// CallExpression the scan below flags by its own callee.
-				flagIfTracked(decorator, decorator.expression);
-				scan(decorator.expression);
-			}
-			for (const clause of node.heritageClauses ?? []) {
-				for (const type of clause.types) {
-					scan(type.expression);
-				}
-			}
-			for (const member of node.members) {
-				if (ts.canHaveDecorators(member)) {
-					for (const decorator of ts.getDecorators(member) ?? []) {
-						flagIfTracked(decorator, decorator.expression);
-						scan(decorator.expression);
-					}
-				}
-				if (member.name !== undefined && ts.isComputedPropertyName(member.name)) {
-					scan(member.name.expression);
-				}
-				if (ts.isClassStaticBlockDeclaration(member)) {
-					scan(member.body);
-				} else if (ts.isPropertyDeclaration(member) && isStaticMember(member) && member.initializer !== undefined) {
-					scan(member.initializer);
-				}
-			}
-			return;
-		}
-		if (
-			ts.isArrowFunction(node) ||
-			ts.isFunctionExpression(node) ||
-			ts.isFunctionDeclaration(node) ||
-			ts.isMethodDeclaration(node) ||
-			ts.isGetAccessorDeclaration(node) ||
-			ts.isSetAccessorDeclaration(node)
-		) {
-			return;
-		}
-		ts.forEachChild(node, scan);
-	};
-
 	// One pass: the tracked set was computed to its fixed point up front, so evaluation-order tricks (loops calling
 	// before reassigning, aliases minted after their call site) change nothing here.
 	for (const statement of sourceFile.statements) {
-		scan(statement);
+		scanNode(scan, statement);
 	}
-	return offenses;
+	return scan.offenses;
 }

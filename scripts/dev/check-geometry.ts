@@ -73,6 +73,36 @@ function stepThrows(step: string): boolean {
 	return found;
 }
 
+/** The steps a fixture module default-exports, read off its EXPORTED shape; none when it exports none. */
+async function fixtureSteps(name: string): Promise<readonly string[]> {
+	const module = (await import(pathToFileURL(path.join(FIXTURE_DIR, name)).href)) as {
+		default?: { steps?: readonly string[] };
+	};
+	return Array.isArray(module.default?.steps) ? module.default.steps : [];
+}
+
+/** One fixture's guard findings: its steps judged against its UNGUARDED_FIXTURE_PINS entry, if any. */
+function guardFindingsOf(name: string, steps: readonly string[]): string[] {
+	const findings: string[] = [];
+	const drivesFlow = steps.length > 0;
+	const throws = steps.some(stepThrows);
+	const pinned = UNGUARDED_FIXTURES.get(name);
+	if (drivesFlow && !throws) {
+		if (pinned === undefined) {
+			findings.push(`${name} drives a flow through steps with no throwing assertion on its own subject`);
+		} else if (pinned !== stepsDigest(steps)) {
+			findings.push(
+				`${name}'s steps changed since they were grandfathered; add a throwing assertion on its subject ` +
+					"and remove its UNGUARDED_FIXTURE_PINS entry"
+			);
+		}
+	}
+	if (pinned !== undefined && (!drivesFlow || throws)) {
+		findings.push(`${name} no longer needs its UNGUARDED_FIXTURE_PINS entry; the list only shrinks - remove it`);
+	}
+	return findings;
+}
+
 /**
  * The static guard sweep, over each fixture's EXPORTED shape rather than its text: steps arrive by spread and import as
  * well as by literal, and the assertion has to live in the steps that actually run. A fixture running its steps against
@@ -90,26 +120,7 @@ async function fixtureGuardFindings(): Promise<string[]> {
 		.filter((name) => name.endsWith(".ts") && name !== "shared.ts")
 		.sort();
 	for (const name of names) {
-		const module = (await import(pathToFileURL(path.join(FIXTURE_DIR, name)).href)) as {
-			default?: { steps?: readonly string[] };
-		};
-		const steps = Array.isArray(module.default?.steps) ? module.default.steps : [];
-		const drivesFlow = steps.length > 0;
-		const throws = steps.some(stepThrows);
-		const pinned = UNGUARDED_FIXTURES.get(name);
-		if (drivesFlow && !throws) {
-			if (pinned === undefined) {
-				findings.push(`${name} drives a flow through steps with no throwing assertion on its own subject`);
-			} else if (pinned !== stepsDigest(steps)) {
-				findings.push(
-					`${name}'s steps changed since they were grandfathered; add a throwing assertion on its subject ` +
-						"and remove its UNGUARDED_FIXTURE_PINS entry"
-				);
-			}
-		}
-		if (pinned !== undefined && (!drivesFlow || throws)) {
-			findings.push(`${name} no longer needs its UNGUARDED_FIXTURE_PINS entry; the list only shrinks - remove it`);
-		}
+		findings.push(...guardFindingsOf(name, await fixtureSteps(name)));
 	}
 	for (const name of UNGUARDED_FIXTURES.keys()) {
 		if (!existsSync(path.join(FIXTURE_DIR, name))) {
@@ -403,6 +414,12 @@ interface Result {
 	readonly output: string;
 }
 
+/** A case queued for the harness, with its generated fixture file. */
+interface QueuedCase {
+	readonly sweep: SweepCase;
+	readonly file: string;
+}
+
 /**
  * --widths "" puts it in measurement-only mode (no PNG) while the steps and the own-width overflow assertion still run;
  * a probe's throw surfaces as exit 1 with its runtime-assembled marker in the output, which is the whole wire protocol
@@ -438,6 +455,104 @@ async function run(sweep: SweepCase, fixtureFile: string): Promise<Result> {
 	return { name: sweep.name, outcome, output };
 }
 
+/**
+ * The cases as generated fixtures, plus a never-ran result for each whose base fixture is gone: the renamed-fixture
+ * failure belongs to exit 2's vocabulary, not to a runner crash that would take the rest of the sweep with it.
+ */
+async function writeCases(
+	tmpDir: string,
+	cases: readonly SweepCase[]
+): Promise<{ readonly queue: QueuedCase[]; readonly results: Result[] }> {
+	const queue: QueuedCase[] = [];
+	const results: Result[] = [];
+	for (const [index, sweep] of cases.entries()) {
+		try {
+			queue.push({ sweep, file: await writeCaseFixture(tmpDir, sweep, index) });
+		} catch (error) {
+			results.push({
+				name: sweep.name,
+				outcome: "never-ran",
+				output: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+	return { queue, results };
+}
+
+/**
+ * Runs the queue through `jobs` workers, one tagged line per case. The same pool and stagger as check-overflow.ts, for
+ * the same reason: each run launches its own Chrome, and cold-starting them all at once starves the harness's DevTools
+ * deadline on a busy runner.
+ */
+async function sweepQueue(queue: QueuedCase[], jobs: number): Promise<Result[]> {
+	const results: Result[] = [];
+	await Promise.all(
+		Array.from({ length: Math.min(jobs, queue.length) }, async (_, worker) => {
+			await delay(worker * 400);
+			for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+				const result = await run(next.sweep, next.file);
+				results.push(result);
+				const tag = {
+					held: "ok  ",
+					drifted: "FAIL",
+					"expected-drift": "xfail",
+					"stale-expectation": "STALE",
+					"never-ran": "FAIL",
+				}[result.outcome];
+				console.log(`${tag} ${result.name}`);
+			}
+		})
+	);
+	return results;
+}
+
+/**
+ * The failures' output and the per-outcome summary, then the exit code: 1 for drift or a guard finding, 2 for a case
+ * that never ran or a stale marker.
+ */
+function report(results: readonly Result[], unguarded: readonly string[]): void {
+	const failed = results
+		.filter(
+			(result) =>
+				result.outcome === "drifted" || result.outcome === "never-ran" || result.outcome === "stale-expectation"
+		)
+		.sort((a, b) => a.name.localeCompare(b.name));
+	for (const result of failed) {
+		console.log(`\n--- ${result.name} ---\n${result.output.trim()}`);
+	}
+	const drifted = results.filter((result) => result.outcome === "drifted");
+	const expected = results.filter((result) => result.outcome === "expected-drift");
+	const stale = results.filter((result) => result.outcome === "stale-expectation");
+	const unrunnable = results.filter((result) => result.outcome === "never-ran");
+	const held = results.filter((result) => result.outcome === "held");
+	console.log(`\n${held.length}/${results.length} cases held their geometry`);
+	if (expected.length > 0) {
+		console.log(
+			`${expected.length} drifted as expected (known defects): ${expected.map((result) => result.name).join(", ")}`
+		);
+	}
+	if (drifted.length > 0) {
+		console.log(`${drifted.length} moved: ${drifted.map((result) => result.name).join(", ")}`);
+	}
+	if (stale.length > 0) {
+		console.log(
+			`${stale.length} stale expectedDrift marker(s) - the defect is fixed, remove the marker: ` +
+				stale.map((result) => result.name).join(", ")
+		);
+	}
+	if (unrunnable.length > 0) {
+		console.log(`${unrunnable.length} never ran: ${unrunnable.map((result) => result.name).join(", ")}`);
+	}
+	if (unguarded.length > 0) {
+		console.log(`${unguarded.length} fixture guard finding(s), listed above the sweep`);
+	}
+	if (drifted.length > 0 || unguarded.length > 0) {
+		process.exitCode = 1;
+	} else if (unrunnable.length > 0 || stale.length > 0) {
+		process.exitCode = 2;
+	}
+}
+
 async function main(): Promise<void> {
 	const { values } = parseArgs({ options: { only: { type: "string" }, jobs: { type: "string" } } });
 	const jobs = values.jobs === undefined ? 4 : Number(values.jobs);
@@ -458,83 +573,12 @@ async function main(): Promise<void> {
 	}
 	const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "check-geometry-"));
 	try {
-		const results: Result[] = [];
-		// A case whose base fixture is gone never ran: the renamed-fixture failure belongs to exit 2's vocabulary, not
-		// to a runner crash that would take the rest of the sweep with it.
-		const queue: { sweep: SweepCase; file: string }[] = [];
-		for (const [index, sweep] of cases.entries()) {
-			try {
-				queue.push({ sweep, file: await writeCaseFixture(tmpDir, sweep, index) });
-			} catch (error) {
-				results.push({
-					name: sweep.name,
-					outcome: "never-ran",
-					output: error instanceof Error ? error.message : String(error),
-				});
-			}
-		}
+		const written = await writeCases(tmpDir, cases);
 		console.log(
 			`sweeping ${cases.length} case(s): ${STATE_PAIRS.length} state pair(s), ${WIDTH_SURFACES.length} width surface(s) registered`
 		);
-		// The same pool and stagger as check-overflow.ts, for the same reason: each run launches its own Chrome, and
-		// cold-starting them all at once starves the harness's DevTools deadline on a busy runner.
-		await Promise.all(
-			Array.from({ length: Math.min(jobs, queue.length) }, async (_, worker) => {
-				await delay(worker * 400);
-				for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-					const result = await run(next.sweep, next.file);
-					results.push(result);
-					const tag = {
-						held: "ok  ",
-						drifted: "FAIL",
-						"expected-drift": "xfail",
-						"stale-expectation": "STALE",
-						"never-ran": "FAIL",
-					}[result.outcome];
-					console.log(`${tag} ${result.name}`);
-				}
-			})
-		);
-		const failed = results
-			.filter(
-				(result) =>
-					result.outcome === "drifted" || result.outcome === "never-ran" || result.outcome === "stale-expectation"
-			)
-			.sort((a, b) => a.name.localeCompare(b.name));
-		for (const result of failed) {
-			console.log(`\n--- ${result.name} ---\n${result.output.trim()}`);
-		}
-		const drifted = results.filter((result) => result.outcome === "drifted");
-		const expected = results.filter((result) => result.outcome === "expected-drift");
-		const stale = results.filter((result) => result.outcome === "stale-expectation");
-		const unrunnable = results.filter((result) => result.outcome === "never-ran");
-		const held = results.filter((result) => result.outcome === "held");
-		console.log(`\n${held.length}/${results.length} cases held their geometry`);
-		if (expected.length > 0) {
-			console.log(
-				`${expected.length} drifted as expected (known defects): ${expected.map((result) => result.name).join(", ")}`
-			);
-		}
-		if (drifted.length > 0) {
-			console.log(`${drifted.length} moved: ${drifted.map((result) => result.name).join(", ")}`);
-		}
-		if (stale.length > 0) {
-			console.log(
-				`${stale.length} stale expectedDrift marker(s) - the defect is fixed, remove the marker: ` +
-					stale.map((result) => result.name).join(", ")
-			);
-		}
-		if (unrunnable.length > 0) {
-			console.log(`${unrunnable.length} never ran: ${unrunnable.map((result) => result.name).join(", ")}`);
-		}
-		if (unguarded.length > 0) {
-			console.log(`${unguarded.length} fixture guard finding(s), listed above the sweep`);
-		}
-		if (drifted.length > 0 || unguarded.length > 0) {
-			process.exitCode = 1;
-		} else if (unrunnable.length > 0 || stale.length > 0) {
-			process.exitCode = 2;
-		}
+		const results = [...written.results, ...(await sweepQueue(written.queue, jobs))];
+		report(results, unguarded);
 	} finally {
 		await fs.rm(tmpDir, { recursive: true, force: true });
 	}

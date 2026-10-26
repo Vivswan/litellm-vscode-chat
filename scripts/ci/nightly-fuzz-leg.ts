@@ -152,8 +152,19 @@ async function dockerLeg(): Promise<number> {
 	return status;
 }
 
+/** The leg a family name selects, or undefined for a name the usage line does not list. */
+function legFor(family: string | undefined): (() => Promise<number>) | undefined {
+	if (family === "unit") {
+		return unitLeg;
+	}
+	if (family === "docker") {
+		return dockerLeg;
+	}
+	return undefined;
+}
+
 const family = process.argv[2];
-const run = family === "unit" ? unitLeg : family === "docker" ? dockerLeg : undefined;
+const run = legFor(family);
 if (run === undefined) {
 	console.error(`usage: bun scripts/ci/nightly-fuzz-leg.ts unit|docker (got "${family}")`);
 	process.exit(2);

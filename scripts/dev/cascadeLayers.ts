@@ -14,48 +14,6 @@ const CEILING = "utilities";
 /** One compiled sheet of the bundle, named by the source file it was compiled from. */
 type CompiledSheet = { readonly id: string; readonly css: string };
 
-/**
- * CSS ranks layers by first mention and puts an unmentioned one last, so a renamed, reordered, or missing wrap
- * silently moves the whole dashboard sheet with every style suite green: above utilities, or below the base reset
- * whose `button { font-size: inherit }` then overwrites a dashboard button's own size. One wrap per plain sheet and
- * nothing else: an unlayered rule outranks every layer, a nested layer ranks below its parent's declarations, a
- * dotted name is a sub-layer these sheets never declare, and a layer mentioned under any other rule of the entry
- * orders the cascade from a place no reader looks.
- */
-export function assertLayersOrdered(sheets: readonly CompiledSheet[]): void {
-	const [entry = fail("no Tailwind entry was compiled; the cascade contract has nothing to hold"), ...plain] = sheets;
-	const mentioned: string[] = [];
-	for (const rule of topLevelRules(entry)) {
-		const names = rule.type === "layer-statement" ? rule.value.names : [];
-		mentioned.push(...(rule.type === "layer-block" ? [rule.value.name] : names).map((name) => flat(entry.id, name)));
-		const hidden = descendants(rule).find(isLayer);
-		if (hidden !== undefined) {
-			fail(`${entry.id} mentions a layer (${where(hidden)}) under ${where(rule)}, not at the top level`);
-		}
-	}
-	const rank = [...new Set(mentioned)];
-	for (const sheet of plain) {
-		const rules = topLevelRules(sheet);
-		const [wrap] = rules;
-		if (wrap === undefined || wrap.type !== "layer-block" || rules.length !== 1) {
-			fail(`${sheet.id} must be exactly one top-level @layer block; found ${rules.map(where).join(", ") || "nothing"}`);
-		}
-		const name = flat(sheet.id, wrap.value.name);
-		const nested = descendants(wrap).find(isLayer);
-		if (nested !== undefined) {
-			fail(`${sheet.id} nests a layer (${where(nested)}) inside its @layer ${name} wrap`);
-		}
-		const at = (layer: string): number => (rank.includes(layer) ? rank.indexOf(layer) : rank.length);
-		const floor = FLOORS.find((layer) => at(name) <= at(layer));
-		if (at(name) >= at(CEILING)) {
-			fail(`${sheet.id}: @layer ${name} does not rank below ${CEILING} in the entry's order (${rank.join(", ")})`);
-		}
-		if (floor !== undefined) {
-			fail(`${sheet.id}: @layer ${name} does not rank above ${floor} in the entry's order (${rank.join(", ")})`);
-		}
-	}
-}
-
 function fail(message: string): never {
 	throw new Error(`[CSS_ERROR] ${message}`);
 }
@@ -89,4 +47,56 @@ function topLevelRules({ id, css }: CompiledSheet): readonly Rule[] {
 		fail(`${id} does not parse: ${error instanceof Error ? error.message : String(error)}`);
 	}
 	return rules;
+}
+
+/** The layers the entry mentions at its top level, in first-mention order; a layer under any other rule fails. */
+function entryRank(entry: CompiledSheet): string[] {
+	const mentioned: string[] = [];
+	for (const rule of topLevelRules(entry)) {
+		const names = rule.type === "layer-statement" ? rule.value.names : [];
+		mentioned.push(...(rule.type === "layer-block" ? [rule.value.name] : names).map((name) => flat(entry.id, name)));
+		const hidden = descendants(rule).find(isLayer);
+		if (hidden !== undefined) {
+			fail(`${entry.id} mentions a layer (${where(hidden)}) under ${where(rule)}, not at the top level`);
+		}
+	}
+	return [...new Set(mentioned)];
+}
+
+/** One plain sheet: one top-level @layer wrap, nothing nested in it, ranked above the floors and below the ceiling. */
+function assertSheetWrapped(sheet: CompiledSheet, rank: readonly string[]): void {
+	const rules = topLevelRules(sheet);
+	const [wrap] = rules;
+	if (wrap === undefined || wrap.type !== "layer-block" || rules.length !== 1) {
+		fail(`${sheet.id} must be exactly one top-level @layer block; found ${rules.map(where).join(", ") || "nothing"}`);
+	}
+	const name = flat(sheet.id, wrap.value.name);
+	const nested = descendants(wrap).find(isLayer);
+	if (nested !== undefined) {
+		fail(`${sheet.id} nests a layer (${where(nested)}) inside its @layer ${name} wrap`);
+	}
+	const at = (layer: string): number => (rank.includes(layer) ? rank.indexOf(layer) : rank.length);
+	const floor = FLOORS.find((layer) => at(name) <= at(layer));
+	if (at(name) >= at(CEILING)) {
+		fail(`${sheet.id}: @layer ${name} does not rank below ${CEILING} in the entry's order (${rank.join(", ")})`);
+	}
+	if (floor !== undefined) {
+		fail(`${sheet.id}: @layer ${name} does not rank above ${floor} in the entry's order (${rank.join(", ")})`);
+	}
+}
+
+/**
+ * CSS ranks layers by first mention and puts an unmentioned one last, so a renamed, reordered, or missing wrap
+ * silently moves the whole dashboard sheet with every style suite green: above utilities, or below the base reset
+ * whose `button { font-size: inherit }` then overwrites a dashboard button's own size. One wrap per plain sheet and
+ * nothing else: an unlayered rule outranks every layer, a nested layer ranks below its parent's declarations, a
+ * dotted name is a sub-layer these sheets never declare, and a layer mentioned under any other rule of the entry
+ * orders the cascade from a place no reader looks.
+ */
+export function assertLayersOrdered(sheets: readonly CompiledSheet[]): void {
+	const [entry = fail("no Tailwind entry was compiled; the cascade contract has nothing to hold"), ...plain] = sheets;
+	const rank = entryRank(entry);
+	for (const sheet of plain) {
+		assertSheetWrapped(sheet, rank);
+	}
 }
