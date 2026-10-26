@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { BUN_TEST_FILE } from "../runtimeImportGraph";
+import { testFilesUnder } from "../runtimeImportGraph";
+import { shippedSources } from "../sourceScan";
 import { REPO_ROOT } from "../util/repoRoot";
 import { baseName, calleeRoot, importStatements, isFile, parsedSource, unwrapped } from "./syntaxWalk";
 
@@ -11,7 +11,6 @@ const TEST_TREE = path.join(SRC, "test");
 const BUN_TREE = path.join(TEST_TREE, "bun");
 const SLEEP_MODULE = path.join(SRC, "shared", "util", "timer.ts");
 const SLEEP_NAME = "sleepUnlessAborted";
-const PRODUCTION_EXTENSIONS = new Set([".ts", ".tsx"]);
 const TEST_NAMES = new Set(["test", "it"]);
 const PER_ENTRY_METHODS = new Set([
 	"forEach",
@@ -92,13 +91,6 @@ function parametersOf(node: ts.Node): readonly ts.ParameterDeclaration[] {
 	return [];
 }
 
-/** The local name the file imports sleepUnlessAborted under, or undefined when it never imports it. */
-function sleepImportLocal(sf: ts.SourceFile): string | undefined {
-	return [...valueImports(sf)].find(
-		([, binding]) => binding.target === SLEEP_MODULE && binding.imported === SLEEP_NAME
-	)?.[0];
-}
-
 /** Every exported declaration of a module by name: a function or class itself, a variable through its initializer. */
 function exportedDeclarations(sf: ts.SourceFile): [string, ts.Node][] {
 	const found: [string, ts.Node][] = [];
@@ -123,8 +115,19 @@ function exportedDeclarations(sf: ts.SourceFile): [string, ts.Node][] {
 	return found;
 }
 
+/**
+ * An exported declaration judged as a sleeper: `declaration` is the node `file` exports as `name`, and `sleepLocal`
+ * is the name that file imports sleepUnlessAborted under.
+ */
+interface SleeperCandidate {
+	readonly file: string;
+	readonly name: string;
+	readonly declaration: ts.Node;
+	readonly sleepLocal: string;
+}
+
 /** The sleeper a declaration mentioning the sleep import is; its zero-sleep slot is the parameter defaulting to it. */
-function sleeperOf(file: string, name: string, declaration: ts.Node, sleepLocal: string): Sleeper | undefined {
+function sleeperOf({ file, name, declaration, sleepLocal }: SleeperCandidate): Sleeper | undefined {
 	if (!mentions(declaration, sleepLocal)) {
 		return undefined;
 	}
@@ -139,13 +142,15 @@ function sleepersOf(file: string): Sleeper[] {
 	if (file === SLEEP_MODULE) {
 		return [{ file, name: SLEEP_NAME, sleepParameter: undefined }];
 	}
-	const sleepLocal = sleepImportLocal(sf);
+	const sleepLocal = [...valueImports(sf)].find(
+		([, binding]) => binding.target === SLEEP_MODULE && binding.imported === SLEEP_NAME
+	)?.[0];
 	if (sleepLocal === undefined) {
 		return [];
 	}
 	const sleepers: Sleeper[] = [];
 	for (const [name, declaration] of exportedDeclarations(sf)) {
-		const sleeper = sleeperOf(file, name, declaration, sleepLocal);
+		const sleeper = sleeperOf({ file, name, declaration, sleepLocal });
 		if (sleeper !== undefined) {
 			sleepers.push(sleeper);
 		}
@@ -153,24 +158,11 @@ function sleepersOf(file: string): Sleeper[] {
 	return sleepers;
 }
 
-function walkFiles(root: string, keep: (file: string) => boolean): string[] {
-	const files: string[] = [];
-	for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
-		const file = path.join(entry.parentPath, entry.name);
-		if (entry.isFile() && keep(file)) {
-			files.push(file);
-		}
-	}
-	return files.sort();
-}
-
 function productionSleepers(): Map<string, Sleeper[]> {
 	const sleepers = new Map<string, Sleeper[]>();
-	const production = walkFiles(
-		SRC,
-		(file) =>
-			!file.startsWith(TEST_TREE + path.sep) && !file.endsWith(".d.ts") && PRODUCTION_EXTENSIONS.has(path.extname(file))
-	);
+	const production = shippedSources()
+		.map((source) => path.join(REPO_ROOT, source.file))
+		.sort();
 	for (const file of production) {
 		const found = sleepersOf(file);
 		if (found.length > 0) {
@@ -332,11 +324,6 @@ function resolveReferences(
 
 type ExecutedVisit = (child: ts.Node, asCallback: boolean) => boolean;
 
-/** Whether a node sits in a type position, which never runs. */
-function isTypePosition(child: ts.Node): boolean {
-	return ts.isTypeNode(child) || ts.isTypeAliasDeclaration(child) || ts.isInterfaceDeclaration(child);
-}
-
 /**
  * The walk below a visited node: an initializer as code, a property access's object, a call's callee (as a callback
  * when it is a function written in place) and its arguments as callbacks, anything else child by child.
@@ -368,7 +355,7 @@ function descendExecuted(child: ts.Node, visit: ExecutedVisit): void {
  * function is followed: a thunk built for later never runs in the loop.
  */
 function eachExecuted(node: ts.Node, asCallback: boolean, visit: ExecutedVisit): void {
-	if (isTypePosition(node)) {
+	if (ts.isTypeNode(node) || ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node)) {
 		return;
 	}
 	if (ts.isExpression(node) && unwrapped(node) !== node) {
@@ -486,20 +473,10 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 			? (declarationOf(declaration.node.initializer) ?? declaration)
 			: declaration;
 
-	/** A reached site described through the step that led there: a call for a function, a hold for a value. */
-	const describedThrough = (
-		declaration: Declaration,
-		name: string,
-		found: NonNullable<Drive["site"]>
-	): NonNullable<Drive["site"]> => ({
-		sleeper: found.sleeper,
-		description:
-			declaration.kind === "function"
-				? `${found.description}, through ${name}()`
-				: `${found.description}, held by "${name}"`,
-	});
-
-	/** Follows a declaration's bodies, each once per walk, until one reaches a site; driveOf below recurses back here. */
+	/**
+	 * Follows a declaration's bodies, each once per walk, until one reaches a site, which is then described through
+	 * the step that led there: a call for a function, a hold for a value. driveOf below recurses back here.
+	 */
 	const follow = (
 		drive: DriveState,
 		visited: Set<ts.Node>,
@@ -519,7 +496,13 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 			const inner = driveOf(body, visited, asCallbackThere);
 			drive.drives ||= inner.drives;
 			if (inner.site !== undefined) {
-				drive.site = describedThrough(declaration, name, inner.site);
+				drive.site = {
+					sleeper: inner.site.sleeper,
+					description:
+						declaration.kind === "function"
+							? `${inner.site.description}, through ${name}()`
+							: `${inner.site.description}, held by "${name}"`,
+				};
 			}
 		}
 	};
@@ -779,7 +762,7 @@ const exemplarOf = (sleepers: Map<string, Sleeper[]>): Sleeper | undefined =>
 
 function audit(sleepers: Map<string, Sleeper[]>): Audit {
 	const exemplar = exemplarOf(sleepers);
-	const testFiles = walkFiles(BUN_TREE, (file) => BUN_TEST_FILE.test(path.basename(file)));
+	const testFiles = testFilesUnder(BUN_TREE).sort();
 	return sum(testFiles.map((file) => analyzeTest(parsedSource(file), sleepers, exemplar)));
 }
 

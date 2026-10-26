@@ -144,7 +144,7 @@ export class RuntimeImportGraph {
  * The file names `bun test` runs, per its discovery rules. The one definition: a second spelling would let a suite
  * bun runs go unselected by the pre-commit hook or unaudited by the spawn-deadline walk.
  */
-export const BUN_TEST_FILE = /[._](?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
+const BUN_TEST_FILE = /[._](?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
 
 /** Absolute paths of every test file under `root`, skipping the listed absolute directories. */
 export function testFilesUnder(root: string, skipDirs: readonly string[] = []): string[] {

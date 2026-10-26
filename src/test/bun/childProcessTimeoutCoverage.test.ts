@@ -4,10 +4,10 @@
  * positive is loud and names its site, while a spawn deliberately hidden from it is out of scope.
  */
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { BUN_TEST_FILE } from "../runtimeImportGraph";
+import { testFilesUnder } from "../runtimeImportGraph";
 import { REPO_ROOT } from "../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
 import {
@@ -226,12 +226,7 @@ function jsxRuntimeModules(problems: string[]): string[] {
 
 /** Every file bun test loads: the test files under the tree plus bunfig's preload list, which runs before them. */
 function listRoots(problems: string[]): string[] {
-	const roots: string[] = [];
-	for (const entry of readdirSync(BUN_TREE, { recursive: true, withFileTypes: true })) {
-		if (entry.isFile() && BUN_TEST_FILE.test(entry.name)) {
-			roots.push(path.join(entry.parentPath, entry.name));
-		}
-	}
+	const roots = testFilesUnder(BUN_TREE);
 	const bunfig = readFileSync(path.join(REPO_ROOT, "bunfig.toml"), "utf8");
 	const preload = /^preload\s*=\s*\[([^\]]*)\]/m.exec(bunfig);
 	if (preload === null) {
@@ -386,18 +381,6 @@ type NamedDeclaration =
 	| ts.EnumDeclaration
 	| ts.ModuleDeclaration;
 
-/** The declaration statements that register under a name of their own. */
-function isNamedDeclaration(node: ts.Node): node is NamedDeclaration {
-	return (
-		ts.isFunctionDeclaration(node) ||
-		ts.isClassDeclaration(node) ||
-		ts.isInterfaceDeclaration(node) ||
-		ts.isTypeAliasDeclaration(node) ||
-		ts.isEnumDeclaration(node) ||
-		ts.isModuleDeclaration(node)
-	);
-}
-
 /**
  * An object destructuring: the expression it reads from, and each element with the member name it reads, or
  * undefined for a member the walk cannot name.
@@ -541,11 +524,6 @@ class ModuleAnalysis {
 		return target === undefined ? undefined : { kind: "internal", target, name };
 	}
 
-	/** Whether a name is the runner itself: a namespace import of bun:test, or a test or hook function. */
-	private namesRunner(name: string): boolean {
-		return this.testNamespaces.has(name) || this.testLocals.has(name) || this.hookLocals.has(name);
-	}
-
 	/** What a call registers, read off its callee chain; undefined for a call that registers nothing. */
 	private registrationKind(callee: ts.Expression): RegistrationKind | undefined {
 		const found = calleeRoot(callee);
@@ -624,7 +602,11 @@ class ModuleAnalysis {
 	/** Records a stored alias of a registration function or of the runner; true when it taught the walk a new name. */
 	private noteAlias(node: ts.VariableDeclaration, initializer: ts.Expression): boolean {
 		const found = calleeRoot(initializer);
-		const fromRunner = found !== undefined && this.namesRunner(found.root.text);
+		const fromRunner =
+			found !== undefined &&
+			(this.testNamespaces.has(found.root.text) ||
+				this.testLocals.has(found.root.text) ||
+				this.hookLocals.has(found.root.text));
 		if (!ts.isIdentifier(node.name)) {
 			if (fromRunner) {
 				this.fail(node, "destructuring the test runner is not followed");
@@ -1130,7 +1112,14 @@ class ModuleAnalysis {
 			this.visitExportAssignment(node, scopes);
 			return;
 		}
-		if (isNamedDeclaration(node)) {
+		if (
+			ts.isFunctionDeclaration(node) ||
+			ts.isClassDeclaration(node) ||
+			ts.isInterfaceDeclaration(node) ||
+			ts.isTypeAliasDeclaration(node) ||
+			ts.isEnumDeclaration(node) ||
+			ts.isModuleDeclaration(node)
+		) {
 			this.registerDeclaration(node, scopes);
 			return;
 		}

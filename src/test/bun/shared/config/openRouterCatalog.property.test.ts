@@ -92,17 +92,6 @@ function assertWellFormed(models: readonly CatalogModel[]): void {
 	}
 }
 
-/** The catalog models whose post-vendor suffix is exactly `rawId`. */
-function suffixMatchesOf(models: readonly CatalogModel[], rawId: string): CatalogModel[] {
-	return models.filter((model) => {
-		const slash = model.id.indexOf("/");
-		// Mirror the lookup's guard: an empty post-vendor suffix is never indexed, so "" can match nothing
-		// implicitly.
-		const suffix = model.id.slice(slash + 1);
-		return slash > 0 && suffix !== "" && suffix === rawId;
-	});
-}
-
 /** Checks the implicit lookup's answer: an exact id wins, else a lone suffix match, else ambiguous, else not found. */
 function assertImplicitRule(
 	implicit: CatalogLookupResult,
@@ -198,7 +187,14 @@ describe("shared/config openRouterCatalog properties", () => {
 					assert.deepStrictEqual(implicit, { kind: "not-found" });
 					return;
 				}
-				assertImplicitRule(implicit, rawId, byId.has(rawId), suffixMatchesOf(snapshot.models, rawId));
+				const suffixMatches = snapshot.models.filter((model) => {
+					const slash = model.id.indexOf("/");
+					// Mirror the lookup's guard: an empty post-vendor suffix is never indexed, so "" can match nothing
+					// implicitly.
+					const suffix = model.id.slice(slash + 1);
+					return slash > 0 && suffix !== "" && suffix === rawId;
+				});
+				assertImplicitRule(implicit, rawId, byId.has(rawId), suffixMatches);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);

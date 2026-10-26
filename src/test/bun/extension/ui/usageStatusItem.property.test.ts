@@ -161,12 +161,15 @@ const scenarioArb = fc
 		};
 	});
 
+/** What the documented severity rule reads: the worst fresh fraction and the two ends of the usable thresholds. */
+interface SeverityInputs {
+	readonly worst: number | undefined;
+	readonly lowest: number | undefined;
+	readonly highest: number | undefined;
+}
+
 /** The documented severity of the worst fresh fraction against the usable thresholds; undefined with no contributor. */
-function severityOf(
-	worst: number | undefined,
-	lowest: number | undefined,
-	highest: number | undefined
-): "error" | "warning" | "plain" | undefined {
+function severityOf({ worst, lowest, highest }: SeverityInputs): "error" | "warning" | "plain" | undefined {
 	if (worst === undefined) {
 		return undefined;
 	}
@@ -197,7 +200,7 @@ function oracle(
 	const usable = [...new Set(thresholds.filter((t) => Number.isFinite(t) && t > 0 && t <= 1))].sort((a, b) => a - b);
 	const lowest = usable[0];
 	const highest = usable.at(-1);
-	const severity = severityOf(worst, lowest, highest);
+	const severity = severityOf({ worst, lowest, highest });
 	return { fractions, worst, lowest, highest, severity };
 }
 

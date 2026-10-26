@@ -183,13 +183,6 @@ function anchorText(cache: Map<string, string>, citedPath: string, source: strin
 	return text;
 }
 
-/** The failure line for an anchor the cited file does not carry: a selector miss for a sheet, a text miss otherwise. */
-function anchorFailure(citation: Citation, anchor: string, citedPath: string): string {
-	return citedPath.endsWith(".css")
-		? `charter line ${citation.line}: \`${anchor}\` is not a selector in ${citation.file}`
-		: `charter line ${citation.line}: \`${anchor}\` does not appear in ${citation.file}`;
-}
-
 test("every charter citation resolves against today's source", () => {
 	const charter = readFileSync(charterPath, "utf8");
 	const { citations, lineNumberForms } = parseCharter(charter);
@@ -212,7 +205,11 @@ test("every charter citation resolves against today's source", () => {
 			continue;
 		}
 		if (!anchorResolves(citedPath, citation.anchor, anchorText(anchorTexts, citedPath, source))) {
-			failures.push(anchorFailure(citation, citation.anchor, citedPath));
+			failures.push(
+				citedPath.endsWith(".css")
+					? `charter line ${citation.line}: \`${citation.anchor}\` is not a selector in ${citation.file}`
+					: `charter line ${citation.line}: \`${citation.anchor}\` does not appear in ${citation.file}`
+			);
 		}
 	}
 	expect(failures).toEqual([]);

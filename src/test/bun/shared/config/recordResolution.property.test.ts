@@ -74,11 +74,6 @@ interface Scenario {
 /** The record key forms a scenario draws: cuts of the model ID, the catch-all, a stranger's ID, and an invalid key. */
 type KeyForm = "glob" | "exact" | "star" | "regex" | "foreign" | "invalid";
 
-/** The field names a directive list names; each index wraps around the record's own fields. */
-function listedFields(indexes: readonly number[], fields: readonly string[]): string[] {
-	return indexes.map((i) => fields[i % Math.max(1, fields.length)]).filter((f) => f !== undefined);
-}
-
 /** A marking directive's value for its mode: every own field, the listed ones, or absent. */
 function markingValue(
 	mode: "absent" | "all" | "list",
@@ -89,7 +84,7 @@ function markingValue(
 		return true;
 	}
 	if (mode === "list") {
-		return listedFields(list, fields);
+		return list.map((i) => fields[i % Math.max(1, fields.length)]).filter((f) => f !== undefined);
 	}
 	return undefined;
 }
@@ -419,11 +414,6 @@ function engineView(fields: ReadonlyMap<string, ResolvedChainField>, markingDire
 	);
 }
 
-/** Whether an `_inherit_from` value closes the chain: `false`, or an empty list. */
-function isBarrier(inheritFrom: unknown): boolean {
-	return inheritFrom === false || (Array.isArray(inheritFrom) && inheritFrom.length === 0);
-}
-
 /** Every resolved field was written by the winner itself. */
 function assertOnlyOwnFields(resolution: RecordChainResolution, winnerKey: string): void {
 	for (const field of resolution.fields.values()) {
@@ -484,7 +474,8 @@ describe("shared/config recordResolution inheritance fuzzer", () => {
 				}
 				const inheritFrom = (records[winnerKey] as RawRecord)._inherit_from;
 				const resolution = resolveParameterLayer(id, records);
-				if (isBarrier(inheritFrom)) {
+				const barrier = inheritFrom === false || (Array.isArray(inheritFrom) && inheritFrom.length === 0);
+				if (barrier) {
 					assertOnlyOwnFields(resolution, winnerKey);
 				}
 				if (Array.isArray(inheritFrom)) {

@@ -8,9 +8,7 @@
  *   That routing cannot be made unforgettable by types (a returned scope can be dropped) -> this census pins it
  */
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { REPO_ROOT } from "../../../util/repoRoot";
+import { shippedSources } from "../../../sourceScan";
 
 /** The module that DEFINES applyAuthOverlay; excluded from the call-site walk. */
 const OVERLAY_MODULE = "src/provider/transport/authOverlay.ts";
@@ -41,21 +39,6 @@ const REGISTRY: Record<string, CallSiteRegistration> = {
 	"src/extension/servers/usage/spendClient.ts": { overlayCalls: 1, failRoutings: 1 },
 };
 
-/** Every shipped .ts/.tsx source file, the test tree excluded. */
-function shippedSourceFiles(): string[] {
-	const srcDir = path.join(REPO_ROOT, "src");
-	const testDir = path.join(srcDir, "test");
-	const walk = (dir: string): string[] =>
-		readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-			const full = path.join(dir, entry.name);
-			if (entry.isDirectory()) {
-				return full === testDir ? [] : walk(full);
-			}
-			return /\.(ts|tsx)$/.test(entry.name) && !entry.name.endsWith(".d.ts") ? [full] : [];
-		});
-	return walk(srcDir);
-}
-
 function countMatches(source: string, pattern: RegExp): number {
 	return source.match(pattern)?.length ?? 0;
 }
@@ -63,19 +46,17 @@ function countMatches(source: string, pattern: RegExp): number {
 describe("provider/transport auth-overlay scope census", () => {
 	test("every shipped applyAuthOverlay call site is registered with its fail routing", () => {
 		const observed = new Map<string, { overlayCalls: number; failRoutings: number }>();
-		for (const file of shippedSourceFiles()) {
-			const relative = path.relative(REPO_ROOT, file).split(path.sep).join("/");
-			if (relative === OVERLAY_MODULE) {
+		for (const { file, text } of shippedSources()) {
+			if (file === OVERLAY_MODULE) {
 				continue;
 			}
-			const source = readFileSync(file, "utf8");
-			const overlayCalls = countMatches(source, /applyAuthOverlay\(/g);
+			const overlayCalls = countMatches(text, /applyAuthOverlay\(/g);
 			if (overlayCalls === 0) {
 				continue;
 			}
 			// `.fail(` is the scope's one member; these transports use no other fail-named API, so the count is the
 			// routing count.
-			observed.set(relative, { overlayCalls, failRoutings: countMatches(source, /\.fail\(/g) });
+			observed.set(file, { overlayCalls, failRoutings: countMatches(text, /\.fail\(/g) });
 		}
 
 		expect([...observed.keys()].sort()).toEqual(Object.keys(REGISTRY).sort());
@@ -137,14 +118,13 @@ describe("provider/transport timeout budget mints", () => {
 		// in-code bound states undefined. The declaring module's own totality is guarded in code, by timeoutError's
 		// satisfies-never default.
 		const observed = new Map<string, Record<string, number>>();
-		for (const file of shippedSourceFiles()) {
-			const relative = path.relative(REPO_ROOT, file).split(path.sep).join("/");
-			if (relative === BUDGET_MODULE) {
+		for (const { file, text } of shippedSources()) {
+			if (file === BUDGET_MODULE) {
 				continue;
 			}
-			const counts = budgetMintCounts(readFileSync(file, "utf8"));
+			const counts = budgetMintCounts(text);
 			if (Object.keys(counts).length > 0) {
-				observed.set(relative, counts);
+				observed.set(file, counts);
 			}
 		}
 

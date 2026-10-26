@@ -712,24 +712,6 @@ function naiveExtra(layers: ExtraLayers, name: string): NaiveExtra | undefined {
 	return undefined;
 }
 
-/** Every name a layer carries that is not a core field. */
-function extraNamesOf(layers: ExtraLayers): Set<string> {
-	return new Set(
-		[...layers.entry.fields.keys(), ...layers.global.fields.keys(), ...Object.keys(layers.serverValues)].filter(
-			(name) => !Object.hasOwn(CAPABILITY_FIELDS, name)
-		)
-	);
-}
-
-/** The layers of one input, the server's values empty for a server that declared nothing. */
-function extraLayersOf(input: ResolveModelCapabilitiesInput): ExtraLayers {
-	return {
-		entry: resolveCapabilityLayer(input.rawModelId, input.entryCapabilities ?? {}),
-		global: resolveCapabilityLayer(input.rawModelId, input.globalCapabilities),
-		serverValues: input.serverDeclared.kind === "discovered" ? input.serverDeclared.values : {},
-	};
-}
-
 /** The effective extra equals the naive answer in value, level, writer, and inheritor, or is absent along with it. */
 function assertExtraMatchesNaive(effective: EffectiveCapabilityFields, layers: ExtraLayers, name: string): void {
 	const expected = naiveExtra(layers, name);
@@ -901,9 +883,17 @@ describe("shared/config capabilityResolution properties", () => {
 	test("extras resolve with exact provenance: every user-set extra matches a naive per-field walk", () => {
 		fc.assert(
 			fc.property(scenario, ({ input }) => {
-				const layers = extraLayersOf(input);
+				const layers: ExtraLayers = {
+					entry: resolveCapabilityLayer(input.rawModelId, input.entryCapabilities ?? {}),
+					global: resolveCapabilityLayer(input.rawModelId, input.globalCapabilities),
+					serverValues: input.serverDeclared.kind === "discovered" ? input.serverDeclared.values : {},
+				};
 				const effective = resolveModelCapabilities(input);
-				const extraNames = extraNamesOf(layers);
+				const extraNames = new Set(
+					[...layers.entry.fields.keys(), ...layers.global.fields.keys(), ...Object.keys(layers.serverValues)].filter(
+						(name) => !Object.hasOwn(CAPABILITY_FIELDS, name)
+					)
+				);
 				for (const name of extraNames) {
 					assertExtraMatchesNaive(effective.fields, layers, name);
 				}

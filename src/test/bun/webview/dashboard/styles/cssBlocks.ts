@@ -44,18 +44,6 @@ function stringClose(css: string, i: number): number {
 	return j;
 }
 
-/**
- * The prelude between `from` and the brace at `to` with its comments cut out: the bundler puts a file banner ahead of
- * the at-rule it opens, and a prelude carrying one answers to no pattern, reporting a block nested in a width query
- * as unconditional.
- */
-function preludeText(css: string, from: number, to: number): string {
-	return css
-		.slice(from, to)
-		.replace(/\/\*[\s\S]*?\*\//g, "")
-		.trim();
-}
-
 /** Records the innermost open block as closed by the brace at `close`; a stray brace with nothing open is ignored. */
 function closeInnermost(css: string, open: OpenBlock[], close: number, found: Block[]): void {
 	const opened = open.pop();
@@ -89,7 +77,12 @@ export function blocks(css: string): readonly Block[] {
 		} else if (char === '"' || char === "'") {
 			i = stringClose(css, i);
 		} else if (char === "{") {
-			const prelude = preludeText(css, preludeStart, i);
+			// Comments out of the prelude text too: the bundler puts a file banner ahead of the at-rule it opens, and a
+			// prelude carrying one answers to no pattern, reporting a block nested in a width query as unconditional.
+			const prelude = css
+				.slice(preludeStart, i)
+				.replace(/\/\*[\s\S]*?\*\//g, "")
+				.trim();
 			open.push({ prelude, at: preludeStart, bodyStart: i + 1, context: open.map((entry) => entry.prelude) });
 			preludeStart = i + 1;
 		} else if (char === "}") {

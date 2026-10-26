@@ -173,23 +173,6 @@ function sweepCopyBundle(file: string): { readonly tokens: string[]; readonly fa
 	return { tokens, failures };
 }
 
-/** Every markdown file under docs/, with forward slashes so the reach pins and messages read the same on every OS. */
-function docFiles(): string[] {
-	return fs
-		.readdirSync(path.join(REPO_ROOT, "docs"), { recursive: true, encoding: "utf8" })
-		.filter((name) => name.endsWith(".md"))
-		.map((name) => `docs/${name.replaceAll("\\", "/")}`)
-		.sort();
-}
-
-/**
- * The README files, which spell directives in Marketplace-facing prose (the privacy paragraph names _openrouter_model).
- * CHANGELOG.md stays out deliberately: its historical release notes correctly keep retired names.
- */
-function readmeFiles(): ReadonlySet<string> {
-	return new Set(fs.readdirSync(REPO_ROOT).filter((name) => name.startsWith("README") && name.endsWith(".md")));
-}
-
 /** The distinct directive-shaped tokens one prose file spells, and a failure for each unregistered, unallowed one. */
 function sweepProseFile(
 	file: string,
@@ -327,8 +310,18 @@ describe("shared/config record-type directive registry", () => {
 	test("every directive-shaped token in the docs and README files is a registered directive", () => {
 		// The docs teach the record grammar in prose and code fences, so registered spellings are expected and pass;
 		// the sweep detects renames, where a dropped registry name would leave the docs teaching it.
-		const docs = docFiles();
-		const readmes = readmeFiles();
+		// Separators normalized so the reach pins and messages read the same on every OS.
+		const docs = fs
+			.readdirSync(path.join(REPO_ROOT, "docs"), { recursive: true, encoding: "utf8" })
+			.filter((name) => name.endsWith(".md"))
+			.map((name) => `docs/${name.replaceAll("\\", "/")}`)
+			.sort();
+		// The README files spell directives in Marketplace-facing prose (the privacy paragraph names
+		// _openrouter_model). CHANGELOG.md stays out deliberately: its historical release notes correctly keep retired
+		// names.
+		const readmes: ReadonlySet<string> = new Set(
+			fs.readdirSync(REPO_ROOT).filter((name) => name.startsWith("README") && name.endsWith(".md"))
+		);
 		const sweptFiles = [...docs, ...readmes].sort();
 		// Non-directive tokens the docs legitimately spell, each pinned below so a dropped mention retires its entry.
 		//
