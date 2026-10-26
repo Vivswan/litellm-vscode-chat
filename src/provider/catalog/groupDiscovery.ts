@@ -167,7 +167,7 @@ export interface GroupDiscoveryOptions {
 	/** Keyed through discoveryCacheKey, so a changed API root or mode list misses by construction. */
 	cache: DiscoveryCache<DiscoveredGroupModels>;
 
-	/** Records each serve's outcome into the status window and fires the aggregated status callback. */
+	/** Fed only by recordServe, after the generation check that drops a rotated configuration's serve. */
 	reporter: GroupStatusReporter;
 
 	/** The facade-owned live window; read for the error path's stale-servable fallback. */

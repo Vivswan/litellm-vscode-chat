@@ -898,7 +898,10 @@ async function probeModelInfo(leg: DiscoveryLeg): Promise<ModelInfoProbe> {
 	}
 }
 
-/** The /models listing, the fallback every server answers; its failure is the one that aborts discovery. */
+/**
+ * The /models listing, the one discovery request whose failure aborts the fetch; an entry's declared models still
+ * register through the group serve. An entry expecting the failure gets a single attempt and no declaration hint.
+ */
 async function listModels(leg: DiscoveryLeg, failureContext: ModelsFailureContext): Promise<LiteLLMModelItem[]> {
 	const { request, log, sleep, errorContext } = leg;
 	const { client, baseUrl, apiVersion, expected, headers } = request;

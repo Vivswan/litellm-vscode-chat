@@ -83,22 +83,6 @@ export function toLanguageModelError(err: unknown): unknown {
 /**
  * Each per-entry resolver takes an entry label and a base URL and matches a declared entry by label and normalized
  * base URL, so an unlabeled (external) group resolves nothing.
- *   getEntryApiVersion      -> "" is a real value (append nothing), distinct from undefined (auto-detect: keep a
- *                              version segment already in the URL, else /v1)
- *   getExpectedFailures     -> a listed category's endpoint gets a single discovery attempt, and its failure is
- *                              downgraded to an expected, info-severity outcome
- *   getEntryIncludeModes    -> part of the discovery cache key, so an edit refetches
- *   resolveEntryCredentials -> the host bakes credentials into a group at creation and its group commands are
- *                              add-only, so the entry's CURRENT credentials overlay the baked ones;
- *                              GroupCredentialsResolution names the three answers and which one keeps the baked set
- *   getCatalogLookup        -> the catalog store owns files, network, and the opt-out; this layer only resolves, and
- *                              reads at serve time so a refreshed snapshot reaches the next attach without a rebuild
- *   isGroupSuppressed       -> a suppressed group answers empty and skips the network while its group-side status
- *                              still reports, so the status window and the dashboard stay coherent
- *     removed    -> judged by the group's client ID, by the entry label its configuration is stamped with at its base
- *                   URL, or by the status label and URL a pre-keyed tombstone carries
- *     superseded -> the entry carrying `entryLabel` now declares another URL; unlabeled groups pass no `entryLabel`,
- *                   so a URL-host display label never reads as an entry's
  */
 export interface LiteLLMChatModelProviderOptions {
 	/** The User-Agent header on the SDK clients' requests; the OAuth token exchange does not carry it. */
@@ -118,30 +102,30 @@ export interface LiteLLMChatModelProviderOptions {
 	/** Request- and discovery-time resolver for an entry's custom headers; no global headers setting exists. */
 	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, HeaderValue>> | undefined) | undefined;
 
-	/** Request- and discovery-time resolver for an entry's apiVersion override (what apiRootOf appends). */
+	/** The request- and discovery-time apiVersion override: "" appends nothing, undefined lets apiRootOf detect. */
 	getEntryApiVersion?: ((label: string, baseUrl: string) => string | undefined) | undefined;
 
 	/** Registration-time resolver for a declared entry's discovery.declared model IDs. */
 	getEntryDeclaredModels?: ((label: string, baseUrl: string) => readonly string[] | undefined) | undefined;
 
-	/** Discovery-time resolver for a declared entry's expectedFailures categories. */
+	/** A declared entry's expectedFailures; a listed endpoint gets one discovery attempt and an expected failure. */
 	getExpectedFailures?:
 		| ((label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined)
 		| undefined;
 
-	/** Discovery-time resolver for an entry's includeModes, the non-chat modes whose entries register anyway. */
+	/** An entry's includeModes, non-chat modes registered anyway; in the discovery cache key, so an edit refetches. */
 	getEntryIncludeModes?: ((label: string, baseUrl: string) => readonly NonChatMode[] | undefined) | undefined;
 
-	/** Resolves a declared entry's credentials for a group it owns (GroupCredentialsResolution). */
+	/** A declared entry's current credentials; they overlay the host-baked set (GroupCredentialsResolution). */
 	resolveEntryCredentials?: EntryCredentialsResolver | undefined;
 
 	/** The HTTP transport under the chat client; tests inject a fake here. Defaults to nodeHttpFetch. */
 	fetch?: TransportFetch | undefined;
 
-	/** The OpenRouter capability catalog as in-memory lookup data. */
+	/** The OpenRouter catalog as in-memory lookup data, read fresh by the serve-time decorator (servedModels.ts). */
 	getCatalogLookup?: (() => CapabilityCatalogLookup) | undefined;
 
-	/** The tombstone predicate: whether the configuration removed or superseded a group. */
+	/** The tombstone predicate; a suppressed group answers empty and skips the network but still reports status. */
 	isGroupSuppressed?: ((group: SuppressedGroupKey) => boolean) | undefined;
 
 	/** Cache seam for tests (fake TTL clock); the provider owns a real one by default. */

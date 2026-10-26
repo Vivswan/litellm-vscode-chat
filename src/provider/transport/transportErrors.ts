@@ -321,6 +321,7 @@ interface EnvelopeSignals {
 	readonly rateLimitMark: boolean;
 }
 
+/** The signals read from `envelope`'s marks and message; an absent envelope proves none of them. */
 function envelopeSignals(envelope: ErrorEnvelope | undefined): EnvelopeSignals {
 	const marks = envelope?.marks ?? "";
 	const message = envelope?.message ?? "";

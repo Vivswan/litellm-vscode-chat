@@ -25,7 +25,7 @@ export interface AuthOverlayContext {
 	/** Whose error copy a token-exchange failure renders under. */
 	readonly surface: OAuthErrorSurface;
 
-	/** The exchange attempt's clock plus the identity of the setting that owns it, which timeout advice names. */
+	/** Carries the identity of the setting that owns it, which timeout advice names. */
 	readonly timeout: TimeoutBudget;
 
 	/** Ends this call's token wait on the caller's abort or timeout; the exchange runs on for any other waiter. */

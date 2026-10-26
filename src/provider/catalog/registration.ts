@@ -208,6 +208,7 @@ interface ModelEntryContext extends BuildContext {
 /** The providers of a group shape, or the tool-capable ones among them: never empty. */
 type ProviderSet = readonly [LiteLLMProvider, ...LiteLLMProvider[]];
 
+/** The per-model build context: `build` plus `model` and the input modalities its architecture reports. */
 function modelEntryContext(model: LiteLLMModelItem, build: BuildContext): ModelEntryContext {
 	const rawModalities = model.architecture?.input_modalities;
 	const modalities = Array.isArray(rawModalities) ? rawModalities : undefined;
@@ -332,6 +333,7 @@ function aggregateEntries(ctx: ModelEntryContext, toolProviders: ProviderSet): P
 		imageInput: vision,
 	};
 	const onServer = serverCount > 1 ? ` on ${server.label}` : "";
+	/** The group's entry for one routing `variant`. */
 	const aggregate = (variant: "cheapest" | "fastest"): PreAttachModelInfo => {
 		const rawId = `${m.id}:${variant}`;
 		return {
