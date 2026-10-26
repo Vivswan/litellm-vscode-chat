@@ -26,9 +26,12 @@ function legacySpellingPrint(label: string, baseUrl: string): string {
 
 interface FakeMemento {
 	writes: number;
+
 	/** Runs inside every update, before the write lands: the hook a concurrent edit rides in on. */
 	onUpdate?: (() => void) | undefined;
+
 	get(key: string): unknown;
+
 	update(key: string, value: unknown): Promise<void>;
 }
 

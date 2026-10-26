@@ -375,6 +375,7 @@ type OldEffectiveCapabilityValues = { readonly [K in CapabilityFieldName]: numbe
 
 export interface OldWalkResult {
 	readonly fields: OldEffectiveCapabilityValues;
+
 	/**
 	 * Old USER_SET_LEVELS semantics: override and fallback levels are "user" (uncapped on the wire), the server level
 	 * is "provider" only when the baseline's request default is the limit itself, and default-setting and floor stay

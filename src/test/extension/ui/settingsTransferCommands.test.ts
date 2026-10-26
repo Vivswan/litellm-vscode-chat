@@ -47,10 +47,13 @@ interface FakeNotification {
 /** The per-test prompt script; every field is mutable so a test sets only what it needs. */
 interface PromptAnswers {
 	confirmImport: boolean | ((summary: ImportPreviewSummary) => boolean);
+
 	/** The undo confirmation modal's answer; defaults to confirmed. */
 	confirmUndo: boolean;
+
 	/** Per-label collision answers; a label absent here answers undefined (dismissal). */
 	collisions: Record<string, "overwrite" | "skip" | "rename" | undefined>;
+
 	/** The rename box's answer; a function may inspect the suggestion and validator. */
 	rename:
 		| string
@@ -61,56 +64,84 @@ interface PromptAnswers {
 /** The whole faked world one flow run sees, with every side effect recorded. */
 interface FakeWorld {
 	env: SettingsTransferEnv;
+
 	answers: PromptAnswers;
+
 	/** The user-scope settings map the fake SettingsAccess serves and mutates. */
 	settings: Map<string, unknown>;
+
 	/** Keys inspect() reports as workspace-configured (the shadowing note's input). */
 	workspaceValues: Map<string, unknown>;
+
 	/** Keys whose writeGlobal throws. */
 	failWrites: Set<string>;
+
 	/** When true, a failing servers write arms secret-store failures (the escalation path). */
 	armSecretFailureOnServersWrite: boolean;
+
 	/** When true, a failing servers write arms store()-only failures; delete still works. */
 	armStoreFailureOnServersWrite: boolean;
+
 	/** SecretStorage keys whose store() fails (delete still works: a targeted mid-unit failure). */
 	failSecretStoreKeys: Set<string>;
+
 	/**
 	 * Every mutation and sync request in arrival order: "settings:<key>", "secret-store:<key>", "secret-delete:<key>",
 	 * "sync".
 	 */
 	ops: string[];
+
 	/**
 	 * A real engine wired as wiring/servers.ts wires it: woken by a changed secret value, a delete of a present key,
 	 * the servers setting write, and the flow's explicit request; held through the flow's hold. Undefined in the
 	 * fake-only tests.
 	 */
 	syncEngine: Pick<ServerSyncEngine, "requestSync" | "withHold"> | undefined;
+
 	/**
 	 * When true, every secret write and delete and every settings write lands one macrotask later, so a zero-debounce
 	 * engine pass has the chance to run between any two writes unless the flow holds the engine.
 	 */
 	slowWrites: boolean;
+
 	/** The raw SecretStorage map behind readServerSecrets/updateServerSecret. */
 	secretValues: Map<string, string>;
+
 	files: Map<string, Uint8Array>;
+
 	saveTarget: vscode.Uri | undefined;
+
 	openTarget: vscode.Uri | undefined;
+
 	/** Overrides fileSize's answer (the size-cap test). */
 	sizeOverride: number | undefined;
+
 	failFileWrite: boolean;
+
 	failSnapshotWrite: boolean;
+
 	snapshotSlot: string | undefined;
+
 	notifications: FakeNotification[];
+
 	summaries: ImportPreviewSummary[];
+
 	collisionPrompts: { label: string; connectionChanged: boolean }[];
+
 	renamePrompts: { suggested: string; validate: (candidate: string) => string | undefined }[];
+
 	/** The snapshot timestamps the undo confirmation modal was shown. */
 	undoConfirmations: string[];
+
 	saveDialogs: { defaultUri: vscode.Uri; title: string }[];
+
 	/** The export flow's user-visible steps in arrival order: "notify", "save-dialog", "write-file". */
 	events: string[];
+
 	revealed: string[];
+
 	logs: string[];
+
 	syncRequests: number;
 }
 
@@ -1534,16 +1565,22 @@ suite("settingsTransferCommands undo flow", () => {
 		string,
 		{
 			initialServers: unknown[];
+
 			/** The pre-import blob for "a"; absent when the snapshot records none. */
 			preImportSecret?: {
 				field: "oauthClientSecret" | "apiKey";
+
 				value: string;
+
 				/** `legacy` is the token URL string older builds stamped a client secret with; the entry still uses it. */
 				owner: "stamped" | "legacy" | { raw: string } | undefined;
 			};
+
 			imported: unknown[];
+
 			/** When set, the undo's servers write fails, so nothing restores and the imported entry stays live. */
 			failServersWrite?: true;
+
 			/** Every add the host may see, whole and in order; a row that expects one says why beside it. */
 			expectedAdds: Record<string, string>[];
 		}

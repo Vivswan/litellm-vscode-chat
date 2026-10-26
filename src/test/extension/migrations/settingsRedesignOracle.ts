@@ -103,6 +103,7 @@ export const WALK_BASELINES: readonly ServerDeclaredCapabilities[] = [
 
 interface WalkView {
 	readonly fields: Record<string, number | boolean>;
+
 	/** The max_tokens sent when nothing else sets it; the old side clamps a "defaults" limit to min(4096, limit). */
 	readonly wireMaxTokens: number;
 }
@@ -110,11 +111,16 @@ interface WalkView {
 /** One comparable meaning of a configuration for (server, model). */
 export interface EffectiveView {
 	readonly parameters: Record<string, unknown>;
+
 	readonly forced: Record<string, unknown>;
+
 	readonly capabilityOverrides: Record<string, unknown>;
+
 	readonly capabilityFallbacks: Record<string, unknown>;
+
 	/** The exact model IDs declared for this server, sorted. */
 	readonly declared: readonly string[];
+
 	/** Full-walk views (trio included) per WALK_BASELINES entry. */
 	readonly walks: readonly WalkView[];
 }
@@ -128,13 +134,16 @@ export type OldWorldResolve = (
 ) => EffectiveView & {
 	/** Skip every comparison: the descoping corners change resolver-level outcomes (and therefore walks too). */
 	skipEquivalence: boolean;
+
 	/** Skip only the walk-level comparison: the trio-fill flow corners live below the resolver views. */
 	skipWalks: boolean;
+
 	/**
 	 * Fields the RETIRED `_declare`+`_fallback` ban kept at override level in the real old world. The view above is
 	 * BAN-FREE, so the property characterizes the ban separately through this list.
 	 */
 	banRescuedFields: readonly string[];
+
 	/** True when defaultMaxOutputTokens was explicitly configured: the one source of the documented clamp lift. */
 	expectsOutputClampLift: boolean;
 };

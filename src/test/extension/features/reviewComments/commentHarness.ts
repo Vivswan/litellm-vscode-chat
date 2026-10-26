@@ -20,11 +20,17 @@ export interface FakeThread {
 
 export interface FakeController {
 	readonly id: string;
+
 	readonly label: string;
+
 	options: vscode.CommentOptions | undefined;
+
 	commentingRangeProvider: vscode.CommentingRangeProvider | undefined;
+
 	readonly threads: FakeThread[];
+
 	disposed: boolean;
+
 	/**
 	 * A thread the HOST made, not the feature: what VS Code hands the reply command when the user starts a thread from
 	 * the gutter. It is deliberately NOT in `threads` - the controller never created it, and the point of the adoption
@@ -41,6 +47,7 @@ export interface CommentSpies {
 
 export interface FakeReviewContext extends vscode.ExtensionContext {
 	readonly writes: unknown[];
+
 	/** Settles on the first workspaceState write; the prune that produces it runs off the critical path. */
 	readonly firstWrite: Promise<void>;
 }

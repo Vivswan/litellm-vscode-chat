@@ -56,6 +56,7 @@ const NEW_IDS: readonly string[] = [
 const maybe = <T>(arbitrary: fc.Arbitrary<T>): fc.Arbitrary<T | undefined> => fc.option(arbitrary, { nil: undefined });
 
 const BASES = ["https://gw", "https://gw/v1", "http://localhost:4000"];
+
 // "gpt*" keeps the star-bearing key rewrite (escaped-regex migration) alive.
 const MODEL_PREFIXES = ["", "*", "gpt", "gpt*", "gpt-5", "gpt-5-turbo", "claude", "deepseek-r1", "v1/gpt", "other"];
 

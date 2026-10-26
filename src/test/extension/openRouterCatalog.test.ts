@@ -86,13 +86,20 @@ interface Harness {
 
 interface HarnessOptions {
 	bundled?: string | undefined;
+
 	cached?: string | undefined;
+
 	metadata?: Record<string, unknown> | undefined;
+
 	enabled?: (() => boolean) | undefined;
+
 	fetchCatalog?: ((signal: AbortSignal) => Promise<unknown>) | undefined;
+
 	now?: number | undefined;
+
 	/** Plant a FILE at the globalStorage path so every cache write fails. */
 	unwritableStorage?: boolean | undefined;
+
 	/** Exercise the store's real fetch path (pair with withFetch) instead of injecting one. */
 	useDefaultFetch?: boolean | undefined;
 }

@@ -33,8 +33,10 @@ import { makeSecretStore, makeSyncEnv } from "../servers/serverSyncHelpers";
 import { makeReader } from "./stateHelpers";
 
 const H = "http://h.test";
+
 /** The status label an unlabeled group at H reports under: discovery's URL-host fallback. */
 const HOST = "h.test";
+
 const SECRET = "s3cret";
 
 /** A host whose add hands the group to the provider at once and then, while held, blocks like a slow serve. */
@@ -93,31 +95,46 @@ function makeHost() {
 
 interface Fixture {
 	engine: ServerSyncEngine;
+
 	env: IntentEnvironment;
+
 	host: ReturnType<typeof makeHost>;
+
 	/** Every array the servers setting was written with. */
 	writes: unknown[][];
+
 	/** The real removal store the intents and the push share. */
 	removals: GroupRemovalStore;
+
 	/** Runs before every SecretStorage read of the given label's blob (the engine's and the intents'). */
 	onSecretRead: ((label: string) => void) | undefined;
+
 	/** Replace the servers setting outright, any value, as a hand edit or another window would. */
 	declare(value: unknown): void;
+
 	/** Land a secure API key for a declared label without awaiting, stamped for the entry as the setting holds it. */
 	storeSecureKey(label: string, value: string): void;
+
 	/** The state push as the panel assembles it: the engine's views (else the settings fallback), reports, holders. */
 	pushedState(): DashboardState;
+
 	/** The declared labels the push's legacy rows belong to: leftovers drawn without adopt or hide. */
 	pushedLegacyRows(): string[];
+
 	/** The handle the push's external row for the group added under `name` carries; undefined when none is drawn. */
 	pushedHandle(name: string): string | undefined;
+
 	/** The handle of the group added under `name`, whether or not the push draws it. */
 	handleOf(name: string): string;
+
 	currentSetting(): unknown;
+
 	/** Every stored API key by label, as SecretStorage holds them now. */
 	secretsSnapshot(): Record<string, unknown>;
+
 	/** Every SecretStorage store or delete, as "store <label>" or "delete <label>". */
 	secretOps: string[];
+
 	/** Every text the environment's clipboard door wrote, after the mask. */
 	clipboard: string[];
 }
@@ -274,24 +291,32 @@ const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 interface Opened {
 	/** A handle for the group that carries the secret, minted the way the window allows. */
 	handle: string;
+
 	close(): Promise<void>;
 }
 
 interface Scenario {
 	open(fixture: Fixture): Promise<Opened>;
+
 	/** The intents the window applies to; hide has no step between its resolution and its write. */
 	intents: readonly ("adopt" | "hide")[];
+
 	adopt: "rejects" | { readonly copies: string };
+
 	/** What hide throws, and adopt when it rejects: the stale-row validation error, or the failed secrets read. */
 	refusal: RegExp | typeof DashboardValidationError | ((error: unknown) => boolean);
+
 	/**
 	 * The declared setting, the stored API keys, and the tombstones once the intent has run, the window's mid-intent
 	 * changes included; `hidden` names the one group hide may tombstone, and its absence means hide refuses.
 	 */
 	after: {
 		readonly setting: unknown;
+
 		readonly secrets: Readonly<Record<string, unknown>>;
+
 		readonly hidden?: readonly { label: string; baseUrl: string }[];
+
 		/**
 		 * The push once the window's own mid-intent change has landed, for the windows that make one; the others
 		 * expect the push before the intent, minus exactly the hidden group.
@@ -299,6 +324,7 @@ interface Scenario {
 		readonly push?: {
 			/** The full rows the move adds; every row and model is compared whole. */
 			readonly added: readonly DashboardServer[];
+
 			/** Row fields the move legitimately changes on any row; none in these windows. */
 			readonly changed?: readonly string[];
 		};
@@ -308,6 +334,7 @@ interface Scenario {
 const A_ENTRY = { label: "A", baseUrl: "http://a.test" };
 const L1_ENTRY = { label: "L1", baseUrl: H };
 const L1_INLINE = { label: "L1", baseUrl: H, auth: { apiKey: SECRET } };
+
 /**
  * The row the settings fallback draws for L1_INLINE before any pass has joined it: its key is only known to exist,
  * nothing is checked, and no credential value or scope key reaches the push.
@@ -324,21 +351,26 @@ const L1_FALLBACK_ROW: DashboardServer = {
 	servedModelCount: 0,
 	state: "unchecked",
 };
+
 /** An OAuth block without its client id: the parser refuses the entry whole. */
 const L1_REJECTED = { label: "L1", baseUrl: H, auth: { oauth: { tokenUrl: "https://idp.test/token" } } };
+
 /** L1 after its token URL moved to another identity provider; the client secret is the one its legacy group holds. */
 const L1_OAUTH_ROTATED = {
 	label: "L1",
 	baseUrl: H,
 	auth: { oauth: { tokenUrl: "https://idp2.test/token", clientId: "client-1", clientSecret: SECRET } },
 };
+
 /** The blob a secure API key stored for an entry at `baseUrl` leaves, owner stamp included. */
 const keyBlob = (baseUrl: string, value = SECRET) => ({
 	apiKey: value,
 	_owner: { apiKey: secretDestination({ baseUrl }, "apiKey") },
 });
+
 /** A's own key; a value equal to L1's would make L1's group A's leftover by the stored-value rule. */
 const A_KEY = "a-key";
+
 /** A refusal the webview renders as validation text, not as the generic failure: the class and the message both. */
 const validation =
 	(message: RegExp) =>

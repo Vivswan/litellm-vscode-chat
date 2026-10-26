@@ -96,35 +96,56 @@ function makeFakePanel(): FakePanel {
 
 interface Harness {
 	controller: DashboardController;
+
 	panels: FakePanel[];
+
 	updates: [string, unknown][];
+
 	removals: string[];
+
 	commands: [string, ...unknown[]][];
+
 	serverWrites: unknown[][];
+
 	secretOps: [string, string, string | undefined][];
+
 	loggedErrors: unknown[];
+
 	loggedMessages: [string, unknown][];
+
 	settingsValues: Record<string, unknown>;
+
 	serversSetting: unknown[];
+
 	/** What getDeclaredServers answers; defaults to the engine's empty view. */
 	declaredServers: DeclaredServersInput;
+
 	/** What getSnapshots answers; defaults to one healthy "srv1" server serving "m1". */
 	snapshots: ReturnType<DashboardControllerEnv["getSnapshots"]>;
+
 	/** What resolveEntryParameters answers per snapshot server ID. */
 	entryResolutions: Record<string, EntryParametersResolution>;
+
 	/** What resolveEntryCapabilities answers per snapshot server ID. */
 	entryCapabilities: Record<string, EntryCapabilitiesRecord>;
+
 	/** Every searchCatalog query, with catalogResults as the canned answer. */
 	catalogQueries: string[];
+
 	catalogResults: CatalogModelSummary[];
+
 	/** How many staleness-gated usage kicks open() fired (refreshUsageIfStale). */
 	usageStaleKicks: number;
+
 	/** When set, every updateSetting call rejects with this error. */
 	failUpdates?: Error;
+
 	/** When set, storeServerSecret rejects with this error on deletes (value === undefined). */
 	failUnstore?: Error;
+
 	/** When set, probeDraftConnection waits on this before resolving; lets a test hold a slow probe open. */
 	probeGate?: Promise<void>;
+
 	/** When set, probeDraftConnection rejects with this error (a failing draft test). */
 	probeError?: Error;
 }

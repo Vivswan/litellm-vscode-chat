@@ -74,10 +74,15 @@ type EndpointResult<T> = T | RequestError;
 
 class FakeClient implements UsageFetchClient {
 	keyInfoResult: EndpointResult<KeyUsage> = KEY_OK;
+
 	dailyResult: EndpointResult<DailyUsage> = EMPTY_DAILY;
+
 	userResult: EndpointResult<UserUsage> = { spend: undefined, maxBudget: undefined, budgetResetAt: undefined };
+
 	calls = { keyInfo: 0, dailyActivity: 0, userInfo: 0 };
+
 	lastWindow: ActivityWindow | undefined;
+
 	/** Every /key/info connection, for pairing assertions; test-memory only, never logged. */
 	readonly keyConnections: UsageConnection[] = [];
 

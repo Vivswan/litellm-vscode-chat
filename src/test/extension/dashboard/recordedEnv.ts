@@ -107,87 +107,131 @@ export function serverPayload(
 }
 export interface RecordedEnv {
 	updates: [string, unknown][];
+
 	/** Every removeSetting call (the resetSetting intent's removals). */
 	removals: string[];
+
 	/** The visible litellm-vscode-chat.* values; reads reflect landed writes like the real configuration. */
 	settingValues: Map<string, unknown>;
+
 	commands: [string, ...unknown[]][];
+
 	/** Every text handed to the clipboard, after the output door. */
 	clipboard: string[];
+
 	/** Every writeServersSetting call, whole arrays. */
 	serverWrites: unknown[][];
+
 	/** Every storeServerSecret call: label, field, value. */
 	secretOps: [string, string, string | undefined][];
+
 	/** Every storeServerSecret call's ownership stamp, aligned with secretOps by index. */
 	secretOwners: (SecretOwner | undefined)[];
+
 	/** Every deleteServerSecrets call. */
 	secretDeletes: string[];
+
 	/** Every mutation in call order, for atomicity-ordering assertions. */
 	ops: string[];
+
 	/** The fake secure store's blobs by label; mutated by the secret operations like the real one. */
 	storedSecrets: Map<string, Record<string, string>>;
+
 	/** The fake store's ownership stamps by label, mutated alongside storedSecrets. */
 	storedOwners: Map<string, Record<string, SecretOwner>>;
+
 	/** Every env.log call; classifications only. */
 	logs: [string, unknown][];
+
 	syncRequests: number;
+
 	/** When set, writeServersSetting rejects with this error. */
 	failWrites?: Error;
+
 	/** When set, storeServerSecret rejects with this error on deletes (value === undefined). */
 	failUnstore?: Error;
+
 	/** When set, this many delete-side storeServerSecret calls reject before recovering. */
 	failUnstoreTimes?: number;
+
 	/** When set, storeServerSecret rejects when storing a value for this field. */
 	failStoreField?: string;
+
 	/** When set, deleteServerSecrets rejects with this error. */
 	failBlobDeletes?: Error;
+
 	/**
 	 * When set, runs after each readServerSecrets call: the seam for injecting a concurrent edit between the plan read
 	 * and the guarded unit.
 	 */
 	onSecretsRead?: ((label: string) => void) | undefined;
+
 	/**
 	 * Runs after each successful writeServersSetting with the now-visible array, the seam for injecting a concurrent
 	 * edit between the write and the cleanup.
 	 */
 	afterWrite?: (current: unknown[]) => void;
+
 	/** What resolveAdoptionCredentials returns; every call is recorded in adoptionLookups. */
 	adoptionCredentials?: AdoptableGroupCredentials;
+
 	adoptionLookups: [string, string][];
+
 	/** What resolveExternalGroup returns; every call is recorded in externalLookups. */
 	externalGroup?: TombstoneIdentity;
+
 	externalLookups: [string, string][];
+
 	/** Every probeDraftConnection call's resolved connection; probeResult/probeError shape the outcome. */
 	probes: DraftConnection[];
+
 	probeResult: readonly string[];
+
 	probeError?: Error;
+
 	/** Every inlineCompletions feature-probe call's model ref; fimProbeResult/probeError shape the outcome. */
 	fimProbes: FeatureModelRef[];
+
 	fimProbeResult: string | undefined;
+
 	/** The same, for a non-completion feature: the branch every future shipped feature lands in. */
 	reviewProbes: FeatureModelRef[];
+
 	reviewProbeResult: string | undefined;
+
 	/** Every hideGroup call; duringHide runs inside the fake, before it answers, for mutations racing the hide. */
 	hidden: TombstoneIdentity[];
+
 	duringHide?: () => void;
+
 	/** Whether the fake reports the hide as inserting a record (false: an identical record already stood). */
 	hideAdded: boolean;
+
 	/** Replace the visible servers setting outright: another window's write landing between two reads. */
 	setSetting: (value: unknown) => void;
+
 	/** Every retractHide call: the exact record a compensated hide took back. */
 	retracted: TombstoneIdentity[];
+
 	/** Every unhideGroup call; unhideResult is what the fake reports back. */
 	unhidden: { label: string; baseUrl: string }[];
+
 	unhideResult: boolean;
+
 	/** What isGroupHidden answers true for: the identities a tombstone holds. */
 	hiddenIdentities: { label: string; baseUrl: string }[];
+
 	/** Every openManageLanguageModels search; manageAvailable is what the fake reports back. */
 	manageOpens: string[];
+
 	manageAvailable: boolean;
+
 	/** How many refreshCatalogNow kicks arrived (the refreshCatalog intent). */
 	catalogRefreshes: number;
+
 	/** How many refreshUsageNow kicks arrived (the refreshUsage intent). */
 	usageRefreshes: number;
+
 	env: IntentEnvironment;
 }
 

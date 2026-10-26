@@ -9,9 +9,11 @@ import { resolveFuzzSeed } from "../../../fuzzStream";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
+
 // The msw-backed properties cap at 2000 runs (each run is a real intercepted HTTP round trip); the pure
 // usageUnavailabilityOf properties scale unbounded.
 const MSW_RUNS_CAP = 2000;
+
 const SEED = resolveFuzzSeed();
 
 const KEY_INFO_URL = `${TEST_BASE_URL}/key/info`;
@@ -186,6 +188,7 @@ const dailyPayloadArb = fc.oneof(
 
 /** The parser's documented day-acceptance rule, restated for the retained-set check. */
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 function expectedDayKeys(payload: unknown): string[] {
 	const record = payload as { results?: unknown };
 	const results = typeof record === "object" && record !== null && Array.isArray(record.results) ? record.results : [];

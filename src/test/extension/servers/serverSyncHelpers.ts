@@ -27,28 +27,43 @@ export function makeSecretStore(initial: Record<string, string> = {}): SecretSto
 
 export interface Recorded {
 	upserts: Record<string, string>[];
+
 	fingerprints: Record<string, string>;
+
 	/** The persisted identity ledger (label -> normalized base URL). */
 	entryBaseUrls: Record<string, string>;
+
 	/** Every reconcileEntryIdentities call: the declared identities and the removal events. */
 	reconciles: { declared: DeclaredGroupClaim[]; events: RemovedEntryEvent[] }[];
+
 	logged: [string, unknown][];
+
 	loggedErrors: [string, unknown][];
+
 	env: ServerSyncEnv;
+
 	setting: unknown;
+
 	secrets: Record<string, StoredServerSecrets>;
+
 	/** Ownership stamps the fake blob read reports beside the values, by label. */
 	secretOwners: Record<string, StoredSecretOwners>;
+
 	/** When set, addProviderGroup rejects for these labels. */
 	failLabels: Set<string>;
+
 	/** When set, addProviderGroup rejects these labels the way an add-only host refuses an existing name. */
 	duplicateLabels: Set<string>;
+
 	/** When set, the pass-end setFingerprints write rejects with this error. */
 	failFingerprintWrites?: Error;
+
 	/** What confirmFingerprintsDurable reports; false models a session-only salt. */
 	saltDurable: boolean;
+
 	/** What observedGroupBaseUrls reports per label: the base URLs the host served that label's group at. */
 	observedGroups: Record<string, readonly string[]>;
+
 	/** What observedSnapshots reports: the groups the host serves now. */
 	liveSnapshots: ServerModelsSnapshot[];
 }

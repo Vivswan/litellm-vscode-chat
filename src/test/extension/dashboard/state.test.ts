@@ -283,9 +283,13 @@ suite("extension/dashboard/state", () => {
 			];
 			const cases: {
 				name: string;
+
 				inputs: Parameters<typeof buildDashboardState>[0];
+
 				rows: [string, string, string][];
+
 				hidden: unknown[];
+
 				/** The server label each live model renders under; a hidden leftover's models leave the list. */
 				models: string[];
 			}[] = [

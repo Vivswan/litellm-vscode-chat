@@ -24,6 +24,7 @@ import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 
 /** The usage endpoints sit at the server ROOT, not under /v1 like discovery. */
 const KEY_INFO_URL = `${TEST_BASE_URL}/key/info`;
+
 const USER_INFO_URL = `${TEST_BASE_URL}/user/info`;
 const DAILY_ACTIVITY_URL = `${TEST_BASE_URL}/user/daily/activity`;
 const TOKEN_URL = "http://idp.test/oauth2/token";

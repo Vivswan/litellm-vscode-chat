@@ -23,14 +23,17 @@ import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } fr
 import { makeReader } from "../dashboard/stateHelpers";
 
 const H = "http://h.test";
+
 /** The status label an unlabeled group at H reports under: discovery's URL-host fallback. */
 const HOST = "h.test";
+
 const SECRET = "s3cret";
 const L1_INLINE = { label: "L1", baseUrl: H, auth: { apiKey: SECRET } };
 const LAST_CHECKED = "2026-07-26T00:00:00.000Z";
 const INLINE_KEY_PROVEN = {
 	secrets: { kind: "proven", locations: { apiKey: "settings", oauthClientSecret: "none", virtualKeyValue: "none" } },
 };
+
 /** How long a pass the observation schedules may take to land; the engine's debounce is 10 ms. */
 const PASS_WINDOW_MS = 500;
 
@@ -104,12 +107,18 @@ function makeHost(window: StatusWindow, removals: GroupRemovalStore) {
 
 interface Fixture {
 	engine: ServerSyncEngine;
+
 	host: ReturnType<typeof makeHost>;
+
 	removals: GroupRemovalStore;
+
 	passes: number;
+
 	declare(value: unknown): void;
+
 	/** Whether a pass completes within the window; registered before the trigger, so a pass cannot slip by. */
 	nextPassWithin(ms: number): Promise<boolean>;
+
 	/** The state push as the panel assembles it over the window's snapshots and the engine's views. */
 	pushedState(): DashboardState;
 }

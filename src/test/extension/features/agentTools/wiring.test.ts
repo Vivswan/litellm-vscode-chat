@@ -62,20 +62,25 @@ function asFramed(raw: unknown): FramedRequest {
 
 interface Harness {
 	readonly context: vscode.ExtensionContext;
+
 	readonly submitted: FramedRequest[];
+
 	readonly prompts: {
 		readonly prompt: SecretPrompt;
 		readonly label: string;
 		readonly token: vscode.CancellationToken;
 	}[];
+
 	/** The logger's channel lines; error lines carry the "ERROR: " prefix makeLogger adds. */
 	readonly lines: string[];
 }
 
 interface HarnessOptions {
 	readonly respond?: (request: FramedRequest) => DashboardSubmission;
+
 	/** What the user types into the masked box; undefined is a cancel. */
 	readonly answerSecret?: () => string | undefined;
+
 	readonly settings?: Record<string, unknown>;
 }
 

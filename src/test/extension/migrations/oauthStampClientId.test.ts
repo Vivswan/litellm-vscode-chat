@@ -27,10 +27,14 @@ suite("extension/migrations/oauthStampClientId", () => {
 	test("every string stamp on a declared entry's client secret becomes structured; values and structured stamps stay", async () => {
 		const rows: {
 			label: string;
+
 			owner: SecretOwner | undefined;
+
 			declaresOauth: boolean;
+
 			/** How the setting spells the token URL; the parser reads it canonically. */
 			declaredTokenUrl?: string;
+
 			expected: SecretOwner | undefined;
 		}[] = [
 			{ label: "legacy", owner: TOKEN_URL, declaresOauth: true, expected: CURRENT_STAMP },

@@ -14,12 +14,14 @@ import type { Timer } from "../../../shared/util/timer";
 export interface VerdictSourceOptions {
 	/** The declared views (engine-tagged); none by default. */
 	readonly getDeclared?: (() => readonly DeclaredServerView[]) | undefined;
+
 	/** The servers setting's entry reports; none by default. */
 	readonly entryReports?: (() => readonly ServerEntryReport[]) | undefined;
 }
 
 export interface WindowVerdict {
 	readonly verdict: ServerVerdict;
+
 	/** Publishes a window: what the owner's statuses() answers from now on. */
 	publish(statuses: readonly ServerStatus[]): void;
 }

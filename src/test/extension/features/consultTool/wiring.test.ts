@@ -337,11 +337,16 @@ suite("extension/features/consultTool wiring", () => {
 	 */
 	const SECRET_REFUSALS: readonly {
 		readonly name: string;
+
 		/** The declared entry; the default declares no credential unit. */
 		readonly servers?: readonly Record<string, unknown>[];
+
 		readonly secrets: () => Promise<vscode.SecretStorage>;
+
 		readonly classification: string;
+
 		readonly storedText: string;
+
 		/** The refusal sentence the English mirror must carry, when the refusal names its field. */
 		readonly englishText?: string;
 	}[] = [
