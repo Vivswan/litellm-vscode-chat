@@ -61,7 +61,7 @@ import type { AdoptionResolution, ExternalGroupResolution } from "./adopt";
 import { applyAdoptServer } from "./adopt";
 import { patchRow, removeRow, requireSettingUnchanged } from "./rowBoundWrite";
 import { applySaveServerSetting } from "./saveServer";
-import type { DraftConnection } from "./testDraftConnection";
+import type { DraftConnection, DraftProbeOutcome } from "./testDraftConnection";
 import { applyTestServerDraft } from "./testDraftConnection";
 
 /**
@@ -326,6 +326,30 @@ export function validateModelParametersRecord(
 }
 
 /**
+ * The first secret directive problem: a "set" with an empty value, or a credential the request path's own header rule
+ * (headerValue) would refuse or trim to nothing, refused here before a save stores it or a draft probe sends without it.
+ */
+function secretDirectiveProblem(secrets: Readonly<Record<SecretFieldId, SecretDirective>>): string | undefined {
+	for (const field of SECRET_FIELD_IDS) {
+		const directive = secrets[field];
+		if (directive.action === "set" && directive.value.length === 0) {
+			return `${field}: an empty value cannot be set; use clear`;
+		}
+	}
+	for (const field of ["apiKey", "virtualKeyValue"] as const) {
+		const directive = secrets[field];
+		if (directive.action === "set") {
+			const sendable = headerValue(directive.value);
+			if (sendable === undefined || sendable.length === 0) {
+				return `${field}: the value cannot be sent as an HTTP header`;
+			}
+		}
+	}
+
+	return undefined;
+}
+
+/**
  * The connection-relevant value constraints shared by the save and the draft test: usable URLs, header charset, and
  * per-directive value rules. Label and modelParameters constraints stay in validateSaveServerSetting - neither gates a
  * connection probe.
@@ -353,23 +377,50 @@ function validateConnectionFields(
 	if (header !== undefined && header.length > 0 && !isValidHeaderName(header)) {
 		return "virtualKeyHeader: not a valid HTTP header name";
 	}
-	for (const field of SECRET_FIELD_IDS) {
-		const directive = secrets[field];
-		if (directive.action === "set" && directive.value.length === 0) {
-			return `${field}: an empty value cannot be set; use clear`;
+
+	return secretDirectiveProblem(secrets);
+}
+
+/**
+ * The first header problem, mirroring the form's header-row rules and the request path's normalizeCustomHeaders
+ * acceptance: names and the value charset are refused here so a save can never "succeed" on a header the wire would
+ * drop. Header NAMES are structural configuration and may be echoed; values never are.
+ */
+function headersProblem(headers: SaveServerPayload["headers"]): string | undefined {
+	const seenKeys = new Set<string>();
+	for (const [name, value] of Object.entries(headers)) {
+		if (isUnsafeRecordKey(name)) {
+			return `headers: "${name}" is a reserved name and cannot be used`;
+		}
+		if (!isValidHeaderName(name)) {
+			return `headers: "${name}" is not a valid HTTP header name`;
+		}
+		const key = headerNameKey(name);
+		if (seenKeys.has(key)) {
+			return `headers: "${name}" repeats an earlier header name (names are case-insensitive)`;
+		}
+		seenKeys.add(key);
+		if (headerValue(String(value)) === undefined) {
+			return `headers: the value of "${name}" cannot be sent as an HTTP header`;
 		}
 	}
-	// The one credential rule (headerValue, the request path's own): a value it would refuse, or that it trims to
-	// nothing, is refused here before a save stores it or a draft probe sends without it.
-	for (const field of ["apiKey", "virtualKeyValue"] as const) {
-		const directive = secrets[field];
-		if (directive.action === "set") {
-			const sendable = headerValue(directive.value);
-			if (sendable === undefined || sendable.length === 0) {
-				return `${field}: the value cannot be sent as an HTTP header`;
-			}
-		}
+
+	return undefined;
+}
+
+/**
+ * The MCP endpoint problem, when the form named one it can see is broken: the same rule the form applies. The setting
+ * itself takes a URL as written and reports an unusable one, exactly as it does for baseUrl.
+ */
+function mcpProblem(mcp: SaveServerPayload["mcp"]): string | undefined {
+	if (mcp === null || mcp === true) {
+		return undefined;
 	}
+	const url = mcp.url === undefined ? undefined : trimHttpWhitespace(mcp.url);
+	if (url !== undefined && url.length > 0 && !isUsableHttpUrl(url)) {
+		return "mcp.url: not a usable http(s) URL";
+	}
+
 	return undefined;
 }
 
@@ -407,40 +458,15 @@ export function validateSaveServerSetting(
 	if (capabilitiesProblem !== undefined) {
 		return `modelCapabilities: ${capabilitiesProblem}`;
 	}
-	// Mirrors the form's header-row rules and the request path's normalizeCustomHeaders acceptance: names and the
-	// value charset are refused here so a save can never "succeed" on a header the wire would drop. Header NAMES are
-	// structural configuration and may be echoed; values never are.
-	const seenKeys = new Set<string>();
-	for (const [name, value] of Object.entries(server.headers)) {
-		if (isUnsafeRecordKey(name)) {
-			return `headers: "${name}" is a reserved name and cannot be used`;
-		}
-		if (!isValidHeaderName(name)) {
-			return `headers: "${name}" is not a valid HTTP header name`;
-		}
-		const key = headerNameKey(name);
-		if (seenKeys.has(key)) {
-			return `headers: "${name}" repeats an earlier header name (names are case-insensitive)`;
-		}
-		seenKeys.add(key);
-		if (headerValue(String(value)) === undefined) {
-			return `headers: the value of "${name}" cannot be sent as an HTTP header`;
-		}
+	const headerProblem = headersProblem(server.headers);
+	if (headerProblem !== undefined) {
+		return headerProblem;
 	}
-	if (server.budget !== null) {
-		if (!Number.isFinite(server.budget) || server.budget <= 0) {
-			return "budget: must be a number greater than 0";
-		}
+	if (server.budget !== null && (!Number.isFinite(server.budget) || server.budget <= 0)) {
+		return "budget: must be a number greater than 0";
 	}
-	// The guided path refuses an MCP endpoint it can see is broken, the same rule the form applies; the setting itself
-	// takes a URL as written and reports an unusable one, exactly as it does for baseUrl.
-	if (server.mcp !== null && server.mcp !== true) {
-		const url = server.mcp.url === undefined ? undefined : trimHttpWhitespace(server.mcp.url);
-		if (url !== undefined && url.length > 0 && !isUsableHttpUrl(url)) {
-			return "mcp.url: not a usable http(s) URL";
-		}
-	}
-	return undefined;
+
+	return mcpProblem(server.mcp);
 }
 
 /**
@@ -537,23 +563,30 @@ export function readInlineSecretValues(
  */
 export type IntentAckNotice = string | { readonly message: string; readonly tone: IntentAckTone };
 
+/** The intents whose method is in `M`. */
+type IntentOf<M extends DashboardIntent["method"]> = Extract<DashboardIntent, { method: M }>;
+
 /**
- * Execute one validated intent against the injected environment. Throws on constraint violations without logging; the
- * panel controller is the boundary that logs and reports the failure back to the webview.
+ * Write a scalar setting the schema already bounded. Writing the setting is the whole intent: the configuration change
+ * re-pushes state and the webview restamps from it, so the picker and a hand edit travel the same path. The empty
+ * commit prompt resets the setting, so the built-in instruction applies without a modified mark.
  */
-export async function executeDashboardIntent(
-	intent: DashboardIntent,
+async function executeScalarSettingIntent(
+	intent: IntentOf<
+		| "setBooleanSetting"
+		| "resetSetting"
+		| "revealSetting"
+		| "setUsageStatusBar"
+		| "setChatSessionId"
+		| "setTokenEstimation"
+		| "setCurrencySymbol"
+		| "setUiTheme"
+		| "setUiAccent"
+		| "setCommitPrompt"
+	>,
 	env: IntentEnvironment
-): Promise<IntentAckNotice | undefined> {
+): Promise<undefined> {
 	switch (intent.method) {
-		case "setNumberSetting": {
-			const problem = validateNumberSetting(intent.payload.setting, intent.payload.value);
-			if (problem !== undefined) {
-				throw refuse(problem);
-			}
-			await env.updateSetting(intent.payload.setting, intent.payload.value);
-			return undefined;
-		}
 		case "setBooleanSetting":
 			await env.updateSetting(intent.payload.setting, intent.payload.value);
 			return undefined;
@@ -568,6 +601,140 @@ export async function executeDashboardIntent(
 			// "litellm-vscode-chat.<key>" itself and is best-effort by design.
 			await env.executeCommand(INTERNAL_CMD.openSettingKey, intent.payload.setting);
 			return undefined;
+		case "setUsageStatusBar":
+			await env.updateSetting(USAGE_STATUS_BAR_SETTING_KEY, intent.payload.value);
+			return undefined;
+		case "setChatSessionId":
+			await env.updateSetting(CHAT_SESSION_ID_SETTING_KEY, intent.payload.value);
+			return undefined;
+		case "setTokenEstimation":
+			// The tokenizer wiring reacts to the configuration change like a hand edit of settings.json.
+			await env.updateSetting(TOKEN_ESTIMATION_SETTING_KEY, intent.payload.value);
+			return undefined;
+		case "setCurrencySymbol":
+			// Free text by design (any currency reads as its owner wrote it);
+			// display-only, length-bounded by the schema, and never sent anywhere.
+			await env.updateSetting(CURRENCY_SYMBOL_SETTING_KEY, intent.payload.value);
+			return undefined;
+		case "setUiTheme":
+			await env.updateSetting(UI_THEME_SETTING_KEY, intent.payload.value);
+			return undefined;
+		case "setUiAccent":
+			await env.updateSetting(UI_ACCENT_SETTING_KEY, intent.payload.value);
+			return undefined;
+		case "setCommitPrompt":
+			// Verbatim, like the currency symbol (model-facing text; whitespace can be intended).
+			if (intent.payload.value.length === 0) {
+				await env.removeSetting(COMMIT_GENERATION_PROMPT_SETTING_KEY);
+			} else {
+				await env.updateSetting(COMMIT_GENERATION_PROMPT_SETTING_KEY, intent.payload.value);
+			}
+			return undefined;
+	}
+}
+
+/**
+ * Write one feature's model pick. Clearing the pick resets the setting instead of writing the literal null: the
+ * default IS null, and a written null would mark the row modified while saying nothing. The getter trims both halves,
+ * so the canonical trimmed form is written; a value that trims away entirely is a bypassing caller.
+ */
+async function applyFeatureModelPick(
+	payload: IntentOf<"setFeatureModel">["payload"],
+	env: IntentEnvironment
+): Promise<void> {
+	const key = FEATURE_MODEL_SETTING_KEYS[payload.feature];
+	if (payload.value === null) {
+		await env.removeSetting(key);
+		return;
+	}
+	const server = trimHttpWhitespace(payload.value.server);
+	const model = trimHttpWhitespace(payload.value.model);
+	if (server.length === 0 || model.length === 0) {
+		throw refuse(
+			settingRangeRefusal(
+				l10n.t("Pick a server and model, or Not set to clear the pick."),
+				"Pick a server and model, or Not set to clear the pick.",
+				key,
+				"non-empty server label and model ID"
+			)
+		);
+	}
+	await env.updateSetting(key, { server, model });
+}
+
+/**
+ * Patch the language filter. Each dashboard row sends only its own half, and the merge onto the STORED filter happens
+ * here on the chained channel, so two quick writes from different rows can never revert each other.
+ */
+async function applyLanguageFilterPatch(
+	payload: IntentOf<"setLanguageFilter">["payload"],
+	env: IntentEnvironment
+): Promise<void> {
+	if (payload.mode === undefined && payload.languages === undefined) {
+		// The rows always name their own field; an empty patch is a bypassing caller.
+		throw refuse(
+			settingRangeRefusal(
+				l10n.t("A language filter change names a mode, languages, or both."),
+				"A language filter change names a mode, languages, or both.",
+				INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
+				"mode and/or languages"
+			)
+		);
+	}
+	const current = normalizeInlineLanguageFilter(env.readSetting(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY));
+	let languages = current.languages;
+	if (payload.languages !== undefined) {
+		// Entries that trim away are refused rather than dropped: the row's editor already trims empties out, so
+		// anything else is a bypassing caller. Written trimmed and deduplicated in the given order - the canonical form
+		// normalization would produce anyway.
+		const trimmed = payload.languages.map((value) => trimHttpWhitespace(value));
+		if (trimmed.some((value) => value.length === 0)) {
+			throw refuse(
+				settingRangeRefusal(
+					l10n.t("Language IDs must be plain, non-empty identifiers, e.g. typescript."),
+					"Language IDs must be plain, non-empty identifiers, e.g. typescript.",
+					INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
+					"plain non-empty strings"
+				)
+			);
+		}
+		languages = [...new Set(trimmed)];
+	}
+	const mode = payload.mode ?? current.mode;
+	if (mode === "block" && languages.length === 0) {
+		// Block-nothing IS the default: resetting instead of writing it keeps the row unmarked, like the other
+		// empty-equals-default writes.
+		await env.removeSetting(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY);
+		return;
+	}
+	await env.updateSetting(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY, { mode, languages: [...languages] });
+}
+
+/**
+ * Write a setting whose value needs a rule the schema cannot express. Each refusal names the setting and its contract;
+ * a value the dashboard's own editor would already have refused marks a bypassing caller.
+ */
+async function executeValidatedSettingIntent(
+	intent: IntentOf<
+		| "setNumberSetting"
+		| "setModelParameters"
+		| "setModelCapabilities"
+		| "setAdditionalToolSchemaKeywords"
+		| "setFeatureModel"
+		| "setLanguageFilter"
+		| "setUsageAlertThresholds"
+	>,
+	env: IntentEnvironment
+): Promise<undefined> {
+	switch (intent.method) {
+		case "setNumberSetting": {
+			const problem = validateNumberSetting(intent.payload.setting, intent.payload.value);
+			if (problem !== undefined) {
+				throw refuse(problem);
+			}
+			await env.updateSetting(intent.payload.setting, intent.payload.value);
+			return undefined;
+		}
 		case "setModelParameters": {
 			const problem = validateModelParametersRecord(intent.payload.value);
 			if (problem !== undefined) {
@@ -586,21 +753,6 @@ export async function executeDashboardIntent(
 			await env.updateSetting(MODEL_CAPABILITIES_SETTING_KEY, intent.payload.value);
 			return undefined;
 		}
-		case "setUsageStatusBar":
-			await env.updateSetting(USAGE_STATUS_BAR_SETTING_KEY, intent.payload.value);
-			return undefined;
-		case "setChatSessionId":
-			await env.updateSetting(CHAT_SESSION_ID_SETTING_KEY, intent.payload.value);
-			return undefined;
-		case "setTokenEstimation":
-			// The tokenizer wiring reacts to the configuration change like a hand edit of settings.json.
-			await env.updateSetting(TOKEN_ESTIMATION_SETTING_KEY, intent.payload.value);
-			return undefined;
-		case "setCurrencySymbol":
-			// Free text by design (any currency reads as its owner wrote it);
-			// display-only, length-bounded by the schema, and never sent anywhere.
-			await env.updateSetting(CURRENCY_SYMBOL_SETTING_KEY, intent.payload.value);
-			return undefined;
 		case "setAdditionalToolSchemaKeywords": {
 			// Empty and prototype-polluting names are refused rather than silently dropped: the dashboard's editor
 			// already trims empties away, so anything else is a bypassing caller. Written deduplicated in the given
@@ -618,94 +770,12 @@ export async function executeDashboardIntent(
 			await env.updateSetting(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY, [...new Set(intent.payload.values)]);
 			return undefined;
 		}
-		case "setUiTheme":
-			// Writing the setting is the whole intent: the configuration change re-pushes state and the webview
-			// restamps the root element from it, so the picker and a hand edit travel the same path.
-			await env.updateSetting(UI_THEME_SETTING_KEY, intent.payload.value);
+		case "setFeatureModel":
+			await applyFeatureModelPick(intent.payload, env);
 			return undefined;
-		case "setUiAccent":
-			await env.updateSetting(UI_ACCENT_SETTING_KEY, intent.payload.value);
+		case "setLanguageFilter":
+			await applyLanguageFilterPatch(intent.payload, env);
 			return undefined;
-		case "setFeatureModel": {
-			const key = FEATURE_MODEL_SETTING_KEYS[intent.payload.feature];
-			if (intent.payload.value === null) {
-				// Clearing the pick resets the setting instead of writing the literal null: the default IS null, and a
-				// written null would mark the row modified while saying nothing.
-				await env.removeSetting(key);
-				return undefined;
-			}
-			// The getter trims both halves, so the canonical trimmed form is written; a value that trims away entirely
-			// is a bypassing caller.
-			const server = trimHttpWhitespace(intent.payload.value.server);
-			const model = trimHttpWhitespace(intent.payload.value.model);
-			if (server.length === 0 || model.length === 0) {
-				throw refuse(
-					settingRangeRefusal(
-						l10n.t("Pick a server and model, or Not set to clear the pick."),
-						"Pick a server and model, or Not set to clear the pick.",
-						key,
-						"non-empty server label and model ID"
-					)
-				);
-			}
-			await env.updateSetting(key, { server, model });
-			return undefined;
-		}
-		case "setCommitPrompt":
-			// Verbatim, like the currency symbol (model-facing text; whitespace can be intended); the empty string
-			// resets the setting so the built-in instruction applies without a modified mark.
-			if (intent.payload.value.length === 0) {
-				await env.removeSetting(COMMIT_GENERATION_PROMPT_SETTING_KEY);
-			} else {
-				await env.updateSetting(COMMIT_GENERATION_PROMPT_SETTING_KEY, intent.payload.value);
-			}
-			return undefined;
-		case "setLanguageFilter": {
-			// A partial patch: each dashboard row sends only its own half, and the merge onto the STORED filter happens
-			// here on the chained channel, so two quick writes from different rows can never revert each other.
-			if (intent.payload.mode === undefined && intent.payload.languages === undefined) {
-				// The rows always name their own field; an empty patch is a bypassing caller.
-				throw refuse(
-					settingRangeRefusal(
-						l10n.t("A language filter change names a mode, languages, or both."),
-						"A language filter change names a mode, languages, or both.",
-						INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
-						"mode and/or languages"
-					)
-				);
-			}
-			const current = normalizeInlineLanguageFilter(env.readSetting(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY));
-			let languages = current.languages;
-			if (intent.payload.languages !== undefined) {
-				// Entries that trim away are refused rather than dropped: the row's editor already trims empties out,
-				// so anything else is a bypassing caller. Written trimmed and deduplicated in the given order - the
-				// canonical form normalization would produce anyway.
-				const trimmed = intent.payload.languages.map((value) => trimHttpWhitespace(value));
-				if (trimmed.some((value) => value.length === 0)) {
-					throw refuse(
-						settingRangeRefusal(
-							l10n.t("Language IDs must be plain, non-empty identifiers, e.g. typescript."),
-							"Language IDs must be plain, non-empty identifiers, e.g. typescript.",
-							INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY,
-							"plain non-empty strings"
-						)
-					);
-				}
-				languages = [...new Set(trimmed)];
-			}
-			const mode = intent.payload.mode ?? current.mode;
-			if (mode === "block" && languages.length === 0) {
-				// Block-nothing IS the default: resetting instead of writing it keeps the row unmarked, like the other
-				// empty-equals-default writes.
-				await env.removeSetting(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY);
-			} else {
-				await env.updateSetting(INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY, {
-					mode,
-					languages: [...languages],
-				});
-			}
-			return undefined;
-		}
 		case "setUsageAlertThresholds": {
 			// Out-of-range values are refused rather than silently dropped: the dashboard's editor validates the same
 			// rule, so anything else is a bypassing caller. Written in the canonical deduplicated ascending form the
@@ -724,14 +794,94 @@ export async function executeDashboardIntent(
 			await env.updateSetting(USAGE_ALERT_THRESHOLDS_SETTING_KEY, usableThresholds(intent.payload.values));
 			return undefined;
 		}
-		case "refreshCatalog":
-			// Fire-and-forget: the wiring pushes state when the refresh settles, and the settings row's catalog status
-			// carries the outcome (no toast).
-			env.refreshCatalogNow();
-			return undefined;
-		case "refreshUsage":
-			env.refreshUsageNow();
-			return undefined;
+	}
+}
+
+/**
+ * The draft probe's success notice: static classification plus counts, never payload or response text. A connected
+ * server with nothing to serve gets the shared zero-model vocabulary (the same warning the bar, hero, and notifier
+ * give this state), never a green success over an empty listing.
+ */
+function draftProbeNotice(outcome: DraftProbeOutcome): IntentAckNotice {
+	if (outcome.kind === "expected-failure") {
+		if (outcome.declaredCount === 0) {
+			// The needs-declare state the hero and notifier warn about: the failure is declared normal, but nothing
+			// serves through it until the draft lists model IDs under Declared models.
+			return {
+				message: l10n.t("Discovery failed (expected) and no models are declared. Add model IDs to Declared models."),
+				tone: "warning",
+			};
+		}
+		return outcome.declaredCount === 1
+			? l10n.t("Discovery failed (expected) - serving 1 declared model")
+			: l10n.t("Discovery failed (expected) - serving {0} declared models", outcome.declaredCount);
+	}
+	if (outcome.declaredCount > 0) {
+		return outcome.modelCount === 1
+			? l10n.t("Connected - 1 model (declared)")
+			: l10n.t("Connected - {0} models ({1} declared)", outcome.modelCount, outcome.declaredCount);
+	}
+	if (outcome.modelCount === 0) {
+		return { message: l10n.t("Connected - 0 models. {0}", zeroModelExplanation(0, 1)), tone: "warning" };
+	}
+	return outcome.modelCount === 1
+		? l10n.t("Connected - 1 model")
+		: l10n.t("Connected - {0} models", outcome.modelCount);
+}
+
+/**
+ * Run one feature's model probe; the notice carries counts and classifications only, never a probe's reply text.
+ */
+async function runFeatureModelProbe(
+	payload: IntentOf<"testFeatureModel">["payload"],
+	env: IntentEnvironment
+): Promise<IntentAckNotice> {
+	const probe = env.featureProbes[payload.feature];
+	if (probe === undefined) {
+		// The button renders only where a probe exists, so this is a bypassing caller (or a stale page across an
+		// upgrade).
+		throw new DashboardValidationError(l10n.t("This feature has no model test; pick the model and use it directly."), {
+			englishMessage: "This feature has no model test; pick the model and use it directly.",
+		});
+	}
+	let text: string | undefined;
+	try {
+		text = await probe(payload.model);
+	} catch (error) {
+		// The transport's classified errors render at the button like the draft probe's: the message is the
+		// transport's own text (shown once, stored nowhere), and the classification drives the row's setup hints.
+		if (error instanceof MirroredError) {
+			throw new DashboardValidationError(error.message, {
+				englishMessage: error.englishMessage,
+				classification: transportClassificationOf(error),
+			});
+		}
+		throw error;
+	}
+	if (text === undefined || text === "") {
+		return { message: probeEmptyAnswerText(payload.feature), tone: "warning" };
+	}
+	return probeAnswerText(payload.feature, text.length);
+}
+
+/**
+ * Write, test, or remove a declared server entry. A removed label's secure-side secrets are kept on purpose: a
+ * hand-written re-add of the entry still resolves them, and the provider group itself survives anyway (VS Code offers
+ * no programmatic group removal). A dashboard create over the label wipes them instead - the form showed no
+ * credentials, so none may resurrect (saveServer.ts).
+ */
+async function executeEntryIntent(
+	intent: IntentOf<
+		| "saveServerSetting"
+		| "testServerDraft"
+		| "testFeatureModel"
+		| "removeServerSetting"
+		| "declareExpectedFailure"
+		| "adoptServer"
+	>,
+	env: IntentEnvironment
+): Promise<IntentAckNotice | undefined> {
+	switch (intent.method) {
 		case "saveServerSetting": {
 			const problem = validateSaveServerSetting(intent.payload.server, intent.payload.secrets);
 			if (problem !== undefined) {
@@ -745,76 +895,14 @@ export async function executeDashboardIntent(
 			if (problem !== undefined) {
 				throw refuseEnglish(problem);
 			}
-			const outcome = await applyTestServerDraft(intent.payload, env);
-			// Static classification plus counts; never payload or response text.
-			if (outcome.kind === "expected-failure") {
-				if (outcome.declaredCount === 0) {
-					// The needs-declare state the hero and notifier warn about: the failure is declared normal, but
-					// nothing serves through it until the draft lists model IDs under Declared models.
-					return {
-						message: l10n.t(
-							"Discovery failed (expected) and no models are declared. Add model IDs to Declared models."
-						),
-						tone: "warning",
-					};
-				}
-				return outcome.declaredCount === 1
-					? l10n.t("Discovery failed (expected) - serving 1 declared model")
-					: l10n.t("Discovery failed (expected) - serving {0} declared models", outcome.declaredCount);
-			}
-			if (outcome.declaredCount > 0) {
-				return outcome.modelCount === 1
-					? l10n.t("Connected - 1 model (declared)")
-					: l10n.t("Connected - {0} models ({1} declared)", outcome.modelCount, outcome.declaredCount);
-			}
-			if (outcome.modelCount === 0) {
-				// The shared zero-model vocabulary (one server answered, nothing to serve): the same warning the bar,
-				// hero, and notifier give this state, never a green success over an empty listing.
-				return { message: l10n.t("Connected - 0 models. {0}", zeroModelExplanation(0, 1)), tone: "warning" };
-			}
-			return outcome.modelCount === 1
-				? l10n.t("Connected - 1 model")
-				: l10n.t("Connected - {0} models", outcome.modelCount);
+			return draftProbeNotice(await applyTestServerDraft(intent.payload, env));
 		}
-		case "testFeatureModel": {
-			const probe = env.featureProbes[intent.payload.feature];
-			if (probe === undefined) {
-				// The button renders only where a probe exists, so this is a bypassing caller (or a stale page across
-				// an upgrade).
-				throw new DashboardValidationError(
-					l10n.t("This feature has no model test; pick the model and use it directly."),
-					{ englishMessage: "This feature has no model test; pick the model and use it directly." }
-				);
-			}
-			let text: string | undefined;
-			try {
-				text = await probe(intent.payload.model);
-			} catch (error) {
-				// The transport's classified errors render at the button like the draft probe's: the message is the
-				// transport's own text (shown once, stored nowhere), and the classification drives the row's setup hints.
-				if (error instanceof MirroredError) {
-					throw new DashboardValidationError(error.message, {
-						englishMessage: error.englishMessage,
-						classification: transportClassificationOf(error),
-					});
-				}
-				throw error;
-			}
-			if (text === undefined || text === "") {
-				// Counts and classifications only: never a probe's reply text.
-				return { message: probeEmptyAnswerText(intent.payload.feature), tone: "warning" };
-			}
-			return probeAnswerText(intent.payload.feature, text.length);
-		}
-		case "removeServerSetting": {
-			// The label's secure-side secrets are kept on purpose: a hand-written re-add of the entry still resolves
-			// them, and the provider group itself survives anyway (VS Code offers no programmatic group removal). A
-			// dashboard create over the label wipes them instead - the form showed no credentials, so none may
-			// resurrect (saveServer.ts).
+		case "testFeatureModel":
+			return runFeatureModelProbe(intent.payload, env);
+		case "removeServerSetting":
 			await writeServersSettingFrom(env, (fresh) => removeRow(fresh, intent.payload));
 			env.requestServerSync();
 			return undefined;
-		}
 		case "declareExpectedFailure": {
 			const category = intent.payload.category;
 			// Only discovery.expectedFailures grows; every other key on the entry, junk included, is written back
@@ -835,51 +923,72 @@ export async function executeDashboardIntent(
 		}
 		case "adoptServer":
 			return applyAdoptServer(intent.payload, env);
-		case "hideExternalServer": {
-			// The group's URL as the host holds it, however it is spelled (a scheme-less `localhost:4000` included): a
-			// hide binds the handle to it and never sends anything there, so only emptiness is refused. The "fieldId:"
-			// prefix stays an ASCII identifier outside the translation: sectionFailureText routes the failure by it.
-			const baseUrl = trimHttpWhitespace(intent.payload.baseUrl);
-			if (baseUrl.length === 0) {
-				throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`, {
-					englishMessage: "baseUrl: not a usable http(s) URL",
-				});
+	}
+}
+
+/**
+ * Hide an external group. The group's URL is taken as the host holds it, however it is spelled (a scheme-less
+ * `localhost:4000` included): a hide binds the handle to it and never sends anything there, so only emptiness is
+ * refused.
+ */
+async function applyHideExternalServer(
+	payload: IntentOf<"hideExternalServer">["payload"],
+	env: IntentEnvironment
+): Promise<void> {
+	// The "fieldId:" prefix stays an ASCII identifier outside the translation: sectionFailureText routes the failure
+	// by it.
+	const baseUrl = trimHttpWhitespace(payload.baseUrl);
+	if (baseUrl.length === 0) {
+		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`, {
+			englishMessage: "baseUrl: not a usable http(s) URL",
+		});
+	}
+	const resolved = await env.resolveExternalGroup(baseUrl, payload.sourceHandle);
+	if (resolved.identity === undefined) {
+		throw new DashboardValidationError(
+			`${l10n.t("This row no longer matches a hideable server - it may have just been adopted or removed.")}\n${l10n.t(
+				"The row did not resolve to an external VS Code provider group."
+			)}`,
+			{
+				englishMessage:
+					"This row no longer matches a hideable server - it may have just been adopted or removed.\nThe row did not resolve to an external VS Code provider group.",
 			}
-			const resolved = await env.resolveExternalGroup(baseUrl, intent.payload.sourceHandle);
-			if (resolved.identity === undefined) {
-				throw new DashboardValidationError(
-					`${l10n.t("This row no longer matches a hideable server - it may have just been adopted or removed.")}\n${l10n.t(
-						"The row did not resolve to an external VS Code provider group."
-					)}`,
-					{
-						englishMessage:
-							"This row no longer matches a hideable server - it may have just been adopted or removed.\nThe row did not resolve to an external VS Code provider group.",
-					}
-				);
-			}
-			requireSettingUnchanged(env, resolved.setting);
-			const recording = await env.hideGroup(resolved.identity);
-			// The store awaits a secret-storage read before it commits, so a write from another window can land between
-			// the check above and the commit; a hide resolved against a setting that no longer stands is taken back,
-			// and only when this call inserted the record (a repeated Hide owns nothing to take back).
-			try {
-				requireSettingUnchanged(env, resolved.setting);
-			} catch (error) {
-				if (recording.added) {
-					await env.retractHide(resolved.identity);
-				}
-				throw error;
-			}
-			return undefined;
+		);
+	}
+	requireSettingUnchanged(env, resolved.setting);
+	const recording = await env.hideGroup(resolved.identity);
+	// The store awaits a secret-storage read before it commits, so a write from another window can land between the
+	// check above and the commit; a hide resolved against a setting that no longer stands is taken back, and only when
+	// this call inserted the record (a repeated Hide owns nothing to take back).
+	try {
+		requireSettingUnchanged(env, resolved.setting);
+	} catch (error) {
+		if (recording.added) {
+			await env.retractHide(resolved.identity);
 		}
+		throw error;
+	}
+}
+
+/**
+ * Hide, unhide, or manage a provider group by its tombstone identity. The identity is echoed back verbatim (no
+ * trimming): the webview sends exactly what the HiddenGroup row carried, and the search string handed to the host is
+ * a hidden group's own name, never free webview text.
+ */
+async function executeGroupIntent(
+	intent: IntentOf<"hideExternalServer" | "unhideServer" | "manageHiddenGroup">,
+	env: IntentEnvironment
+): Promise<undefined> {
+	switch (intent.method) {
+		case "hideExternalServer":
+			await applyHideExternalServer(intent.payload, env);
+			return undefined;
 		case "unhideServer": {
 			if (trimHttpWhitespace(intent.payload.label).length === 0) {
 				throw new DashboardValidationError(`label: ${l10n.t("enter a label")}`, {
 					englishMessage: "label: enter a label",
 				});
 			}
-			// The identity is echoed back verbatim (no trimming): the webview sends exactly what the HiddenGroup row
-			// carried.
 			const removed = await env.unhideGroup({ label: intent.payload.label, baseUrl: intent.payload.baseUrl });
 			if (!removed) {
 				throw noHiddenGroupRefusal();
@@ -887,8 +996,6 @@ export async function executeDashboardIntent(
 			return undefined;
 		}
 		case "manageHiddenGroup": {
-			// Bound to a live tombstone like unhideServer: the search string handed to the host is a hidden group's own
-			// name, never free webview text.
 			const identity = { label: intent.payload.label, baseUrl: intent.payload.baseUrl };
 			if (!env.isGroupHidden(identity)) {
 				throw noHiddenGroupRefusal();
@@ -906,24 +1013,87 @@ export async function executeDashboardIntent(
 			}
 			return undefined;
 		}
+	}
+}
+
+/** Kick a refresh, run a host command, or copy text; each case's contract sits beside it. */
+async function executeHostIntent(
+	intent: IntentOf<"refreshCatalog" | "refreshUsage" | "executeCommand" | "copyDiagnostics" | "syncModels">,
+	env: IntentEnvironment
+): Promise<undefined> {
+	switch (intent.method) {
+		case "refreshCatalog":
+			// Fire-and-forget: the wiring pushes state when the refresh settles, and the settings row's catalog status
+			// carries the outcome (no toast).
+			env.refreshCatalogNow();
+			return undefined;
+		case "refreshUsage":
+			env.refreshUsageNow();
+			return undefined;
 		case "executeCommand": {
 			const { command, args } = COMMANDS_BY_ID[intent.payload.command];
 			await env.executeCommand(command, ...args);
 			return undefined;
 		}
-		case "copyDiagnostics": {
+		case "copyDiagnostics":
 			// Composed in the webview from pushed state, which carries no credential field but may quote a configured
 			// URL with its password, or a server's error text; the clipboard door masks the known values in it.
 			await env.writeClipboard(intent.payload.text);
 			return undefined;
-		}
-		case "syncModels": {
+		case "syncModels":
 			// The same registered command the palette and the status bar run, so there is one definition of what a sync
 			// is. What sets this method apart from executeCommand is its outcome class: this ack answers only once the
 			// pass has settled, and a second caller arriving mid-pass joins the running one rather than being waved
 			// through.
 			await env.executeCommand(CMD.syncModels);
 			return undefined;
-		}
+	}
+}
+
+/**
+ * Execute one validated intent against the injected environment. Throws on constraint violations without logging; the
+ * panel controller is the boundary that logs and reports the failure back to the webview.
+ */
+export async function executeDashboardIntent(
+	intent: DashboardIntent,
+	env: IntentEnvironment
+): Promise<IntentAckNotice | undefined> {
+	switch (intent.method) {
+		case "setBooleanSetting":
+		case "resetSetting":
+		case "revealSetting":
+		case "setUsageStatusBar":
+		case "setChatSessionId":
+		case "setTokenEstimation":
+		case "setCurrencySymbol":
+		case "setUiTheme":
+		case "setUiAccent":
+		case "setCommitPrompt":
+			return executeScalarSettingIntent(intent, env);
+		case "setNumberSetting":
+		case "setModelParameters":
+		case "setModelCapabilities":
+		case "setAdditionalToolSchemaKeywords":
+		case "setFeatureModel":
+		case "setLanguageFilter":
+		case "setUsageAlertThresholds":
+			return executeValidatedSettingIntent(intent, env);
+		case "saveServerSetting":
+		case "testServerDraft":
+		case "testFeatureModel":
+		case "removeServerSetting":
+		case "declareExpectedFailure":
+		case "adoptServer":
+			return executeEntryIntent(intent, env);
+		case "hideExternalServer":
+		case "unhideServer":
+		case "manageHiddenGroup":
+			return executeGroupIntent(intent, env);
+		case "refreshCatalog":
+		case "refreshUsage":
+		case "executeCommand":
+		case "copyDiagnostics":
+		case "syncModels":
+			return executeHostIntent(intent, env);
 	}
 }

@@ -1,6 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { z } from "zod";
+import type { OverallVerdict } from "../../dashboard/presenters";
 import { classifyOverall, zeroModelEnglishDetail, zeroModelExplanation } from "../../dashboard/presenters";
 import type { VerdictRow } from "../../dashboard/viewModels";
 import { LAST_CONNECTION_STATUS_KEY } from "../../shared/config/storageKeys";
@@ -466,9 +467,11 @@ const persistedEnvelopeSchema = z.looseObject({
 
 /**
  * The blob is an ephemeral display cache, so the restore at this trust boundary is strict, and an earlier version's
- * blob, a foreign stamp, or junk restores as undefined rather than as a best guess. The bar then starts from
- * not-configured (or connecting, once servers are seen) until the first provider report rewrites the blob, seconds
- * after activation, so a shape change is detected instead of tolerated by lenient dual readings.
+ * blob, a foreign stamp, or junk restores as undefined rather than as a best guess.
+ *
+ * The bar then starts from not-configured (or connecting, once servers are seen) until the first provider report
+ * rewrites the blob, seconds after activation, so a shape change is detected instead of tolerated by lenient dual
+ * readings.
  */
 function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 	const parsed = persistedEnvelopeSchema.safeParse(value);
@@ -666,6 +669,128 @@ export class StatusItem implements StatusItemLike {
 }
 
 /**
+ * The attention verdict to hold after a status is set: a connecting status's own, a transient "loading" keeps the one
+ * held, and every other state clears it.
+ */
+function connectingAttentionAfter(status: ConnectionStatus, held: boolean): boolean {
+	if (status.state === "connecting") {
+		return status.attention;
+	}
+	if (status.state === "loading") {
+		return held;
+	}
+	return false;
+}
+
+/**
+ * The connected tooltip's first line. The counts live in the tooltip, not the item's text, so the bar stays quiet
+ * (docs/dashboard.md#the-status-bar-items).
+ */
+function modelsAvailableText(count: number, serverCount: number): string {
+	if (serverCount > 1 && count === 1) {
+		return l10n.t("1 model available from {0} servers", serverCount);
+	}
+	if (serverCount > 1) {
+		return l10n.t("{0} models available from {1} servers", count, serverCount);
+	}
+	if (count === 1) {
+		return l10n.t("1 model available");
+	}
+	return l10n.t("{0} models available", count);
+}
+
+/**
+ * The connected state's rendering. The zero-model judgment handleAggregatedStatus carried onto the status renders as
+ * ONE consistent warning (bar, hero, notifier, Test Connection all warning-grade), never a red connection failure.
+ */
+function connectedItemView(current: Extract<ConnectionStatus, { state: "connected" | "degraded" }>): StatusItemView {
+	const zero = current.zeroModel;
+	if (zero !== undefined) {
+		return {
+			text: l10n.t("$(warning) LiteLLM"),
+			tooltip: l10n.t("No models available\n{0}\nClick for details", zeroModelTexts(zero).display),
+			severity: "warning",
+		};
+	}
+	return {
+		text: l10n.t("$(check) LiteLLM"),
+		tooltip: `${modelsAvailableText(current.totalModels, current.serverStatuses.length)}\n${l10n.t("Click for diagnostics")}`,
+		severity: "plain",
+	};
+}
+
+/**
+ * The degraded state's rendering. "failing", not "unreachable": the count also holds reachable servers whose
+ * provider-group sync failed (applySyncFailures), and a failing server may still serve stale or declared models.
+ */
+function degradedItemView(current: Extract<ConnectionStatus, { state: "connected" | "degraded" }>): StatusItemView {
+	const count = current.totalModels;
+	const failedCount = unexpectedFailureCount(current.serverStatuses);
+	const available = count === 1 ? l10n.t("1 model available") : l10n.t("{0} models available", count);
+	const failing = failedCount === 1 ? l10n.t("1 server failing") : l10n.t("{0} servers failing", failedCount);
+	return {
+		text: l10n.t("$(warning) LiteLLM"),
+		tooltip: `${available}\n${failing}\n${l10n.t("Click for diagnostics")}`,
+		severity: "warning",
+	};
+}
+
+/** What the bar item shows for a status; every text resolves at render time, in the window's locale. */
+function statusItemViewFor(current: ConnectionStatus): StatusItemView {
+	switch (current.state) {
+		case "not-configured":
+			return {
+				text: l10n.t("$(warning) LiteLLM"),
+				tooltip: l10n.t("Not configured - click to set up"),
+				severity: "warning",
+			};
+		case "connecting":
+			if (current.attention) {
+				return {
+					text: l10n.t("$(warning) LiteLLM"),
+					tooltip: l10n.t(
+						"Configured servers have not reported any models\nClick to open the dashboard and check the configuration"
+					),
+					severity: "warning",
+				};
+			}
+			return {
+				text: l10n.t("$(loading~spin) LiteLLM"),
+				tooltip: l10n.t("Waiting for the configured servers to report..."),
+				severity: "plain",
+			};
+		case "loading":
+			return {
+				text: l10n.t("$(loading~spin) LiteLLM"),
+				tooltip: l10n.t("Fetching models..."),
+				severity: "plain",
+			};
+		case "connected":
+			return connectedItemView(current);
+		case "degraded":
+			return degradedItemView(current);
+		case "error":
+			return {
+				text: l10n.t("$(error) LiteLLM"),
+				// The rendered cause leaves the extension here (a configured URL may carry a registered value).
+				tooltip: l10n.t(
+					"Connection failed\n{0}\nClick for details",
+					Logger.redact(failureTexts(current.cause, current.baseUrl ?? "").display)
+				),
+				severity: "error",
+			};
+	}
+}
+
+/** One provider report judged over the owner's rows: the overlaid window, the rows, and the pass's stamp. */
+interface JudgedWindow {
+	readonly serverStatuses: readonly ServerStatus[];
+	readonly rows: readonly VerdictRow[];
+	readonly totalModels: number;
+	readonly now: string;
+}
+
+/**
  * `lastConnectingAttention` is the attention verdict of the last connecting status, held across a transient "loading"
  * overwrite (the connection test) and cleared by every other state, so a degraded connecting resumes degraded after
  * the test instead of resetting to the neutral spinner. It is session state, never persisted.
@@ -751,12 +876,7 @@ export class StatusBarManager {
 	async updateStatusBar(status?: ConnectionStatus): Promise<void> {
 		if (status) {
 			this.seededConnecting = false;
-			this.lastConnectingAttention =
-				status.state === "connecting"
-					? status.attention
-					: status.state === "loading"
-						? this.lastConnectingAttention
-						: false;
+			this.lastConnectingAttention = connectingAttentionAfter(status, this.lastConnectingAttention);
 			this._connectionStatus = status;
 			// Keys, not rendered text (persistedStatus): every explanation renders again at restore time, in the
 			// locale the window restores into.
@@ -766,136 +886,37 @@ export class StatusBarManager {
 			});
 		}
 
-		const current = this._connectionStatus;
-		switch (current.state) {
-			case "not-configured":
-				this._statusBarItem.render({
-					text: l10n.t("$(warning) LiteLLM"),
-					tooltip: l10n.t("Not configured - click to set up"),
-					severity: "warning",
-				});
-				break;
-			case "connecting":
-				if (current.attention) {
-					this._statusBarItem.render({
-						text: l10n.t("$(warning) LiteLLM"),
-						tooltip: l10n.t(
-							"Configured servers have not reported any models\nClick to open the dashboard and check the configuration"
-						),
-						severity: "warning",
-					});
-				} else {
-					this._statusBarItem.render({
-						text: l10n.t("$(loading~spin) LiteLLM"),
-						tooltip: l10n.t("Waiting for the configured servers to report..."),
-						severity: "plain",
-					});
-				}
-				break;
-			case "loading":
-				this._statusBarItem.render({
-					text: l10n.t("$(loading~spin) LiteLLM"),
-					tooltip: l10n.t("Fetching models..."),
-					severity: "plain",
-				});
-				break;
-			case "connected": {
-				// The judgment handleAggregatedStatus carried onto the status: connected-with-nothing-to-serve is ONE
-				// consistently rendered warning (bar, hero, notifier, Test Connection all warning-grade), never a red
-				// connection failure.
-				const zero = current.zeroModel;
-				if (zero !== undefined) {
-					this._statusBarItem.render({
-						text: l10n.t("$(warning) LiteLLM"),
-						tooltip: l10n.t("No models available\n{0}\nClick for details", zeroModelTexts(zero).display),
-						severity: "warning",
-					});
-					break;
-				}
-				const count = current.totalModels;
-				const serverCount = current.serverStatuses.length;
-				// The counts live in the tooltip, not the item's text: the bar stays quiet
-				// (docs/dashboard.md#the-status-bar-items).
-				const available =
-					serverCount > 1
-						? count === 1
-							? l10n.t("1 model available from {0} servers", serverCount)
-							: l10n.t("{0} models available from {1} servers", count, serverCount)
-						: count === 1
-							? l10n.t("1 model available")
-							: l10n.t("{0} models available", count);
-				this._statusBarItem.render({
-					text: l10n.t("$(check) LiteLLM"),
-					tooltip: `${available}\n${l10n.t("Click for diagnostics")}`,
-					severity: "plain",
-				});
-				break;
-			}
-			case "degraded": {
-				const count = current.totalModels;
-				// "failing", not "unreachable": the count also holds reachable servers whose provider-group sync failed
-				// (applySyncFailures), and a failing server may still serve stale or declared models.
-				const failedCount = unexpectedFailureCount(current.serverStatuses);
-				const available = count === 1 ? l10n.t("1 model available") : l10n.t("{0} models available", count);
-				const failing = failedCount === 1 ? l10n.t("1 server failing") : l10n.t("{0} servers failing", failedCount);
-				this._statusBarItem.render({
-					text: l10n.t("$(warning) LiteLLM"),
-					tooltip: `${available}\n${failing}\n${l10n.t("Click for diagnostics")}`,
-					severity: "warning",
-				});
-				break;
-			}
-			case "error":
-				this._statusBarItem.render({
-					text: l10n.t("$(error) LiteLLM"),
-					// The rendered cause leaves the extension here (a configured URL may carry a registered value).
-					tooltip: l10n.t(
-						"Connection failed\n{0}\nClick for details",
-						Logger.redact(failureTexts(current.cause, current.baseUrl ?? "").display)
-					),
-					severity: "error",
-				});
-				break;
-		}
+		this._statusBarItem.render(statusItemViewFor(this._connectionStatus));
 		this._statusBarItem.show();
 	}
 
-	handleAggregatedStatus(aggStatus: AggregatedStatus): void {
-		this.lastAggregated = aggStatus;
-		const now = new Date().toISOString();
-		//   a failed upsert has no group to report, and a blocked group keeps reporting its old configuration as
-		//       healthy -> the bar judges the overlaid window - the same precedence the dashboard rows render
-		const serverStatuses = applySyncFailures(aggStatus.serverStatuses, this.verdict.declared().views);
-		// The owner's published set (the dashboard hero and the notifier classify the same one).
-		const rows = this.verdict.rows();
-		this.lastJudgedOverlay = JSON.stringify([serverStatuses, rows]);
-		const { totalModels } = aggStatus;
-
-		// This method only maps verdicts onto status-bar states.
-		//
-		//   The one verdict pipeline -> classifyOverall owns the branch rules (red only when EVERY server failed
-		//       unexpectedly, degraded on any unexpected failure, needs-declare when everything failed expectedly with
-		//       nothing declared), shared with the dashboard headline and the notifier
-		const verdict = classifyOverall(rows);
-		if (rows.length === 0 || verdict === "waiting") {
-			// Nothing has reported: no row at all, or only declared entries awaiting their first report. A not-configured
-			// verdict needs nothing else to prove servers exist; at cold start the groupless refresh reports empty before
-			// the per-group refreshes arrive.
-			if (this.hasConfiguredServers()) {
-				const previous = this._connectionStatus;
-				this.logger.log("No server statuses yet; configured servers have not reported");
-				void this.updateStatusBar({
-					state: "connecting",
-					attention: (previous.state === "connecting" && !this.seededConnecting) || this.lastConnectingAttention,
-					lastChecked: now,
-				});
-			} else {
-				this.logger.log("No servers configured");
-				void this.updateStatusBar({ state: "not-configured", lastChecked: now });
-			}
+	/**
+	 * Nothing has reported: no row at all, or only declared entries awaiting their first report. A not-configured
+	 * verdict needs nothing else to prove servers exist; at cold start the groupless refresh reports empty before the
+	 * per-group refreshes arrive.
+	 */
+	private renderUnreported(now: string): void {
+		if (this.hasConfiguredServers()) {
+			const previous = this._connectionStatus;
+			this.logger.log("No server statuses yet; configured servers have not reported");
+			void this.updateStatusBar({
+				state: "connecting",
+				attention: (previous.state === "connecting" && !this.seededConnecting) || this.lastConnectingAttention,
+				lastChecked: now,
+			});
 			return;
 		}
+		this.logger.log("No servers configured");
+		void this.updateStatusBar({ state: "not-configured", lastChecked: now });
+	}
 
+	/**
+	 * Map one verdict onto a status-bar state. The one verdict pipeline: classifyOverall owns the branch rules (red
+	 * only when EVERY server failed unexpectedly, degraded on any unexpected failure, needs-declare when everything
+	 * failed expectedly with nothing declared), shared with the dashboard headline and the notifier.
+	 */
+	private renderVerdict(verdict: OverallVerdict, judged: JudgedWindow): void {
+		const { serverStatuses, rows, totalModels, now } = judged;
 		const firstFailure = unexpectedServerFailures(serverStatuses)[0];
 		// Serving means serving on ANY state: a failed server still serving its stale-window or declared models counts
 		// in the log lines.
@@ -903,7 +924,8 @@ export class StatusBarManager {
 
 		switch (verdict) {
 			case "not-configured":
-				// Unreachable: an empty row set returned above. Rendered honestly all the same.
+			case "waiting":
+				// Unreachable: an empty or waiting row set returned before the verdict. Rendered honestly all the same.
 				void this.updateStatusBar({ state: "not-configured", lastChecked: now });
 				return;
 			case "error": {
@@ -969,6 +991,26 @@ export class StatusBarManager {
 				});
 			}
 		}
+	}
+
+	/**
+	 * Judge one provider report. A failed upsert has no group to report, and a blocked group keeps reporting its old
+	 * configuration as healthy, so the bar judges the overlaid window, the same precedence the dashboard rows render,
+	 * over the owner's published rows (the dashboard hero and the notifier classify the same ones).
+	 */
+	handleAggregatedStatus(aggStatus: AggregatedStatus): void {
+		this.lastAggregated = aggStatus;
+		const now = new Date().toISOString();
+		const serverStatuses = applySyncFailures(aggStatus.serverStatuses, this.verdict.declared().views);
+		const rows = this.verdict.rows();
+		this.lastJudgedOverlay = JSON.stringify([serverStatuses, rows]);
+
+		const verdict = classifyOverall(rows);
+		if (rows.length === 0 || verdict === "waiting") {
+			this.renderUnreported(now);
+			return;
+		}
+		this.renderVerdict(verdict, { serverStatuses, rows, totalModels: aggStatus.totalModels, now });
 	}
 
 	/**

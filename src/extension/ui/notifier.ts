@@ -29,6 +29,18 @@ export function configureNowLabel(): string {
 	return l10n.t("Configure Now");
 }
 
+/** The window API behind a message kind; the three share one signature. */
+function messageShowerFor(kind: MessageKind): typeof vscode.window.showInformationMessage {
+	switch (kind) {
+		case "info":
+			return vscode.window.showInformationMessage;
+		case "warning":
+			return vscode.window.showWarningMessage;
+		case "error":
+			return vscode.window.showErrorMessage;
+	}
+}
+
 /**
  * The one toast door: an error that quotes a configured value (a URL's password among them) never reaches a toast
  * whole. An l10n literal carries no value and comes out unchanged; the labels are the caller's own button titles.
@@ -40,12 +52,7 @@ export function showMessage(
 	options?: vscode.MessageOptions
 ): Thenable<string | undefined> {
 	const shown = Logger.redact(message);
-	const show =
-		kind === "info"
-			? vscode.window.showInformationMessage
-			: kind === "warning"
-				? vscode.window.showWarningMessage
-				: vscode.window.showErrorMessage;
+	const show = messageShowerFor(kind);
 	if (options === undefined) {
 		return show(shown, ...labels);
 	}

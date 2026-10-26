@@ -174,37 +174,62 @@ export function resolveModelRecordChains(
 	return chains;
 }
 
-interface TreeInput {
-	kind: "parameters" | "capabilities";
-	layer: "global" | "entry";
-	entryLabel?: string;
-	records: ModelRecordMap;
-	models: readonly { readonly id: string }[];
-	parse: (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord;
-	resolveLayer: (id: string, records: ModelRecordMap) => { fields: ReadonlyMap<string, { value: unknown }> };
+/** What one inheritance tree is built from: the records to draw, the models to walk through them, and the layer's parser and resolver. */
+interface TreeBuild {
+	readonly kind: "parameters" | "capabilities";
+	readonly layer: "global" | "entry";
+	readonly entryLabel: string | undefined;
+	readonly records: ModelRecordMap;
+	readonly models: readonly { readonly id: string }[];
+	readonly parse: (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord;
+	readonly resolveLayer: (id: string, records: ModelRecordMap) => { fields: ReadonlyMap<string, { value: unknown }> };
 }
 
-function buildTree(input: TreeInput): RecordTreeView {
-	const { kind, layer, entryLabel, records, models, parse, resolveLayer } = input;
+/** One model's resolved leaf under its winning key. */
+interface TreeLeaf {
+	readonly id: string;
+	readonly resolvedText: string;
+}
+
+/**
+ * What walking every model through a record map yields: each matched key's votes for its parent, the leaves under
+ * each winning key, the model IDs no key matched, and the keys that failed to parse.
+ */
+interface ChainWalk {
+	readonly parentVotes: ReadonlyMap<string, ReadonlyMap<string, number>>;
+	readonly leavesByKey: ReadonlyMap<string, readonly TreeLeaf[]>;
+	readonly unmatched: readonly string[];
+	readonly invalidKeys: ReadonlySet<string>;
+}
+
+/** The tree's shape once the votes are counted: each parent's children (roots under ""), and each key's leaves. */
+interface TreeShape {
+	readonly childrenOf: ReadonlyMap<string, readonly string[]>;
+	readonly leavesByKey: ReadonlyMap<string, readonly TreeLeaf[]>;
+}
+
+/**
+ * Walk each model once through the records. The invalid keys are seeded map-wide, not from the visited chains: an
+ * invalid key must report even when no model exists to walk a chain past it.
+ */
+function walkModelChains(build: TreeBuild): ChainWalk {
 	const parentVotes = new Map<string, Map<string, number>>();
-	const leavesByKey = new Map<string, { id: string; resolvedText: string }[]>();
+	const leavesByKey = new Map<string, TreeLeaf[]>();
 	const unmatched: string[] = [];
-	// Seeded map-wide, not from the visited chains: an invalid key must report even when no model exists to walk a
-	// chain past it.
 	const invalidKeys = new Set<string>();
-	for (const key of Object.keys(records)) {
+	for (const key of Object.keys(build.records)) {
 		if (!parseMatcherKey(key).ok) {
 			invalidKeys.add(key);
 		}
 	}
-	const seenModelIds = new Set<string>();
 
-	for (const model of models) {
+	const seenModelIds = new Set<string>();
+	for (const model of build.models) {
 		if (seenModelIds.has(model.id)) {
 			continue;
 		}
 		seenModelIds.add(model.id);
-		const { chain, diagnostics } = matchChain(model.id, records);
+		const { chain, diagnostics } = matchChain(model.id, build.records);
 		for (const diagnostic of diagnostics) {
 			invalidKeys.add(diagnostic.key);
 		}
@@ -220,7 +245,7 @@ function buildTree(input: TreeInput): RecordTreeView {
 		});
 		const winner = chain[chain.length - 1];
 		if (winner !== undefined) {
-			const resolved = resolveLayer(model.id, records);
+			const resolved = build.resolveLayer(model.id, build.records);
 			const resolvedText = [...resolved.fields.entries()]
 				.map(([name, field]) => `${name} ${formatJsonValue(field.value)}`)
 				.join(", ");
@@ -230,12 +255,17 @@ function buildTree(input: TreeInput): RecordTreeView {
 		}
 	}
 
+	return { parentVotes, leavesByKey, unmatched, invalidKeys };
+}
+
+/** Each valid key's parent by majority vote; a key no chain visited is a root (parent ""). */
+function parentsByVote(records: ModelRecordMap, walk: ChainWalk): Map<string, string> {
 	const parentOf = new Map<string, string>();
 	for (const key of Object.keys(records)) {
-		if (invalidKeys.has(key)) {
+		if (walk.invalidKeys.has(key)) {
 			continue;
 		}
-		const votes = parentVotes.get(key);
+		const votes = walk.parentVotes.get(key);
 		if (votes === undefined) {
 			parentOf.set(key, "");
 			continue;
@@ -251,6 +281,11 @@ function buildTree(input: TreeInput): RecordTreeView {
 		parentOf.set(key, best);
 	}
 
+	return parentOf;
+}
+
+/** The children of each parent key, in record order. */
+function childrenByParent(parentOf: ReadonlyMap<string, string>): Map<string, string[]> {
 	const childrenOf = new Map<string, string[]>();
 	for (const [key, parent] of parentOf) {
 		const children = childrenOf.get(parent) ?? [];
@@ -258,39 +293,52 @@ function buildTree(input: TreeInput): RecordTreeView {
 		childrenOf.set(parent, children);
 	}
 
-	const buildNode = (key: string, seen: ReadonlySet<string>): RecordTreeNode => {
-		const parsed = parse(records[key] ?? {}, key);
-		const inherit = inheritDisplay(parsed);
-		// The vote-based parent map cannot cycle (chains are acyclic per model), but the guard keeps a future edge case
-		// from recursing forever.
-		const nextSeen = new Set(seen).add(key);
-		return {
-			key,
-			fields: nodeFields(parsed),
-			barrier: inherit.barrier,
-			...(inherit.inheritFrom === undefined ? {} : { inheritFrom: inherit.inheritFrom }),
-			children: (childrenOf.get(key) ?? [])
-				.filter((child) => !nextSeen.has(child))
-				.map((child) => buildNode(child, nextSeen)),
-			models: leavesByKey.get(key) ?? [],
-		};
-	};
+	return childrenOf;
+}
 
+/**
+ * One node and its subtree. The vote-based parent map cannot cycle (chains are acyclic per model), but `seen` keeps a
+ * future edge case from recursing forever.
+ */
+function treeNode(key: string, seen: ReadonlySet<string>, build: TreeBuild, shape: TreeShape): RecordTreeNode {
+	const parsed = build.parse(build.records[key] ?? {}, key);
+	const inherit = inheritDisplay(parsed);
+	const nextSeen = new Set(seen).add(key);
 	return {
-		kind,
-		layer,
-		...(entryLabel === undefined ? {} : { entryLabel }),
-		roots: (childrenOf.get("") ?? []).map((key) => buildNode(key, new Set())),
-		unmatchedModelIds: unmatched.sort((a, b) => a.localeCompare(b)),
-		invalidKeys: [...invalidKeys].sort((a, b) => a.localeCompare(b)),
+		key,
+		fields: nodeFields(parsed),
+		barrier: inherit.barrier,
+		...(inherit.inheritFrom === undefined ? {} : { inheritFrom: inherit.inheritFrom }),
+		children: (shape.childrenOf.get(key) ?? [])
+			.filter((child) => !nextSeen.has(child))
+			.map((child) => treeNode(child, nextSeen, build, shape)),
+		models: shape.leavesByKey.get(key) ?? [],
 	};
 }
 
-export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedModelsView {
-	const globalParameters = normalizeModelParameters(query.reader.get(MODEL_PARAMETERS_SETTING_KEY));
-	const globalCapabilities = normalizeModelCapabilities(query.reader.get(MODEL_CAPABILITIES_SETTING_KEY));
+function buildTree(build: TreeBuild): RecordTreeView {
+	const walk = walkModelChains(build);
+	const childrenOf = childrenByParent(parentsByVote(build.records, walk));
+	const shape: TreeShape = { childrenOf, leavesByKey: walk.leavesByKey };
+	return {
+		kind: build.kind,
+		layer: build.layer,
+		...(build.entryLabel === undefined ? {} : { entryLabel: build.entryLabel }),
+		roots: (childrenOf.get("") ?? []).map((key) => treeNode(key, new Set(), build, shape)),
+		unmatchedModelIds: [...walk.unmatched].sort((a, b) => a.localeCompare(b)),
+		invalidKeys: [...walk.invalidKeys].sort((a, b) => a.localeCompare(b)),
+	};
+}
 
-	const models: WalkModel[] = labeledSnapshots(query.snapshots).flatMap(({ snapshot, label }) => {
+/** The two global record maps, normalized once per view. */
+interface GlobalRecords {
+	readonly parameters: ReturnType<typeof normalizeModelParameters>;
+	readonly capabilities: ReturnType<typeof normalizeModelCapabilities>;
+}
+
+/** Every served model with the entry-layer inputs its server resolves, in labeled snapshot order. */
+function walkModels(query: ResolvedModelsQuery): WalkModel[] {
+	return labeledSnapshots(query.snapshots).flatMap(({ snapshot, label }) => {
 		const serverId = snapshot.status.serverId;
 		const entry = query.resolveEntryParameters(serverId);
 		const entryCapabilities = query.resolveEntryCapabilities(serverId);
@@ -306,135 +354,167 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 			serverDeclared: info.litellm.serverDeclared,
 		}));
 	});
+}
 
-	const rows: ResolvedModelRow[] = models.map((model) => {
-		const parameterInputs = {
-			globalParameters,
-			entryParameters: model.entryParameters,
-		};
-		const resolvedParams =
-			query.resolution === undefined
-				? resolveModelParameters({ rawModelId: model.rawId, ...parameterInputs })
-				: query.resolution.resolveParameters(model.serverId, model.rawId, parameterInputs);
-		const parameters: ResolvedParamCell[] = [...resolvedParams.sources.entries()]
-			.map(([name, source]) => ({
-				name,
-				valueText: formatJsonValue(resolvedParams.params[name]),
-				layer: source.source.layer,
-				key: source.source.key,
-				...(source.inheritedBy === undefined ? {} : { inheritedBy: source.inheritedBy }),
-				...(source.forced === true ? { forced: true as const } : {}),
-			}))
-			.sort((a, b) => a.name.localeCompare(b.name));
+/** One row's parameter cells, name-sorted, through the shared table when the query carries one. */
+function parameterCells(
+	model: WalkModel,
+	query: ResolvedModelsQuery,
+	globalParameters: GlobalRecords["parameters"]
+): ResolvedParamCell[] {
+	const parameterInputs = { globalParameters, entryParameters: model.entryParameters };
+	const resolvedParams =
+		query.resolution === undefined
+			? resolveModelParameters({ rawModelId: model.rawId, ...parameterInputs })
+			: query.resolution.resolveParameters(model.serverId, model.rawId, parameterInputs);
+	return [...resolvedParams.sources.entries()]
+		.map(([name, source]) => ({
+			name,
+			valueText: formatJsonValue(resolvedParams.params[name]),
+			layer: source.source.layer,
+			key: source.source.key,
+			...(source.inheritedBy === undefined ? {} : { inheritedBy: source.inheritedBy }),
+			...(source.forced === true ? { forced: true as const } : {}),
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
+}
 
-		const capabilityInputs = {
-			globalCapabilities,
-			entryCapabilities: model.entryCapabilities,
-			catalog: query.catalog,
-			serverDeclared: model.serverDeclared,
-		};
-		const resolvedCaps =
-			query.resolution === undefined
-				? resolveModelCapabilities({ rawModelId: model.rawId, ...capabilityInputs })
-				: query.resolution.resolveCapabilities(model.serverId, model.rawId, capabilityInputs);
-		const capabilities: ResolvedCapCell[] = Object.entries(resolvedCaps.fields).flatMap(([name, field]) =>
-			field === undefined
-				? []
-				: [
-						{
-							name,
-							valueText: formatJsonValue(field.value),
-							level: field.level,
-							...(field.key === undefined ? {} : { key: field.key }),
-							...(field.inheritedBy === undefined ? {} : { inheritedBy: field.inheritedBy }),
-						},
-					]
-		);
+/** One row's capability cells, through the shared table when the query carries one. */
+function capabilityCells(
+	model: WalkModel,
+	query: ResolvedModelsQuery,
+	globalCapabilities: GlobalRecords["capabilities"]
+): ResolvedCapCell[] {
+	const capabilityInputs = {
+		globalCapabilities,
+		entryCapabilities: model.entryCapabilities,
+		catalog: query.catalog,
+		serverDeclared: model.serverDeclared,
+	};
+	const resolvedCaps =
+		query.resolution === undefined
+			? resolveModelCapabilities({ rawModelId: model.rawId, ...capabilityInputs })
+			: query.resolution.resolveCapabilities(model.serverId, model.rawId, capabilityInputs);
+	return Object.entries(resolvedCaps.fields).flatMap(([name, field]) =>
+		field === undefined
+			? []
+			: [
+					{
+						name,
+						valueText: formatJsonValue(field.value),
+						level: field.level,
+						...(field.key === undefined ? {} : { key: field.key }),
+						...(field.inheritedBy === undefined ? {} : { inheritedBy: field.inheritedBy }),
+					},
+				]
+	);
+}
 
-		const matchedKeys = new Set<string>();
-		for (const map of [
-			globalParameters,
-			model.entryParameters ?? {},
-			globalCapabilities,
-			model.entryCapabilities ?? {},
-		]) {
-			for (const match of matchChain(model.rawId, map).chain) {
-				matchedKeys.add(match.key);
-			}
+/** Every matcher key any of the four record maps matched for the model, sorted. */
+function matchedKeysOf(model: WalkModel, globals: GlobalRecords): string[] {
+	const matchedKeys = new Set<string>();
+	for (const map of [
+		globals.parameters,
+		model.entryParameters ?? {},
+		globals.capabilities,
+		model.entryCapabilities ?? {},
+	]) {
+		for (const match of matchChain(model.rawId, map).chain) {
+			matchedKeys.add(match.key);
 		}
+	}
 
-		return {
-			serverLabel: model.serverLabel,
-			rawId: model.rawId,
-			scopeKey: model.scopeKey,
-			matchedKeys: [...matchedKeys].sort((a, b) => a.localeCompare(b)),
-			parameters,
-			capabilities,
-		};
-	});
-	rows.sort((a, b) => a.serverLabel.localeCompare(b.serverLabel) || a.rawId.localeCompare(b.rawId));
+	return [...matchedKeys].sort((a, b) => a.localeCompare(b));
+}
 
+/** One model's provenance row. */
+function resolvedRow(model: WalkModel, query: ResolvedModelsQuery, globals: GlobalRecords): ResolvedModelRow {
+	return {
+		serverLabel: model.serverLabel,
+		rawId: model.rawId,
+		scopeKey: model.scopeKey,
+		matchedKeys: matchedKeysOf(model, globals),
+		parameters: parameterCells(model, query, globals.parameters),
+		capabilities: capabilityCells(model, query, globals.capabilities),
+	};
+}
+
+/**
+ * The inheritance trees: the two global maps over every model, then each declared entry's own maps over that entry's
+ * models, with the record count the view states.
+ */
+function recordTrees(
+	query: ResolvedModelsQuery,
+	models: readonly WalkModel[],
+	globals: GlobalRecords
+): { trees: RecordTreeView[]; recordCount: number } {
 	const allModels = models.map((model) => ({ id: model.rawId }));
 	const trees: RecordTreeView[] = [];
 	const parseCapability = (record: Readonly<Record<string, unknown>>) => parseCapabilityRecord(record);
-	if (Object.keys(globalParameters).length > 0) {
-		trees.push(
-			buildTree({
-				kind: "parameters",
-				layer: "global",
-				records: globalParameters,
-				models: allModels,
-				parse: parseParameterRecord,
-				resolveLayer: resolveParameterLayer,
-			})
-		);
+	const parameterTree = (
+		layer: "global" | "entry",
+		entryLabel: string | undefined,
+		records: ModelRecordMap,
+		scoped: TreeBuild["models"]
+	) =>
+		buildTree({
+			kind: "parameters",
+			layer,
+			entryLabel,
+			records,
+			models: scoped,
+			parse: parseParameterRecord,
+			resolveLayer: resolveParameterLayer,
+		});
+	const capabilityTree = (
+		layer: "global" | "entry",
+		entryLabel: string | undefined,
+		records: ModelRecordMap,
+		scoped: TreeBuild["models"]
+	) =>
+		buildTree({
+			kind: "capabilities",
+			layer,
+			entryLabel,
+			records,
+			models: scoped,
+			parse: parseCapability,
+			resolveLayer: resolveCapabilityLayer,
+		});
+	if (Object.keys(globals.parameters).length > 0) {
+		trees.push(parameterTree("global", undefined, globals.parameters, allModels));
 	}
-	if (Object.keys(globalCapabilities).length > 0) {
-		trees.push(
-			buildTree({
-				kind: "capabilities",
-				layer: "global",
-				records: globalCapabilities,
-				models: allModels,
-				parse: parseCapability,
-				resolveLayer: resolveCapabilityLayer,
-			})
-		);
+	if (Object.keys(globals.capabilities).length > 0) {
+		trees.push(capabilityTree("global", undefined, globals.capabilities, allModels));
 	}
+
 	let entryRecordCount = 0;
 	for (const view of query.declared) {
 		const entryModels = models.filter((candidate) => candidate.entryLabel === view.label).map((m) => ({ id: m.rawId }));
 		if (view.modelParameters !== undefined && Object.keys(view.modelParameters).length > 0) {
 			entryRecordCount += Object.keys(view.modelParameters).length;
-			trees.push(
-				buildTree({
-					kind: "parameters",
-					layer: "entry",
-					entryLabel: view.label,
-					records: view.modelParameters,
-					models: entryModels,
-					parse: parseParameterRecord,
-					resolveLayer: resolveParameterLayer,
-				})
-			);
+			trees.push(parameterTree("entry", view.label, view.modelParameters, entryModels));
 		}
 		if (view.modelCapabilities !== undefined && Object.keys(view.modelCapabilities).length > 0) {
 			entryRecordCount += Object.keys(view.modelCapabilities).length;
-			trees.push(
-				buildTree({
-					kind: "capabilities",
-					layer: "entry",
-					entryLabel: view.label,
-					records: view.modelCapabilities,
-					models: entryModels,
-					parse: parseCapability,
-					resolveLayer: resolveCapabilityLayer,
-				})
-			);
+			trees.push(capabilityTree("entry", view.label, view.modelCapabilities, entryModels));
 		}
 	}
 
-	const recordCount = Object.keys(globalParameters).length + Object.keys(globalCapabilities).length + entryRecordCount;
+	const recordCount =
+		Object.keys(globals.parameters).length + Object.keys(globals.capabilities).length + entryRecordCount;
+	return { trees, recordCount };
+}
+
+export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedModelsView {
+	const globals: GlobalRecords = {
+		parameters: normalizeModelParameters(query.reader.get(MODEL_PARAMETERS_SETTING_KEY)),
+		capabilities: normalizeModelCapabilities(query.reader.get(MODEL_CAPABILITIES_SETTING_KEY)),
+	};
+	const models = walkModels(query);
+	const rows = models.map((model) => resolvedRow(model, query, globals));
+	rows.sort((a, b) => a.serverLabel.localeCompare(b.serverLabel) || a.rawId.localeCompare(b.rawId));
+	const { trees, recordCount } = recordTrees(query, models, globals);
 
 	return { trees, rows, recordCount };
 }

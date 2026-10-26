@@ -246,6 +246,155 @@ function secretsView(view: DeclaredServerView, source: DeclaredServersInput["sou
 }
 
 /**
+ * Countable claimant labels per snapshot, in declared order, with the first claimant of any state as the
+ * render-at-least-once fallback. Built whole before any row, because a shared snapshot's rows need the full claimant
+ * picture to report their own served counts.
+ */
+function claimantLabels(
+	declared: readonly DeclaredServerView[],
+	matchedByDeclared: GroupOwnership["matchedByDeclared"]
+): Map<LabeledSnapshot, { labels: string[]; fallback: string }> {
+	const claimants = new Map<LabeledSnapshot, { labels: string[]; fallback: string }>();
+	declared.forEach((view, declaredIndex) => {
+		const matched = matchedByDeclared.get(declaredIndex)?.entry;
+		if (matched !== undefined) {
+			const claimed = claimants.get(matched) ?? { labels: [], fallback: view.label };
+			if (view.syncFailure?.class !== "upsertFailed") {
+				claimed.labels.push(view.label);
+			}
+			claimants.set(matched, claimed);
+		}
+	});
+
+	return claimants;
+}
+
+/**
+ * The notices for an entry whose live group was joined by a weaker pass than the exact labeled identity: each field
+ * family the entry configures that may silently not apply, so a row names exactly what is inactive. modelParameters
+ * and the capability/expected-failure pair get separate classifications. "" is a real apiVersion override (append
+ * nothing), so !== undefined is the right activity check there too.
+ */
+function inactiveFieldNotices(view: DeclaredServerView): DeclaredServerNotice[] {
+	const notices: DeclaredServerNotice[] = [];
+	if (view.modelParameters !== undefined) {
+		notices.push("entry-params-inactive");
+	}
+	if (
+		view.modelCapabilities !== undefined ||
+		view.expectedFailures !== undefined ||
+		view.declaredModels !== undefined ||
+		view.includeModes !== undefined
+	) {
+		notices.push("entry-capabilities-inactive");
+	}
+	if (view.headers !== undefined) {
+		notices.push("entry-headers-inactive");
+	}
+	if (view.apiVersion !== undefined) {
+		notices.push("entry-api-version-inactive");
+	}
+
+	return notices;
+}
+
+/** The notices about what the row serves; a serving row stays quiet, whatever mix of declared and stale models it serves. */
+function servingNotices(
+	outcome: ReturnType<typeof declaredOutcome>,
+	matched: LabeledSnapshot | undefined
+): DeclaredServerNotice[] {
+	const notices: DeclaredServerNotice[] = [];
+	if (outcome.state === "error" && outcome.expected === true && outcome.servedModelCount === 0) {
+		// An expected failure serving NOTHING - no declared models, and the stale window holds nothing; only a
+		// declared-models list can fix that, so the row says so.
+		notices.push("expected-failures-nothing-declared");
+	}
+	if (
+		outcome.state === "ok" &&
+		outcome.servedModelCount === 0 &&
+		Object.values(matched?.snapshot.skippedModeCounts ?? {}).some((count) => count > 0)
+	) {
+		// Every usable model the server lists has a mode discovery drops by default; only the entry's includeModes
+		// can admit them, so the row says so instead of reading as a healthy empty server.
+		notices.push("non-chat-modes-skipped");
+	}
+
+	return notices;
+}
+
+/**
+ * What the row says about credentials. Only the deny needs proof: a fallback view read no blob, so its "absent" is a
+ * guess and the row says "unknown".
+ */
+function credentialPresence(knownPresent: boolean, secrets: ServerSecretsView): DashboardServer["credentials"] {
+	if (knownPresent) {
+		return "present";
+	}
+	if (secrets.kind === "proven") {
+		return "absent";
+	}
+	return "unknown";
+}
+
+interface DeclaredRowInputs {
+	readonly view: DeclaredServerView;
+	readonly match: ReturnType<GroupOwnership["matchedByDeclared"]["get"]>;
+	readonly labelServes: boolean;
+	readonly source: DeclaredServersInput["source"];
+}
+
+/**
+ * One declared entry's row. Only the exact labeled-identity join proves the live group carries this entry's label,
+ * which is what the request path's label-and-URL resolution keys on; any other pass means the entry's entry-only
+ * fields may silently not apply, and the row must say so instead of rendering healthy.
+ */
+function declaredServerRow(inputs: DeclaredRowInputs): DashboardServer {
+	const { view, match, labelServes, source } = inputs;
+	const matched = match?.entry;
+	const entryFieldsInactive = match !== undefined && match.pass !== "identity";
+	const outcome = declaredOutcome(matched?.snapshot.status, view.syncFailure, labelServes);
+	const notices = [...(entryFieldsInactive ? inactiveFieldNotices(view) : []), ...servingNotices(outcome, matched)];
+	const secrets = secretsView(view, source);
+	// The owner's answer (DeclaredServerView.credentials, the group parser's reading) and the live group's report are
+	// the only two voices; the row never judges locations or inline fields itself. The kind follows the voice that
+	// proved presence: a report proving a key the owner could not read names its kind too.
+	const owner = view.credentials;
+	const reported = matched?.snapshot.status;
+	const kinds =
+		owner?.present === true
+			? { oauth: owner.oauth, virtualKey: owner.virtualKey }
+			: { oauth: reported?.hasOAuth === true, virtualKey: reported?.hasVirtualKey === true };
+	const knownPresent = owner?.present === true || reported?.hasApiKey === true;
+	return {
+		label: view.label,
+		baseUrl: view.baseUrl,
+		lastChecked: checkedAtMs(matched?.snapshot.status.lastChecked),
+		credentials: credentialPresence(knownPresent, secrets),
+		hasOAuth: kinds.oauth,
+		hasVirtualKey: kinds.virtualKey,
+		origin: "declared",
+		...(matched?.snapshot.observedModelInfoKeys === undefined
+			? {}
+			: { observedModelInfoKeys: matched.snapshot.observedModelInfoKeys }),
+		...(matched?.snapshot.skippedModeCounts === undefined
+			? {}
+			: { skippedModeCounts: matched.snapshot.skippedModeCounts }),
+		config: {
+			//   Both registries ride whole -> no per-field emptiness re-checks here - a field registered in
+			//     ENTRY_VIEW_FIELD_SET reaches the edit form's prefill by construction
+			...pickNonSecretOptionalFields(view),
+			...pickEntryViewFields(view),
+			secrets,
+		},
+		...(notices.length > 0 ? { notices } : {}),
+		// The webview's declare offers key on the classification itself, since the notices exist only for the field
+		// families the entry configures.
+		...(entryFieldsInactive ? { entryFieldsInactive: true as const } : {}),
+		...outcome,
+	};
+}
+
+/**
  * A pre-label group reports under its URL host (the host never hands the extension the group name), so the join
  * cannot require a label match (resolveGroupOwnership). `snapshotLabels` lists each joined claimant, because the
  * picker lists the models under each, minus upsertFailed ones unless none else remains; exact host cardinality is
@@ -265,20 +414,7 @@ function buildServers(
 	// ordinal) plus the normalized base URL.
 	const originFor = (snapshot: ServerModelsSnapshot) =>
 		removedGroups.origins.find((record) => sameGroupIdentity(record, snapshot.status))?.origin;
-	// Countable claimant labels per snapshot, in declared order, with the first claimant of any state as the
-	// render-at-least-once fallback. Built whole before any row, because a shared snapshot's rows need the full
-	// claimant picture to report their own served counts.
-	const claimants = new Map<LabeledSnapshot, { labels: string[]; fallback: string }>();
-	declared.forEach((view, declaredIndex) => {
-		const matched = matchedByDeclared.get(declaredIndex)?.entry;
-		if (matched !== undefined) {
-			const claimed = claimants.get(matched) ?? { labels: [], fallback: view.label };
-			if (view.syncFailure?.class !== "upsertFailed") {
-				claimed.labels.push(view.label);
-			}
-			claimants.set(matched, claimed);
-		}
-	});
+	const claimants = claimantLabels(declared, matchedByDeclared);
 	// The labels a snapshot's models render under; snapshotLabels and the rows' served counts read the same rule, so
 	// they cannot diverge.
 	const labelsRenderedFor = (entry: LabeledSnapshot): string[] => {
@@ -288,99 +424,20 @@ function buildServers(
 		}
 		return claimed.labels.length > 0 ? claimed.labels : [claimed.fallback];
 	};
-	const servers: DashboardServer[] = [];
 	// Hidden groups leave the table AND the models list; for tombstones this only bridges the window between the
 	// write and the host's re-resolution, for superseded leftovers it is the rule itself.
 	const hidden = new Set<LabeledSnapshot>([
 		...tombstoned,
 		...legacy.flatMap((leftover) => (supersededBy(leftover, declared) === undefined ? [] : [leftover.labeled])),
 	]);
-	declared.forEach((view, declaredIndex) => {
+
+	const servers: DashboardServer[] = declared.map((view, declaredIndex) => {
 		const match = matchedByDeclared.get(declaredIndex);
-		const matched = match?.entry;
-		// Only the exact labeled-identity join proves the live group carries this entry's label, which is what the
-		// request path's label-and-URL resolution keys on. Any other pass means the entry's entry-only fields may
-		// silently not apply, and the row must say so instead of rendering healthy; modelParameters and the
-		// capability/expected-failure pair get separate classifications so a row names exactly what is inactive.
-		const entryFieldsInactive = match !== undefined && match.pass !== "identity";
-		const notices: DeclaredServerNotice[] = [];
-		if (entryFieldsInactive && view.modelParameters !== undefined) {
-			notices.push("entry-params-inactive");
-		}
-		if (
-			entryFieldsInactive &&
-			(view.modelCapabilities !== undefined ||
-				view.expectedFailures !== undefined ||
-				view.declaredModels !== undefined ||
-				view.includeModes !== undefined)
-		) {
-			notices.push("entry-capabilities-inactive");
-		}
-		if (entryFieldsInactive && view.headers !== undefined) {
-			notices.push("entry-headers-inactive");
-		}
-		// "" is a real override (append nothing), so !== undefined is the right activity check here too.
-		if (entryFieldsInactive && view.apiVersion !== undefined) {
-			notices.push("entry-api-version-inactive");
-		}
-		const outcome = declaredOutcome(
-			matched?.snapshot.status,
-			view.syncFailure,
-			matched === undefined || labelsRenderedFor(matched).includes(view.label)
-		);
-		if (outcome.state === "error" && outcome.expected === true && outcome.servedModelCount === 0) {
-			// An expected failure serving NOTHING - no declared models, and the stale window holds nothing; only a
-			// declared-models list can fix that, so the row says so. A serving row stays quiet, whatever mix of
-			// declared and stale models it serves.
-			notices.push("expected-failures-nothing-declared");
-		}
-		if (
-			outcome.state === "ok" &&
-			outcome.servedModelCount === 0 &&
-			Object.values(matched?.snapshot.skippedModeCounts ?? {}).some((count) => count > 0)
-		) {
-			// Every usable model the server lists has a mode discovery drops by default; only the entry's includeModes
-			// can admit them, so the row says so instead of reading as a healthy empty server.
-			notices.push("non-chat-modes-skipped");
-		}
-		const secrets = secretsView(view, declaredInput.source);
-		// The owner's answer (DeclaredServerView.credentials, the group parser's reading) and the live group's report
-		// are the only two voices; the row never judges locations or inline fields itself. Only the deny needs proof:
-		// a fallback view read no blob, so its "absent" is a guess and the row says "unknown". The kind follows the
-		// voice that proved presence: a report proving a key the owner could not read names its kind too.
-		const owner = view.credentials;
-		const reported = matched?.snapshot.status;
-		const kinds =
-			owner?.present === true
-				? { oauth: owner.oauth, virtualKey: owner.virtualKey }
-				: { oauth: reported?.hasOAuth === true, virtualKey: reported?.hasVirtualKey === true };
-		const knownPresent = owner?.present === true || reported?.hasApiKey === true;
-		servers.push({
-			label: view.label,
-			baseUrl: view.baseUrl,
-			lastChecked: checkedAtMs(matched?.snapshot.status.lastChecked),
-			credentials: knownPresent ? "present" : secrets.kind === "proven" ? "absent" : "unknown",
-			hasOAuth: kinds.oauth,
-			hasVirtualKey: kinds.virtualKey,
-			origin: "declared",
-			...(matched?.snapshot.observedModelInfoKeys === undefined
-				? {}
-				: { observedModelInfoKeys: matched.snapshot.observedModelInfoKeys }),
-			...(matched?.snapshot.skippedModeCounts === undefined
-				? {}
-				: { skippedModeCounts: matched.snapshot.skippedModeCounts }),
-			config: {
-				//   Both registries ride whole -> no per-field emptiness re-checks here - a field registered in
-				//     ENTRY_VIEW_FIELD_SET reaches the edit form's prefill by construction
-				...pickNonSecretOptionalFields(view),
-				...pickEntryViewFields(view),
-				secrets,
-			},
-			...(notices.length > 0 ? { notices } : {}),
-			// The webview's declare offers key on the classification itself, since the notices exist only for the field
-			// families the entry configures.
-			...(entryFieldsInactive ? { entryFieldsInactive: true as const } : {}),
-			...outcome,
+		return declaredServerRow({
+			view,
+			match,
+			labelServes: match === undefined || labelsRenderedFor(match.entry).includes(view.label),
+			source: declaredInput.source,
 		});
 	});
 	for (const entry of external) {
@@ -411,6 +468,7 @@ function buildServers(
 		});
 	}
 	servers.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
+
 	return {
 		servers,
 		snapshotLabels: labeled.map((entry) => (hidden.has(entry) ? [] : labelsRenderedFor(entry))),

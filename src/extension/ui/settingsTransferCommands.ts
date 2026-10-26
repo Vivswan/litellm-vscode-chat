@@ -45,16 +45,29 @@ import type { DeclaredServer } from "../servers/serverSync/setting";
 import { acceptedEntry, rawDeclaredLabels } from "../servers/serverSync/setting";
 import type { KeyedSettingsWriters, SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
+import type { ParseEnvelopeResult } from "../settingsTransfer/envelope";
 import { parseEnvelope } from "../settingsTransfer/envelope";
 import { buildSettingsExport } from "../settingsTransfer/exportBuild";
-import type { CollisionDecision, EntryRemark, SecretWrite, SettingWrite } from "../settingsTransfer/importPlan";
+import type {
+	CollisionDecision,
+	EntryRemark,
+	ImportApplication,
+	ImportPlan,
+	SecretWrite,
+	SettingWrite,
+} from "../settingsTransfer/importPlan";
 import {
 	connectionChangedLabels,
 	planSettingsImport,
 	resolveImportPlan,
 	suggestRenamedLabel,
 } from "../settingsTransfer/importPlan";
-import type { PreImportSnapshot, SnapshotBlobEntry, SnapshotEntry } from "../settingsTransfer/snapshot";
+import type {
+	PreImportSnapshot,
+	SnapshotBlobEntry,
+	SnapshotEntry,
+	SnapshotRestore,
+} from "../settingsTransfer/snapshot";
 import { buildPreImportSnapshot, planSnapshotRestore } from "../settingsTransfer/snapshot";
 import type { MessageAction } from "./notifier";
 import { showActionableMessage, showMessage } from "./notifier";
@@ -182,8 +195,8 @@ export interface SettingsTransferEnv {
 	log(message: string, data?: Record<string, unknown>): void;
 }
 
-/** Render the preview summary into the modal's detail text. */
-export function renderImportPreview(summary: ImportPreviewSummary): string {
+/** The preview's write lines: the non-servers keys and the server entries the import writes. */
+function previewWriteLines(summary: ImportPreviewSummary): string[] {
 	const lines: string[] = [];
 	if (summary.settingCount > 0) {
 		const keys = summary.settingKeys.join(", ") + (summary.settingCount > summary.settingKeys.length ? ", ..." : "");
@@ -200,6 +213,13 @@ export function renderImportPreview(summary: ImportPreviewSummary): string {
 				: l10n.t("{0} servers will be imported.", summary.serverCount)
 		);
 	}
+
+	return lines;
+}
+
+/** The preview's collision lines: the labels that already exist, the overwrites that reconnect, and the secrets that move. */
+function previewCollisionLines(summary: ImportPreviewSummary): string[] {
+	const lines: string[] = [];
 	if (summary.collisionCount > 0) {
 		lines.push(
 			summary.collisionCount === 1
@@ -229,6 +249,13 @@ export function renderImportPreview(summary: ImportPreviewSummary): string {
 					)
 		);
 	}
+
+	return lines;
+}
+
+/** The preview's remark lines: the keys skipped or ignored, the entries dropped, and the notes on the kept ones. */
+function previewRemarkLines(summary: ImportPreviewSummary): string[] {
+	const lines: string[] = [];
 	for (const key of summary.skippedKeys) {
 		lines.push(skippedKeyLine(key));
 	}
@@ -257,7 +284,30 @@ export function renderImportPreview(summary: ImportPreviewSummary): string {
 			lines.push("...");
 		}
 	}
-	return lines.join("\n");
+
+	return lines;
+}
+
+/** Render the preview summary into the modal's detail text. */
+export function renderImportPreview(summary: ImportPreviewSummary): string {
+	return [...previewWriteLines(summary), ...previewCollisionLines(summary), ...previewRemarkLines(summary)].join("\n");
+}
+
+/** The decision a collision prompt's button label stands for; a dismissal is undefined. */
+function collisionChoiceOf(
+	choice: string | undefined,
+	labels: { readonly overwrite: string; readonly skip: string; readonly rename: string }
+): "overwrite" | "skip" | "rename" | undefined {
+	if (choice === labels.overwrite) {
+		return "overwrite";
+	}
+	if (choice === labels.skip) {
+		return "skip";
+	}
+	if (choice === labels.rename) {
+		return "rename";
+	}
+	return undefined;
 }
 
 /** The real dialogs; l10n resolves at call time (no module-level localized constants). */
@@ -288,7 +338,7 @@ function createSettingsTransferPrompts(): SettingsTransferPrompts {
 						: l10n.t("Overwriting replaces the entry and its stored secrets."),
 				}
 			);
-			return choice === overwrite ? "overwrite" : choice === skip ? "skip" : choice === rename ? "rename" : undefined;
+			return collisionChoiceOf(choice, { overwrite, skip, rename });
 		},
 		askRenamedLabel: async (suggested, validate) =>
 			vscode.window.showInputBox({
@@ -512,6 +562,77 @@ function parseFailureMessage(
 	return l10n.t("LiteLLM: This file is not a LiteLLM settings export.");
 }
 
+/** One secret field an import wrote, with what it held before, for the rollback. */
+interface OverwrittenImportSecret {
+	readonly label: string;
+	readonly field: SecretFieldId;
+	readonly written: string | undefined;
+	readonly writtenOwner: SecretOwner | undefined;
+	readonly previous: string | undefined;
+	readonly previousOwner: SecretOwner | undefined;
+}
+
+/**
+ * Write each imported label's blob field by field, recording each write in `overwritten` once it landed:
+ * updateServerSecret's read-modify-write leaves the blob untouched when it throws.
+ */
+async function stageImportSecretWrites(
+	env: SettingsTransferEnv,
+	secretWrites: readonly SecretWrite[],
+	overwritten: OverwrittenImportSecret[]
+): Promise<void> {
+	for (const write of secretWrites) {
+		const storedBefore = await env.readServerSecrets(write.label);
+		for (const field of SECRET_FIELD_IDS) {
+			// An undefined value clears the field: one the imported entry does not carry is stale under this label - a
+			// stored secret is never silently paired with imported configuration.
+			const value = write.secrets[field];
+			if (value === undefined && storedBefore.values[field] === undefined) {
+				continue;
+			}
+			const owner = value === undefined ? undefined : write.owners[field];
+			await env.updateServerSecret(write.label, field, value, owner);
+			// The stamp is recorded as the record reads it back, so the rollback compares it with the stored one in the
+			// same parsed form.
+			overwritten.push({
+				label: write.label,
+				field,
+				written: value,
+				writtenOwner: parseSecretOwner(owner, field),
+				previous: storedBefore.values[field],
+				previousOwner: storedBefore.owners[field],
+			});
+		}
+	}
+}
+
+/**
+ * Put the overwritten fields back, newest first; the count that could not be restored. A field is restored only while
+ * it still holds what this import wrote, value and stamp: a save that stored its own in between owns the field now, and
+ * the pre-import value must not land over it. Read per field, since every restore is a yield point.
+ */
+async function rollbackImportSecretWrites(
+	env: SettingsTransferEnv,
+	overwritten: readonly OverwrittenImportSecret[]
+): Promise<number> {
+	let unrestored = 0;
+	for (const { label, field, written, writtenOwner, previous, previousOwner } of [...overwritten].reverse()) {
+		try {
+			const record = await env.readServerSecrets(label);
+			if (record.values[field] !== written || !isDeepStrictEqual(record.owners[field], writtenOwner)) {
+				env.log("A stored secret changed under a rolled-back settings import; it was left as it stands", { field });
+				continue;
+			}
+			await env.updateServerSecret(label, field, previous, previousOwner);
+		} catch {
+			unrestored += 1;
+			env.log("Restoring a stored secret after a failed settings import also failed", { field });
+		}
+	}
+
+	return unrestored;
+}
+
 /**
  * The apply step's servers unit: each imported label's blob, then one write turn that judges the plan against the
  * setting as it reads now and writes the servers array and the file's other keys, with the blobs restored when the
@@ -530,40 +651,10 @@ async function applyServersUnit(
 	| { readonly outcome: "rolled-back" }
 	| { readonly outcome: "rollback-failed" }
 > {
-	const overwritten: {
-		label: string;
-		field: SecretFieldId;
-		written: string | undefined;
-		writtenOwner: SecretOwner | undefined;
-		previous: string | undefined;
-		previousOwner: SecretOwner | undefined;
-	}[] = [];
+	const overwritten: OverwrittenImportSecret[] = [];
 	let step: { readonly landed: readonly KeyedSettingId[] } | "stale" | { readonly failure: unknown };
 	try {
-		for (const write of secretWrites) {
-			const storedBefore = await env.readServerSecrets(write.label);
-			for (const field of SECRET_FIELD_IDS) {
-				// An undefined value clears the field: one the imported entry does not carry is stale under this
-				// label - a stored secret is never silently paired with imported configuration.
-				const value = write.secrets[field];
-				if (value === undefined && storedBefore.values[field] === undefined) {
-					continue;
-				}
-				const owner = value === undefined ? undefined : write.owners[field];
-				await env.updateServerSecret(write.label, field, value, owner);
-				// Recorded only after the write landed: updateServerSecret's read-modify-write leaves the blob
-				// untouched when it throws. The stamp is recorded as the record reads it back, so the rollback compares
-				// it with the stored one in the same parsed form.
-				overwritten.push({
-					label: write.label,
-					field,
-					written: value,
-					writtenOwner: parseSecretOwner(owner, field),
-					previous: storedBefore.values[field],
-					previousOwner: storedBefore.owners[field],
-				});
-			}
-		}
+		await stageImportSecretWrites(env, secretWrites, overwritten);
 		step = await env.settings.writeTurn(async (writers, turn) => {
 			if (!isDeepStrictEqual(env.settings.readServersSetting(), plannedOver)) {
 				return "stale";
@@ -574,27 +665,12 @@ async function applyServersUnit(
 	} catch (failure) {
 		step = { failure };
 	}
+
 	try {
 		if (step !== "stale" && "landed" in step) {
 			return { outcome: "landed", failedKeys: step.landed };
 		}
-		// A field is restored only while it still holds what this import wrote, value and stamp: a save that stored
-		// its own in between owns the field now, and the pre-import value must not land over it. Read per field, since
-		// every restore is a yield point.
-		let unrestored = 0;
-		for (const { label, field, written, writtenOwner, previous, previousOwner } of [...overwritten].reverse()) {
-			try {
-				const record = await env.readServerSecrets(label);
-				if (record.values[field] !== written || !isDeepStrictEqual(record.owners[field], writtenOwner)) {
-					env.log("A stored secret changed under a rolled-back settings import; it was left as it stands", { field });
-					continue;
-				}
-				await env.updateServerSecret(label, field, previous, previousOwner);
-			} catch {
-				unrestored += 1;
-				env.log("Restoring a stored secret after a failed settings import also failed", { field });
-			}
-		}
+		const unrestored = await rollbackImportSecretWrites(env, overwritten);
 		if (unrestored > 0) {
 			env.log(
 				"Settings import failed and left a stored secret unrestored",
@@ -635,123 +711,408 @@ async function writeScalarSettings(
 	return failed;
 }
 
+/** A parsed export the flow can plan from. */
+type ImportFile = Extract<ParseEnvelopeResult, { readonly ok: true }>;
+
+/** An incoming entry the plan keeps, with the label the collision prompts and the preview name. */
+type KeptServer = Extract<ImportPlan["incomingServers"][number], { readonly kept: true }>;
+
+/**
+ * The chosen file, parsed, or undefined once a toast refused it (too large, or not an export) or the dialog was
+ * dismissed. A leading byte-order mark an editor may add on a round trip is not part of the JSON grammar; a valid export
+ * must not read as "not an export".
+ */
+async function readImportFile(env: SettingsTransferEnv): Promise<ImportFile | undefined> {
+	const source = await env.showOpenDialog();
+	if (source === undefined) {
+		return undefined;
+	}
+	const size = await env.fileSize(source);
+	if (size > MAX_IMPORT_FILE_BYTES) {
+		env.log("Settings import rejected: file exceeds the size cap", { size });
+		toast(env, "error", l10n.t("LiteLLM: This file is too large to be a settings export (over 5 MB)."));
+		return undefined;
+	}
+	const text = Buffer.from(await env.readFile(source))
+		.toString("utf8")
+		.replace(/^\uFEFF/, "");
+	const parsed = parseEnvelope(text);
+	if (!parsed.ok) {
+		env.log("Settings import rejected: the file did not parse as an export", { reason: parsed.reason });
+		toast(env, "error", parseFailureMessage(parsed));
+		return undefined;
+	}
+
+	return parsed;
+}
+
+/**
+ * The plan over the current setting, planned twice: the first pass names the colliding labels, whose stored blobs then
+ * let connectionChanged compare EFFECTIVE secret material - through the ownership check, so a refused stored value is
+ * compared as the absence the live entry actually resolves.
+ */
+async function planImport(
+	env: SettingsTransferEnv,
+	settings: ImportFile["settings"],
+	currentServersRaw: unknown
+): Promise<ImportPlan> {
+	const prePlan = planSettingsImport(settings, currentServersRaw);
+	const storedSecrets: Record<string, StoredServerSecrets> = {};
+	for (const collision of prePlan.collisions) {
+		const record = await env.readServerSecrets(collision.label);
+		const standing = acceptedEntry(currentServersRaw, collision.label)?.entry;
+		// No accepted entry means nothing to pair against, so nothing resolves - the same fail-closed default the
+		// save path's keep sources apply (a rejected carrier resolves no secrets at sync time).
+		storedSecrets[collision.label] = standing === undefined ? {} : resolveOwnedSecrets(standing, record).values;
+	}
+
+	return planSettingsImport(settings, currentServersRaw, storedSecrets);
+}
+
+/**
+ * The whole-file refusal, raised only when nothing in the file validates. It names what each entry failed on, so the
+ * user fixes the file rather than guessing.
+ */
+function refuseEmptyImport(env: SettingsTransferEnv, plan: ImportPlan): void {
+	env.log("Settings import rejected: nothing in the file can be imported", {
+		dropped: plan.dropped.length,
+		skippedKeys: plan.skippedKeys.length,
+	});
+	const dropped = droppedSentence(plan.dropped);
+	toast(
+		env,
+		"error",
+		[
+			l10n.t("LiteLLM: Nothing in this file can be imported."),
+			...(dropped === undefined ? [] : [dropped]),
+			...plan.skippedKeys.map((skipped) => skippedKeyLine(skipped.key)),
+		].join(" ")
+	);
+}
+
+/** The preview modal's facts, its lists capped. */
+function previewSummaryOf(plan: ImportPlan, kept: readonly KeptServer[], parsed: ImportFile): ImportPreviewSummary {
+	return {
+		settingCount: plan.settingsWrites.length,
+		settingKeys: plan.settingsWrites.slice(0, PREVIEW_KEY_CAP).map((write) => write.key),
+		serverCount: kept.length,
+		collisionCount: plan.collisions.length,
+		connectionChangedCount: plan.collisions.filter((collision) => collision.connectionChanged).length,
+		secretFieldCount: plan.secretFieldCount,
+		droppedLines: plan.dropped.slice(0, PREVIEW_REMARK_CAP).map(remarkSentence),
+		droppedCount: plan.dropped.length,
+		noteLines: plan.notes.slice(0, PREVIEW_REMARK_CAP).map(remarkSentence),
+		noteCount: plan.notes.length,
+		skippedKeys: plan.skippedKeys.map((skipped) => skipped.key),
+		unknownKeyCount: parsed.unknownKeys.length,
+	};
+}
+
+/** The rename input's validation message, or undefined for a usable label. */
+function renamedLabelProblem(candidate: string, taken: ReadonlySet<string>): string | undefined {
+	const trimmed = trimHttpWhitespace(candidate);
+	if (trimmed.length === 0) {
+		return l10n.t("enter a label");
+	}
+	if (isUnsafeRecordKey(trimmed)) {
+		return l10n.t("reserved name");
+	}
+	if (taken.has(trimmed)) {
+		return l10n.t("this label is already in use");
+	}
+	return undefined;
+}
+
+/**
+ * Every collision's decision, or undefined when a prompt was dismissed: every collision needs a decision before
+ * anything is written, so a dismissal aborts the whole import with zero writes. A rename's label is validated against
+ * the current labels, the kept incoming ones, and the renames chosen so far.
+ */
+async function collectCollisionDecisions(
+	env: SettingsTransferEnv,
+	plan: ImportPlan,
+	kept: readonly KeptServer[],
+	currentServersRaw: unknown
+): Promise<Record<string, CollisionDecision> | undefined> {
+	const decisions: Record<string, CollisionDecision> = {};
+	const currentLabels = rawDeclaredLabels(currentServersRaw);
+	const keptLabels = new Set(kept.map((incoming) => incoming.label));
+	const renameTargets = new Set<string>();
+	for (const collision of plan.collisions) {
+		const choice = await env.prompts.resolveCollision(collision.label, collision.connectionChanged);
+		if (choice === undefined) {
+			return undefined;
+		}
+		if (choice !== "rename") {
+			decisions[collision.label] = { action: choice };
+			continue;
+		}
+		const taken = new Set<string>([...currentLabels, ...keptLabels, ...renameTargets]);
+		const newLabel = await env.prompts.askRenamedLabel(suggestRenamedLabel(collision.label, taken), (candidate) =>
+			renamedLabelProblem(candidate, taken)
+		);
+		if (newLabel === undefined) {
+			return undefined;
+		}
+		const trimmed = trimHttpWhitespace(newLabel);
+		decisions[collision.label] = { action: "rename", newLabel: trimmed };
+		renameTargets.add(trimmed);
+	}
+
+	return decisions;
+}
+
+/** The undo slot across one import run: whether the run writes anything, and how to put the previous slot back. */
+interface UndoSlot {
+	readonly writesNothing: boolean;
+	readonly restorePrevious: () => Promise<void>;
+}
+
+/**
+ * Snapshot FIRST: the whole pre-import state into the one SecretStorage slot, so a failed snapshot write means nothing
+ * is applied (undefined, after its toast). A run that will write nothing must not touch the slot: overwriting it would
+ * destroy the only recovery path from the PREVIOUS import.
+ */
+async function saveUndoSnapshot(
+	env: SettingsTransferEnv,
+	application: ImportApplication
+): Promise<UndoSlot | undefined> {
+	const writesNothing = application.settingsWrites.length === 0 && application.serversValue === undefined;
+	let previousSlot: string | undefined;
+	const restorePrevious = async () => {
+		try {
+			if (previousSlot === undefined) {
+				await env.clearSnapshotSlot();
+			} else {
+				await env.writeSnapshotSlot(previousSlot);
+			}
+		} catch (error) {
+			env.log("Restoring the previous undo snapshot after a landed-nothing import failed", {
+				error: errorLabel(error),
+			});
+		}
+	};
+	if (writesNothing) {
+		return { writesNothing, restorePrevious };
+	}
+	previousSlot = await env.readSnapshotSlot();
+	const snapReader = env.settings.snapshotReader();
+	const snapshot = await buildPreImportSnapshot(
+		(key) => snapReader.inspect(key)?.globalValue,
+		(label) => env.readServerSecrets(label),
+		application.touchedLabels
+	);
+	try {
+		await env.writeSnapshotSlot(JSON.stringify(snapshot));
+	} catch (error) {
+		env.log("Settings import cancelled: the undo snapshot could not be saved", { error: errorLabel(error) });
+		toast(
+			env,
+			"error",
+			l10n.t("LiteLLM: The import was cancelled because the undo snapshot could not be saved; nothing was changed.")
+		);
+		return undefined;
+	}
+
+	return { writesNothing, restorePrevious };
+}
+
+/**
+ * Every write of the run inside one settings write turn: on the servers path behind the servers replacement, so a
+ * refused or failed servers write leaves nothing committed, and never interleaved with another writer. Returns the
+ * failed scalar keys, or undefined when nothing landed (after its toast, and the previous undo slot's return).
+ */
+async function applyImportWrites(
+	env: SettingsTransferEnv,
+	application: ImportApplication,
+	currentServersRaw: unknown,
+	slot: UndoSlot
+): Promise<readonly KeyedSettingId[] | undefined> {
+	if (application.serversValue === undefined) {
+		const failedKeys = await env.settings.writeTurn((writers) =>
+			writeScalarSettings(env, writers, application.settingsWrites)
+		);
+		env.requestServerSync();
+		return failedKeys;
+	}
+	const { serversValue, secretWrites, settingsWrites } = application;
+	// The unit is one write to the engine; the toasts show outside the hold, so the engine runs while they are up.
+	const applied = await env.withServerSyncHold(() =>
+		applyServersUnit(env, currentServersRaw, serversValue, secretWrites, settingsWrites)
+	);
+	if (applied.outcome === "rollback-failed") {
+		toast(
+			env,
+			"error",
+			`${l10n.t("LiteLLM: The settings import failed, and some stored server secrets could not be restored.")}\n${l10n.t(
+				"Undo Import restores the pre-import state; alternatively, edit each affected server in the dashboard or use the Set Server Secret command."
+			)}`,
+			[undoImportAction(env)]
+		);
+		return undefined;
+	}
+	if (applied.outcome === "stale" || applied.outcome === "rolled-back") {
+		// Nothing landed, so the previous import's undo slot comes back.
+		await slot.restorePrevious();
+		toast(
+			env,
+			applied.outcome === "stale" ? "warning" : "error",
+			applied.outcome === "stale"
+				? l10n.t(
+						"LiteLLM: The servers setting changed while the import was running; no server was imported, and server secret changes were rolled back. Run the import again."
+					)
+				: l10n.t(
+						"LiteLLM: The settings import failed while writing the servers setting; server secret changes were rolled back."
+					)
+		);
+		return undefined;
+	}
+
+	return applied.failedKeys;
+}
+
+/** The completion notice's counted parts, in the order the sentence lists them. */
+function importSummaryParts(writtenSettings: number, counts: ImportApplication["counts"]): string[] {
+	const parts: string[] = [];
+	if (writtenSettings > 0) {
+		parts.push(writtenSettings === 1 ? l10n.t("1 setting written") : l10n.t("{0} settings written", writtenSettings));
+	}
+	if (counts.imported > 0) {
+		parts.push(counts.imported === 1 ? l10n.t("1 server added") : l10n.t("{0} servers added", counts.imported));
+	}
+	if (counts.overwritten > 0) {
+		parts.push(
+			counts.overwritten === 1 ? l10n.t("1 server overwritten") : l10n.t("{0} servers overwritten", counts.overwritten)
+		);
+	}
+	if (counts.renamed > 0) {
+		parts.push(counts.renamed === 1 ? l10n.t("1 server renamed") : l10n.t("{0} servers renamed", counts.renamed));
+	}
+	if (counts.skipped > 0) {
+		parts.push(counts.skipped === 1 ? l10n.t("1 server skipped") : l10n.t("{0} servers skipped", counts.skipped));
+	}
+
+	return parts;
+}
+
+interface ImportAnnouncement {
+	readonly env: SettingsTransferEnv;
+	readonly application: ImportApplication;
+	readonly parsed: ImportFile;
+	readonly failedKeys: readonly KeyedSettingId[];
+	readonly slot: UndoSlot;
+}
+
+/**
+ * The notice's lines after the first: the keys that could not be written, the ones a workspace override shadows, and
+ * the one warning about the file's own content (what dropped and why, what a kept entry carries that will not take
+ * effect, and the keys outside the setting vocabulary). Each line names a field or key, never a value.
+ */
+function importNotes(announcement: ImportAnnouncement, writtenKeys: readonly string[]): string[] {
+	const { env, application, parsed, failedKeys } = announcement;
+	const shadowedKeys = writtenKeys.filter((key) => {
+		const inspection = env.settings.inspect(key);
+		return inspection?.workspaceValue !== undefined || inspection?.workspaceFolderValue !== undefined;
+	});
+	const notes: string[] = [];
+	if (failedKeys.length > 0) {
+		notes.push(
+			failedKeys.length === 1
+				? l10n.t("1 setting could not be written: {0}.", failedKeys.join(", "))
+				: l10n.t("{0} settings could not be written: {1}.", failedKeys.length, failedKeys.join(", "))
+		);
+	}
+	if (shadowedKeys.length > 0) {
+		notes.push(
+			l10n.t(
+				"Workspace settings override {0} in this window; the imported values take effect where no workspace override exists.",
+				shadowedKeys.join(", ")
+			)
+		);
+	}
+	const dropped = droppedSentence(application.dropped);
+	if (dropped !== undefined) {
+		notes.push(dropped);
+	}
+	if (application.notes.length > 0) {
+		notes.push(l10n.t("Notes on the imported servers: {0}", application.notes.map(remarkSentence).join(" ")));
+	}
+	if (parsed.unknownKeys.length > 0) {
+		notes.push(
+			parsed.unknownKeys.length === 1
+				? l10n.t("1 unknown key was ignored: {0}.", parsed.unknownKeys.join(", "))
+				: l10n.t("{0} unknown keys were ignored: {1}.", parsed.unknownKeys.length, parsed.unknownKeys.join(", "))
+		);
+	}
+
+	return notes;
+}
+
+/**
+ * The completion toast and its log line. A run that survived nothing reads as a no-op run, so the previous undo slot
+ * comes back; no snapshot guards a run that wrote nothing (or landed nothing), so it has no undo.
+ */
+async function announceImport(announcement: ImportAnnouncement): Promise<void> {
+	const { env, application, failedKeys, slot } = announcement;
+	const writtenSettings = application.settingsWrites.length - failedKeys.length;
+	const landedAnything = writtenSettings > 0 || application.serversValue !== undefined;
+	if (!slot.writesNothing && !landedAnything) {
+		await slot.restorePrevious();
+	}
+	const writtenKeys: string[] = application.settingsWrites
+		.map((write) => write.key)
+		.filter((key) => !failedKeys.includes(key));
+	if (application.serversValue !== undefined) {
+		writtenKeys.push(SERVERS_SETTING_KEY);
+	}
+	const parts = importSummaryParts(writtenSettings, application.counts);
+	const notes: string[] = [
+		parts.length > 0
+			? l10n.t("LiteLLM: Settings import complete: {0}.", parts.join(", "))
+			: l10n.t("LiteLLM: Settings import complete: nothing needed to change."),
+		...importNotes(announcement, writtenKeys),
+	];
+	const fileRemarks = application.dropped.length + application.notes.length + announcement.parsed.unknownKeys.length;
+	env.log("Settings import applied", {
+		settings: writtenSettings,
+		failedSettings: failedKeys.length,
+		imported: application.counts.imported,
+		overwritten: application.counts.overwritten,
+		renamed: application.counts.renamed,
+		skipped: application.counts.skipped,
+		dropped: application.dropped.length,
+		notes: application.notes.length,
+		secretWrites: application.secretWrites.length,
+	});
+	toast(
+		env,
+		failedKeys.length > 0 || fileRemarks > 0 ? "warning" : "info",
+		notes.join(" "),
+		slot.writesNothing || !landedAnything ? [] : [undoImportAction(env)]
+	);
+}
+
 /** LiteLLM: Import Settings... - open dialog, preview, collision prompts, snapshot, guarded apply, summary. */
 export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<void> {
 	try {
-		const source = await env.showOpenDialog();
-		if (source === undefined) {
+		const parsed = await readImportFile(env);
+		if (parsed === undefined) {
 			return;
 		}
-		const size = await env.fileSize(source);
-		if (size > MAX_IMPORT_FILE_BYTES) {
-			env.log("Settings import rejected: file exceeds the size cap", { size });
-			toast(env, "error", l10n.t("LiteLLM: This file is too large to be a settings export (over 5 MB)."));
-			return;
-		}
-		// A leading byte-order mark an editor may add on a round trip is not part of the JSON grammar; a valid export
-		// must not read as "not an export".
-		const text = Buffer.from(await env.readFile(source))
-			.toString("utf8")
-			.replace(/^\uFEFF/, "");
-		const parsed = parseEnvelope(text);
-		if (!parsed.ok) {
-			env.log("Settings import rejected: the file did not parse as an export", { reason: parsed.reason });
-			toast(env, "error", parseFailureMessage(parsed));
-			return;
-		}
-
 		const currentServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
-		// Plan twice: the first pass names the colliding labels, whose stored blobs then let connectionChanged compare
-		// EFFECTIVE secret material - through the ownership check, so a refused stored value is compared as the absence
-		// the live entry actually resolves.
-		const prePlan = planSettingsImport(parsed.settings, currentServersRaw);
-		const storedSecrets: Record<string, StoredServerSecrets> = {};
-		for (const collision of prePlan.collisions) {
-			const record = await env.readServerSecrets(collision.label);
-			const standing = acceptedEntry(currentServersRaw, collision.label)?.entry;
-			// No accepted entry means nothing to pair against, so nothing resolves - the same fail-closed default the
-			// save path's keep sources apply (a rejected carrier resolves no secrets at sync time).
-			storedSecrets[collision.label] = standing === undefined ? {} : resolveOwnedSecrets(standing, record).values;
-		}
-		const plan = planSettingsImport(parsed.settings, currentServersRaw, storedSecrets);
-
+		const plan = await planImport(env, parsed.settings, currentServersRaw);
 		const kept = plan.incomingServers.filter((incoming) => incoming.kept);
-		// The whole file is refused only here: nothing in it validates. The refusal names what each entry failed on, so
-		// the user fixes the file rather than guessing.
 		if (plan.settingsWrites.length === 0 && kept.length === 0) {
-			env.log("Settings import rejected: nothing in the file can be imported", {
-				dropped: plan.dropped.length,
-				skippedKeys: plan.skippedKeys.length,
-			});
-			const dropped = droppedSentence(plan.dropped);
-			toast(
-				env,
-				"error",
-				[
-					l10n.t("LiteLLM: Nothing in this file can be imported."),
-					...(dropped === undefined ? [] : [dropped]),
-					...plan.skippedKeys.map((skipped) => skippedKeyLine(skipped.key)),
-				].join(" ")
-			);
+			refuseEmptyImport(env, plan);
 			return;
 		}
-
-		const summary: ImportPreviewSummary = {
-			settingCount: plan.settingsWrites.length,
-			settingKeys: plan.settingsWrites.slice(0, PREVIEW_KEY_CAP).map((write) => write.key),
-			serverCount: kept.length,
-			collisionCount: plan.collisions.length,
-			connectionChangedCount: plan.collisions.filter((collision) => collision.connectionChanged).length,
-			secretFieldCount: plan.secretFieldCount,
-			droppedLines: plan.dropped.slice(0, PREVIEW_REMARK_CAP).map(remarkSentence),
-			droppedCount: plan.dropped.length,
-			noteLines: plan.notes.slice(0, PREVIEW_REMARK_CAP).map(remarkSentence),
-			noteCount: plan.notes.length,
-			skippedKeys: plan.skippedKeys.map((skipped) => skipped.key),
-			unknownKeyCount: parsed.unknownKeys.length,
-		};
-		if (!(await env.prompts.confirmImport(summary))) {
+		if (!(await env.prompts.confirmImport(previewSummaryOf(plan, kept, parsed)))) {
 			return;
 		}
-
-		// Every collision needs a decision before anything is written: a dismissed prompt aborts the whole import with
-		// zero writes.
-		const decisions: Record<string, CollisionDecision> = {};
-		const currentLabels = rawDeclaredLabels(currentServersRaw);
-		const keptLabels = new Set(kept.map((incoming) => incoming.label));
-		const renameTargets = new Set<string>();
-		for (const collision of plan.collisions) {
-			const choice = await env.prompts.resolveCollision(collision.label, collision.connectionChanged);
-			if (choice === undefined) {
-				return;
-			}
-			if (choice !== "rename") {
-				decisions[collision.label] = { action: choice };
-				continue;
-			}
-			const taken = new Set<string>([...currentLabels, ...keptLabels, ...renameTargets]);
-			const validate = (candidate: string): string | undefined => {
-				const trimmed = trimHttpWhitespace(candidate);
-				if (trimmed.length === 0) {
-					return l10n.t("enter a label");
-				}
-				if (isUnsafeRecordKey(trimmed)) {
-					return l10n.t("reserved name");
-				}
-				if (taken.has(trimmed)) {
-					return l10n.t("this label is already in use");
-				}
-				return undefined;
-			};
-			const newLabel = await env.prompts.askRenamedLabel(suggestRenamedLabel(collision.label, taken), validate);
-			if (newLabel === undefined) {
-				return;
-			}
-			const trimmed = trimHttpWhitespace(newLabel);
-			decisions[collision.label] = { action: "rename", newLabel: trimmed };
-			renameTargets.add(trimmed);
+		const decisions = await collectCollisionDecisions(env, plan, kept, currentServersRaw);
+		if (decisions === undefined) {
+			return;
 		}
-
 		const application = resolveImportPlan(plan, decisions);
 
 		// The merged servers array was computed against the value read before the prompts. The write turn refuses a
@@ -771,208 +1132,27 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			);
 			return;
 		}
-
-		// A run that will write nothing must not touch the slot: overwriting it would destroy the only recovery path
-		// from the PREVIOUS import.
-		const writesNothing = application.settingsWrites.length === 0 && application.serversValue === undefined;
-		let previousSlot: string | undefined;
-		const restorePreviousSlot = async () => {
-			try {
-				if (previousSlot === undefined) {
-					await env.clearSnapshotSlot();
-				} else {
-					await env.writeSnapshotSlot(previousSlot);
-				}
-			} catch (error) {
-				env.log("Restoring the previous undo snapshot after a landed-nothing import failed", {
-					error: errorLabel(error),
-				});
-			}
-		};
-		if (!writesNothing) {
-			previousSlot = await env.readSnapshotSlot();
-			// Snapshot FIRST: the whole pre-import state into the one SecretStorage slot. A failed snapshot write means
-			// nothing is applied.
-			const snapReader = env.settings.snapshotReader();
-			const snapshot = await buildPreImportSnapshot(
-				(key) => snapReader.inspect(key)?.globalValue,
-				(label) => env.readServerSecrets(label),
-				application.touchedLabels
-			);
-			try {
-				await env.writeSnapshotSlot(JSON.stringify(snapshot));
-			} catch (error) {
-				env.log("Settings import cancelled: the undo snapshot could not be saved", { error: errorLabel(error) });
-				toast(
-					env,
-					"error",
-					l10n.t("LiteLLM: The import was cancelled because the undo snapshot could not be saved; nothing was changed.")
-				);
-				return;
-			}
+		const slot = await saveUndoSnapshot(env, application);
+		if (slot === undefined) {
+			return;
 		}
-
-		// Every write of the run inside one settings write turn: on the servers path behind the servers replacement,
-		// so a refused or failed servers write leaves nothing committed, and never interleaved with another writer.
-		let failedKeys: readonly KeyedSettingId[];
-		if (application.serversValue === undefined) {
-			failedKeys = await env.settings.writeTurn((writers) =>
-				writeScalarSettings(env, writers, application.settingsWrites)
-			);
-			env.requestServerSync();
-		} else {
-			const { serversValue, secretWrites, settingsWrites } = application;
-			// The unit is one write to the engine; the toasts show outside the hold, so the engine runs while they are up.
-			const applied = await env.withServerSyncHold(() =>
-				applyServersUnit(env, currentServersRaw, serversValue, secretWrites, settingsWrites)
-			);
-			if (applied.outcome === "rollback-failed") {
-				toast(
-					env,
-					"error",
-					`${l10n.t("LiteLLM: The settings import failed, and some stored server secrets could not be restored.")}\n${l10n.t(
-						"Undo Import restores the pre-import state; alternatively, edit each affected server in the dashboard or use the Set Server Secret command."
-					)}`,
-					[undoImportAction(env)]
-				);
-				return;
-			}
-			if (applied.outcome === "stale" || applied.outcome === "rolled-back") {
-				// Nothing landed, so the previous import's undo slot comes back.
-				await restorePreviousSlot();
-				toast(
-					env,
-					applied.outcome === "stale" ? "warning" : "error",
-					applied.outcome === "stale"
-						? l10n.t(
-								"LiteLLM: The servers setting changed while the import was running; no server was imported, and server secret changes were rolled back. Run the import again."
-							)
-						: l10n.t(
-								"LiteLLM: The settings import failed while writing the servers setting; server secret changes were rolled back."
-							)
-				);
-				return;
-			}
-			failedKeys = applied.failedKeys;
+		const failedKeys = await applyImportWrites(env, application, currentServersRaw, slot);
+		if (failedKeys === undefined) {
+			return;
 		}
-		const writtenSettings = application.settingsWrites.length - failedKeys.length;
-
-		//   Nothing survived -> same as a no-op run
-		const landedAnything = writtenSettings > 0 || application.serversValue !== undefined;
-		if (!writesNothing && !landedAnything) {
-			await restorePreviousSlot();
-		}
-
-		const writtenKeys: string[] = application.settingsWrites
-			.map((write) => write.key)
-			.filter((key) => !failedKeys.includes(key));
-		if (application.serversValue !== undefined) {
-			writtenKeys.push(SERVERS_SETTING_KEY);
-		}
-		const shadowedKeys = writtenKeys.filter((key) => {
-			const inspection = env.settings.inspect(key);
-			return inspection?.workspaceValue !== undefined || inspection?.workspaceFolderValue !== undefined;
-		});
-
-		const { counts } = application;
-		const parts: string[] = [];
-		if (writtenSettings > 0) {
-			parts.push(writtenSettings === 1 ? l10n.t("1 setting written") : l10n.t("{0} settings written", writtenSettings));
-		}
-		if (counts.imported > 0) {
-			parts.push(counts.imported === 1 ? l10n.t("1 server added") : l10n.t("{0} servers added", counts.imported));
-		}
-		if (counts.overwritten > 0) {
-			parts.push(
-				counts.overwritten === 1
-					? l10n.t("1 server overwritten")
-					: l10n.t("{0} servers overwritten", counts.overwritten)
-			);
-		}
-		if (counts.renamed > 0) {
-			parts.push(counts.renamed === 1 ? l10n.t("1 server renamed") : l10n.t("{0} servers renamed", counts.renamed));
-		}
-		if (counts.skipped > 0) {
-			parts.push(counts.skipped === 1 ? l10n.t("1 server skipped") : l10n.t("{0} servers skipped", counts.skipped));
-		}
-		const notes: string[] = [
-			parts.length > 0
-				? l10n.t("LiteLLM: Settings import complete: {0}.", parts.join(", "))
-				: l10n.t("LiteLLM: Settings import complete: nothing needed to change."),
-		];
-		if (failedKeys.length > 0) {
-			notes.push(
-				failedKeys.length === 1
-					? l10n.t("1 setting could not be written: {0}.", failedKeys.join(", "))
-					: l10n.t("{0} settings could not be written: {1}.", failedKeys.length, failedKeys.join(", "))
-			);
-		}
-		if (shadowedKeys.length > 0) {
-			notes.push(
-				l10n.t(
-					"Workspace settings override {0} in this window; the imported values take effect where no workspace override exists.",
-					shadowedKeys.join(", ")
-				)
-			);
-		}
-		// The one warning about the file's own content: what dropped and why, what a kept entry carries that will not
-		// take effect, and the keys outside the setting vocabulary. Each line names a field or key, never a value.
-		const dropped = droppedSentence(application.dropped);
-		if (dropped !== undefined) {
-			notes.push(dropped);
-		}
-		if (application.notes.length > 0) {
-			notes.push(l10n.t("Notes on the imported servers: {0}", application.notes.map(remarkSentence).join(" ")));
-		}
-		if (parsed.unknownKeys.length > 0) {
-			notes.push(
-				parsed.unknownKeys.length === 1
-					? l10n.t("1 unknown key was ignored: {0}.", parsed.unknownKeys.join(", "))
-					: l10n.t("{0} unknown keys were ignored: {1}.", parsed.unknownKeys.length, parsed.unknownKeys.join(", "))
-			);
-		}
-		const fileRemarks = application.dropped.length + application.notes.length + parsed.unknownKeys.length;
-		env.log("Settings import applied", {
-			settings: writtenSettings,
-			failedSettings: failedKeys.length,
-			imported: counts.imported,
-			overwritten: counts.overwritten,
-			renamed: counts.renamed,
-			skipped: counts.skipped,
-			dropped: application.dropped.length,
-			notes: application.notes.length,
-			secretWrites: application.secretWrites.length,
-		});
-		// No snapshot guards a run that wrote nothing (or landed nothing), so it has no undo.
-		toast(
-			env,
-			failedKeys.length > 0 || fileRemarks > 0 ? "warning" : "info",
-			notes.join(" "),
-			writesNothing || !landedAnything ? [] : [undoImportAction(env)]
-		);
+		await announceImport({ env, application, parsed, failedKeys, slot });
 	} catch (error) {
 		env.log("Settings import failed", { error: errorLabel(error) });
 		toast(env, "error", l10n.t("LiteLLM: The settings import failed."));
 	}
 }
 
-/**
- * Strict revalidation of the persisted snapshot slot: the slot is extension-owned and only ever written by
- * buildPreImportSnapshot, so ANY deviation is corruption, and a corrupted snapshot must never drive settings writes or
- * blob deletions. Undefined means unusable.
- */
-function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(serialized);
-	} catch {
-		return undefined;
-	}
-	if (!isRecord(parsed) || !isRecord(parsed.settings) || !isRecord(parsed.blobs) || typeof parsed.at !== "string") {
-		return undefined;
-	}
+/** The recorded settings half, or undefined for any deviation; each rule the builder guarantees sits beside its check. */
+function parseSnapshotSettings(
+	recorded: Record<string, unknown>
+): Partial<Record<SettingId, SnapshotEntry<unknown>>> | undefined {
 	const settings: Partial<Record<SettingId, SnapshotEntry<unknown>>> = {};
-	for (const [key, entry] of Object.entries(parsed.settings)) {
+	for (const [key, entry] of Object.entries(recorded)) {
 		// The builder walks the vocabulary exclusively; a key outside it would drive writeGlobal on a key VS Code does
 		// not know.
 		if (!isSettingId(key) || !isRecord(entry) || typeof entry.present !== "boolean") {
@@ -992,65 +1172,117 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 			return undefined;
 		}
 	}
+
+	return settings;
+}
+
+/**
+ * A present blob's value record, or undefined for any deviation: the builder only ever stores non-empty
+ * SECRET_FIELD_IDS strings and records an empty blob as absent; anything else would restore a blob that never existed.
+ */
+function parseBlobValues(value: unknown): { -readonly [K in SecretFieldId]?: string } | undefined {
+	if (!isRecord(value)) {
+		return undefined;
+	}
+	const fields = Object.entries(value);
+	if (fields.length === 0) {
+		return undefined;
+	}
+	const blob: { -readonly [K in SecretFieldId]?: string } = {};
+	for (const [field, text] of fields) {
+		if (!(SECRET_FIELD_IDS as readonly string[]).includes(field) || typeof text !== "string" || text.length === 0) {
+			return undefined;
+		}
+		blob[field as SecretFieldId] = text;
+	}
+
+	return blob;
+}
+
+/**
+ * A recorded blob's ownership stamps, or undefined for any deviation. Stamps are optional (a snapshot may record a blob
+ * without them), but when present they must be the builder's shape: a stamp (shared/serverEntry.ts SecretOwner) on a
+ * field the value record holds.
+ */
+function parseBlobOwners(
+	recorded: unknown,
+	blob: { readonly [K in SecretFieldId]?: string }
+): { -readonly [K in SecretFieldId]?: SecretOwner } | undefined {
+	if (!isRecord(recorded)) {
+		return undefined;
+	}
+	const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = {};
+	for (const [field, owner] of Object.entries(recorded)) {
+		if (!(SECRET_FIELD_IDS as readonly string[]).includes(field)) {
+			return undefined;
+		}
+		const stamp = parseSecretOwner(owner, field as SecretFieldId);
+		if (stamp === undefined || blob[field as SecretFieldId] === undefined) {
+			return undefined;
+		}
+		owners[field as SecretFieldId] = stamp;
+	}
+
+	return owners;
+}
+
+/**
+ * One recorded blob entry, or undefined for any deviation. Real labels are always trimmed, non-empty, and
+ * non-reserved; anything else would write a SecretStorage key no server entry can ever read. The absent record never
+ * carries a value; one riding along means the flag cannot be trusted, and "absent" restores as a deletion.
+ */
+function parseSnapshotBlob(label: string, entry: unknown): SnapshotBlobEntry | undefined {
+	if (
+		label.length === 0 ||
+		trimHttpWhitespace(label) !== label ||
+		isUnsafeRecordKey(label) ||
+		!isRecord(entry) ||
+		typeof entry.present !== "boolean"
+	) {
+		return undefined;
+	}
+	if (!entry.present) {
+		return "value" in entry ? undefined : { present: false };
+	}
+	const blob = parseBlobValues(entry.value);
+	if (blob === undefined) {
+		return undefined;
+	}
+	if (!("owners" in entry) || entry.owners === undefined) {
+		return { present: true, value: blob };
+	}
+	const owners = parseBlobOwners(entry.owners, blob);
+	return owners === undefined ? undefined : { present: true, value: blob, owners };
+}
+
+/**
+ * Strict revalidation of the persisted snapshot slot: the slot is extension-owned and only ever written by
+ * buildPreImportSnapshot, so ANY deviation is corruption, and a corrupted snapshot must never drive settings writes or
+ * blob deletions. Undefined means unusable.
+ */
+function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(serialized);
+	} catch {
+		return undefined;
+	}
+	if (!isRecord(parsed) || !isRecord(parsed.settings) || !isRecord(parsed.blobs) || typeof parsed.at !== "string") {
+		return undefined;
+	}
+	const settings = parseSnapshotSettings(parsed.settings);
+	if (settings === undefined) {
+		return undefined;
+	}
 	const blobs: Record<string, SnapshotBlobEntry> = {};
 	for (const [label, entry] of Object.entries(parsed.blobs)) {
-		// Real labels are always trimmed, non-empty, and non-reserved; anything else would write a SecretStorage key no
-		// server entry can ever read.
-		if (
-			label.length === 0 ||
-			trimHttpWhitespace(label) !== label ||
-			isUnsafeRecordKey(label) ||
-			!isRecord(entry) ||
-			typeof entry.present !== "boolean"
-		) {
+		const blob = parseSnapshotBlob(label, entry);
+		if (blob === undefined) {
 			return undefined;
 		}
-		if (!entry.present) {
-			// The absent record never carries a value; one riding along means the flag cannot be trusted, and "absent"
-			// restores as a deletion.
-			if ("value" in entry) {
-				return undefined;
-			}
-			blobs[label] = { present: false };
-			continue;
-		}
-		if (!isRecord(entry.value)) {
-			return undefined;
-		}
-		// The builder only ever stores non-empty SECRET_FIELD_IDS strings and records an empty blob as absent; anything
-		// else would restore a blob that never existed.
-		const fields = Object.entries(entry.value);
-		if (fields.length === 0) {
-			return undefined;
-		}
-		const blob: { -readonly [K in SecretFieldId]?: string } = {};
-		for (const [field, value] of fields) {
-			if (!(SECRET_FIELD_IDS as readonly string[]).includes(field) || typeof value !== "string" || value.length === 0) {
-				return undefined;
-			}
-			blob[field as SecretFieldId] = value;
-		}
-		// Ownership stamps are optional (a snapshot may record a blob without them) but when present must be the
-		// builder's shape: a stamp (shared/serverEntry.ts SecretOwner) on a field the value record holds.
-		let owners: { -readonly [K in SecretFieldId]?: SecretOwner } | undefined;
-		if ("owners" in entry && entry.owners !== undefined) {
-			if (!isRecord(entry.owners)) {
-				return undefined;
-			}
-			owners = {};
-			for (const [field, owner] of Object.entries(entry.owners)) {
-				if (!(SECRET_FIELD_IDS as readonly string[]).includes(field)) {
-					return undefined;
-				}
-				const stamp = parseSecretOwner(owner, field as SecretFieldId);
-				if (stamp === undefined || blob[field as SecretFieldId] === undefined) {
-					return undefined;
-				}
-				owners[field as SecretFieldId] = stamp;
-			}
-		}
-		blobs[label] = { present: true, value: blob, ...(owners === undefined ? {} : { owners }) };
+		blobs[label] = blob;
 	}
+
 	return { settings, blobs, at: parsed.at };
 }
 
@@ -1096,6 +1328,160 @@ function restoredOwners(
 	return owners;
 }
 
+/**
+ * The blob record a label's target secrets resolve through: the snapshot's recorded blob when it has one (its stamps
+ * restored for the target entry), the deletion an absent record means, or the record as stored when the snapshot never
+ * touched the label.
+ */
+function targetSecretsRecord(
+	snapshotBlob: SnapshotBlobEntry | undefined,
+	record: StoredSecretsRecord,
+	target: DeclaredServer | undefined
+): StoredSecretsRecord {
+	if (snapshotBlob === undefined) {
+		return record;
+	}
+	if (!snapshotBlob.present) {
+		return { values: {}, owners: {} };
+	}
+	return {
+		values: snapshotBlob.value,
+		owners: restoredOwners({ secrets: snapshotBlob.value, owners: snapshotBlob.owners ?? {} }, target),
+	};
+}
+
+/**
+ * How many servers the restore reconnects, computed BEFORE anything changes (the host group API is add-only). Both
+ * sides read through the same ownership resolution the import preview's collision pass uses: no accepted entry
+ * resolves nothing, and a stored field stamped for a different destination compares as the absence its entry actually
+ * resolves - a dormant leftover value must not count as a reconnect.
+ */
+async function undoReconnectCount(
+	env: SettingsTransferEnv,
+	snapshot: PreImportSnapshot,
+	currentServersRaw: unknown,
+	targetServersRaw: unknown
+): Promise<number> {
+	const currentBlobs: Record<string, StoredServerSecrets> = {};
+	const targetBlobs: Record<string, StoredServerSecrets> = {};
+	for (const label of new Set([...rawDeclaredLabels(currentServersRaw), ...rawDeclaredLabels(targetServersRaw)])) {
+		const record = await env.readServerSecrets(label);
+		const standing = acceptedEntry(currentServersRaw, label)?.entry;
+		const target = acceptedEntry(targetServersRaw, label)?.entry;
+		const snapshotBlob = Object.hasOwn(snapshot.blobs, label) ? snapshot.blobs[label] : undefined;
+		const targetRecord = targetSecretsRecord(snapshotBlob, record, target);
+		currentBlobs[label] = standing === undefined ? {} : resolveOwnedSecrets(standing, record).values;
+		targetBlobs[label] = target === undefined ? {} : resolveOwnedSecrets(target, targetRecord).values;
+	}
+
+	return connectionChangedLabels(currentServersRaw, currentBlobs, targetServersRaw, targetBlobs).length;
+}
+
+/**
+ * The settings half in one write turn: the servers value only while the setting still reads as the undo planned it,
+ * then the other keys, with no other writer between them. "moved" when the setting changed after the undo was planned
+ * and "failed" when the servers write threw (nothing restored either way); else the count of other keys that failed.
+ */
+async function restoreSettingsHalf(
+	env: SettingsTransferEnv,
+	restore: SnapshotRestore,
+	currentServersRaw: unknown
+): Promise<"moved" | "failed" | number> {
+	return env.settings.writeTurn(async (writers, turn) => {
+		if (!isDeepStrictEqual(env.settings.readServersSetting(), currentServersRaw)) {
+			return "moved";
+		}
+		try {
+			await writers.writeServersSetting(turn.servers(restore.serversValue));
+		} catch (error) {
+			env.log("Undo import: the servers write failed; nothing was restored", { error: errorLabel(error) });
+			return "failed";
+		}
+		let failures = 0;
+		for (const write of restore.settingWrites) {
+			try {
+				await writers.writeGlobal(write.key, write.value);
+			} catch {
+				failures += 1;
+			}
+		}
+		for (const key of restore.settingRemovals) {
+			try {
+				await writers.writeGlobal(key, undefined);
+			} catch {
+				failures += 1;
+			}
+		}
+		return failures;
+	});
+}
+
+/**
+ * The blob half: each recorded blob restored WHOLE, field by field with absent fields cleared (values and ownership
+ * stamps alike), then the labels the import added deleted; the count of steps that failed.
+ */
+async function restoreBlobHalf(env: SettingsTransferEnv, restore: SnapshotRestore): Promise<number> {
+	let failures = 0;
+	for (const write of restore.blobWrites) {
+		const owners = restoredOwners(write, acceptedEntry(restore.serversValue, write.label)?.entry);
+		try {
+			for (const field of SECRET_FIELD_IDS) {
+				await env.updateServerSecret(write.label, field, write.secrets[field], owners[field]);
+			}
+		} catch {
+			failures += 1;
+		}
+	}
+	for (const label of restore.blobRemovals) {
+		try {
+			await env.deleteServerSecrets(label);
+		} catch {
+			failures += 1;
+		}
+	}
+
+	return failures;
+}
+
+/** The whole restore as one write to the engine; the toasts show outside the hold, so the engine runs while they are up. */
+async function restoreSnapshot(
+	env: SettingsTransferEnv,
+	restore: SnapshotRestore,
+	currentServersRaw: unknown
+): Promise<{ kind: "nothing-restored" } | { kind: "restored"; failures: number }> {
+	return env.withServerSyncHold(async () => {
+		try {
+			const settingsHalf = await restoreSettingsHalf(env, restore, currentServersRaw);
+			if (settingsHalf === "moved") {
+				env.log("Undo import: the servers setting changed after the undo was planned; nothing was restored");
+				return { kind: "nothing-restored" };
+			}
+			if (settingsHalf === "failed") {
+				return { kind: "nothing-restored" };
+			}
+			return { kind: "restored", failures: settingsHalf + (await restoreBlobHalf(env, restore)) };
+		} finally {
+			env.requestServerSync();
+		}
+	});
+}
+
+/** The completion toast: the restore, and the reconnects it caused. */
+function announceUndo(env: SettingsTransferEnv, reconnectCount: number): void {
+	const summary = [l10n.t("LiteLLM: Restored settings to their pre-import state.")];
+	if (reconnectCount > 0) {
+		summary.push(
+			reconnectCount === 1
+				? l10n.t("The undo changed 1 server's connection settings; its dashboard row will show the steps to reconnect.")
+				: l10n.t(
+						"The undo changed {0} servers' connection settings; their dashboard rows will show the steps to reconnect.",
+						reconnectCount
+					)
+		);
+	}
+	toast(env, "info", summary.join(" "));
+}
+
 /** LiteLLM: Undo Last Settings Import - the wholesale pre-import snapshot restore. */
 export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<void> {
 	try {
@@ -1117,115 +1503,17 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		if (!(await env.prompts.confirmUndo(snapshot.at))) {
 			return;
 		}
-		// What the restore reconnects, computed BEFORE anything changes.
-		//
-		//   The host group API -> add-only
 		const currentServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
-		const targetServersRaw = restore.serversValue;
-		// Both sides read through the same ownership resolution the import
-		// preview's collision pass uses: no accepted entry resolves nothing, and
-		// a stored field stamped for a different destination compares as the
-		// absence its entry actually resolves - a dormant leftover value must
-		// not count as a reconnect.
-		const currentBlobs: Record<string, StoredServerSecrets> = {};
-		const targetBlobs: Record<string, StoredServerSecrets> = {};
-		for (const label of new Set([...rawDeclaredLabels(currentServersRaw), ...rawDeclaredLabels(targetServersRaw)])) {
-			const record = await env.readServerSecrets(label);
-			const standing = acceptedEntry(currentServersRaw, label)?.entry;
-			const target = acceptedEntry(targetServersRaw, label)?.entry;
-			const snapshotBlob = Object.hasOwn(snapshot.blobs, label) ? snapshot.blobs[label] : undefined;
-			const targetRecord =
-				snapshotBlob === undefined
-					? record
-					: snapshotBlob.present
-						? {
-								values: snapshotBlob.value,
-								owners: restoredOwners({ secrets: snapshotBlob.value, owners: snapshotBlob.owners ?? {} }, target),
-							}
-						: { values: {}, owners: {} };
-			currentBlobs[label] = standing === undefined ? {} : resolveOwnedSecrets(standing, record).values;
-			targetBlobs[label] = target === undefined ? {} : resolveOwnedSecrets(target, targetRecord).values;
-		}
-		const reconnectCount = connectionChangedLabels(
-			currentServersRaw,
-			currentBlobs,
-			targetServersRaw,
-			targetBlobs
-		).length;
+		const reconnectCount = await undoReconnectCount(env, snapshot, currentServersRaw, restore.serversValue);
 
-		// The restore is one write to the engine; the toasts show outside the hold, so the engine runs while they are up.
-		const outcome = await env.withServerSyncHold(
-			async (): Promise<{ kind: "nothing-restored" } | { kind: "restored"; failures: number }> => {
-				try {
-					// The settings half in one write turn: the servers value only while the setting still reads as
-					// the undo planned it, then the other keys, with no other writer between them.
-					const settingsHalf = await env.settings.writeTurn(async (writers, turn) => {
-						if (!isDeepStrictEqual(env.settings.readServersSetting(), currentServersRaw)) {
-							return "moved";
-						}
-						try {
-							await writers.writeServersSetting(turn.servers(targetServersRaw));
-						} catch (error) {
-							env.log("Undo import: the servers write failed; nothing was restored", { error: errorLabel(error) });
-							return "failed";
-						}
-						let failures = 0;
-						for (const write of restore.settingWrites) {
-							try {
-								await writers.writeGlobal(write.key, write.value);
-							} catch {
-								failures += 1;
-							}
-						}
-						for (const key of restore.settingRemovals) {
-							try {
-								await writers.writeGlobal(key, undefined);
-							} catch {
-								failures += 1;
-							}
-						}
-						return failures;
-					});
-					if (settingsHalf === "moved") {
-						env.log("Undo import: the servers setting changed after the undo was planned; nothing was restored");
-						return { kind: "nothing-restored" };
-					}
-					if (settingsHalf === "failed") {
-						return { kind: "nothing-restored" };
-					}
-					let failures = settingsHalf;
-					for (const write of restore.blobWrites) {
-						const owners = restoredOwners(write, acceptedEntry(targetServersRaw, write.label)?.entry);
-						try {
-							// Field by field, absent fields cleared, so the blob is restored
-							// WHOLE - values and ownership stamps alike.
-							for (const field of SECRET_FIELD_IDS) {
-								await env.updateServerSecret(write.label, field, write.secrets[field], owners[field]);
-							}
-						} catch {
-							failures += 1;
-						}
-					}
-					for (const label of restore.blobRemovals) {
-						try {
-							await env.deleteServerSecrets(label);
-						} catch {
-							failures += 1;
-						}
-					}
-					return { kind: "restored", failures };
-				} finally {
-					env.requestServerSync();
-				}
-			}
-		);
+		const outcome = await restoreSnapshot(env, restore, currentServersRaw);
 		if (outcome.kind === "nothing-restored") {
 			notifyKeptSnapshot(env, 1);
 			return;
 		}
 		if (outcome.failures > 0) {
-			// The slot is kept: what failed this time may succeed on a retry,
-			// and clearing it would strand the un-restored remainder.
+			// The slot is kept: what failed this time may succeed on a retry, and clearing it would strand the
+			// un-restored remainder.
 			env.log("Undo import: some restore steps failed; the snapshot was kept", { failures: outcome.failures });
 			notifyKeptSnapshot(env, outcome.failures);
 			return;
@@ -1238,20 +1526,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			blobRemovals: restore.blobRemovals.length,
 			reconnects: reconnectCount,
 		});
-		const summary = [l10n.t("LiteLLM: Restored settings to their pre-import state.")];
-		if (reconnectCount > 0) {
-			summary.push(
-				reconnectCount === 1
-					? l10n.t(
-							"The undo changed 1 server's connection settings; its dashboard row will show the steps to reconnect."
-						)
-					: l10n.t(
-							"The undo changed {0} servers' connection settings; their dashboard rows will show the steps to reconnect.",
-							reconnectCount
-						)
-			);
-		}
-		toast(env, "info", summary.join(" "));
+		announceUndo(env, reconnectCount);
 	} catch (error) {
 		env.log("Undo import failed", { error: errorLabel(error) });
 		toast(env, "error", l10n.t("LiteLLM: The undo failed; the snapshot was kept."));

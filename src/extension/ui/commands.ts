@@ -119,6 +119,79 @@ let connectionTestRunning = false;
  */
 let modelSyncInFlight: Promise<void> | undefined;
 
+/** The connected-with-issues toast text, pluralized on both counts. */
+function connectedWithIssuesText(total: number, failed: number): string {
+	if (total === 1 && failed === 1) {
+		return l10n.t("LiteLLM: Connected with issues - 1 model available, 1 server failing.");
+	}
+	if (total === 1) {
+		return l10n.t("LiteLLM: Connected with issues - 1 model available, {0} servers failing.", failed);
+	}
+	if (failed === 1) {
+		return l10n.t("LiteLLM: Connected with issues - {0} models available, 1 server failing.", total);
+	}
+	return l10n.t("LiteLLM: Connected with issues - {0} models available, {1} servers failing.", total, failed);
+}
+
+/** The connection test's log line and toast for the status the pass left behind, or the unavailable toast without one. */
+function announceConnectionTestOutcome(
+	outcome: ConnectionStatus | undefined,
+	outputChannel: vscode.OutputChannel,
+	logger: Logger
+): void {
+	switch (outcome?.state) {
+		case "connected": {
+			const zero = outcome.zeroModel;
+			if (zero !== undefined) {
+				logger.log(`Connection test finished with 0 models: ${zeroModelTexts(zero).logSafe}`);
+				showZeroModelOutcomeToast(zero, outputChannel);
+				break;
+			}
+			const count = outcome.totalModels;
+			logger.log(`SUCCESS: ${count} models available`);
+			void showActionableMessage(
+				"info",
+				count === 1
+					? l10n.t("LiteLLM: Connection successful! Found 1 model.")
+					: l10n.t("LiteLLM: Connection successful! Found {0} models.", count),
+				[viewOutputAction(outputChannel, l10n.t("View Models")), openChatAction()]
+			);
+			break;
+		}
+		case "degraded": {
+			// The shared unexpected-failure count: expected failures stay out, the same reading of the same window
+			// as the status bar tooltip.
+			const failed = unexpectedFailureCount(outcome.serverStatuses);
+			logger.log(`WARNING: ${failed} server(s) failing`);
+			void showActionableMessage("warning", connectedWithIssuesText(outcome.totalModels, failed), [
+				viewOutputAction(outputChannel),
+				reconfigureAction(),
+				reportIssueAction(),
+			]);
+			break;
+		}
+		case "error":
+			// The toast carries the transport headline verbatim (it already says what to do); a classified failure
+			// only adds the docs action.
+			void showActionableMessage(
+				"error",
+				l10n.t(
+					"LiteLLM: Connection failed - {0}",
+					Logger.redact(failureTexts(outcome.cause, outcome.baseUrl ?? "").display)
+				),
+				commandErrorActions(failureClassification(outcome.cause), outputChannel)
+			);
+			break;
+		case "not-configured":
+			void showActionableMessage("error", l10n.t("LiteLLM: No servers configured. Add one in the LiteLLM dashboard."), [
+				reconfigureAction(configureNowLabel()),
+			]);
+			break;
+		default:
+			showStatusUnavailableToast(outputChannel);
+	}
+}
+
 /**
  * The status, not any returned model list, is the source of truth: the host owns the per-group fetches, so the direct
  * refresh alone proves nothing.
@@ -162,67 +235,7 @@ export async function runConnectionTest(
 		if (outcome === undefined) {
 			logger.log("Connection test landed no group report: no group known to probe");
 		}
-
-		switch (outcome?.state) {
-			case "connected": {
-				const zero = outcome.zeroModel;
-				if (zero !== undefined) {
-					logger.log(`Connection test finished with 0 models: ${zeroModelTexts(zero).logSafe}`);
-					showZeroModelOutcomeToast(zero, outputChannel);
-					break;
-				}
-				const count = outcome.totalModels;
-				logger.log(`SUCCESS: ${count} models available`);
-				void showActionableMessage(
-					"info",
-					count === 1
-						? l10n.t("LiteLLM: Connection successful! Found 1 model.")
-						: l10n.t("LiteLLM: Connection successful! Found {0} models.", count),
-					[viewOutputAction(outputChannel, l10n.t("View Models")), openChatAction()]
-				);
-				break;
-			}
-			case "degraded": {
-				// The shared unexpected-failure count: expected failures stay out, the same reading of the same window
-				// as the status bar tooltip.
-				const failed = unexpectedFailureCount(outcome.serverStatuses);
-				logger.log(`WARNING: ${failed} server(s) failing`);
-				const total = outcome.totalModels;
-				void showActionableMessage(
-					"warning",
-					total === 1
-						? failed === 1
-							? l10n.t("LiteLLM: Connected with issues - 1 model available, 1 server failing.")
-							: l10n.t("LiteLLM: Connected with issues - 1 model available, {0} servers failing.", failed)
-						: failed === 1
-							? l10n.t("LiteLLM: Connected with issues - {0} models available, 1 server failing.", total)
-							: l10n.t("LiteLLM: Connected with issues - {0} models available, {1} servers failing.", total, failed),
-					[viewOutputAction(outputChannel), reconfigureAction(), reportIssueAction()]
-				);
-				break;
-			}
-			case "error":
-				// The toast carries the transport headline verbatim (it already says what to do); a classified failure
-				// only adds the docs action.
-				void showActionableMessage(
-					"error",
-					l10n.t(
-						"LiteLLM: Connection failed - {0}",
-						Logger.redact(failureTexts(outcome.cause, outcome.baseUrl ?? "").display)
-					),
-					commandErrorActions(failureClassification(outcome.cause), outputChannel)
-				);
-				break;
-			case "not-configured":
-				void showActionableMessage(
-					"error",
-					l10n.t("LiteLLM: No servers configured. Add one in the LiteLLM dashboard."),
-					[reconfigureAction(configureNowLabel())]
-				);
-				break;
-			default:
-				showStatusUnavailableToast(outputChannel);
-		}
+		announceConnectionTestOutcome(outcome, outputChannel, logger);
 	} finally {
 		connectionTestRunning = false;
 	}
@@ -274,6 +287,79 @@ export async function runModelSync(
 	}
 }
 
+/** The synced-with-issues toast text, pluralized on both counts. */
+function syncedWithIssuesText(total: number, failed: number): string {
+	if (total === 1 && failed === 1) {
+		return l10n.t("LiteLLM: Models synced with issues - 1 model available, 1 server failing.");
+	}
+	if (total === 1) {
+		return l10n.t("LiteLLM: Models synced with issues - 1 model available, {0} servers failing.", failed);
+	}
+	if (failed === 1) {
+		return l10n.t("LiteLLM: Models synced with issues - {0} models available, 1 server failing.", total);
+	}
+	return l10n.t("LiteLLM: Models synced with issues - {0} models available, {1} servers failing.", total, failed);
+}
+
+/** The model sync's log line and toast for the status the pass left behind, or the unavailable toast without one. */
+function announceModelSyncOutcome(
+	outcome: ConnectionStatus | undefined,
+	outputChannel: vscode.OutputChannel,
+	logger: Logger
+): void {
+	switch (outcome?.state) {
+		case "connected": {
+			const zero = outcome.zeroModel;
+			if (zero !== undefined) {
+				logger.log(`Model sync finished with 0 models: ${zeroModelTexts(zero).logSafe}`);
+				showZeroModelOutcomeToast(zero, outputChannel);
+				break;
+			}
+			const count = outcome.totalModels;
+			logger.log(`Model sync finished: ${count} models available`);
+			void showActionableMessage(
+				"info",
+				count === 1
+					? l10n.t("LiteLLM: Models synced - found 1 model.")
+					: l10n.t("LiteLLM: Models synced - found {0} models.", count),
+				[viewOutputAction(outputChannel, l10n.t("View Models")), openChatAction()]
+			);
+			break;
+		}
+		case "degraded": {
+			const failed = unexpectedFailureCount(outcome.serverStatuses);
+			logger.log(`Model sync finished with issues: ${failed} server(s) failing`);
+			void showActionableMessage("warning", syncedWithIssuesText(outcome.totalModels, failed), [
+				viewOutputAction(outputChannel),
+				reconfigureAction(),
+				reportIssueAction(),
+			]);
+			break;
+		}
+		case "error":
+			// logSafeError, never error: this line lands in the issue-report buffer.
+			logger.log(`Model sync failed: ${outcome.logSafeError}`);
+			void showActionableMessage(
+				"error",
+				l10n.t(
+					"LiteLLM: Model sync failed - {0}",
+					Logger.redact(failureTexts(outcome.cause, outcome.baseUrl ?? "").display)
+				),
+				commandErrorActions(failureClassification(outcome.cause), outputChannel)
+			);
+			break;
+		case "not-configured":
+			logger.log("Model sync found no configured servers");
+			void showActionableMessage("error", l10n.t("LiteLLM: No servers configured. Add one in the LiteLLM dashboard."), [
+				reconfigureAction(configureNowLabel()),
+			]);
+			break;
+		default:
+			logger.log("Model sync finished without a settled connection status");
+			showStatusUnavailableToast(outputChannel);
+	}
+}
+
 /** One sync pass, without the re-entrancy guard: every caller reaches it through runModelSync. */
 async function runModelSyncPass(
 	provider: GroupRefreshingProvider,
@@ -283,86 +369,21 @@ async function runModelSyncPass(
 	hasConfiguredServers: () => boolean,
 	syncVerdict?: ConnectionStatus
 ): Promise<void> {
-	{
-		logger.log("Syncing models: refreshing every provider group over the network");
-		let refreshedGroups: number | undefined;
-		try {
-			refreshedGroups = (await provider.refreshGroups()).refreshedGroups;
-		} catch (error) {
-			// Every probe contains its own failure (provider/index.ts probeGroup), so a thrown pass leaves no fresh server
-			// status to read: freshStatus sees a pass with no report.
-			logger.error("Model sync failed", error);
-		}
-
-		const outcome = freshStatus(statusBar.connectionStatus, refreshedGroups, hasConfiguredServers, syncVerdict);
-		if (outcome === undefined) {
-			logger.log("Model sync landed no group report: no group known to probe");
-		}
-		switch (outcome?.state) {
-			case "connected": {
-				const zero = outcome.zeroModel;
-				if (zero !== undefined) {
-					logger.log(`Model sync finished with 0 models: ${zeroModelTexts(zero).logSafe}`);
-					showZeroModelOutcomeToast(zero, outputChannel);
-					break;
-				}
-				const count = outcome.totalModels;
-				logger.log(`Model sync finished: ${count} models available`);
-				void showActionableMessage(
-					"info",
-					count === 1
-						? l10n.t("LiteLLM: Models synced - found 1 model.")
-						: l10n.t("LiteLLM: Models synced - found {0} models.", count),
-					[viewOutputAction(outputChannel, l10n.t("View Models")), openChatAction()]
-				);
-				break;
-			}
-			case "degraded": {
-				const failed = unexpectedFailureCount(outcome.serverStatuses);
-				logger.log(`Model sync finished with issues: ${failed} server(s) failing`);
-				const total = outcome.totalModels;
-				void showActionableMessage(
-					"warning",
-					total === 1
-						? failed === 1
-							? l10n.t("LiteLLM: Models synced with issues - 1 model available, 1 server failing.")
-							: l10n.t("LiteLLM: Models synced with issues - 1 model available, {0} servers failing.", failed)
-						: failed === 1
-							? l10n.t("LiteLLM: Models synced with issues - {0} models available, 1 server failing.", total)
-							: l10n.t(
-									"LiteLLM: Models synced with issues - {0} models available, {1} servers failing.",
-									total,
-									failed
-								),
-					[viewOutputAction(outputChannel), reconfigureAction(), reportIssueAction()]
-				);
-				break;
-			}
-			case "error":
-				// logSafeError, never error: this line lands in the issue-report buffer.
-				logger.log(`Model sync failed: ${outcome.logSafeError}`);
-				void showActionableMessage(
-					"error",
-					l10n.t(
-						"LiteLLM: Model sync failed - {0}",
-						Logger.redact(failureTexts(outcome.cause, outcome.baseUrl ?? "").display)
-					),
-					commandErrorActions(failureClassification(outcome.cause), outputChannel)
-				);
-				break;
-			case "not-configured":
-				logger.log("Model sync found no configured servers");
-				void showActionableMessage(
-					"error",
-					l10n.t("LiteLLM: No servers configured. Add one in the LiteLLM dashboard."),
-					[reconfigureAction(configureNowLabel())]
-				);
-				break;
-			default:
-				logger.log("Model sync finished without a settled connection status");
-				showStatusUnavailableToast(outputChannel);
-		}
+	logger.log("Syncing models: refreshing every provider group over the network");
+	let refreshedGroups: number | undefined;
+	try {
+		refreshedGroups = (await provider.refreshGroups()).refreshedGroups;
+	} catch (error) {
+		// Every probe contains its own failure (provider/index.ts probeGroup), so a thrown pass leaves no fresh server
+		// status to read: freshStatus sees a pass with no report.
+		logger.error("Model sync failed", error);
 	}
+
+	const outcome = freshStatus(statusBar.connectionStatus, refreshedGroups, hasConfiguredServers, syncVerdict);
+	if (outcome === undefined) {
+		logger.log("Model sync landed no group report: no group known to probe");
+	}
+	announceModelSyncOutcome(outcome, outputChannel, logger);
 }
 
 interface SyncModelsCommandDeps {

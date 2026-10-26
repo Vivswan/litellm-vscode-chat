@@ -144,10 +144,8 @@ function staleRowRefusal(): DashboardValidationError {
 	);
 }
 
-export async function applyAdoptServer(
-	intent: RequestPayload<"adoptServer">,
-	env: IntentEnvironment
-): Promise<string | undefined> {
+/** The adopted entry's identity as the intent names it, validated the way the save path validates a label and URL. */
+function adoptedIdentity(intent: RequestPayload<"adoptServer">): { readonly label: string; readonly baseUrl: string } {
 	const label = trimHttpWhitespace(intent.label);
 	if (label.length === 0) {
 		// The "fieldId:" prefix stays an ASCII identifier outside the translation: sectionFailureText routes the
@@ -161,16 +159,26 @@ export async function applyAdoptServer(
 	if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
 		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
 	}
-	requireLabelFree(rawServerEntries(env.readServersSetting()), label);
 
-	const { source } = await env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
-	if (source === undefined) {
-		throw staleRowRefusal();
-	}
-	const { credentials } = source;
-	// The adopted entry assembles through the shared assembler into the NESTED auth object the sync engine parses:
-	// secrets the user routed to settings join the inline fields; secure-routed values stay out of the entry and land
-	// in SecretStorage below. Writing any flat credential field here would sync credential-less.
+	return { label, baseUrl };
+}
+
+/** The source's credentials split by destination: inline fields for the entry, secure copies for SecretStorage. */
+interface AdoptedCredentialSplit {
+	readonly inlineFields: { -readonly [K in OptionalEntryFieldId]?: string | undefined };
+	readonly secureCopies: ReadonlyMap<SecretFieldId, string>;
+}
+
+/**
+ * Route each copied secret where the intent sends it. The adopted entry assembles through the shared assembler into
+ * the NESTED auth object the sync engine parses: secrets the user routed to settings join the inline fields, and
+ * secure-routed values stay out of the entry to land in SecretStorage. Writing any flat credential field would sync
+ * credential-less.
+ */
+function splitAdoptedCredentials(
+	credentials: AdoptableGroupCredentials | undefined,
+	secrets: RequestPayload<"adoptServer">["secrets"]
+): AdoptedCredentialSplit {
 	const inlineFields: { -readonly [K in OptionalEntryFieldId]?: string | undefined } = {
 		...pickNonSecretOptionalFields(credentials ?? {}),
 	};
@@ -180,12 +188,84 @@ export async function applyAdoptServer(
 		if (value === undefined) {
 			continue;
 		}
-		if (intent.secrets[field] === "secure") {
+		if (secrets[field] === "secure") {
 			secureCopies.set(field, value);
 		} else {
 			inlineFields[field] = value;
 		}
 	}
+
+	return { inlineFields, secureCopies };
+}
+
+/** What a secure field held before the adoption first wrote it, for the rollback. */
+interface OverwrittenSecret {
+	readonly value: string | undefined;
+	readonly owner: SecretOwner | undefined;
+}
+
+interface SecureCopyStaging {
+	readonly env: IntentEnvironment;
+	readonly label: string;
+	readonly secureCopies: ReadonlyMap<SecretFieldId, string>;
+	readonly destinationOf: (field: SecretFieldId) => SecretOwner;
+	readonly storedBefore: Awaited<ReturnType<IntentEnvironment["readServerSecrets"]>>;
+	readonly overwritten: Map<SecretFieldId, OverwrittenSecret>;
+}
+
+/**
+ * Stage the secure copies under the new label, recording in `overwritten` what each field held before it was written,
+ * so a throw mid-way leaves the record of everything written so far. A blob kept from a removal must not leak into the
+ * adopted entry, so a field with no copy but a leftover value is cleared and recorded too.
+ */
+async function stageSecureCopies(staging: SecureCopyStaging): Promise<void> {
+	const { env, label, secureCopies, destinationOf, storedBefore, overwritten } = staging;
+	for (const field of SECRET_FIELD_IDS) {
+		const copied = secureCopies.get(field);
+		if (copied !== undefined) {
+			overwritten.set(field, { value: storedBefore.values[field], owner: storedBefore.owners[field] });
+			await env.storeServerSecret(label, field, copied, destinationOf(field));
+			continue;
+		}
+		if (storedBefore.values[field] !== undefined) {
+			overwritten.set(field, { value: storedBefore.values[field], owner: storedBefore.owners[field] });
+			await env.storeServerSecret(label, field, undefined, undefined);
+		}
+	}
+}
+
+/** Put every overwritten field back; true when at least one restore failed (each failure is logged by field). */
+async function restoreOverwrittenSecrets(
+	env: IntentEnvironment,
+	label: string,
+	overwritten: ReadonlyMap<SecretFieldId, OverwrittenSecret>
+): Promise<boolean> {
+	let restoreFailed = false;
+	for (const [field, previous] of overwritten) {
+		try {
+			await env.storeServerSecret(label, field, previous.value, previous.owner);
+		} catch {
+			restoreFailed = true;
+			env.log("Restoring a secure value after a failed adoption also failed", { field });
+		}
+	}
+
+	return restoreFailed;
+}
+
+export async function applyAdoptServer(
+	intent: RequestPayload<"adoptServer">,
+	env: IntentEnvironment
+): Promise<string | undefined> {
+	const { label, baseUrl } = adoptedIdentity(intent);
+	requireLabelFree(rawServerEntries(env.readServersSetting()), label);
+
+	const { source } = await env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
+	if (source === undefined) {
+		throw staleRowRefusal();
+	}
+	const { credentials } = source;
+	const { inlineFields, secureCopies } = splitAdoptedCredentials(credentials, intent.secrets);
 	const assembled = assembleEntryAuth(
 		inlineFields,
 		recordFromKeys(SECRET_FIELD_IDS, (field) => credentials?.[field] !== undefined)
@@ -207,21 +287,9 @@ export async function applyAdoptServer(
 	const destinationOf = (field: SecretFieldId): SecretOwner => secretDestination(adoptedEntry ?? { baseUrl }, field);
 
 	const storedBefore = await env.readServerSecrets(label);
-	const overwritten = new Map<SecretFieldId, { value: string | undefined; owner: SecretOwner | undefined }>();
+	const overwritten = new Map<SecretFieldId, OverwrittenSecret>();
 	try {
-		for (const field of SECRET_FIELD_IDS) {
-			const copied = secureCopies.get(field);
-			if (copied !== undefined) {
-				overwritten.set(field, { value: storedBefore.values[field], owner: storedBefore.owners[field] });
-				await env.storeServerSecret(label, field, copied, destinationOf(field));
-				continue;
-			}
-			// Blobs kept from removals must not leak into the adopted entry.
-			if (storedBefore.values[field] !== undefined) {
-				overwritten.set(field, { value: storedBefore.values[field], owner: storedBefore.owners[field] });
-				await env.storeServerSecret(label, field, undefined, undefined);
-			}
-		}
+		await stageSecureCopies({ env, label, secureCopies, destinationOf, storedBefore, overwritten });
 		// Resolved again after the awaited staging: a source declared meanwhile is not copied, and the array written
 		// is the one this resolution read.
 		const again = await env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
@@ -240,16 +308,7 @@ export async function applyAdoptServer(
 			return appendFree(fresh, label, newEntry);
 		});
 	} catch (error) {
-		let restoreFailed = false;
-		for (const [field, previous] of overwritten) {
-			try {
-				await env.storeServerSecret(label, field, previous.value, previous.owner);
-			} catch {
-				restoreFailed = true;
-				env.log("Restoring a secure value after a failed adoption also failed", { field });
-			}
-		}
-		if (restoreFailed) {
+		if (await restoreOverwrittenSecrets(env, label, overwritten)) {
 			// A secure value under this label may no longer match its pre-adoption state, so this must not read as
 			// "nothing landed".
 			env.log("A failed adoption left a secure value unrestored", {
@@ -267,6 +326,7 @@ export async function applyAdoptServer(
 		throw error;
 	}
 	env.requestServerSync();
+
 	return credentials === undefined
 		? l10n.t("The live group's credentials could not be read, so none were copied; edit the server to set them.")
 		: undefined;

@@ -356,85 +356,6 @@ function titleOf(snapshot: DiagnosticsSnapshot): string {
 	return "[Bug] Issue report from diagnostics";
 }
 
-function bodyOf(snapshot: DiagnosticsSnapshot, variant: BodyVariant): string {
-	const sections: string[] = [];
-	const recentLogs =
-		variant.kind === "compact-logs" ? snapshot.recentLogs.slice(variant.omittedLogCount) : snapshot.recentLogs;
-
-	sections.push("## What happened\n\n<!-- Describe what happened -->\n");
-	sections.push("## Expected behavior\n\n<!-- What did you expect to happen? -->\n");
-	sections.push("## Steps to reproduce\n\n1. \n2. \n3. \n");
-
-	sections.push(
-		[
-			"## Environment",
-			"",
-			`- Extension version: ${snapshot.extensionVersion}`,
-			`- VS Code version: ${snapshot.vscodeVersion}`,
-			`- Platform: ${snapshot.platform}`,
-			"",
-		].join("\n")
-	);
-
-	const diagLines = [
-		"## Diagnostics",
-		"",
-		`- Connection state: ${snapshot.connectionState}`,
-		snapshot.modelCount === undefined ? null : `- Model count: ${snapshot.modelCount}`,
-		`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
-		`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
-		`- MCP-enabled server entries: ${snapshot.mcpEntryCount}`,
-		...featureFlagLines(snapshot.featureFlags),
-	].filter((l): l is string => l !== null);
-
-	if (snapshot.latestError) {
-		diagLines.push(...latestErrorLines(snapshot.latestError));
-		diagLines.push(`- Message: ${bulletContinuation(snapshot.latestError.message)}`);
-	}
-	diagLines.push("");
-	sections.push(diagLines.join("\n"));
-
-	if (recentLogs.length > 0 || variant.kind === "compact-logs") {
-		const logLines = [...recentLogs];
-		if (variant.kind === "compact-logs") {
-			const omitted = variant.omittedLogCount;
-			logLines.unshift(`... (${omitted} older log line${omitted === 1 ? "" : "s"} omitted; ${variant.hint})`);
-		}
-		sections.push(
-			[
-				"## Recent logs",
-				"",
-				"<details><summary>Last log entries</summary>",
-				"",
-				"```",
-				...logLines,
-				"```",
-				"",
-				"</details>",
-				"",
-			].join("\n")
-		);
-	}
-
-	if (snapshot.latestError?.stack) {
-		const { stack } = snapshot.latestError;
-		sections.push(
-			[
-				`<details><summary>${variant.kind === "full" ? "Stack trace" : "Stack trace (trimmed)"}</summary>`,
-				"",
-				"```",
-				variant.kind === "full" ? stack : compactStack(stack, variant.hint),
-				"```",
-				"",
-				"</details>",
-				"",
-			].join("\n")
-		);
-	}
-
-	return sections.join("\n");
-}
-
 /**
  * The Latest-error section's cause line: enum ids and an integer only, English by policy (the issue body is diagnostics
  * text), never anything response-derived.
@@ -467,16 +388,6 @@ function bulletContinuation(text: string): string {
 		.join("\n  ");
 }
 
-function createIssueUrl(title: string, body: string): string {
-	const params = new URLSearchParams({
-		labels: "bug",
-		title,
-		body,
-	});
-
-	return `${GITHUB_REPO_URL}/issues/new?${params.toString()}`;
-}
-
 function compactStack(stack: string, hint: string): string {
 	const lines = stack.split(/\r?\n/);
 	if (lines.length <= COMPACT_STACK_LINES) {
@@ -488,6 +399,98 @@ function compactStack(stack: string, hint: string): string {
 		...lines.slice(0, COMPACT_STACK_LINES),
 		`... (${omitted} stack line${omitted === 1 ? "" : "s"} omitted; ${hint})`,
 	].join("\n");
+}
+
+/** The Diagnostics section: the connection facts, the feature flags, and the latest error when one exists. */
+function diagnosticsSection(snapshot: DiagnosticsSnapshot): string {
+	const lines = [
+		"## Diagnostics",
+		"",
+		`- Connection state: ${snapshot.connectionState}`,
+		snapshot.modelCount === undefined ? null : `- Model count: ${snapshot.modelCount}`,
+		`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
+		`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
+		`- MCP-enabled server entries: ${snapshot.mcpEntryCount}`,
+		...featureFlagLines(snapshot.featureFlags),
+	].filter((l): l is string => l !== null);
+	if (snapshot.latestError) {
+		lines.push(...latestErrorLines(snapshot.latestError));
+		lines.push(`- Message: ${bulletContinuation(snapshot.latestError.message)}`);
+	}
+	lines.push("");
+	return lines.join("\n");
+}
+
+/** The collapsed Recent-logs section, opened by the omission line when the variant trimmed the log. */
+function recentLogsSection(recentLogs: readonly string[], variant: BodyVariant): string {
+	const logLines = [...recentLogs];
+	if (variant.kind === "compact-logs") {
+		const omitted = variant.omittedLogCount;
+		logLines.unshift(`... (${omitted} older log line${omitted === 1 ? "" : "s"} omitted; ${variant.hint})`);
+	}
+	return [
+		"## Recent logs",
+		"",
+		"<details><summary>Last log entries</summary>",
+		"",
+		"```",
+		...logLines,
+		"```",
+		"",
+		"</details>",
+		"",
+	].join("\n");
+}
+
+/** The collapsed stack section, trimmed under a compacting variant. */
+function stackSection(stack: string, variant: BodyVariant): string {
+	return [
+		`<details><summary>${variant.kind === "full" ? "Stack trace" : "Stack trace (trimmed)"}</summary>`,
+		"",
+		"```",
+		variant.kind === "full" ? stack : compactStack(stack, variant.hint),
+		"```",
+		"",
+		"</details>",
+		"",
+	].join("\n");
+}
+
+function bodyOf(snapshot: DiagnosticsSnapshot, variant: BodyVariant): string {
+	const recentLogs =
+		variant.kind === "compact-logs" ? snapshot.recentLogs.slice(variant.omittedLogCount) : snapshot.recentLogs;
+	const sections: string[] = [
+		"## What happened\n\n<!-- Describe what happened -->\n",
+		"## Expected behavior\n\n<!-- What did you expect to happen? -->\n",
+		"## Steps to reproduce\n\n1. \n2. \n3. \n",
+		[
+			"## Environment",
+			"",
+			`- Extension version: ${snapshot.extensionVersion}`,
+			`- VS Code version: ${snapshot.vscodeVersion}`,
+			`- Platform: ${snapshot.platform}`,
+			"",
+		].join("\n"),
+		diagnosticsSection(snapshot),
+	];
+	if (recentLogs.length > 0 || variant.kind === "compact-logs") {
+		sections.push(recentLogsSection(recentLogs, variant));
+	}
+	if (snapshot.latestError?.stack) {
+		sections.push(stackSection(snapshot.latestError.stack, variant));
+	}
+
+	return sections.join("\n");
+}
+
+function createIssueUrl(title: string, body: string): string {
+	const params = new URLSearchParams({
+		labels: "bug",
+		title,
+		body,
+	});
+
+	return `${GITHUB_REPO_URL}/issues/new?${params.toString()}`;
 }
 
 function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, sink: CompactedDiagnosticsSink): string {

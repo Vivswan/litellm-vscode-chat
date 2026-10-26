@@ -66,6 +66,152 @@ async function readStoredSalt(secrets: vscode.SecretStorage): Promise<string | u
 	return value !== undefined && value.length > 0 ? value : undefined;
 }
 
+/** What a session is built from: the store it re-reads, the salt installer, and the fixed-string log. */
+interface SaltSessionDeps {
+	readonly secrets: vscode.SecretStorage;
+	readonly logger: Logger;
+	readonly install: (salt: string) => void;
+}
+
+/**
+ * A session over one salt: install it, then answer state() and confirmDurable() from it. A conflicting earlier init
+ * keeps its salt; this call could not verify it against the store, so nothing may persist fingerprints.
+ */
+function createSaltSession(salt: string, initial: FingerprintSaltState, deps: SaltSessionDeps): FingerprintSaltSession {
+	let state = initial;
+	try {
+		deps.install(salt);
+	} catch {
+		deps.logger.log("Installing the fingerprint salt failed; treating the session's salt as session-only");
+		state = "session-only";
+	}
+	return {
+		state: () => state,
+		confirmDurable: async () => {
+			if (state !== "durable") {
+				return state;
+			}
+			const current = await readStoredSalt(deps.secrets);
+			if (current === UNREADABLE) {
+				deps.logger.log("Re-reading the fingerprint salt failed; downgrading the session to session-only");
+				state = "session-only";
+			} else if (current !== salt) {
+				// The store mutated outside the creation lock; its value governs every later session, so nothing
+				// may be persisted under this one.
+				deps.logger.log("The stored fingerprint salt changed under this session; downgrading to session-only");
+				state = "session-only";
+			}
+			return state;
+		},
+	};
+}
+
+/** A fresh salt no later session will see. */
+function sessionOnlySalt(deps: SaltSessionDeps): FingerprintSaltSession {
+	return createSaltSession(randomBytes(32).toString("hex"), "session-only", deps);
+}
+
+/**
+ * Take the first-writer lock. EEXIST is the one failure that means another window holds it ("held"); everything else
+ * means nobody can hold it ("failed"), and polling would stall activation for a salt nobody is writing. The error is a
+ * node fs one, not a foreign SecretStorage one, so reading its code is safe.
+ */
+async function acquireSaltLock(
+	globalStorageUri: vscode.Uri,
+	lockPath: string
+): Promise<"acquired" | "held" | "failed"> {
+	try {
+		await mkdir(globalStorageUri.fsPath, { recursive: true });
+		await mkdir(lockPath);
+		return "acquired";
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EEXIST" ? "held" : "failed";
+	}
+}
+
+/**
+ * The loser's wait: poll the store for the winner's salt until the timeout. No salt arriving means the lock holder is
+ * slow or dead; never a second salt on a guess, but a provably stale marker is cleared for the next session.
+ */
+async function awaitWinnersSalt(
+	lockPath: string,
+	timings: SaltCreationTimings,
+	deps: SaltSessionDeps
+): Promise<FingerprintSaltSession> {
+	const deadline = Date.now() + timings.pollTimeoutMs;
+	while (Date.now() < deadline) {
+		await sleep(timings.pollIntervalMs);
+		const current = await readStoredSalt(deps.secrets);
+		if (current === UNREADABLE) {
+			deps.logger.log("Reading the fingerprint salt from secret storage failed; using a session-only salt");
+			return sessionOnlySalt(deps);
+		}
+		if (current !== undefined) {
+			return createSaltSession(current, "durable", deps);
+		}
+	}
+
+	try {
+		const marker = await stat(lockPath);
+		if (Date.now() - marker.mtimeMs > timings.staleLockMs) {
+			await rm(lockPath, { recursive: true, force: true });
+		}
+	} catch {
+		// The marker vanished or is unreadable; nothing to clean.
+	}
+	deps.logger.log("Waiting for another window's fingerprint salt timed out; using a session-only salt");
+	return sessionOnlySalt(deps);
+}
+
+/**
+ * The winner's path: generate, store, read back, release. One more read comes immediately before the store, because a
+ * winner whose keychain hangs past the staleness bound can have its marker reclaimed and a second creator installed
+ * meanwhile, and its own late store would then overwrite that salt.
+ */
+async function createDurableSalt(lockPath: string, deps: SaltSessionDeps): Promise<FingerprintSaltSession> {
+	const releaseLock = async () => {
+		try {
+			await rm(lockPath, { recursive: true, force: true });
+		} catch {
+			// A leftover marker only matters while no salt is stored; the staleness bound reclaims it.
+		}
+	};
+	const generated = randomBytes(32).toString("hex");
+	const appeared = await readStoredSalt(deps.secrets);
+	if (appeared === UNREADABLE) {
+		deps.logger.log("Re-reading the fingerprint salt before storing failed; using a session-only salt");
+		await releaseLock();
+		return sessionOnlySalt(deps);
+	}
+	if (appeared !== undefined) {
+		await releaseLock();
+		return createSaltSession(appeared, "durable", deps);
+	}
+
+	try {
+		await deps.secrets.store(FINGERPRINT_SALT_SECRET, generated);
+	} catch {
+		deps.logger.log("Storing the fingerprint salt failed; identities re-key on the next activation");
+		await releaseLock();
+		return sessionOnlySalt(deps);
+	}
+	const readBack = await readStoredSalt(deps.secrets);
+	if (readBack === UNREADABLE) {
+		deps.logger.log("Confirming the stored fingerprint salt failed; using a session-only salt");
+		await releaseLock();
+		return sessionOnlySalt(deps);
+	}
+	await releaseLock();
+	if (readBack === undefined) {
+		// Stored but not readable back: nothing proves what later sessions will see, so this session must not persist
+		// fingerprints.
+		deps.logger.log("The stored fingerprint salt did not read back; using a session-only salt");
+		return sessionOnlySalt(deps);
+	}
+
+	return createSaltSession(readBack, "durable", deps);
+}
+
 /**
  * Runs before anything calls fingerprint(), which shared/util/fingerprint.ts makes throw until a salt is installed.
  *
@@ -79,139 +225,27 @@ export async function loadFingerprintSalt(
 	install: (salt: string) => void = initFingerprintSalt,
 	timings: Partial<SaltCreationTimings> = {}
 ): Promise<FingerprintSaltSession> {
-	const { pollIntervalMs, pollTimeoutMs, staleLockMs } = { ...DEFAULT_TIMINGS, ...timings };
+	const resolvedTimings: SaltCreationTimings = { ...DEFAULT_TIMINGS, ...timings };
 	const lockPath = path.join(globalStorageUri.fsPath, LOCK_DIR_NAME);
-
-	const makeSession = (salt: string, initial: FingerprintSaltState): FingerprintSaltSession => {
-		let state = initial;
-		try {
-			install(salt);
-		} catch {
-			// A conflicting earlier init keeps its salt; this call could not verify it against the store, so nothing
-			// may persist fingerprints.
-			logger.log("Installing the fingerprint salt failed; treating the session's salt as session-only");
-			state = "session-only";
-		}
-		return {
-			state: () => state,
-			confirmDurable: async () => {
-				if (state !== "durable") {
-					return state;
-				}
-				const current = await readStoredSalt(secrets);
-				if (current === UNREADABLE) {
-					logger.log("Re-reading the fingerprint salt failed; downgrading the session to session-only");
-					state = "session-only";
-				} else if (current !== salt) {
-					// The store mutated outside the creation lock; its value governs every later session, so nothing
-					// may be persisted under this one.
-					logger.log("The stored fingerprint salt changed under this session; downgrading to session-only");
-					state = "session-only";
-				}
-				return state;
-			},
-		};
-	};
-	const sessionOnly = () => makeSession(randomBytes(32).toString("hex"), "session-only");
+	const deps: SaltSessionDeps = { secrets, logger, install };
 
 	const stored = await readStoredSalt(secrets);
 	if (stored === UNREADABLE) {
 		logger.log("Reading the fingerprint salt from secret storage failed; using a session-only salt");
-		return sessionOnly();
+		return sessionOnlySalt(deps);
 	}
 	if (stored !== undefined) {
-		return makeSession(stored, "durable");
+		return createSaltSession(stored, "durable", deps);
 	}
 
-	let acquired = false;
-	let holderMayExist = false;
-	try {
-		await mkdir(globalStorageUri.fsPath, { recursive: true });
-		await mkdir(lockPath);
-		acquired = true;
-	} catch (error) {
-		// EEXIST is the one failure that means another window holds the lock. Everything else means nobody can hold
-		// it: polling would stall activation for a salt nobody is writing.
-		//
-		//   A node fs error, not a foreign SecretStorage one -> reading its code is safe
-		holderMayExist = (error as NodeJS.ErrnoException).code === "EEXIST";
-	}
-	if (!acquired && !holderMayExist) {
+	const lock = await acquireSaltLock(globalStorageUri, lockPath);
+	if (lock === "failed") {
 		logger.log("Creating the fingerprint-salt lock failed; using a session-only salt");
-		return sessionOnly();
+		return sessionOnlySalt(deps);
+	}
+	if (lock === "held") {
+		return awaitWinnersSalt(lockPath, resolvedTimings, deps);
 	}
 
-	if (!acquired) {
-		const deadline = Date.now() + pollTimeoutMs;
-		while (Date.now() < deadline) {
-			await sleep(pollIntervalMs);
-			const current = await readStoredSalt(secrets);
-			if (current === UNREADABLE) {
-				logger.log("Reading the fingerprint salt from secret storage failed; using a session-only salt");
-				return sessionOnly();
-			}
-			if (current !== undefined) {
-				return makeSession(current, "durable");
-			}
-		}
-		// No salt arrived: the lock holder is slow or dead. Never a second salt on a guess; a provably stale marker is
-		// cleared for the next session.
-		try {
-			const marker = await stat(lockPath);
-			if (Date.now() - marker.mtimeMs > staleLockMs) {
-				await rm(lockPath, { recursive: true, force: true });
-			}
-		} catch {
-			// The marker vanished or is unreadable; nothing to clean.
-		}
-		logger.log("Waiting for another window's fingerprint salt timed out; using a session-only salt");
-		return sessionOnly();
-	}
-
-	// Winner: generate, store, read back, release.
-	//
-	//   the stored salt short-circuits every later session before the lock path -> a crash between store and release
-	//     is harmless
-	const releaseLock = async () => {
-		try {
-			await rm(lockPath, { recursive: true, force: true });
-		} catch {
-			// A leftover marker only matters while no salt is stored; the staleness bound above reclaims it.
-		}
-	};
-	const generated = randomBytes(32).toString("hex");
-	//   a winner whose keychain hangs past the staleness bound can have its marker reclaimed and a second creator
-	//     installed meanwhile, and its own late store would then overwrite that salt -> One more read immediately
-	//     before the store
-	const appeared = await readStoredSalt(secrets);
-	if (appeared === UNREADABLE) {
-		logger.log("Re-reading the fingerprint salt before storing failed; using a session-only salt");
-		await releaseLock();
-		return sessionOnly();
-	}
-	if (appeared !== undefined) {
-		await releaseLock();
-		return makeSession(appeared, "durable");
-	}
-	try {
-		await secrets.store(FINGERPRINT_SALT_SECRET, generated);
-	} catch {
-		logger.log("Storing the fingerprint salt failed; identities re-key on the next activation");
-		await releaseLock();
-		return sessionOnly();
-	}
-	const readBack = await readStoredSalt(secrets);
-	if (readBack === UNREADABLE) {
-		logger.log("Confirming the stored fingerprint salt failed; using a session-only salt");
-		await releaseLock();
-		return sessionOnly();
-	}
-	await releaseLock();
-	if (readBack === undefined) {
-		// Stored but not readable back: nothing proves what later sessions will see, so this session must not persist
-		// fingerprints.
-		logger.log("The stored fingerprint salt did not read back; using a session-only salt");
-		return sessionOnly();
-	}
-	return makeSession(readBack, "durable");
+	return createDurableSalt(lockPath, deps);
 }

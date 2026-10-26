@@ -84,6 +84,21 @@ function gateMessage(problem: SetupProblem): string {
 }
 
 /**
+ * The gate's actions for a problem: the fix the user can take first, Report Anyway last. No docs section or connection
+ * test fixes the user's own configuration, so a hidden-groups problem opens the dashboard's Servers view, which shows
+ * the hidden group with its cause.
+ */
+function setupProblemActions(problem: SetupProblem, reportAnyway: MessageAction): MessageAction[] {
+	if (problem === "not-configured") {
+		return [reconfigureAction(configureNowLabel()), reportAnyway];
+	}
+	if (problem === "hidden-groups") {
+		return [reconfigureAction(l10n.t("Open Dashboard")), reportAnyway];
+	}
+	return [troubleshootingDocsAction(SETUP_HINT_DOCS_URLS[problem]), testConnectionAction(), reportAnyway];
+}
+
+/**
  * Non-modal: only Report Anyway opens an issue, with the snapshot the command already built, so what gets reported is
  * what the gate judged. Callers must not await this from a serialized message chain (runReportIssue documents why it
  * voids the returned promise); because of that void, a failing report must surface here rather than die as an unhandled
@@ -101,13 +116,5 @@ export async function showSetupProblemGate(problem: SetupProblem, reportAnyway: 
 			}
 		},
 	};
-	const actions =
-		problem === "not-configured"
-			? [reconfigureAction(configureNowLabel()), reportAnywayAction]
-			: problem === "hidden-groups"
-				? //   No docs section or connection test fixes the user's own configuration -> the dashboard's Servers
-					//       view shows the hidden group with its cause
-					[reconfigureAction(l10n.t("Open Dashboard")), reportAnywayAction]
-				: [troubleshootingDocsAction(SETUP_HINT_DOCS_URLS[problem]), testConnectionAction(), reportAnywayAction];
-	await showActionableMessage("warning", gateMessage(problem), actions);
+	await showActionableMessage("warning", gateMessage(problem), setupProblemActions(problem, reportAnywayAction));
 }

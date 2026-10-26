@@ -652,6 +652,55 @@ export class DashboardController implements vscode.Disposable {
 	}
 
 	/**
+	 * The fail notice for a thrown intent. The write did not land (or only partially landed), so the notice is the
+	 * webview's signal to surface the message and return the affected editor to a retryable draft. Validation and
+	 * operation messages travel to the webview only: validation text can quote an entered key, and the log buffer feeds
+	 * public issue reports, so the log gets classifications for every failure kind.
+	 */
+	private failureReply(request: NotifyingRequest, error: unknown): DashboardReply {
+		let message: string;
+		let englishMessage: string | undefined;
+		let failureKind: "validation" | "operation" = "validation";
+		let classification: TransportErrorClassification | undefined;
+		if (error instanceof DashboardValidationError) {
+			message = error.message;
+			englishMessage = error.englishMessage;
+			// Classification only (enum ids and a status) - protocol-legal and log-legal, so it also rides the log
+			// line for issue-report triage.
+			classification = error.classification;
+			this.env.log("Dashboard intent rejected", {
+				method: request.method,
+				kind: "validation",
+				...(classification === undefined ? {} : { classification }),
+			});
+		} else if (error instanceof DashboardOperationError) {
+			message = error.message;
+			failureKind = "operation";
+			this.env.log("Dashboard intent partially applied", { method: request.method, kind: "operation" });
+		} else {
+			message = l10n.t("The change was not applied; see the LiteLLM output log.");
+			englishMessage = NOT_APPLIED_ENGLISH;
+			this.env.log("Dashboard intent failed", {
+				method: request.method,
+				error: errorLabel(error),
+			});
+		}
+		// A refused scalar write names its owning settings row, derived from the validated payload, so the page can
+		// place the notice without a correlation map of its own.
+		const row = settingWriteRow(request);
+		return {
+			kind: "fail",
+			id: request.id,
+			method: request.method,
+			message,
+			...(englishMessage === undefined ? {} : { englishMessage }),
+			failureKind,
+			...(classification === undefined ? {} : { classification }),
+			...(row === undefined ? {} : { row }),
+		};
+	}
+
+	/**
 	 * The single dispatch behind every parsed request, routed by the request method's outcome column. Intents run, then
 	 * post their ack (acked outcomes only) and push state - the push doubles as the fire-and-forget intents' success
 	 * signal, since some applied intents (a secure-only secret change, a no-op settings write) fire no configuration
@@ -692,50 +741,7 @@ export class DashboardController implements vscode.Disposable {
 			this.flushPendingFocus();
 			return submission;
 		} catch (error) {
-			// The write did not land (or only partially landed), so the failure notice is the webview's signal to
-			// surface the message and return the affected editor to a retryable draft. Validation and operation
-			// messages travel to the webview only: validation text can quote an entered key, and the log buffer feeds
-			// public issue reports, so the log gets classifications for every failure kind.
-			let message: string;
-			let englishMessage: string | undefined;
-			let failureKind: "validation" | "operation" = "validation";
-			let classification: TransportErrorClassification | undefined;
-			if (error instanceof DashboardValidationError) {
-				message = error.message;
-				englishMessage = error.englishMessage;
-				// Classification only (enum ids and a status) - protocol-legal and log-legal, so it also rides the log
-				// line for issue-report triage.
-				classification = error.classification;
-				this.env.log("Dashboard intent rejected", {
-					method: request.method,
-					kind: "validation",
-					...(classification === undefined ? {} : { classification }),
-				});
-			} else if (error instanceof DashboardOperationError) {
-				message = error.message;
-				failureKind = "operation";
-				this.env.log("Dashboard intent partially applied", { method: request.method, kind: "operation" });
-			} else {
-				message = l10n.t("The change was not applied; see the LiteLLM output log.");
-				englishMessage = NOT_APPLIED_ENGLISH;
-				this.env.log("Dashboard intent failed", {
-					method: request.method,
-					error: errorLabel(error),
-				});
-			}
-			// A refused scalar write names its owning settings row, derived from the validated payload, so the page can
-			// place the notice without a correlation map of its own.
-			const row = settingWriteRow(request);
-			return answer({
-				kind: "fail",
-				id: request.id,
-				method: request.method,
-				message,
-				...(englishMessage === undefined ? {} : { englishMessage }),
-				failureKind,
-				...(classification === undefined ? {} : { classification }),
-				...(row === undefined ? {} : { row }),
-			});
+			return answer(this.failureReply(request, error));
 		}
 	}
 
@@ -933,6 +939,55 @@ export function createIntentEnvironment(deps: IntentEnvironmentDeps): IntentEnvi
 }
 
 /**
+ * The dashboard's resolution seams, composed from the request path's own pieces: the exact resolver chat requests use
+ * (activation wires the provider's getEntryModelParameters to the same readEntryModelParameters), the composed
+ * entry-capabilities resolver, and the provider's shared resolution table.
+ */
+function serverResolutionFor(
+	provider: LiteLLMChatModelProvider,
+	getEntryModelCapabilities: RegisterDashboardOptions["getEntryModelCapabilities"]
+): ServerResolution {
+	return {
+		resolveEntryParameters: entryParametersResolver(
+			(serverId) => provider.getGroupServer(serverId),
+			readEntryModelParameters
+		),
+		resolveEntryCapabilities: (serverId) => {
+			const identity = provider.capabilityEntryIdentity(serverId);
+			return identity === undefined ? undefined : getEntryModelCapabilities(identity.label, identity.baseUrl);
+		},
+		getResolutionTable: () => provider.resolutionTable,
+	};
+}
+
+/** The removal bookkeeping as the state builder reads it: the tombstones and each orphan's recorded origin. */
+function removedGroupsViewOf(removals: GroupRemovalStore): RemovedGroupsView {
+	return {
+		tombstones: removals.tombstones(),
+		origins: removals.provenance().map((record) => ({
+			label: record.label,
+			baseUrl: record.baseUrl,
+			origin: record.origin,
+		})),
+	};
+}
+
+/** The Servers page's usage snapshot, assembled from the poller's store and the live settings at push time. */
+function usageViewOf(usagePoller: UsagePoller): DashboardUsage {
+	return buildUsageView({
+		states: usagePoller.store.getStates(),
+		thresholds: getUsageAlertThresholds(),
+		pollIntervalMs: getUsagePollIntervalMs(),
+		pollingOffWindowMs: getUsagePollingOffFreshnessWindowMs(),
+		discoveryTimeoutMs: getDiscoveryTimeout(),
+		refreshing: usagePoller.isRefreshing(),
+		refreshingExplicitly: usagePoller.isRefreshingExplicitly(),
+		now: Date.now(),
+		isFresh: isUsageFresh,
+	});
+}
+
+/**
  * Register litellm.openDashboard and litellm.showDiagnostics (the deep link to the Diagnostics tab) and keep the panel
  * in sync with the stores: configuration changes re-push directly; provider status changes arrive via the returned
  * controller's refresh(), called from the status fan-out in wiring/ui.ts, and server sync passes via the engine's
@@ -944,19 +999,6 @@ export function registerDashboardCommand(
 ): DashboardController {
 	const { provider, logger, syncEngine, removals, catalog, usagePoller, verdict, getEntryModelCapabilities, ua } =
 		options;
-	const serverResolution: ServerResolution = {
-		// The exact resolver chat requests use (activation wires the provider's getEntryModelParameters to the same
-		// readEntryModelParameters).
-		resolveEntryParameters: entryParametersResolver(
-			(serverId) => provider.getGroupServer(serverId),
-			readEntryModelParameters
-		),
-		resolveEntryCapabilities: (serverId) => {
-			const identity = provider.capabilityEntryIdentity(serverId);
-			return identity === undefined ? undefined : getEntryModelCapabilities(identity.label, identity.baseUrl);
-		},
-		getResolutionTable: () => provider.resolutionTable,
-	};
 	const settingsAccess = createSettingsAccess();
 	const controller = new DashboardController({
 		...createIntentEnvironment({
@@ -993,29 +1035,11 @@ export function registerDashboardCommand(
 				(serverId) => provider.getGroupServer(serverId),
 				syncEngine.getSecretValues()
 			),
-		getRemovedGroups: (): RemovedGroupsView => ({
-			tombstones: removals.tombstones(),
-			origins: removals.provenance().map((record) => ({
-				label: record.label,
-				baseUrl: record.baseUrl,
-				origin: record.origin,
-			})),
-		}),
-		serverResolution,
+		getRemovedGroups: () => removedGroupsViewOf(removals),
+		serverResolution: serverResolutionFor(provider, getEntryModelCapabilities),
 		getCatalogLookup: () => catalog.lookup,
 		getCatalogStatus: () => catalog.status(),
-		getUsage: () =>
-			buildUsageView({
-				states: usagePoller.store.getStates(),
-				thresholds: getUsageAlertThresholds(),
-				pollIntervalMs: getUsagePollIntervalMs(),
-				pollingOffWindowMs: getUsagePollingOffFreshnessWindowMs(),
-				discoveryTimeoutMs: getDiscoveryTimeout(),
-				refreshing: usagePoller.isRefreshing(),
-				refreshingExplicitly: usagePoller.isRefreshingExplicitly(),
-				now: Date.now(),
-				isFresh: isUsageFresh,
-			}),
+		getUsage: () => usageViewOf(usagePoller),
 		// The open-triggered pass: staleness-gated, and never toasted - the total-failure acknowledgment belongs to the
 		// EXPLICIT refresh. The poller's own notifications already re-push the dashboard.
 		refreshUsageIfStale: () => {

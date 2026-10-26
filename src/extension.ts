@@ -15,69 +15,79 @@ import { CMD, VENDOR_ID } from "./shared/config/commandIds";
 import { isLogRedactionEnabled } from "./shared/config/settings";
 import type { DevSeed } from "./shared/devSeed";
 import { Logger } from "./shared/logger";
-import { fixedHeaderValue } from "./shared/util/headers";
+import { fixedHeaderValue, type HeaderValue } from "./shared/util/headers";
 
-/**
- * The ordering constraints activate() owns are commented at their call sites: l10n configuration first, the state
- * migrations awaited before registerLanguageModelChatProvider, test seams gated on non-production mode.
- *
- *   each module -> owns its subscriptions and reactions
- */
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
-	// The activation-production harness calls this compiled function itself with a fake Production-mode context, while
-	// the real extension loaded into its host must stay inert: onStartupFinished would otherwise activate it first and
-	// every command registration would collide. The mode check keeps the harness's own Production-mode call running.
-	if (
-		context.extensionMode !== vscode.ExtensionMode.Production &&
-		process.env.LITELLM_SUPPRESS_STARTUP_ACTIVATION === "1"
-	) {
-		return;
-	}
+/** The versions activation stamps and the one User-Agent every request carries. */
+interface ActivationIdentity {
+	readonly extVersion: string;
+	readonly vscodeVersion: string;
+	readonly ua: HeaderValue;
+}
 
-	// Before anything renders a string: shared modules localize through @vscode/l10n and need the host bundle (see
-	// extension/l10nConfig.ts).
-	configureSharedL10n();
-
+function activationIdentity(context: vscode.ExtensionContext): ActivationIdentity {
 	const extVersion: string = context.extension.packageJSON?.version ?? "unknown";
 	const vscodeVersion = vscode.version;
-	const ua = fixedHeaderValue(`litellm-vscode-chat/${extVersion} VSCode/${vscodeVersion}`);
+	return {
+		extVersion,
+		vscodeVersion,
+		ua: fixedHeaderValue(`litellm-vscode-chat/${extVersion} VSCode/${vscodeVersion}`),
+	};
+}
 
+/** The output channel, the logger, its issue-report recorder, and the lossless tee the suites read in non-production mode. */
+interface ActivationLogging {
+	readonly outputChannel: vscode.OutputChannel;
+	readonly logger: Logger;
+	readonly issueReporter: IssueReporter;
+	readonly sessionLogTee: SessionLogTee | undefined;
+}
+
+/**
+ * The reporter reads the Logger's history and the Logger records errors into the reporter, so the reader binds late:
+ * the history is read at report time, after both exist.
+ */
+function createActivationLogging(context: vscode.ExtensionContext, extVersion: string): ActivationLogging {
 	const outputChannel = vscode.window.createOutputChannel("LiteLLM", { log: true });
 	context.subscriptions.push(outputChannel);
-
-	// The reporter reads the Logger's history and the Logger records errors into the reporter, so the reader binds
-	// late: the history is read at report time, after both exist.
 	let logger: Logger;
 	const issueReporter = new IssueReporter(createIssueReporterEnv(context.globalStorageUri), () => logger.reportLines());
 	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
 	const sessionLogTee = testMode ? new SessionLogTee(issueReporter) : undefined;
 	logger = new Logger(outputChannel, sessionLogTee ?? issueReporter, isLogRedactionEnabled);
 	logger.log(`LiteLLM Extension activated (v${extVersion})`);
-	// Awaited so no server work logs before the configured secret values are known.
-	await wireKnownSecrets(context, logger, (values) => Logger.registerSecrets(values));
-	onLogRedactionToggled(context, () => {
-		outputChannel.clear();
-		logger.replay();
-	});
+	return { outputChannel, logger, issueReporter, sessionLogTee };
+}
 
-	const storage = await wireStorage(context, logger);
-	// Token estimation serves the request path from the first request: mode applied now, tokenizer loads settle off the
-	// activation path.
-	wireTokenCounting(context, logger);
-	const { catalogStore, provider, notifyModelsChanged, hasDeclaredServers, hasConfiguredServers } = wireProvider(
-		context,
-		logger,
-		ua,
-		storage
-	);
+/** What the provider wiring hands the surfaces: the stores, the provider, and the gates every surface reads. */
+interface ActivationCore {
+	readonly storage: Awaited<ReturnType<typeof wireStorage>>;
+	readonly provider: ReturnType<typeof wireProvider>;
+}
 
-	await storage.runMigrations();
+/** The surfaces wired over the provider, in the order their dependencies demand. */
+interface WiredSurfaces {
+	readonly servers: ReturnType<typeof wireServers>;
+	readonly status: ReturnType<typeof wireStatusSurfaces>;
+	readonly dashboard: ReturnType<typeof wireDashboard>;
+	readonly devSeed: DevSeed | undefined;
+}
 
-	vscode.lm.registerLanguageModelChatProvider(VENDOR_ID, provider);
-
-	// The forced server sync pass below turns the seeded entry into the provider group.
+/**
+ * The server sync, the status surfaces, the features, and the dashboard, each wired after what it reads. Returns
+ * the surfaces the activation tail hands to the fan-out and the palette commands.
+ */
+async function wireSurfaces(
+	context: vscode.ExtensionContext,
+	logging: ActivationLogging,
+	identity: ActivationIdentity,
+	core: ActivationCore
+): Promise<WiredSurfaces> {
+	const { logger, outputChannel, issueReporter } = logging;
+	const { storage } = core;
+	const { catalogStore, provider, notifyModelsChanged, hasConfiguredServers } = core.provider;
+	// The forced server sync pass later turns the seeded entry into the provider group.
 	let devSeed: DevSeed | undefined;
-	if (testMode) {
+	if (logging.sessionLogTee !== undefined) {
 		try {
 			devSeed = await consumeDevSeed(context.extensionUri, createDevSeedEnv(context.secrets), logger);
 		} catch (error) {
@@ -85,7 +95,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}
 	}
 
-	const servers = wireServers(context, logger, ua, {
+	const servers = wireServers(context, logger, identity.ua, {
 		fingerprintSalt: storage.fingerprintSalt,
 		groupRemovals: storage.groupRemovals,
 		catalogStore,
@@ -95,10 +105,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		onDidObserveGroup: provider.onDidObserveGroup,
 	});
 	// After wireServers: both surfaces classify the verdict owner's rows and read its declared set.
-	const { statusBar, notifier } = wireStatusSurfaces(context, logger, hasConfiguredServers, servers.verdict);
+	const status = wireStatusSurfaces(context, logger, hasConfiguredServers, servers.verdict);
 	// Before the dashboard so its test probes reuse the features' exact send pipelines.
 	const features = wireFeatures(context, logger, {
-		ua,
+		ua: identity.ua,
 		outputChannel,
 		getSnapshots: () => provider.getServerSnapshots(),
 	});
@@ -108,7 +118,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		groupRemovals: storage.groupRemovals,
 		catalogStore,
 		usagePoller: servers.usagePoller,
-		ua,
+		ua: identity.ua,
 		featureProbes: features.featureProbes,
 		verdict: servers.verdict,
 	});
@@ -116,16 +126,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// controller's serialized chain, and their diagnostics judge the owner's declared set like every other surface.
 	wireDashboardClientFeatures(context, logger, {
 		dashboard,
-		getConnectionStatus: () => statusBar.connectionStatus,
+		getConnectionStatus: () => status.statusBar.connectionStatus,
 		getDeclared: () => servers.verdict.declared().views,
 		issueReporter,
-		extVersion,
-		vscodeVersion,
+		extVersion: identity.extVersion,
+		vscodeVersion: identity.vscodeVersion,
 	});
 	wireUsageSurfaces(context, logger, { usagePoller: servers.usagePoller, dashboard });
 	wireCatalogRefresh(context, logger, { catalogStore, notifyModelsChanged, dashboard });
 	wireGroupRemovalReactions(logger, { groupRemovals: storage.groupRemovals, notifyModelsChanged, dashboard });
 
+	return { servers, status, dashboard, devSeed };
+}
+
+/**
+ * The tail of activation: the test seams, the status fan-out, the first sync pass, the welcome, and the palette
+ * commands, each at the moment its call-site comment states.
+ */
+async function finishActivation(
+	context: vscode.ExtensionContext,
+	logging: ActivationLogging,
+	identity: ActivationIdentity,
+	core: ActivationCore,
+	wired: WiredSurfaces
+): Promise<void> {
+	const { logger, outputChannel, issueReporter, sessionLogTee } = logging;
+	const { catalogStore, provider, hasDeclaredServers, hasConfiguredServers } = core.provider;
+	const { servers, dashboard, devSeed } = wired;
+	const { statusBar, notifier } = wired.status;
 	// Test-only commands; registered after the sync engine and the dashboard exist because the suites read the engine's
 	// declared views through them and the monkey fuzzer injects dashboard messages.
 	if (sessionLogTee !== undefined) {
@@ -155,10 +183,55 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		syncEngine: servers.syncEngine,
 		getDeclared: () => servers.verdict.declared().views,
 		issueReporter,
-		extVersion,
-		vscodeVersion,
+		extVersion: identity.extVersion,
+		vscodeVersion: identity.vscodeVersion,
 		hasConfiguredServers,
 	});
+}
+
+/**
+ * The ordering constraints activate() owns are commented at their call sites: l10n configuration first, the state
+ * migrations awaited before registerLanguageModelChatProvider, test seams gated on non-production mode.
+ *
+ *   each module -> owns its subscriptions and reactions
+ */
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+	// The activation-production harness calls this compiled function itself with a fake Production-mode context, while
+	// the real extension loaded into its host must stay inert: onStartupFinished would otherwise activate it first and
+	// every command registration would collide. The mode check keeps the harness's own Production-mode call running.
+	if (
+		context.extensionMode !== vscode.ExtensionMode.Production &&
+		process.env.LITELLM_SUPPRESS_STARTUP_ACTIVATION === "1"
+	) {
+		return;
+	}
+
+	// Before anything renders a string: shared modules localize through @vscode/l10n and need the host bundle (see
+	// extension/l10nConfig.ts).
+	configureSharedL10n();
+
+	const identity = activationIdentity(context);
+	const logging = createActivationLogging(context, identity.extVersion);
+	const { logger, outputChannel } = logging;
+	// Awaited so no server work logs before the configured secret values are known.
+	await wireKnownSecrets(context, logger, (values) => Logger.registerSecrets(values));
+	onLogRedactionToggled(context, () => {
+		outputChannel.clear();
+		logger.replay();
+	});
+
+	const storage = await wireStorage(context, logger);
+	// Token estimation serves the request path from the first request: mode applied now, tokenizer loads settle off the
+	// activation path.
+	wireTokenCounting(context, logger);
+	const core: ActivationCore = { storage, provider: wireProvider(context, logger, identity.ua, storage) };
+
+	await storage.runMigrations();
+
+	vscode.lm.registerLanguageModelChatProvider(VENDOR_ID, core.provider.provider);
+
+	const wired = await wireSurfaces(context, logging, identity, core);
+	await finishActivation(context, logging, identity, core, wired);
 }
 
 export function deactivate() {}

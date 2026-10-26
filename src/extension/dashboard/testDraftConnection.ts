@@ -6,6 +6,7 @@
 import * as l10n from "@vscode/l10n";
 import type { RequestPayload } from "../../dashboard/endpoints";
 import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery";
+import type { GroupServer } from "../../provider/catalog/groupModels";
 import { parseGroupConfiguration, refusedCredentialFields } from "../../provider/catalog/groupModels";
 import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/auth";
 import { ChatClient } from "../../provider/transport/chatClient";
@@ -23,6 +24,7 @@ import { rawServerEntries } from "../settingsWriteTurn";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardValidationError } from "./intents";
+import type { KeepSources, SecretPlan } from "./saveServer";
 import { planResolves, readKeepSources, requireEntryShownByForm, secretPlans } from "./saveServer";
 
 /** Values exist extension-side only; this shape is never logged. */
@@ -76,29 +78,17 @@ function draftDeclaredModelIds(payload: readonly string[]): readonly string[] {
 /** The parse-back entry's placeholder label: the parser needs one, but only the parsed credential fields are read. */
 const PARSE_BACK_LABEL = "draft";
 
-/**
- * A pairing failure surfaces as the field-routed message a save raises, because a partial OAuth unit would otherwise
- * probe unauthenticated and lie.
- *
- *   the save path's secret plans -> the shared auth assembler -> serverSync's parser -> buildGroupArgs
- *   -> parseGroupConfiguration, the credential units a sync pass bakes into the group
- */
-export async function applyTestServerDraft(
-	intent: RequestPayload<"testServerDraft">,
-	env: IntentEnvironment
-): Promise<DraftProbeOutcome> {
-	const label = trimHttpWhitespace(intent.server.label);
-	const targetLabel = trimHttpWhitespace(intent.replace?.label ?? intent.server.label);
-	const entries = rawServerEntries(env.readServersSetting());
-	const sources = await readKeepSources(entries, label, targetLabel, (secretsLabel) =>
-		env.readServerSecrets(secretsLabel)
-	);
-	// The entry the form was showing, resolved AND verified by the save path's own rule: gone or swapped refuses like a
-	// save would, so the probe tests exactly the credentials the form displayed - never a retired label's leftovers,
-	// never a replaced entry's own key, and never the credentials of an entry that took the label while the form was
-	// open.
-	const showing = requireEntryShownByForm(intent.replace, sources);
-	const plans = secretPlans(intent.secrets, showing, sources.storedOld);
+/** The draft as the testServerDraft payload carries it. */
+type DraftServer = RequestPayload<"testServerDraft">["server"];
+
+/** The plans' values by where they ride: inline ones into the parse-back entry, secure ones into the group args. */
+function partitionPlanValues(
+	plans: Readonly<Record<SecretFieldId, SecretPlan>>,
+	storedOld: KeepSources["storedOld"]
+): {
+	readonly inlineValues: { -readonly [K in SecretFieldId]?: string };
+	readonly secureValues: { -readonly [K in SecretFieldId]?: string };
+} {
 	const inlineValues: { -readonly [K in SecretFieldId]?: string } = {};
 	const secureValues: { -readonly [K in SecretFieldId]?: string } = {};
 	for (const field of SECRET_FIELD_IDS) {
@@ -112,7 +102,7 @@ export async function applyTestServerDraft(
 				secureValues[field] = plan.value;
 				break;
 			case "stored": {
-				const stored = sources.storedOld[field];
+				const stored = storedOld[field];
 				if (stored !== undefined) {
 					secureValues[field] = stored;
 				}
@@ -123,8 +113,24 @@ export async function applyTestServerDraft(
 				break;
 		}
 	}
+
+	return { inlineValues, secureValues };
+}
+
+/**
+ * The draft's credential units exactly as a sync pass bakes them into the group: the save path's secret plans through
+ * the shared auth assembler, serverSync's parser, buildGroupArgs, and parseGroupConfiguration. A pairing failure
+ * surfaces as the field-routed message a save raises, because a partial OAuth unit would otherwise probe
+ * unauthenticated and lie; a key or virtual key the platform's Headers would refuse names its field, never its value.
+ */
+function draftGroupServer(
+	server: DraftServer,
+	plans: Readonly<Record<SecretFieldId, SecretPlan>>,
+	storedOld: KeepSources["storedOld"]
+): GroupServer {
+	const { inlineValues, secureValues } = partitionPlanValues(plans, storedOld);
 	const assembled = assembleEntryAuth(
-		{ ...pickNonSecretOptionalFields(intent.server), ...inlineValues },
+		{ ...pickNonSecretOptionalFields(server), ...inlineValues },
 		recordFromKeys(SECRET_FIELD_IDS, (field) => planResolves(plans[field]))
 	);
 	if (assembled.failure !== undefined) {
@@ -145,9 +151,6 @@ export async function applyTestServerDraft(
 		// probe a guessed shape.
 		throw new DashboardValidationError(l10n.t("The draft's credentials do not form a valid server entry"));
 	}
-	// The credentials narrowed exactly as a sync pass bakes them into the group (entryCredentials.ts takes the same
-	// route), so the probe sends what a save would send, and refuses what a save's requests would refuse: a key or
-	// virtual key the platform's Headers would refuse names its field here, never its value.
 	const group = parseGroupConfiguration(buildGroupArgs(parsed.entry, secureValues));
 	if (group === undefined) {
 		throw new DashboardValidationError(l10n.t("The draft's credentials do not form a valid server entry"));
@@ -158,19 +161,18 @@ export async function applyTestServerDraft(
 			l10n.t("The draft's {0} cannot be sent as an HTTP header", rejectedCredentialKinds(refused).display)
 		);
 	}
-	const groupServer = group.server;
-	// The probe hits the spelling the save will store, so its error text names the URL the entry will show; the intent
-	// validation already refused anything canonicalUrl refuses.
-	const baseUrl = canonicalBaseUrl(intent.server.baseUrl);
-	if (baseUrl === undefined) {
-		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
-	}
 
-	// The header values minted by the rule the request path sends through (the save validation checks names only on
-	// this intent): a value the rule refuses names its header here, so the probe never hands the platform's Headers a
-	// value it would throw on, quoting it.
+	return group.server;
+}
+
+/**
+ * The draft's headers minted by the rule the request path sends through (the save validation checks names only on
+ * this intent): a value the rule refuses names its header here, so the probe never hands the platform's Headers a
+ * value it would throw on, quoting it.
+ */
+function draftHeadersOf(headers: DraftServer["headers"]): Record<string, HeaderValue> {
 	const draftHeaders: Record<string, HeaderValue> = {};
-	for (const [name, raw] of Object.entries(intent.server.headers)) {
+	for (const [name, raw] of Object.entries(headers)) {
 		const value = headerValue(String(raw));
 		if (value === undefined) {
 			throw new DashboardValidationError(
@@ -180,21 +182,74 @@ export async function applyTestServerDraft(
 		draftHeaders[name] = value;
 	}
 
-	const usableLabel = usableHttpText(intent.server.label);
-	const connection: DraftConnection = {
+	return draftHeaders;
+}
+
+/**
+ * The connection the probe sends: the spelling the save will store, so an error names the URL the entry will show (the
+ * intent validation already refused anything canonicalUrl refuses), the parsed credential units, and the draft's own
+ * fields.
+ */
+function draftConnectionOf(server: DraftServer, groupServer: GroupServer): DraftConnection {
+	const baseUrl = canonicalBaseUrl(server.baseUrl);
+	if (baseUrl === undefined) {
+		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
+	}
+	const draftHeaders = draftHeadersOf(server.headers);
+	const usableLabel = usableHttpText(server.label);
+	return {
 		baseUrl,
 		...(usableLabel === undefined ? {} : { label: usableLabel }),
-		...(intent.server.apiVersion === undefined ? {} : { apiVersion: trimHttpWhitespace(intent.server.apiVersion) }),
+		...(server.apiVersion === undefined ? {} : { apiVersion: trimHttpWhitespace(server.apiVersion) }),
 		apiKey: groupServer.apiKey,
 		...(Object.keys(draftHeaders).length > 0 ? { headers: draftHeaders } : {}),
 		...(groupServer.oauth === undefined ? {} : { oauth: groupServer.oauth }),
 		...(groupServer.virtualKey === undefined ? {} : { virtualKey: groupServer.virtualKey }),
 		expected: {
-			modelInfo: intent.server.expectedFailures.includes("modelInfo"),
-			modelListing: intent.server.expectedFailures.includes("modelListing"),
+			modelInfo: server.expectedFailures.includes("modelInfo"),
+			modelListing: server.expectedFailures.includes("modelListing"),
 		},
-		...(intent.server.includeModes.length > 0 ? { includeModes: intent.server.includeModes } : {}),
+		...(server.includeModes.length > 0 ? { includeModes: server.includeModes } : {}),
 	};
+}
+
+/**
+ * The outcome of a probe that threw. A listing failure the draft declares expected is the declared-models outcome; any
+ * other transport failure forwards verbatim, both lines, as the field-routed refusal a server row's error state uses.
+ * Validation-kind because nothing durable changed (the probe is read-only), so the form stays editable, and the
+ * classification (kind, status, setup hint, never text) rides along so the form can link the matching
+ * troubleshooting-guide section.
+ */
+function draftProbeFailure(error: unknown, server: DraftServer): DraftProbeOutcome {
+	if (!(error instanceof RequestError)) {
+		throw error;
+	}
+	if (server.expectedFailures.includes("modelListing")) {
+		return { kind: "expected-failure", declaredCount: draftDeclaredModelIds(server.declaredModels).length };
+	}
+	throw new DashboardValidationError(error.message, { classification: transportClassificationOf(error) });
+}
+
+/**
+ * The probe tests exactly the credentials the form displayed: the entry the form was showing is resolved AND verified
+ * by the save path's own rule, so gone or swapped refuses like a save would, never a retired label's leftovers, never
+ * a replaced entry's own key, and never the credentials of an entry that took the label while the form was open.
+ */
+export async function applyTestServerDraft(
+	intent: RequestPayload<"testServerDraft">,
+	env: IntentEnvironment
+): Promise<DraftProbeOutcome> {
+	const label = trimHttpWhitespace(intent.server.label);
+	const targetLabel = trimHttpWhitespace(intent.replace?.label ?? intent.server.label);
+	const entries = rawServerEntries(env.readServersSetting());
+	const sources = await readKeepSources(entries, label, targetLabel, (secretsLabel) =>
+		env.readServerSecrets(secretsLabel)
+	);
+	const showing = requireEntryShownByForm(intent.replace, sources);
+	const plans = secretPlans(intent.secrets, showing, sources.storedOld);
+	const groupServer = draftGroupServer(intent.server, plans, sources.storedOld);
+	const connection = draftConnectionOf(intent.server, groupServer);
+
 	try {
 		const discovered = await env.probeDraftConnection(connection);
 		const discoveredSet = new Set(discovered);
@@ -203,22 +258,7 @@ export async function applyTestServerDraft(
 		).length;
 		return { kind: "connected", modelCount: discovered.length + declaredCount, declaredCount };
 	} catch (error) {
-		if (error instanceof RequestError) {
-			if (intent.server.expectedFailures.includes("modelListing")) {
-				return {
-					kind: "expected-failure",
-					declaredCount: draftDeclaredModelIds(intent.server.declaredModels).length,
-				};
-			}
-			// The transport's message is user-facing by the same convention as a server row's error state and forwards
-			// verbatim, both lines. Validation-kind because nothing durable changed (the probe is read-only), so the
-			// form stays editable.
-			//
-			//   The classification (kind, status, setup hint - never text) rides along -> the form can link the
-			//     matching troubleshooting-guide section
-			throw new DashboardValidationError(error.message, { classification: transportClassificationOf(error) });
-		}
-		throw error;
+		return draftProbeFailure(error, intent.server);
 	}
 }
 
