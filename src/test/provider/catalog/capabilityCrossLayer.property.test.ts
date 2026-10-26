@@ -394,18 +394,6 @@ function overlapRecord(
 	};
 }
 
-/** The catalog the scenario describes: two directive targets and an implicit entry, doubled when ambiguous. */
-function catalogOf(specs: LayerSpecs): CapabilityCatalogLookup {
-	return makeCatalog({
-		...(specs.catalogOne === undefined ? {} : { "cat/one": specs.catalogOne }),
-		...(specs.catalogTwo === undefined ? {} : { "cat/two": specs.catalogTwo }),
-		...(specs.implicitFields === undefined ? {} : { [`imp/${specs.rawModelId}`]: specs.implicitFields }),
-		...(specs.implicitFields !== undefined && specs.implicitAmbiguous
-			? { [`imp2/${specs.rawModelId}`]: specs.implicitFields }
-			: {}),
-	});
-}
-
 function layerMaps(specs: LayerSpecs): {
 	globalCapabilities: ModelCapabilitiesRecord;
 	entryCapabilities: ModelCapabilitiesRecord | undefined;
@@ -424,7 +412,15 @@ function layerMaps(specs: LayerSpecs): {
 			[id]: overlapRecord(entryCapabilities, id, o, o.entryValue, o.demote === "entry"),
 		};
 	}
-	return { globalCapabilities, entryCapabilities, catalog: catalogOf(specs) };
+	const catalog = makeCatalog({
+		...(specs.catalogOne === undefined ? {} : { "cat/one": specs.catalogOne }),
+		...(specs.catalogTwo === undefined ? {} : { "cat/two": specs.catalogTwo }),
+		...(specs.implicitFields === undefined ? {} : { [`imp/${specs.rawModelId}`]: specs.implicitFields }),
+		...(specs.implicitFields !== undefined && specs.implicitAmbiguous
+			? { [`imp2/${specs.rawModelId}`]: specs.implicitFields }
+			: {}),
+	});
+	return { globalCapabilities, entryCapabilities, catalog };
 }
 
 const resolverScenario: fc.Arbitrary<{ input: ResolveModelCapabilitiesInput }> = fc
@@ -555,15 +551,6 @@ function settle(
 	};
 }
 
-/** The open field names any layer or the server names: outside the core vocabulary, and no directive. */
-function openFieldNames(context: NaiveWalkContext): Set<string> {
-	return new Set(
-		[...context.entry.fields.keys(), ...context.global.fields.keys(), ...Object.keys(context.serverValues)].filter(
-			(name) => !Object.hasOwn(CAPABILITY_FIELDS, name) && !name.startsWith("_")
-		)
-	);
-}
-
 /** The naive full walk's view of every field: the core limits, the booleans, and the open fields. */
 function naiveFieldsOf(context: NaiveWalkContext): Record<string, EffectiveCapabilityField> {
 	const contextLength = settle(context, "context_length", { level: "floor", value: CAPABILITY_FLOOR.context_length });
@@ -587,7 +574,12 @@ function naiveFieldsOf(context: NaiveWalkContext): Record<string, EffectiveCapab
 			naiveFields[name] = field;
 		}
 	}
-	for (const name of openFieldNames(context)) {
+	const openNames = new Set(
+		[...context.entry.fields.keys(), ...context.global.fields.keys(), ...Object.keys(context.serverValues)].filter(
+			(name) => !Object.hasOwn(CAPABILITY_FIELDS, name) && !name.startsWith("_")
+		)
+	);
+	for (const name of openNames) {
 		const field = settle(context, name);
 		if (field !== undefined) {
 			naiveFields[name] = field;

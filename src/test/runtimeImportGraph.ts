@@ -19,6 +19,19 @@ export interface RuntimeImports {
 /** What one dynamic import() or require() call loads: its literal specifier, or `opaque` for a non-literal argument. */
 type DynamicLoad = { readonly spec: string } | { readonly opaque: true };
 
+/** The specifier an `export ... from` loads; undefined when type-only in either spelling or without a source. */
+function reexportSpecifier(node: ts.ExportDeclaration): string | undefined {
+	const namedTypeOnly =
+		node.exportClause !== undefined &&
+		ts.isNamedExports(node.exportClause) &&
+		node.exportClause.elements.length > 0 &&
+		node.exportClause.elements.every((element) => element.isTypeOnly);
+	if (node.isTypeOnly || namedTypeOnly || node.moduleSpecifier === undefined) {
+		return undefined;
+	}
+	return ts.isStringLiteral(node.moduleSpecifier) ? node.moduleSpecifier.text : undefined;
+}
+
 /** The specifier a static import, re-export, or import-equals form loads at runtime; undefined for type-only forms. */
 function staticSpecifier(node: ts.Node): string | undefined {
 	if (ts.isImportDeclaration(node)) {
@@ -35,19 +48,6 @@ function staticSpecifier(node: ts.Node): string | undefined {
 		return loads ? reference.expression.text : undefined;
 	}
 	return undefined;
-}
-
-/** The specifier an `export ... from` loads; undefined when type-only in either spelling or without a source. */
-function reexportSpecifier(node: ts.ExportDeclaration): string | undefined {
-	const namedTypeOnly =
-		node.exportClause !== undefined &&
-		ts.isNamedExports(node.exportClause) &&
-		node.exportClause.elements.length > 0 &&
-		node.exportClause.elements.every((element) => element.isTypeOnly);
-	if (node.isTypeOnly || namedTypeOnly || node.moduleSpecifier === undefined) {
-		return undefined;
-	}
-	return ts.isStringLiteral(node.moduleSpecifier) ? node.moduleSpecifier.text : undefined;
 }
 
 /**

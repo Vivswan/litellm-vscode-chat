@@ -262,20 +262,6 @@ type ServerStatusOverrides = Partial<
 > &
 	(OkStatusOverrides | ErrorStatusOverrides);
 
-/** The fields both status states share, every absent override given its fixture default. */
-function commonStatusFields(overrides: ServerStatusOverrides) {
-	return {
-		serverId: overrides.serverId ?? "srv1",
-		label: overrides.label ?? "Prod",
-		...(overrides.entryLabel === undefined ? {} : { entryLabel: overrides.entryLabel }),
-		baseUrl: overrides.baseUrl ?? "http://prod.test",
-		lastChecked: overrides.lastChecked ?? "2026-07-26T00:00:00.000Z",
-		...(overrides.hasApiKey === undefined ? {} : { hasApiKey: overrides.hasApiKey }),
-		...(overrides.hasOAuth === undefined ? {} : { hasOAuth: overrides.hasOAuth }),
-		...(overrides.hasVirtualKey === undefined ? {} : { hasVirtualKey: overrides.hasVirtualKey }),
-	};
-}
-
 /** The error state's own fields: a classification given alone is a transport cause; nothing given is unclassified. */
 function errorStatusFields(overrides: ErrorStatusOverrides) {
 	const cause: FailureCause =
@@ -297,21 +283,27 @@ function errorStatusFields(overrides: ErrorStatusOverrides) {
 	};
 }
 
-/** The ok state's own fields. */
-function okStatusFields(overrides: OkStatusOverrides) {
+export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerStatus {
+	const common = {
+		serverId: overrides.serverId ?? "srv1",
+		label: overrides.label ?? "Prod",
+		...(overrides.entryLabel === undefined ? {} : { entryLabel: overrides.entryLabel }),
+		baseUrl: overrides.baseUrl ?? "http://prod.test",
+		lastChecked: overrides.lastChecked ?? "2026-07-26T00:00:00.000Z",
+		...(overrides.hasApiKey === undefined ? {} : { hasApiKey: overrides.hasApiKey }),
+		...(overrides.hasOAuth === undefined ? {} : { hasOAuth: overrides.hasOAuth }),
+		...(overrides.hasVirtualKey === undefined ? {} : { hasVirtualKey: overrides.hasVirtualKey }),
+	};
+	if (overrides.state === "error") {
+		return { ...common, state: "error", ...errorStatusFields(overrides) };
+	}
 	return {
+		...common,
+		state: "ok",
 		servedModelCount: overrides.servedModelCount ?? 4,
 		...(overrides.hiddenByRemoval === undefined ? {} : { hiddenByRemoval: overrides.hiddenByRemoval }),
 		...(overrides.modelInfoUnsupported === undefined ? {} : { modelInfoUnsupported: overrides.modelInfoUnsupported }),
 	};
-}
-
-export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerStatus {
-	const common = commonStatusFields(overrides);
-	if (overrides.state === "error") {
-		return { ...common, state: "error", ...errorStatusFields(overrides) };
-	}
-	return { ...common, state: "ok", ...okStatusFields(overrides) };
 }
 
 export interface FakeExtensionStorage {

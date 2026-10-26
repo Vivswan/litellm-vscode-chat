@@ -331,11 +331,6 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 	// One parsed graph for both walks (the module says why).
 	const graph = new RuntimeImportGraph();
 
-	/** The first host package a file's own specifiers name, or undefined. */
-	function hostPackageOf(specs: readonly string[]): string | undefined {
-		return specs.find((spec) => spec === "vscode" || spec === "msw" || spec.startsWith("msw/"));
-	}
-
 	/** The import chain from the entry down to `file`, as repo-relative paths, read back through `parents`. */
 	function chainTo(file: string, parents: ReadonlyMap<string, string | undefined>): string[] {
 		const chain: string[] = [];
@@ -351,7 +346,7 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		for (let index = 0; index < queue.length; index++) {
 			const file = queue[index] as string;
 			const edges = graph.edgesOf(file);
-			const hostPackage = hostPackageOf(edges.specs);
+			const hostPackage = edges.specs.find((spec) => spec === "vscode" || spec === "msw" || spec.startsWith("msw/"));
 			if (hostPackage !== undefined) {
 				return [...chainTo(file, parents), `"${hostPackage}"`].join(" -> ");
 			}
