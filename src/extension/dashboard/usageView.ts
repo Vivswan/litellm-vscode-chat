@@ -14,18 +14,26 @@ import type { ServerUsageState, UsageEndpointState } from "../servers/usage/stor
 
 export interface UsageViewInput {
 	readonly states: readonly ServerUsageState[];
+
 	/** The normalized alert thresholds, as getUsageAlertThresholds returns them. */
 	readonly thresholds: readonly number[];
+
 	readonly pollIntervalMs: number;
+
 	/** The usage.pollingOffFreshnessWindow setting: the freshness window while polling is off. */
 	readonly pollingOffWindowMs: number;
+
 	/** The effective discovery.timeout; the card's timeout detail line prints it. */
 	readonly discoveryTimeoutMs: number;
+
 	/** UsagePoller.isRefreshing. */
 	readonly refreshing: boolean;
+
 	/** UsagePoller.isRefreshingExplicitly. */
 	readonly refreshingExplicitly: boolean;
+
 	readonly now: number;
+
 	/** The shared freshness rule (extension/servers/usage/freshness.ts). */
 	readonly isFresh: (
 		state: ServerUsageState,

@@ -50,15 +50,21 @@ import type { EntryCapabilitiesRecord, EntryParametersResolution, SettingsReader
 
 export interface ResolvedModelsQuery {
 	readonly snapshots: readonly ServerModelsSnapshot[];
+
 	readonly reader: SettingsReader;
+
 	readonly resolveEntryParameters: (serverId: string) => EntryParametersResolution | undefined;
+
 	readonly resolveEntryCapabilities: (serverId: string) => EntryCapabilitiesRecord | undefined;
+
 	/**
 	 * The declared entries' own record maps, straight from the setting: the entry TREES draw from these so an entry
 	 * whose server currently serves zero models still renders its records (with empty leaves).
 	 */
 	readonly declared: readonly Pick<DeclaredServerView, "label" | "modelParameters" | "modelCapabilities">[];
+
 	readonly catalog: CapabilityCatalogLookup;
+
 	readonly resolution?: ModelResolutionTable | undefined;
 }
 

@@ -643,8 +643,11 @@ export function registerTestCommands(
  */
 export class SessionLogTee implements ErrorRecorder {
 	private static readonly MAX_LINES = 250000;
+
 	private static readonly EVICT_CHUNK = 25000;
+
 	private readonly lines: string[] = [];
+
 	/** The sequence number of lines[0]; grows as evictions retire old lines. */
 	private firstSeq = 0;
 

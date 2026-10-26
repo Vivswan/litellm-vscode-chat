@@ -120,8 +120,10 @@ export interface DashboardPanel {
 export interface ServerResolution {
 	/** The request path's per-entry modelParameters resolution; see entryParametersResolver. */
 	resolveEntryParameters(serverId: string): EntryParametersResolution | undefined;
+
 	/** The declared entry's own modelCapabilities: the readModelCapabilities responder's entry layer. */
 	resolveEntryCapabilities(serverId: string): EntryCapabilitiesRecord | undefined;
+
 	/**
 	 * The provider's shared flat resolution table, so the capability inspector reads the SAME cache requests and
 	 * registration use. Optional: without it the responder resolves through the same pure walk, uncached.
@@ -133,29 +135,43 @@ export interface ServerResolution {
 export interface DashboardControllerEnv extends IntentEnvironment {
 	/** Create the panel with its HTML already set. */
 	createPanel(): DashboardPanel;
+
 	getSnapshots(): readonly ServerModelsSnapshot[];
+
 	getDeclaredServers(): DeclaredServersInput;
+
 	/** The verdict rows their owner publishes (ServerVerdict.rows), for the hero and the paste line. */
 	getVerdictRows(): readonly VerdictRow[];
+
 	/** The declared labels whose secret value each live group carries, by server ID (secretValueHolders). */
 	getSecretHolders(): ReadonlyMap<string, readonly string[]>;
+
 	/** The removal bookkeeping (tombstones and orphan origins) the state builder folds in. */
 	getRemovedGroups(): RemovedGroupsView;
+
 	readonly serverResolution: ServerResolution;
+
 	/** The OpenRouter catalog as in-memory lookup data; EMPTY_CATALOG_LOOKUP while no snapshot exists. */
 	getCatalogLookup(): CapabilityCatalogLookup;
+
 	getCatalogStatus(): CatalogStatusView;
+
 	/** The Servers page's usage snapshot, assembled from the poller's store at push time. */
 	getUsage(): DashboardUsage;
+
 	/**
 	 * One usage pass only when the stored numbers are stale (the poller's refreshIfStale); open() fires it, so
 	 * revealing the panel serves the stored numbers instead of re-probing the fleet on every focus.
 	 */
 	refreshUsageIfStale(): void;
+
 	/** Search the catalog snapshot; the panel bounds the result list before it crosses. */
 	searchCatalog(query: string): readonly CatalogModelSummary[];
+
 	settingsReader(): SettingsReader;
+
 	log(message: string, data?: unknown): void;
+
 	logError(message: string, error: unknown): void;
 }
 
@@ -232,23 +248,28 @@ type IntentRunners = {
 
 export class DashboardController implements vscode.Disposable {
 	private _panel: DashboardPanel | undefined;
+
 	private readonly _panelSubscriptions: vscode.Disposable[] = [];
+
 	/**
 	 * Mutating intents run one at a time: two concurrent saves would read-modify-write the same servers array and lose
 	 * one of the updates, so every mutating message joins this chain (concurrent-channel reads run off it, and a
 	 * malformed message is rejected before reaching it).
 	 */
 	private _messageChain: Promise<unknown> = Promise.resolve();
+
 	/**
 	 * The deep-link target of the latest open call, held until the page proves it can receive messages: a loading or
 	 * reloading page silently drops posts, so the ready handshake flushes it. Consumed once, so a later reload cannot
 	 * replay a stale jump.
 	 */
 	private _pendingFocusSection: DashboardSectionId | undefined;
+
 	private readonly _observedGroups = new Map<
 		string,
 		{ readonly label: string; readonly entryLabel: string | undefined; readonly baseUrl: string }
 	>();
+
 	/**
 	 * The current page's generation, bumped whenever the page is torn down or replaced (the panel hides - without
 	 * retainContextWhenHidden the page dies hidden and reloads on reveal - or is disposed). _readyGeneration records
@@ -258,6 +279,7 @@ export class DashboardController implements vscode.Disposable {
 	 * The page -> is provably listening only while the two match
 	 */
 	private _pageGeneration = 0;
+
 	private _readyGeneration: number | undefined;
 
 	constructor(private readonly env: DashboardControllerEnv) {}
@@ -800,36 +822,55 @@ export function entryParametersResolver(
 
 export interface RegisterDashboardOptions {
 	readonly provider: LiteLLMChatModelProvider;
+
 	readonly logger: Logger;
+
 	readonly syncEngine: ServerSyncEngine;
+
 	readonly removals: GroupRemovalStore;
+
 	readonly catalog: Pick<OpenRouterCatalogStore, "lookup" | "snapshot" | "status" | "refreshNow">;
+
 	readonly usagePoller: UsagePoller;
+
 	/** The owner of the declared set and the verdict rows every surface reads. */
 	readonly verdict: Pick<ServerVerdict, "declared" | "rows">;
+
 	/**
 	 * The same composed entry-capabilities resolver activation wires into the provider, so the inspector cannot diverge
 	 * from registration and requests.
 	 */
 	readonly getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined;
+
 	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
 	readonly ua: HeaderValue;
+
 	readonly featureProbes: FeatureProbes;
 }
 
 /** What createIntentEnvironment is built from; the row-bound write suite drives it with fakes for these. */
 export interface IntentEnvironmentDeps {
 	readonly provider: Pick<LiteLLMChatModelProvider, "getServerSnapshots" | "getGroupServer">;
+
 	readonly syncEngine: Pick<ServerSyncEngine, "requestSync" | "resolveDeclaredIdentities">;
+
 	readonly removals: Pick<GroupRemovalStore, "addTombstone" | "retractTombstone" | "removeTombstone" | "hasTombstone">;
+
 	readonly settingsAccess: SettingsAccess;
+
 	readonly secrets: SecretStore;
+
 	readonly logger: Pick<Logger, "log">;
+
 	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
 	readonly ua: HeaderValue;
+
 	readonly featureProbes: FeatureProbes;
+
 	readonly refreshCatalogNow: () => void;
+
 	readonly refreshUsageNow: () => void;
+
 	/** The clipboard behind the copyToClipboard door; vscode.env.clipboard in production, a recorder in tests. */
 	readonly clipboard: Pick<vscode.Clipboard, "writeText">;
 }

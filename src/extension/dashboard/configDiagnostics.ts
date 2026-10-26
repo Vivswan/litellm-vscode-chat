@@ -38,17 +38,21 @@ const CREDENTIAL_PATHS: Record<CredentialRejection["field"], string> = {
 
 export interface ConfigDiagnosticsInput {
 	readonly reader: SettingsReader;
+
 	/** The per-entry acceptance reports (serverSettingReports over the raw setting). */
 	readonly entryReports: readonly ServerEntryReport[];
+
 	readonly declared: readonly Pick<
 		DeclaredServerView,
 		"label" | "modelParameters" | "modelCapabilities" | "rejectedCredentials" | "oauthTokenUrl" | "oauthClientId"
 	>[];
+
 	/**
 	 * The groups the user's configuration hides (removed, or superseded), as the state builder renders them
 	 * (visibleHiddenGroups).
 	 */
 	readonly hiddenGroups: readonly HiddenGroup[];
+
 	/**
 	 * Each entry's observed /model/info key set, by entry label: the evidence the entry-layer advisory hints filter
 	 * against. Server-derived strings: never logged, membership through the Map only.
@@ -57,6 +61,7 @@ export interface ConfigDiagnosticsInput {
 	 *   modelInfo failures, the /models fallback, or pre-discovery)
 	 */
 	readonly observedKeysByEntry?: ReadonlyMap<string, readonly string[]> | undefined;
+
 	/**
 	 * The observed-key union across servers that reported a set: the global records' evidence - a global record applies
 	 * to every server, so a key any server observed is real. Undefined when no server reported a set; then every global

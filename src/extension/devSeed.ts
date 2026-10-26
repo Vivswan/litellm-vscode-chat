@@ -99,7 +99,9 @@ export interface DevSeedEnv extends ServersSettingStore {
 	 * previous run's leftover, never plant a secure-side secret.
 	 */
 	clearApiKey(label: string): Promise<void>;
+
 	readModelRecords(kind: DevSeedRecordKind): unknown;
+
 	writeModelRecords(kind: DevSeedRecordKind, value: Readonly<Record<string, unknown>>): Thenable<void>;
 }
 

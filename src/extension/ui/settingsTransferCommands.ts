@@ -64,32 +64,44 @@ const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 
 /** The preview modal's list caps: modal detail space is bounded. */
 const PREVIEW_KEY_CAP = 8;
+
 const PREVIEW_REMARK_CAP = 5;
 
 /** What the import preview modal states; lists arrive pre-capped, the counts carry the totals. */
 export interface ImportPreviewSummary {
 	/** Non-servers keys the import writes. */
 	readonly settingCount: number;
+
 	/** The first settingCount keys, capped at PREVIEW_KEY_CAP. */
 	readonly settingKeys: readonly string[];
+
 	/** Kept server entries in the file (collisions included). */
 	readonly serverCount: number;
+
 	/** Incoming labels already present in the current setting. */
 	readonly collisionCount: number;
+
 	/** Collisions whose overwrite changes connection fields, which the synced group cannot pick up in place. */
 	readonly connectionChangedCount: number;
+
 	/** Inline secret values that will move into VS Code secret storage. */
 	readonly secretFieldCount: number;
+
 	/** The dropped entries' sentences, capped at PREVIEW_REMARK_CAP. */
 	readonly droppedLines: readonly string[];
+
 	/** Total dropped entries before the cap. */
 	readonly droppedCount: number;
+
 	/** The kept entries' note sentences, capped at PREVIEW_REMARK_CAP. */
 	readonly noteLines: readonly string[];
+
 	/** Total notes before the cap. */
 	readonly noteCount: number;
+
 	/** Keys the scalar gate skips, in file order: each is named in the preview with the contract it failed. */
 	readonly skippedKeys: readonly string[];
+
 	/** File keys outside the setting vocabulary, ignored. */
 	readonly unknownKeyCount: number;
 }
@@ -98,12 +110,16 @@ export interface ImportPreviewSummary {
 export interface SettingsTransferPrompts {
 	/** The import preview modal; false on dismissal (silent abort, nothing written). */
 	confirmImport(summary: ImportPreviewSummary): Promise<boolean>;
+
 	/** One label's collision prompt; undefined on dismissal aborts the whole import. */
 	resolveCollision(label: string, connectionChanged: boolean): Promise<"overwrite" | "skip" | "rename" | undefined>;
+
 	/** The rename input box; validate returns a localized error or undefined; undefined result aborts the import. */
 	askRenamedLabel(suggested: string, validate: (candidate: string) => string | undefined): Promise<string | undefined>;
+
 	/** The undo confirmation modal, stating the snapshot time; false on dismissal (silent abort). */
 	confirmUndo(snapshotAt: string): Promise<boolean>;
+
 	/**
 	 * Toasts; every user-facing outcome goes through here so tests can record it. Settles when the toast closes, which
 	 * a toast with a button never does on its own, so the flows show one through `toast` and never await it.
@@ -114,8 +130,11 @@ export interface SettingsTransferPrompts {
 /** The flows' whole world: settings access, secret storage, dialogs, files, sync, and the English log. */
 export interface SettingsTransferEnv {
 	readonly settings: SettingsAccess;
+
 	readonly prompts: SettingsTransferPrompts;
+
 	readServerSecrets(label: string): Promise<StoredSecretsRecord>;
+
 	/**
 	 * Write one field; undefined deletes it. `owner` is the ownership stamp for a written value; see
 	 * updateServerSecret.
@@ -126,23 +145,38 @@ export interface SettingsTransferEnv {
 		value: string | undefined,
 		owner: SecretOwner | undefined
 	): Promise<void>;
+
 	deleteServerSecrets(label: string): Promise<void>;
+
 	/** The one pre-import snapshot slot (SecretStorage; the snapshot is secret-capable whole). */
 	readSnapshotSlot(): Promise<string | undefined>;
+
 	writeSnapshotSlot(serialized: string): Promise<void>;
+
 	clearSnapshotSlot(): Promise<void>;
+
 	/** `title` is the credentials warning; macOS shows no title on save dialogs, so the notice before it carries it. */
 	showSaveDialog(defaultUri: vscode.Uri, title: string): Promise<vscode.Uri | undefined>;
+
 	showOpenDialog(): Promise<vscode.Uri | undefined>;
+
 	fileSize(uri: vscode.Uri): Promise<number>;
+
 	readFile(uri: vscode.Uri): Promise<Uint8Array>;
+
 	writeFile(uri: vscode.Uri, contents: Uint8Array): Promise<void>;
+
 	revealFile(uri: vscode.Uri): Promise<void>;
+
 	homeDir(): string;
+
 	readonly extensionVersion: string;
+
 	requestServerSync(): void;
+
 	/** Runs the flow's writes as one unit to the engine (ServerSyncEngine.withHold); the pass they earned follows. */
 	withServerSyncHold<T>(run: () => Promise<T>): Promise<T>;
+
 	/** English-only classification log; counts and classifications, never values, paths, or secret material. */
 	log(message: string, data?: Record<string, unknown>): void;
 }

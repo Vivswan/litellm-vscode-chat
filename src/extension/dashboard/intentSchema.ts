@@ -319,7 +319,9 @@ export type ParsedDashboardRequest =
 	| { readonly success: true; readonly request: RpcRequestType }
 	| {
 			readonly success: false;
+
 			readonly issues: readonly DashboardParseIssue[];
+
 			/**
 			 * Present when the envelope frame itself parsed (kind, bounded id, a table method) and only the payload
 			 * failed its method schema: enough identity for the panel to answer with a correlated refusal instead of

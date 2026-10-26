@@ -144,13 +144,18 @@ export type FeatureProbes = Readonly<
 export interface IntentEnvironment extends ServersSettingStore {
 	/** Write one litellm-vscode-chat.* setting by key; the servers array is no key here. */
 	updateSetting(key: KeyedSettingId, value: unknown): Promise<void>;
+
 	/** Remove one keyed setting from the highest-precedence scope that sets it (resolveConfiguredScope). */
 	removeSetting(key: KeyedSettingId): Promise<void>;
+
 	/** Read one litellm-vscode-chat.* setting's effective (scope-merged) value, reflecting landed writes. */
 	readSetting(key: string): unknown;
+
 	executeCommand(command: string, ...args: readonly unknown[]): Thenable<unknown>;
+
 	/** The clipboard door (copyToClipboard): it masks the text, so the composed diagnostics arrive here whole. */
 	writeClipboard(text: string): Thenable<void>;
+
 	/**
 	 * Write one secure-side secret field for a label; undefined deletes it. `owner` is the ownership stamp - the
 	 * destination the value is being paired with (secretDestination), or undefined only when deleting or restoring a
@@ -164,15 +169,19 @@ export interface IntentEnvironment extends ServersSettingStore {
 		value: string | undefined,
 		owner: SecretOwner | undefined
 	): Promise<void>;
+
 	/**
 	 * A label's secure-side blob with its ownership stamps; read for pairing validation and write rollback, never
 	 * logged.
 	 */
 	readServerSecrets(label: string): Promise<StoredSecretsRecord>;
+
 	/** Delete a label's whole secure-side blob (the cleanup half of a rename). */
 	deleteServerSecrets(label: string): Promise<void>;
+
 	/** Ask the sync engine for a pass; secure-only changes fire no configuration event. */
 	requestServerSync(): void;
+
 	/**
 	 * The live credentials of the external group an adopt intent names by its opaque row handle, with the raw
 	 * servers setting the resolution is consistent with (ServerSyncEngine.resolveDeclaredIdentities), never the
@@ -180,39 +189,50 @@ export interface IntentEnvironment extends ServersSettingStore {
 	 * the setting or SecretStorage and are never logged.
 	 */
 	resolveAdoptionCredentials(baseUrl: string, sourceHandle: string): Promise<AdoptionResolution>;
+
 	/**
 	 * The identity (status label and base URL) a hide intent's handle names, with the setting it was judged against;
 	 * same resolution rules, no credential material.
 	 */
 	resolveExternalGroup(baseUrl: string, sourceHandle: string): Promise<ExternalGroupResolution>;
+
 	/** Record one removed-group tombstone; the group answers with no models until unhidden. */
 	hideGroup(identity: TombstoneIdentity): Promise<TombstoneRecording>;
+
 	/** Take back exactly the record a hide added; the identity's other tombstones stand. */
 	retractHide(identity: TombstoneIdentity): Promise<void>;
+
 	/** Clear the tombstones shown under this identity. Resolves false when none matched. */
 	unhideGroup(identity: { label: string; baseUrl: string }): Promise<boolean>;
+
 	/** Whether a removed-group tombstone is shown under this identity right now. */
 	isGroupHidden(identity: { label: string; baseUrl: string }): boolean;
+
 	/**
 	 * Open the host's Manage Language Models editor searched for `search` (a group name); its Delete action is the one
 	 * real group removal. Resolves false on a host without the editor's command.
 	 */
 	openManageLanguageModels(search: string): Promise<boolean>;
+
 	/** Classification-only logging (the buffer feeds public issue reports); never a payload value. */
 	log(message: string, data?: unknown): void;
+
 	/**
 	 * Read-only by contract - no settings write, no group or status mutation, no caching across probes - bounded by
 	 * the discovery.timeout setting, and the connection's credential values are never logged. Resolves to the
 	 * discovered raw model IDs; throws the transport's classified error.
 	 */
 	probeDraftConnection(connection: DraftConnection): Promise<readonly string[]>;
+
 	/** The per-feature model probes; see FeatureProbes. */
 	featureProbes: FeatureProbes;
+
 	/**
 	 * Kick one immediate OpenRouter catalog refresh. Fire-and-forget: the wiring re-pushes state when the refresh
 	 * settles, and the row status carries the outcome.
 	 */
 	refreshCatalogNow(): void;
+
 	/** Kick one immediate usage refresh; same fire-and-forget contract. */
 	refreshUsageNow(): void;
 }

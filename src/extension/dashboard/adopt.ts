@@ -40,6 +40,7 @@ export type AdoptableGroupCredentials = OptionalEntryFields;
  */
 export interface AdoptionResolution {
 	readonly source: AdoptionSource | undefined;
+
 	/** The raw servers setting value the resolution is consistent with (ServerSyncEngine.resolveDeclaredIdentities). */
 	readonly setting: unknown;
 }
@@ -56,6 +57,7 @@ export interface AdoptionSource {
 export interface ExternalGroupResolution {
 	/** Undefined when nothing still-external matches the handle. */
 	readonly identity: TombstoneIdentity | undefined;
+
 	readonly setting: unknown;
 }
 

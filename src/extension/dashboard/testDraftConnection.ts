@@ -28,23 +28,31 @@ import { planResolves, readKeepSources, requireEntryShownByForm, secretPlans } f
 /** Values exist extension-side only; this shape is never logged. */
 export interface DraftConnection {
 	readonly baseUrl: string;
+
 	/** The draft's trimmed label, when it has one: what discovery's endpoint-declaration hints may name. */
 	readonly label?: string | undefined;
+
 	/**
 	 * The draft's apiVersion override; "" is a real value (append nothing). Absent when the draft leaves the mode on
 	 * auto: the probe then tests the auto rule, exactly what a save without the field would use.
 	 */
 	readonly apiVersion?: string | undefined;
+
 	/** Empty string for keyless drafts, matching ServerWithKey's convention. */
 	readonly apiKey: HeaderValue | "";
+
 	readonly oauth?: OAuthConfig | undefined;
+
 	readonly virtualKey?: VirtualKeyConfig | undefined;
+
 	readonly headers?: Readonly<Record<string, HeaderValue>> | undefined;
+
 	/**
 	 * The draft's expectedFailures in discovery's per-endpoint shape: expected endpoints probe with a single attempt,
 	 * like production.
 	 */
 	readonly expected?: ExpectedDiscoveryFailures | undefined;
+
 	readonly includeModes?: readonly NonChatMode[] | undefined;
 }
 

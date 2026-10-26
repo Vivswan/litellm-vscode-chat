@@ -9,7 +9,9 @@ import { GroupRemovalStore } from "../servers/groupRemovals";
 
 export interface StorageWiring {
 	readonly fingerprintSalt: FingerprintSaltSession;
+
 	readonly groupRemovals: GroupRemovalStore;
+
 	/**
 	 * The provider must not see half-migrated settings or storage, so activate() awaits this before
 	 * registerLanguageModelChatProvider. Best-effort: a failed migration logs and retries on the next activation.

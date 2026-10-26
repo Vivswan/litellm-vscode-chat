@@ -152,7 +152,9 @@ const NO_SERVERS_GRACE_MS = 15000;
  */
 export class Notifier implements vscode.Disposable {
 	private _lastNotifiedSignature: string | undefined;
+
 	private readonly pendingClaim: PendingCall;
+
 	private lastStatus: AggregatedStatus | undefined;
 
 	constructor(

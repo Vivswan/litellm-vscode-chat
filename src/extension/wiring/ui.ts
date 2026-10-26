@@ -135,14 +135,22 @@ export function wireUiCommands(
 	logger: Logger,
 	deps: {
 		provider: LiteLLMChatModelProvider;
+
 		statusBar: StatusBarManager;
+
 		outputChannel: vscode.OutputChannel;
+
 		syncEngine: ServerSyncEngine;
+
 		/** The owner's declared set (ServerVerdict.declared); the issue report judges configuration presence from it. */
 		getDeclared: () => readonly DeclaredServerView[];
+
 		issueReporter: IssueReporter;
+
 		extVersion: string;
+
 		vscodeVersion: string;
+
 		/** The gate the status bar and notifier share; the two refresh commands read it when nothing was probed. */
 		hasConfiguredServers: () => boolean;
 	}

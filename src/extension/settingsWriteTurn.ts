@@ -40,6 +40,7 @@ export function settingValueOf(write: ServersSettingWrite): unknown {
 export interface ServersSettingStore {
 	/** The value a write would replace. */
 	readServersSetting(): unknown;
+
 	/** Write the value a turn minted; no other value is writable. */
 	writeServersSetting(write: ServersSettingWrite): Promise<void>;
 }

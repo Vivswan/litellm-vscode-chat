@@ -49,19 +49,27 @@ const REFRESH_FETCH_TIMEOUT_MS = 30_000;
 
 export interface OpenRouterCatalogStoreOptions {
 	readonly extensionUri: vscode.Uri;
+
 	readonly globalStorageUri: vscode.Uri;
+
 	readonly globalState: vscode.Memento;
+
 	readonly logger: Logger;
+
 	/** The opt-out setting, read at decision time so a toggle needs no rebuild. */
 	readonly isEnabled: () => boolean;
+
 	/**
 	 * Injectable network seam; the default GETs OPENROUTER_MODELS_URL and returns the parsed JSON payload. A failure
 	 * retries only in the SDK's error vocabulary (see fetchOpenRouterCatalog); anything else is settled.
 	 */
 	readonly fetchCatalog?: (signal: AbortSignal) => Promise<unknown>;
+
 	/** Schedules the refreshes (weekly, daily on failure); the retry backoff within one refresh is `sleep`. */
 	readonly timer?: Timer;
+
 	readonly clock?: Clock;
+
 	/** The retry backoff between failed fetch attempts: the real timer unless a test passes a zero sleep. */
 	readonly sleep?: BackoffSleep;
 }
@@ -69,16 +77,20 @@ export interface OpenRouterCatalogStoreOptions {
 export interface OpenRouterCatalogStore extends vscode.Disposable {
 	/** The provider-injected view; stable identity, always answering from the current snapshot. */
 	readonly lookup: CapabilityCatalogLookup;
-	/**
-	 * Fires after a successful refresh swaps in new data (wire to notifyModelInformationChanged + dashboard re-push).
-	 */
+
+	/** Fires after a successful refresh swaps in new data (wire to notifyModelInformationChanged + dashboard re-push). */
 	readonly onDidUpdate: vscode.Event<void>;
+
 	snapshot(): OpenRouterCatalogSnapshot;
+
 	status(): OpenRouterCatalogStatus;
+
 	/** Load cache -> bundled -> empty and schedule the periodic refresh. Never throws. */
 	initialize(): Promise<void>;
+
 	/** Re-read isEnabled after a setting change: cancels the pending refresh or schedules one. */
 	applyEnabledSetting(): void;
+
 	/** Refresh immediately (deduplicated with any refresh already in flight). Never rejects. */
 	refreshNow(): Promise<void>;
 }
@@ -89,9 +101,12 @@ export interface OpenRouterCatalogStore extends vscode.Disposable {
  */
 export interface OpenRouterCatalogStatus {
 	readonly modelCount: number;
+
 	/** Epoch ms of the last successful, persisted refresh; undefined when only the bundled snapshot serves. */
 	readonly lastSuccessAt: number | undefined;
+
 	readonly lastFailure?: { readonly classification: CatalogRefreshFailure; readonly at: number } | undefined;
+
 	/** Whether a refresh is in flight right now (the row's Refresh button disables on it). */
 	readonly refreshing: boolean;
 }
@@ -169,20 +184,31 @@ async function fetchOpenRouterCatalog(signal: AbortSignal): Promise<unknown> {
 
 class Store implements OpenRouterCatalogStore {
 	readonly lookup: CapabilityCatalogLookup;
+
 	readonly onDidUpdate: vscode.Event<void>;
 
 	private readonly updateEmitter = new vscode.EventEmitter<void>();
+
 	private readonly fetchCatalog: (signal: AbortSignal) => Promise<unknown>;
+
 	private readonly timer: Timer;
+
 	private readonly clock: Clock;
+
 	private readonly sleep: BackoffSleep;
+
 	private readonly abort = new AbortController();
 
 	private current = EMPTY_CATALOG_SNAPSHOT;
+
 	private inner = createCatalogLookup(EMPTY_CATALOG_SNAPSHOT, { implicitLookup: true });
+
 	private readonly scheduled: PendingCall;
+
 	private inFlight: Promise<void> | undefined;
+
 	private disposed = false;
+
 	/** The last refresh failure, standing until the next success; see OpenRouterCatalogStatus. */
 	private lastFailure: { classification: CatalogRefreshFailure; at: number } | undefined;
 

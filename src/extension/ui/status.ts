@@ -31,27 +31,37 @@ export type ConnectionStatus =
 	| { state: "connecting"; attention: boolean; lastChecked?: string | undefined }
 	| {
 			state: "connected" | "degraded";
+
 			totalModels: number;
+
 			serverStatuses: readonly ServerStatus[];
+
 			/**
 			 * The zero-model judgment made once over the owner's verdict rows when this connected status was judged;
 			 * the renderer and the command toasts present it, never re-deriving it. A degraded status never carries one.
 			 */
 			zeroModel?: ZeroModelJudgment | undefined;
+
 			lastChecked?: string | undefined;
 	  }
 	| {
 			state: "error";
+
 			/**
 			 * The headline's key (shared/failureCause.ts): the first unexpected failure's cause, or misconfiguredEntry
 			 * when every entry the parser refused and nothing reports. Rendered at display time, never stored as text.
 			 */
 			cause: FailureCause;
+
 			/** The failing server's URL, where the cause's text names it. */
 			baseUrl?: string | undefined;
+
 			logSafeError: LogSafeErrorText;
+
 			totalModels?: number | undefined;
+
 			serverStatuses?: readonly ServerStatus[] | undefined;
+
 			lastChecked?: string | undefined;
 	  };
 
@@ -554,9 +564,13 @@ export interface StatusItemView {
 
 export interface StatusItemLike extends vscode.Disposable {
 	readonly command: string | vscode.Command | undefined;
+
 	render(view: StatusItemView): void;
+
 	show(): void;
+
 	hide(): void;
+
 	/**
 	 * Fires once when the item is disposed, including by the slot registry's self-heal, where the OWNER must tear down
 	 * too, not just the visible half. Optional so test fakes stay one-liners.
@@ -598,9 +612,13 @@ export class StatusItem implements StatusItemLike {
 
 	constructor(options: {
 		readonly slot: StatusItemSlot;
+
 		readonly alignment: vscode.StatusBarAlignment;
+
 		readonly priority: number;
+
 		readonly command: string | vscode.Command;
+
 		/** Classification-only logging (English); reports a replaced slot. */
 		readonly log?: (message: string) => void;
 	}) {
@@ -676,7 +694,9 @@ export class StatusItem implements StatusItemLike {
 
 export class StatusBarManager {
 	private _connectionStatus: ConnectionStatus = { state: "not-configured" };
+
 	private readonly _statusBarItem: StatusItemLike;
+
 	/**
 	 * The attention verdict of the last connecting status this manager set, held across a transient "loading" overwrite
 	 * (the connection test) and cleared by every other state, so a degraded connecting resumes degraded after the test
@@ -685,18 +705,21 @@ export class StatusBarManager {
 	 *   Session state only -> never persisted
 	 */
 	private lastConnectingAttention = false;
+
 	/**
 	 * The last provider report, pre-overlay, so refreshFromSync can re-render with fresh declared views: sync outcomes
 	 * change the overlay without any provider report. Session state; the empty report stands in before the first
 	 * callback, exactly what the groupless cold-start refresh sends.
 	 */
 	private lastAggregated: AggregatedStatus | undefined;
+
 	/**
 	 * The overlaid window last judged, for refreshFromSync's no-change skip. A JSON rendering is deterministic here:
 	 * both sides serialize the same base status objects through the same overlay construction, so equal worlds
 	 * stringify equal.
 	 */
 	private lastJudgedOverlay: string | undefined;
+
 	/**
 	 * True while the status is still the constructor's restore-less connecting seed (a configured install whose blob
 	 * failed the versioned restore). The seed is presentation, not evidence: the empty-report escalation must not count

@@ -70,7 +70,9 @@ export interface SettingsSnapshotReader {
 export interface KeyedSettingsWriters {
 	/** Write the key's user-scope value; undefined removes it there. */
 	writeGlobal(key: KeyedSettingId, value: unknown): Promise<void>;
+
 	updateAuto(key: KeyedSettingId, value: unknown): Promise<void>;
+
 	removeConfigured(key: KeyedSettingId): Promise<void>;
 }
 
@@ -84,8 +86,11 @@ export interface KeyedSettingsWriters {
  */
 export interface SettingsAccess extends ServersSettingStore, KeyedSettingsWriters {
 	readGlobal(key: string): unknown;
+
 	readEffective(key: string): unknown;
+
 	inspect(key: string): SettingsInspection | undefined;
+
 	/**
 	 * Several writes as one turn, for a flow that judges its plan against a same-turn read first (the settings import
 	 * and its undo). `apply` writes through the un-turned writers it is handed and mints servers values with `turn`.
@@ -93,6 +98,7 @@ export interface SettingsAccess extends ServersSettingStore, KeyedSettingsWriter
 	writeTurn<T>(
 		apply: (writers: KeyedSettingsWriters & ServersSettingStore, turn: SettingsWriteTurn) => Promise<T>
 	): Promise<T>;
+
 	/** All reads served from one snapshot captured here, so a build over many reads sees one configuration version. */
 	snapshotReader(): SettingsSnapshotReader;
 }

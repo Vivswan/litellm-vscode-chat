@@ -137,12 +137,16 @@ export function secretPlans(
 export interface KeepSources {
 	/** The entry being replaced, so a rejected same-label sibling cannot shadow it. */
 	readonly accepted: { readonly index: number; readonly entry: DeclaredServer } | undefined;
+
 	/** The shown label's blob, admitted field by field through the ownership check; keeps read this alone. */
 	readonly storedOld: Partial<Readonly<Record<SecretFieldId, string>>>;
+
 	/** That blob as stored, for the save's overwrite and rollback bookkeeping. */
 	readonly storedOldRecord: StoredSecretsRecord;
+
 	/** The blob already under the draft's label (on a rename, a retired label's leftover). */
 	readonly storedNewRecord: StoredSecretsRecord;
+
 	/** Whether a rename will copy the old label's blob (its owned view holds anything). */
 	readonly willCopy: boolean;
 }

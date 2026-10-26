@@ -15,9 +15,13 @@ const COMPACT_STACK_LINES = 8;
 
 export interface ErrorContext {
 	source: string;
+
 	message: string;
+
 	stack?: string | undefined;
+
 	timestamp: string;
+
 	/**
 	 * Classification only - enum ids and a status number, never message text - so triage can read the cause without
 	 * the body.
@@ -28,24 +32,35 @@ export interface ErrorContext {
 /** One feature's report facts: the opt-in and whether a model ref is set - flags only, never which model or label. */
 interface FeatureFlagFacts {
 	readonly enabled: boolean;
+
 	/** Absent for features with no model key (the chat participant uses the request's own model). */
 	readonly modelConfigured?: boolean | undefined;
 }
 
 export interface DiagnosticsSnapshot {
 	extensionVersion: string;
+
 	vscodeVersion: string;
+
 	platform: string;
+
 	connectionState: string;
+
 	modelCount?: number | undefined;
+
 	apiKeyConfigured: boolean | "unknown";
+
 	baseUrlConfigured: boolean;
+
 	featureFlags: Readonly<Record<FeatureId, FeatureFlagFacts>>;
+
 	/**
 	 *   the MCP opt-in is a per-entry field rather than a FeatureId -> it cannot ride featureFlags
 	 */
 	mcpEntryCount: number;
+
 	latestError?: ErrorContext | undefined;
+
 	recentLogs: string[];
 }
 
@@ -95,6 +110,7 @@ function apiKeyConfiguredText(snapshot: DiagnosticsSnapshot): string {
 
 export interface LastIssueReport {
 	fingerprint: string;
+
 	/** Epoch milliseconds. */
 	openedAt: number;
 }

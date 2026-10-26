@@ -12,9 +12,12 @@ export interface LoadedTokenizer {
 export interface TokenCountingDeps {
 	/** Fixed English text plus enum-ish data only: both lines feed the issue-report buffer. */
 	readonly log: (message: string, data?: unknown) => void;
+
 	readonly logError: (message: string, error: unknown) => void;
+
 	/** The host UI language (vscode.env.language); a non-English UI preloads o200k_base in auto mode. */
 	readonly uiLanguage: string;
+
 	readonly loadEncoding?: (encoding: TokenizerEncoding) => Promise<LoadedTokenizer>;
 }
 

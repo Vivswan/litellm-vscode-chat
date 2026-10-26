@@ -38,13 +38,20 @@ export function wireDashboard(
 	logger: Logger,
 	deps: {
 		provider: LiteLLMChatModelProvider;
+
 		syncEngine: ServerSyncEngine;
+
 		groupRemovals: GroupRemovalStore;
+
 		catalogStore: OpenRouterCatalogStore;
+
 		usagePoller: UsagePoller;
+
 		/** The one User-Agent activation composes, for the panel's draft probe. */
 		ua: HeaderValue;
+
 		featureProbes: FeatureProbes;
+
 		/** The owner of the declared set and the verdict rows the hero classifies. */
 		verdict: Pick<ServerVerdict, "declared" | "rows">;
 	}

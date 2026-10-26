@@ -34,7 +34,9 @@ const USAGE_POLL_INTERVAL_SETTING_ID = "usage.pollInterval" satisfies NumberSett
 
 export interface ServersWiring {
 	readonly syncEngine: ServerSyncEngine;
+
 	readonly usagePoller: UsagePoller;
+
 	/** The one owner of the declared set and the verdict rows (status bar, notifier, dashboard, issue report). */
 	readonly verdict: ServerVerdict;
 }
@@ -46,13 +48,19 @@ export function wireServers(
 	userAgent: HeaderValue,
 	deps: {
 		fingerprintSalt: FingerprintSaltSession;
+
 		groupRemovals: GroupRemovalStore;
+
 		catalogStore: OpenRouterCatalogStore;
+
 		notifyModelsChanged: DebouncedAction;
+
 		/** The engine's live ownership evidence: which base URLs the host is serving each labeled group at. */
 		observedGroupBaseUrls: (label: string) => readonly string[];
+
 		/** The groups the host serves now; see ServerSyncEnv.observedSnapshots. */
 		observedSnapshots: () => readonly ServerModelsSnapshot[];
+
 		/** Fires when a group enters the provider's status window; a pass re-runs so the evidence is used. */
 		onDidObserveGroup: vscode.Event<void>;
 	}

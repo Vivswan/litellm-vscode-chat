@@ -157,21 +157,32 @@ export function renderUsageStatus(input: UsageStatusInput): UsageStatusView | "h
 
 export interface UsageStatusBarOptions {
 	readonly store: UsageStore;
+
 	readonly item: StatusItemLike;
+
 	/** Read at render time so a settings edit needs no rebuild. */
 	readonly getMode: () => UsageStatusBarMode;
+
 	readonly getThresholds: () => readonly number[];
+
 	readonly getPollIntervalMs: () => number;
+
 	readonly getPollingOffWindowMs: () => number;
+
 	readonly getCurrencySymbol: () => string;
+
 	readonly clock?: Clock;
+
 	readonly timer?: Timer;
 }
 
 export class UsageStatusBar implements vscode.Disposable {
 	private readonly subscription: { dispose(): void };
+
 	private readonly clock: Clock;
+
 	private readonly staleEdge: PendingCall;
+
 	private disposed = false;
 
 	constructor(private readonly options: UsageStatusBarOptions) {

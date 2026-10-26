@@ -8,14 +8,21 @@ import type { UiAccent, UiTheme } from "../../shared/config/settingSpec";
 export interface DashboardHtmlOptions {
 	/** The webview's CSP source (webview.cspSource). */
 	readonly cspSource: string;
+
 	readonly nonce: string;
+
 	readonly scriptUri: string;
+
 	readonly styleUri: string;
+
 	/** vscode.env.language, rendered as the document's lang attribute. */
 	readonly language: string;
+
 	/** The host-resolved l10n bundle (vscode.l10n.bundle) for @vscode/l10n; undefined under English. */
 	readonly l10nBundle: Readonly<Record<string, string>> | undefined;
+
 	readonly theme: UiTheme;
+
 	readonly accent: UiAccent;
 }
 

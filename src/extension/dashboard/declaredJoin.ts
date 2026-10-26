@@ -52,10 +52,13 @@ type JoinPass = "identity" | "connection" | "label-url";
 
 export interface GroupOwnershipInputs {
 	readonly labeled: readonly LabeledSnapshot[];
+
 	/** The accepted entries, with the join keys their configuration produces. */
 	readonly declared: readonly DeclaredGroupIdentity[];
+
 	/** The labels the setting carries outside an accepted entry (rejectedCarrierLabels); join-only readers omit it. */
 	readonly carriers?: readonly string[];
+
 	/** The declared labels whose secret value a group carries, by server ID (secretValueHolders). */
 	readonly secretHolders?: ReadonlyMap<string, readonly string[]>;
 }
@@ -63,6 +66,7 @@ export interface GroupOwnershipInputs {
 /** A live group a declared label left behind: not external, never a credential source. */
 export interface LegacySnapshot {
 	readonly labeled: LabeledSnapshot;
+
 	/** The declared label the group belongs to. */
 	readonly entryLabel: string;
 }
@@ -70,8 +74,10 @@ export interface LegacySnapshot {
 export interface GroupOwnership {
 	/** The labeled snapshot each declared entry matched, with the pass that matched it, by declared index. */
 	readonly matchedByDeclared: ReadonlyMap<number, { readonly entry: LabeledSnapshot; readonly pass: JoinPass }>;
+
 	/** Labeled snapshots no declared label owns: the external rows. */
 	readonly external: readonly LabeledSnapshot[];
+
 	readonly legacy: readonly LegacySnapshot[];
 }
 
@@ -85,7 +91,9 @@ export function resolveGroupOwnership(inputs: GroupOwnershipInputs): GroupOwners
 	const matchedByDeclared = new Map<number, { entry: LabeledSnapshot; pass: JoinPass }>();
 	const passes: readonly {
 		pass: JoinPass;
+
 		match: (snapshot: ServerModelsSnapshot, view: DeclaredGroupIdentity) => boolean;
+
 		/** A shared pass lets several entries claim one snapshot; only equal join keys can collide. */
 		shared?: boolean;
 	}[] = [

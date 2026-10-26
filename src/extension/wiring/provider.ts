@@ -31,14 +31,18 @@ const CONFIG_CHANGE_DEBOUNCE_MS = 400;
 
 export interface ProviderWiring {
 	readonly catalogStore: OpenRouterCatalogStore;
+
 	readonly provider: LiteLLMChatModelProvider;
+
 	/**
 	 * A throw must not escape into the timer.
 	 *
 	 *   One debounced notify -> shared by every configuration-change branch
 	 */
 	readonly notifyModelsChanged: DebouncedAction;
+
 	readonly hasDeclaredServers: () => boolean;
+
 	readonly hasConfiguredServers: () => boolean;
 }
 

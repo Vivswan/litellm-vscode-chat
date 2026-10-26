@@ -23,6 +23,7 @@ export type FingerprintSaltState = "durable" | "session-only";
 export interface FingerprintSaltSession {
 	/** The current state without touching the keychain; downgrade-only over time. */
 	state(): FingerprintSaltState;
+
 	/**
 	 * Call immediately before EACH act a later session must recognize, not once per pass: a mutation detected mid-batch
 	 * must stop the remaining writes. Never throws; an unreadable or mismatched store downgrades to session-only.
@@ -32,7 +33,9 @@ export interface FingerprintSaltSession {
 
 export interface SaltCreationTimings {
 	pollIntervalMs: number;
+
 	pollTimeoutMs: number;
+
 	/**
 	 * The finding session still degrades - never a second salt on a guess - but removes the marker for the NEXT
 	 * session.

@@ -110,6 +110,7 @@ export type { SettingsInspection } from "../settingsAccess";
 export interface SettingsReader {
 	/** The effective value for `key`, as WorkspaceConfiguration.get returns it. */
 	get(key: string): unknown;
+
 	/** Per-scope values for `key`, as WorkspaceConfiguration.inspect reports them. */
 	inspect(key: string): SettingsInspection | undefined;
 }
@@ -652,30 +653,42 @@ export type EntryParametersResolution = {
 
 export interface DashboardStateInputs {
 	readonly snapshots: readonly ServerModelsSnapshot[];
+
 	readonly reader: SettingsReader;
+
 	readonly declared?: DeclaredServersInput;
+
 	/** The per-entry acceptance reports (serverSettingReports): the Misconfigured rows and the ownership's carriers. */
 	readonly entryReports?: readonly ServerEntryReport[];
+
 	/** The declared labels whose secret value each live group carries, by server ID (secretValueHolders). */
 	readonly secretHolders?: ReadonlyMap<string, readonly string[]>;
+
 	readonly removedGroups?: RemovedGroupsView;
+
 	/**
 	 * Whether a tombstoned identity's group was observed alive at some point this session (suppressed groups still
 	 * report, deleted groups never do). Gates the hidden-groups line only: offering Unhide for a tombstone whose group
 	 * the host no longer holds would reference nothing.
 	 */
 	readonly wasGroupObserved?: (tombstone: TombstoneIdentity) => boolean;
+
 	/**
 	 * Like wasGroupObserved, but only for observations of a LABELED group at the identity (its configuration carried
 	 * the entry label): what lets a tombstone be classified superseded once its entry declares another URL. The default
 	 * observes nothing, so tombstones read as removed.
 	 */
 	readonly wasLabeledGroupObserved?: (tombstone: TombstoneIdentity) => boolean;
+
 	readonly catalog?: CatalogStatusView;
+
 	readonly usage?: DashboardUsage;
+
 	readonly diagnostics?: readonly ConfigDiagnosticView[];
+
 	/** The features whose model row offers a host-side probe; defaults to none (no Test buttons). */
 	readonly featureProbes?: readonly FeatureModelId[];
+
 	/** The verdict rows their owner publishes (ServerVerdict.rows): the hero and the paste line classify these. */
 	readonly verdictRows?: readonly VerdictRow[];
 }
@@ -706,11 +719,15 @@ function supersededLeftovers(ownership: GroupOwnership, declared: readonly Decla
 
 interface HiddenGroupsInputs {
 	readonly removedGroups: RemovedGroupsView;
+
 	readonly declared: readonly DeclaredServerView[];
+
 	/** The live leftovers the ownership hides (supersededLeftovers). */
 	readonly superseded: readonly HiddenGroup[];
+
 	/** See DashboardStateInputs.wasGroupObserved. */
 	readonly wasGroupObserved: (tombstone: TombstoneIdentity) => boolean;
+
 	/** See DashboardStateInputs.wasLabeledGroupObserved. */
 	readonly wasLabeledGroupObserved: (tombstone: TombstoneIdentity) => boolean;
 }
@@ -867,10 +884,14 @@ export type EntryCapabilitiesRecord = Readonly<Record<string, Readonly<Record<st
 
 export interface ModelCapabilitiesQuery {
 	readonly snapshots: readonly ServerModelsSnapshot[];
+
 	readonly reader: SettingsReader;
+
 	readonly resolveEntryCapabilities: (serverId: string) => EntryCapabilitiesRecord | undefined;
+
 	/** The OpenRouter catalog as in-memory lookup; EMPTY_CATALOG_LOOKUP when no snapshot exists. */
 	readonly catalog: CapabilityCatalogLookup;
+
 	/**
 	 * The provider's shared flat resolution table, so the inspector reads the SAME cache requests and registration use.
 	 * Absent, the responder runs the same pure walk uncached (tests, headless callers).
@@ -928,8 +949,11 @@ export function resolveDashboardModelCapabilities(
 
 export interface ModelParametersQuery {
 	readonly snapshots: readonly ServerModelsSnapshot[];
+
 	readonly reader: SettingsReader;
+
 	readonly resolveEntryParameters: (serverId: string) => EntryParametersResolution | undefined;
+
 	/** The provider's shared flat resolution table; absent, the responder runs the same pure walk uncached. */
 	readonly resolution?: ModelResolutionTable | undefined;
 }
