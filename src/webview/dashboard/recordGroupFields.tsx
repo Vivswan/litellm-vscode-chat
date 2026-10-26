@@ -739,7 +739,7 @@ export function SuggestInput({
 	/** Sets aria-invalid; the input primitive paints it. */
 	invalid: boolean;
 
-	/** The input's placeholder. */
+	/** The owning editor's example in the field's vocabulary ("Parameter, e.g. temperature"); the key editors, the matcher line, and the add-field popover each pass one. */
 	placeholder?: string | undefined;
 
 	/** The accessible name where the visible label is a column head, not a wired <label>. */

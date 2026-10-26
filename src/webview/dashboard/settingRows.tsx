@@ -1025,7 +1025,7 @@ export function SettingGroup({
 	/** The group's boolean rows, in order. */
 	booleans: readonly BooleanSettingId[];
 
-	/** The settings slice the rows read (SettingsSlice). */
+	/** The push's settings, passed whole by both pages; a row reads its value and configuring scope here, and a number row's draft resyncs when either moves. */
 	settings: SettingsSlice;
 
 	/** The filter's verdict per row; a group whose rows are all hidden collapses whole, heading included. */
