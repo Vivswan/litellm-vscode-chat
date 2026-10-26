@@ -201,15 +201,20 @@ async function resolveGhprApi(
 export interface GhprRegistrar {
 	/** Safe to call repeatedly and concurrently; the last call wins. */
 	apply(): Promise<void>;
+
 	dispose(): void;
 }
 
 export function createGhprRegistrar(deps: {
 	/** Whether the feature currently wants to be registered at all (enabled AND configured). */
 	readonly wanted: () => boolean;
+
 	readonly resolveApi: () => Promise<GitHubPullRequestsApi | undefined>;
+
 	readonly title: () => string;
+
 	readonly provider: () => TitleAndDescriptionProvider;
+
 	readonly log: (message: string, data?: unknown) => void;
 }): GhprRegistrar {
 	let registration: vscode.Disposable | undefined;

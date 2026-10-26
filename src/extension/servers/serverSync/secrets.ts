@@ -260,11 +260,13 @@ export function upgradedStamp(entry: SecretDestinationEntry, field: SecretFieldI
 export interface OwnedSecretsResolution {
 	/** The stored values this entry may resolve: stamp matches the entry's destination, or predates stamping. */
 	readonly values: StoredServerSecrets;
+
 	/**
 	 *   Stored fields the ownership check refused -> the entry's shape uses the field (entryUsesSecretField, the one
 	 *                                                wire rule) and no inline value shadows it
 	 */
 	readonly refused: readonly SecretFieldId[];
+
 	/**
 	 * Every stored field the stamp mismatch dropped with nothing standing in (no inline value): `refused` plus the
 	 * inert fields the entry cannot send. The export reads this superset for its accounting, so a value

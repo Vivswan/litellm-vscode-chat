@@ -33,7 +33,9 @@ export interface RedesignPlan {
 	 * both the old and the new value and the sync-race rule (keep the new, drop the old) completes the move.
 	 */
 	readonly writes: readonly SettingWrite[];
+
 	/** English, counts only: the log lines feed the public issue-report buffer. */
 	readonly logLines: readonly string[];
+
 	readonly outcome: MigrationOutcome;
 }

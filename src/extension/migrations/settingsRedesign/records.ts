@@ -69,8 +69,10 @@ export type RecordKind = "parameters" | "capabilities";
 
 interface DeclareStripResult {
 	readonly value: unknown;
+
 	/** True when the record carried a legal `_declare: true` (moved when the key can name an ID). */
 	readonly declared: boolean;
+
 	/** True when a `_declare` key was removed without producing a declaration. */
 	readonly strippedInert: boolean;
 }
@@ -122,11 +124,16 @@ function assembleRecord(transformed: readonly TransformedKey[]): { record: Recor
 
 export interface EntryRecordTransform {
 	readonly value: unknown;
+
 	/** Exact IDs whose record carried an honored `_declare: true`. */
 	readonly declared: readonly string[];
+
 	readonly starredKeys: number;
+
 	readonly droppedAliasKeys: number;
+
 	readonly strippedInertDeclares: number;
+
 	/** Records whose migrated `_force` was rewritten to its old forceable coverage. */
 	readonly rewroteForce: number;
 }
@@ -196,14 +203,22 @@ export interface ScopedMoveTargetState extends ScopedMoveTarget {
 
 export interface GlobalRecordTransform {
 	readonly value: unknown;
+
 	readonly entryAdditions: ReadonlyMap<number, ReadonlyMap<string, unknown>>;
+
 	/** Per entry index: exact IDs its scoped keys declared. */
 	readonly entryDeclares: ReadonlyMap<number, readonly string[]>;
+
 	readonly starredKeys: number;
+
 	readonly droppedAliasKeys: number;
+
 	readonly movedScopedKeys: number;
+
 	readonly inertScopedKeys: number;
+
 	readonly strippedInertDeclares: number;
+
 	/** Records whose migrated `_force` was rewritten to its old forceable coverage. */
 	readonly rewroteForce: number;
 }

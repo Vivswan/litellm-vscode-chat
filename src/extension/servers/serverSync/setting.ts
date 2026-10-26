@@ -393,9 +393,13 @@ export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; 
 export interface ServerEntryReport {
 	/** The entry's position in the raw array (0-based). */
 	readonly index: number;
+
 	readonly label?: string | undefined;
+
 	readonly baseUrl?: string | undefined;
+
 	readonly problems: readonly string[];
+
 	readonly accepted: boolean;
 }
 

@@ -11,8 +11,11 @@ import { stampSecretOwnersMigration } from "./stampSecretOwners";
 
 export interface MigrationContext {
 	globalState: vscode.Memento;
+
 	secrets: vscode.SecretStorage;
+
 	logger: Logger;
+
 	/**
 	 * The session's fingerprint-salt view. A migration that persists fingerprints must call confirmDurable() at
 	 * decision time and defer unless it reports "durable": records written under a salt later sessions will not see
@@ -42,10 +45,13 @@ export type MigrationOutcome = "migrated" | "nothing-to-do" | "in-progress";
 export interface ExtensionMigration<State extends string = MigrationStateId> {
 	/** Stable slug for the legacy state this migrates away from; logs and MIGRATION_EXPIRIES key on it. */
 	state: State;
+
 	/** One line logged when the migration does work. */
 	description: string;
+
 	/** The last release whose state this migrates away from; MIGRATIONS stays ordered by it. */
 	readonly sourceRelease: string;
+
 	/** IDEMPOTENT: detects the legacy state and no-ops when it is absent. */
 	run(ctx: MigrationContext): Promise<MigrationOutcome>;
 }

@@ -50,9 +50,12 @@ export type CommitMessageOutcome =
 
 export interface CommitPromptArgs {
 	readonly customPrompt: string;
+
 	readonly diff: string;
+
 	/** Recent commit subjects, newest first - subjects only, bodies never ride along. */
 	readonly recentSubjects: readonly string[];
+
 	/** Untracked file paths riding along on the working-tree fallback - paths only, never contents. */
 	readonly untrackedPaths: readonly string[];
 }

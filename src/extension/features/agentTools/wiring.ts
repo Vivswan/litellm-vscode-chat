@@ -77,14 +77,21 @@ type SecretPromptFn = (
 
 export interface AgentToolsDeps {
 	readonly dashboard: Pick<DashboardController, "submit" | "readState">;
+
 	/** The one settings reader the cards read current values through (the dashboard's own access). */
 	readonly settings: Pick<SettingsAccess, "readEffective" | "inspect">;
+
 	readonly getConnectionStatus: () => ConnectionStatus;
+
 	/** The sync engine's declared views: the credential reading the diagnostics tool reports (ui/diagnostics.ts). */
 	readonly getDeclared: () => readonly DeclaredServerView[];
+
 	readonly issueReporter: IssueReporter;
+
 	readonly extVersion: string;
+
 	readonly vscodeVersion: string;
+
 	readonly promptSecret?: SecretPromptFn | undefined;
 }
 

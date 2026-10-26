@@ -30,11 +30,16 @@ import { buildDiffReviewPrompt, buildFileReviewPrompt, buildReplyMessages } from
 
 export interface ReviewCommandDeps {
 	readonly oneShot: OneShotClient;
+
 	readonly secrets: vscode.SecretStorage;
+
 	readonly logger: Logger;
+
 	readonly outputChannel: vscode.OutputChannel;
+
 	/** The live controller while the feature is enabled; undefined while it is off. */
 	readonly controller: () => ReviewCommentController | undefined;
+
 	readonly resolveGit?: () => Promise<API | undefined>;
 }
 

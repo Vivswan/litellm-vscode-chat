@@ -17,10 +17,13 @@
 export interface MigrationExpiry {
 	/** The migration's `state` slug, or the slug of an out-of-runner module. */
 	readonly state: string;
+
 	/** The module to delete when the entry expires, relative to src/extension/migrations/. */
 	readonly file: string;
+
 	/** ISO date (yyyy-mm-dd) the module landed on main (`git log --follow --diff-filter=A`). */
 	readonly introduced: string;
+
 	/** Introduction date + 3 months; the build fails once today is later. */
 	readonly expires: string;
 }

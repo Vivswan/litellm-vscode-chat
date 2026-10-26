@@ -15,6 +15,7 @@ export const LEGACY_SCALAR_RENAMES = [
 
 /** The record settings' rename pair, transformed (not just moved) on the way. */
 export const LEGACY_MODEL_PARAMETERS_ID = "modelParameters";
+
 export const LEGACY_MODEL_CAPABILITIES_ID = "modelCapabilities";
 export const NEW_MODEL_PARAMETERS_ID = "models.parameters";
 export const NEW_MODEL_CAPABILITIES_ID = "models.capabilities";

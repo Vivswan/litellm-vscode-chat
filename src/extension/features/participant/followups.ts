@@ -14,8 +14,10 @@ import type { SlashCommandName } from "./slashCommands";
 /** One suggestion, in vscode.ChatFollowup's shape minus the participant field (followups stay with @litellm). */
 export interface ParticipantFollowup {
 	readonly label: string;
+
 	/** What lands in the chat input when the user clicks it. */
 	readonly prompt: string;
+
 	readonly command: SlashCommandName;
 }
 

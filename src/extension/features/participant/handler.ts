@@ -21,10 +21,13 @@ import type { SlashCommandRegistry } from "./slashCommands";
 export interface ParticipantRequest {
 	/** The free text after the participant and command mentions, verbatim. */
 	readonly prompt: string;
+
 	/** The slash command the user picked, without the slash; undefined for a plain question. */
 	readonly command?: string;
+
 	/** The prior turns from ChatContext.history, passed straight through. */
 	readonly history: readonly HistoryTurn[];
+
 	/**
 	 * The turn's attachments - the editor selection, the implicitly attached open file, every explicit `#file:` - read
 	 * on demand by the wiring. They ride BELOW the user's text rather than replacing it, and deliberately do not count
@@ -37,7 +40,9 @@ export interface ParticipantRequest {
 export interface ParticipantDeps {
 	/** Send messages to the request's own model and resolve to its streamed text fragments. */
 	sendRequest(messages: readonly ChatMessage[]): Promise<AsyncIterable<string>>;
+
 	readonly stream: { report(markdown: string): void };
+
 	/**
 	 * Handed to a command as-is rather than called here, so only a command that answers FROM snapshots reads them:
 	 * /tests and /docs never look, and a plain question never touches them at all. A read that does throw happens
@@ -45,7 +50,9 @@ export interface ParticipantDeps {
 	 * than as a second failure vocabulary beside turnFailedText.
 	 */
 	snapshots(): readonly ProviderSnapshot[];
+
 	readonly commands: SlashCommandRegistry;
+
 	/**
 	 * Recognize the host's cancellation error, which must ride out uncaught and unlogged. The default matches
 	 * vscode.CancellationError structurally (its name is "Canceled"), so the wiring only overrides it when it can offer

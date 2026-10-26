@@ -19,9 +19,12 @@ import { selectDiagnostics } from "./query";
  */
 export interface QuickFixChatArgs {
 	readonly uri: vscode.Uri;
+
 	/** The lines the action claimed, already padded and clamped; what gets attached to the chat turn. */
 	readonly range: vscode.Range;
+
 	readonly diagnostics: readonly vscode.Diagnostic[];
+
 	readonly mode: QuickFixMode;
 }
 

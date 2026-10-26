@@ -33,6 +33,7 @@ export interface ChatParticipantWiring {
 	 *   name package.json does not declare -> never invoked, the HOST decides what `/name` routes to us
 	 */
 	readonly slashCommands: SlashCommandRegistry;
+
 	/**
 	 * The setting alone is not this fact, because the host can refuse the registration, and that refusal is classified
 	 * and left unregistered rather than thrown. Read per use, never cached, since both halves change at runtime and the

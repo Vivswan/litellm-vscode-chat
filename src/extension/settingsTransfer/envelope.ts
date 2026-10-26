@@ -14,7 +14,9 @@ export const SETTINGS_EXPORT_FORMAT_VERSION = 1;
 
 export interface SettingsExportEnvelope {
 	readonly [CONFIG_SECTION]: typeof SETTINGS_EXPORT_FORMAT_VERSION;
+
 	readonly exportedBy: string;
+
 	/** Setting values keyed by their litellm-vscode-chat.* key names (section prefix stripped). */
 	readonly settings: Readonly<Record<string, unknown>>;
 }

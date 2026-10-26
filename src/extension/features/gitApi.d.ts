@@ -12,6 +12,7 @@ export interface InputBox {
 
 export interface Change {
 	readonly uri: Uri;
+
 	/** Upstream's Status enum value; declared as number here because a const enum in a .d.ts has no runtime object to import. */
 	readonly status: number;
 }
@@ -34,11 +35,16 @@ export interface UpstreamRef {
  */
 export interface Branch {
 	readonly name?: string;
+
 	readonly commit?: string;
+
 	/** The remote this branch lives on, on remote-tracking branches only. */
 	readonly remote?: string;
+
 	readonly upstream?: UpstreamRef;
+
 	readonly ahead?: number;
+
 	readonly behind?: number;
 }
 
@@ -52,15 +58,20 @@ export interface RepositoryState {
 	 * `commit` is set and `name` may be absent.
 	 */
 	readonly HEAD: Branch | undefined;
+
 	readonly indexChanges: Change[];
+
 	readonly workingTreeChanges: Change[];
+
 	/** Holds the untracked files when git.untrackedChanges is "separate"; "mixed" (the default) puts them in workingTreeChanges. */
 	readonly untrackedChanges: Change[];
 }
 
 export interface Commit {
 	readonly hash: string;
+
 	readonly message: string;
+
 	/** The commit's parent hashes; a merge commit has more than one. */
 	readonly parents: string[];
 }
@@ -71,17 +82,21 @@ export interface LogOptions {
 	 * builder passes either the range or `-n<maxEntries>`, never both.
 	 */
 	readonly maxEntries?: number;
+
 	/** A git revision range, e.g. "<mergeBase>..HEAD"; the log answers newest first within it. */
 	readonly range?: string;
 }
 
 export interface Repository {
 	readonly rootUri: Uri;
+
 	readonly inputBox: InputBox;
+
 	readonly state: RepositoryState;
 
 	/** The working-tree diff, or the index diff when `cached` is true. */
 	diff(cached?: boolean): Promise<string>;
+
 	/**
 	 * `git diff <ref>`: the files changed against a ref, or one file's diff
 	 * against it. Against HEAD that is every uncommitted change, staged and
@@ -90,10 +105,14 @@ export interface Repository {
 	 * `--diff-filter=ADMR`). `path` is repository-relative.
 	 */
 	diffWith(ref: string): Promise<Change[]>;
+
 	diffWith(ref: string, path: string): Promise<string>;
+
 	log(options?: LogOptions): Promise<Commit[]>;
+
 	/** Rejects when no branch carries the name. */
 	getBranch(name: string): Promise<Branch>;
+
 	/**
 	 * The branch a PR from `name` would target: a REMOTE-tracking branch (git's
 	 * own resolution only accepts one), so its `name` carries no remote prefix
@@ -101,6 +120,7 @@ export interface Repository {
 	 * recorded merge base back to git config.
 	 */
 	getBranchBase(name: string): Promise<Branch | undefined>;
+
 	/** The best common ancestor of two refs. */
 	getMergeBase(ref1: string, ref2: string): Promise<string | undefined>;
 }

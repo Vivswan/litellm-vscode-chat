@@ -20,12 +20,14 @@ type MutableSecrets = { -readonly [K in SecretFieldId]?: string };
 
 export interface StrippedEntry {
 	readonly entry: Readonly<Record<string, unknown>>;
+
 	/**
 	 * Flat-vs-nested collisions resolve by the settings-redesign migration's OWN rule, so a transfer can never
 	 * change which credentials an entry sends. A record-shaped `auth` wins WHOLESALE and flat secret text beside
 	 * it is DISCARDED, never moved into the blob, exactly as the activation migration discards it.
 	 */
 	readonly secrets: StoredServerSecrets;
+
 	/**
 	 * True when text the walk cannot reach may hide a credential; the import skips such an entry rather than land
 	 * unmovable credential text. Textless scalars are mere misconfiguration and stay sanitizable.
@@ -132,6 +134,7 @@ export interface MaterializedEntry {
 	 *       gives the field a legal home
 	 */
 	readonly entry: Readonly<Record<string, unknown>>;
+
 	/**
 	 * Blob fields with no legal inline position in this entry's auth shape; counted and reported, never guessed into
 	 * the file.

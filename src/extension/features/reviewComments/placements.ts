@@ -32,7 +32,9 @@ export interface ReviewPlacement {
 
 export interface ParsedPlacements {
 	readonly placements: readonly ReviewPlacement[];
+
 	readonly dropped: number;
+
 	/**
 	 * A caller clearing a file's existing comments on a findingless answer needs to know the model SAID the file is
 	 * clean, and no other signal proves that: an empty answer, a lone code fence, and a page of blank lines all parse

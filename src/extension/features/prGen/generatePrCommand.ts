@@ -26,7 +26,9 @@ import { createTitleAndDescriptionProvider } from "./provider";
 
 export interface GeneratePrDeps {
 	readonly logger: Logger;
+
 	readonly outputChannel: vscode.OutputChannel;
+
 	/**
 	 * Defaults to the system clipboard; injected because vscode.env.clipboard is read-only and a test cannot replace
 	 * it.

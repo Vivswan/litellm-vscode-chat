@@ -61,7 +61,9 @@ export function wireQuickFix(
 	logger: Logger,
 	deps: {
 		readonly oneShot: OneShotClient;
+
 		readonly outputChannel: vscode.OutputChannel;
+
 		/** The participant wiring's own readiness predicate; the chat path is only taken while it says yes. */
 		readonly isParticipantAvailable: () => boolean;
 	}

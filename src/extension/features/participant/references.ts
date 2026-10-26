@@ -15,7 +15,9 @@ import { truncateKeepingHead } from "../../../shared/util/text";
 interface ReadReference {
 	/** What the block is labeled with, e.g. "src/foo.ts" or "src/foo.ts:10-24". */
 	readonly name: string;
+
 	readonly content: string;
+
 	readonly unreadable?: undefined;
 }
 

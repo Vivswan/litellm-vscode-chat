@@ -37,12 +37,17 @@ const MCP_AUTH_SURFACE = "discovery" as const;
 
 export interface McpProviderDeps {
 	readonly secrets: vscode.SecretStorage;
+
 	readonly oneShot: Pick<OneShotClient, "authHeaders">;
+
 	readonly versions: McpVersionCounters;
+
 	/** Channel-only notes that recur per session start; they must not evict the issue report's errors. */
 	readonly advisory: (message: string, data?: unknown) => void;
+
 	/** A refusal of this module's own, whose text names only the configured label; it becomes the report's latest error. */
 	readonly logError: (message: string, error: unknown) => void;
+
 	/** A failure caught from the token exchange, whose text can quote the identity provider's answer. */
 	readonly logFailure: FailureSink;
 }

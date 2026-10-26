@@ -116,9 +116,12 @@ async function largestFittingCandidate(
 
 export interface ConsultPromptFit {
 	readonly prompt: string;
+
 	/** True when the context was cut or dropped entirely. */
 	readonly contextTruncated: boolean;
+
 	readonly questionTruncated: boolean;
+
 	/** False only when even the minimal candidates overflowed (the prompt is still the best effort). */
 	readonly withinBudget: boolean;
 }
@@ -197,6 +200,7 @@ export const REPLY_TRUNCATION_MARKER = "[reply truncated to fit the caller's tok
 
 export interface ConsultReplyFit {
 	readonly text: string;
+
 	/** True when anything was cut, the nothing-fits case included. */
 	readonly truncated: boolean;
 }

@@ -99,11 +99,15 @@ export const REVIEW_REPLY_TURN_LIMIT = 20;
 
 export interface ReplyPromptArgs {
 	readonly path: string;
+
 	/** The anchored lines, already line-numbered by the caller; empty when the document could not be read. */
 	readonly snippet: string;
+
 	/** The thread's 1-based inclusive line range, as shown to the model. */
 	readonly startLine: number;
+
 	readonly endLine: number;
+
 	/** The thread so far, oldest first, ending with the user turn being answered. */
 	readonly turns: readonly { readonly author: "user" | "model"; readonly body: string }[];
 }

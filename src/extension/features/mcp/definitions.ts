@@ -8,8 +8,11 @@ import { mcpEndpointOf } from "../../../shared/util/baseUrl";
  */
 export type McpEntryView = {
 	readonly label: string;
+
 	readonly baseUrl: string;
+
 	readonly mcp: McpOptIn;
+
 	/**
 	 * The entry's credential-rotation counter. Firing the definitions change event is what actually re-provides; this
 	 * stamp rides the definition so the host can see that a rotation happened.

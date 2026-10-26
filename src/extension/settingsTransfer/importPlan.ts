@@ -54,6 +54,7 @@ export interface SettingWrite {
 /** One non-servers key the plan refuses, and why. */
 export interface SkippedKey {
 	readonly key: string;
+
 	/**
 	 * The scalar gate (acceptsScalar): a spec'd number key whose value is outside its contract, a boolean key whose value
 	 * is not a boolean, or usage.statusBar outside its enum. The other structured keys pass through to their readers'
@@ -74,17 +75,22 @@ export interface SkippedKey {
 export type IncomingServer =
 	| {
 			readonly kept: true;
+
 			readonly label: string;
+
 			/**
 			 * The entry as it lands before respellEntryUrls: the file's entry normalized to the current settings shape (the
 			 * settings-redesign restructure, so a pre-redesign flat export lands working entries instead of waiting for the
 			 * next activation's migration), secret values stripped out.
 			 */
 			readonly entry: Readonly<Record<string, unknown>>;
+
 			/** The stripped secret values that will be stored: a value the request path could not send is already gone. */
 			readonly secrets: StoredServerSecrets;
+
 			/** The parser's verdict, from the same serverSettingReports pass the dashboard diagnostics run. */
 			readonly report: ServerEntryReport;
+
 			/**
 			 * What the entry carries that will not take effect, each line naming a field and never a value: the parser's
 			 * ignored diagnostics, a credential the request path would refuse, a key outside the entry vocabulary.
@@ -93,8 +99,11 @@ export type IncomingServer =
 	  }
 	| {
 			readonly kept: false;
+
 			readonly raw: unknown;
+
 			readonly report: ServerEntryReport;
+
 			/** The first line the entry failed on, naming the field and never a value. */
 			readonly reason: string;
 	  };
@@ -103,12 +112,14 @@ export type IncomingServer =
 export interface EntryRemark {
 	/** The quoted label, or `entry N` (1-based) when the entry has no usable one; the parser's lines predicate it. */
 	readonly subject: string;
+
 	readonly text: string;
 }
 
 /** One label collision between the file and the current setting's raw labels. */
 export interface ServerCollision {
 	readonly label: string;
+
 	/**
 	 * With storedSecrets provided, the current side compares by EFFECTIVE secret material, so a secret merely moving
 	 * between inline and SecretStorage does not flag.
@@ -121,21 +132,26 @@ export interface ServerCollision {
 
 /** Everything the import preview states and the collision prompts iterate; resolveImportPlan consumes it whole. */
 export interface ImportPlan {
-	/**
-	 * Non-servers keys to write, in ALL_SETTING_KEYS order; the servers key travels through incomingServers instead.
-	 */
+	/** Non-servers keys to write, in ALL_SETTING_KEYS order; the servers key travels through incomingServers instead. */
 	readonly settingsWrites: readonly SettingWrite[];
+
 	readonly skippedKeys: readonly SkippedKey[];
+
 	/** The file's servers array, one verdict per entry; empty when the file carries no servers key. */
 	readonly incomingServers: readonly IncomingServer[];
+
 	/** The dropped entries' first reasons, in file order. */
 	readonly dropped: readonly EntryRemark[];
+
 	/** Every note on a kept entry, in file order. */
 	readonly notes: readonly EntryRemark[];
+
 	/** Kept incoming labels already present in the current setting (vs rawDeclaredLabels), in file order. */
 	readonly collisions: readonly ServerCollision[];
+
 	/** Inline secret values across the kept entries that will move into secret storage. */
 	readonly secretFieldCount: number;
+
 	/** The current servers setting's raw user-scope value, carried verbatim for resolveImportPlan's merge. */
 	readonly currentServersRaw: unknown;
 }
@@ -366,8 +382,10 @@ export type CollisionDecisions = Readonly<Record<string, CollisionDecision>>;
 /** One label's SecretStorage writes, stripped out of its incoming entry. */
 export interface SecretWrite {
 	readonly label: string;
+
 	/** The fields to store; blob fields the label already holds but this record omits are cleared as stale. */
 	readonly secrets: StoredServerSecrets;
+
 	/**
 	 * The ownership stamp per stored field: the destination the imported entry pairs it with (the import IS the
 	 * deliberate pairing).
@@ -382,6 +400,7 @@ export interface SecretWrite {
 export interface ImportApplication {
 	/** The plan's settingsWrites, passed through for the apply loop. */
 	readonly settingsWrites: readonly SettingWrite[];
+
 	/**
 	 * The full servers array to write LAST, or undefined when the import touches no servers. Secrets are stripped out
 	 * of every written entry.
@@ -391,26 +410,34 @@ export interface ImportApplication {
 	 *   existing non-colliding entries          -> are never mutated or reordered
 	 */
 	readonly serversValue: readonly unknown[] | undefined;
+
 	/** Per-label SecretStorage writes, applied entry by entry before the servers write. */
 	readonly secretWrites: readonly SecretWrite[];
+
 	/**
 	 * Every label the import writes (overwritten, renamed-to, appended); the pre-import snapshot records their previous
 	 * blobs.
 	 */
 	readonly touchedLabels: readonly string[];
+
 	/** The plan's dropped entries, passed through for the completion notice. */
 	readonly dropped: readonly EntryRemark[];
+
 	/**
 	 * The notes of the entries that landed, under the label each landed as: a renamed entry's notes name the new
 	 * label, a skipped entry's notes are not carried (nothing to re-enter). The plan's notes stay the preview's.
 	 */
 	readonly notes: readonly EntryRemark[];
+
 	/** The summary notification's counts. */
 	readonly counts: {
 		/** New entries appended under their own label. */
 		readonly imported: number;
+
 		readonly overwritten: number;
+
 		readonly renamed: number;
+
 		/** Skip decisions, plus a rename whose target the flow should have refused. */
 		readonly skipped: number;
 	};

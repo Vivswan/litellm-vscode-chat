@@ -74,6 +74,7 @@ function syncFailureStatus(
 /** The overlaid statuses (the window's rows plus the synthesized failures) and the count of entries awaiting a report. */
 interface OverlaidWindow {
 	readonly statuses: ServerStatus[];
+
 	/** The declared entries no report and no sync failure reached: the dashboard's unchecked rows. */
 	readonly unchecked: number;
 }
@@ -166,8 +167,10 @@ function verdictRows(
 export interface ServerVerdictSources {
 	/** The provider's status window as it stands: every group's latest report. */
 	statuses(): readonly ServerStatus[];
+
 	/** The declared entries as every surface resolves them (resolveDeclaredServers). */
 	declared(): DeclaredServersInput;
+
 	/** The servers setting's per-entry acceptance reports (serverSettingReports). */
 	entryReports(): readonly ServerEntryReport[];
 }

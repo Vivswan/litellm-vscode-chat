@@ -54,20 +54,29 @@ export interface UsageFetchClient {
 /** Everything the poller touches, injected; createUsagePollerEnv builds the real one. */
 export interface UsagePollerEnv {
 	readServersSetting(): unknown;
+
 	readSecrets(label: string): Promise<StoredSecretsRecord>;
+
 	readonly client: UsageFetchClient;
+
 	/** Read at decision time so a setting edit needs no rebuild; 0 means polling is off. */
 	pollIntervalMs(): number;
+
 	/** The delay from start() to the first pass (usage.initialRefreshDelay): soon, but never on the activation path. */
 	initialRefreshDelayMs?(): number;
+
 	/**
 	 * The refresh delay after a servers-setting change (usage.serversChangeRefreshDelay): long enough to coalesce
 	 * settings.json keystroke bursts, short enough that a just-added server shows usage promptly.
 	 */
 	serversChangeRefreshDelayMs?(): number;
+
 	alertThresholds(): readonly number[];
+
 	log(message: string, data?: unknown): void;
+
 	readonly timer?: Timer;
+
 	readonly clock?: Clock;
 }
 
@@ -84,15 +93,20 @@ export interface UsageEndpointFailure {
 
 export interface UsageServerRefreshOutcome {
 	readonly label: string;
+
 	readonly failures: readonly UsageEndpointFailure[];
+
 	readonly succeededAny: boolean;
+
 	/** The pass never reached the network: the entry's stored secrets could not be read. */
 	readonly secretsUnreadable?: true | undefined;
+
 	/**
 	 * The pass never reached the network: a stored secret is stamped for a different destination
 	 * (resolveOwnedSecrets).
 	 */
 	readonly secretsMismatched?: true | undefined;
+
 	/**
 	 * The pass never reached the network: a configured key cannot ride its header (usageConnectionFor). The fields
 	 * name which, for the toast; never a value.
@@ -165,12 +179,19 @@ export class UsagePoller {
 	readonly store: UsageStore;
 
 	private readonly refreshListeners = new Set<() => void>();
+
 	private readonly startListeners = new Set<() => void>();
+
 	private readonly scheduled: PendingCall;
+
 	private readonly clock: Clock;
+
 	private readonly abort = new AbortController();
+
 	private running: Promise<UsageRefreshOutcome | undefined> | undefined;
+
 	private runningExplicit = false;
+
 	private queued:
 		| {
 				force: boolean;
@@ -179,10 +200,14 @@ export class UsagePoller {
 				resolve: (outcome: UsageRefreshOutcome | undefined) => void;
 		  }
 		| undefined;
+
 	private lastCompletedPassAt: number | undefined;
+
 	private probePending = false;
+
 	/** Deliberately NOT in the store: no carried store state can then replay a stale backoff. */
 	private readonly errorStreaks = new Map<string, Map<UsageEndpointId, EndpointFailureStreak>>();
+
 	/**
 	 * The one fresh-token retry a usage 401 earns on an OAuth connection: a bearer the server has revoked is rejected
 	 * exactly like a key never allowed to read usage, and the client drops the rejected token on that answer
@@ -194,6 +219,7 @@ export class UsagePoller {
 	 *   OAuth beside a virtual key owning Authorization (no token sent) -> one extra poll before the same verdict
 	 */
 	private readonly tokenRetryGranted = new Map<string, Set<UsageEndpointId>>();
+
 	private disposed = false;
 
 	constructor(private readonly env: UsagePollerEnv) {

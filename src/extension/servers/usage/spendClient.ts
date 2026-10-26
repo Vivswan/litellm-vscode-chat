@@ -56,14 +56,20 @@ export function dailyActivityUrl(baseUrl: string, apiVersion: string | undefined
  */
 export interface UsageConnection {
 	readonly label: string;
+
 	readonly baseUrl: string;
+
 	/** The entry's apiVersion override, forwarded to serverRootOf; see DeclaredServer.apiVersion. */
 	readonly apiVersion?: string | undefined;
+
 	/** Empty string for keyless servers, matching the transport convention. */
 	readonly apiKey: HeaderValue | "";
+
 	/** The entry's custom headers (there is no global headers setting); auth headers win conflicts. */
 	readonly headers: Readonly<Record<string, HeaderValue>>;
+
 	readonly oauth?: OAuthConfig | undefined;
+
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 }
 
@@ -111,13 +117,17 @@ export function usageConnectionFor(
 /** The caller's own key as /key/info reports it: budget and spend numbers only. */
 export interface KeyUsage {
 	readonly spend: number | undefined;
+
 	readonly maxBudget: number | undefined;
+
 	readonly softBudget: number | undefined;
+
 	/**
 	 * Epoch milliseconds; the reset cadence surfaces through this, so the raw budget_duration token (response-derived
 	 * text) is never retained.
 	 */
 	readonly budgetResetAt: number | undefined;
+
 	/** Whether the key carries a user (gates the /user/info rollup call); the ID itself is never retained. */
 	readonly hasUser: boolean;
 }
@@ -126,14 +136,23 @@ export interface KeyUsage {
 export interface UsageDay {
 	/** YYYY-MM-DD, pattern-validated. */
 	readonly date: string;
+
 	readonly spend: number;
+
 	readonly promptTokens: number;
+
 	readonly completionTokens: number;
+
 	readonly totalTokens: number;
+
 	readonly apiRequests: number;
+
 	readonly successfulRequests: number;
+
 	readonly failedRequests: number;
+
 	readonly cacheReadInputTokens: number;
+
 	readonly cacheCreationInputTokens: number;
 }
 
@@ -149,7 +168,9 @@ export interface DailyUsage {
 /** The user-level rollup /user/info reports when the key carries a user. */
 export interface UserUsage {
 	readonly spend: number | undefined;
+
 	readonly maxBudget: number | undefined;
+
 	/** Epoch milliseconds. */
 	readonly budgetResetAt: number | undefined;
 }
@@ -337,11 +358,13 @@ function usageHttpError(url: string, status: number): RequestError {
 
 export interface UsageClientOptions {
 	readonly userAgent: HeaderValue;
+
 	/**
 	 * Each attempt's timeout, read per GET so a setting edit needs no rebuild. The client has no log of its own: the
 	 * reader's invalid-value warning goes wherever the caller's reader sends it (createUsagePollerEnv dedups it).
 	 */
 	readonly getTimeoutMs: () => number;
+
 	/** The retry backoff, injectable for tests; the default is the real timer. */
 	readonly sleep?: BackoffSleep;
 }
@@ -353,7 +376,9 @@ export interface UsageClientOptions {
  */
 export class UsageClient {
 	private readonly oauthTokens: OAuthTokenSource;
+
 	private readonly getTimeoutMs: () => number;
+
 	private readonly sleep: BackoffSleep;
 
 	constructor(private readonly options: UsageClientOptions) {

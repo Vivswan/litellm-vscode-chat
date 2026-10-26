@@ -55,7 +55,9 @@ async function toggleLanguage(languageId: string, log: (message: string, data?: 
  */
 export class InlineLanguageStatusRow implements vscode.Disposable {
 	private readonly item: vscode.LanguageStatusItem;
+
 	private readonly subscriptions: vscode.Disposable[] = [];
+
 	private disposed = false;
 
 	/** The refresh path's channel-only settings sink; see the class doc. */

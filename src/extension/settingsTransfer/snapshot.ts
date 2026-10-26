@@ -30,8 +30,10 @@ export type SnapshotBlobEntry =
 export interface PreImportSnapshot {
 	/** Every litellm-vscode-chat.* key's user-scope value at snapshot time, keyed without the section prefix. */
 	readonly settings: Readonly<Partial<Record<SettingId, SnapshotEntry<unknown>>>>;
+
 	/** The previous blob of every label the import touches (overwritten, renamed-to, appended). */
 	readonly blobs: Readonly<Record<string, SnapshotBlobEntry>>;
+
 	/**
 	 *   Snapshot time -> the undo summary states it
 	 */
@@ -78,16 +80,20 @@ export interface SnapshotRestore {
 	 * The recorded servers setting (undefined: recorded absent), set apart because the undo writes it before any blob.
 	 */
 	readonly serversValue: unknown;
+
 	/** The other keys to write back to the user scope with their recorded values. */
 	readonly settingWrites: readonly { readonly key: KeyedSettingId; readonly value: unknown }[];
+
 	/** The other keys recorded absent, to remove from the user scope. */
 	readonly settingRemovals: readonly KeyedSettingId[];
+
 	/** Labels whose recorded blob is written back whole, ownership stamps included. */
 	readonly blobWrites: readonly {
 		readonly label: string;
 		readonly secrets: StoredServerSecrets;
 		readonly owners: StoredSecretOwners;
 	}[];
+
 	/**
 	 * Labels recorded blob-less, whose current blob is deleted (an appended label's import-written secrets leave with
 	 * it).

@@ -20,19 +20,24 @@ export const REVIEW_FILE_LIMIT = 20;
 
 export interface ReviewUnit<T> {
 	readonly target: T;
+
 	/** The reviewed document's line count; placements clamp into it. */
 	readonly lineCount: number;
+
 	readonly prompt: string;
 }
 
 export interface ReviewRunDeps<T> {
 	readonly send: (prompt: string) => Promise<string>;
+
 	/**
 	 * Returns false when the caller refused - the document moved under the request, so anchoring the answer would put
 	 * comments on the wrong lines.
 	 */
 	readonly apply: (target: T, placements: readonly ReviewPlacement[]) => boolean;
+
 	readonly onFileStart?: (index: number, total: number) => void;
+
 	/** Cancellation, read between files; the send's own token aborts a call in flight. */
 	readonly token: { readonly isCancellationRequested: boolean };
 }

@@ -14,20 +14,25 @@ import { type ResolvedReference, withReferences } from "./references";
 export interface SlashCommandTurn {
 	/** The free text after the command, verbatim - the user's words only, with nothing attached. */
 	readonly prompt: string;
+
 	/**
 	 * The turn's attachments (the selection, the open file, every `#file:`), read on demand. A thunk for the same
 	 * reason snapshots is one: reading them costs document opens, and a command that answers without the user's code -
 	 * /models, for one - should not pay for context it discards.
 	 */
 	attachments(): Promise<readonly ResolvedReference[]>;
+
 	/** The prior turns, already converted; a command sending a request decides whether they ride along. */
 	readonly history: readonly ChatMessage[];
+
 	/**
 	 * A function, not an array: only the commands that answer FROM the snapshots should pay for reading them, so a
 	 * snapshot read that fails cannot take down /tests or /docs, which never look.
 	 */
 	snapshots(): readonly ProviderSnapshot[];
+
 	report(markdown: string): void;
+
 	/**
 	 * Send messages to the request's model and stream its reply; rejects ride to the handler's catch. The array is
 	 * normalized to wire shape first, which can empty it, not just reshape it: answers before the first user message
@@ -43,6 +48,7 @@ export interface SlashCommandTurn {
 export interface SlashCommand<Name extends string = string> {
 	/** The name the host routes on: the contribution's command name, without the slash. */
 	readonly name: Name;
+
 	/**
 	 * The manifest carries its own package.nls copy of the same prose for the host's `/` picker, because the host reads
 	 * the manifest long before this process exists and the two runtimes cannot share one string. What IS shared is the
@@ -51,6 +57,7 @@ export interface SlashCommand<Name extends string = string> {
 	 *   Shown in the participant's help listing -> resolved through the RUNTIME l10n bundle
 	 */
 	readonly description: string;
+
 	run(turn: SlashCommandTurn): Promise<void>;
 }
 
@@ -116,7 +123,9 @@ export type SlashCommandName = ReturnType<typeof builtinSlashCommands>[number]["
 export interface SlashCommandRegistry {
 	/** Add a command; a name collision throws, because a silently shadowed command is a routing bug. */
 	register(command: SlashCommand): void;
+
 	find(name: string): SlashCommand | undefined;
+
 	list(): readonly SlashCommand[];
 }
 

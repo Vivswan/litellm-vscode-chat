@@ -23,10 +23,13 @@ export const INLINE_COMPLETION_DEBOUNCE_MS = 200;
 
 export interface InlineCompletionRequest {
 	readonly modelRef: FeatureModelRef;
+
 	/** Budget-truncated document context: exactly the cache key's prefix tail. */
 	readonly prefix: string;
+
 	/** Budget-truncated document context: exactly the cache key's suffix head. */
 	readonly suffix: string;
+
 	readonly token: vscode.CancellationToken;
 }
 
@@ -39,8 +42,10 @@ export type InlineCompletionSend = (request: InlineCompletionRequest) => Promise
 
 export interface InlineCompletionProviderDeps {
 	readonly send: InlineCompletionSend;
+
 	/** Owned by the wiring, which invalidates it on model or configuration changes. */
 	readonly cache: CompletionCache;
+
 	/**
 	 * The extension's output-channel logger; English-only lines. The provider runs on every keystroke, so it
 	 * deduplicates its own lines once per session per class - an unbounded per-invocation line would evict the real

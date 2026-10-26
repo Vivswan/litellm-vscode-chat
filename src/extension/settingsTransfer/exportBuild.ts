@@ -23,10 +23,14 @@ export interface SettingsExportEnv {
 
 export interface SettingsExportResult {
 	readonly envelope: SettingsExportEnvelope;
+
 	readonly settingCount: number;
+
 	readonly serverCount: number;
+
 	/** Blob secret fields with no legal inline position in their entry; reported in the success note when nonzero. */
 	readonly unmaterializedSecretCount: number;
+
 	/**
 	 * Blob secret fields whose ownership stamp names a different destination than their entry (resolveOwnedSecrets'
 	 * `mismatched` - the stale-stamped fields the entry cannot send included, not just the refused ones), left out of

@@ -13,15 +13,22 @@ type BudgetSource = "entry" | "key" | "none";
 export interface BudgetStatus {
 	/** The declared entry's manual budget (USD), when set. */
 	readonly entryBudget: number | undefined;
+
 	/** The key-reported max_budget, when the key carries one; retained even when the entry wins. */
 	readonly keyBudget: number | undefined;
+
 	/** The budget alerting and bars run against: entry over key. */
 	readonly effectiveBudget: number | undefined;
+
 	readonly budgetSource: BudgetSource;
+
 	readonly spend: number | undefined;
+
 	readonly spentFraction: number | undefined;
+
 	/** The key-reported reset instant (epoch ms), when the key carries one. */
 	readonly budgetResetAt: number | undefined;
+
 	readonly crossedThresholds: readonly number[];
 }
 

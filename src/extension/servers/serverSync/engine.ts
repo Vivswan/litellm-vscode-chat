@@ -78,10 +78,13 @@ export interface DeclaredGroupIdentity {
  */
 export interface DeclaredIdentities {
 	readonly setting: unknown;
+
 	/** The accepted entries. */
 	readonly identities: readonly DeclaredGroupIdentity[];
+
 	/** The labels the setting carries outside an accepted entry (rejectedCarrierLabels). */
 	readonly carriers: readonly string[];
+
 	/**
 	 * Every secret value each declared label stores or carries inline, accepted entries and rejected carriers alike;
 	 * extension-side only, never pushed. A live group holding any of them is that label's leftover.
@@ -92,14 +95,17 @@ export interface DeclaredIdentities {
 /** The non-secret view of a declared server the dashboard renders; secret values stay out. */
 export interface DeclaredServerView extends DeclaredGroupIdentity, NonSecretOptionalFields, EntryViewFields {
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
+
 	/** The label's last sync failure, cleared by the next success. */
 	readonly syncFailure?: SyncFailure | undefined;
+
 	/**
 	 * The credential fields the group narrowing dropped (a key the platform's Headers would refuse): the field-level
 	 * detail behind a credentialsRefused failure, which the dashboard's diagnostics point at beside the entry. Fields
 	 * only, never values.
 	 */
 	readonly rejectedCredentials?: readonly CredentialRejection["field"][] | undefined;
+
 	/**
 	 * What the group parser kept of the entry's credentials (groupHasCredentials over its output), the one answer the
 	 * group report gives too; undefined when the entry resolves to no usable group configuration. The dashboard row
@@ -152,8 +158,11 @@ function declaredGroupIdentity(
 export type RemovedEntryEvent =
 	| {
 			readonly kind: "removed";
+
 			readonly label: string;
+
 			readonly baseUrl: string | undefined;
+
 			/**
 			 * What a leftover of the removed entry hides by: the client and connection IDs its last readable pass
 			 * carried and the live group it joined (ServerSyncEngine.joinedGroupOf), minus any an entry still present
@@ -161,6 +170,7 @@ export type RemovedEntryEvent =
 			 * observation.
 			 */
 			readonly groupIds: readonly string[];
+
 			/** The removed entry's keys an entry still present carries too: kept, not tombstoned. */
 			readonly sharedGroupIds: readonly string[];
 	  }
@@ -170,14 +180,18 @@ export type RemovedEntryEvent =
 export interface ServerSyncEnv {
 	/** The effective litellm-vscode-chat.servers value: what the settings side declares. */
 	readServersSetting(): unknown;
+
 	readSecrets(label: string): Promise<StoredSecretsRecord>;
+
 	/** The host's provider-group upsert; args are the group configuration with the name and vendor. */
 	addProviderGroup(args: Readonly<Record<string, string>>): Thenable<unknown>;
+
 	/**
 	 * Whether fingerprints computed this pass will be recognizable by later sessions (the per-install salt is confirmed
 	 * to be the stored one; see extension/fingerprintSalt.ts). Must not throw; an unknowable state reads as false.
 	 */
 	confirmFingerprintsDurable(): Promise<boolean>;
+
 	/**
 	 * The persisted fingerprint map: read to seed the engine's in-memory session map (see
 	 * ServerSyncEngine.fingerprints), and re-read per entry presence-only - as positive confirmation on the
@@ -186,7 +200,9 @@ export interface ServerSyncEnv {
 	 * (prototype-mutating) key or a non-string value, so the engine can assign its labels into plain records unguarded.
 	 */
 	getFingerprints(): Readonly<Record<string, string>>;
+
 	setFingerprints(map: Readonly<Record<string, string>>): Promise<void>;
+
 	/**
 	 * Label -> base URL in its one spelling (canonicalBaseUrl; the implementation canonicalizes what older versions
 	 * stored as typed) for the entries earlier passes saw declared; a removal's tombstone stands on it, and it suffers
@@ -194,7 +210,9 @@ export interface ServerSyncEnv {
 	 * Unlike the fingerprints it carries no credential material and no salt dependence, so writes go out unguarded.
 	 */
 	getEntryBaseUrls(): Readonly<Record<string, string>>;
+
 	setEntryBaseUrls(map: Readonly<Record<string, string>>): Promise<void>;
+
 	/**
 	 * An entry whose add never landed (blocked, or older than the ledger) may have no ledger record, yet the host
 	 * still hands its group to the provider on every refresh, so an unambiguous observation is evidence rather
@@ -202,8 +220,10 @@ export interface ServerSyncEnv {
 	 * within a sweep; wiring/servers.ts re-runs a pass when a group enters, so late evidence is not lost.
 	 */
 	observedGroupBaseUrls(label: string): readonly string[];
+
 	/** The groups the host serves right now, as the provider's status window reports them; see joinedGroupOf. */
 	observedSnapshots(): readonly ServerModelsSnapshot[];
+
 	/**
 	 * A re-declared group must never stay suppressed, so the env clears matching removal tombstones before
 	 * recording the events; extensions cannot delete the group itself, only the user can.
@@ -211,7 +231,9 @@ export interface ServerSyncEnv {
 	 *   The pass awaits it -> reconciliations stay serialized with their passes
 	 */
 	reconcileEntryIdentities(claims: readonly DeclaredGroupClaim[], events: readonly RemovedEntryEvent[]): Promise<void>;
+
 	log(message: string, data?: unknown): void;
+
 	logError(message: string, error: unknown): void;
 }
 
@@ -359,8 +381,10 @@ interface RetryState {
  */
 export class ServerSyncEngine implements vscode.Disposable {
 	private views: DeclaredServerView[] = [];
+
 	/** Each declared label's secret values as the last pass read them; published with the views, never pushed. */
 	private secretValues: ReadonlyMap<string, readonly string[]> = new Map();
+
 	/**
 	 * The monkey fuzzer showed why trusting more wedges entries, since an awaited globalState.update can revert
 	 * moments later to a stale whole-key value.
@@ -372,6 +396,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 *              -> no last-known-good to carry -> error forever
 	 */
 	private fingerprints: Record<string, string> | undefined;
+
 	/**
 	 * Seed-once like `fingerprints` and for the same reason, with each pass merging one fresh store read
 	 * presence-only underneath, so another window's records fill gaps but never shadow a record this session
@@ -381,8 +406,10 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 *                                                -> its models never left the host list
 	 */
 	private ledger: Record<string, string> | undefined;
+
 	/** Per-label retry state that must survive between passes; see RetryState. */
 	private retry = new Map<string, RetryState>();
+
 	/**
 	 * Removed labels whose group identity no pass could resolve yet (typically a cold-start removal, before the
 	 * host reported any group), each with the labels NEW at detection so a later add or re-point cannot flip the
@@ -393,6 +420,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 *     -> no candidate -> probed forever
 	 */
 	private readonly unresolvedRemovals = new Map<string, ReadonlyMap<string, string>>();
+
 	/**
 	 * Every label the setting declared (accepted or not) at the end of the last pass with a valid container: the
 	 * baseline the rename delta is taken against. Undefined until the first valid pass, where the delta falls back to
@@ -403,6 +431,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 *     -> is not, however few records it has
 	 */
 	private declaredLabelsLastPass: ReadonlySet<string> | undefined;
+
 	/**
 	 * Each label's identity as its last readable accepted view published it, kept while the label stays in the
 	 * setting (a rejected shape publishes no view, a failed or refused secret read a credential-less one). The removal
@@ -459,12 +488,19 @@ export class ServerSyncEngine implements vscode.Disposable {
 			return [];
 		}
 	}
+
 	private running: Promise<void> | undefined;
+
 	private queued: { force: boolean; promise: Promise<void>; resolve: () => void } | undefined;
+
 	private timer: ReturnType<typeof setTimeout> | undefined;
+
 	private holds = 0;
+
 	private heldRequest: { force: boolean; waiters: (() => void)[] } | undefined;
+
 	private disposed = false;
+
 	/** Listeners on completed sync passes; see onDidSync. */
 	private readonly syncListeners = new Set<() => void>();
 

@@ -12,8 +12,10 @@ export type LegacyHintKind = "inert-url-scoped-key" | "inert-global-headers";
 
 export interface LegacyHint {
 	readonly kind: LegacyHintKind;
+
 	/** The leftover key: a record key for scoped-key hints, the setting id for the headers hint. */
 	readonly oldKey: string;
+
 	/** The setting id the leftover sits in. */
 	readonly detail: string;
 }
@@ -21,7 +23,9 @@ export interface LegacyHint {
 export interface LegacyHintInput {
 	/** The global `headers` value (the removed setting's leftover), as configured. */
 	readonly globalHeadersValue: unknown;
+
 	readonly modelParametersValue: unknown;
+
 	readonly modelCapabilitiesValue: unknown;
 }
 

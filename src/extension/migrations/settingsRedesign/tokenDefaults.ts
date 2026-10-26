@@ -42,11 +42,15 @@ function directiveBase(record: Record<string, unknown>, directive: string): { ok
 export interface TokenDefaultsMerge {
 	/** The updated capabilities value; undefined when nothing needed writing. */
 	readonly capabilitiesValue?: Record<string, unknown> | undefined;
+
 	/** The source ids to delete from user settings (empty when blocked or untouched). */
 	readonly consumedIds: readonly string[];
+
 	readonly movedFields: number;
+
 	/** Sources drained without a fill (already covered, or values the removed readers never honored). */
 	readonly drainedKeys: number;
+
 	/** Sources left in place because the "*" record cannot take the merge. */
 	readonly blockedValues: number;
 }

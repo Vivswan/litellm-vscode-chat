@@ -22,14 +22,18 @@ const PARTICIPANT_SETTING_ID = featureEnableSettingId("chatParticipant");
 
 export interface QuickFixChatDeps {
 	readonly secrets: vscode.SecretStorage;
+
 	readonly logger: Logger;
+
 	readonly outputChannel: vscode.OutputChannel;
+
 	/**
 	 * Whether the @litellm participant can actually answer a turn right now. The chat path submits a turn addressed to
 	 * it, so this is the difference between asking our participant and shouting our prefix at whoever is listening;
 	 * the participant's wiring owns the answer (setting AND accepted registration), and this reads it per invocation.
 	 */
 	readonly isParticipantAvailable: () => boolean;
+
 	readonly openChat?: (query: string, uri: vscode.Uri, range: vscode.Range) => Thenable<unknown>;
 }
 

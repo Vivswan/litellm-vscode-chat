@@ -6,10 +6,13 @@
 export interface CompletionCacheKey {
 	/** The configured entry label the request routes through. */
 	readonly server: string;
+
 	/** The raw model ID on that server. */
 	readonly model: string;
+
 	/** The budget-truncated prefix tail the request would send. */
 	readonly prefix: string;
+
 	/** The budget-truncated suffix head the request would send. */
 	readonly suffix: string;
 }

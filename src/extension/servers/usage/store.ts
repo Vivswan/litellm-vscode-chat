@@ -60,35 +60,48 @@ export function usageAvailabilityOf(endpoints: UsageEndpointStates): UsageAvaila
 export interface ServerUsageState {
 	/** The declared entry's label: the store key and the join key back to the server rows. */
 	readonly label: string;
+
 	readonly baseUrl: string;
+
 	readonly endpoints: UsageEndpointStates;
+
 	/**
 	 * The card-visibility verdict. Usually usageAvailabilityOf(endpoints), but sticky: the poller keeps a
 	 * once-available server "available" through transient failures, and only a both-endpoints-unavailable verdict hides
 	 * it.
 	 */
 	readonly availability: UsageAvailability;
+
 	/** When any endpoint last answered successfully (epoch ms). */
 	readonly lastUpdatedAt: number | undefined;
+
 	/**
 	 * When /key/info last answered successfully (epoch ms): the age of the SPEND numbers specifically. The freshness
 	 * rule and the "last updated" labels read this one - an activity-endpoint success must not relabel old spend as
 	 * current.
 	 */
 	readonly spendUpdatedAt: number | undefined;
+
 	/** When the poller last tried this server (epoch ms), success or not. */
 	readonly lastAttemptAt: number | undefined;
+
 	readonly key: KeyUsage | undefined;
+
 	readonly daily: DailyUsage | undefined;
+
 	readonly user: UserUsage | undefined;
+
 	readonly budget: BudgetStatus;
 }
 
 export type UsageChangeEvent =
 	| {
 			readonly kind: "updated";
+
 			readonly label: string;
+
 			readonly state: ServerUsageState;
+
 			/**
 			 * Alert thresholds this update crossed for the first time since they were last below (the once-per-crossing
 			 * dedup the notifier keys on).
@@ -99,6 +112,7 @@ export type UsageChangeEvent =
 
 export class UsageStore {
 	private readonly states = new Map<string, ServerUsageState>();
+
 	private readonly listeners = new Set<(event: UsageChangeEvent) => void>();
 
 	constructor(private readonly log?: (message: string, data?: unknown) => void) {}

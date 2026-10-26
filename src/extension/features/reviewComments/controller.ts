@@ -13,6 +13,7 @@ import type { ReviewPlacement } from "./placements";
 
 /** The thread contextValues the manifest's `commentThread ==` when-clauses match. */
 const RESOLVED_CONTEXT = "resolved";
+
 const UNRESOLVED_CONTEXT = "unresolved";
 
 /** Persists the whole live snapshot; called after every mutation. */
@@ -36,10 +37,13 @@ function userAuthor(): vscode.CommentAuthorInformation {
 
 export class ReviewCommentController implements vscode.Disposable {
 	private readonly controller: vscode.CommentController;
+
 	/** Live threads by document URI string - the same key the store persists under. */
 	private readonly byUri = new Map<string, LiveThread[]>();
+
 	/** The reverse lookup a menu command needs: the host hands back a CommentThread and nothing else. */
 	private readonly records = new WeakMap<vscode.CommentThread, LiveThread>();
+
 	private disposed = false;
 
 	constructor(private readonly save: ReviewThreadSaver) {

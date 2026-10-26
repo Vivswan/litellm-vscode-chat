@@ -67,9 +67,12 @@ export interface DeclaredGroupClaim {
 
 export interface GroupKey {
 	readonly groupId: string;
+
 	/** The status label: the configuration stamp, else the URL host (groupDiscovery.ts). */
 	readonly label: string;
+
 	readonly entryLabel: string | undefined;
+
 	readonly baseUrl: string;
 }
 
@@ -242,17 +245,23 @@ function parseVersionedRecords(raw: unknown): VersionedRecords {
  */
 class VersionedRegion<T> {
 	private records: readonly T[];
+
 	/** Records that live in memory only: listed and matched like the rest, never written, kept across adoption. */
 	private transient = new Set<T>();
+
 	private version: bigint;
+
 	private persisting = false;
+
 	private lastWrittenBlob: unknown;
+
 	/**
 	 * Commit/persist generations, compared to decide whether memory is ahead of storage: a write persists the records
 	 * as of the generation it read, and serialized writes read the latest records, so an earlier success can cover a
 	 * later failure's content.
 	 */
 	private commitGeneration = 0;
+
 	private persistedGeneration = 0;
 
 	constructor(
@@ -385,8 +394,11 @@ function indexedIdentity(index: IdentityIndex, identity: GroupIdentity): boolean
  */
 class TombstoneIndex {
 	private readonly groupIds = new Set<string>();
+
 	private readonly entries: IdentityIndex = new Map();
+
 	private readonly statuses: IdentityIndex = new Map();
+
 	private readonly shown: IdentityIndex = new Map();
 
 	constructor(records: readonly TombstoneIdentity[]) {
@@ -423,6 +435,7 @@ class TombstoneIndex {
 
 export class GroupRemovalStore {
 	private didChangeListener: (() => void) | undefined;
+
 	private persistErrorListener: ((error: unknown) => void) | undefined;
 
 	/**
@@ -452,7 +465,9 @@ export class GroupRemovalStore {
 	}
 
 	private readonly tombstoneRegion: VersionedRegion<TombstoneIdentity>;
+
 	private readonly tombstoneIndex: () => TombstoneIndex;
+
 	private readonly provenanceRegion: VersionedRegion<OrphanedGroupRecord>;
 
 	constructor(

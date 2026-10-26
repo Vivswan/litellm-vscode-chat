@@ -19,9 +19,12 @@ import type { ProviderSnapshot, SnapshotModel } from "./modelsMarkdown";
  */
 interface SnapshotSourceModel {
 	readonly id: string;
+
 	/** The mint-stamped raw model ID; a copy that lost it falls back to the exposed id, which group mints keep raw. */
 	readonly litellm?: { readonly rawModelId?: string | undefined } | undefined;
+
 	readonly maxInputTokens?: number | undefined;
+
 	readonly capabilities?:
 		| {
 				readonly toolCalling?: boolean | number | undefined;
