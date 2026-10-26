@@ -159,7 +159,7 @@ export async function readKeepSources(
 	const storedNewRecord = renaming ? await readServerSecrets(label) : storedOldRecord;
 	// With no accepted entry there is nothing to pair against, so keeps resolve NOTHING - never the raw values, which
 	// would hand back the one fail-open reading this module exists to prevent.
-	const storedOld = accepted !== undefined ? resolveOwnedSecrets(accepted.entry, storedOldRecord).values : {};
+	const storedOld = accepted === undefined ? {} : resolveOwnedSecrets(accepted.entry, storedOldRecord).values;
 	const willCopy = renaming && Object.keys(storedOld).length > 0;
 	return { accepted, storedOld, storedOldRecord, storedNewRecord, willCopy };
 }
@@ -178,7 +178,7 @@ function resolveKeptSecret(
 		return { value: inline, location: "inline" };
 	}
 	const stored = storedShown[field];
-	return stored !== undefined ? { value: stored, location: "secure" } : undefined;
+	return stored === undefined ? undefined : { value: stored, location: "secure" };
 }
 
 /**
@@ -315,7 +315,7 @@ export async function applySaveServerSetting(
 	const optionalFields = pickNonSecretOptionalFields(intent.server);
 	const tokenUrl = optionalFields.oauthTokenUrl === undefined ? undefined : canonicalUrl(optionalFields.oauthTokenUrl);
 	const assembled = assembleEntryAuth(
-		{ ...optionalFields, ...(tokenUrl !== undefined ? { oauthTokenUrl: tokenUrl } : {}), ...inlineValues },
+		{ ...optionalFields, ...(tokenUrl === undefined ? {} : { oauthTokenUrl: tokenUrl }), ...inlineValues },
 		recordFromKeys(SECRET_FIELD_IDS, (field) => planResolves(plans[field]))
 	);
 	if (assembled.failure !== undefined) {
@@ -370,7 +370,7 @@ export async function applySaveServerSetting(
 						field,
 						heldByNew(field),
 						storedOld[field],
-						storedOld[field] !== undefined ? destinationOf(field) : undefined
+						storedOld[field] === undefined ? undefined : destinationOf(field)
 					);
 				}
 			}

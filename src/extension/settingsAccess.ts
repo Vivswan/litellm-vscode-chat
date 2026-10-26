@@ -26,7 +26,7 @@ export interface SettingsInspection {
 export function resolveUpdateScope(
 	inspection: Pick<SettingsInspection, "workspaceValue"> | undefined
 ): "global" | "workspace" {
-	return inspection?.workspaceValue !== undefined ? "workspace" : "global";
+	return inspection?.workspaceValue === undefined ? "global" : "workspace";
 }
 
 /**

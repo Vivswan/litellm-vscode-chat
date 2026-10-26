@@ -55,8 +55,8 @@ function parseSeedEntry(raw: unknown): DevSeedEntry | undefined {
 		label,
 		baseUrl,
 		apiKey: typeof raw.apiKey === "string" ? raw.apiKey : "",
-		...(budget !== undefined ? { budget } : {}),
-		...(models !== undefined ? { models } : {}),
+		...(budget === undefined ? {} : { budget }),
+		...(models === undefined ? {} : { models }),
 	};
 }
 
@@ -87,9 +87,9 @@ export function parseDevSeed(raw: string): DevSeed | undefined {
 		baseUrl: trimHttpWhitespace(record.baseUrl),
 		apiKey: typeof record.apiKey === "string" ? record.apiKey : "",
 		openDashboard: record.openDashboard === true,
-		...(models !== undefined ? { models } : {}),
+		...(models === undefined ? {} : { models }),
 		...(entries.length > 0 ? { entries } : {}),
-		...(records !== undefined ? { records } : {}),
+		...(records === undefined ? {} : { records }),
 	};
 }
 
@@ -126,8 +126,8 @@ function seedEntryValue(entry: DevSeedEntry): unknown {
 		label: entry.label,
 		baseUrl: entry.baseUrl,
 		...(entry.apiKey.length > 0 ? { auth: { apiKey: entry.apiKey } } : {}),
-		...(entry.budget !== undefined ? { budget: entry.budget } : {}),
-		...(entry.models !== undefined ? { models: entry.models } : {}),
+		...(entry.budget === undefined ? {} : { budget: entry.budget }),
+		...(entry.models === undefined ? {} : { models: entry.models }),
 	};
 }
 
@@ -136,7 +136,7 @@ function mainEntryOf(seed: DevSeed): DevSeedEntry {
 		label: seed.label,
 		baseUrl: seed.baseUrl,
 		apiKey: seed.apiKey,
-		...(seed.models !== undefined ? { models: seed.models } : {}),
+		...(seed.models === undefined ? {} : { models: seed.models }),
 	};
 }
 

@@ -59,16 +59,16 @@ export function assembleEntryAuth(inline: OptionalEntryFields, resolves: SecretR
 	}
 
 	const virtualKey: Record<string, string> | undefined =
-		header !== undefined ? { header, ...(virtualKeyValue !== undefined ? { value: virtualKeyValue } : {}) } : undefined;
+		header === undefined ? undefined : { header, ...(virtualKeyValue === undefined ? {} : { value: virtualKeyValue }) };
 	const auth: Record<string, unknown> = {};
 	if (tokenUrl !== undefined && clientId !== undefined) {
 		auth.oauth = {
 			tokenUrl,
 			clientId,
-			...(clientSecret !== undefined ? { clientSecret } : {}),
-			...(scopes !== undefined ? { scopes } : {}),
-			...(apiKey !== undefined ? { apiKey } : {}),
-			...(virtualKey !== undefined ? { virtualKey } : {}),
+			...(clientSecret === undefined ? {} : { clientSecret }),
+			...(scopes === undefined ? {} : { scopes }),
+			...(apiKey === undefined ? {} : { apiKey }),
+			...(virtualKey === undefined ? {} : { virtualKey }),
 		};
 	} else {
 		if (apiKey !== undefined) {

@@ -147,16 +147,16 @@ function buildServer(
 			? ({
 					origin: "external",
 					adoptHandle: adoptSourceHandle(status.serverId),
-					...(snapshot.entryLabel !== undefined ? { entryLabel: snapshot.entryLabel } : {}),
-					...(identity.provenance !== undefined ? { provenance: identity.provenance } : {}),
+					...(snapshot.entryLabel === undefined ? {} : { entryLabel: snapshot.entryLabel }),
+					...(identity.provenance === undefined ? {} : { provenance: identity.provenance }),
 				} as const)
 			: ({
 					origin: "legacy",
 					entryLabel: identity.entryLabel,
 					groupHandle: adoptSourceHandle(status.serverId),
 				} as const)),
-		...(snapshot.observedModelInfoKeys !== undefined ? { observedModelInfoKeys: snapshot.observedModelInfoKeys } : {}),
-		...(snapshot.skippedModeCounts !== undefined ? { skippedModeCounts: snapshot.skippedModeCounts } : {}),
+		...(snapshot.observedModelInfoKeys === undefined ? {} : { observedModelInfoKeys: snapshot.observedModelInfoKeys }),
+		...(snapshot.skippedModeCounts === undefined ? {} : { skippedModeCounts: snapshot.skippedModeCounts }),
 	} as const;
 	return status.state === "ok"
 		? { ...base, state: "ok", servedModelCount: status.servedModelCount }
@@ -166,7 +166,7 @@ function buildServer(
 				servedModelCount: status.servedModelCount,
 				cause: status.cause,
 				...(status.expected === true ? { expected: true } : {}),
-				...(status.declaredModelCount !== undefined ? { declaredModelCount: status.declaredModelCount } : {}),
+				...(status.declaredModelCount === undefined ? {} : { declaredModelCount: status.declaredModelCount }),
 			};
 }
 
@@ -212,7 +212,7 @@ function declaredOutcome(
 		return {
 			state: "ok",
 			servedModelCount: status.servedModelCount,
-			...(status.modelInfoUnsupported !== undefined ? { modelInfoUnsupported: status.modelInfoUnsupported } : {}),
+			...(status.modelInfoUnsupported === undefined ? {} : { modelInfoUnsupported: status.modelInfoUnsupported }),
 		};
 	}
 	return {
@@ -222,7 +222,7 @@ function declaredOutcome(
 		servedModelCount: status.servedModelCount,
 		cause: status.cause,
 		...(status.expected === true ? { expected: true } : {}),
-		...(status.declaredModelCount !== undefined ? { declaredModelCount: status.declaredModelCount } : {}),
+		...(status.declaredModelCount === undefined ? {} : { declaredModelCount: status.declaredModelCount }),
 	};
 }
 
@@ -362,12 +362,12 @@ function buildServers(
 			hasOAuth: kinds.oauth,
 			hasVirtualKey: kinds.virtualKey,
 			origin: "declared",
-			...(matched?.snapshot.observedModelInfoKeys !== undefined
-				? { observedModelInfoKeys: matched.snapshot.observedModelInfoKeys }
-				: {}),
-			...(matched?.snapshot.skippedModeCounts !== undefined
-				? { skippedModeCounts: matched.snapshot.skippedModeCounts }
-				: {}),
+			...(matched?.snapshot.observedModelInfoKeys === undefined
+				? {}
+				: { observedModelInfoKeys: matched.snapshot.observedModelInfoKeys }),
+			...(matched?.snapshot.skippedModeCounts === undefined
+				? {}
+				: { skippedModeCounts: matched.snapshot.skippedModeCounts }),
 			config: {
 				//   Both registries ride whole -> no per-field emptiness re-checks here - a field registered in
 				//     ENTRY_VIEW_FIELD_SET reaches the edit form's prefill by construction
@@ -818,7 +818,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 		labeled: labeled.filter((entry) => !tombstoned.has(entry)),
 		declared: declared.views,
 		carriers: rejectedCarrierLabels(entryReports),
-		...(secretHolders !== undefined ? { secretHolders } : {}),
+		...(secretHolders === undefined ? {} : { secretHolders }),
 	});
 	const { servers, snapshotLabels } = buildServers(
 		labeled,
@@ -855,7 +855,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 				)
 			)
 			.sort((a, b) => a.serverLabel.localeCompare(b.serverLabel) || a.name.localeCompare(b.name)),
-		...(observedUnion !== undefined ? { observedModelInfoKeys: observedUnion } : {}),
+		...(observedUnion === undefined ? {} : { observedModelInfoKeys: observedUnion }),
 		settings: readDashboardSettings(reader, catalog),
 		featureProbes,
 		usage,
@@ -907,9 +907,9 @@ export function resolveDashboardModelCapabilities(
 		serverDeclared: info.litellm.serverDeclared,
 	};
 	const resolved =
-		query.resolution !== undefined
-			? query.resolution.resolveCapabilities(serverId, rawId, inputs)
-			: resolveModelCapabilities({ rawModelId: rawId, ...inputs });
+		query.resolution === undefined
+			? resolveModelCapabilities({ rawModelId: rawId, ...inputs })
+			: query.resolution.resolveCapabilities(serverId, rawId, inputs);
 	// The advisory filter judges each hint by its layer's own evidence, the SAME evidence Configuration diagnostics and
 	// the settings editor use: entry records apply to this server only, so its own listing judges them; a global record
 	// applies to every server, so a key ANY server observed is real (the cross-server union). The non-global branch
@@ -952,9 +952,9 @@ export function resolveDashboardModelParameters(
 		entryParameters: entry?.entryParameters,
 	};
 	const resolved =
-		query.resolution !== undefined
-			? query.resolution.resolveParameters(serverId, rawId, inputs)
-			: resolveModelParameters({ rawModelId: rawId, ...inputs });
+		query.resolution === undefined
+			? resolveModelParameters({ rawModelId: rawId, ...inputs })
+			: query.resolution.resolveParameters(serverId, rawId, inputs);
 	return projectResolvedParameters(
 		resolved,
 		{

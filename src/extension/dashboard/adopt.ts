@@ -117,17 +117,17 @@ export function resolveAdoptableCredentials(
 	}
 	const credentials: AdoptableGroupCredentials = {
 		...(server.apiKey.length > 0 ? { apiKey: server.apiKey } : {}),
-		...(server.oauth !== undefined
-			? {
+		...(server.oauth === undefined
+			? {}
+			: {
 					oauthTokenUrl: server.oauth.tokenUrl,
 					oauthClientId: server.oauth.clientId,
 					...(server.oauth.clientSecret.length > 0 ? { oauthClientSecret: server.oauth.clientSecret } : {}),
-					...(server.oauth.scopes !== undefined ? { oauthScopes: server.oauth.scopes } : {}),
-				}
-			: {}),
-		...(server.virtualKey !== undefined
-			? { virtualKeyHeader: server.virtualKey.header, virtualKeyValue: server.virtualKey.value }
-			: {}),
+					...(server.oauth.scopes === undefined ? {} : { oauthScopes: server.oauth.scopes }),
+				}),
+		...(server.virtualKey === undefined
+			? {}
+			: { virtualKeyHeader: server.virtualKey.header, virtualKeyValue: server.virtualKey.value }),
 	};
 	return { credentials };
 }
@@ -194,7 +194,7 @@ export async function applyAdoptServer(
 	const newEntry: Record<string, unknown> = {
 		label,
 		baseUrl,
-		...(assembled.auth !== undefined ? { auth: assembled.auth } : {}),
+		...(assembled.auth === undefined ? {} : { auth: assembled.auth }),
 	};
 
 	// The ownership stamp for each secure copy: the adopted entry's own destinations, derived from the entry as the

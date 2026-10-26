@@ -233,7 +233,7 @@ function persistedStatus(status: ConnectionStatus): PersistedStatus {
 				state: status.state,
 				totalModels: status.totalModels,
 				serverStatuses: status.serverStatuses.map(persistedElement),
-				zeroModel: status.zeroModel !== undefined ? true : undefined,
+				zeroModel: status.zeroModel === undefined ? undefined : true,
 				lastChecked: status.lastChecked,
 			});
 		case "error":
@@ -962,18 +962,18 @@ export class StatusBarManager {
 				return;
 			case "connected": {
 				const zero = zeroModelJudgment(rows, totalModels);
-				if (zero !== undefined) {
+				if (zero === undefined) {
+					this.logger.log(`Successfully fetched ${totalModels} models from ${servingCount} server(s)`);
+				} else {
 					// Carried on the status: the renderer and the command toasts present this judgment as a warning,
 					// never a connection failure, without deriving their own.
 					this.logger.log(`Warning: ${zeroModelTexts(zero).logSafe}`);
-				} else {
-					this.logger.log(`Successfully fetched ${totalModels} models from ${servingCount} server(s)`);
 				}
 				void this.updateStatusBar({
 					state: "connected",
 					serverStatuses,
 					totalModels,
-					...(zero !== undefined ? { zeroModel: zero } : {}),
+					...(zero === undefined ? {} : { zeroModel: zero }),
 					lastChecked: now,
 				});
 			}

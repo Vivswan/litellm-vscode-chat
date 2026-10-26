@@ -257,7 +257,7 @@ export class IssueReporter {
 							source: redact(error.source),
 							message: redact(error.message),
 							timestamp: redact(error.timestamp),
-							...(error.stack !== undefined ? { stack: redact(error.stack) } : {}),
+							...(error.stack === undefined ? {} : { stack: redact(error.stack) }),
 						},
 		};
 	}
@@ -268,7 +268,7 @@ export class IssueReporter {
 			message: error.message,
 			stack: error.stack,
 			timestamp: new Date().toISOString(),
-			...(error.classification !== undefined ? { classification: error.classification } : {}),
+			...(error.classification === undefined ? {} : { classification: error.classification }),
 		};
 	}
 
@@ -379,7 +379,7 @@ function bodyOf(snapshot: DiagnosticsSnapshot, variant: BodyVariant): string {
 		"## Diagnostics",
 		"",
 		`- Connection state: ${snapshot.connectionState}`,
-		snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
+		snapshot.modelCount === undefined ? null : `- Model count: ${snapshot.modelCount}`,
 		`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
 		`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
 		`- MCP-enabled server entries: ${snapshot.mcpEntryCount}`,
@@ -439,8 +439,8 @@ function bodyOf(snapshot: DiagnosticsSnapshot, variant: BodyVariant): string {
  * text), never anything response-derived.
  */
 function classificationLine(classification: TransportErrorClassification): string {
-	const status = classification.status !== undefined ? ` ${classification.status}` : "";
-	const setupHint = classification.setupHint !== undefined ? ` (${classification.setupHint})` : "";
+	const status = classification.status === undefined ? "" : ` ${classification.status}`;
+	const setupHint = classification.setupHint === undefined ? "" : ` (${classification.setupHint})`;
 	return `- Classification: ${classification.kind}${status}${setupHint}`;
 }
 
@@ -451,7 +451,7 @@ function latestErrorLines(error: ErrorContext): string[] {
 		"",
 		`- Source: ${error.source}`,
 		`- Time: ${error.timestamp}`,
-		...(error.classification !== undefined ? [classificationLine(error.classification)] : []),
+		...(error.classification === undefined ? [] : [classificationLine(error.classification)]),
 	];
 }
 
@@ -499,7 +499,7 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, sink: Compact
 		"## Diagnostics",
 		"",
 		`- Connection state: ${snapshot.connectionState}`,
-		snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
+		snapshot.modelCount === undefined ? null : `- Model count: ${snapshot.modelCount}`,
 		`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
 		`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
 		//   the full one blew the URL bound -> Signal-bearing features only

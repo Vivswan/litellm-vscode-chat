@@ -96,9 +96,9 @@ export function troubleshootingDocsAction(url: string, label = l10n.t("Troublesh
  */
 function notifierErrorActions(classification: TransportErrorClassification | undefined): MessageAction[] {
 	const setupHint = classification?.setupHint;
-	return setupHint !== undefined
-		? [reconfigureAction(), troubleshootingDocsAction(SETUP_HINT_DOCS_URLS[setupHint]), reportIssueAction()]
-		: [reconfigureAction(), reportIssueAction()];
+	return setupHint === undefined
+		? [reconfigureAction(), reportIssueAction()]
+		: [reconfigureAction(), troubleshootingDocsAction(SETUP_HINT_DOCS_URLS[setupHint]), reportIssueAction()];
 }
 
 /**

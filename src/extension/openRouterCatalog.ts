@@ -207,7 +207,7 @@ class Store implements OpenRouterCatalogStore {
 		return {
 			modelCount: this.current.models.length,
 			lastSuccessAt: this.readLastSuccess(),
-			...(this.lastFailure !== undefined ? { lastFailure: this.lastFailure } : {}),
+			...(this.lastFailure === undefined ? {} : { lastFailure: this.lastFailure }),
 			refreshing: this.inFlight !== undefined,
 		};
 	}

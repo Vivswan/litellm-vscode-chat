@@ -90,7 +90,7 @@ export class DashboardValidationError extends MirroredError {
 	) {
 		super(message, {
 			logClassification: "dashboard validation refused",
-			...(options?.englishMessage !== undefined ? { englishMessage: options.englishMessage } : {}),
+			...(options?.englishMessage === undefined ? {} : { englishMessage: options.englishMessage }),
 		});
 		this.name = "DashboardValidationError";
 		if (options?.classification !== undefined) {

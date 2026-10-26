@@ -113,7 +113,7 @@ function recordChainLinks(
 		return {
 			key: match.key,
 			barrier: inherit.barrier,
-			...(inherit.inheritFrom !== undefined ? { inheritFrom: inherit.inheritFrom } : {}),
+			...(inherit.inheritFrom === undefined ? {} : { inheritFrom: inherit.inheritFrom }),
 		};
 	});
 }
@@ -268,7 +268,7 @@ function buildTree(input: TreeInput): RecordTreeView {
 			key,
 			fields: nodeFields(parsed),
 			barrier: inherit.barrier,
-			...(inherit.inheritFrom !== undefined ? { inheritFrom: inherit.inheritFrom } : {}),
+			...(inherit.inheritFrom === undefined ? {} : { inheritFrom: inherit.inheritFrom }),
 			children: (childrenOf.get(key) ?? [])
 				.filter((child) => !nextSeen.has(child))
 				.map((child) => buildNode(child, nextSeen)),
@@ -279,7 +279,7 @@ function buildTree(input: TreeInput): RecordTreeView {
 	return {
 		kind,
 		layer,
-		...(entryLabel !== undefined ? { entryLabel } : {}),
+		...(entryLabel === undefined ? {} : { entryLabel }),
 		roots: (childrenOf.get("") ?? []).map((key) => buildNode(key, new Set())),
 		unmatchedModelIds: unmatched.sort((a, b) => a.localeCompare(b)),
 		invalidKeys: [...invalidKeys].sort((a, b) => a.localeCompare(b)),
@@ -300,7 +300,7 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 			serverLabel: label,
 			scopeKey,
 			rawId: info.litellm.rawModelId,
-			entryLabel: entry?.entryLabel ?? (entryCapabilities !== undefined ? snapshot.status.label : undefined),
+			entryLabel: entry?.entryLabel ?? (entryCapabilities === undefined ? undefined : snapshot.status.label),
 			entryParameters: entry?.entryParameters,
 			entryCapabilities,
 			serverDeclared: info.litellm.serverDeclared,
@@ -313,16 +313,16 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 			entryParameters: model.entryParameters,
 		};
 		const resolvedParams =
-			query.resolution !== undefined
-				? query.resolution.resolveParameters(model.serverId, model.rawId, parameterInputs)
-				: resolveModelParameters({ rawModelId: model.rawId, ...parameterInputs });
+			query.resolution === undefined
+				? resolveModelParameters({ rawModelId: model.rawId, ...parameterInputs })
+				: query.resolution.resolveParameters(model.serverId, model.rawId, parameterInputs);
 		const parameters: ResolvedParamCell[] = [...resolvedParams.sources.entries()]
 			.map(([name, source]) => ({
 				name,
 				valueText: formatJsonValue(resolvedParams.params[name]),
 				layer: source.source.layer,
 				key: source.source.key,
-				...(source.inheritedBy !== undefined ? { inheritedBy: source.inheritedBy } : {}),
+				...(source.inheritedBy === undefined ? {} : { inheritedBy: source.inheritedBy }),
 				...(source.forced === true ? { forced: true as const } : {}),
 			}))
 			.sort((a, b) => a.name.localeCompare(b.name));
@@ -334,9 +334,9 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 			serverDeclared: model.serverDeclared,
 		};
 		const resolvedCaps =
-			query.resolution !== undefined
-				? query.resolution.resolveCapabilities(model.serverId, model.rawId, capabilityInputs)
-				: resolveModelCapabilities({ rawModelId: model.rawId, ...capabilityInputs });
+			query.resolution === undefined
+				? resolveModelCapabilities({ rawModelId: model.rawId, ...capabilityInputs })
+				: query.resolution.resolveCapabilities(model.serverId, model.rawId, capabilityInputs);
 		const capabilities: ResolvedCapCell[] = Object.entries(resolvedCaps.fields).flatMap(([name, field]) =>
 			field === undefined
 				? []
@@ -345,8 +345,8 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 							name,
 							valueText: formatJsonValue(field.value),
 							level: field.level,
-							...(field.key !== undefined ? { key: field.key } : {}),
-							...(field.inheritedBy !== undefined ? { inheritedBy: field.inheritedBy } : {}),
+							...(field.key === undefined ? {} : { key: field.key }),
+							...(field.inheritedBy === undefined ? {} : { inheritedBy: field.inheritedBy }),
 						},
 					]
 		);

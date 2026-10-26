@@ -48,13 +48,13 @@ function endpointStandingView(state: UsageEndpointState): UsageEndpointStandingV
 			return {
 				kind: "unavailable",
 				reason: state.reason,
-				...(state.status !== undefined ? { status: state.status } : {}),
+				...(state.status === undefined ? {} : { status: state.status }),
 			};
 		case "error":
 			return {
 				kind: "error",
-				...(state.classification !== undefined ? { classification: state.classification } : {}),
-				...(state.status !== undefined ? { status: state.status } : {}),
+				...(state.classification === undefined ? {} : { classification: state.classification }),
+				...(state.status === undefined ? {} : { status: state.status }),
 			};
 	}
 }
@@ -75,13 +75,13 @@ function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageS
 	}
 	const totals = state.daily?.totals;
 	const requests =
-		totals !== undefined
-			? {
+		totals === undefined
+			? undefined
+			: {
 					total: totals.apiRequests,
 					...(totals.apiRequests > 0 ? { successRate: totals.successfulRequests / totals.apiRequests } : {}),
 					...(totals.promptTokens > 0 ? { cacheHitRate: totals.cacheReadInputTokens / totals.promptTokens } : {}),
-				}
-			: undefined;
+				};
 	const budget = state.budget;
 	const view: UsageServerView = {
 		kind: "usage",
@@ -90,15 +90,15 @@ function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageS
 		fresh: input.isFresh(state, input.now, input.pollIntervalMs, input.pollingOffWindowMs),
 		keyInfo: endpointStandingView(state.endpoints.keyInfo),
 		dailyActivity: endpointStandingView(state.endpoints.dailyActivity),
-		...(state.spendUpdatedAt !== undefined ? { lastUpdatedAt: state.spendUpdatedAt } : {}),
-		...(budget.spend !== undefined ? { spend: budget.spend } : {}),
-		...(budget.effectiveBudget !== undefined ? { effectiveBudget: budget.effectiveBudget } : {}),
-		...(budget.keyBudget !== undefined ? { keyBudget: budget.keyBudget } : {}),
-		...(budget.entryBudget !== undefined ? { entryBudget: budget.entryBudget } : {}),
+		...(state.spendUpdatedAt === undefined ? {} : { lastUpdatedAt: state.spendUpdatedAt }),
+		...(budget.spend === undefined ? {} : { spend: budget.spend }),
+		...(budget.effectiveBudget === undefined ? {} : { effectiveBudget: budget.effectiveBudget }),
+		...(budget.keyBudget === undefined ? {} : { keyBudget: budget.keyBudget }),
+		...(budget.entryBudget === undefined ? {} : { entryBudget: budget.entryBudget }),
 		budgetSource: budget.budgetSource,
-		...(budget.spentFraction !== undefined ? { spentFraction: budget.spentFraction } : {}),
-		...(budget.budgetResetAt !== undefined ? { budgetResetAt: budget.budgetResetAt } : {}),
-		...(requests !== undefined ? { requests } : {}),
+		...(budget.spentFraction === undefined ? {} : { spentFraction: budget.spentFraction }),
+		...(budget.budgetResetAt === undefined ? {} : { budgetResetAt: budget.budgetResetAt }),
+		...(requests === undefined ? {} : { requests }),
 	};
 	return view;
 }

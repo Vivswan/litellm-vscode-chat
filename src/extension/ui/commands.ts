@@ -587,7 +587,7 @@ export function registerTestCommands(
 				// Stamped like the palette when the label resolves to a declared entry; a secret seeded before its
 				// entry is declared writes unstamped and resolves anywhere, like a pre-stamping blob.
 				const entry = acceptedEntry(readRawServersSetting(), label)?.entry;
-				const owner = entry !== undefined ? secretDestination(entry, field as SecretFieldId) : undefined;
+				const owner = entry === undefined ? undefined : secretDestination(entry, field as SecretFieldId);
 				return updateServerSecret(context.secrets, label, field as SecretFieldId, value, owner);
 			}
 		),

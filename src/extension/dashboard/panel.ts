@@ -508,7 +508,7 @@ export class DashboardController implements vscode.Disposable {
 						scopeKey,
 						rawId
 					),
-					...(capsGlobalKey !== undefined ? { globalRecordKey: capsGlobalKey } : {}),
+					...(capsGlobalKey === undefined ? {} : { globalRecordKey: capsGlobalKey }),
 					...(capsChains.length > 0 ? { chains: capsChains } : {}),
 				},
 			};
@@ -543,8 +543,8 @@ export class DashboardController implements vscode.Disposable {
 				id: request.id,
 				method: "readModelParameters",
 				payload: {
-					...(answer !== undefined ? { projection: answer } : {}),
-					...(paramsGlobalKey !== undefined ? { globalRecordKey: paramsGlobalKey } : {}),
+					...(answer === undefined ? {} : { projection: answer }),
+					...(paramsGlobalKey === undefined ? {} : { globalRecordKey: paramsGlobalKey }),
 					...(paramsChains.length > 0 ? { chains: paramsChains } : {}),
 				},
 			};
@@ -664,8 +664,8 @@ export class DashboardController implements vscode.Disposable {
 					kind: "ack",
 					id: request.id,
 					method: request.method,
-					...(note !== undefined ? { message: note.message } : {}),
-					...(note?.tone !== undefined ? { tone: note.tone } : {}),
+					...(note === undefined ? {} : { message: note.message }),
+					...(note?.tone === undefined ? {} : { tone: note.tone }),
 				});
 			}
 			this.pushState();
@@ -689,7 +689,7 @@ export class DashboardController implements vscode.Disposable {
 				this.env.log("Dashboard intent rejected", {
 					method: request.method,
 					kind: "validation",
-					...(classification !== undefined ? { classification } : {}),
+					...(classification === undefined ? {} : { classification }),
 				});
 			} else if (error instanceof DashboardOperationError) {
 				message = error.message;
@@ -711,10 +711,10 @@ export class DashboardController implements vscode.Disposable {
 				id: request.id,
 				method: request.method,
 				message,
-				...(englishMessage !== undefined ? { englishMessage } : {}),
+				...(englishMessage === undefined ? {} : { englishMessage }),
 				failureKind,
-				...(classification !== undefined ? { classification } : {}),
-				...(row !== undefined ? { row } : {}),
+				...(classification === undefined ? {} : { classification }),
+				...(row === undefined ? {} : { row }),
 			});
 		}
 	}
@@ -794,7 +794,7 @@ export function entryParametersResolver(
 			return undefined;
 		}
 		const entryParameters = getEntryModelParameters(group.label, group.baseUrl);
-		return entryParameters !== undefined ? { entryLabel: group.label, entryParameters } : undefined;
+		return entryParameters === undefined ? undefined : { entryLabel: group.label, entryParameters };
 	};
 }
 
@@ -930,7 +930,7 @@ export function registerDashboardCommand(
 		),
 		resolveEntryCapabilities: (serverId) => {
 			const identity = provider.capabilityEntryIdentity(serverId);
-			return identity !== undefined ? getEntryModelCapabilities(identity.label, identity.baseUrl) : undefined;
+			return identity === undefined ? undefined : getEntryModelCapabilities(identity.label, identity.baseUrl);
 		},
 		getResolutionTable: () => provider.resolutionTable,
 	};

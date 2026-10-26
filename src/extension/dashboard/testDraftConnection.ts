@@ -131,7 +131,7 @@ export async function applyTestServerDraft(
 			{
 				label: PARSE_BACK_LABEL,
 				baseUrl: "http://draft.invalid",
-				...(assembled.auth !== undefined ? { auth: assembled.auth } : {}),
+				...(assembled.auth === undefined ? {} : { auth: assembled.auth }),
 			},
 		],
 		PARSE_BACK_LABEL
@@ -179,12 +179,12 @@ export async function applyTestServerDraft(
 	const usableLabel = usableHttpText(intent.server.label);
 	const connection: DraftConnection = {
 		baseUrl,
-		...(usableLabel !== undefined ? { label: usableLabel } : {}),
-		...(intent.server.apiVersion !== undefined ? { apiVersion: trimHttpWhitespace(intent.server.apiVersion) } : {}),
+		...(usableLabel === undefined ? {} : { label: usableLabel }),
+		...(intent.server.apiVersion === undefined ? {} : { apiVersion: trimHttpWhitespace(intent.server.apiVersion) }),
 		apiKey: groupServer.apiKey,
 		...(Object.keys(draftHeaders).length > 0 ? { headers: draftHeaders } : {}),
-		...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
-		...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
+		...(groupServer.oauth === undefined ? {} : { oauth: groupServer.oauth }),
+		...(groupServer.virtualKey === undefined ? {} : { virtualKey: groupServer.virtualKey }),
 		expected: {
 			modelInfo: intent.server.expectedFailures.includes("modelInfo"),
 			modelListing: intent.server.expectedFailures.includes("modelListing"),
@@ -232,8 +232,8 @@ export function createDraftConnectionProbe(
 	return async (connection) => {
 		const client = new ChatClient({
 			userAgent,
-			...(connection.headers !== undefined ? { getEntryHeaders: () => connection.headers } : {}),
-			...(connection.apiVersion !== undefined ? { getEntryApiVersion: () => connection.apiVersion } : {}),
+			...(connection.headers === undefined ? {} : { getEntryHeaders: () => connection.headers }),
+			...(connection.apiVersion === undefined ? {} : { getEntryApiVersion: () => connection.apiVersion }),
 		});
 		const { models } = await client.fetchModels(
 			{
@@ -244,8 +244,8 @@ export function createDraftConnectionProbe(
 				// The DRAFT's label - what a declaration hint may name. Empty means "no nameable entry"
 				// (FetchModelsRequest.entryLabel); the synthetic probe ID must never surface in a user-facing message.
 				entryLabel: connection.label ?? "",
-				...(connection.oauth !== undefined ? { oauth: connection.oauth } : {}),
-				...(connection.virtualKey !== undefined ? { virtualKey: connection.virtualKey } : {}),
+				...(connection.oauth === undefined ? {} : { oauth: connection.oauth }),
+				...(connection.virtualKey === undefined ? {} : { virtualKey: connection.virtualKey }),
 			},
 			connection.expected,
 			connection.includeModes

@@ -465,13 +465,13 @@ function parseFailureMessage(
 		);
 	}
 	if (verdict.reason === "newer-version") {
-		return verdict.exportedBy !== undefined
+		return verdict.exportedBy === undefined
 			? l10n.t(
-					"LiteLLM: This file was exported by a newer version of the extension ({0}); update the extension to import it.",
-					verdict.exportedBy
+					"LiteLLM: This file was exported by a newer version of the extension; update the extension to import it."
 				)
 			: l10n.t(
-					"LiteLLM: This file was exported by a newer version of the extension; update the extension to import it."
+					"LiteLLM: This file was exported by a newer version of the extension ({0}); update the extension to import it.",
+					verdict.exportedBy
 				);
 	}
 	return l10n.t("LiteLLM: This file is not a LiteLLM settings export.");
@@ -514,7 +514,7 @@ async function applyServersUnit(
 				if (value === undefined && storedBefore.values[field] === undefined) {
 					continue;
 				}
-				const owner = value !== undefined ? write.owners[field] : undefined;
+				const owner = value === undefined ? undefined : write.owners[field];
 				await env.updateServerSecret(write.label, field, value, owner);
 				// Recorded only after the write landed: updateServerSecret's read-modify-write leaves the blob
 				// untouched when it throws. The stamp is recorded as the record reads it back, so the rollback compares
@@ -636,7 +636,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			const standing = acceptedEntry(currentServersRaw, collision.label)?.entry;
 			// No accepted entry means nothing to pair against, so nothing resolves - the same fail-closed default the
 			// save path's keep sources apply (a rejected carrier resolves no secrets at sync time).
-			storedSecrets[collision.label] = standing !== undefined ? resolveOwnedSecrets(standing, record).values : {};
+			storedSecrets[collision.label] = standing === undefined ? {} : resolveOwnedSecrets(standing, record).values;
 		}
 		const plan = planSettingsImport(parsed.settings, currentServersRaw, storedSecrets);
 
@@ -1014,7 +1014,7 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 				owners[field as SecretFieldId] = stamp;
 			}
 		}
-		blobs[label] = { present: true, value: blob, ...(owners !== undefined ? { owners } : {}) };
+		blobs[label] = { present: true, value: blob, ...(owners === undefined ? {} : { owners }) };
 	}
 	return { settings, blobs, at: parsed.at };
 }
@@ -1108,8 +1108,8 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 								owners: restoredOwners({ secrets: snapshotBlob.value, owners: snapshotBlob.owners ?? {} }, target),
 							}
 						: { values: {}, owners: {} };
-			currentBlobs[label] = standing !== undefined ? resolveOwnedSecrets(standing, record).values : {};
-			targetBlobs[label] = target !== undefined ? resolveOwnedSecrets(target, targetRecord).values : {};
+			currentBlobs[label] = standing === undefined ? {} : resolveOwnedSecrets(standing, record).values;
+			targetBlobs[label] = target === undefined ? {} : resolveOwnedSecrets(target, targetRecord).values;
 		}
 		const reconnectCount = connectionChangedLabels(
 			currentServersRaw,

@@ -76,7 +76,7 @@ function recordDiagnostics(
 	return diagnostics.map((diagnostic) => ({
 		kind: "record" as const,
 		setting,
-		...(entryLabel !== undefined ? { entryLabel } : {}),
+		...(entryLabel === undefined ? {} : { entryLabel }),
 		diagnostic,
 		// A surviving unrecognized-key is advisory by construction: the filter already dropped everything without
 		// evidence. Every other kind warns.
@@ -155,7 +155,7 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		if (report.problems.length > 0) {
 			diagnostics.push({
 				kind: "entry",
-				...(report.label !== undefined ? { label: report.label } : {}),
+				...(report.label === undefined ? {} : { label: report.label }),
 				position: report.index + 1,
 				problems: report.problems,
 				misconfigured: !report.accepted,

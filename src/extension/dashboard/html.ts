@@ -48,9 +48,9 @@ export function buildDashboardHtml(options: DashboardHtmlOptions): string {
 	// Inline so @vscode/l10n is configured before the bundle's first render;
 	// absent under English (t() falls back to its inline message).
 	const bundleScript =
-		options.l10nBundle !== undefined
-			? `<script nonce="${nonce}">window.__l10nBundle = ${inlineScriptJson(options.l10nBundle)};</script>\n\t`
-			: "";
+		options.l10nBundle === undefined
+			? ""
+			: `<script nonce="${nonce}">window.__l10nBundle = ${inlineScriptJson(options.l10nBundle)};</script>\n\t`;
 	// Stamped on the root so the stylesheet keys its palettes off them before the bundle runs: a reader who pinned
 	// light never sees a dark frame.
 	const theme = escapeHtml(options.theme);
