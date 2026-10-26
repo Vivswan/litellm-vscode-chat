@@ -155,24 +155,19 @@ export function renderUsageStatus(input: UsageStatusInput): UsageStatusView | "h
 	return { text: formatPercent(position.worst), severity, tooltipLines };
 }
 
+/**
+ * The setting getters are read at render time, so a settings edit needs no rebuild; `clock` and `timer` default to the
+ * real ones.
+ */
 export interface UsageStatusBarOptions {
 	readonly store: UsageStore;
-
 	readonly item: StatusItemLike;
-
-	/** Read at render time so a settings edit needs no rebuild. */
 	readonly getMode: () => UsageStatusBarMode;
-
 	readonly getThresholds: () => readonly number[];
-
 	readonly getPollIntervalMs: () => number;
-
 	readonly getPollingOffWindowMs: () => number;
-
 	readonly getCurrencySymbol: () => string;
-
 	readonly clock?: Clock;
-
 	readonly timer?: Timer;
 }
 

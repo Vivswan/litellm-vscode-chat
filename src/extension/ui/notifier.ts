@@ -136,13 +136,7 @@ type NotifierOutcome =
 	| { tag: "recovered" }
 	| { tag: "suppressed" };
 
-/**
- * At cold start the host runs the groupless refresh (which reports an empty window) before the per-group refreshes that
- * prove groups exist, so the claim needs evidence of absence: the gate is checked again once the host has had time to
- * hand over any groups it manages.
- *
- *   If a host is slower still -> the mistake self-heals
- */
+/** The host reports an empty window before its per-group refreshes prove groups exist, so the claim waits this long. */
 const NO_SERVERS_GRACE_MS = 15000;
 
 /**
@@ -241,7 +235,8 @@ export class Notifier implements vscode.Disposable {
 		}
 		this.pendingClaim.arm(() => {
 			// Re-gated at expiry: by now the host has handed over any groups it manages, so a still-false gate is
-			// evidence of absence.
+			// evidence of absence. A host slower still earns one mistaken toast; its next healthy report resets the
+			// dedup, so the state self-heals.
 			if (this.hasConfiguredServers() || condition.signature === this._lastNotifiedSignature) {
 				return;
 			}

@@ -13,60 +13,46 @@ import { showMessage } from "./notifier";
 const MAX_URL_LENGTH = 8000;
 const COMPACT_STACK_LINES = 8;
 
+/**
+ * `classification` carries enum ids and a status number only, never message text, so triage can read the cause without
+ * the body.
+ */
 export interface ErrorContext {
 	source: string;
-
 	message: string;
-
 	stack?: string | undefined;
-
 	timestamp: string;
-
-	/**
-	 * Classification only - enum ids and a status number, never message text - so triage can read the cause without
-	 * the body.
-	 */
 	classification?: TransportErrorClassification | undefined;
 }
 
-/** One feature's report facts: the opt-in and whether a model ref is set - flags only, never which model or label. */
+/**
+ * One feature's report facts: the opt-in and whether a model ref is set - flags only, never which model or label.
+ * `modelConfigured` is absent for features with no model key (the chat participant uses the request's own model).
+ */
 interface FeatureFlagFacts {
 	readonly enabled: boolean;
-
-	/** Absent for features with no model key (the chat participant uses the request's own model). */
 	readonly modelConfigured?: boolean | undefined;
 }
 
+/**
+ * `mcpEntryCount` stands apart from `featureFlags` because the MCP opt-in is a per-entry field rather than a FeatureId,
+ * so it cannot ride them.
+ */
 export interface DiagnosticsSnapshot {
 	extensionVersion: string;
-
 	vscodeVersion: string;
-
 	platform: string;
-
 	connectionState: string;
-
 	modelCount?: number | undefined;
-
 	apiKeyConfigured: boolean | "unknown";
-
 	baseUrlConfigured: boolean;
-
 	featureFlags: Readonly<Record<FeatureId, FeatureFlagFacts>>;
-
-	/**
-	 *   the MCP opt-in is a per-entry field rather than a FeatureId -> it cannot ride featureFlags
-	 */
 	mcpEntryCount: number;
-
 	latestError?: ErrorContext | undefined;
-
 	recentLogs: string[];
 }
 
-/**
- * English by the issue-report policy, and total over FeatureId so a new feature cannot ship without its report line.
- */
+/** English by the issue-report policy, and total over FeatureId: a new feature cannot ship without its report line. */
 const FEATURE_PROSE_NAMES: Readonly<Record<FeatureId, string>> = {
 	inlineCompletions: "Inline completions",
 	commitGeneration: "Commit generation",
@@ -108,10 +94,9 @@ function apiKeyConfiguredText(snapshot: DiagnosticsSnapshot): string {
 	return snapshot.apiKeyConfigured ? "yes" : "no";
 }
 
+/** The last report opened, kept in globalState under LAST_ISSUE_REPORT_KEY; `openedAt` is epoch milliseconds. */
 export interface LastIssueReport {
 	fingerprint: string;
-
-	/** Epoch milliseconds. */
 	openedAt: number;
 }
 

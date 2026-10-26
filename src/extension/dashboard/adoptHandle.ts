@@ -5,14 +5,15 @@ import { fingerprint } from "../../shared/util/fingerprint";
 import type { LabeledSnapshot } from "./declaredJoin";
 import { labeledSnapshots } from "./declaredJoin";
 
-/**
- * The opaque token an external row carries so the adopt intent can name its source group (DashboardServer.adoptHandle):
- * a one-way hash of the server ID under a per-session salt, so nothing able to read webview state learns anything
- * correlatable from it (the ID embeds a credential fingerprint). Stable within one session, which is all adoption
- * needs; nothing depends on it across sessions.
- */
+/** Minted per session: nothing depends on an adopt handle or a scope key across sessions. */
 const ADOPT_HANDLE_SALT = randomBytes(16).toString("hex");
 
+/**
+ * The opaque token an external row carries so the adopt intent can name its source group (DashboardServer.adoptHandle):
+ * a one-way hash of the server ID under the per-session salt, so nothing able to read webview state learns anything
+ * correlatable from it (the ID embeds a credential fingerprint). Stable within one session, which is all adoption
+ * needs.
+ */
 export function adoptSourceHandle(serverId: string): string {
 	return fingerprint(`adopt-source:${ADOPT_HANDLE_SALT}:${serverId}`);
 }

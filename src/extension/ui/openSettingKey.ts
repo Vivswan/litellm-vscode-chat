@@ -1,7 +1,5 @@
 /**
- * The file is opened through the host's own "Preferences: Open User Settings (JSON)" command rather than a derived
- * filesystem path, because the host resolves the profile's real settings resource and creates the file when it does not
- * exist yet. Best-effort by contract: a key the file does not contain leaves the plain opened file as the whole answer.
+ * Best-effort by contract: a key the file does not contain leaves the plain opened file as the whole answer.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -12,12 +10,10 @@ import type { Logger } from "../../shared/logger";
 import { showMessage } from "./notifier";
 import { profileUserFileUri } from "./profilePath";
 
+/** The host's own command resolves the profile's real settings resource and creates the file; a derived path cannot. */
 const OPEN_USER_SETTINGS_JSON = "workbench.action.openSettingsJson";
 
-/**
- * The dashboard's intent layer already pins keys to REVEALABLE_SETTING_IDS; this re-check covers direct executeCommand
- * callers, so a junk argument degrades to a refusal instead of a search for arbitrary text.
- */
+/** Direct executeCommand callers bypass the intent layer's REVEALABLE_SETTING_IDS pin; junk degrades to a refusal. */
 const SETTING_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.]*$/;
 
 export function findSettingKeyRange(text: string, key: string): { start: number; end: number } | undefined {

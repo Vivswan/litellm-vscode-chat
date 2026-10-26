@@ -24,6 +24,13 @@ import { applySyncFailures } from "../servers/syncFailureOverlay";
  * The "connecting" variant's `attention` flag is presentation state, not a state of its own: a single empty window is
  * normal cold-start ordering, but a second consecutive empty report is evidence of persistence, so the presentation
  * degrades to a warning with an actionable tooltip.
+ *
+ * `zeroModel` is the judgment made once over the owner's verdict rows when the connected status was judged; the
+ * renderer and the command toasts present it, never re-deriving it. A degraded status never carries one.
+ *
+ * The error arm's `cause` is the headline's key (shared/failureCause.ts): the first unexpected failure's cause, or
+ * misconfiguredEntry when every entry the parser refused and nothing reports. It is rendered at display time, never
+ * stored as text. `baseUrl` is the failing server's URL, where the cause's text names it.
  */
 export type ConnectionStatus =
 	| { state: "not-configured"; lastChecked?: string | undefined }
@@ -31,37 +38,18 @@ export type ConnectionStatus =
 	| { state: "connecting"; attention: boolean; lastChecked?: string | undefined }
 	| {
 			state: "connected" | "degraded";
-
 			totalModels: number;
-
 			serverStatuses: readonly ServerStatus[];
-
-			/**
-			 * The zero-model judgment made once over the owner's verdict rows when this connected status was judged;
-			 * the renderer and the command toasts present it, never re-deriving it. A degraded status never carries one.
-			 */
 			zeroModel?: ZeroModelJudgment | undefined;
-
 			lastChecked?: string | undefined;
 	  }
 	| {
 			state: "error";
-
-			/**
-			 * The headline's key (shared/failureCause.ts): the first unexpected failure's cause, or misconfiguredEntry
-			 * when every entry the parser refused and nothing reports. Rendered at display time, never stored as text.
-			 */
 			cause: FailureCause;
-
-			/** The failing server's URL, where the cause's text names it. */
 			baseUrl?: string | undefined;
-
 			logSafeError: LogSafeErrorText;
-
 			totalModels?: number | undefined;
-
 			serverStatuses?: readonly ServerStatus[] | undefined;
-
 			lastChecked?: string | undefined;
 	  };
 
@@ -259,11 +247,7 @@ function persistedStatus(status: ConnectionStatus): PersistedStatus {
 	}
 }
 
-/**
- * Junk drops the smallest thing that contains it: a junk optional field drops that field and keeps the rest, while a
- * junk kind or a non-object drops the whole classification, because a hint is decoration on an error that renders fine
- * without it.
- */
+/** Junk drops the smallest thing containing it: a junk optional field drops that field, a junk kind the whole thing. */
 const persistedClassificationFields = z.object({
 	kind: z.enum(TRANSPORT_ERROR_KINDS),
 	status: z.number().int().optional().catch(undefined),
@@ -271,6 +255,7 @@ const persistedClassificationFields = z.object({
 	unsupportedEndpoint: z.literal("modelListing").optional().catch(undefined),
 });
 
+/** Optional as a whole: a non-object drops the classification, decoration on an error that renders fine without it. */
 const persistedClassificationSchema = persistedClassificationFields.optional().catch(undefined);
 
 /**
@@ -305,11 +290,7 @@ function restoredClassification(
 	});
 }
 
-/**
- * One persisted status-window element, the current ServerStatus shape field for field (the key census below fails
- * closed on drift). Loose, so an extra field never poisons an element; discriminated, so an "ok" without its served
- * count or an "error" without its cause and log rendering is malformed rather than half-usable.
- */
+/** Field for field the ok ServerStatus; loose, so an extra persisted field never poisons the element. */
 const persistedOkElementSchema = z.looseObject({
 	state: z.literal("ok"),
 	label: z.string(),
@@ -354,6 +335,7 @@ function restoredCause(parsed: z.infer<typeof persistedCauseSchema>): FailureCau
 	}
 }
 
+/** Field for field the error ServerStatus; loose like the ok element. */
 const persistedErrorElementSchema = z.looseObject({
 	state: z.literal("error"),
 	label: z.string(),
@@ -374,16 +356,13 @@ const persistedErrorElementSchema = z.looseObject({
 	hasVirtualKey: z.boolean().optional().catch(undefined),
 });
 
+/** Discriminated, so an ok without its served count or an error without its cause is malformed, never half-usable. */
 const persistedServerStatusSchema = z.discriminatedUnion("state", [
 	persistedOkElementSchema,
 	persistedErrorElementSchema,
 ]);
 
-// Fail-closed key census, checked both ways at compile time: every field of the persisted element types (what the
-// writer produces) has a schema field, every cause kind has a schema arm, and the schemas carry nothing the types
-// lack, so a new or renamed field or cause fails here until the schema (and the restore) learn it. The live fields are
-// covered on the other side: the writer and the restore both go through restoreTotal, which names every field of its
-// target.
+/** A both-ways key census: a new or renamed field or cause fails to compile until the schema and restore learn it. */
 const _persistedShapesMatchSchemas: [
 	Exclude<keyof PersistedOkElement, keyof typeof persistedOkElementSchema.shape>,
 	Exclude<keyof typeof persistedOkElementSchema.shape, keyof PersistedOkElement>,
@@ -444,16 +423,10 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 	});
 }
 
-/**
- * The blob is an ephemeral display cache, so that reset IS the migration: bump this whenever the persisted shape
- * changes, and the change is detected instead of tolerated by lenient dual readings.
- *
- *   The restore accepts exactly this version: any other stamp -> restores as undefined, and the bar starts from
- *       not-configured (or connecting, once servers are seen) until the first provider report rewrites the blob,
- *       seconds after activation
- */
+/** Bump whenever the persisted shape changes: the blob is a display cache, so the bump IS the migration. */
 const PERSISTED_STATUS_VERSION = 7;
 
+/** Loose per arm, so extra persisted keys pass; junk in a field fails the restore unless the field carries a catch. */
 const persistedStatusSchema = z.discriminatedUnion("state", [
 	z.looseObject({ state: z.literal("not-configured"), lastChecked: z.string().optional() }),
 	z.looseObject({ state: z.literal("loading"), lastChecked: z.string().optional() }),
@@ -477,9 +450,7 @@ const persistedStatusSchema = z.discriminatedUnion("state", [
 	}),
 ]);
 
-// The persisted schema and the ConnectionStatus union cover the same states, checked both ways at compile time: a union
-// state the schema lacks could never survive a session boundary, and a schema state the union lacks could never be
-// constructed.
+/** Both-ways state census: a state the schema lacks cannot survive a session, one the union lacks cannot be built. */
 const _persistedStatesMatchUnion: [
 	Exclude<ConnectionStatus["state"], z.infer<typeof persistedStatusSchema>["state"]>,
 	Exclude<z.infer<typeof persistedStatusSchema>["state"], ConnectionStatus["state"]>,
@@ -487,6 +458,7 @@ const _persistedStatesMatchUnion: [
 	? true
 	: never = true;
 
+/** The version stamp travels beside the status, so a stale blob is refused as a whole. */
 const persistedEnvelopeSchema = z.looseObject({
 	v: z.literal(PERSISTED_STATUS_VERSION),
 	status: persistedStatusSchema,
@@ -494,7 +466,9 @@ const persistedEnvelopeSchema = z.looseObject({
 
 /**
  * The blob is an ephemeral display cache, so the restore at this trust boundary is strict, and an earlier version's
- * blob, a foreign stamp, or junk restores as undefined rather than as a best guess.
+ * blob, a foreign stamp, or junk restores as undefined rather than as a best guess. The bar then starts from
+ * not-configured (or connecting, once servers are seen) until the first provider report rewrites the blob, seconds
+ * after activation, so a shape change is detected instead of tolerated by lenient dual readings.
  */
 function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 	const parsed = persistedEnvelopeSchema.safeParse(value);
@@ -606,20 +580,19 @@ export function liveStatusItemSlots(): readonly StatusItemSlot[] {
  */
 export class StatusItem implements StatusItemLike {
 	private readonly item: vscode.StatusBarItem;
+
 	private readonly slot: StatusItemSlot;
+
 	private readonly disposeListeners: (() => void)[] = [];
+
 	private disposed = false;
 
+	/** `log` is classification-only logging (English); it reports a replaced slot. */
 	constructor(options: {
 		readonly slot: StatusItemSlot;
-
 		readonly alignment: vscode.StatusBarAlignment;
-
 		readonly priority: number;
-
 		readonly command: string | vscode.Command;
-
-		/** Classification-only logging (English); reports a replaced slot. */
 		readonly log?: (message: string) => void;
 	}) {
 		const previous = liveSlotItems.get(options.slot);
@@ -692,40 +665,35 @@ export class StatusItem implements StatusItemLike {
 	}
 }
 
+/**
+ * `lastConnectingAttention` is the attention verdict of the last connecting status, held across a transient "loading"
+ * overwrite (the connection test) and cleared by every other state, so a degraded connecting resumes degraded after
+ * the test instead of resetting to the neutral spinner. It is session state, never persisted.
+ *
+ * `lastAggregated` is the last provider report, pre-overlay, so refreshFromSync can re-render with fresh declared views
+ * when a sync outcome changes the overlay without any provider report. The empty report stands in before the first
+ * callback, exactly what the groupless cold-start refresh sends.
+ *
+ * `lastJudgedOverlay` is the overlaid window last judged, as JSON, for refreshFromSync's no-change skip. The rendering
+ * is deterministic because both sides serialize the same base status objects through the same overlay construction,
+ * so equal worlds stringify equal.
+ *
+ * `seededConnecting` is true while the status is still the constructor's restore-less connecting seed (a configured
+ * install whose blob failed the versioned restore). The seed is presentation, not evidence: the empty-report
+ * escalation must not count it as an already-reported empty window, or the first real empty report after a version
+ * bump would render the warning.
+ */
 export class StatusBarManager {
 	private _connectionStatus: ConnectionStatus = { state: "not-configured" };
 
 	private readonly _statusBarItem: StatusItemLike;
 
-	/**
-	 * The attention verdict of the last connecting status this manager set, held across a transient "loading" overwrite
-	 * (the connection test) and cleared by every other state, so a degraded connecting resumes degraded after the test
-	 * instead of resetting to the neutral spinner.
-	 *
-	 *   Session state only -> never persisted
-	 */
 	private lastConnectingAttention = false;
 
-	/**
-	 * The last provider report, pre-overlay, so refreshFromSync can re-render with fresh declared views: sync outcomes
-	 * change the overlay without any provider report. Session state; the empty report stands in before the first
-	 * callback, exactly what the groupless cold-start refresh sends.
-	 */
 	private lastAggregated: AggregatedStatus | undefined;
 
-	/**
-	 * The overlaid window last judged, for refreshFromSync's no-change skip. A JSON rendering is deterministic here:
-	 * both sides serialize the same base status objects through the same overlay construction, so equal worlds
-	 * stringify equal.
-	 */
 	private lastJudgedOverlay: string | undefined;
 
-	/**
-	 * True while the status is still the constructor's restore-less connecting seed (a configured install whose blob
-	 * failed the versioned restore). The seed is presentation, not evidence: the empty-report escalation must not count
-	 * it as an already-reported empty window, or the first real empty report after a version bump would render the
-	 * warning.
-	 */
 	private seededConnecting = false;
 
 	constructor(

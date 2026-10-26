@@ -27,32 +27,31 @@ import { planResolves, readKeepSources, requireEntryShownByForm, secretPlans } f
 
 /** Values exist extension-side only; this shape is never logged. */
 export interface DraftConnection {
+	/** The canonical spelling the save will store, so a probe error names the URL the entry will show. */
 	readonly baseUrl: string;
 
 	/** The draft's trimmed label, when it has one: what discovery's endpoint-declaration hints may name. */
 	readonly label?: string | undefined;
 
-	/**
-	 * The draft's apiVersion override; "" is a real value (append nothing). Absent when the draft leaves the mode on
-	 * auto: the probe then tests the auto rule, exactly what a save without the field would use.
-	 */
+	/** The draft's apiVersion override; "" is a real value (append nothing), absent means the auto rule a save uses. */
 	readonly apiVersion?: string | undefined;
 
 	/** Empty string for keyless drafts, matching ServerWithKey's convention. */
 	readonly apiKey: HeaderValue | "";
 
+	/** The OAuth unit as the parser baked it, so the probe exchanges exactly what a sync pass would. */
 	readonly oauth?: OAuthConfig | undefined;
 
+	/** The virtual key unit as the parser baked it, like oauth. */
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 
+	/** The draft's headers, minted by the request path's value rule; absent when the draft declares none. */
 	readonly headers?: Readonly<Record<string, HeaderValue>> | undefined;
 
-	/**
-	 * The draft's expectedFailures in discovery's per-endpoint shape: expected endpoints probe with a single attempt,
-	 * like production.
-	 */
+	/** The draft's expectedFailures in discovery's shape; an expected endpoint gets one attempt, as in production. */
 	readonly expected?: ExpectedDiscoveryFailures | undefined;
 
+	/** The draft's includeModes; absent when empty, so the probe lists exactly the modes the saved entry would. */
 	readonly includeModes?: readonly NonChatMode[] | undefined;
 }
 
@@ -74,10 +73,7 @@ function draftDeclaredModelIds(payload: readonly string[]): readonly string[] {
 	return [...new Set(payload.map((id) => trimHttpWhitespace(id)).filter((id) => id.length > 0))];
 }
 
-/**
- * The placeholder identity the parse-back entry carries: the parser needs a usable label and baseUrl, but only the
- * parsed credential fields are read.
- */
+/** The parse-back entry's placeholder label: the parser needs one, but only the parsed credential fields are read. */
 const PARSE_BACK_LABEL = "draft";
 
 /**

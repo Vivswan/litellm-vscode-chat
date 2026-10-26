@@ -32,26 +32,23 @@ export interface FingerprintSaltSession {
 }
 
 export interface SaltCreationTimings {
+	/** How often a session that lost the creation lock re-reads the store for the winner's salt. */
 	pollIntervalMs: number;
 
+	/** How long that session polls before giving up and degrading to session-only. */
 	pollTimeoutMs: number;
 
-	/**
-	 * The finding session still degrades - never a second salt on a guess - but removes the marker for the NEXT
-	 * session.
-	 */
+	/** Past this a lock is stale: the finder still degrades, never guessing a salt, but clears it for the next one. */
 	staleLockMs: number;
 }
 
+/** Production timings; tests pass shorter ones. */
 const DEFAULT_TIMINGS: SaltCreationTimings = { pollIntervalMs: 150, pollTimeoutMs: 5000, staleLockMs: 60_000 };
 
-/**
- * The marker holds no secret; its existence is the whole message.
- *
- *   The first-writer lock -> mkdir without recursive is atomic on the local filesystems globalStorage lives on
- */
+/** The first-writer lock, an empty marker: mkdir without `recursive` is atomic where globalStorage lives. */
 const LOCK_DIR_NAME = "fingerprint-salt.lock";
 
+/** readStoredSalt's answer when the store threw, as opposed to holding nothing. */
 const UNREADABLE = Symbol("unreadable");
 
 /**

@@ -13,11 +13,13 @@ import type {
 import type { ServerUsageState, UsageEndpointState } from "../servers/usage/store";
 
 export interface UsageViewInput {
+	/** One usage state per tracked server, label-sorted as UsageStore.getStates lists them. */
 	readonly states: readonly ServerUsageState[];
 
 	/** The normalized alert thresholds, as getUsageAlertThresholds returns them. */
 	readonly thresholds: readonly number[];
 
+	/** The usage.pollInterval setting: the freshness window while polling is on. */
 	readonly pollIntervalMs: number;
 
 	/** The usage.pollingOffFreshnessWindow setting: the freshness window while polling is off. */
@@ -32,6 +34,7 @@ export interface UsageViewInput {
 	/** UsagePoller.isRefreshingExplicitly. */
 	readonly refreshingExplicitly: boolean;
 
+	/** The render time: what the freshness rule judges against, and the view's generatedAt stamp. */
 	readonly now: number;
 
 	/** The shared freshness rule (extension/servers/usage/freshness.ts). */

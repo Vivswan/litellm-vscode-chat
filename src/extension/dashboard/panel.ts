@@ -246,40 +246,41 @@ type IntentRunners = {
 	) => Promise<IntentAckNotice | undefined>;
 };
 
+/**
+ * The page's generation protocol: a ready handshake is judged against the generation current when it ARRIVED, so a
+ * handshake handled late cannot vouch for the next page. The page is provably listening only while `_readyGeneration`
+ * equals `_pageGeneration`.
+ *
+ * A loading or reloading page silently drops posts, so the pending focus section waits for the ready handshake; it is
+ * consumed once, so a later reload cannot replay a stale jump. Concurrent-channel reads run off the message chain, and
+ * a malformed message is rejected before reaching it.
+ *
+ * The readInlineSecrets answer is secret material, so the read arm stays log-free. The responder and runner maps are
+ * concrete per entry, so the method-payload correlation the request union erases is rebuilt without a cast.
+ */
 export class DashboardController implements vscode.Disposable {
+	/** The open panel; undefined until open() creates one, and again once it is disposed. */
 	private _panel: DashboardPanel | undefined;
 
+	/** Listeners on the current panel, disposed with it so a reopened panel never hears a stale page. */
 	private readonly _panelSubscriptions: vscode.Disposable[] = [];
 
-	/**
-	 * Mutating intents run one at a time: two concurrent saves would read-modify-write the same servers array and lose
-	 * one of the updates, so every mutating message joins this chain (concurrent-channel reads run off it, and a
-	 * malformed message is rejected before reaching it).
-	 */
+	/** Mutating intents run one at a time on this chain; concurrent saves would lose a read-modify-write of servers. */
 	private _messageChain: Promise<unknown> = Promise.resolve();
 
-	/**
-	 * The deep-link target of the latest open call, held until the page proves it can receive messages: a loading or
-	 * reloading page silently drops posts, so the ready handshake flushes it. Consumed once, so a later reload cannot
-	 * replay a stale jump.
-	 */
+	/** The latest open call's deep-link target, posted once the page proves it listens (flushPendingFocus). */
 	private _pendingFocusSection: DashboardSectionId | undefined;
 
+	/** Every group seen this session, by server ID: a tombstone is a ghost until the group it hides was seen. */
 	private readonly _observedGroups = new Map<
 		string,
 		{ readonly label: string; readonly entryLabel: string | undefined; readonly baseUrl: string }
 	>();
 
-	/**
-	 * The current page's generation, bumped whenever the page is torn down or replaced (the panel hides - without
-	 * retainContextWhenHidden the page dies hidden and reloads on reveal - or is disposed). _readyGeneration records
-	 * the generation whose ready handshake completed, judged against the generation current when it ARRIVED, so a
-	 * handshake handled late cannot vouch for the next page.
-	 *
-	 * The page -> is provably listening only while the two match
-	 */
+	/** Bumped whenever the page is torn down or replaced: hidden without retainContextWhenHidden, or disposed. */
 	private _pageGeneration = 0;
 
+	/** The generation whose ready handshake completed; undefined until the first handshake. */
 	private _readyGeneration: number | undefined;
 
 	constructor(private readonly env: DashboardControllerEnv) {}
@@ -485,11 +486,7 @@ export class DashboardController implements vscode.Disposable {
 		this.postToPanel({ kind: "focusSection", section });
 	}
 
-	/**
-	 * The read responders: each answers with its own correlated response envelope - no state push, no outcome notice,
-	 * and no logging (the readInlineSecrets answer is secret material, so the read arm stays log-free). Concrete per
-	 * entry so the method-payload correlation the request union erases is rebuilt without a cast.
-	 */
+	/** Each read answers with its own correlated response envelope: no state push, no outcome notice, no logging. */
 	private readonly readResponders: ReadResponders = {
 		readInlineSecrets: (request) => ({
 			// The edit form's on-demand prefill: values only for fields stored inline in the servers setting (already
@@ -597,6 +594,7 @@ export class DashboardController implements vscode.Disposable {
 		}),
 	};
 
+	/** One runner per non-read method; for acked methods the notice it returns rides the ack the page shows. */
 	private readonly intentRunners: IntentRunners = {
 		ready: (_payload, context) => {
 			if (context.arrivalGeneration === this._pageGeneration) {
@@ -820,58 +818,42 @@ export function entryParametersResolver(
 	};
 }
 
+/**
+ * `verdict` is the owner of the declared set and the verdict rows every surface reads. `ua` is the one User-Agent
+ * activation composes; the draft probe's throwaway client sends it.
+ *
+ * `getEntryModelCapabilities` is the same composed resolver activation wires into the provider, so the inspector cannot
+ * diverge from registration and requests.
+ */
 export interface RegisterDashboardOptions {
 	readonly provider: LiteLLMChatModelProvider;
-
 	readonly logger: Logger;
-
 	readonly syncEngine: ServerSyncEngine;
-
 	readonly removals: GroupRemovalStore;
-
 	readonly catalog: Pick<OpenRouterCatalogStore, "lookup" | "snapshot" | "status" | "refreshNow">;
-
 	readonly usagePoller: UsagePoller;
-
-	/** The owner of the declared set and the verdict rows every surface reads. */
 	readonly verdict: Pick<ServerVerdict, "declared" | "rows">;
-
-	/**
-	 * The same composed entry-capabilities resolver activation wires into the provider, so the inspector cannot diverge
-	 * from registration and requests.
-	 */
 	readonly getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined;
-
-	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
 	readonly ua: HeaderValue;
-
 	readonly featureProbes: FeatureProbes;
 }
 
-/** What createIntentEnvironment is built from; the row-bound write suite drives it with fakes for these. */
+/**
+ * What createIntentEnvironment is built from; the row-bound write suite drives it with fakes for these. `ua` is the one
+ * User-Agent activation composes; the draft probe's throwaway client sends it. `clipboard` is the one behind the
+ * copyToClipboard door: vscode.env.clipboard in production, a recorder in tests.
+ */
 export interface IntentEnvironmentDeps {
 	readonly provider: Pick<LiteLLMChatModelProvider, "getServerSnapshots" | "getGroupServer">;
-
 	readonly syncEngine: Pick<ServerSyncEngine, "requestSync" | "resolveDeclaredIdentities">;
-
 	readonly removals: Pick<GroupRemovalStore, "addTombstone" | "retractTombstone" | "removeTombstone" | "hasTombstone">;
-
 	readonly settingsAccess: SettingsAccess;
-
 	readonly secrets: SecretStore;
-
 	readonly logger: Pick<Logger, "log">;
-
-	/** The one User-Agent activation composes; the draft probe's throwaway client sends it. */
 	readonly ua: HeaderValue;
-
 	readonly featureProbes: FeatureProbes;
-
 	readonly refreshCatalogNow: () => void;
-
 	readonly refreshUsageNow: () => void;
-
-	/** The clipboard behind the copyToClipboard door; vscode.env.clipboard in production, a recorder in tests. */
 	readonly clipboard: Pick<vscode.Clipboard, "writeText">;
 }
 

@@ -62,9 +62,10 @@ import { showActionableMessage, showMessage } from "./notifier";
 /** The import file size cap; a settings export is small, so anything larger is not one. */
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 
-/** The preview modal's list caps: modal detail space is bounded. */
+/** The preview modal's key list cap: modal detail space is bounded. */
 const PREVIEW_KEY_CAP = 8;
 
+/** The preview modal's remark list cap, bounded like the key list. */
 const PREVIEW_REMARK_CAP = 5;
 
 /** What the import preview modal states; lists arrive pre-capped, the counts carry the totals. */

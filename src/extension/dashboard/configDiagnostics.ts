@@ -36,40 +36,35 @@ const CREDENTIAL_PATHS: Record<CredentialRejection["field"], string> = {
 	virtualKeyValue: "virtualKey.value",
 };
 
+/**
+ * The observed-key sets are server-derived strings: never logged, membership through the Map only. An entry with no set
+ * has no evidence, so its unrecognized-key hints drop, and declared-only entries, expected modelInfo failures, the
+ * /models fallback, and pre-discovery raise no false hints.
+ *
+ * A global record applies to every server, so a key any server observed is real evidence for it. An undefined union
+ * drops every global hint. Known residual: with mixed evidence, a key only an evidence-less server knows still hints,
+ * so the hint stays advisory-severity.
+ */
 export interface ConfigDiagnosticsInput {
+	/** Reads the global records, the legacy headers key, and the usage settings the global rows judge. */
 	readonly reader: SettingsReader;
 
 	/** The per-entry acceptance reports (serverSettingReports over the raw setting). */
 	readonly entryReports: readonly ServerEntryReport[];
 
+	/** The accepted entries' records and auth fields the per-entry rows judge. */
 	readonly declared: readonly Pick<
 		DeclaredServerView,
 		"label" | "modelParameters" | "modelCapabilities" | "rejectedCredentials" | "oauthTokenUrl" | "oauthClientId"
 	>[];
 
-	/**
-	 * The groups the user's configuration hides (removed, or superseded), as the state builder renders them
-	 * (visibleHiddenGroups).
-	 */
+	/** The hidden groups as the state builder renders them (visibleHiddenGroups): removed, or superseded. */
 	readonly hiddenGroups: readonly HiddenGroup[];
 
-	/**
-	 * Each entry's observed /model/info key set, by entry label: the evidence the entry-layer advisory hints filter
-	 * against. Server-derived strings: never logged, membership through the Map only.
-	 *
-	 * An absent entry has no set -> its unrecognized-key hints drop (no false hints on declared-only entries, expected
-	 *   modelInfo failures, the /models fallback, or pre-discovery)
-	 */
+	/** Each entry's observed /model/info key set, by entry label: what the entry-layer advisory hints filter against. */
 	readonly observedKeysByEntry?: ReadonlyMap<string, readonly string[]> | undefined;
 
-	/**
-	 * The observed-key union across servers that reported a set: the global records' evidence - a global record applies
-	 * to every server, so a key any server observed is real. Undefined when no server reported a set; then every global
-	 * hint drops.
-	 *
-	 * Known residual: with mixed evidence, a key only an evidence-less server knows still hints -> the hint stays
-	 *   advisory-severity
-	 */
+	/** The observed-key union over the servers that reported one: the global rows' evidence; undefined when none did. */
 	readonly observedKeysUnion?: readonly string[] | undefined;
 }
 

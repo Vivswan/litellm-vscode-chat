@@ -39,6 +39,7 @@ export type AdoptableGroupCredentials = OptionalEntryFields;
  * judged against.
  */
 export interface AdoptionResolution {
+	/** The external group the handle names at this URL; undefined when nothing still external matches it. */
 	readonly source: AdoptionSource | undefined;
 
 	/** The raw servers setting value the resolution is consistent with (ServerSyncEngine.resolveDeclaredIdentities). */
@@ -58,6 +59,7 @@ export interface ExternalGroupResolution {
 	/** Undefined when nothing still-external matches the handle. */
 	readonly identity: TombstoneIdentity | undefined;
 
+	/** The raw servers setting value the resolution is consistent with (ServerSyncEngine.resolveDeclaredIdentities). */
 	readonly setting: unknown;
 }
 

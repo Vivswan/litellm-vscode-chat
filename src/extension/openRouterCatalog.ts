@@ -34,40 +34,46 @@ import { PendingCall, REAL_TIMER, SYSTEM_CLOCK, sleepUnlessAborted } from "../sh
 /** The artifact/cache file name, identical in dist/ and globalStorage; the test seam writes the same path. */
 export const CATALOG_FILE_NAME = "openrouter-models.json";
 
+/** Between persisted successful refreshes; failures and unpersisted successes reschedule at FAILURE_RETRY_MS. */
 const REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The retry cadence after a failed refresh, and after a success the cache file could not hold. */
 const FAILURE_RETRY_MS = 24 * 60 * 60 * 1000;
 
-/**
- * The backoff sleeps stay well under it.
- *
- *   activation -> never pays for catalog network
- *   a lost metadata timestamp (which schedules "soon") -> still keeps the fetch off the startup path
- */
+/** No scheduled refresh fires sooner after activation, even when a lost metadata timestamp schedules one "soon". */
 const MIN_SCHEDULE_DELAY_MS = 60_000;
 
+/** The budget of one fetch attempt; the backoff sleeps between attempts stay well under MIN_SCHEDULE_DELAY_MS. */
 const REFRESH_FETCH_TIMEOUT_MS = 30_000;
 
+/**
+ * `fetchCatalog` is the injectable network seam; the default GETs OPENROUTER_MODELS_URL and returns the parsed JSON
+ * payload, and a failure retries only in the SDK's error vocabulary (see fetchOpenRouterCatalog), anything else being
+ * settled.
+ */
 export interface OpenRouterCatalogStoreOptions {
+	/** Where the packaged dist/ snapshot is read from. */
 	readonly extensionUri: vscode.Uri;
 
+	/** Where the refreshed cache file is written, temp-then-rename. */
 	readonly globalStorageUri: vscode.Uri;
 
+	/** Holds the advisory scheduling metadata only (OPENROUTER_CATALOG_METADATA_KEY). */
 	readonly globalState: vscode.Memento;
 
+	/** Classification-only lines: the failure vocabulary, never response text. */
 	readonly logger: Logger;
 
 	/** The opt-out setting, read at decision time so a toggle needs no rebuild. */
 	readonly isEnabled: () => boolean;
 
-	/**
-	 * Injectable network seam; the default GETs OPENROUTER_MODELS_URL and returns the parsed JSON payload. A failure
-	 * retries only in the SDK's error vocabulary (see fetchOpenRouterCatalog); anything else is settled.
-	 */
+	/** The network seam; the default is fetchOpenRouterCatalog. */
 	readonly fetchCatalog?: (signal: AbortSignal) => Promise<unknown>;
 
 	/** Schedules the refreshes (weekly, daily on failure); the retry backoff within one refresh is `sleep`. */
 	readonly timer?: Timer;
 
+	/** Defaults to the system clock; tests inject one. */
 	readonly clock?: Clock;
 
 	/** The retry backoff between failed fetch attempts: the real timer unless a test passes a zero sleep. */
@@ -97,14 +103,16 @@ export interface OpenRouterCatalogStore extends vscode.Disposable {
 
 /**
  * The catalog facts the dashboard's models.openRouterCatalog row states. The failure classification is the same fixed
- * vocabulary the log line carries - never response-derived text - and it stands until the next success.
+ * vocabulary the log line carries - never response-derived text.
  */
 export interface OpenRouterCatalogStatus {
+	/** The models the serving snapshot holds, bundled or cached. */
 	readonly modelCount: number;
 
 	/** Epoch ms of the last successful, persisted refresh; undefined when only the bundled snapshot serves. */
 	readonly lastSuccessAt: number | undefined;
 
+	/** The last refresh failure's classification and time, standing until the next success. */
 	readonly lastFailure?: { readonly classification: CatalogRefreshFailure; readonly at: number } | undefined;
 
 	/** Whether a refresh is in flight right now (the row's Refresh button disables on it). */
@@ -209,7 +217,6 @@ class Store implements OpenRouterCatalogStore {
 
 	private disposed = false;
 
-	/** The last refresh failure, standing until the next success; see OpenRouterCatalogStatus. */
 	private lastFailure: { classification: CatalogRefreshFailure; at: number } | undefined;
 
 	constructor(private readonly options: OpenRouterCatalogStoreOptions) {

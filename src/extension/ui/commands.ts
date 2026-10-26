@@ -439,6 +439,7 @@ export async function runReportIssue(
 	}
 }
 
+/** How long after an opened report the same fingerprint gets the repeat hint instead of a second report. */
 const REPEAT_REPORT_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 /** The repo's open issues carrying the reporter template's label ("bug", see createIssueUrl). */
@@ -638,14 +639,15 @@ export function registerTestCommands(
  * recorder in non-production mode only. The production buffer is a small rolling window, so a busy sync burst can evict
  * a line between two probes of a test's leak scan; readSince gives suites a lossless read instead, and reports how many
  * lines a lagging cursor lost to eviction so an overflow fails loudly.
- *
- *   Eviction retires a chunk at a time -> the array shift amortizes
  */
 export class SessionLogTee implements ErrorRecorder {
+	/** Lines held before eviction starts; a host-suite session stays far under it. */
 	private static readonly MAX_LINES = 250000;
 
+	/** Eviction retires a chunk at a time, so the array shift amortizes. */
 	private static readonly EVICT_CHUNK = 25000;
 
+	/** The live lines; lines[i] carries sequence number firstSeq + i. */
 	private readonly lines: string[] = [];
 
 	/** The sequence number of lines[0]; grows as evictions retire old lines. */

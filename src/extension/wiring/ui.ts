@@ -130,28 +130,23 @@ export async function maybeShowWelcome(
 	}
 }
 
+/**
+ * Registers the palette commands over the surfaces activation built. `getDeclared` is the owner's declared set
+ * (ServerVerdict.declared); the issue report judges configuration presence from it. `hasConfiguredServers` is the gate
+ * the status bar and notifier share; the two refresh commands read it when nothing was probed.
+ */
 export function wireUiCommands(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	deps: {
 		provider: LiteLLMChatModelProvider;
-
 		statusBar: StatusBarManager;
-
 		outputChannel: vscode.OutputChannel;
-
 		syncEngine: ServerSyncEngine;
-
-		/** The owner's declared set (ServerVerdict.declared); the issue report judges configuration presence from it. */
 		getDeclared: () => readonly DeclaredServerView[];
-
 		issueReporter: IssueReporter;
-
 		extVersion: string;
-
 		vscodeVersion: string;
-
-		/** The gate the status bar and notifier share; the two refresh commands read it when nothing was probed. */
 		hasConfiguredServers: () => boolean;
 	}
 ): void {

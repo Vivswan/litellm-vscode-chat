@@ -32,36 +32,35 @@ const OPENROUTER_CATALOG_SETTING_ID = "models.openRouterCatalog" satisfies Boole
 
 const USAGE_POLL_INTERVAL_SETTING_ID = "usage.pollInterval" satisfies NumberSettingId;
 
+/**
+ * `verdict` is the one owner of the declared set and the verdict rows (status bar, notifier, dashboard, issue report).
+ */
 export interface ServersWiring {
 	readonly syncEngine: ServerSyncEngine;
-
 	readonly usagePoller: UsagePoller;
-
-	/** The one owner of the declared set and the verdict rows (status bar, notifier, dashboard, issue report). */
 	readonly verdict: ServerVerdict;
 }
 
-/** (The usage status bar's own configuration reaction lives in wireUsageSurfaces.) */
+/**
+ * Builds the sync engine, the usage poller, and the verdict over the provider's stores. (The usage status bar's own
+ * configuration reaction lives in wireUsageSurfaces.)
+ *
+ * `observedGroupBaseUrls` is the engine's live ownership evidence: which base URLs the host is serving each labeled
+ * group at. `observedSnapshots` is the groups the host serves now (see ServerSyncEnv.observedSnapshots).
+ * `onDidObserveGroup` fires when a group enters the provider's status window, and a pass re-runs so the evidence is
+ * used.
+ */
 export function wireServers(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	userAgent: HeaderValue,
 	deps: {
 		fingerprintSalt: FingerprintSaltSession;
-
 		groupRemovals: GroupRemovalStore;
-
 		catalogStore: OpenRouterCatalogStore;
-
 		notifyModelsChanged: DebouncedAction;
-
-		/** The engine's live ownership evidence: which base URLs the host is serving each labeled group at. */
 		observedGroupBaseUrls: (label: string) => readonly string[];
-
-		/** The groups the host serves now; see ServerSyncEnv.observedSnapshots. */
 		observedSnapshots: () => readonly ServerModelsSnapshot[];
-
-		/** Fires when a group enters the provider's status window; a pass re-runs so the evidence is used. */
 		onDidObserveGroup: vscode.Event<void>;
 	}
 ): ServersWiring {

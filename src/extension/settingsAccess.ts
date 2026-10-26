@@ -47,14 +47,13 @@ export function resolveConfiguredScope(inspection: SettingsInspection | undefine
 	return null;
 }
 
-// Scalar writes never land in the folder scope (see resolveUpdateScope). Resets differ: they must remove the
-// highest-precedence configured value, folder scope included, or a reset would delete a hidden lower-scope value while
-// the displayed one survives - so the reset map carries all three.
+/** Scalar writes never land in the folder scope (resolveUpdateScope), so the write map stops at workspace. */
 const TARGET_BY_SCOPE = {
 	global: vscode.ConfigurationTarget.Global,
 	workspace: vscode.ConfigurationTarget.Workspace,
 } as const;
 
+/** A reset removes the highest-precedence value, folder included; removing a hidden lower one leaves the shown one. */
 const RESET_TARGET_BY_SCOPE = {
 	...TARGET_BY_SCOPE,
 	workspaceFolder: vscode.ConfigurationTarget.WorkspaceFolder,

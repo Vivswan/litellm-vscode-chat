@@ -13,11 +13,13 @@ export interface TokenCountingDeps {
 	/** Fixed English text plus enum-ish data only: both lines feed the issue-report buffer. */
 	readonly log: (message: string, data?: unknown) => void;
 
+	/** Fixed English text plus the load error; a failed load is logged once and the heuristic stays active. */
 	readonly logError: (message: string, error: unknown) => void;
 
 	/** The host UI language (vscode.env.language); a non-English UI preloads o200k_base in auto mode. */
 	readonly uiLanguage: string;
 
+	/** The encoding loader; defaults to the bundler-split dynamic imports (importEncoding), tests pass a stub. */
 	readonly loadEncoding?: (encoding: TokenizerEncoding) => Promise<LoadedTokenizer>;
 }
 

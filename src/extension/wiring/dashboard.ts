@@ -33,26 +33,22 @@ const USAGE_POLL_INTERVAL_SETTING_ID = "usage.pollInterval" satisfies NumberSett
 
 const USAGE_POLLING_OFF_WINDOW_SETTING_ID = "usage.pollingOffFreshnessWindow" satisfies NumberSettingId;
 
+/**
+ * Registers the dashboard and the usage surfaces over the stores activation built. `ua` is the one User-Agent
+ * activation composes, for the panel's draft probe. `verdict` is the owner of the declared set and the verdict rows
+ * the hero classifies.
+ */
 export function wireDashboard(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	deps: {
 		provider: LiteLLMChatModelProvider;
-
 		syncEngine: ServerSyncEngine;
-
 		groupRemovals: GroupRemovalStore;
-
 		catalogStore: OpenRouterCatalogStore;
-
 		usagePoller: UsagePoller;
-
-		/** The one User-Agent activation composes, for the panel's draft probe. */
 		ua: HeaderValue;
-
 		featureProbes: FeatureProbes;
-
-		/** The owner of the declared set and the verdict rows the hero classifies. */
 		verdict: Pick<ServerVerdict, "declared" | "rows">;
 	}
 ): DashboardController {

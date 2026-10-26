@@ -51,6 +51,7 @@ export function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): La
 type JoinPass = "identity" | "connection" | "label-url";
 
 export interface GroupOwnershipInputs {
+	/** The live groups under their display labels (labeledSnapshots). */
 	readonly labeled: readonly LabeledSnapshot[];
 
 	/** The accepted entries, with the join keys their configuration produces. */
@@ -63,21 +64,23 @@ export interface GroupOwnershipInputs {
 	readonly secretHolders?: ReadonlyMap<string, readonly string[]>;
 }
 
-/** A live group a declared label left behind: not external, never a credential source. */
+/**
+ * A live group a declared label left behind: not external, never a credential source. `entryLabel` is the declared
+ * label the group belongs to.
+ */
 export interface LegacySnapshot {
 	readonly labeled: LabeledSnapshot;
-
-	/** The declared label the group belongs to. */
 	readonly entryLabel: string;
 }
 
+/**
+ * `matchedByDeclared` holds the labeled snapshot each declared entry matched, with the pass that matched it, by
+ * declared index. `external` holds the labeled snapshots no declared label owns: the external rows. `legacy` holds the
+ * groups a declared label left behind.
+ */
 export interface GroupOwnership {
-	/** The labeled snapshot each declared entry matched, with the pass that matched it, by declared index. */
 	readonly matchedByDeclared: ReadonlyMap<number, { readonly entry: LabeledSnapshot; readonly pass: JoinPass }>;
-
-	/** Labeled snapshots no declared label owns: the external rows. */
 	readonly external: readonly LabeledSnapshot[];
-
 	readonly legacy: readonly LegacySnapshot[];
 }
 
@@ -89,12 +92,10 @@ export function resolveGroupOwnership(inputs: GroupOwnershipInputs): GroupOwners
 	const { labeled, declared, carriers = [], secretHolders = new Map<string, readonly string[]>() } = inputs;
 	const unmatched = new Set<LabeledSnapshot>(labeled);
 	const matchedByDeclared = new Map<number, { entry: LabeledSnapshot; pass: JoinPass }>();
+	// A shared pass lets several entries claim one snapshot; only equal join keys can collide.
 	const passes: readonly {
 		pass: JoinPass;
-
 		match: (snapshot: ServerModelsSnapshot, view: DeclaredGroupIdentity) => boolean;
-
-		/** A shared pass lets several entries claim one snapshot; only equal join keys can collide. */
 		shared?: boolean;
 	}[] = [
 		{

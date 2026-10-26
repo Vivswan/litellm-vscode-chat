@@ -29,20 +29,15 @@ import { createTokenCountingController } from "../tokenCounting";
 /** How long configuration-change bursts (settings.json keystrokes) coalesce before models re-resolve. */
 const CONFIG_CHANGE_DEBOUNCE_MS = 400;
 
+/**
+ * `notifyModelsChanged` is the one debounced notify every configuration-change branch shares; its action catches, so a
+ * throw never escapes into the timer.
+ */
 export interface ProviderWiring {
 	readonly catalogStore: OpenRouterCatalogStore;
-
 	readonly provider: LiteLLMChatModelProvider;
-
-	/**
-	 * A throw must not escape into the timer.
-	 *
-	 *   One debounced notify -> shared by every configuration-change branch
-	 */
 	readonly notifyModelsChanged: DebouncedAction;
-
 	readonly hasDeclaredServers: () => boolean;
-
 	readonly hasConfiguredServers: () => boolean;
 }
 
