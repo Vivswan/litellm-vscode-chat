@@ -128,6 +128,48 @@ const junkEntryArb = fc.oneof(
 /** The setting the secret-surgery and merge-invariant properties run over: junk entries, cloned per property run. */
 const junkServersArb = fc.array(junkEntryArb, { maxLength: 6 });
 
+/**
+ * Asserts stripping never degrades an entry: an accepted one stays accepted with identical diagnostics, and a rejected
+ * one keeps a subset of its problems or heals (stripping an ambiguous oauth-plus-apiKey shape is mandatory and can
+ * unmask diagnostics the early return hid).
+ */
+function assertStripNeverDegrades(raw: Record<string, unknown>, strippedEntry: Record<string, unknown>): void {
+	const beforeReport = serverSettingReports([raw])[0];
+	const afterReport = serverSettingReports([strippedEntry])[0];
+	const before = beforeReport?.problems ?? [];
+	const after = afterReport?.problems ?? [];
+	if (beforeReport?.accepted === true) {
+		assert.strictEqual(afterReport?.accepted, true, "stripping must never reject an accepted entry");
+		assert.deepStrictEqual(after, before);
+		return;
+	}
+
+	const authRejected = before.some((problem) => problem.includes("is misconfigured"));
+	for (const problem of after) {
+		assert.ok(before.includes(problem) || authRejected, `stripping invented: ${problem}`);
+	}
+}
+
+/**
+ * Asserts strip -> materialize is lossless in the parsed view of an accepted entry and places every field; non-fatal
+ * diagnostics (an ignored junk budget) survive exactly, never cleared or invented.
+ */
+function assertStripMaterializeLossless(
+	raw: Record<string, unknown>,
+	stripped: ReturnType<typeof stripEntrySecrets>
+): void {
+	const originalParse = parseServersSetting([raw]);
+	if (originalParse.entries.length !== 1) {
+		return;
+	}
+
+	const restored = materializeEntrySecrets(stripped.entry, stripped.secrets);
+	assert.strictEqual(restored.unmaterialized, 0);
+	const restoredParse = parseServersSetting([restored.entry]);
+	assert.deepStrictEqual(restoredParse.problems, originalParse.problems);
+	assert.deepStrictEqual(restoredParse.entries, originalParse.entries);
+}
+
 suite("extension/settingsTransfer property: secret surgery", () => {
 	test("strip then materialize restores the parser's view; stripping never invents a diagnostic", () => {
 		fc.assert(
@@ -145,34 +187,8 @@ suite("extension/settingsTransfer property: secret surgery", () => {
 					assert.deepStrictEqual(again.entry, stripped.entry);
 					assert.strictEqual(again.unsanitizable, stripped.unsanitizable);
 
-					// Stripping never degrades an entry: an accepted one stays accepted with identical diagnostics, a
-					// rejected one keeps a subset of its problems or heals (stripping an ambiguous oauth-plus-apiKey
-					// shape is mandatory and can unmask diagnostics the early return hid).
-					const beforeReport = serverSettingReports([raw])[0];
-					const afterReport = serverSettingReports([stripped.entry])[0];
-					const before = beforeReport?.problems ?? [];
-					const after = afterReport?.problems ?? [];
-					if (beforeReport?.accepted === true) {
-						assert.strictEqual(afterReport?.accepted, true, "stripping must never reject an accepted entry");
-						assert.deepStrictEqual(after, before);
-					} else {
-						const authRejected = before.some((problem) => problem.includes("is misconfigured"));
-						for (const problem of after) {
-							assert.ok(before.includes(problem) || authRejected, `stripping invented: ${problem}`);
-						}
-					}
-
-					// For an accepted entry, strip -> materialize is lossless in the
-					// parsed view and places every field. Non-fatal diagnostics (an
-					// ignored junk budget) survive exactly, never cleared or invented.
-					const originalParse = parseServersSetting([raw]);
-					if (originalParse.entries.length === 1) {
-						const restored = materializeEntrySecrets(stripped.entry, stripped.secrets);
-						assert.strictEqual(restored.unmaterialized, 0);
-						const restoredParse = parseServersSetting([restored.entry]);
-						assert.deepStrictEqual(restoredParse.problems, originalParse.problems);
-						assert.deepStrictEqual(restoredParse.entries, originalParse.entries);
-					}
+					assertStripNeverDegrades(raw, stripped.entry);
+					assertStripMaterializeLossless(raw, stripped);
 				}
 				assert.deepStrictEqual(rawEntries, pristine, "surgery must never mutate its input");
 			}),
@@ -180,6 +196,107 @@ suite("extension/settingsTransfer property: secret surgery", () => {
 		);
 	});
 });
+
+type ParsedEntry = ReturnType<typeof parseServersSetting>["entries"][number];
+
+type SecretField = (typeof SECRET_FIELD_IDS)[number];
+
+/** Whether the entry's shape gives a secret field a home: apiKey always, the other two only beside their unit. */
+function fieldHasHome(entry: ParsedEntry, field: SecretField): boolean {
+	return (
+		field === "apiKey" ||
+		(field === "oauthClientSecret" && entry.oauthTokenUrl !== undefined) ||
+		(field === "virtualKeyValue" && entry.virtualKeyHeader !== undefined)
+	);
+}
+
+/**
+ * Asserts the written blob is the original's EFFECTIVE value per field (inline, trimmed, beats stored) for every field
+ * the entry's shape gives a home, and that the group args after import (stripped entry + written blob) match the
+ * original's minus its homeless stored fields.
+ */
+function assertSecretsReproduced(
+	original: ParsedEntry,
+	appliedEntry: ParsedEntry,
+	write: { readonly secrets: StoredServerSecrets },
+	blob: StoredServerSecrets
+): void {
+	const expectedSecrets: Record<string, string> = {};
+	for (const field of SECRET_FIELD_IDS) {
+		const effective = original[field] ?? (fieldHasHome(original, field) ? blob[field] : undefined);
+		if (effective !== undefined) {
+			expectedSecrets[field] = effective;
+		}
+	}
+	assert.deepStrictEqual({ ...write.secrets }, expectedSecrets);
+
+	const prunedBlob = Object.fromEntries(
+		Object.entries(blob).filter(([field]) => fieldHasHome(original, field as SecretField))
+	) as StoredServerSecrets;
+	assert.deepStrictEqual(buildGroupArgs(appliedEntry, write.secrets), buildGroupArgs(original, prunedBlob));
+}
+
+/** How many stored fields have no home in their entry's shape: counted, never guessed in. */
+function expectedUnmaterializedCount(
+	entries: readonly ParsedEntry[],
+	blobs: Record<string, StoredServerSecrets>
+): number {
+	let expected = 0;
+	for (const original of entries) {
+		const blob = blobs[original.label] ?? {};
+		if (blob.oauthClientSecret !== undefined && original.oauthTokenUrl === undefined) {
+			expected += 1;
+		}
+		if (blob.virtualKeyValue !== undefined && original.virtualKeyHeader === undefined) {
+			expected += 1;
+		}
+	}
+	return expected;
+}
+
+/** Asserts every non-servers key reproduces exactly from the plan's writes, and an absent key stays absent. */
+function assertNonServersReproduced(
+	application: ReturnType<typeof resolveImportPlan>,
+	state: Record<string, unknown>
+): void {
+	for (const key of ALL_SETTING_KEYS) {
+		if (key === SERVERS_SETTING_KEY) {
+			continue;
+		}
+		const written = application.settingsWrites.find((write) => write.key === key);
+		assert.deepStrictEqual(written?.value, state[key], key);
+	}
+}
+
+/**
+ * Asserts the applied servers parse clean to the original labels in order, that each entry's secrets and group args
+ * reproduce, and that every homeless stored field was counted.
+ */
+function assertEntriesReproduced(
+	servers: readonly Record<string, unknown>[],
+	applied: readonly unknown[],
+	application: ReturnType<typeof resolveImportPlan>,
+	blobs: Record<string, StoredServerSecrets>,
+	unmaterializedSecretCount: number
+): void {
+	const originalParse = parseServersSetting(servers);
+	const appliedParse = parseServersSetting([...applied]);
+	assert.deepStrictEqual(appliedParse.problems, []);
+	assert.deepStrictEqual(
+		appliedParse.entries.map((entry) => entry.label),
+		originalParse.entries.map((entry) => entry.label)
+	);
+
+	for (const original of originalParse.entries) {
+		const appliedEntry = appliedParse.entries.find((entry) => entry.label === original.label);
+		const write = application.secretWrites.find((candidate) => candidate.label === original.label);
+		assert.ok(appliedEntry !== undefined && write !== undefined);
+		assertSecretsReproduced(original, appliedEntry, write, blobs[original.label] ?? {});
+	}
+
+	// Every homeless stored field is counted, never guessed in.
+	assert.strictEqual(unmaterializedSecretCount, expectedUnmaterializedCount(originalParse.entries, blobs));
+}
 
 suite("extension/settingsTransfer property: export -> import round trip", () => {
 	const nonServersStateArb = fc
@@ -224,14 +341,7 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 					assert.deepStrictEqual(plan.collisions, [], "an empty target has nothing to collide with");
 					const application = resolveImportPlan(plan, {});
 
-					// Non-servers keys reproduce exactly, absent keys stay absent.
-					for (const key of ALL_SETTING_KEYS) {
-						if (key === SERVERS_SETTING_KEY) {
-							continue;
-						}
-						const written = application.settingsWrites.find((write) => write.key === key);
-						assert.deepStrictEqual(written?.value, state[key], key);
-					}
+					assertNonServersReproduced(application, state);
 
 					if (servers === undefined || servers.length === 0) {
 						assert.strictEqual(application.serversValue, undefined);
@@ -240,56 +350,7 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 					const applied = application.serversValue;
 					assert.ok(applied !== undefined);
 					assert.strictEqual(application.counts.imported, servers.length);
-
-					const originalParse = parseServersSetting(servers);
-					const appliedParse = parseServersSetting([...applied]);
-					assert.deepStrictEqual(appliedParse.problems, []);
-					assert.deepStrictEqual(
-						appliedParse.entries.map((entry) => entry.label),
-						originalParse.entries.map((entry) => entry.label)
-					);
-
-					for (const original of originalParse.entries) {
-						const appliedEntry = appliedParse.entries.find((entry) => entry.label === original.label);
-						const write = application.secretWrites.find((candidate) => candidate.label === original.label);
-						assert.ok(appliedEntry !== undefined && write !== undefined);
-						const blob = blobs[original.label] ?? {};
-
-						// The written blob is the original EFFECTIVE value per field (inline, trimmed,
-						// beats stored) for every field the entry's shape gives a home; homeless stored fields count as
-						// unmaterialized.
-						const legal = (field: (typeof SECRET_FIELD_IDS)[number]): boolean =>
-							field === "apiKey" ||
-							(field === "oauthClientSecret" && original.oauthTokenUrl !== undefined) ||
-							(field === "virtualKeyValue" && original.virtualKeyHeader !== undefined);
-						const expectedSecrets: Record<string, string> = {};
-						for (const field of SECRET_FIELD_IDS) {
-							const effective = original[field] ?? (legal(field) ? blob[field] : undefined);
-							if (effective !== undefined) {
-								expectedSecrets[field] = effective;
-							}
-						}
-						assert.deepStrictEqual({ ...write.secrets }, expectedSecrets);
-						// The group args after import (stripped entry + written blob) match the original's minus its
-						// homeless stored fields.
-						const prunedBlob = Object.fromEntries(
-							Object.entries(blob).filter(([field]) => legal(field as (typeof SECRET_FIELD_IDS)[number]))
-						) as StoredServerSecrets;
-						assert.deepStrictEqual(buildGroupArgs(appliedEntry, write.secrets), buildGroupArgs(original, prunedBlob));
-					}
-
-					// Every homeless stored field is counted, never guessed in.
-					let expectedUnmaterialized = 0;
-					for (const original of originalParse.entries) {
-						const blob = blobs[original.label] ?? {};
-						if (blob.oauthClientSecret !== undefined && original.oauthTokenUrl === undefined) {
-							expectedUnmaterialized += 1;
-						}
-						if (blob.virtualKeyValue !== undefined && original.virtualKeyHeader === undefined) {
-							expectedUnmaterialized += 1;
-						}
-					}
-					assert.strictEqual(exported.unmaterializedSecretCount, expectedUnmaterialized);
+					assertEntriesReproduced(servers, applied, application, blobs, exported.unmaterializedSecretCount);
 				}
 			),
 			{ numRuns: NUM_RUNS, seed: SEED }
@@ -339,6 +400,44 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 	});
 });
 
+/**
+ * The settings state a restore plan leaves when applied over `after`: the servers value set or deleted, then the writes
+ * and removals.
+ */
+function restoredSettings(
+	after: Record<string, unknown>,
+	restore: ReturnType<typeof planSnapshotRestore>
+): Record<string, unknown> {
+	const state: Record<string, unknown> = { ...after };
+	if (restore.serversValue === undefined) {
+		delete state[SERVERS_SETTING_KEY];
+	} else {
+		state[SERVERS_SETTING_KEY] = restore.serversValue;
+	}
+	for (const write of restore.settingWrites) {
+		state[write.key] = write.value;
+	}
+	for (const key of restore.settingRemovals) {
+		delete state[key];
+	}
+	return state;
+}
+
+/** The blob state a restore plan leaves when applied over `after`: its writes landed, its removals gone. */
+function restoredBlobs(
+	after: Record<string, StoredServerSecrets>,
+	restore: ReturnType<typeof planSnapshotRestore>
+): Record<string, StoredServerSecrets> {
+	const state: Record<string, StoredServerSecrets> = { ...after };
+	for (const write of restore.blobWrites) {
+		state[write.label] = write.secrets;
+	}
+	for (const label of restore.blobRemovals) {
+		delete state[label];
+	}
+	return state;
+}
+
 suite("extension/settingsTransfer property: snapshot restore", () => {
 	const settingsStateArb = fc.dictionary(fc.constantFrom(...ALL_SETTING_KEYS), fc.jsonValue({ maxDepth: 2 }), {
 		maxKeys: ALL_SETTING_KEYS.length,
@@ -361,29 +460,12 @@ suite("extension/settingsTransfer property: snapshot restore", () => {
 					);
 					const restore = planSnapshotRestore(snapshot);
 
-					const settingsState: Record<string, unknown> = { ...settingsAfter };
-					if (restore.serversValue === undefined) {
-						delete settingsState[SERVERS_SETTING_KEY];
-					} else {
-						settingsState[SERVERS_SETTING_KEY] = restore.serversValue;
-					}
-					for (const write of restore.settingWrites) {
-						settingsState[write.key] = write.value;
-					}
-					for (const key of restore.settingRemovals) {
-						delete settingsState[key];
-					}
+					const settingsState = restoredSettings(settingsAfter, restore);
 					for (const key of ALL_SETTING_KEYS) {
 						assert.deepStrictEqual(settingsState[key], settingsBefore[key], key);
 					}
 
-					const blobState: Record<string, StoredServerSecrets> = { ...blobsAfter };
-					for (const write of restore.blobWrites) {
-						blobState[write.label] = write.secrets;
-					}
-					for (const label of restore.blobRemovals) {
-						delete blobState[label];
-					}
+					const blobState = restoredBlobs(blobsAfter, restore);
 					for (const label of touchedLabels) {
 						assert.deepStrictEqual(blobState[label] ?? {}, blobsBefore[label] ?? {}, label);
 					}
@@ -415,6 +497,37 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 	}
 
 	/**
+	 * Where one accepted incoming entry lands under the documented rules: skipped when its label already landed, when
+	 * the decision is missing or skip, or when a rename target is blank, reserved, landed, or taken; overwritten in
+	 * place on an overwrite; appended under its own label when new, or under a valid rename target.
+	 */
+	function placementOf(
+		label: string,
+		decisions: CollisionDecisions,
+		landed: ReadonlySet<string>,
+		baseLabels: ReadonlySet<string>
+	): "skip" | "overwrite" | { readonly append: string } {
+		if (landed.has(label)) {
+			return "skip";
+		}
+		if (!baseLabels.has(label)) {
+			return { append: label };
+		}
+		const decision = Object.hasOwn(decisions, label) ? decisions[label] : undefined;
+		if (decision === undefined || decision.action === "skip") {
+			return "skip";
+		}
+		if (decision.action === "overwrite") {
+			return "overwrite";
+		}
+		const target = decision.newLabel.trim();
+		if (target.length === 0 || isUnsafeRecordKey(target) || landed.has(target) || baseLabels.has(target)) {
+			return "skip";
+		}
+		return { append: target };
+	}
+
+	/**
 	 * The documented resolution rules restated from the RAW incoming array, independently of resolveImportPlan: the
 	 * elements the servers parser accepts within the whole array (its first-wins rule included) land unless their auth
 	 * text cannot be certified; the rest drop. Collisions follow the decisions; invalid rename targets skip. Landing
@@ -440,35 +553,81 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 		const overwritten: { label: string; index: number }[] = [];
 		let skipped = 0;
 		for (const { index, entry } of kept) {
-			const label = entry.label;
-			if (landed.has(label)) {
+			const placement = placementOf(entry.label, decisions, landed, baseLabels);
+			if (placement === "skip") {
 				skipped += 1;
 				continue;
 			}
-			if (!baseLabels.has(label)) {
-				landed.add(label);
-				appended.push({ label, index });
+			if (placement === "overwrite") {
+				landed.add(entry.label);
+				overwritten.push({ label: entry.label, index });
 				continue;
 			}
-			const decision = Object.hasOwn(decisions, label) ? decisions[label] : undefined;
-			if (decision === undefined || decision.action === "skip") {
-				skipped += 1;
-				continue;
-			}
-			if (decision.action === "overwrite") {
-				landed.add(label);
-				overwritten.push({ label, index });
-				continue;
-			}
-			const target = decision.newLabel.trim();
-			if (target.length === 0 || isUnsafeRecordKey(target) || landed.has(target) || baseLabels.has(target)) {
-				skipped += 1;
-				continue;
-			}
-			landed.add(target);
-			appended.push({ label: target, index });
+			landed.add(placement.append);
+			appended.push({ label: placement.append, index });
 		}
 		return { appended, overwritten, skipped, dropped: incoming.length - kept.length };
+	}
+
+	/**
+	 * One decision per collision label, derived deterministically from the seeds: a rename takes a fresh suggested label
+	 * and reserves it, "rename-taken" and "rename-reserved" pick targets the flow must reject, "missing" withholds one.
+	 */
+	function collisionDecisions(
+		plan: ReturnType<typeof planSettingsImport>,
+		decisionSeeds: readonly DecisionSeed[],
+		baseLabels: ReadonlySet<string>
+	): CollisionDecisions {
+		const taken = new Set<string>([
+			...baseLabels,
+			...plan.collisions.map((collision) => collision.label),
+			...plan.incomingServers.flatMap((entry) => (entry.report.label === undefined ? [] : [entry.report.label])),
+		]);
+		const decisions: Record<string, CollisionDecision> = {};
+		plan.collisions.forEach((collision, index) => {
+			const action = decisionSeeds[index % Math.max(decisionSeeds.length, 1)] ?? "overwrite";
+			if (action === "missing") {
+				return;
+			}
+			if (action === "rename") {
+				const newLabel = suggestRenamedLabel(collision.label, taken);
+				taken.add(newLabel);
+				decisions[collision.label] = { action, newLabel };
+			} else if (action === "rename-taken") {
+				decisions[collision.label] = { action: "rename", newLabel: collision.label };
+			} else if (action === "rename-reserved") {
+				decisions[collision.label] = { action: "rename", newLabel: "__proto__" };
+			} else {
+				decisions[collision.label] = { action };
+			}
+		});
+		return decisions;
+	}
+
+	/**
+	 * Asserts the applied servers value keeps every base row at its index: an overwrite target is replaced IN PLACE by
+	 * its representative element, stripped; every other row is untouched by reference, never mutated or reordered.
+	 */
+	function assertBaseRowsInPlace(
+		serversValue: readonly unknown[],
+		base: readonly unknown[],
+		overwriteByLabel: ReadonlyMap<string, number>,
+		expectedLanding: (label: string, index: number) => { readonly entry: unknown }
+	): void {
+		base.forEach((item, index) => {
+			const label = rawLabelOf(item);
+			const isOverwriteTarget =
+				label !== undefined &&
+				overwriteByLabel.has(label) &&
+				base.findIndex((candidate) => rawLabelOf(candidate) === label) === index;
+			if (isOverwriteTarget && label !== undefined) {
+				const sourceIndex = overwriteByLabel.get(label);
+				assert.ok(sourceIndex !== undefined);
+				assert.deepStrictEqual(serversValue[index], expectedLanding(label, sourceIndex).entry);
+			} else {
+				assert.strictEqual(serversValue[index], item);
+			}
+		});
 	}
 
 	test("resolveImportPlan holds the in-place/append/untouched invariants under arbitrary decisions", () => {
@@ -486,31 +645,7 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 						})
 					);
 
-					// One decision per collision label, derived deterministically.
-					const taken = new Set<string>([
-						...baseLabels,
-						...plan.collisions.map((collision) => collision.label),
-						...plan.incomingServers.flatMap((entry) => (entry.report.label === undefined ? [] : [entry.report.label])),
-					]);
-					const decisions: Record<string, CollisionDecision> = {};
-					plan.collisions.forEach((collision, index) => {
-						const action = decisionSeeds[index % Math.max(decisionSeeds.length, 1)] ?? "overwrite";
-						if (action === "missing") {
-							return;
-						}
-						if (action === "rename") {
-							const newLabel = suggestRenamedLabel(collision.label, taken);
-							taken.add(newLabel);
-							decisions[collision.label] = { action, newLabel };
-						} else if (action === "rename-taken") {
-							decisions[collision.label] = { action: "rename", newLabel: collision.label };
-						} else if (action === "rename-reserved") {
-							decisions[collision.label] = { action: "rename", newLabel: "__proto__" };
-						} else {
-							decisions[collision.label] = { action };
-						}
-					});
-					const frozenDecisions: CollisionDecisions = decisions;
+					const frozenDecisions = collisionDecisions(plan, decisionSeeds, baseLabels);
 
 					const application = resolveImportPlan(plan, frozenDecisions);
 					assert.deepStrictEqual(
@@ -571,22 +706,7 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 							expected.appended.map((outcome) => expectedLanding(outcome.label, outcome.index).entry)
 						);
 						const overwriteByLabel = new Map(expected.overwritten.map((outcome) => [outcome.label, outcome.index]));
-						base.forEach((item, index) => {
-							const label = rawLabelOf(item);
-							const isOverwriteTarget =
-								label !== undefined &&
-								overwriteByLabel.has(label) &&
-								base.findIndex((candidate) => rawLabelOf(candidate) === label) === index;
-							if (isOverwriteTarget && label !== undefined) {
-								// Replaced IN PLACE: same index, and by content the representative element, stripped.
-								const sourceIndex = overwriteByLabel.get(label);
-								assert.ok(sourceIndex !== undefined);
-								assert.deepStrictEqual(application.serversValue?.[index], expectedLanding(label, sourceIndex).entry);
-							} else {
-								// Untouched by reference: never mutated, never reordered.
-								assert.strictEqual(application.serversValue?.[index], item);
-							}
-						});
+						assertBaseRowsInPlace(application.serversValue, base, overwriteByLabel, expectedLanding);
 					}
 
 					assert.deepStrictEqual(current, pristineCurrent, "the current setting must never be mutated");

@@ -295,6 +295,122 @@ function assertWriteDiscipline(snapshot: SettingsSnapshot): void {
 	}
 }
 
+/** The old-world snapshot of the trio settings, each present only when drawn. */
+function trioSnapshot(context: unknown, input: unknown, output: unknown): SettingsSnapshot {
+	return {
+		...(context === undefined ? {} : { defaultContextLength: { globalValue: context } }),
+		...(input === undefined ? {} : { defaultMaxInputTokens: { globalValue: input } }),
+		...(output === undefined ? {} : { defaultMaxOutputTokens: { globalValue: output } }),
+	};
+}
+
+/** Whether a record's directive marks `field`: `true` marks every field, a list marks the named ones. */
+function directiveMarks(
+	record: Record<string, unknown>,
+	directive: "_fallback" | "_inheritable",
+	field: string
+): boolean {
+	const value = record[directive];
+	return value === true || (Array.isArray(value) && value.includes(field));
+}
+
+/**
+ * Asserts one configured trio source's placement in the merged "*" record: a user field keeps its value and its level,
+ * an unhonored value never fills, and a fill carries the configured value at its documented level, inheritable.
+ */
+function assertTrioSourcePlacement(
+	source: { readonly value: unknown; readonly field: string; readonly placement: "fallback" | "override" },
+	catchAll: Record<string, unknown> | undefined,
+	record: Record<string, unknown>
+): void {
+	const honored = normalizePositiveNumber(source.value);
+	if (catchAll !== undefined && Object.hasOwn(catchAll, source.field)) {
+		assert.strictEqual(record[source.field], catchAll[source.field], "user fields keep their values");
+		// Level preservation only matters for a field the parser accepts: an invalidly-typed field is left unset and
+		// never marked.
+		if (Object.hasOwn(parseCapabilityRecord(catchAll).fields, source.field)) {
+			const markedBefore = directiveMarks(catchAll, "_fallback", source.field);
+			assert.strictEqual(
+				directiveMarks(record, "_fallback", source.field),
+				markedBefore,
+				"a user field's level never changes"
+			);
+		}
+		return;
+	}
+
+	if (honored === undefined) {
+		assert.strictEqual(Object.hasOwn(record, source.field), false, "unhonored values never fill");
+		return;
+	}
+
+	assert.strictEqual(record[source.field], honored, "the fill carries the configured value");
+	if (source.placement === "override") {
+		assert.strictEqual(
+			directiveMarks(record, "_fallback", source.field),
+			false,
+			"the override fill must never land demoted"
+		);
+	} else {
+		assert.strictEqual(
+			directiveMarks(record, "_fallback", source.field),
+			true,
+			"fallback fills land below the server report"
+		);
+	}
+	assert.strictEqual(directiveMarks(record, "_inheritable", source.field), true, "every fill is inheritable");
+}
+
+/**
+ * Asserts the walk-level views agree WITH the trio: the fills reproduce the old default-setting behavior end to end,
+ * and the wire max_tokens either agrees per baseline or moves from the clamp (min(4096, limit) under a "defaults"
+ * limit) to the whole limit through the ONE documented lift, the explicitly configured defaultMaxOutputTokens whose
+ * migrated fill counts user-set.
+ */
+function assertWalksAgree(old: ReturnType<typeof resolveOldWorld>, projected: EffectiveView): void {
+	assert.deepStrictEqual(
+		projected.walks.map((walk) => walk.fields),
+		old.walks.map((walk) => walk.fields)
+	);
+	for (const [index, oldWalk] of old.walks.entries()) {
+		const newWalk = projected.walks[index];
+		assert.ok(newWalk !== undefined);
+		if (newWalk.wireMaxTokens !== oldWalk.wireMaxTokens) {
+			assert.ok(old.expectsOutputClampLift, `baseline ${index}: a lift needs a configured trio output`);
+			assert.strictEqual(newWalk.wireMaxTokens, newWalk.fields.max_output_tokens as number);
+			assert.strictEqual(oldWalk.wireMaxTokens, Math.min(4096, oldWalk.fields.max_output_tokens as number));
+		}
+	}
+}
+
+/** Whether a "*" record's junk directive makes the trio merge unmergeable, so every source stays blocked. */
+function blocksTrioMerge(catchAll: Record<string, unknown> | undefined): boolean {
+	return catchAll !== undefined && (catchAll._fallback === "garbage" || catchAll._inheritable === "garbage");
+}
+
+/**
+ * Asserts every configured trio source landed in the merged "*" record at its documented placement, and that a re-merge
+ * against the merged record moves nothing more.
+ */
+function assertTrioFills(
+	merge: ReturnType<typeof mergeTokenDefaults>,
+	catchAll: Record<string, unknown> | undefined,
+	capabilities: Parameters<typeof mergeTokenDefaults>[0],
+	snapshot: SettingsSnapshot,
+	sources: readonly { readonly value: unknown; readonly field: string; readonly placement: "fallback" | "override" }[]
+): void {
+	const record = (merge.capabilitiesValue?.["*"] ?? catchAll ?? {}) as Record<string, unknown>;
+	for (const source of sources) {
+		if (source.value === undefined) {
+			continue;
+		}
+		assertTrioSourcePlacement(source, catchAll, record);
+	}
+
+	const again = mergeTokenDefaults(merge.capabilitiesValue ?? capabilities, snapshot);
+	assert.strictEqual(again.movedFields, 0, "a re-merge against the merged record is drain-only");
+}
+
 suite("extension/migrations/settingsRedesign: fuzz", () => {
 	test("corpus entries hold every invariant", () => {
 		for (const entry of MIGRATION_FUZZ_CORPUS) {
@@ -367,11 +483,7 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 			fc.property(
 				fc.record({ context: trioValueArb, input: trioValueArb, output: trioValueArb, catchAll: catchAllArb }),
 				({ context, input, output, catchAll }) => {
-					const snapshot: SettingsSnapshot = {
-						...(context === undefined ? {} : { defaultContextLength: { globalValue: context } }),
-						...(input === undefined ? {} : { defaultMaxInputTokens: { globalValue: input } }),
-						...(output === undefined ? {} : { defaultMaxOutputTokens: { globalValue: output } }),
-					};
+					const snapshot = trioSnapshot(context, input, output);
 					const capabilities = catchAll === undefined ? undefined : { "*": catchAll };
 					const merge = mergeTokenDefaults(capabilities, snapshot);
 					const configured = [context, input, output].filter((value) => value !== undefined).length;
@@ -380,7 +492,7 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 						assert.deepStrictEqual(merge, { consumedIds: [], movedFields: 0, drainedKeys: 0, blockedValues: 0 });
 						return;
 					}
-					if (catchAll !== undefined && (catchAll._fallback === "garbage" || catchAll._inheritable === "garbage")) {
+					if (blocksTrioMerge(catchAll)) {
 						assert.strictEqual(merge.blockedValues, configured, "an unmergeable record blocks every source");
 						assert.strictEqual(merge.capabilitiesValue, undefined);
 						assert.deepStrictEqual(merge.consumedIds, []);
@@ -393,49 +505,12 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 						"moved plus drained covers every source"
 					);
 
-					const record = (merge.capabilitiesValue?.["*"] ?? catchAll ?? {}) as Record<string, unknown>;
-					const fallbackMarked = (field: string): boolean =>
-						record._fallback === true || (Array.isArray(record._fallback) && record._fallback.includes(field));
-					const inheritableMarked = (field: string): boolean =>
-						record._inheritable === true || (Array.isArray(record._inheritable) && record._inheritable.includes(field));
-
 					const sources = [
 						{ value: context, field: "context_length", placement: "fallback" },
 						{ value: input, field: "max_input_tokens", placement: "override" },
 						{ value: output, field: "max_output_tokens", placement: "fallback" },
 					] as const;
-					for (const source of sources) {
-						if (source.value === undefined) {
-							continue;
-						}
-						const honored = normalizePositiveNumber(source.value);
-						if (catchAll !== undefined && Object.hasOwn(catchAll, source.field)) {
-							assert.strictEqual(record[source.field], catchAll[source.field], "user fields keep their values");
-							// Level preservation only matters for a field the parser accepts: an invalidly-typed field is
-							// left unset and never marked.
-							if (Object.hasOwn(parseCapabilityRecord(catchAll).fields, source.field)) {
-								const markedBefore =
-									catchAll._fallback === true ||
-									(Array.isArray(catchAll._fallback) && catchAll._fallback.includes(source.field));
-								assert.strictEqual(fallbackMarked(source.field), markedBefore, "a user field's level never changes");
-							}
-							continue;
-						}
-						if (honored === undefined) {
-							assert.strictEqual(Object.hasOwn(record, source.field), false, "unhonored values never fill");
-							continue;
-						}
-						assert.strictEqual(record[source.field], honored, "the fill carries the configured value");
-						if (source.placement === "override") {
-							assert.strictEqual(fallbackMarked(source.field), false, "the override fill must never land demoted");
-						} else {
-							assert.strictEqual(fallbackMarked(source.field), true, "fallback fills land below the server report");
-						}
-						assert.strictEqual(inheritableMarked(source.field), true, "every fill is inheritable");
-					}
-
-					const again = mergeTokenDefaults(merge.capabilitiesValue ?? capabilities, snapshot);
-					assert.strictEqual(again.movedFields, 0, "a re-merge against the merged record is drain-only");
+					assertTrioFills(merge, catchAll, capabilities, snapshot, sources);
 				}
 			),
 			{ numRuns: NUM_RUNS, seed: SEED }
@@ -486,27 +561,12 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 					);
 				}
 
-				// The walk-level views compare WITH the trio: the fills must reproduce the old default-setting behavior
-				// end to end. The trio-flow corners skip only this comparison; the resolver views above stay live.
+				// The walk-level views compare WITH the trio; the trio-flow corners skip only this comparison, the
+				// resolver views above stay live.
 				if (!old.skipWalks) {
 					const migrated = applyPlanToSnapshot(snapshot, planSettingsRedesign(snapshot).writes);
 					const projected = resolveNewWorldReference(migrated, server as { label: string; baseUrl: string }, modelId);
-					assert.deepStrictEqual(
-						projected.walks.map((walk) => walk.fields),
-						old.walks.map((walk) => walk.fields)
-					);
-					// The wire rule (min(4096, limit) exactly under a "defaults" limit), per baseline: the wire max_tokens
-					// either agrees, or moves from the clamp to the whole limit through the ONE documented lift, the
-					// explicitly configured defaultMaxOutputTokens whose migrated fill counts user-set.
-					for (const [index, oldWalk] of old.walks.entries()) {
-						const newWalk = projected.walks[index];
-						assert.ok(newWalk !== undefined);
-						if (newWalk.wireMaxTokens !== oldWalk.wireMaxTokens) {
-							assert.ok(old.expectsOutputClampLift, `baseline ${index}: a lift needs a configured trio output`);
-							assert.strictEqual(newWalk.wireMaxTokens, newWalk.fields.max_output_tokens as number);
-							assert.strictEqual(oldWalk.wireMaxTokens, Math.min(4096, oldWalk.fields.max_output_tokens as number));
-						}
-					}
+					assertWalksAgree(old, projected);
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED, maxSkipsPerRun: 400 }

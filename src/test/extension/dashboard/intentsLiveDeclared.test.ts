@@ -937,6 +937,59 @@ const WINDOWS: Record<string, Scenario> = {
 	},
 };
 
+/** The host server ID of the group the intent hid, or undefined when the scenario hid nothing. */
+function hiddenHostId(
+	fixture: Fixture,
+	acted: { readonly handle: string; readonly hidden?: readonly unknown[] }
+): string | undefined {
+	if (acted.hidden === undefined) {
+		return undefined;
+	}
+
+	const hiddenId = [...fixture.host.servers.keys()].find((serverId) => adoptSourceHandle(serverId) === acted.handle);
+	assert.ok(hiddenId !== undefined, "the hidden handle names a host group");
+	return hiddenId;
+}
+
+/**
+ * Asserts every row compares whole (handles and scope keys included) minus the fields the move legitimately changes:
+ * rows present before and after against their earlier self, rows the move added against the scenario's full records,
+ * and the only row allowed to leave is the hidden group's. The Copy row is counted by the caller, not compared here.
+ */
+function assertRowsMovedWhole(
+	scenario: Scenario,
+	before_: DashboardState,
+	after: DashboardState,
+	copyRows: readonly DashboardServer[],
+	acted: { readonly handle: string },
+	hiddenId: string | undefined
+): void {
+	const identity = (server: DashboardServer) => JSON.stringify([server.origin, server.label, server.baseUrl]);
+	const before = new Map(before_.servers.map((server) => [identity(server), server]));
+	const changed = new Set(scenario.after.push?.changed ?? []);
+	const strip = (server: DashboardServer) =>
+		Object.fromEntries(Object.entries(server).filter(([field]) => !changed.has(field)));
+	const added: DashboardServer[] = [];
+	for (const server of after.servers) {
+		if (copyRows.includes(server)) {
+			continue;
+		}
+		const earlier = before.get(identity(server));
+		if (earlier === undefined) {
+			added.push(server);
+		} else {
+			assert.deepStrictEqual(strip(server), strip(earlier), `${identity(server)} changed beyond the move`);
+			before.delete(identity(server));
+		}
+	}
+	assert.deepStrictEqual(
+		[...before.values()],
+		before_.servers.filter((server) => hiddenId !== undefined && server.adoptHandle === acted.handle),
+		"only the hidden group's row leaves the push"
+	);
+	assert.deepStrictEqual(added.map(strip), (scenario.after.push?.added ?? []).map(strip));
+}
+
 function assertOutcome(
 	fixture: Fixture,
 	scenario: Scenario,
@@ -971,38 +1024,8 @@ function assertOutcome(
 		settingsWrites.length > 0 && fixture.engine.getDeclared().length === 0 ? 1 : 0,
 		"the Copy row appears only through the settings fallback after a landed adoption"
 	);
-	const hiddenId =
-		acted.hidden === undefined
-			? undefined
-			: [...fixture.host.servers.keys()].find((serverId) => adoptSourceHandle(serverId) === acted.handle);
-	assert.ok(acted.hidden === undefined || hiddenId !== undefined, "the hidden handle names a host group");
-	// Every row compares whole (handles and scope keys included) minus the fields the move legitimately changes:
-	// rows present before and after against their earlier self, rows the move added against the scenario's full
-	// records, and the only row allowed to leave is the hidden group's. The Copy row is counted above, not compared.
-	const identity = (server: DashboardServer) => JSON.stringify([server.origin, server.label, server.baseUrl]);
-	const before = new Map(before_.state.servers.map((server) => [identity(server), server]));
-	const changed = new Set(scenario.after.push?.changed ?? []);
-	const strip = (server: DashboardServer) =>
-		Object.fromEntries(Object.entries(server).filter(([field]) => !changed.has(field)));
-	const added: DashboardServer[] = [];
-	for (const server of after.servers) {
-		if (copyRows.includes(server)) {
-			continue;
-		}
-		const earlier = before.get(identity(server));
-		if (earlier === undefined) {
-			added.push(server);
-		} else {
-			assert.deepStrictEqual(strip(server), strip(earlier), `${identity(server)} changed beyond the move`);
-			before.delete(identity(server));
-		}
-	}
-	assert.deepStrictEqual(
-		[...before.values()],
-		before_.state.servers.filter((server) => hiddenId !== undefined && server.adoptHandle === acted.handle),
-		"only the hidden group's row leaves the push"
-	);
-	assert.deepStrictEqual(added.map(strip), (scenario.after.push?.added ?? []).map(strip));
+	const hiddenId = hiddenHostId(fixture, acted);
+	assertRowsMovedWhole(scenario, before_.state, after, copyRows, acted, hiddenId);
 	assert.deepStrictEqual(
 		after.models,
 		before_.state.models.filter((model) => hiddenId === undefined || model.scopeKey !== modelScopeKey(hiddenId))

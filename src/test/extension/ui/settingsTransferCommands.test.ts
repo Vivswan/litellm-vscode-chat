@@ -209,15 +209,22 @@ function makeWorld(
 			}
 		},
 	};
+	/** Arms the secret-store failures a test tied to a failing servers write; any other key arms nothing. */
+	const armSecretFailuresFor = (key: string): void => {
+		if (key !== SERVERS_SETTING_KEY) {
+			return;
+		}
+		if (world.armSecretFailureOnServersWrite) {
+			secretMutationsFail = true;
+		}
+		if (world.armStoreFailureOnServersWrite) {
+			secretStoresFail = true;
+		}
+	};
 	const writeUserValue = async (key: string, value: unknown): Promise<void> => {
 		world.ops.push(`settings:${key}`);
 		if (failWrites.has(key)) {
-			if (key === SERVERS_SETTING_KEY && world.armSecretFailureOnServersWrite) {
-				secretMutationsFail = true;
-			}
-			if (key === SERVERS_SETTING_KEY && world.armStoreFailureOnServersWrite) {
-				secretStoresFail = true;
-			}
+			armSecretFailuresFor(key);
 			throw new Error(`write failed: ${key}`);
 		}
 		if (world.slowWrites) {
@@ -1461,6 +1468,21 @@ suite("settingsTransferCommands import flow", () => {
 	}
 });
 
+/** The stamp a recipe stores its pre-import blob under: the entry's destination, its legacy token URL, or a raw one. */
+function preImportOwner(
+	owner: "stamped" | "legacy" | { raw: string } | undefined,
+	entry: NonNullable<ReturnType<typeof acceptedEntry>>["entry"] | undefined,
+	field: "oauthClientSecret" | "apiKey"
+): Parameters<typeof updateServerSecret>[4] {
+	if (owner === "stamped") {
+		return secretDestination(expectDefined(entry), field);
+	}
+	if (owner === "legacy") {
+		return expectDefined(entry).oauthTokenUrl;
+	}
+	return owner?.raw;
+}
+
 suite("settingsTransferCommands undo flow", () => {
 	test("no snapshot means an info toast and nothing else", async () => {
 		const world = makeWorld({ "chat.timeout": 5 });
@@ -1690,16 +1712,7 @@ suite("settingsTransferCommands undo flow", () => {
 			if (recipe.preImportSecret !== undefined) {
 				const { field, value, owner } = recipe.preImportSecret;
 				const entry = acceptedEntry(recipe.initialServers, "a")?.entry;
-				await world.env.updateServerSecret(
-					"a",
-					field,
-					value,
-					owner === "stamped"
-						? secretDestination(expectDefined(entry), field)
-						: owner === "legacy"
-							? expectDefined(entry).oauthTokenUrl
-							: owner?.raw
-				);
+				await world.env.updateServerSecret("a", field, value, preImportOwner(owner, entry, field));
 			}
 			const host = attachSyncEngine(world);
 			host.refusing.value = true;

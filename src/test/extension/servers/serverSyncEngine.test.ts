@@ -48,6 +48,81 @@ function countHostCalls(recorded: ReturnType<typeof makeSyncEnv>): { readonly co
 	return counter;
 }
 
+/**
+ * Runs one twin case: a pass with Old and Twin both declared, then a pass with Old gone, asserting the ledger after
+ * the first and the single removal after the second.
+ */
+async function assertRemovalBesideTwin({
+	name,
+	twinRefused,
+	twinObserved,
+}: {
+	name: string;
+	twinRefused: boolean;
+	twinObserved: boolean;
+}): Promise<void> {
+	const recorded = makeSyncEnv([
+		{ label: "Old", baseUrl: "http://host.test" },
+		{ label: "Twin", baseUrl: "http://host.test" },
+	]);
+	if (twinRefused) {
+		recorded.duplicateLabels.add("Twin");
+	}
+	if (twinObserved) {
+		recorded.observedGroups = { Twin: ["http://host.test"] };
+	}
+	const engine = new ServerSyncEngine(recorded.env);
+	await engine.syncNow();
+	assert.deepStrictEqual(
+		recorded.entryBaseUrls,
+		twinObserved || !twinRefused ? { Old: "http://host.test", Twin: "http://host.test" } : { Old: "http://host.test" },
+		`${name}: the ledger holds what the pass proved or observed`
+	);
+
+	recorded.setting = [{ label: "Twin", baseUrl: "http://host.test" }];
+	await engine.syncNow();
+	assert.deepStrictEqual(
+		recordedEvents(recorded),
+		[{ kind: "removed", label: "Old", baseUrl: "http://host.test" }],
+		name
+	);
+}
+
+/**
+ * Runs one blocked-URL-change case: a refused add for Prod at its new URL, with or without a prior fingerprint record
+ * and with the host serving the old URL or nothing, asserting the ledger and then the removal once Prod is gone.
+ */
+async function assertLedgerFromObservation({
+	record,
+	observed,
+}: {
+	record: boolean;
+	observed: readonly string[];
+}): Promise<void> {
+	const name = `record=${record} observed=${JSON.stringify(observed)}`;
+	const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://new.test" }]);
+	if (record) {
+		recorded.fingerprints = { Prod: "pre-ledger-record" };
+	}
+	recorded.duplicateLabels.add("Prod");
+	recorded.observedGroups = { Prod: observed };
+	const engine = new ServerSyncEngine(recorded.env);
+	await engine.syncNow();
+	assert.deepStrictEqual(
+		recorded.entryBaseUrls,
+		observed.length === 1 ? { Prod: "http://old.test" } : {},
+		`${name}: the ledger records the served identity, never the unproven declared URL`
+	);
+
+	recorded.setting = [];
+	await engine.syncNow();
+	assert.deepStrictEqual(
+		recordedEvents(recorded),
+		record || observed.length === 1 ? [{ kind: "removed", label: "Prod", baseUrl: observed[0] }] : [],
+		`${name}: a label with neither record nor observation raises nothing`
+	);
+}
+
 suite("extension/servers/serverSync: ServerSyncEngine", () => {
 	suite("ServerSyncEngine", () => {
 		test("a first pass upserts every entry with resolved secrets and records fingerprints", async () => {
@@ -502,34 +577,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				{ name: "refused, observed twin", twinRefused: true, twinObserved: true },
 				{ name: "refused, unobserved twin", twinRefused: true, twinObserved: false },
 			];
-			for (const { name, twinRefused, twinObserved } of cases) {
-				const recorded = makeSyncEnv([
-					{ label: "Old", baseUrl: "http://host.test" },
-					{ label: "Twin", baseUrl: "http://host.test" },
-				]);
-				if (twinRefused) {
-					recorded.duplicateLabels.add("Twin");
-				}
-				if (twinObserved) {
-					recorded.observedGroups = { Twin: ["http://host.test"] };
-				}
-				const engine = new ServerSyncEngine(recorded.env);
-				await engine.syncNow();
-				assert.deepStrictEqual(
-					recorded.entryBaseUrls,
-					twinObserved || !twinRefused
-						? { Old: "http://host.test", Twin: "http://host.test" }
-						: { Old: "http://host.test" },
-					`${name}: the ledger holds what the pass proved or observed`
-				);
-
-				recorded.setting = [{ label: "Twin", baseUrl: "http://host.test" }];
-				await engine.syncNow();
-				assert.deepStrictEqual(
-					recordedEvents(recorded),
-					[{ kind: "removed", label: "Old", baseUrl: "http://host.test" }],
-					name
-				);
+			for (const twinCase of cases) {
+				await assertRemovalBesideTwin(twinCase);
 			}
 
 			// The record-absence fallback still serves a session's first pass, where a rename made while VS Code was
@@ -728,29 +777,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				{ record: false, observed: [] },
 				{ record: false, observed: ["http://old.test"] },
 			];
-			for (const { record, observed } of cases) {
-				const name = `record=${record} observed=${JSON.stringify(observed)}`;
-				const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://new.test" }]);
-				if (record) {
-					recorded.fingerprints = { Prod: "pre-ledger-record" };
-				}
-				recorded.duplicateLabels.add("Prod");
-				recorded.observedGroups = { Prod: observed };
-				const engine = new ServerSyncEngine(recorded.env);
-				await engine.syncNow();
-				assert.deepStrictEqual(
-					recorded.entryBaseUrls,
-					observed.length === 1 ? { Prod: "http://old.test" } : {},
-					`${name}: the ledger records the served identity, never the unproven declared URL`
-				);
-
-				recorded.setting = [];
-				await engine.syncNow();
-				assert.deepStrictEqual(
-					recordedEvents(recorded),
-					record || observed.length === 1 ? [{ kind: "removed", label: "Prod", baseUrl: observed[0] }] : [],
-					`${name}: a label with neither record nor observation raises nothing`
-				);
+			for (const blockedCase of cases) {
+				await assertLedgerFromObservation(blockedCase);
 			}
 		});
 
@@ -1333,25 +1361,42 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				recorded.observedGroups = { Prod: [observed] };
 				await engine.syncNow();
 				await engine.syncNow();
-				const healed = outcome === "healed";
+				const expected = {
+					healed: {
+						syncFailure: undefined,
+						fingerprints: { Prod: printed },
+						ledger: { Prod: "http://prod.test" },
+						hostCalls: 2,
+						unexpectedFailures: 0,
+						verdict: "connected",
+					},
+					blocked: {
+						syncFailure: { class: "blocked" },
+						fingerprints: {},
+						ledger: { Prod: observed },
+						hostCalls: 1,
+						unexpectedFailures: 1,
+						verdict: "degraded",
+					},
+				}[outcome];
 				assert.deepStrictEqual(
 					engine.getDeclared()[0]?.syncFailure,
-					healed ? undefined : { class: "blocked" },
+					expected.syncFailure,
 					`${observed}: after the host reports`
 				);
 				assert.deepStrictEqual(
 					recorded.fingerprints,
-					healed ? { Prod: printed } : {},
+					expected.fingerprints,
 					`${observed}: the record follows the verdict`
 				);
 				assert.deepStrictEqual(
 					recorded.entryBaseUrls,
-					{ Prod: healed ? "http://prod.test" : observed },
+					expected.ledger,
 					`${observed}: the ledger names the group the host serves`
 				);
 				assert.strictEqual(
 					hostCalls.count,
-					healed ? 2 : 1,
+					expected.hostCalls,
 					`${observed}: the heal costs one host call and the in-sync record then stops them; a conflict makes none`
 				);
 				assert.strictEqual(
@@ -1360,8 +1405,12 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 					`${observed}: the first refusal is the only conflict logged`
 				);
 				const judged = applySyncFailures([serving], engine.getDeclared());
-				assert.strictEqual(unexpectedFailureCount(judged), healed ? 0 : 1, `${observed}: the window's failures`);
-				assert.strictEqual(classifyOverall(judged), healed ? "connected" : "degraded", `${observed}: the verdict`);
+				assert.strictEqual(
+					unexpectedFailureCount(judged),
+					expected.unexpectedFailures,
+					`${observed}: the window's failures`
+				);
+				assert.strictEqual(classifyOverall(judged), expected.verdict, `${observed}: the verdict`);
 			}
 		});
 

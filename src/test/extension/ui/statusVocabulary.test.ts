@@ -74,6 +74,42 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 		// state, the SAME served count, same expectedness, same notices - field by field. Hidden window statuses become
 		// tombstones, the way the removal store feeds the real builder; parser-refused entries ride in as the entry
 		// reports serverSettingReports would produce for them.
+		type Row = (typeof WINDOW_STATE_ROWS)[number];
+		type BuiltState = ReturnType<typeof buildDashboardState>;
+
+		/** Asserts a declared row's state, served count, notices, and (on error) expectedness, count, and cause. */
+		const assertDeclaredRowMirrors = (row: Row, state: BuiltState, expected: Row["rows"][number]): void => {
+			const built = state.servers.find((server) => server.label === expected.label);
+			assert.ok(built !== undefined, `${row.name}: the builder must produce the "${expected.label}" row`);
+			assert.strictEqual(built.state, expected.state, `${row.name}: state of "${expected.label}"`);
+			assert.strictEqual(
+				built.servedModelCount,
+				expected.servedModelCount,
+				`${row.name}: served count of "${expected.label}"`
+			);
+			assert.deepStrictEqual(
+				built.notices ?? [],
+				expected.notices ?? [],
+				`${row.name}: notices of "${expected.label}"`
+			);
+			if (built.state === "error" && expected.state === "error") {
+				assert.strictEqual(built.expected, expected.expected, `${row.name}: expectedness of "${expected.label}"`);
+				assert.strictEqual(
+					built.declaredModelCount,
+					expected.declaredModelCount,
+					`${row.name}: declared count of "${expected.label}"`
+				);
+				assert.deepStrictEqual(built.cause, expected.cause, `${row.name}: cause of "${expected.label}"`);
+			}
+		};
+
+		/** Asserts a parser-refused entry's row whole: the builder derives every field of it from the report alone. */
+		const assertRejectRowMirrors = (row: Row, state: BuiltState, expected: Row["rows"][number]): void => {
+			const built = state.servers.find((server) => server.label === expected.label);
+			assert.ok(built !== undefined, `${row.name}: the builder must produce the "${expected.label}" reject row`);
+			assert.deepStrictEqual(built, expected, `${row.name}: the misconfigured "${expected.label}" row`);
+		};
+
 		for (const row of WINDOW_STATE_ROWS) {
 			const declaredRows = row.rows.filter((server) => server.origin === "declared");
 			const rejects = rejectedReports(row);
@@ -101,35 +137,10 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 			// contradict the table.
 			assert.strictEqual(state.servedModelCount, row.totalModels, `${row.name}: servedModelCount`);
 			for (const expected of declaredRows) {
-				const built = state.servers.find((server) => server.label === expected.label);
-				assert.ok(built !== undefined, `${row.name}: the builder must produce the "${expected.label}" row`);
-				assert.strictEqual(built.state, expected.state, `${row.name}: state of "${expected.label}"`);
-				assert.strictEqual(
-					built.servedModelCount,
-					expected.servedModelCount,
-					`${row.name}: served count of "${expected.label}"`
-				);
-				assert.deepStrictEqual(
-					built.notices ?? [],
-					expected.notices ?? [],
-					`${row.name}: notices of "${expected.label}"`
-				);
-				if (built.state === "error" && expected.state === "error") {
-					assert.strictEqual(built.expected, expected.expected, `${row.name}: expectedness of "${expected.label}"`);
-					assert.strictEqual(
-						built.declaredModelCount,
-						expected.declaredModelCount,
-						`${row.name}: declared count of "${expected.label}"`
-					);
-					assert.deepStrictEqual(built.cause, expected.cause, `${row.name}: cause of "${expected.label}"`);
-				}
+				assertDeclaredRowMirrors(row, state, expected);
 			}
-			// The misconfigured mirror is the whole row: the builder derives every field of a parser-refused entry's
-			// row from the report alone.
 			for (const expected of row.rows.filter((server) => server.origin === "misconfigured")) {
-				const built = state.servers.find((server) => server.label === expected.label);
-				assert.ok(built !== undefined, `${row.name}: the builder must produce the "${expected.label}" reject row`);
-				assert.deepStrictEqual(built, expected, `${row.name}: the misconfigured "${expected.label}" row`);
+				assertRejectRowMirrors(row, state, expected);
 			}
 		}
 	});

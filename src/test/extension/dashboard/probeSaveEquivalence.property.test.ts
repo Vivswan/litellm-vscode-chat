@@ -134,6 +134,111 @@ async function outcomeOf(run: Promise<unknown>): Promise<Error | undefined> {
 	}
 }
 
+/**
+ * A recorded env over `setting`, with "Prod"'s blob seeded, plus a retired label's leftover blob under any other draft
+ * label.
+ */
+function seededEnv(
+	setting: unknown,
+	blob: Partial<Record<SecretFieldId, string>>,
+	orphan: Partial<Record<SecretFieldId, string>>,
+	label: string
+): RecordedEnv {
+	const env = makeEnv(setting);
+	if (Object.keys(blob).length > 0) {
+		env.storedSecrets.set("Prod", { ...blob } as Record<string, string>);
+	}
+	// A retired label's leftover blob, under the draft's label when that label is not "Prod".
+	if (label !== "Prod" && Object.keys(orphan).length > 0) {
+		env.storedSecrets.set(label, { ...orphan } as Record<string, string>);
+	}
+	return env;
+}
+
+/** The credential units the probe's connection carries, absent units left undefined for the caller's compaction. */
+function probeEffectiveCredentials(connection: RecordedEnv["probes"][number]): Record<string, unknown> {
+	return {
+		apiKey: connection.apiKey,
+		oauth: connection.oauth === undefined ? undefined : compact({ ...connection.oauth }),
+		virtualKey: connection.virtualKey === undefined ? undefined : { ...connection.virtualKey },
+	};
+}
+
+/** The secret location the form showed per field: an edit form shows inline over stored, an add form shows none. */
+function shownLocationOf(
+	editing: boolean,
+	inline: Partial<Record<SecretFieldId, string>>,
+	blob: Partial<Record<SecretFieldId, string>>
+): (field: SecretFieldId) => SecretLocation {
+	return (field) => {
+		if (!editing) {
+			return "none";
+		}
+		if (inline[field] !== undefined) {
+			return "settings";
+		}
+		if (blob[field] !== undefined) {
+			return "secure";
+		}
+		return "none";
+	};
+}
+
+/**
+ * The form draft the user saved: an edit form prefilled with each field's shown location, an add form left at
+ * EMPTY_SERVER_FORM; `removals` are the clear ticks, so every field stays inactive and resolves by its location alone.
+ */
+function secretFormDraft(
+	editing: boolean,
+	label: string,
+	removals: Record<SecretFieldId, boolean>,
+	shown: (field: SecretFieldId) => SecretLocation
+): ServerFormDraft {
+	return {
+		...EMPTY_SERVER_FORM,
+		label,
+		baseUrl: "http://prod.test",
+		...(editing
+			? recordFromKeys(SECRET_FIELD_IDS, (field) => ({
+					value: "",
+					location: "secure" as const,
+					clear: removals[field],
+					existing: shown(field),
+				}))
+			: recordFromKeys(SECRET_FIELD_IDS, (field) => ({ ...EMPTY_SERVER_FORM[field], clear: removals[field] }))),
+	};
+}
+
+/** The case a field's resolution assertion names: the directive, the shown location, and the form it sat in. */
+function describeFieldCase(field: SecretFieldId, removal: boolean, shown: SecretLocation, editing: boolean): string {
+	return `${field}: ${removal ? "removal" : "keep"} on a "${shown}" location, ${editing ? "edit" : "add"} form`;
+}
+
+/** The replace identity an edit form carries, or undefined for the add form and when no entry exists. */
+function replaceIdentityFor(
+	existing: Record<string, unknown> | undefined,
+	declaresReplacement: boolean,
+	blob: Partial<Record<SecretFieldId, string>>
+): ReturnType<typeof displayedIdentity> | undefined {
+	return existing !== undefined && declaresReplacement ? displayedIdentity(existing, blob) : undefined;
+}
+
+/** The parse options of the saved form: the edit form names the entry it replaces, the add form the taken labels. */
+function parseOptionsFor(
+	editing: boolean,
+	replace: ReturnType<typeof displayedIdentity> | undefined
+): Parameters<typeof parseServerForm>[1] {
+	return editing && replace !== undefined ? { original: replace } : { takenLabels: ["Prod"] };
+}
+
+/** An inactive field's directive is clear or keep, nothing else (parseInactiveSecret never sets). */
+function clearOrKeepDirectives(removals: Record<SecretFieldId, boolean>): Record<SecretFieldId, SecretDirective> {
+	return recordFromKeys(
+		SECRET_FIELD_IDS,
+		(field): SecretDirective => (removals[field] ? { action: "clear" } : { action: "keep" })
+	);
+}
+
 suite("extension/dashboard: probe-save equivalence", () => {
 	test("Test Connection probes exactly the credentials the saved entry's group would be handed", async () => {
 		await fc.assert(
@@ -154,26 +259,15 @@ suite("extension/dashboard: probe-save equivalence", () => {
 				}),
 				async ({ fields, secrets, existing, blob, orphan, declaresReplacement, label }) => {
 					const setting = existing === undefined ? [] : [existing];
-					const replace = existing !== undefined && declaresReplacement ? displayedIdentity(existing, blob) : undefined;
+					const replace = replaceIdentityFor(existing, declaresReplacement, blob);
 					const payload = {
 						server: serverPayload({ label, baseUrl: "http://prod.test", ...compact(fields) }),
 						secrets,
 						...(replace === undefined ? {} : { replace }),
 					} satisfies RequestPayload<"saveServerSetting">;
-					const seeded = (): RecordedEnv => {
-						const env = makeEnv(setting);
-						if (Object.keys(blob).length > 0) {
-							env.storedSecrets.set("Prod", { ...blob } as Record<string, string>);
-						}
-						// A retired label's leftover blob, under the draft's label when that label is not "Prod".
-						if (label !== "Prod" && Object.keys(orphan).length > 0) {
-							env.storedSecrets.set(label, { ...orphan } as Record<string, string>);
-						}
-						return env;
-					};
 
-					const saveEnv = seeded();
-					const probeEnv = seeded();
+					const saveEnv = seededEnv(setting, blob, orphan, label);
+					const probeEnv = seededEnv(setting, blob, orphan, label);
 					const saveError = await outcomeOf(
 						executeDashboardIntent({ method: "saveServerSetting", payload }, saveEnv.env)
 					);
@@ -207,12 +301,7 @@ suite("extension/dashboard: probe-save equivalence", () => {
 						oauth: savedGroup.oauth,
 						virtualKey: savedGroup.virtualKey,
 					};
-					const probeEffective = {
-						apiKey: connection.apiKey,
-						oauth: connection.oauth === undefined ? undefined : compact({ ...connection.oauth }),
-						virtualKey: connection.virtualKey === undefined ? undefined : { ...connection.virtualKey },
-					};
-					assert.deepStrictEqual(compact(probeEffective), compact(savedEffective));
+					assert.deepStrictEqual(compact(probeEffectiveCredentials(connection)), compact(savedEffective));
 				}
 			),
 			{ seed: SEED, numRuns: NUM_RUNS }
@@ -236,14 +325,8 @@ suite("extension/dashboard: probe-save equivalence", () => {
 				fc.constantFrom("Prod", "Renamed"),
 				async (removals, existing, blob, orphan, declaresReplacement, label) => {
 					const setting = existing === undefined ? [] : [existing];
-					const env = makeEnv(setting);
-					if (Object.keys(blob).length > 0) {
-						env.storedSecrets.set("Prod", { ...blob } as Record<string, string>);
-					}
-					if (label !== "Prod" && Object.keys(orphan).length > 0) {
-						env.storedSecrets.set(label, { ...orphan } as Record<string, string>);
-					}
-					const replace = existing !== undefined && declaresReplacement ? displayedIdentity(existing, blob) : undefined;
+					const env = seededEnv(setting, blob, orphan, label);
+					const replace = replaceIdentityFor(existing, declaresReplacement, blob);
 					const targetLabel = replace?.label ?? label;
 					const sources = await readKeepSources(setting, label, targetLabel, (secretsLabel) =>
 						env.env.readServerSecrets(secretsLabel)
@@ -257,49 +340,20 @@ suite("extension/dashboard: probe-save equivalence", () => {
 					// (serverSync's secretLocations rule: inline wins over the blob); the add form is
 					// EMPTY_SERVER_FORM, every field "none".
 					const inline = sources.accepted === undefined ? {} : inlineSecretValues(sources.accepted.entry);
-					const shown = (field: SecretFieldId): SecretLocation =>
-						editing
-							? inline[field] === undefined
-								? blob[field] === undefined
-									? "none"
-									: "secure"
-								: "settings"
-							: "none";
+					const shown = shownLocationOf(editing, inline, blob);
 					// Auth stays on "none", where all three fields are inactive and each one's still-attached problem
 					// appears exactly when the form's own resolution says the field resolves - the webview signal this
 					// pins against the host's plans.
-					const draft: ServerFormDraft = {
-						...EMPTY_SERVER_FORM,
-						label,
-						baseUrl: "http://prod.test",
-						...(editing
-							? recordFromKeys(SECRET_FIELD_IDS, (field) => ({
-									value: "",
-									location: "secure" as const,
-									clear: removals[field],
-									existing: shown(field),
-								}))
-							: recordFromKeys(SECRET_FIELD_IDS, (field) => ({ ...EMPTY_SERVER_FORM[field], clear: removals[field] }))),
-					};
-					const parse = parseServerForm(
-						draft,
-						editing && replace !== undefined ? { original: replace } : { takenLabels: ["Prod"] }
-					);
-					// An inactive field's directive is clear or keep, nothing else (parseInactiveSecret never sets);
-					// the contested half is the resolution the parse reports through its problems.
-					const directives = recordFromKeys(
-						SECRET_FIELD_IDS,
-						(field): SecretDirective => (removals[field] ? { action: "clear" } : { action: "keep" })
-					);
-					const plans = secretPlans(directives, showing, sources.storedOld);
+					const draft = secretFormDraft(editing, label, removals, shown);
+					const parse = parseServerForm(draft, parseOptionsFor(editing, replace));
+					// The contested half is the resolution the parse reports through its problems.
+					const plans = secretPlans(clearOrKeepDirectives(removals), showing, sources.storedOld);
 					for (const field of SECRET_FIELD_IDS) {
-						const formResolves = parse.ok ? false : parse.problems[field] !== undefined;
+						const formResolves = !parse.ok && parse.problems[field] !== undefined;
 						assert.strictEqual(
 							planResolves(plans[field]),
 							formResolves,
-							`${field}: ${removals[field] ? "removal" : "keep"} on a "${shown(field)}" location, ${
-								editing ? "edit" : "add"
-							} form`
+							describeFieldCase(field, removals[field], shown(field), editing)
 						);
 					}
 				}

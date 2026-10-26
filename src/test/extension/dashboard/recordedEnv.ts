@@ -242,6 +242,45 @@ export interface RecordedEnv {
 	env: IntentEnvironment;
 }
 
+/** Throws the failure a test armed for this store or unstore, counting down a limited run of delete failures. */
+function refuseSecretStore(recorded: RecordedEnv, field: string, value: string | undefined): void {
+	if (value === undefined && recorded.failUnstore !== undefined) {
+		throw recorded.failUnstore;
+	}
+	if (value === undefined && (recorded.failUnstoreTimes ?? 0) > 0) {
+		recorded.failUnstoreTimes = (recorded.failUnstoreTimes ?? 0) - 1;
+		throw new Error("keychain locked");
+	}
+	if (value !== undefined && recorded.failStoreField === field) {
+		throw new Error("keychain locked");
+	}
+}
+
+/** Lands a store (value and stamp) or an unstore (both removed) in the fake blob and owner maps. */
+function applySecretStore(
+	recorded: RecordedEnv,
+	label: string,
+	field: string,
+	value: string | undefined,
+	owner: SecretOwner | undefined
+): void {
+	const blob = { ...recorded.storedSecrets.get(label) };
+	const owners = { ...recorded.storedOwners.get(label) };
+	if (value === undefined) {
+		delete blob[field];
+		delete owners[field];
+	} else {
+		blob[field] = value;
+		if (owner === undefined) {
+			delete owners[field];
+		} else {
+			owners[field] = owner;
+		}
+	}
+	recorded.storedSecrets.set(label, blob);
+	recorded.storedOwners.set(label, owners);
+}
+
 export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 	// The visible setting: reads reflect landed writes, like the real machine-scoped configuration (post-write re-reads
 	// must see the write).
@@ -310,34 +349,11 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 				recorded.afterWrite?.(visible);
 			},
 			storeServerSecret: async (label, field, value, owner) => {
-				if (value === undefined && recorded.failUnstore !== undefined) {
-					throw recorded.failUnstore;
-				}
-				if (value === undefined && (recorded.failUnstoreTimes ?? 0) > 0) {
-					recorded.failUnstoreTimes = (recorded.failUnstoreTimes ?? 0) - 1;
-					throw new Error("keychain locked");
-				}
-				if (value !== undefined && recorded.failStoreField === field) {
-					throw new Error("keychain locked");
-				}
+				refuseSecretStore(recorded, field, value);
 				recorded.secretOps.push([label, field, value]);
 				recorded.secretOwners.push(owner);
 				recorded.ops.push(`${value === undefined ? "unstore" : "store"}:${label}.${field}`);
-				const blob = { ...recorded.storedSecrets.get(label) };
-				const owners = { ...recorded.storedOwners.get(label) };
-				if (value === undefined) {
-					delete blob[field];
-					delete owners[field];
-				} else {
-					blob[field] = value;
-					if (owner === undefined) {
-						delete owners[field];
-					} else {
-						owners[field] = owner;
-					}
-				}
-				recorded.storedSecrets.set(label, blob);
-				recorded.storedOwners.set(label, owners);
+				applySecretStore(recorded, label, field, value, owner);
 			},
 			readServerSecrets: async (label) => {
 				const values = { ...recorded.storedSecrets.get(label) };

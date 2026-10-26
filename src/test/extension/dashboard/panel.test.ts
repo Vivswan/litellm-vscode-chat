@@ -336,6 +336,35 @@ function settle(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** One programmatic submission and the answer shape it must come back with. */
+interface SubmissionCase {
+	readonly name: string;
+	readonly raw: unknown;
+	readonly outcome: string;
+	readonly replyKind: string | undefined;
+	readonly issuePaths?: readonly string[];
+}
+
+/** Asserts one submission's outcome, reply kind, and issue paths against its case. */
+function assertSubmissionShape(
+	c: SubmissionCase,
+	submission: Awaited<ReturnType<DashboardController["submit"]>>
+): void {
+	const reply = "reply" in submission ? submission.reply : undefined;
+	const issues = "issues" in submission ? submission.issues : undefined;
+	assert.strictEqual(submission.outcome, c.outcome, `${c.name}: outcome`);
+	assert.strictEqual(reply?.kind, c.replyKind, `${c.name}: reply kind`);
+	if (c.issuePaths === undefined) {
+		assert.strictEqual(issues, undefined, `${c.name}: a parsed request carries no issues`);
+		return;
+	}
+
+	const paths = (issues ?? []).map((issue) => issue.path);
+	for (const path of c.issuePaths) {
+		assert.ok(paths.includes(path), `${c.name}: issues name ${path}, got ${paths.join(", ")}`);
+	}
+}
+
 suite("extension/dashboard/panel", () => {
 	test("open creates one panel and pushes the state built from the stores", () => {
 		const harness = makeHarness();
@@ -1542,13 +1571,7 @@ suite("extension/dashboard/panel", () => {
 			assert.ok(fake);
 			const postedBefore = fake.posted.length;
 
-			const cases: {
-				readonly name: string;
-				readonly raw: unknown;
-				readonly outcome: string;
-				readonly replyKind: string | undefined;
-				readonly issuePaths?: readonly string[];
-			}[] = [
+			const cases: SubmissionCase[] = [
 				{
 					name: "read",
 					raw: request("searchCatalog", { query: "gpt" }),
@@ -1596,19 +1619,7 @@ suite("extension/dashboard/panel", () => {
 				},
 			];
 			for (const c of cases) {
-				const submission = await harness.controller.submit(c.raw);
-				const reply = "reply" in submission ? submission.reply : undefined;
-				const issues = "issues" in submission ? submission.issues : undefined;
-				assert.strictEqual(submission.outcome, c.outcome, `${c.name}: outcome`);
-				assert.strictEqual(reply?.kind, c.replyKind, `${c.name}: reply kind`);
-				if (c.issuePaths === undefined) {
-					assert.strictEqual(issues, undefined, `${c.name}: a parsed request carries no issues`);
-				} else {
-					const paths = (issues ?? []).map((issue) => issue.path);
-					for (const path of c.issuePaths) {
-						assert.ok(paths.includes(path), `${c.name}: issues name ${path}, got ${paths.join(", ")}`);
-					}
-				}
+				assertSubmissionShape(c, await harness.controller.submit(c.raw));
 			}
 			assert.deepStrictEqual(harness.updates.at(0), ["ui.maskSecretInputs", false], "the landed write");
 			assert.strictEqual(harness.serversSetting.length, 1, "the acked save landed");

@@ -167,6 +167,24 @@ const SNAPSHOTS: readonly SnapshotSource[] = [
 	},
 ];
 
+/**
+ * The host's multi-root asRelativePath over two fake roots: a contained file keeps its workspace-folder name unless the
+ * caller opts out, and a file outside both roots comes back as given.
+ */
+function fakeMultiRootRelativePath(pathOrUri: vscode.Uri | string, includeWorkspaceFolder?: boolean): string {
+	const full = typeof pathOrUri === "string" ? pathOrUri : pathOrUri.path;
+	const match = /^\/(root-[ab])\/(.*)$/.exec(full);
+	if (match === null) {
+		return typeof pathOrUri === "string" ? pathOrUri : pathOrUri.fsPath;
+	}
+
+	if (includeWorkspaceFolder === false) {
+		return match[2] ?? full;
+	}
+
+	return `${match[1] ?? ""}/${match[2] ?? ""}`;
+}
+
 suite("extension/features/participant wiring", () => {
 	useMsw();
 
@@ -378,17 +396,7 @@ suite("extension/features/participant wiring", () => {
 		// contained files unless the caller opts out. If the shared label pipeline opted out, both attachments below
 		// would collapse into one "src/index.ts" and the model could not tell the user's two files apart in one turn.
 		const original = vscode.workspace.asRelativePath;
-		(vscode.workspace as Record<string, unknown>).asRelativePath = (
-			pathOrUri: vscode.Uri | string,
-			includeWorkspaceFolder?: boolean
-		) => {
-			const full = typeof pathOrUri === "string" ? pathOrUri : pathOrUri.path;
-			const match = /^\/(root-[ab])\/(.*)$/.exec(full);
-			if (match === null) {
-				return typeof pathOrUri === "string" ? pathOrUri : pathOrUri.fsPath;
-			}
-			return includeWorkspaceFolder === false ? (match[2] ?? full) : `${match[1] ?? ""}/${match[2] ?? ""}`;
-		};
+		(vscode.workspace as Record<string, unknown>).asRelativePath = fakeMultiRootRelativePath;
 		try {
 			await withWiringSpies(async (spies) => {
 				await withConfig({}, () => {

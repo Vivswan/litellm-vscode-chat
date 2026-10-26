@@ -31,6 +31,29 @@ function parseClean(draft: ServerFormDraft, original: ReplacedEntryIdentity) {
 	return parse.intent;
 }
 
+/**
+ * The save payload the edit form builds from a fallback-window view: every registered field, the empty ones as their
+ * cleared sentinels.
+ */
+function fallbackViewPayload(
+	view: NonNullable<ReturnType<typeof declaredViewsFromSetting>["views"][number]>
+): RequestPayload<"saveServerSetting">["server"] {
+	return {
+		label: view.label,
+		baseUrl: view.baseUrl,
+		...pickNonSecretOptionalFields(view),
+		...(view.apiVersion === undefined ? {} : { apiVersion: view.apiVersion }),
+		...(view.modelParameters === undefined ? {} : { modelParameters: view.modelParameters }),
+		modelCapabilities: view.modelCapabilities ?? {},
+		expectedFailures: view.expectedFailures ?? [],
+		headers: view.headers ?? {},
+		declaredModels: view.declaredModels ?? [],
+		includeModes: view.includeModes ?? [],
+		budget: view.budget ?? null,
+		mcp: view.mcp ?? null,
+	};
+}
+
 suite("extension/dashboard/intents: the servers setting", () => {
 	suite("executeDashboardIntent: the servers setting", () => {
 		const save = (
@@ -94,20 +117,7 @@ suite("extension/dashboard/intents: the servers setting", () => {
 				assert.notStrictEqual(view[field], undefined, `the fixture must exercise the registered field "${field}"`);
 			}
 			await save(recorded, {
-				server: {
-					label: view.label,
-					baseUrl: view.baseUrl,
-					...pickNonSecretOptionalFields(view),
-					...(view.apiVersion === undefined ? {} : { apiVersion: view.apiVersion }),
-					...(view.modelParameters === undefined ? {} : { modelParameters: view.modelParameters }),
-					modelCapabilities: view.modelCapabilities ?? {},
-					expectedFailures: view.expectedFailures ?? [],
-					headers: view.headers ?? {},
-					declaredModels: view.declaredModels ?? [],
-					includeModes: view.includeModes ?? [],
-					budget: view.budget ?? null,
-					mcp: view.mcp ?? null,
-				},
+				server: fallbackViewPayload(view),
 				replace: await displayedReplace(recorded, "Prod"),
 			});
 

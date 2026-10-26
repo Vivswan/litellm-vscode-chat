@@ -228,6 +228,23 @@ function intersects(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 }
 
 /**
+ * A migrated key's rank in the wholesale-winner rule: exact > glob (literal length) > regex (star-bearing old keys) >
+ * "*".
+ */
+function keySpecificity(key: string): number {
+	if (key === "*") {
+		return -1;
+	}
+	if (key.startsWith("/") && key.endsWith("/")) {
+		return 0;
+	}
+	if (key.endsWith("*")) {
+		return key.length - 1;
+	}
+	return key.length + 1e6;
+}
+
+/**
  * Whether descoping one record diverges for this model:
  *  - a scoped winner beside an unscoped match diverges only when the replaced unscoped
  *    record contributed a field key or mark the scoped winner lacks;
@@ -282,16 +299,7 @@ function descopingDiverges(
 	// over scoped key by key, so divergence needs the losing record to have contributed something.
 	const remainderKey = explicitMatcherKey(remainder);
 	const entryKey = explicitMatcherKey(entryWinner.key);
-	// exact > glob (literal length) > regex (star-bearing old keys) > "*".
-	const specificity = (key: string): number =>
-		key === "*"
-			? -1
-			: key.startsWith("/") && key.endsWith("/")
-				? 0
-				: key.endsWith("*")
-					? key.length - 1
-					: key.length + 1e6;
-	const entryWins = specificity(entryKey) >= specificity(remainderKey);
+	const entryWins = keySpecificity(entryKey) >= keySpecificity(remainderKey);
 	const loser = entryWins ? scopedWinner.value : entryWinner.value;
 	const loserContribution = recordContribution(loser, type);
 	// In the old world the entry always won key by key, so a losing record still contributed its non-overlapping keys.
@@ -350,6 +358,127 @@ function oldTokenDefaults(snapshot: Snapshot): OldCapabilityTokenDefaults {
 	};
 }
 
+/**
+ * Whether a directive is junk: present, yet neither a boolean nor a list, so the migration leaves the record as
+ * written.
+ */
+function junkDirective(record: Record<string, unknown>, directive: string): boolean {
+	const raw = Object.hasOwn(record, directive) ? record[directive] : undefined;
+	return raw !== undefined && raw !== false && raw !== true && !Array.isArray(raw);
+}
+
+/** The trio fields the old default* settings configured, in the old walk's order. */
+function configuredTrioFieldsOf(
+	tokenDefaults: ReturnType<typeof oldTokenDefaults>
+): ("context_length" | "max_output_tokens" | "max_input_tokens")[] {
+	const fields: ("context_length" | "max_output_tokens" | "max_input_tokens")[] = [];
+	if (tokenDefaults.contextLength.explicitlyConfigured) {
+		fields.push("context_length");
+	}
+	if (tokenDefaults.maxOutputTokens.explicitlyConfigured) {
+		fields.push("max_output_tokens");
+	}
+	if (tokenDefaults.maxInputTokens !== undefined) {
+		fields.push("max_input_tokens");
+	}
+	return fields;
+}
+
+/**
+ * Whether the trio-fill flow diverges for this model, which skips the WALK comparison only: the OLD trio applied to
+ * every model regardless of other records, while the migrated "*" fill rides the matcher chain, where a matching
+ * record setting the same field can block or drain it. A BLOCKED trio merge (an unmergeable "*" record, the gate
+ * mergeTokenDefaults applies) is a documented lossy state, not an equivalence target: the trio sources stay in place,
+ * which the new world never reads while the old walk did.
+ */
+function trioFlowDiverges(
+	globalCapabilities: Record<string, Record<string, unknown>>,
+	tokenDefaults: ReturnType<typeof oldTokenDefaults>,
+	modelId: string
+): boolean {
+	const configuredTrioFields = configuredTrioFieldsOf(tokenDefaults);
+	if (configuredTrioFields.length === 0) {
+		return false;
+	}
+
+	const rawCatchAll = globalCapabilities["*"] ?? globalCapabilities[""];
+	const trioMergeBlocked =
+		rawCatchAll !== undefined &&
+		(junkDirective(rawCatchAll, "_fallback") || junkDirective(rawCatchAll, "_inheritable"));
+	if (trioMergeBlocked) {
+		return true;
+	}
+
+	const oldPrefixMatches = (key: string): boolean => key === "*" || modelId === key || modelId.startsWith(key);
+	return Object.entries(globalCapabilities).some(
+		([key, record]) =>
+			!key.includes("://") &&
+			oldPrefixMatches(key) &&
+			configuredTrioFields.some((field) =>
+				Object.hasOwn(parseOldCapabilityRecord(record, { allowDeclare: true }).fields, field)
+			)
+	);
+}
+
+/** Whether a documented descoping or star-ordering divergence puts this (server, model) outside the equivalence. */
+function oldWorldSkipsEquivalence(
+	globalParameters: Record<string, Record<string, unknown>>,
+	entryParameters: Record<string, Record<string, unknown>> | undefined,
+	globalCapabilities: Record<string, Record<string, unknown>>,
+	entryCapabilities: Record<string, Record<string, unknown>> | undefined,
+	scope: string,
+	modelId: string
+): boolean {
+	return (
+		descopingDiverges(globalParameters, entryParameters, scope, modelId, "params") ||
+		descopingDiverges(globalCapabilities, entryCapabilities, scope, modelId, "caps") ||
+		starOrderingDiverges(globalParameters, scope, modelId) ||
+		starOrderingDiverges(globalCapabilities, scope, modelId) ||
+		(entryParameters !== undefined && starOrderingDiverges(entryParameters, scope, modelId)) ||
+		(entryCapabilities !== undefined && starOrderingDiverges(entryCapabilities, scope, modelId))
+	);
+}
+
+/** The override and fallback value per old capability field, as the comparable view carries them. */
+function oldCapabilityLevels(caps: ReturnType<typeof resolveOldCapabilityOverrides>): {
+	capabilityOverrides: Record<string, unknown>;
+	capabilityFallbacks: Record<string, unknown>;
+} {
+	const capabilityOverrides: Record<string, unknown> = {};
+	const capabilityFallbacks: Record<string, unknown> = {};
+	for (const field of OLD_CAPABILITY_FIELD_NAMES) {
+		const override = caps.overrides[field as keyof typeof caps.overrides];
+		if (override !== undefined) {
+			capabilityOverrides[field] = override;
+		}
+		const fallback = caps.fallbacks[field as keyof typeof caps.fallbacks];
+		if (fallback !== undefined) {
+			capabilityFallbacks[field] = fallback;
+		}
+	}
+	return { capabilityOverrides, capabilityFallbacks };
+}
+
+/** The old full-walk view per WALK_BASELINES entry, ban-free, with the wire max_tokens the old clamp rule sends. */
+function oldWalkViews(
+	capsInput: Omit<Parameters<typeof resolveOldCapabilityOverrides>[0], "liftDeclareFallbackBan">,
+	tokenDefaults: ReturnType<typeof oldTokenDefaults>
+): WalkView[] {
+	return WALK_BASELINES.map((serverDeclared) => {
+		const walk = resolveOldModelCapabilities({
+			...capsInput,
+			serverDeclared,
+			tokenDefaults,
+			liftDeclareFallbackBan: true,
+		});
+		const limit = walk.fields.max_output_tokens as number;
+		return {
+			fields: { ...walk.fields },
+			wireMaxTokens: walk.outputLimitSource === "defaults" ? Math.min(4096, limit) : limit,
+		};
+	});
+}
+
 export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 	const scopes = [normalizeBaseUrl(server.baseUrl)];
 	const entry = acceptedEntryRecord(snapshot.servers?.globalValue, server);
@@ -382,90 +511,25 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 		return banned !== lifted;
 	});
 	const declared = extractOldDeclaredModels(capsInput);
-
 	const tokenDefaults = oldTokenDefaults(snapshot);
-	const walks: WalkView[] = WALK_BASELINES.map((serverDeclared) => {
-		const walk = resolveOldModelCapabilities({
-			...capsInput,
-			serverDeclared,
-			tokenDefaults,
-			liftDeclareFallbackBan: true,
-		});
-		const limit = walk.fields.max_output_tokens as number;
-		return {
-			fields: { ...walk.fields },
-			wireMaxTokens: walk.outputLimitSource === "defaults" ? Math.min(4096, limit) : limit,
-		};
-	});
-
-	// The trio-fill flow corners: the OLD trio applied to every model regardless of other records, while the migrated
-	// "*" fill rides the matcher chain, where a matching record setting the same field can block or drain it. Skips the
-	// WALK comparison only, whenever a configured trio field is also set by a matching unscoped global record.
-	const configuredTrioFields = [
-		...(tokenDefaults.contextLength.explicitlyConfigured ? (["context_length"] as const) : []),
-		...(tokenDefaults.maxOutputTokens.explicitlyConfigured ? (["max_output_tokens"] as const) : []),
-		...(tokenDefaults.maxInputTokens === undefined ? [] : (["max_input_tokens"] as const)),
-	];
-	const oldPrefixMatches = (key: string): boolean => key === "*" || modelId === key || modelId.startsWith(key);
-	// A BLOCKED trio merge is a documented lossy state, not an equivalence target: an unmergeable "*" record keeps the
-	// trio sources in place, which the new world never reads while the old walk did. Mirrors mergeTokenDefaults' gate.
-	const rawCatchAll = globalCapabilities["*"] ?? globalCapabilities[""];
-	const junkDirective = (record: Record<string, unknown>, directive: string): boolean => {
-		const raw = Object.hasOwn(record, directive) ? record[directive] : undefined;
-		return raw !== undefined && raw !== false && raw !== true && !Array.isArray(raw);
-	};
-	const trioMergeBlocked =
-		configuredTrioFields.length > 0 &&
-		rawCatchAll !== undefined &&
-		(junkDirective(rawCatchAll, "_fallback") || junkDirective(rawCatchAll, "_inheritable"));
-	const trioFlowDiverges =
-		configuredTrioFields.length > 0 &&
-		(trioMergeBlocked ||
-			Object.entries(globalCapabilities).some(
-				([key, record]) =>
-					!key.includes("://") &&
-					oldPrefixMatches(key) &&
-					configuredTrioFields.some((field) =>
-						Object.hasOwn(parseOldCapabilityRecord(record, { allowDeclare: true }).fields, field)
-					)
-			));
-
-	const capabilityOverrides: Record<string, unknown> = {};
-	const capabilityFallbacks: Record<string, unknown> = {};
-	for (const field of OLD_CAPABILITY_FIELD_NAMES) {
-		const override = caps.overrides[field as keyof typeof caps.overrides];
-		if (override !== undefined) {
-			capabilityOverrides[field] = override;
-		}
-		const fallback = caps.fallbacks[field as keyof typeof caps.fallbacks];
-		if (fallback !== undefined) {
-			capabilityFallbacks[field] = fallback;
-		}
-	}
 
 	const scope = scopes[0] as string;
-	const skipEquivalence =
-		descopingDiverges(globalParameters, hasEntryParameters ? entryParameters : undefined, scope, modelId, "params") ||
-		descopingDiverges(
-			globalCapabilities,
-			hasEntryCapabilities ? entryCapabilities : undefined,
-			scope,
-			modelId,
-			"caps"
-		) ||
-		starOrderingDiverges(globalParameters, scope, modelId) ||
-		starOrderingDiverges(globalCapabilities, scope, modelId) ||
-		(hasEntryParameters && starOrderingDiverges(entryParameters, scope, modelId)) ||
-		(hasEntryCapabilities && starOrderingDiverges(entryCapabilities, scope, modelId));
+	const skipEquivalence = oldWorldSkipsEquivalence(
+		globalParameters,
+		hasEntryParameters ? entryParameters : undefined,
+		globalCapabilities,
+		hasEntryCapabilities ? entryCapabilities : undefined,
+		scope,
+		modelId
+	);
 	return {
 		parameters: { ...params.params },
 		forced: { ...params.forcedParams },
-		capabilityOverrides,
-		capabilityFallbacks,
+		...oldCapabilityLevels(caps),
 		declared: [...new Set([...declared, ...rawDeclaredList(entry)])].sort(),
-		walks,
+		walks: oldWalkViews(capsInput, tokenDefaults),
 		skipEquivalence,
-		skipWalks: skipEquivalence || trioFlowDiverges,
+		skipWalks: skipEquivalence || trioFlowDiverges(globalCapabilities, tokenDefaults, modelId),
 		banRescuedFields,
 		expectsOutputClampLift: tokenDefaults.maxOutputTokens.explicitlyConfigured,
 	};
@@ -489,6 +553,39 @@ function rawDeclaredList(entry: Record<string, unknown> | undefined): readonly s
 
 function newWorldRecord(value: unknown): Record<string, Record<string, unknown>> {
 	return normalizeModelParameters(value);
+}
+
+/** The declared model IDs of a migrated entry's discovery block: trimmed, blanks dropped, deduplicated, sorted. */
+function newWorldDeclared(entry: Record<string, unknown> | undefined): string[] {
+	const discovery = entry !== undefined && isRecord(entry.discovery) ? entry.discovery : undefined;
+	if (!Array.isArray(discovery?.declared)) {
+		return [];
+	}
+
+	const ids = discovery.declared
+		.map((id) => (typeof id === "string" ? id.trim() : undefined))
+		.filter((id): id is string => id !== undefined && id !== "");
+	return [...new Set(ids)].sort();
+}
+
+/** The override and first fallback value per old capability field, read off the live resolver's levels. */
+function newWorldCapabilityLevels(caps: ReturnType<typeof resolveCapabilityOverrides>): {
+	capabilityOverrides: Record<string, unknown>;
+	capabilityFallbacks: Record<string, unknown>;
+} {
+	const capabilityOverrides: Record<string, unknown> = {};
+	const capabilityFallbacks: Record<string, unknown> = {};
+	for (const field of OLD_CAPABILITY_FIELD_NAMES) {
+		const override = caps.fields[field];
+		if (override !== undefined) {
+			capabilityOverrides[field] = override.value;
+		}
+		const candidates = caps.fallbackFields[field];
+		if (candidates !== undefined && candidates.length > 0) {
+			capabilityFallbacks[field] = candidates[0]?.value;
+		}
+	}
+	return { capabilityOverrides, capabilityFallbacks };
 }
 
 export const resolveNewWorldReference: NewWorldResolve = (snapshot, server, modelId) => {
@@ -516,19 +613,6 @@ export const resolveNewWorldReference: NewWorldResolve = (snapshot, server, mode
 	};
 	const caps = resolveCapabilityOverrides(capsInput);
 
-	const capabilityOverrides: Record<string, unknown> = {};
-	const capabilityFallbacks: Record<string, unknown> = {};
-	for (const field of OLD_CAPABILITY_FIELD_NAMES) {
-		const override = caps.fields[field];
-		if (override !== undefined) {
-			capabilityOverrides[field] = override.value;
-		}
-		const candidates = caps.fallbackFields[field];
-		if (candidates !== undefined && candidates.length > 0) {
-			capabilityFallbacks[field] = candidates[0]?.value;
-		}
-	}
-
 	const walks: WalkView[] = WALK_BASELINES.map((serverDeclared) => {
 		const effective = resolveModelCapabilities({ ...capsInput, serverDeclared });
 		return {
@@ -537,23 +621,11 @@ export const resolveNewWorldReference: NewWorldResolve = (snapshot, server, mode
 		};
 	});
 
-	const discovery = entry !== undefined && isRecord(entry.discovery) ? entry.discovery : undefined;
-	const declared = Array.isArray(discovery?.declared)
-		? [
-				...new Set(
-					discovery.declared
-						.map((id) => (typeof id === "string" ? id.trim() : undefined))
-						.filter((id): id is string => id !== undefined && id !== "")
-				),
-			].sort()
-		: [];
-
 	return {
 		parameters: { ...params.params },
 		forced: { ...params.forcedParams },
-		capabilityOverrides,
-		capabilityFallbacks,
-		declared,
+		...newWorldCapabilityLevels(caps),
+		declared: newWorldDeclared(entry),
 		walks,
 	};
 };

@@ -117,6 +117,33 @@ export interface OldParsedParameterRecord {
 	readonly forced: ReadonlySet<string>;
 }
 
+/**
+ * The parameter keys an old `_force` directive marks: every unskipped field for `true`, the named present fields for a
+ * list.
+ */
+function oldForcedKeys(directive: unknown, fields: Readonly<Record<string, unknown>>): Set<string> {
+	const forced = new Set<string>();
+	if (directive === true) {
+		for (const key of Object.keys(fields)) {
+			if (parameterSkipReason(key) === undefined) {
+				forced.add(key);
+			}
+		}
+		return forced;
+	}
+
+	if (!Array.isArray(directive)) {
+		return forced;
+	}
+
+	for (const name of directive) {
+		if (typeof name === "string" && parameterSkipReason(name) === undefined && Object.hasOwn(fields, name)) {
+			forced.add(name);
+		}
+	}
+	return forced;
+}
+
 /** The pre-redesign parameter-record parse, minus diagnostics (the oracle projects values only). */
 export function parseOldParameterRecord(record: Readonly<Record<string, unknown>>): OldParsedParameterRecord {
 	const fields: Record<string, unknown> = {};
@@ -125,24 +152,8 @@ export function parseOldParameterRecord(record: Readonly<Record<string, unknown>
 			Object.defineProperty(fields, key, { value, enumerable: true, writable: true, configurable: true });
 		}
 	}
-	const forced = new Set<string>();
-	if (Object.hasOwn(record, FORCE_DIRECTIVE)) {
-		const directive = record[FORCE_DIRECTIVE];
-		if (directive === true) {
-			for (const key of Object.keys(fields)) {
-				if (parameterSkipReason(key) === undefined) {
-					forced.add(key);
-				}
-			}
-		} else if (Array.isArray(directive)) {
-			for (const name of directive) {
-				if (typeof name === "string" && parameterSkipReason(name) === undefined && Object.hasOwn(fields, name)) {
-					forced.add(name);
-				}
-			}
-		}
-	}
-	return { fields, forced };
+	const directive = Object.hasOwn(record, FORCE_DIRECTIVE) ? record[FORCE_DIRECTIVE] : undefined;
+	return { fields, forced: oldForcedKeys(directive, fields) };
 }
 
 export interface OldResolvedModelParameters {
@@ -206,6 +217,69 @@ export interface OldParsedCapabilityRecord {
 	readonly fallback: readonly CapabilityFieldName[];
 }
 
+/** The value a capability field keeps in the old parse: a positive integer for a number field, a boolean for a flag. */
+function oldCapabilityValue(name: CapabilityFieldName, value: unknown): number | boolean | undefined {
+	if (CAPABILITY_FIELDS[name] === "number") {
+		return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+	}
+
+	return typeof value === "boolean" ? value : undefined;
+}
+
+/** The record's capability fields by the old vocabulary, directives and unknown keys skipped. */
+function oldCapabilityFields(
+	record: Readonly<Record<string, unknown>>
+): Partial<Record<CapabilityFieldName, number | boolean>> {
+	const fields: Partial<Record<CapabilityFieldName, number | boolean>> = {};
+	for (const [key, value] of Object.entries(record)) {
+		if (key === OPENROUTER_MODEL_DIRECTIVE || key.startsWith("_") || !isCapabilityFieldName(key)) {
+			continue;
+		}
+		const kept = oldCapabilityValue(key, value);
+		if (kept !== undefined) {
+			fields[key] = kept;
+		}
+	}
+	return fields;
+}
+
+/** Whether an old `_declare: true` counts: read once among the record's own entries, where the key may declare. */
+function oldDeclareFlag(record: Readonly<Record<string, unknown>>, allowDeclare: boolean): boolean {
+	for (const [key, value] of Object.entries(record)) {
+		if (key === DECLARE_DIRECTIVE) {
+			return value === true && allowDeclare;
+		}
+	}
+	return false;
+}
+
+/** The parsed fields an old `_fallback` demotes: all of them for `true`, the named present ones for a list. */
+function oldFallbackNames(
+	directive: unknown,
+	fields: Readonly<Partial<Record<CapabilityFieldName, number | boolean>>>
+): CapabilityFieldName[] {
+	if (directive === true) {
+		return Object.keys(fields) as CapabilityFieldName[];
+	}
+
+	if (!Array.isArray(directive)) {
+		return [];
+	}
+
+	const fallback: CapabilityFieldName[] = [];
+	for (const name of directive) {
+		if (
+			typeof name === "string" &&
+			isCapabilityFieldName(name) &&
+			Object.hasOwn(fields, name) &&
+			!fallback.includes(name)
+		) {
+			fallback.push(name);
+		}
+	}
+	return fallback;
+}
+
 /**
  * The pre-redesign capability-record parse, minus diagnostics and `_openrouter_model` (the oracle runs catalog-free).
  */
@@ -213,45 +287,13 @@ export function parseOldCapabilityRecord(
 	record: Readonly<Record<string, unknown>>,
 	options: { readonly allowDeclare: boolean }
 ): OldParsedCapabilityRecord {
-	const fields: Partial<Record<CapabilityFieldName, number | boolean>> = {};
-	let isDeclared = false;
-	for (const [key, value] of Object.entries(record)) {
-		if (key === DECLARE_DIRECTIVE) {
-			if (typeof value === "boolean" && (options.allowDeclare || !value)) {
-				isDeclared = value;
-			}
-			continue;
-		}
-		if (key === OPENROUTER_MODEL_DIRECTIVE || key.startsWith("_") || !isCapabilityFieldName(key)) {
-			continue;
-		}
-		if (CAPABILITY_FIELDS[key] === "number") {
-			if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-				fields[key] = value;
-			}
-		} else if (typeof value === "boolean") {
-			fields[key] = value;
-		}
-	}
-	const fallback: CapabilityFieldName[] = [];
-	if (Object.hasOwn(record, FALLBACK_DIRECTIVE)) {
-		const directive = record[FALLBACK_DIRECTIVE];
-		if (directive === true) {
-			fallback.push(...(Object.keys(fields) as CapabilityFieldName[]));
-		} else if (Array.isArray(directive)) {
-			for (const name of directive) {
-				if (
-					typeof name === "string" &&
-					isCapabilityFieldName(name) &&
-					Object.hasOwn(fields, name) &&
-					!fallback.includes(name)
-				) {
-					fallback.push(name);
-				}
-			}
-		}
-	}
-	return { fields: fields as Readonly<Partial<CapabilityFieldValues>>, declare: isDeclared, fallback };
+	const fields = oldCapabilityFields(record);
+	const fallbackDirective = Object.hasOwn(record, FALLBACK_DIRECTIVE) ? record[FALLBACK_DIRECTIVE] : undefined;
+	return {
+		fields: fields as Readonly<Partial<CapabilityFieldValues>>,
+		declare: oldDeclareFlag(record, options.allowDeclare),
+		fallback: oldFallbackNames(fallbackDirective, fields),
+	};
 }
 
 function isUrlScopedKey(key: string): boolean {
@@ -303,6 +345,53 @@ export interface OldResolvedCapabilityOverrides {
 }
 
 /**
+ * Whether the retired `_declare`+`_fallback` ban applies to a winning record: it declares a model, demotes fields, and
+ * the id it declares is the resolved model itself.
+ */
+function oldBanApplies(
+	parsed: OldParsedCapabilityRecord | undefined,
+	declaredId: string | undefined,
+	rawModelId: string,
+	lifted: boolean | undefined
+): boolean {
+	return lifted !== true && parsed?.declare === true && parsed.fallback.length > 0 && declaredId === rawModelId;
+}
+
+/** The id an entry-level key declares: the key itself, unless it is the empty or catch-all key. */
+function entryDeclarableId(key: string | undefined): string | undefined {
+	return key === undefined || key === "" || key === CATCH_ALL_PREFIX ? undefined : key;
+}
+
+/**
+ * The entry-over-global field chain: each field's override from the first unfallen level, its fallback from the first
+ * demoted one.
+ */
+function oldCapabilityLevels(
+	parsedEntry: OldParsedCapabilityRecord | undefined,
+	parsedGlobal: OldParsedCapabilityRecord | undefined,
+	entryFallback: readonly CapabilityFieldName[],
+	globalFallback: readonly CapabilityFieldName[]
+): Pick<OldResolvedCapabilityOverrides, "overrides" | "fallbacks"> {
+	const overrides: Partial<Record<CapabilityFieldName, number | boolean>> = {};
+	const fallbacks: Partial<Record<CapabilityFieldName, number | boolean>> = {};
+	for (const name of Object.keys(CAPABILITY_FIELDS) as CapabilityFieldName[]) {
+		const entryValue = parsedEntry?.fields[name];
+		const globalValue = parsedGlobal?.fields[name];
+		if (entryValue !== undefined && !entryFallback.includes(name)) {
+			overrides[name] = entryValue;
+		} else if (globalValue !== undefined && !globalFallback.includes(name)) {
+			overrides[name] = globalValue;
+		}
+		if (entryValue !== undefined && entryFallback.includes(name)) {
+			fallbacks[name] = entryValue;
+		} else if (globalValue !== undefined && globalFallback.includes(name)) {
+			fallbacks[name] = globalValue;
+		}
+	}
+	return { overrides, fallbacks };
+}
+
+/**
  * The pre-redesign capability override/fallback resolution at value level: the scoped-replaces-unscoped global merge,
  * the entry-over-global field chain, and the `_declare`+`_fallback` ban (a record whose declaration creates the
  * resolved model keeps its fields as overrides). `liftDeclareFallbackBan` disables the ban, which the redesign RETIRES;
@@ -326,43 +415,19 @@ export function resolveOldCapabilityOverrides(input: {
 	const parsedEntry =
 		entryWinner === undefined ? undefined : parseOldCapabilityRecord(entryWinner.value, { allowDeclare: true });
 
-	const entryBanned =
-		input.liftDeclareFallbackBan !== true &&
-		parsedEntry?.declare === true &&
-		parsedEntry.fallback.length > 0 &&
-		entryWinner !== undefined &&
-		entryWinner.key !== "" &&
-		entryWinner.key !== CATCH_ALL_PREFIX &&
-		entryWinner.key === rawModelId;
-	const globalBanned =
-		input.liftDeclareFallbackBan !== true &&
-		parsedGlobal?.declare === true &&
-		parsedGlobal.fallback.length > 0 &&
-		globalWinner !== undefined &&
-		scopedDeclarableId(globalWinner.key, serverScopes) === rawModelId;
+	const lifted = input.liftDeclareFallbackBan;
+	const entryBanned = oldBanApplies(parsedEntry, entryDeclarableId(entryWinner?.key), rawModelId, lifted);
+	const globalDeclaredId = globalWinner === undefined ? undefined : scopedDeclarableId(globalWinner.key, serverScopes);
+	const globalBanned = oldBanApplies(parsedGlobal, globalDeclaredId, rawModelId, lifted);
 	const entryFallback: readonly CapabilityFieldName[] = entryBanned ? [] : (parsedEntry?.fallback ?? []);
 	const globalFallback: readonly CapabilityFieldName[] = globalBanned ? [] : (parsedGlobal?.fallback ?? []);
 
-	const overrides: Partial<Record<CapabilityFieldName, number | boolean>> = {};
-	const fallbacks: Partial<Record<CapabilityFieldName, number | boolean>> = {};
-	for (const name of Object.keys(CAPABILITY_FIELDS) as CapabilityFieldName[]) {
-		const entryValue = parsedEntry?.fields[name];
-		const globalValue = parsedGlobal?.fields[name];
-		if (entryValue !== undefined && !entryFallback.includes(name)) {
-			overrides[name] = entryValue;
-		} else if (globalValue !== undefined && !globalFallback.includes(name)) {
-			overrides[name] = globalValue;
-		}
-		if (entryValue !== undefined && entryFallback.includes(name)) {
-			fallbacks[name] = entryValue;
-		} else if (globalValue !== undefined && globalFallback.includes(name)) {
-			fallbacks[name] = globalValue;
-		}
-	}
-
 	const replacedUnscoped =
 		scoped?.value !== undefined && unscoped !== undefined ? { key: unscoped.key, record: unscoped.value } : undefined;
-	return { overrides, fallbacks, ...(replacedUnscoped === undefined ? {} : { replacedUnscoped }) };
+	return {
+		...oldCapabilityLevels(parsedEntry, parsedGlobal, entryFallback, globalFallback),
+		...(replacedUnscoped === undefined ? {} : { replacedUnscoped }),
+	};
 }
 
 export interface OldCapabilityTokenDefaults {
@@ -387,6 +452,30 @@ export interface OldWalkResult {
 	readonly outputLimitSource: "user" | "provider" | "defaults";
 }
 
+type OldNumberLevel = "override" | "server" | "fallback" | "default-setting" | "floor";
+
+/**
+ * Which level set the output limit under the old USER_SET_LEVELS: override and fallback are "user", the server level is
+ * "provider" only when the baseline's request default is the limit itself, and every other level is "defaults".
+ */
+function oldOutputLimitSource(
+	level: OldNumberLevel,
+	serverDeclared: ServerDeclaredCapabilities,
+	maxOutputTokens: number
+): OldWalkResult["outputLimitSource"] {
+	if (level === "override" || level === "fallback") {
+		return "user";
+	}
+	if (
+		level === "server" &&
+		serverDeclared.kind === "discovered" &&
+		serverDeclared.defaultMaxTokens === maxOutputTokens
+	) {
+		return "provider";
+	}
+	return "defaults";
+}
+
 /**
  * The pre-redesign full capability walk at value level, catalog-free: entry > global > server > fallbacks >
  * explicitly-configured default* setting > floor, with defaultMaxInputTokens keeping its quirk of beating even the
@@ -406,12 +495,11 @@ export function resolveOldModelCapabilities(input: {
 		input.serverDeclared.kind === "discovered" ? input.serverDeclared.values : {};
 	const defaults = input.tokenDefaults;
 
-	type NumberLevel = "override" | "server" | "fallback" | "default-setting" | "floor";
 	const resolveNumber = (
 		name: "context_length" | "max_output_tokens",
 		explicitDefault: { readonly value: number; readonly explicitlyConfigured: boolean } | undefined
-	): { value: number; level: NumberLevel } => {
-		const candidates: { level: NumberLevel; value: number | boolean | undefined }[] = [
+	): { value: number; level: OldNumberLevel } => {
+		const candidates: { level: OldNumberLevel; value: number | boolean | undefined }[] = [
 			{ level: "override", value: overrides[name] },
 			{ level: "server", value: serverValues[name] },
 			{ level: "fallback", value: fallbacks[name] },
@@ -425,14 +513,7 @@ export function resolveOldModelCapabilities(input: {
 	const contextLength = resolveNumber("context_length", defaults?.contextLength).value;
 	const maxOutput = resolveNumber("max_output_tokens", defaults?.maxOutputTokens);
 	const maxOutputTokens = maxOutput.value;
-	const outputLimitSource: OldWalkResult["outputLimitSource"] =
-		maxOutput.level === "override" || maxOutput.level === "fallback"
-			? "user"
-			: maxOutput.level === "server" &&
-					input.serverDeclared.kind === "discovered" &&
-					input.serverDeclared.defaultMaxTokens === maxOutputTokens
-				? "provider"
-				: "defaults";
+	const outputLimitSource = oldOutputLimitSource(maxOutput.level, input.serverDeclared, maxOutputTokens);
 	const maxInputCandidates: (number | boolean | undefined)[] = [
 		overrides.max_input_tokens,
 		defaults?.maxInputTokens,

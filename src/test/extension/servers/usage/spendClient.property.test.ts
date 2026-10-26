@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { HttpResponse, http } from "msw";
-import type { KeyUsage, UserUsage } from "../../../../extension/servers/usage/spendClient";
+import type { DailyUsage, KeyUsage, UserUsage } from "../../../../extension/servers/usage/spendClient";
 import { UsageClient, usageUnavailabilityOf } from "../../../../extension/servers/usage/spendClient";
 import { RequestError } from "../../../../provider/transport/transportErrors";
 import { fixedHeaderValue } from "../../../../shared/util/headers";
@@ -216,6 +216,43 @@ function expectedDayKeys(payload: unknown): string[] {
 		.sort((a, b) => a.localeCompare(b));
 }
 
+/**
+ * The documented status-to-verdict mapping: 401 and 403 forbidden; 400, 404, 405, and 501 unsupported; the rest
+ * transient.
+ */
+function expectedUnavailability(status: number): "forbidden" | "unsupported" | undefined {
+	if (status === 401 || status === 403) {
+		return "forbidden";
+	}
+	if ([400, 404, 405, 501].includes(status)) {
+		return "unsupported";
+	}
+	return undefined;
+}
+
+/**
+ * The totals the retained days sum to, field by field in the client's own accumulation order, so the floating-point
+ * result must agree bit for bit; every day value is asserted a finite non-negative number on the way.
+ */
+function expectedTotalsOf(daily: DailyUsage): Record<string, number> {
+	const expectedTotals: Record<string, number> = Object.fromEntries(
+		Object.keys(daily.totals).map((field) => [field, 0])
+	);
+	for (const day of daily.days) {
+		for (const [field, value] of Object.entries(day)) {
+			if (field === "date") {
+				continue;
+			}
+			assert.ok(
+				typeof value === "number" && Number.isFinite(value) && value >= 0,
+				`day.${field} must be a finite non-negative number`
+			);
+			expectedTotals[field] = (expectedTotals[field] as number) + value;
+		}
+	}
+	return expectedTotals;
+}
+
 suite("extension/servers/usage spendClient payload properties", () => {
 	useMsw();
 
@@ -256,27 +293,10 @@ suite("extension/servers/usage spendClient payload properties", () => {
 					daily.days.map((day) => day.date),
 					expectedDayKeys(payload)
 				);
-				const expectedTotals: Record<string, number> = Object.fromEntries(
-					Object.keys(daily.totals).map((field) => [field, 0])
-				);
-				for (const day of daily.days) {
-					for (const [field, value] of Object.entries(day)) {
-						if (field === "date") {
-							continue;
-						}
-						assert.ok(
-							typeof value === "number" && Number.isFinite(value) && value >= 0,
-							`day.${field} must be a finite non-negative number`
-						);
-						// Same accumulation order as the client's reduce, so the floating-point result must agree bit
-						// for bit.
-						expectedTotals[field] = (expectedTotals[field] as number) + value;
-					}
-				}
 				// Totals are summed from the retained days, never trusted from the response metadata. The sum follows
 				// IEEE float semantics on purpose (the contract is that totals AGREE WITH THE DAYS SHOWN), but can
 				// never go negative or NaN.
-				assert.deepStrictEqual({ ...daily.totals }, expectedTotals);
+				assert.deepStrictEqual({ ...daily.totals }, expectedTotalsOf(daily));
 				for (const [field, total] of Object.entries(daily.totals)) {
 					assert.ok(!Number.isNaN(total) && (total as number) >= 0, `totals.${field} must be a non-negative number`);
 				}
@@ -361,12 +381,7 @@ suite("extension/servers/usage spendClient payload properties", () => {
 
 					// The documented mapping, and its determinism: classifying the same error twice can never disagree
 					// (the availability standing the poller stores from this verdict is permanent).
-					const expected =
-						status === 401 || status === 403
-							? "forbidden"
-							: [400, 404, 405].includes(status)
-								? "unsupported"
-								: undefined;
+					const expected = expectedUnavailability(status);
 					assert.strictEqual(usageUnavailabilityOf(thrown), expected);
 					assert.strictEqual(usageUnavailabilityOf(thrown), expected, "classification must be deterministic");
 				}
@@ -416,14 +431,7 @@ suite("extension/servers/usage usageUnavailabilityOf properties", () => {
 						...(status === undefined ? {} : { status }),
 						...(oauthTokenEndpoint ? { oauthTokenEndpoint: true } : {}),
 					});
-					const expected =
-						status === undefined || oauthTokenEndpoint
-							? undefined
-							: status === 401 || status === 403
-								? "forbidden"
-								: [400, 404, 405, 501].includes(status)
-									? "unsupported"
-									: undefined;
+					const expected = status === undefined || oauthTokenEndpoint ? undefined : expectedUnavailability(status);
 					assert.strictEqual(usageUnavailabilityOf(error), expected);
 					assert.strictEqual(usageUnavailabilityOf(error), expected, "classification must be deterministic");
 				}

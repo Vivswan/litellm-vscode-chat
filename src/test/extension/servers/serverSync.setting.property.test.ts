@@ -215,46 +215,66 @@ const storedArb: fc.Arbitrary<StoredServerSecrets> = fc.dictionary(
 	{ maxKeys: 3 }
 ) as fc.Arbitrary<StoredServerSecrets>;
 
+/** The nested virtualKey object of an entry, or undefined when it declares no header. */
+function serializeVirtualKey(entry: DeclaredServer): Record<string, unknown> | undefined {
+	if (entry.virtualKeyHeader === undefined) {
+		return undefined;
+	}
+
+	return {
+		header: entry.virtualKeyHeader,
+		...(entry.virtualKeyValue === undefined ? {} : { value: entry.virtualKeyValue }),
+	};
+}
+
+/** The auth block by rank: an oauth unit carries the companions inside it; otherwise apiKey and virtualKey sit flat. */
+function serializeAuth(entry: DeclaredServer): Record<string, unknown> {
+	const virtualKey = serializeVirtualKey(entry);
+	if (entry.oauthTokenUrl !== undefined && entry.oauthClientId !== undefined) {
+		return {
+			oauth: {
+				tokenUrl: entry.oauthTokenUrl,
+				clientId: entry.oauthClientId,
+				...(entry.oauthClientSecret === undefined ? {} : { clientSecret: entry.oauthClientSecret }),
+				...(entry.oauthScopes === undefined ? {} : { scopes: entry.oauthScopes }),
+				...(entry.apiKey === undefined ? {} : { apiKey: entry.apiKey }),
+				...(virtualKey === undefined ? {} : { virtualKey }),
+			},
+		};
+	}
+
+	return {
+		...(entry.apiKey === undefined ? {} : { apiKey: entry.apiKey }),
+		...(virtualKey === undefined ? {} : { virtualKey }),
+	};
+}
+
+/** The models block: the parameter and capability records the entry carries. */
+function serializeModels(entry: DeclaredServer): Record<string, unknown> {
+	return {
+		...(entry.modelParameters === undefined ? {} : { parameters: entry.modelParameters }),
+		...(entry.modelCapabilities === undefined ? {} : { capabilities: entry.modelCapabilities }),
+	};
+}
+
+/** The discovery block: expected failures, declared models, and include modes. */
+function serializeDiscovery(entry: DeclaredServer): Record<string, unknown> {
+	return {
+		...(entry.expectedFailures === undefined ? {} : { expectedFailures: entry.expectedFailures }),
+		...(entry.declaredModels === undefined ? {} : { declared: entry.declaredModels }),
+		...(entry.includeModes === undefined ? {} : { includeModes: entry.includeModes }),
+	};
+}
+
 /**
  * A parsed entry rendered back to the nested settings shape (the same assembly saveServer.ts applies): flat credential
  * fields fold into the auth grammar by rank, and the extension-side fields return to their
  * headers/models/discovery/budget slots.
  */
 function serializeEntry(entry: DeclaredServer): Record<string, unknown> {
-	const virtualKey =
-		entry.virtualKeyHeader === undefined
-			? undefined
-			: {
-					header: entry.virtualKeyHeader,
-					...(entry.virtualKeyValue === undefined ? {} : { value: entry.virtualKeyValue }),
-				};
-	const auth: Record<string, unknown> = {};
-	if (entry.oauthTokenUrl !== undefined && entry.oauthClientId !== undefined) {
-		auth.oauth = {
-			tokenUrl: entry.oauthTokenUrl,
-			clientId: entry.oauthClientId,
-			...(entry.oauthClientSecret === undefined ? {} : { clientSecret: entry.oauthClientSecret }),
-			...(entry.oauthScopes === undefined ? {} : { scopes: entry.oauthScopes }),
-			...(entry.apiKey === undefined ? {} : { apiKey: entry.apiKey }),
-			...(virtualKey === undefined ? {} : { virtualKey }),
-		};
-	} else {
-		if (entry.apiKey !== undefined) {
-			auth.apiKey = entry.apiKey;
-		}
-		if (virtualKey !== undefined) {
-			auth.virtualKey = virtualKey;
-		}
-	}
-	const models: Record<string, unknown> = {
-		...(entry.modelParameters === undefined ? {} : { parameters: entry.modelParameters }),
-		...(entry.modelCapabilities === undefined ? {} : { capabilities: entry.modelCapabilities }),
-	};
-	const discovery: Record<string, unknown> = {
-		...(entry.expectedFailures === undefined ? {} : { expectedFailures: entry.expectedFailures }),
-		...(entry.declaredModels === undefined ? {} : { declared: entry.declaredModels }),
-		...(entry.includeModes === undefined ? {} : { includeModes: entry.includeModes }),
-	};
+	const auth = serializeAuth(entry);
+	const models = serializeModels(entry);
+	const discovery = serializeDiscovery(entry);
 	return {
 		label: entry.label,
 		baseUrl: entry.baseUrl,
@@ -291,6 +311,29 @@ function virtualKeyIsAcceptable(raw: unknown): boolean {
 }
 
 /**
+ * The documented oauth unit: known keys only, a host-bearing token URL, a usable client id, string companions, a legal
+ * virtualKey.
+ */
+function oauthIsAcceptable(oauth: unknown): boolean {
+	if (!isRecord(oauth)) {
+		return false;
+	}
+	const known = ["tokenUrl", "clientId", "clientSecret", "scopes", "apiKey", "virtualKey"];
+	if (Object.keys(oauth).some((key) => !known.includes(key))) {
+		return false;
+	}
+	if (!hasHost(oauth.tokenUrl) || usableText(oauth.clientId) === undefined) {
+		return false;
+	}
+	for (const key of ["clientSecret", "scopes", "apiKey"] as const) {
+		if (oauth[key] !== undefined && typeof oauth[key] !== "string") {
+			return false;
+		}
+	}
+	return oauth.virtualKey === undefined || virtualKeyIsAcceptable(oauth.virtualKey);
+}
+
+/**
  * The documented auth grammar (setting.ts's module docstring), restated independently of parseAuth: exactly one form,
  * ranked oauth > apiKey > virtualKey, companions of strictly lower primacy only, unknown keys and type errors
  * misconfigure, and a missing secret VALUE is never misconfiguration.
@@ -315,23 +358,7 @@ function authIsAcceptable(raw: unknown): boolean {
 		return false;
 	}
 	if (hasOAuth) {
-		const oauth = raw.oauth;
-		if (!isRecord(oauth)) {
-			return false;
-		}
-		const known = ["tokenUrl", "clientId", "clientSecret", "scopes", "apiKey", "virtualKey"];
-		if (Object.keys(oauth).some((key) => !known.includes(key))) {
-			return false;
-		}
-		if (!hasHost(oauth.tokenUrl) || usableText(oauth.clientId) === undefined) {
-			return false;
-		}
-		for (const key of ["clientSecret", "scopes", "apiKey"] as const) {
-			if (oauth[key] !== undefined && typeof oauth[key] !== "string") {
-				return false;
-			}
-		}
-		return oauth.virtualKey === undefined || virtualKeyIsAcceptable(oauth.virtualKey);
+		return oauthIsAcceptable(raw.oauth);
 	}
 	if (hasApiKey && typeof raw.apiKey !== "string") {
 		return false;
@@ -363,6 +390,20 @@ function expectedAcceptedIndices(raw: readonly unknown[]): number[] {
 		}
 	});
 	return accepted;
+}
+
+/**
+ * Asserts a rejected element explains itself where the dashboard would show it as a row (usable label and baseUrl),
+ * and never resolves as the accepted entry of its label.
+ */
+function assertRejectedReport(raw: readonly unknown[], report: ReturnType<typeof serverSettingReports>[number]): void {
+	if (report.label !== undefined && report.baseUrl !== undefined) {
+		assert.ok(report.problems.length > 0, "a rejected row must explain itself");
+	}
+	if (report.label !== undefined) {
+		const resolved = acceptedEntry(raw, report.label);
+		assert.notStrictEqual(resolved?.index, report.index, "a rejected element must never resolve");
+	}
 }
 
 suite("extension/servers/serverSync setting parser properties (nested shape)", () => {
@@ -412,15 +453,7 @@ suite("extension/servers/serverSync setting parser properties (nested shape)", (
 				);
 				for (const report of reports) {
 					if (!report.accepted) {
-						// A rejected element the dashboard would show as a row (usable label and baseUrl) must carry at
-						// least one concrete problem.
-						if (report.label !== undefined && report.baseUrl !== undefined) {
-							assert.ok(report.problems.length > 0, "a rejected row must explain itself");
-						}
-						if (report.label !== undefined) {
-							const resolved = acceptedEntry(raw, report.label);
-							assert.notStrictEqual(resolved?.index, report.index, "a rejected element must never resolve");
-						}
+						assertRejectedReport(raw, report);
 					}
 				}
 				for (const report of accepted) {
