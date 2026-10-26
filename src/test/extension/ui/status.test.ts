@@ -23,6 +23,7 @@ import { createStatusBarManager, RecordingItem } from "./statusBarHarness";
 /** A failure nothing classified: the cause every text-free fixture below carries unless the test is about the cause. */
 const UNCLASSIFIED: FailureCause = { kind: "unclassified" };
 
+/** Every context a test created, disposed in the teardown. */
 const createdContexts: vscode.ExtensionContext[] = [];
 
 function createManager(

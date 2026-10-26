@@ -61,10 +61,13 @@ function asFramed(raw: unknown): FramedRequest {
 }
 
 interface Harness {
+	/** The fake extension context the feature registered its disposables into. */
 	readonly context: vscode.ExtensionContext;
 
+	/** Every request the tools submitted to the fake dashboard, framed. */
 	readonly submitted: FramedRequest[];
 
+	/** Every promptSecret call: the prompt, the label, and the token. */
 	readonly prompts: {
 		readonly prompt: SecretPrompt;
 		readonly label: string;
@@ -76,11 +79,13 @@ interface Harness {
 }
 
 interface HarnessOptions {
+	/** What the fake dashboard answers a submission with; the default is a bare ok. */
 	readonly respond?: (request: FramedRequest) => DashboardSubmission;
 
 	/** What the user types into the masked box; undefined is a cancel. */
 	readonly answerSecret?: () => string | undefined;
 
+	/** The effective settings the tools read; empty by default. */
 	readonly settings?: Record<string, unknown>;
 }
 

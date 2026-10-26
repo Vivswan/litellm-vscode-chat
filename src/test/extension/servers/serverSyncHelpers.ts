@@ -26,8 +26,10 @@ export function makeSecretStore(initial: Record<string, string> = {}): SecretSto
 }
 
 export interface Recorded {
+	/** Every addProviderGroup call's args, the refused ones excluded. */
 	upserts: Record<string, string>[];
 
+	/** The fingerprint map as the last setFingerprints write left it. */
 	fingerprints: Record<string, string>;
 
 	/** The persisted identity ledger (label -> normalized base URL). */
@@ -36,14 +38,19 @@ export interface Recorded {
 	/** Every reconcileEntryIdentities call: the declared identities and the removal events. */
 	reconciles: { declared: DeclaredGroupClaim[]; events: RemovedEntryEvent[] }[];
 
+	/** Every env.log call: message and data. */
 	logged: [string, unknown][];
 
+	/** Every env.logError call: message and error. */
 	loggedErrors: [string, unknown][];
 
+	/** The environment under test; its methods read this record's setting and knobs at call time, between passes too. */
 	env: ServerSyncEnv;
 
+	/** The servers setting readServersSetting serves; a test replaces it between passes. */
 	setting: unknown;
 
+	/** The stored blob values by label that readSecrets serves. */
 	secrets: Record<string, StoredServerSecrets>;
 
 	/** Ownership stamps the fake blob read reports beside the values, by label. */

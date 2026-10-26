@@ -95,26 +95,37 @@ function makeFakePanel(): FakePanel {
 }
 
 interface Harness {
+	/** The controller under test, built over the env the fields below record. */
 	controller: DashboardController;
 
+	/** Every fake panel createPanel handed out, in creation order. */
 	panels: FakePanel[];
 
+	/** Every updateSetting call failUpdates let through: key and value. */
 	updates: [string, unknown][];
 
+	/** Every removeSetting call failUpdates let through: its key. */
 	removals: string[];
 
+	/** Every executeCommand call: the command id and its arguments. */
 	commands: [string, ...unknown[]][];
 
+	/** Every writeServersSetting call failUpdates let through, whole arrays, after the fake's one-tick latency. */
 	serverWrites: unknown[][];
 
+	/** Every storeServerSecret call failUnstore let through: label, field, value; the fake store keeps the result. */
 	secretOps: [string, string, string | undefined][];
 
+	/** Every logError call's error, without its message. */
 	loggedErrors: unknown[];
 
+	/** Every log call: message and data. */
 	loggedMessages: [string, unknown][];
 
+	/** The settings the fake reader serves; updates and removals land here. */
 	settingsValues: Record<string, unknown>;
 
+	/** The servers setting the env reads back; writes replace it whole. */
 	serversSetting: unknown[];
 
 	/** What getDeclaredServers answers; defaults to the engine's empty view. */
@@ -129,9 +140,10 @@ interface Harness {
 	/** What resolveEntryCapabilities answers per snapshot server ID. */
 	entryCapabilities: Record<string, EntryCapabilitiesRecord>;
 
-	/** Every searchCatalog query, with catalogResults as the canned answer. */
+	/** Every searchCatalog query. */
 	catalogQueries: string[];
 
+	/** The canned answer every searchCatalog call returns. */
 	catalogResults: CatalogModelSummary[];
 
 	/** How many staleness-gated usage kicks open() fired (refreshUsageIfStale). */

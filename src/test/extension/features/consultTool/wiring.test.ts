@@ -336,15 +336,19 @@ suite("extension/features/consultTool wiring", () => {
 	 * with what they are thrown.
 	 */
 	const SECRET_REFUSALS: readonly {
+		/** The test title's subject. */
 		readonly name: string;
 
 		/** The declared entry; the default declares no credential unit. */
 		readonly servers?: readonly Record<string, unknown>[];
 
+		/** Builds the secret storage the refusal arises from. */
 		readonly secrets: () => Promise<vscode.SecretStorage>;
 
+		/** The log classification the refusal must carry. */
 		readonly classification: string;
 
+		/** Text no surface of the error may carry: the stored secret, a prefix of it, or the read failure's sentinel. */
 		readonly storedText: string;
 
 		/** The refusal sentence the English mirror must carry, when the refusal names its field. */

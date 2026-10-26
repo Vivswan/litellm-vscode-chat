@@ -73,14 +73,19 @@ const KEY_OK: KeyUsage = {
 type EndpointResult<T> = T | RequestError;
 
 class FakeClient implements UsageFetchClient {
+	/** What fetchKeyInfo answers; a RequestError rejects instead. */
 	keyInfoResult: EndpointResult<KeyUsage> = KEY_OK;
 
+	/** What fetchDailyActivity answers; a RequestError rejects instead. */
 	dailyResult: EndpointResult<DailyUsage> = EMPTY_DAILY;
 
+	/** What fetchUserInfo answers; a RequestError rejects instead. */
 	userResult: EndpointResult<UserUsage> = { spend: undefined, maxBudget: undefined, budgetResetAt: undefined };
 
+	/** How many times each endpoint was fetched. */
 	calls = { keyInfo: 0, dailyActivity: 0, userInfo: 0 };
 
+	/** The activity window the latest fetchDailyActivity asked for. */
 	lastWindow: ActivityWindow | undefined;
 
 	/** Every /key/info connection, for pairing assertions; test-memory only, never logged. */

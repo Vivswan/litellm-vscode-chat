@@ -46,6 +46,7 @@ interface FakeNotification {
 
 /** The per-test prompt script; every field is mutable so a test sets only what it needs. */
 interface PromptAnswers {
+	/** The import preview's answer; a function may inspect the summary. */
 	confirmImport: boolean | ((summary: ImportPreviewSummary) => boolean);
 
 	/** The undo confirmation modal's answer; defaults to confirmed. */
@@ -61,10 +62,18 @@ interface PromptAnswers {
 		| ((suggested: string, validate: (candidate: string) => string | undefined) => string | undefined);
 }
 
-/** The whole faked world one flow run sees, with every side effect recorded. */
+/**
+ * The whole faked world one flow run sees, with every side effect recorded.
+ *
+ * With a syncEngine, the fakes wake it as wiring/servers.ts does: a changed secret value, a delete of a present key,
+ * the servers setting write, and the flow's explicit request. The flow's hold holds it, so no pass slips between
+ * held writes.
+ */
 interface FakeWorld {
+	/** The environment the flows run against; its fakes read this record's knobs at call time, not at construction. */
 	env: SettingsTransferEnv;
 
+	/** The prompt script the fake prompts read at call time. */
 	answers: PromptAnswers;
 
 	/** The user-scope settings map the fake SettingsAccess serves and mutates. */
@@ -85,63 +94,67 @@ interface FakeWorld {
 	/** SecretStorage keys whose store() fails (delete still works: a targeted mid-unit failure). */
 	failSecretStoreKeys: Set<string>;
 
-	/**
-	 * Every mutation and sync request in arrival order: "settings:<key>", "secret-store:<key>", "secret-delete:<key>",
-	 * "sync".
-	 */
+	/** Every write and sync request in arrival order: settings:<key>, secret-store:<key>, secret-delete:<key>, sync. */
 	ops: string[];
 
-	/**
-	 * A real engine wired as wiring/servers.ts wires it: woken by a changed secret value, a delete of a present key,
-	 * the servers setting write, and the flow's explicit request; held through the flow's hold. Undefined in the
-	 * fake-only tests.
-	 */
+	/** A real engine wired as wiring/servers.ts wires it, or undefined in the fake-only tests. */
 	syncEngine: Pick<ServerSyncEngine, "requestSync" | "withHold"> | undefined;
 
-	/**
-	 * When true, every secret write and delete and every settings write lands one macrotask later, so a zero-debounce
-	 * engine pass has the chance to run between any two writes unless the flow holds the engine.
-	 */
+	/** When true, every secret and settings write lands a macrotask later, so an engine pass can slip between writes. */
 	slowWrites: boolean;
 
 	/** The raw SecretStorage map behind readServerSecrets/updateServerSecret. */
 	secretValues: Map<string, string>;
 
+	/** The fake file system by URI; the export writes here and the import reads from here. */
 	files: Map<string, Uint8Array>;
 
+	/** What the save dialog answers; undefined is the user cancelling. */
 	saveTarget: vscode.Uri | undefined;
 
+	/** What the open dialog answers; undefined is the user cancelling. */
 	openTarget: vscode.Uri | undefined;
 
 	/** Overrides fileSize's answer (the size-cap test). */
 	sizeOverride: number | undefined;
 
+	/** When true, every writeFile throws after its "write-file" event is recorded. */
 	failFileWrite: boolean;
 
+	/** When true, writeSnapshotSlot throws and the slot keeps its old value. */
 	failSnapshotWrite: boolean;
 
+	/** The undo snapshot slot as the fake stores it; undefined is empty. */
 	snapshotSlot: string | undefined;
 
+	/** Every notify call, each settling like showActionableMessage when run or dismissed. */
 	notifications: FakeNotification[];
 
+	/** Every import preview the confirmImport prompt was shown. */
 	summaries: ImportPreviewSummary[];
 
+	/** Every resolveCollision prompt: the label and whether the connection changed. */
 	collisionPrompts: { label: string; connectionChanged: boolean }[];
 
+	/** Every askRenamedLabel prompt: the suggestion and the validator it was offered. */
 	renamePrompts: { suggested: string; validate: (candidate: string) => string | undefined }[];
 
 	/** The snapshot timestamps the undo confirmation modal was shown. */
 	undoConfirmations: string[];
 
+	/** Every showSaveDialog call: the default URI and the title. */
 	saveDialogs: { defaultUri: vscode.Uri; title: string }[];
 
 	/** The export flow's user-visible steps in arrival order: "notify", "save-dialog", "write-file". */
 	events: string[];
 
+	/** Every revealFile call's URI. */
 	revealed: string[];
 
+	/** Every env.log line, its data appended as JSON. */
 	logs: string[];
 
+	/** How many requestServerSync calls arrived; each is also a "sync" op. */
 	syncRequests: number;
 }
 
@@ -1564,18 +1577,17 @@ suite("settingsTransferCommands undo flow", () => {
 	const mixedUndoRecipes: Record<
 		string,
 		{
+			/** The servers setting before the import. */
 			initialServers: unknown[];
 
 			/** The pre-import blob for "a"; absent when the snapshot records none. */
 			preImportSecret?: {
 				field: "oauthClientSecret" | "apiKey";
-
 				value: string;
-
-				/** `legacy` is the token URL string older builds stamped a client secret with; the entry still uses it. */
 				owner: "stamped" | "legacy" | { raw: string } | undefined;
 			};
 
+			/** The servers the staged import file carries. */
 			imported: unknown[];
 
 			/** When set, the undo's servers write fails, so nothing restores and the imported entry stays live. */
@@ -1627,6 +1639,7 @@ suite("settingsTransferCommands undo flow", () => {
 		},
 		legacy: {
 			initialServers: [OAUTH_OLD],
+			// "legacy" is the token URL string older builds stamped a client secret with; the entry still uses it.
 			preImportSecret: { field: "oauthClientSecret", value: "OLD-SECRET", owner: "legacy" },
 			imported: [OAUTH_NEW],
 			expectedAdds: [OLD_OAUTH_ADD],

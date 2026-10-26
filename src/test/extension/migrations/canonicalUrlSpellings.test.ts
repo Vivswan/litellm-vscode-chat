@@ -25,6 +25,7 @@ function legacySpellingPrint(label: string, baseUrl: string): string {
 }
 
 interface FakeMemento {
+	/** How many update calls landed. */
 	writes: number;
 
 	/** Runs inside every update, before the write lands: the hook a concurrent edit rides in on. */

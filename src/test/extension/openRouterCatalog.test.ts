@@ -14,16 +14,19 @@ import { catalogFixtureText } from "../catalogFixture";
 import { withFetch } from "../pureHelpers";
 import { makeExtensionStorage } from "../testUtils";
 
+/** The refresh period a fresh catalog schedules. */
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The retry period after a failed or partial refresh. */
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The soonest a refresh is scheduled when the catalog is already stale or just re-enabled. */
 const MIN_DELAY_MS = 60_000;
 
+/** The bundled catalog fixture most harnesses start from. */
 const fixtureText = catalogFixtureText();
 
-/**
- * A payload distinguishable from the fixture, in the live endpoint's shape, over the model-count floor. Its pricing
- * block must never survive into the slimmed cache (LiteLLM is the only pricing source).
- */
+/** A live-shaped payload past the model-count floor, unlike the fixture; its pricing must never reach the cache. */
 const refreshedPayload = {
 	data: Array.from({ length: 250 }, (_, index) => ({
 		id: `refreshed/model-${index}`,
@@ -85,16 +88,22 @@ interface Harness {
 }
 
 interface HarnessOptions {
+	/** The dist/openrouter-models.json the extension ships; absent, no bundled file exists. */
 	bundled?: string | undefined;
 
+	/** The cache file in global storage before the store starts; absent, none exists. */
 	cached?: string | undefined;
 
+	/** The memento's catalog metadata (lastSuccessAt) before the store starts. */
 	metadata?: Record<string, unknown> | undefined;
 
+	/** The setting read at each schedule; enabled unless given. */
 	enabled?: (() => boolean) | undefined;
 
+	/** The injected fetch; the default answers refreshedPayload. */
 	fetchCatalog?: ((signal: AbortSignal) => Promise<unknown>) | undefined;
 
+	/** The clock's fixed answer; a round default stands in when absent. */
 	now?: number | undefined;
 
 	/** Plant a FILE at the globalStorage path so every cache write fails. */
@@ -266,6 +275,7 @@ suite("extension openRouterCatalog store", () => {
 		const writtenText = fs.readFileSync(harness.cachePath, "utf8");
 		const written = JSON.parse(writtenText) as { data: unknown[] };
 		assert.strictEqual(written.data.length, 250);
+		// LiteLLM is the only pricing source, so the slimmed cache must never carry the live payload's pricing block.
 		assert.ok(!writtenText.includes("pricing"), "pricing keys reached the persisted catalog cache");
 		// Temp-then-rename left no temp file behind.
 		assert.deepStrictEqual(

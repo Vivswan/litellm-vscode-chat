@@ -8,27 +8,34 @@ import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 
+/** Runs per property; FUZZ_RUNS raises it for a longer soak. */
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 
-// The msw-backed properties cap at 2000 runs (each run is a real intercepted HTTP round trip); the pure
-// usageUnavailabilityOf properties scale unbounded.
+/** The msw-backed properties cap here, each run being a real intercepted round trip; the pure ones scale unbounded. */
 const MSW_RUNS_CAP = 2000;
 
+/** The replay seed, FUZZ_SEED or the pinned default; printed once per run. */
 const SEED = resolveFuzzSeed();
 
+/** The key usage endpoint, at the server root rather than under /v1. */
 const KEY_INFO_URL = `${TEST_BASE_URL}/key/info`;
+
+/** The user usage endpoint, at the server root. */
 const USER_INFO_URL = `${TEST_BASE_URL}/user/info`;
+
+/** The daily activity endpoint, at the server root. */
 const DAILY_ACTIVITY_URL = `${TEST_BASE_URL}/user/daily/activity`;
+
+/** The activity window every daily fetch asks for. */
 const WINDOW = { startDate: "2026-07-01", endDate: "2026-07-30" };
 
-/**
- * Response-derived text a leak would carry; never a valid YYYY-MM-DD, so pattern-validated day keys cannot alias it.
- */
+/** Response-derived text a leak would carry; never a valid YYYY-MM-DD, so pattern-valid day keys cannot alias it. */
 const MARKER = "sk-hashed-key-material-FUZZ";
 
 /** The retry backoff is setup here, not what any pin reads: the retried cases pin the classification, not the time. */
 const noBackoff = () => Promise.resolve();
 
+/** The one connection every fetch is made with; its key is a fixed header value. */
 const connection = {
 	label: "alpha",
 	baseUrl: TEST_BASE_URL,
@@ -87,6 +94,7 @@ function assertTypedUserUsage(user: UserUsage): void {
 	);
 }
 
+/** Field junk: edge numbers, the marker, date-shaped and range-edge strings, a numeric epoch, and a hasUser user id. */
 const junkFieldValue = fc.oneof(
 	fc.double({ noNaN: true, min: -1e12, max: 1e12 }),
 	fc.constantFrom<unknown>(
@@ -106,8 +114,6 @@ const junkFieldValue = fc.oneof(
 		[MARKER],
 		{ nested: { deep: MARKER } },
 		{ usd: 1 },
-		// Date-shaped strings for the epoch slots, plus the Date range edges and a NUMERIC epoch - which must read as
-		// absent, because usageEpochMs only accepts strings. "user-1" populates hasUser.
 		"2026-09-01T00:00:00.000Z",
 		"2026-09-01",
 		"2026-02-30T00:00:00Z",
@@ -119,6 +125,7 @@ const junkFieldValue = fc.oneof(
 	fc.jsonValue({ maxDepth: 2 })
 );
 
+/** A rollup info record: known fields over noise keys, the known ones winning. */
 const infoRecordArb = fc
 	.tuple(
 		fc.dictionary(
@@ -130,6 +137,7 @@ const infoRecordArb = fc
 	)
 	.map(([known, noise]) => ({ ...noise, ...known }));
 
+/** A key or user rollup body in either envelope, with arbitrary JSON and degenerate envelopes mixed in. */
 const rollupPayloadArb = fc.oneof(
 	{ weight: 3, arbitrary: infoRecordArb.map((info) => ({ key: MARKER, info })) },
 	{ weight: 3, arbitrary: infoRecordArb.map((info) => ({ user_id: MARKER, user_info: info })) },
@@ -137,11 +145,13 @@ const rollupPayloadArb = fc.oneof(
 	{ weight: 1, arbitrary: fc.constantFrom<unknown>(null, [], {}, { info: null }, { info: [] }, { user_info: 42 }) }
 );
 
+/** Day keys: pattern-valid (impossible dates included) in one arm, malformed in the other. */
 const dayKeyArb = fc.oneof(
 	fc.constantFrom("2026-07-01", "2026-07-15", "0000-00-00", "9999-99-99"),
 	fc.constantFrom("2026-7-1", "not-a-day", "", MARKER, "2026-07-01T00:00:00Z", "2026-07-011")
 );
 
+/** A daily entry whose metrics are a record or the marker, or arbitrary JSON, or a mistyped shape. */
 const dailyEntryArb = fc.oneof(
 	{
 		weight: 3,
@@ -171,6 +181,7 @@ const dailyEntryArb = fc.oneof(
 	{ weight: 1, arbitrary: fc.constantFrom<unknown>(null, 42, MARKER, { date: 20260701 }, { metrics: {} }) }
 );
 
+/** A daily body of entries plus metadata, or arbitrary JSON; the metadata arm carries the canary. */
 const dailyPayloadArb = fc.oneof(
 	{
 		weight: 4,

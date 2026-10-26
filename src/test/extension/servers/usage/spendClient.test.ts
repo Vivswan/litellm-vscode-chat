@@ -25,10 +25,16 @@ import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 /** The usage endpoints sit at the server ROOT, not under /v1 like discovery. */
 const KEY_INFO_URL = `${TEST_BASE_URL}/key/info`;
 
+/** The user usage endpoint, at the server root like the key one. */
 const USER_INFO_URL = `${TEST_BASE_URL}/user/info`;
+
+/** The daily activity endpoint, at the server root like the key one. */
 const DAILY_ACTIVITY_URL = `${TEST_BASE_URL}/user/daily/activity`;
+
+/** The OAuth token endpoint the msw handlers answer at. */
 const TOKEN_URL = "http://idp.test/oauth2/token";
 
+/** The activity window every daily fetch asks for. */
 const WINDOW = { startDate: "2026-07-01", endDate: "2026-07-30" };
 
 /** The retry backoff is setup here, not what any pin reads: the tests count attempts, and the one elapsed-time bound is the retry budget. */

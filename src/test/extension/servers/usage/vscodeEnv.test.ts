@@ -19,6 +19,7 @@ const UNUSED_CONTEXT = {
 	},
 } as unknown as vscode.ExtensionContext;
 
+/** The connection every usage fetch in the suite is made with. */
 const CONNECTION: UsageConnection = {
 	label: "alpha",
 	baseUrl: TEST_BASE_URL,

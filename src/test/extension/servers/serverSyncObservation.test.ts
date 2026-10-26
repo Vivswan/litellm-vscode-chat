@@ -23,18 +23,13 @@ import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } fr
 import { makeReader } from "../dashboard/stateHelpers";
 
 const H = "http://h.test";
-
-/** The status label an unlabeled group at H reports under: discovery's URL-host fallback. */
 const HOST = "h.test";
-
 const SECRET = "s3cret";
 const L1_INLINE = { label: "L1", baseUrl: H, auth: { apiKey: SECRET } };
 const LAST_CHECKED = "2026-07-26T00:00:00.000Z";
 const INLINE_KEY_PROVEN = {
 	secrets: { kind: "proven", locations: { apiKey: "settings", oauthClientSecret: "none", virtualKeyValue: "none" } },
 };
-
-/** How long a pass the observation schedules may take to land; the engine's debounce is 10 ms. */
 const PASS_WINDOW_MS = 500;
 
 /**
@@ -116,7 +111,10 @@ interface Fixture {
 
 	declare(value: unknown): void;
 
-	/** Whether a pass completes within the window; registered before the trigger, so a pass cannot slip by. */
+	/**
+	 * Whether a pass completes within the window; registered before the trigger, so a pass cannot slip by. The
+	 * engine's debounce is 10 ms, so PASS_WINDOW_MS leaves a scheduled pass ample room to land.
+	 */
 	nextPassWithin(ms: number): Promise<boolean>;
 
 	/** The state push as the panel assembles it over the window's snapshots and the engine's views. */
@@ -213,6 +211,7 @@ suite("extension/servers the observation event schedules the pass that acts on t
 			await host.addProviderGroup({ name: "L1", vendor: "litellm", baseUrl: H, apiKey: SECRET });
 			const groupId = host.idOf("L1");
 			// The user hid it from the dashboard as an external row: a tombstone by its client ID.
+			// An unlabeled group reports under its URL host, discovery's fallback, so its tombstone names HOST.
 			await removals.addTombstone({ by: "group", groupId, label: HOST, baseUrl: H });
 			// Then declared L1 again with the same key; the add-only host still holds the name.
 			host.taken.add("L1");

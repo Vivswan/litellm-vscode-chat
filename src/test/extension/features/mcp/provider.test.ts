@@ -18,8 +18,10 @@ import { fixedHeaderValue } from "../../../../shared/util/headers";
 import { mswServer, TEST_BASE_URL, useMsw } from "../../../mocks/handlers";
 import { withConfig } from "../../../testUtils";
 
+/** The user agent every one-shot client in the suite sends. */
 const TEST_AGENT = fixedHeaderValue("test-agent");
 
+/** The OAuth token endpoint the msw handlers answer at. */
 const TOKEN_URL = "http://idp.test/oauth2/token";
 
 /** Every credential shape at once, so the secretless claim is tested against all of them. */

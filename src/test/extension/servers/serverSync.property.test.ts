@@ -30,7 +30,6 @@ function usable(value: unknown): string | undefined {
 
 const labelPool = ["alpha", "beta", "gamma", "delta"] as const;
 
-/** Label-ish values: usable (some shared to force duplicates), padded, empty, reserved, non-string. */
 const labelArb = fc.oneof(
 	fc.constantFrom(...labelPool),
 	fc.constantFrom(...labelPool).map((label) => `  ${label}\t`),
@@ -95,6 +94,7 @@ suite("extension/servers/serverSync parsing properties", () => {
 	});
 
 	test("every element is accepted or reported, labels are unique first-wins and never reserved", () => {
+		// labelPool is small against the array length, so drawn settings repeat labels and reach first-wins.
 		fc.assert(
 			fc.property(rawSettingArb, (raw) => {
 				const { entries, problems } = parseServersSetting(raw);

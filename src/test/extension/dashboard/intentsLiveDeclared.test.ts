@@ -32,11 +32,13 @@ import { fakeFingerprintSaltSession, makeExtensionStorage, makeServerStatus } fr
 import { makeSecretStore, makeSyncEnv } from "../servers/serverSyncHelpers";
 import { makeReader } from "./stateHelpers";
 
+/** The base URL the live groups serve at; a moved L1 entry declares another. */
 const H = "http://h.test";
 
 /** The status label an unlabeled group at H reports under: discovery's URL-host fallback. */
 const HOST = "h.test";
 
+/** L1's API key value; the windows guard against a resolution handing it out through a live group. */
 const SECRET = "s3cret";
 
 /** A host whose add hands the group to the provider at once and then, while held, blocks like a slow serve. */
@@ -94,10 +96,13 @@ function makeHost() {
 }
 
 interface Fixture {
+	/** The real sync engine; scenarios drive its passes with syncNow and the host's hold. */
 	engine: ServerSyncEngine;
 
+	/** The real createIntentEnvironment over the fake stores, host, and removal ledger. */
 	env: IntentEnvironment;
 
+	/** The fake host whose hold blocks a pass like a slow serve. */
 	host: ReturnType<typeof makeHost>;
 
 	/** Every array the servers setting was written with. */
@@ -301,26 +306,24 @@ interface Scenario {
 	/** The intents the window applies to; hide has no step between its resolution and its write. */
 	intents: readonly ("adopt" | "hide")[];
 
+	/** Whether adopt refuses, or the external group's own key the adopted copy must carry. */
 	adopt: "rejects" | { readonly copies: string };
 
 	/** What hide throws, and adopt when it rejects: the stale-row validation error, or the failed secrets read. */
 	refusal: RegExp | typeof DashboardValidationError | ((error: unknown) => boolean);
 
-	/**
-	 * The declared setting, the stored API keys, and the tombstones once the intent has run, the window's mid-intent
-	 * changes included; `hidden` names the one group hide may tombstone, and its absence means hide refuses.
-	 */
+	/** The setting, the stored keys, and the tombstones once the intent has run, mid-intent changes included. */
 	after: {
+		/** The servers setting the window itself leaves; an intent's own write supersedes it. */
 		readonly setting: unknown;
 
+		/** The stored blobs by label, compared whole. */
 		readonly secrets: Readonly<Record<string, unknown>>;
 
+		/** The one group hide may tombstone; absent, hide refuses. */
 		readonly hidden?: readonly { label: string; baseUrl: string }[];
 
-		/**
-		 * The push once the window's own mid-intent change has landed, for the windows that make one; the others
-		 * expect the push before the intent, minus exactly the hidden group.
-		 */
+		/** The push once the window's mid-intent change lands; when absent, the pre-intent push minus the hidden group. */
 		readonly push?: {
 			/** The full rows the move adds; every row and model is compared whole. */
 			readonly added: readonly DashboardServer[];
@@ -331,14 +334,16 @@ interface Scenario {
 	};
 }
 
+/** A second declared entry beside L1, with its own key A_KEY. */
 const A_ENTRY = { label: "A", baseUrl: "http://a.test" };
+
+/** L1 declared bare, so any API key it has is a stored one. */
 const L1_ENTRY = { label: "L1", baseUrl: H };
+
+/** L1 with SECRET inline: the entry's own credential equals the key the live groups carry. */
 const L1_INLINE = { label: "L1", baseUrl: H, auth: { apiKey: SECRET } };
 
-/**
- * The row the settings fallback draws for L1_INLINE before any pass has joined it: its key is only known to exist,
- * nothing is checked, and no credential value or scope key reaches the push.
- */
+/** L1_INLINE's fallback row before any pass: the key is known to exist, unchecked; no value or scope key is pushed. */
 const L1_FALLBACK_ROW: DashboardServer = {
 	baseUrl: H,
 	config: { secrets: { kind: "unproven" } },
@@ -377,11 +382,7 @@ const validation =
 	(error: unknown): boolean =>
 		error instanceof DashboardValidationError && message.test(error.message);
 
-/**
- * Windows in which a live group carries L1's secret and a resolution short of one consistent, fully read
- * setting+secrets pair would hand it out, and the siblings in which a user's own group beside L1 must stay the
- * user's. Unlabeled groups report under the URL host, as discovery labels them.
- */
+/** Windows where a torn setting+secrets read would hand L1's secret out; siblings keep a user's own group theirs. */
 const WINDOWS: Record<string, Scenario> = {
 	"mid-pass": {
 		after: { setting: [A_ENTRY, L1_ENTRY], secrets: { A: keyBlob("http://a.test", A_KEY), L1: keyBlob(H) } },

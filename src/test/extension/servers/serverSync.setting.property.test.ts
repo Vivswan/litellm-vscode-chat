@@ -1,3 +1,9 @@
+/**
+ * Properties of the nested-shape servers setting parser. The credential arbitraries (virtualKeyArb, oauthArb, and
+ * authArb) weight their valid unit high, so companion fields really flow through, and keep junk arms (partial units,
+ * wrong field types, unknown keys, and non-object values), so the parser's refusals are reached as well.
+ */
+
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
@@ -43,7 +49,6 @@ const baseUrlArb = fc.oneof(
 
 const junkScalar = fc.constantFrom<unknown>(42, null, true, "", "  ", [], {});
 
-/** A virtualKey object, weighted toward valid pairs so companions really flow; junk arms keep the parser honest. */
 const virtualKeyArb = fc.oneof(
 	{
 		weight: 6,
@@ -65,7 +70,6 @@ const virtualKeyArb = fc.oneof(
 	fc.constant({ header: "x-key", value: "vk", extra: true })
 );
 
-/** An oauth object, weighted toward the complete unit; partial units, junk field types, and unknown keys stay in. */
 const oauthArb = fc.oneof(
 	{
 		weight: 6,
@@ -100,7 +104,6 @@ const authArb = fc.oneof(
 	{ weight: 2, arbitrary: fc.record({ virtualKey: virtualKeyArb }) },
 	{ weight: 2, arbitrary: fc.record({ apiKey: fc.constantFrom<unknown>("sk-1", 42), virtualKey: virtualKeyArb }) },
 	{ weight: 4, arbitrary: fc.record({ oauth: oauthArb }) },
-	// Ambiguous: a second form beside oauth is a shape error, never guessed at.
 	{ weight: 1, arbitrary: fc.record({ oauth: oauthArb, apiKey: fc.constant("sk-1") }) },
 	{ weight: 1, arbitrary: fc.record({ oauth: oauthArb, virtualKey: virtualKeyArb }) },
 	{

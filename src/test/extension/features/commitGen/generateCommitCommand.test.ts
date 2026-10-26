@@ -26,10 +26,7 @@ interface FakeRepoParts {
 	root?: string;
 }
 
-/**
- * Present so the fake satisfies the API as declared, and rejecting so a flow that starts reaching for one fails loudly
- * here.
- */
+/** Present so the fake satisfies the API as declared, rejecting so a flow that reaches for one fails loudly here. */
 const unusedRepositoryMembers = {
 	diffWith: () => Promise.reject(new Error("diffWith is not part of the commit flow")),
 	getBranch: () => Promise.reject(new Error("getBranch is not part of the commit flow")),

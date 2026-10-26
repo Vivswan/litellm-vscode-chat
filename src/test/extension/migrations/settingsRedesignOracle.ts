@@ -49,10 +49,7 @@ export interface OracleServer {
 	readonly baseUrl: string;
 }
 
-/**
- * The pre-redesign capability vocabulary, frozen LOCALLY like oldWorldResolvers' constants: the old world had exactly
- * these seven fields, so the oracle's projections must not track the live (now open) vocabulary.
- */
+/** The old world's capability fields, frozen locally: the projections must not track the live, now open vocabulary. */
 const OLD_CAPABILITY_FIELD_NAMES = [
 	"context_length",
 	"max_input_tokens",
@@ -102,26 +99,23 @@ export const WALK_BASELINES: readonly ServerDeclaredCapabilities[] = [
 ];
 
 interface WalkView {
+	/** Every old capability field's effective value at this baseline. */
 	readonly fields: Record<string, number | boolean>;
 
 	/** The max_tokens sent when nothing else sets it; the old side clamps a "defaults" limit to min(4096, limit). */
 	readonly wireMaxTokens: number;
 }
 
-/** One comparable meaning of a configuration for (server, model). */
+/**
+ * One comparable meaning of a configuration for (server, model). `declared` holds the exact model IDs declared for
+ * the server, sorted; `walks` holds one full-walk view (trio included) per WALK_BASELINES entry.
+ */
 export interface EffectiveView {
 	readonly parameters: Record<string, unknown>;
-
 	readonly forced: Record<string, unknown>;
-
 	readonly capabilityOverrides: Record<string, unknown>;
-
 	readonly capabilityFallbacks: Record<string, unknown>;
-
-	/** The exact model IDs declared for this server, sorted. */
 	readonly declared: readonly string[];
-
-	/** Full-walk views (trio included) per WALK_BASELINES entry. */
 	readonly walks: readonly WalkView[];
 }
 
@@ -138,10 +132,7 @@ export type OldWorldResolve = (
 	/** Skip only the walk-level comparison: the trio-fill flow corners live below the resolver views. */
 	skipWalks: boolean;
 
-	/**
-	 * Fields the RETIRED `_declare`+`_fallback` ban kept at override level in the real old world. The view above is
-	 * BAN-FREE, so the property characterizes the ban separately through this list.
-	 */
+	/** Fields the retired _declare+_fallback ban kept at override level, checked apart: the view above is ban-free. */
 	banRescuedFields: readonly string[];
 
 	/** True when defaultMaxOutputTokens was explicitly configured: the one source of the documented clamp lift. */

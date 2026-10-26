@@ -106,6 +106,7 @@ export function serverPayload(
 	};
 }
 export interface RecordedEnv {
+	/** Every updateSetting call: key and value. */
 	updates: [string, unknown][];
 
 	/** Every removeSetting call (the resetSetting intent's removals). */
@@ -114,6 +115,7 @@ export interface RecordedEnv {
 	/** The visible litellm-vscode-chat.* values; reads reflect landed writes like the real configuration. */
 	settingValues: Map<string, unknown>;
 
+	/** Every executeCommand call: the command id and its arguments. */
 	commands: [string, ...unknown[]][];
 
 	/** Every text handed to the clipboard, after the output door. */
@@ -143,6 +145,7 @@ export interface RecordedEnv {
 	/** Every env.log call; classifications only. */
 	logs: [string, unknown][];
 
+	/** How many requestServerSync kicks arrived. */
 	syncRequests: number;
 
 	/** When set, writeServersSetting rejects with this error. */
@@ -160,48 +163,49 @@ export interface RecordedEnv {
 	/** When set, deleteServerSecrets rejects with this error. */
 	failBlobDeletes?: Error;
 
-	/**
-	 * When set, runs after each readServerSecrets call: the seam for injecting a concurrent edit between the plan read
-	 * and the guarded unit.
-	 */
+	/** Runs after each readServerSecrets call: the seam for an edit between the plan read and the guarded unit. */
 	onSecretsRead?: ((label: string) => void) | undefined;
 
-	/**
-	 * Runs after each successful writeServersSetting with the now-visible array, the seam for injecting a concurrent
-	 * edit between the write and the cleanup.
-	 */
+	/** Runs after each successful writeServersSetting with the visible array: the seam for an edit before the cleanup. */
 	afterWrite?: (current: unknown[]) => void;
 
 	/** What resolveAdoptionCredentials returns; every call is recorded in adoptionLookups. */
 	adoptionCredentials?: AdoptableGroupCredentials;
 
+	/** Every resolveAdoptionCredentials call: base URL and source handle. */
 	adoptionLookups: [string, string][];
 
 	/** What resolveExternalGroup returns; every call is recorded in externalLookups. */
 	externalGroup?: TombstoneIdentity;
 
+	/** Every resolveExternalGroup call: base URL and source handle. */
 	externalLookups: [string, string][];
 
 	/** Every probeDraftConnection call's resolved connection; probeResult/probeError shape the outcome. */
 	probes: DraftConnection[];
 
+	/** The model ids probeDraftConnection answers with while probeError is unset. */
 	probeResult: readonly string[];
 
+	/** When set, every connection and feature probe rejects with this error. */
 	probeError?: Error;
 
 	/** Every inlineCompletions feature-probe call's model ref; fimProbeResult/probeError shape the outcome. */
 	fimProbes: FeatureModelRef[];
 
+	/** What the inlineCompletions, prGeneration, and quickFix probes all answer. */
 	fimProbeResult: string | undefined;
 
 	/** The same, for a non-completion feature: the branch every future shipped feature lands in. */
 	reviewProbes: FeatureModelRef[];
 
+	/** What the reviewComments probe answers. */
 	reviewProbeResult: string | undefined;
 
-	/** Every hideGroup call; duringHide runs inside the fake, before it answers, for mutations racing the hide. */
+	/** Every hideGroup call's identity. */
 	hidden: TombstoneIdentity[];
 
+	/** Runs inside hideGroup before it answers: a mutation racing the hide. */
 	duringHide?: () => void;
 
 	/** Whether the fake reports the hide as inserting a record (false: an identical record already stood). */
@@ -213,17 +217,19 @@ export interface RecordedEnv {
 	/** Every retractHide call: the exact record a compensated hide took back. */
 	retracted: TombstoneIdentity[];
 
-	/** Every unhideGroup call; unhideResult is what the fake reports back. */
+	/** Every unhideGroup call's identity. */
 	unhidden: { label: string; baseUrl: string }[];
 
+	/** What unhideGroup reports back. */
 	unhideResult: boolean;
 
 	/** What isGroupHidden answers true for: the identities a tombstone holds. */
 	hiddenIdentities: { label: string; baseUrl: string }[];
 
-	/** Every openManageLanguageModels search; manageAvailable is what the fake reports back. */
+	/** Every openManageLanguageModels search. */
 	manageOpens: string[];
 
+	/** What openManageLanguageModels reports back. */
 	manageAvailable: boolean;
 
 	/** How many refreshCatalogNow kicks arrived (the refreshCatalog intent). */
@@ -232,6 +238,7 @@ export interface RecordedEnv {
 	/** How many refreshUsageNow kicks arrived (the refreshUsage intent). */
 	usageRefreshes: number;
 
+	/** The environment under test; its methods read the fail* and *Result knobs at call time, not at construction. */
 	env: IntentEnvironment;
 }
 

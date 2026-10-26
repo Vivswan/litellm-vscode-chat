@@ -6,8 +6,7 @@
 
 import type { ServerDeclaredCapabilities } from "../../../shared/config/capabilityResolution";
 
-// The pre-redesign vocabulary and policy constants, frozen LOCALLY: importing the live ones would let a later
-// vocabulary change mutate this oracle's old-world behavior.
+// Frozen locally: importing the live vocabulary would let a later change mutate this oracle's old-world behavior.
 const CAPABILITY_FIELDS = {
 	context_length: "number",
 	max_input_tokens: "number",
@@ -22,6 +21,7 @@ type CapabilityFieldName = keyof typeof CAPABILITY_FIELDS;
 
 type CapabilityFieldValues = { readonly [K in CapabilityFieldName]: number | boolean };
 
+/** The pre-redesign floor the walk ends at; max_input_tokens has none and derives from context minus output. */
 const CAPABILITY_FLOOR = {
 	context_length: 128000,
 	max_output_tokens: 16000,
@@ -373,14 +373,17 @@ export interface OldCapabilityTokenDefaults {
 
 type OldEffectiveCapabilityValues = { readonly [K in CapabilityFieldName]: number | boolean };
 
+/**
+ * One pre-redesign capability walk. outputLimitSource follows the old USER_SET_LEVELS:
+ *   override, fallback                                             -> "user" (uncapped on the wire)
+ *   server, when the baseline's request default is the limit itself -> "provider"
+ *   default setting, floor                                          -> "defaults" (min(4096, limit))
+ */
 export interface OldWalkResult {
+	/** The effective value of every old capability field after the walk. */
 	readonly fields: OldEffectiveCapabilityValues;
 
-	/**
-	 * Old USER_SET_LEVELS semantics: override and fallback levels are "user" (uncapped on the wire), the server level
-	 * is "provider" only when the baseline's request default is the limit itself, and default-setting and floor stay
-	 * "defaults" (min(4096, limit)).
-	 */
+	/** Which level set the output limit; the mapping is in this record's doc comment. */
 	readonly outputLimitSource: "user" | "provider" | "defaults";
 }
 

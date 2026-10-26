@@ -281,16 +281,15 @@ suite("extension/dashboard/state", () => {
 			const rejectedProd = (baseUrl: string) => [
 				{ index: 0, label: "Prod", baseUrl, problems: ["auth.oauth lacks clientId"], accepted: false },
 			];
+			/**
+			 * Each case compares the rows as (label, origin, state), the hidden groups, and the server label each live
+			 * model renders under; a hidden leftover's models leave the list.
+			 */
 			const cases: {
 				name: string;
-
 				inputs: Parameters<typeof buildDashboardState>[0];
-
 				rows: [string, string, string][];
-
 				hidden: unknown[];
-
-				/** The server label each live model renders under; a hidden leftover's models leave the list. */
 				models: string[];
 			}[] = [
 				{

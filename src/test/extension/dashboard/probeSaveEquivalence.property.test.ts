@@ -92,7 +92,6 @@ const blobArb: fc.Arbitrary<Partial<Record<SecretFieldId, string>>> = fc.record(
 	{ requiredKeys: [] }
 );
 
-/** A retired label's leftover blob, seeded under the draft's label when it differs from "Prod". */
 const orphanArb: fc.Arbitrary<Partial<Record<SecretFieldId, string>>> = fc.record(
 	{
 		apiKey: fc.constant("sk-test-orphan-key"),
@@ -166,6 +165,7 @@ suite("extension/dashboard: probe-save equivalence", () => {
 						if (Object.keys(blob).length > 0) {
 							env.storedSecrets.set("Prod", { ...blob } as Record<string, string>);
 						}
+						// A retired label's leftover blob, under the draft's label when that label is not "Prod".
 						if (label !== "Prod" && Object.keys(orphan).length > 0) {
 							env.storedSecrets.set(label, { ...orphan } as Record<string, string>);
 						}

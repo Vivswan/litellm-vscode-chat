@@ -18,14 +18,13 @@ import { Logger } from "../../../shared/logger";
 import { countOccurrences, shippedSources } from "../../sourceScan";
 import { windowVerdict } from "./verdictHarness";
 
-/**
- * A second creation point bypasses the surface's ownership: a status item outside the slot registry escapes the
- * one-live-item-per-slot invariant, a second output channel splits the log stream the issue-report buffer taps, and a
- * second webview panel escapes the one-panel lifecycle.
- */
+/** The one creation call of each singleton vscode surface; a second creation point escapes the surface's ownership. */
 const SINGLETON_CREATION_POINTS: readonly { readonly api: string; readonly file: string }[] = [
+	// A status item outside the slot registry escapes the one-live-item-per-slot invariant.
 	{ api: "createStatusBarItem", file: "src/extension/ui/status.ts" },
+	// A second output channel splits the log stream the issue-report buffer taps.
 	{ api: "createOutputChannel", file: "src/extension.ts" },
+	// A second webview panel escapes the one-panel lifecycle.
 	{ api: "createWebviewPanel", file: "src/extension/dashboard/panel.ts" },
 ];
 

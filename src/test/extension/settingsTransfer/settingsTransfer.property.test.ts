@@ -1,3 +1,11 @@
+/**
+ * The settings-transfer core's four load-bearing properties (seed-pinned, FUZZ_RUNS-scaled): secret surgery is
+ * lossless for the parser's view of an entry; a full export -> parse -> plan -> apply round trip against an empty
+ * target reproduces the configuration up to the documented secret handling (group-args equivalence as the oracle, so
+ * wire behavior is pinned too); a snapshot restore is an exact inverse; and resolveImportPlan's merge invariants hold
+ * under arbitrary garbage and decisions.
+ */
+
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
@@ -27,22 +35,13 @@ import { resolveFuzzSeed } from "../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
-/**
- * The settings-transfer core's four load-bearing properties (seed-pinned,
- * FUZZ_RUNS-scaled): secret surgery is lossless for the parser's view of an
- * entry, a full export -> parse -> plan -> apply round trip against an empty
- * target reproduces the configuration up to the documented secret handling
- * (group-args equivalence as the oracle, so wire behavior is pinned too), a
- * snapshot restore is an exact inverse, and resolveImportPlan's merge
- * invariants hold under arbitrary garbage and decisions.
- */
-
 const LABEL_POOL = ["alpha", "beta", "gamma", "delta", "epsilon"] as const;
 
 function compact(record: Record<string, unknown>): Record<string, unknown> {
 	return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
 
+/** An optional inline value; undefined is the field absent. */
 const optionalInline = (values: readonly string[]) => fc.option(fc.constantFrom(...values), { nil: undefined });
 
 /** A grammar-valid virtualKey object, its secret value optional and possibly padded. */
@@ -85,11 +84,7 @@ const validServersArb: fc.Arbitrary<Record<string, unknown>[]> = fc
 		labels.length === 0 ? fc.constant([]) : fc.tuple(...labels.map((label) => validEntryArb(label)))
 	);
 
-/**
- * Stored blob values stay unpadded on purpose: the inline settings grammar trims, so a padded STORED value is not
- * representable in an export file. src/test/bun/extension/settingsTransfer/secretSurgery.test.ts pins the verbatim
- * placement itself.
- */
+/** Unpadded on purpose: the inline grammar trims, so a padded stored value is not representable in an export file. */
 const blobArb: fc.Arbitrary<StoredServerSecrets> = fc
 	.record({
 		apiKey: optionalInline(["sk-stored"]),
@@ -98,6 +93,7 @@ const blobArb: fc.Arbitrary<StoredServerSecrets> = fc
 	})
 	.map((blob) => compact(blob) as StoredServerSecrets);
 
+/** Stored blobs keyed by pool labels, so some may belong to labels the drawn setting does not declare. */
 const blobsByLabelArb = fc.dictionary(fc.constantFrom(...LABEL_POOL), blobArb, { maxKeys: LABEL_POOL.length });
 
 /** Junk-heavy raw entries for the robustness sides (the same style as the setting parser's property suite). */
@@ -129,6 +125,7 @@ const junkEntryArb = fc.oneof(
 	{ weight: 1, arbitrary: fc.constantFrom<unknown>("junk", 42, null, [], { nested: true }) }
 );
 
+/** The setting the secret-surgery and merge-invariant properties run over: junk entries, cloned per property run. */
 const junkServersArb = fc.array(junkEntryArb, { maxLength: 6 });
 
 suite("extension/settingsTransfer property: secret surgery", () => {

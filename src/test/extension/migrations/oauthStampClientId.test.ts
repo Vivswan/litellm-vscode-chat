@@ -26,15 +26,19 @@ const CURRENT_STAMP = { tokenUrl: TOKEN_URL, clientId: "cid" };
 suite("extension/migrations/oauthStampClientId", () => {
 	test("every string stamp on a declared entry's client secret becomes structured; values and structured stamps stay", async () => {
 		const rows: {
+			/** The entry's label, the stem of its base URL's host, and the assertion message. */
 			label: string;
 
+			/** The stamp the client secret is stored under before the migration. */
 			owner: SecretOwner | undefined;
 
+			/** Whether the entry declares an oauth block, the source of the client id a structured stamp gains. */
 			declaresOauth: boolean;
 
 			/** How the setting spells the token URL; the parser reads it canonically. */
 			declaredTokenUrl?: string;
 
+			/** The stamp after the migration; undefined is no stamp at all. */
 			expected: SecretOwner | undefined;
 		}[] = [
 			{ label: "legacy", owner: TOKEN_URL, declaresOauth: true, expected: CURRENT_STAMP },

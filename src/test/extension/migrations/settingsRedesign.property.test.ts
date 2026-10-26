@@ -43,23 +43,32 @@ import {
 	WALK_BASELINES,
 } from "./settingsRedesignOracle";
 
+/** Runs per property; FUZZ_RUNS raises it for a longer soak. */
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 120;
+
+/** The replay seed, FUZZ_SEED or the pinned default; printed once per run. */
 const SEED = resolveFuzzSeed();
 
+/** The old setting ids, widened to plain strings so a write's section can be looked up among them. */
 const LEGACY_IDS: readonly string[] = LEGACY_SETTING_IDS;
+
+/** The ids the migration writes: every renamed scalar plus the two record settings. */
 const NEW_IDS: readonly string[] = [
 	...LEGACY_SCALAR_RENAMES.map((rename) => rename.newId),
 	NEW_MODEL_PARAMETERS_ID,
 	NEW_MODEL_CAPABILITIES_ID,
 ];
 
+/** An optional draw; undefined stands for the piece being absent. */
 const maybe = <T>(arbitrary: fc.Arbitrary<T>): fc.Arbitrary<T | undefined> => fc.option(arbitrary, { nil: undefined });
 
+/** Server base URLs, with and without a /v1 path, that the scoped keys are built over. */
 const BASES = ["https://gw", "https://gw/v1", "http://localhost:4000"];
 
-// "gpt*" keeps the star-bearing key rewrite (escaped-regex migration) alive.
+/** Record key prefixes; "gpt*" keeps the star-bearing key rewrite (escaped-regex migration) alive. */
 const MODEL_PREFIXES = ["", "*", "gpt", "gpt*", "gpt-5", "gpt-5-turbo", "claude", "deepseek-r1", "v1/gpt", "other"];
 
+/** Model ids; "gpt*5" carries a literal star, the id the star-bearing keys' escaped-regex form exists to match. */
 const modelIdArb = fc.constantFrom(
 	"gpt-5",
 	"gpt-5-turbo",
@@ -69,15 +78,13 @@ const modelIdArb = fc.constantFrom(
 	"qwen",
 	"v1/gpt-mini",
 	"gpt",
-	// A literal-star ID: only the star-bearing keys' regex form may match it.
 	"gpt*5",
 	"other-model"
 );
 
+/** Parameter records; max_tokens pins the _force rewrite: old _force never covered it and must not end up forced. */
 const paramRecordArb = fc
 	.dictionary(
-		// max_tokens keeps the migrated-_force rewrite ruling alive: old _force could never cover it, so the migration
-		// must not let it become forced.
 		fc.constantFrom("temperature", "top_p", "seed", "user", "max_tokens"),
 		fc.oneof(fc.integer({ min: -3, max: 3 }), fc.boolean(), fc.constantFrom("x", "y")),
 		{ maxKeys: 3 }
@@ -93,6 +100,7 @@ const paramRecordArb = fc
 		)
 	);
 
+/** Capability records where _declare and _fallback combine freely, so the oracle characterizes the retired ban. */
 const capRecordArb = fc
 	.tuple(
 		fc.dictionary(
@@ -106,14 +114,13 @@ const capRecordArb = fc
 	)
 	.map(([numbers, booleans]) => ({ ...numbers, ...booleans }))
 	.chain((fields) =>
-		// `_declare` and `_fallback` combine freely, the old ban's home ground included, so the oracle characterizes
-		// the retired ban. Junk directive values cover the migration's stays-as-written branches.
 		fc
 			.tuple(
 				fc.option(
 					fc.oneof(
 						{ arbitrary: fc.constant<unknown>(true), weight: 2 },
 						{ arbitrary: fc.subarray(Object.keys(fields)), weight: 2 },
+						// Junk directive values cover the migration's stays-as-written branches.
 						{ arbitrary: fc.constantFrom<unknown>(false, "junk"), weight: 1 }
 					),
 					{ nil: undefined }
@@ -127,10 +134,15 @@ const capRecordArb = fc
 			}))
 	);
 
+/** A global record key with no server scope: a model prefix alone. */
 const unscopedKeyArb = fc.constantFrom(...MODEL_PREFIXES);
+
+/** A server-scoped key, base URL then prefix; one base matches no entry. */
 const scopedKeyArb = fc
 	.tuple(fc.constantFrom(...BASES, "https://unmatched.example.com"), fc.constantFrom(...MODEL_PREFIXES))
 	.map(([base, prefix]) => `${base}/${prefix}`);
+
+/** A global record key of either scope, unscoped more often. */
 const globalKeyArb = fc.oneof({ arbitrary: unscopedKeyArb, weight: 3 }, { arbitrary: scopedKeyArb, weight: 2 });
 
 /** Drop undefined values so optional pieces stay absent instead of explicit. */
@@ -138,8 +150,7 @@ function prune(record: Record<string, unknown>): Record<string, unknown> {
 	return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
 
-// Every flat auth combination, the settled apiKey+virtualKey primacy ruling included, plus virtual-key headers
-// colliding with the extension-managed Authorization / X-API-Key names.
+/** Every flat auth combination, apiKey+virtualKey primacy included, plus virtual-key headers on managed names. */
 const authComboArb = fc.constantFrom<Record<string, unknown>>(
 	{},
 	{ apiKey: "sk-1" },
@@ -166,6 +177,7 @@ const authComboArb = fc.constantFrom<Record<string, unknown>>(
 	}
 );
 
+/** A raw old-world entry under `label`, every optional piece drawn or absent. */
 const entryArb = (label: string): fc.Arbitrary<Record<string, unknown>> =>
 	fc
 		.tuple(
@@ -182,6 +194,7 @@ const entryArb = (label: string): fc.Arbitrary<Record<string, unknown>> =>
 			prune({ label, baseUrl, ...auth, modelParameters, modelCapabilities, expectedFailures, discovery })
 		);
 
+/** A servers setting of distinct labels, at least `minEntries` of them. */
 const serversArb = (minEntries: number): fc.Arbitrary<Record<string, unknown>[]> =>
 	fc.subarray(["prod", "dev", "local"], { minLength: minEntries }).chain((labels) => {
 		if (labels.length === 0) {

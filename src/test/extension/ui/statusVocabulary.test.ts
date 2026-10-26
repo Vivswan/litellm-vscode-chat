@@ -31,6 +31,7 @@ const IMMEDIATE_TIMER: Timer = {
 	},
 };
 
+/** A reader with nothing configured: the state builder sees each setting absent, not at its declared default. */
 const EMPTY_READER: SettingsReader = { get: () => undefined, inspect: () => ({ defaultValue: undefined }) };
 
 suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {

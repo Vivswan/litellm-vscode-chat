@@ -46,6 +46,7 @@ export interface CommentSpies {
 }
 
 export interface FakeReviewContext extends vscode.ExtensionContext {
+	/** Every workspaceState.update value, in order. */
 	readonly writes: unknown[];
 
 	/** Settles on the first workspaceState write; the prune that produces it runs off the critical path. */
