@@ -32,6 +32,9 @@ const WINDOW = { startDate: "2026-07-01", endDate: "2026-07-30" };
 /** Response-derived text a leak would carry; never a valid YYYY-MM-DD, so pattern-valid day keys cannot alias it. */
 const MARKER = "sk-hashed-key-material-FUZZ";
 
+/** A numeric epoch for the reset slots; it must read as absent, because usageEpochMs accepts strings only. */
+const NUMERIC_EPOCH = 1756684800000;
+
 /** The retry backoff is setup here, not what any pin reads: the retried cases pin the classification, not the time. */
 const noBackoff = () => Promise.resolve();
 
@@ -119,7 +122,7 @@ const junkFieldValue = fc.oneof(
 		"2026-02-30T00:00:00Z",
 		"+275760-09-13T00:00:00.000Z",
 		"+275760-09-14",
-		1756684800000,
+		NUMERIC_EPOCH,
 		"user-1"
 	),
 	fc.jsonValue({ maxDepth: 2 })

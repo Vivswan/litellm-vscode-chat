@@ -38,10 +38,10 @@ export interface Recorded {
 	/** Every reconcileEntryIdentities call: the declared identities and the removal events. */
 	reconciles: { declared: DeclaredGroupClaim[]; events: RemovedEntryEvent[] }[];
 
-	/** Every env.log call: message and data. */
+	/** The env.log lines; suites serialize them whole to prove no secret value or raw host text rode along. */
 	logged: [string, unknown][];
 
-	/** Every env.logError call: message and error. */
+	/** The env.logError lines; suites expect none where the failure was classified into a log line instead. */
 	loggedErrors: [string, unknown][];
 
 	/** The environment under test; its methods read this record's setting and knobs at call time, between passes too. */

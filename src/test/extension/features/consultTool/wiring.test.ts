@@ -336,7 +336,7 @@ suite("extension/features/consultTool wiring", () => {
 	 * with what they are thrown.
 	 */
 	const SECRET_REFUSALS: readonly {
-		/** The test title's subject. */
+		/** The refusal scenario the row stages; the generated test's title opens with it. */
 		readonly name: string;
 
 		/** The declared entry; the default declares no credential unit. */
