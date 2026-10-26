@@ -4,7 +4,7 @@
  * or an aliased binding extraction cannot see.
  */
 import ts from "typescript";
-import { unwrapExpression } from "./lib";
+import { flagOffense, type OffenseScan, unwrapExpression } from "./lib";
 
 interface VscodeL10nRuleOptions {
 	/** Whether this file may read `vscode.l10n.bundle` (the two bundle-feeding sites). */
@@ -20,16 +20,9 @@ interface TrackedBindings {
 	readonly hasCanonicalL10n: boolean;
 }
 
-/** One file's scan: its source and options, the tracked bindings, and the offending lines found so far. */
-interface RuleScan extends TrackedBindings {
-	readonly sourceFile: ts.SourceFile;
+/** One file's scan: its options and the tracked bindings, on top of the source and offenses every scan records. */
+interface RuleScan extends TrackedBindings, OffenseScan {
 	readonly options: VscodeL10nRuleOptions;
-	readonly offenses: number[];
-}
-
-/** Records the 1-based line `node` starts on. */
-function flag(scan: RuleScan, node: ts.Node): void {
-	scan.offenses.push(scan.sourceFile.getLineAndCharacterOfPosition(node.getStart(scan.sourceFile)).line + 1);
 }
 
 function specifierOf(statement: ts.ImportDeclaration | ts.ExportDeclaration): string | undefined {
@@ -116,7 +109,7 @@ function trackedBindings(sourceFile: ts.SourceFile): TrackedBindings {
 function flagL10nSpecifiers(scan: RuleScan, elements: readonly (ts.ImportSpecifier | ts.ExportSpecifier)[]): void {
 	for (const element of elements) {
 		if (!element.isTypeOnly && (element.propertyName ?? element.name).text === "l10n") {
-			flag(scan, element);
+			flagOffense(scan, element);
 		}
 	}
 }
@@ -142,7 +135,7 @@ function judgeImport(scan: RuleScan, statement: ts.ImportDeclaration): void {
 			clause.name === undefined &&
 			bindings.elements.every((element) => element.isTypeOnly);
 		if (!typeOnlyElements) {
-			flag(scan, statement);
+			flagOffense(scan, statement);
 		}
 	}
 }
@@ -159,7 +152,7 @@ function judgeImportEquals(scan: RuleScan, statement: ts.ImportEqualsDeclaration
 	const reference = statement.moduleReference;
 	if (ts.isExternalModuleReference(reference)) {
 		if (ts.isStringLiteral(reference.expression) && reference.expression.text === "@vscode/l10n") {
-			flag(scan, statement);
+			flagOffense(scan, statement);
 		}
 		return;
 	}
@@ -170,11 +163,11 @@ function judgeImportEquals(scan: RuleScan, statement: ts.ImportEqualsDeclaration
 		root = root.left;
 	}
 	if (scan.hasCanonicalL10n && root.text === "l10n") {
-		flag(scan, statement);
+		flagOffense(scan, statement);
 		return;
 	}
 	if (scan.vscodeNamespaces.has(root.text) && (segments.length === 0 || segments.includes("l10n"))) {
-		flag(scan, statement);
+		flagOffense(scan, statement);
 	}
 }
 
@@ -183,7 +176,7 @@ function flagLocalFacades(scan: RuleScan, elements: readonly ts.ExportSpecifier[
 	for (const element of elements) {
 		const local = (element.propertyName ?? element.name).text;
 		if (!element.isTypeOnly && (scan.vscodeNamespaces.has(local) || (scan.hasCanonicalL10n && local === "l10n"))) {
-			flag(scan, element);
+			flagOffense(scan, element);
 		}
 	}
 }
@@ -203,13 +196,13 @@ function judgeExport(scan: RuleScan, statement: ts.ExportDeclaration): void {
 		const typeOnlyElements =
 			clause !== undefined && ts.isNamedExports(clause) && clause.elements.every((element) => element.isTypeOnly);
 		if (!typeOnlyElements) {
-			flag(scan, statement);
+			flagOffense(scan, statement);
 		}
 		return;
 	}
 	if (specifier === "vscode") {
 		if (clause === undefined || !ts.isNamedExports(clause)) {
-			flag(scan, statement);
+			flagOffense(scan, statement);
 			return;
 		}
 		flagL10nSpecifiers(scan, clause.elements);
@@ -236,10 +229,6 @@ function judgeModuleStatements(scan: RuleScan): void {
 function isVscodeBinding(scan: RuleScan, node: ts.Expression): boolean {
 	const inner = unwrapExpression(node);
 	return ts.isIdentifier(inner) && scan.vscodeNamespaces.has(inner.text);
-}
-
-function isVscodeL10n(scan: RuleScan, node: ts.Node): boolean {
-	return ts.isPropertyAccessExpression(node) && isVscodeBinding(scan, node.expression) && node.name.text === "l10n";
 }
 
 function isCanonicalBinding(scan: RuleScan, node: ts.Expression): boolean {
@@ -293,18 +282,22 @@ function scanPropertyAccess(scan: RuleScan, node: ts.PropertyAccessExpression): 
 	const object = unwrapExpression(node.expression);
 	if (isVscodeBinding(scan, object)) {
 		if (node.name.text === "l10n") {
-			flag(scan, node);
+			flagOffense(scan, node);
 		}
 		return;
 	}
-	if (isVscodeL10n(scan, object)) {
+	if (
+		ts.isPropertyAccessExpression(object) &&
+		isVscodeBinding(scan, object.expression) &&
+		object.name.text === "l10n"
+	) {
 		if (!(scan.options.allowBundleReads && node.name.text === "bundle")) {
-			flag(scan, node);
+			flagOffense(scan, node);
 		}
 		return;
 	}
 	if (isCanonicalBinding(scan, object)) {
-		flag(scan, node);
+		flagOffense(scan, node);
 		return;
 	}
 	scanNode(scan, node.expression);
@@ -375,7 +368,7 @@ function scanNode(scan: RuleScan, node: ts.Node): void {
 		return;
 	}
 	if (isModuleLoadOf(node)) {
-		flag(scan, node);
+		flagOffense(scan, node);
 		return;
 	}
 	if (isCanonicalCall(scan, node)) {
@@ -389,12 +382,12 @@ function scanNode(scan: RuleScan, node: ts.Node): void {
 		return;
 	}
 	if (ts.isElementAccessExpression(node) && isVscodeBinding(scan, unwrapExpression(node.expression))) {
-		flag(scan, node);
+		flagOffense(scan, node);
 		scanNode(scan, node.argumentExpression);
 		return;
 	}
 	if (isTrackedIdentifier(scan, node)) {
-		flag(scan, node);
+		flagOffense(scan, node);
 		return;
 	}
 	scanChildren(scan, node);

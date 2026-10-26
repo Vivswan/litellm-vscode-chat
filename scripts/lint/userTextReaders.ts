@@ -20,6 +20,7 @@
 import * as path from "node:path";
 import { ESLintUtils, type TSESTree } from "@typescript-eslint/utils";
 import ts from "typescript";
+import { unwrapExpression } from "../l10n/lib";
 
 export interface AllowedRead {
 	/** Relative to the TypeScript root (the config's tsconfigRootDir), forward slashes. */
@@ -58,21 +59,6 @@ function constituents(checker: ts.TypeChecker, type: ts.Type): readonly ts.Type[
 	return constrained.isUnion() ? constrained.types : [constrained];
 }
 
-/** The callee under the wrappers that change nothing about it: `(text.trim)()`, `text.trim!()`. */
-function callee(node: ts.CallExpression | ts.NewExpression): ts.Expression {
-	let expression: ts.Expression = node.expression;
-	while (
-		ts.isParenthesizedExpression(expression) ||
-		ts.isNonNullExpression(expression) ||
-		ts.isAsExpression(expression) ||
-		ts.isSatisfiesExpression(expression) ||
-		ts.isTypeAssertionExpression(expression)
-	) {
-		expression = expression.expression;
-	}
-	return expression;
-}
-
 /** A key typed as plain string names no member, so only literal types (or a constraint to them) count. */
 function memberNames(checker: ts.TypeChecker, access: ts.Expression): readonly string[] {
 	if (ts.isPropertyAccessExpression(access)) {
@@ -104,7 +90,8 @@ function isLibStringMember(program: ts.Program, declaration: ts.Declaration): bo
 }
 
 function trimAt(checker: ts.TypeChecker, program: ts.Program, node: ts.CallExpression): Judged | undefined {
-	const access = callee(node);
+	// `(text.trim)()` and `text.trim!()` trim like `text.trim()`, so the wrappers come off before the member is read.
+	const access = unwrapExpression(node.expression);
 	if (!ts.isPropertyAccessExpression(access) && !ts.isElementAccessExpression(access)) {
 		return undefined;
 	}
@@ -221,7 +208,7 @@ function numberReadAt(
 ): Judged | undefined {
 	const declaration = checker.getResolvedSignature(node)?.declaration;
 	if (declaration === undefined) {
-		const name = unresolvedReaderName(callee(node));
+		const name = unresolvedReaderName(unwrapExpression(node.expression));
 		return name === undefined ? undefined : { shape: `${name}() unresolved`, refused: true };
 	}
 	const shape = numberReaderOf(program, declaration);

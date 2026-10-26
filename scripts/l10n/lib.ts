@@ -1080,19 +1080,23 @@ function possibleValues(rhs: ts.Expression): ts.Expression[] {
 	return [source];
 }
 
-/**
- * One file's module-scope scan: its source, the names tracked as lazy once the file's own bindings closed over the
- * tree-wide inference, and the offending lines so far.
- */
-interface ModuleScan {
+/** What recording an offense needs of a scan: the source its lines are counted in, and the lines found so far. */
+export interface OffenseScan {
 	readonly sourceFile: ts.SourceFile;
-	readonly tracked: LazyL10nNames;
 	readonly offenses: number[];
 }
 
 /** Records the 1-based line `node` starts on. */
-function flagOffense(scan: ModuleScan, node: ts.Node): void {
+export function flagOffense(scan: OffenseScan, node: ts.Node): void {
 	scan.offenses.push(scan.sourceFile.getLineAndCharacterOfPosition(node.getStart(scan.sourceFile)).line + 1);
+}
+
+/**
+ * One file's module-scope scan, with the names tracked as lazy once the file's own bindings closed over the tree-wide
+ * inference.
+ */
+interface ModuleScan extends OffenseScan {
+	readonly tracked: LazyL10nNames;
 }
 
 /**
