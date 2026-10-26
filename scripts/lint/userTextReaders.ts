@@ -24,8 +24,10 @@ import ts from "typescript";
 export interface AllowedRead {
 	/** Relative to the TypeScript root (the config's tsconfigRootDir), forward slashes. */
 	readonly file: string;
+
 	/** The nearest named function around the read; a nameless callback belongs to its holder. */
 	readonly function: string;
+
 	readonly reason: string;
 }
 
@@ -82,6 +84,7 @@ function memberNames(checker: ts.TypeChecker, access: ts.Expression): readonly s
 interface Judged {
 	/** As reported: `.trim()`, `Number.parseInt()`, `unary +`, `binary *=`, `.trim() on an unresolved receiver`. */
 	readonly shape: string;
+
 	readonly refused: boolean;
 }
 

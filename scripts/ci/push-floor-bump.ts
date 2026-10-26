@@ -14,6 +14,7 @@ import { setOutput } from "./githubActions";
 
 /** Only the files sync-vscode-floor.ts owns, so a stray runner edit can never ride along. */
 const FLOOR_FILES = ["package.json", "README.md", "README.zh-cn.md", "README.zh-tw.md", "docs"];
+
 const PUSH_ATTEMPTS = 3;
 
 function env(name: string): string {

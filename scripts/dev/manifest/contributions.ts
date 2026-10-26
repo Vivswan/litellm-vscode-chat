@@ -109,13 +109,16 @@ interface CommentThreadItem<Key extends string = string> {
 
 export interface MenuInputs<Key extends string = string> {
 	readonly commands: Readonly<Record<string, string>>;
+
 	readonly features: Readonly<Record<string, FeatureId | undefined>>;
+
 	readonly scmTitle: readonly Key[];
+
 	readonly commentThreadContext: readonly CommentThreadItem<Key>[];
+
 	readonly commentThreadTitle: readonly CommentThreadItem<Key>[];
-	/**
-	 * Gated commands contributed only so a menu may name them; the palette hides them, they need a thread to act on.
-	 */
+
+	/** Gated commands contributed only so a menu may name them; the palette hides them, they need a thread to act on. */
 	readonly paletteHidden: readonly Key[];
 }
 
@@ -298,6 +301,7 @@ function renderLanguageModelTools(): ContributedTool[] {
 interface Disambiguation {
 	/** Machine-readable and stable, so deliberately not localized. */
 	readonly category: string;
+
 	readonly examples: number;
 }
 
@@ -512,8 +516,10 @@ type CompletionEvent =
 
 export interface WalkthroughStep {
 	readonly id: string;
+
 	/** The step's markdown, repo-relative; shipped with the extension, so it must exist in the checkout. */
 	readonly media: string;
+
 	readonly completionEvents: readonly CompletionEvent[];
 }
 

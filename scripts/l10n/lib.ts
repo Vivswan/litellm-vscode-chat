@@ -126,15 +126,19 @@ type LazyKind = "helper" | "table";
 /** One binding of a name to localization evidence, before the closure. */
 interface Binding {
 	readonly name: string;
+
 	/**
 	 * A table is an object or array literal walked whole: its thunks run later, exactly like a class's deferred members,
 	 * and reading into it is how a resolver reaches them (`TABLE[key]()`, `TABLE[key].surface()`).
 	 */
 	readonly kind: "function" | "class" | "table" | "alias";
+
 	/** The declaration (default parameters included) contains a direct l10n.t or vscode.l10n.t call. */
 	readonly direct: boolean;
+
 	/** Every bare-identifier call-site name inside the declaration; an alias of a name carries that name here. */
 	readonly callees: ReadonlySet<string>;
+
 	/**
 	 * The root names of the member chains the declaration reads into; an alias of a member chain (`TEXTS.a`, or `a`
 	 * destructured off TEXTS) carries the chain's root here.
@@ -144,8 +148,11 @@ interface Binding {
 
 interface InvocationEvidence {
 	direct: boolean;
+
 	readonly callees: Set<string>;
+
 	readonly reads: Set<string>;
+
 	/** The members read or called on `this`: a constructor's path into the class's own methods. */
 	readonly thisMembers: Set<string>;
 }
@@ -364,10 +371,13 @@ function destructuredNames(target: ts.Node, path: readonly string[] = []): Destr
 interface DestructuringEdges {
 	/** A renamed leaf and the key it selects, by spelling: `{ label: localized }` is `label` under a new name. */
 	readonly aliases: AliasSpecifier[];
+
 	/** A leaf and the name whose member chain it reads into: `{ a } = TEXTS` reads TEXTS exactly as `TEXTS.a` does. */
 	readonly reads: AliasSpecifier[];
+
 	/** A table written in place and every leaf selected out of it, each carrying the whole literal as evidence. */
 	readonly literals: { readonly literal: LiteralTable; readonly names: string[] }[];
+
 	/** The members selected off `this`: `const { render: label } = this` reaches render as `this.render` does. */
 	readonly thisMembers: string[];
 }

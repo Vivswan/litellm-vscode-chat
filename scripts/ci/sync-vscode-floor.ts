@@ -62,6 +62,7 @@ if (Number(pin[2]) <= Number(floorMatch[3])) {
 
 // Validate every file before writing any, so a failure never leaves the tree half-raised.
 const raised = `${pin[1]}.${pin[2]}.0`;
+
 const manifestSource = readFileSync(manifestPath, "utf8");
 const enginesLine = `"vscode": "^${floor}"`;
 if (manifestSource.split(enginesLine).length !== 2) {

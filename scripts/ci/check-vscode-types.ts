@@ -31,6 +31,7 @@ function parseVersion(value: unknown, label: string): readonly [number, number] 
 // Anchored on this script's own location, not the CWD, and resolved like an import, so the check reads the manifest the
 // compiler actually sees.
 const rootManifestPath = path.resolve(__dirname, "../../package.json");
+
 function resolveTypesManifest(): string {
 	let resolved: string;
 	try {

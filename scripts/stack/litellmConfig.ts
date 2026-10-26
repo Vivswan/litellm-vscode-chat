@@ -107,6 +107,7 @@ export function generateConfig(options: GenerateOptions): string {
 export interface GeneratedConfig {
 	/** Absolute path of the generated file. */
 	path: string;
+
 	/**
 	 * A running litellm container never re-reads its config, so a content change means the caller must recreate the
 	 * service for the new config to apply.

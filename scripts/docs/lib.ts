@@ -44,7 +44,9 @@ function beginMarkerCount(content: string): number {
 /** The bounds a number setting's spec declares; a value outside them reads as the default. */
 interface SettingBounds {
 	readonly minimum: number;
+
 	readonly maximum: number;
+
 	/** The documented off switch, taken below the minimum. */
 	readonly offValue?: number | undefined;
 }

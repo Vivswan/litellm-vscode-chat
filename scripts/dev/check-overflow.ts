@@ -26,6 +26,7 @@ const FIXTURE_DIR = path.join(REPO_ROOT, "scripts/dev/renderFixtures");
 const HARNESS = path.join(REPO_ROOT, "scripts/dev/render-dashboard.ts");
 const STYLESHEET = path.join(REPO_ROOT, "src/webview/dashboard/styles/dashboard.css");
 const THEME = path.join(REPO_ROOT, "src/webview/dashboard/styles/theme.css");
+
 /**
  * The trees a class string can live in: the same two theme.css hands Tailwind in its @source lines. A scan narrower
  * than the compiler's has a blind spot.

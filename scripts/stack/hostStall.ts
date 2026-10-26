@@ -28,9 +28,13 @@ const MAX_PARTIAL_LINE = 4096;
 /** One per pipe: the decoder rejoins multi-byte glyphs split across chunks, the partial line rejoins text. */
 export class HostStallDetector {
 	private readonly decoder = new StringDecoder("utf8");
+
 	private partial = "";
+
 	private partialStartKnown = true;
+
 	sawMarker = false;
+
 	sawTests = false;
 
 	feed(chunk: Buffer | string): void {

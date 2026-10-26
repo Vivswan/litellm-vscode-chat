@@ -12,11 +12,13 @@ export type Dim = "x" | "y" | "width" | "height";
 interface ExpectedDrift {
 	/** Why the drift stands on today's main, for the reader of this registry. */
 	readonly reason: string;
+
 	/**
 	 * The drifts the marker covers, each as the "<target> <dim>" prefix of a drift line. Any drift OUTSIDE this list
 	 * still fails the pair: a marker that accepted every drift would hide a new defect behind a known one.
 	 */
 	readonly where: readonly string[];
+
 	/**
 	 * The largest magnitude the marker accepts, in px, for every drift it names. Required, because a prefix alone would
 	 * bless a 40px regression in the same place as a known 1px one.
@@ -26,19 +28,25 @@ interface ExpectedDrift {
 
 interface StatePairBase {
 	readonly name: string;
+
 	/** The render fixture (a renderFixtures/ file name) whose page hosts the element. */
 	readonly fixture: string;
+
 	/** Selectors measured before and after the toggle; each must hold every non-intended dimension. */
 	readonly targets: readonly string[];
+
 	/** A selector whose nextElementSibling's top edge is also held: "the row below must not move". */
 	readonly siblingOf?: string;
+
 	/** Steps run before the baseline measurement (open the popover the pair lives in). */
 	readonly setup?: readonly string[];
+
 	/**
 	 * A viewport width forced onto the pair's fixture, for a tier the fixture's own width never reaches; the restVerify
 	 * should then also prove the tier engaged, since a platform minimum can hand back something wider.
 	 */
 	readonly viewportWidth?: number;
+
 	/**
 	 * An inline width forced onto .pane itself, for a tier below what any viewport can reach (the platform's window
 	 * minimum is ~500px on macOS, and the armed cover's floor tier lives under a 400px pane). The pane's container
@@ -46,14 +54,18 @@ interface StatePairBase {
 	 * prove it engaged.
 	 */
 	readonly paneWidth?: number;
+
 	readonly toggle: readonly string[];
+
 	/**
 	 * A page expression that must be truthy at the BASELINE, proving the rest state is really at rest: a fixture that
 	 * one day starts in the toggled state would otherwise compare the state against itself.
 	 */
 	readonly restVerify: string;
+
 	/** The mirror guard after the toggle: truthy proves the state was actually induced. */
 	readonly verify: string;
+
 	/**
 	 * Dimensions a NAMED target is allowed to change, with the reason in the entry's comment. Per target on purpose: an
 	 * exemption one element earns must not silently cover its neighbours.
@@ -76,6 +88,7 @@ export type StatePair = StatePairBase &
 				 * would pass on one platform's fonts and fail on another's, so it fails here on every platform instead.
 				 */
 				readonly metricProbe?: readonly string[];
+
 				readonly expectedDrift?: undefined;
 		  }
 		| {
@@ -85,6 +98,7 @@ export type StatePair = StatePairBase &
 				 * same change that fixes the defect - a marker whose drift is gone fails as stale.
 				 */
 				readonly expectedDrift: ExpectedDrift;
+
 				readonly metricProbe?: undefined;
 		  }
 	);
@@ -1161,9 +1175,12 @@ export const STATE_PAIRS: readonly StatePair[] = [
 
 export interface WidthSurface {
 	readonly name: string;
+
 	readonly fixture: string;
+
 	/** The surface's structural container, whose right edge is the claim. */
 	readonly selector: string;
+
 	/** How close to the pane's content edge the container must reach, in px. */
 	readonly within?: number;
 }

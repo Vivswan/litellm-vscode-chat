@@ -8,6 +8,7 @@ import ts from "typescript";
 interface VscodeL10nRuleOptions {
 	/** Whether this file may read `vscode.l10n.bundle` (the two bundle-feeding sites). */
 	readonly allowBundleReads: boolean;
+
 	/**
 	 * Whether this file may reference a vscode-module binding as a plain value
 	 * (the Reflect constructor-probe files). Member access rules still apply;

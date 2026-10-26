@@ -323,9 +323,13 @@ function widthStep(surface: WidthSurface): string {
 
 interface SweepCase {
 	readonly name: string;
+
 	readonly fixture: string;
+
 	readonly steps: readonly string[];
+
 	readonly viewportWidth?: number;
+
 	/** Whether the case carries an expectedDrift marker (its probe then never exits green). */
 	readonly expectsDrift: boolean;
 }

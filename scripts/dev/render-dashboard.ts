@@ -65,36 +65,45 @@ import {
 /** What a fixture module default-exports; `messages` are ExtensionToWebviewMessage objects. */
 export interface RenderFixture {
 	readonly messages: readonly unknown[];
+
 	readonly steps?: readonly string[];
+
 	readonly viewport?: { readonly width: number; readonly height: number };
+
 	/**
 	 * Required when the fixture's subject IS the viewport edge - anything measuring against it or flipping away from
 	 * it - because a full-page capture expands the viewport until the edge is not there.
 	 */
 	readonly clipViewport?: boolean;
+
 	readonly settleMs?: number;
+
 	/**
 	 * For a fixture whose state was MEASURED when it was built: a chip popover picks its side by measuring its anchor
 	 * at open time, so narrowing afterwards leaves it on a side the component would never have chosen. Narrow
 	 * behaviour belongs to a fixture opened AT the narrow width.
 	 */
 	readonly measuredAtOwnWidth?: boolean;
+
 	/**
 	 * The two high-contrast kinds raise prefers-contrast; "forced-colors" adds forced-colors: active on top of HC dark,
 	 * the way an OS high-contrast mode overrides author colors.
 	 */
 	readonly hostTheme?: HostTheme;
+
 	/**
 	 * Canned answers for posted requests: a request whose `method` matches a key gets the mapped envelope template
 	 * dispatched back with its `id` and `method` filled in (the correlation the real extension performs).
 	 */
 	readonly respond?: Readonly<Record<string, unknown>>;
+
 	/**
 	 * Launch Chrome without --hide-scrollbars, as the --show-scrollbars flag does: the webview's classic scrollbars
 	 * take space and paint bands the default render can never show. Fixture-level so a scrollbar-state guard keeps its
 	 * bars when the sweeps run it without flags.
 	 */
 	readonly showScrollbars?: boolean;
+
 	/**
 	 * The fixture's width sits under the shell's min-width floor, where the page scrolls sideways BY DESIGN. The
 	 * harness inverts its overflow assertion: the sideways scroll must be PRESENT (it is the state such a fixture

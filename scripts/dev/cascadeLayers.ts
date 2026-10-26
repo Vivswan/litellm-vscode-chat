@@ -7,6 +7,7 @@ import { type Rule, transform } from "lightningcss";
 
 /** A plain sheet's layer ranks above Tailwind's tokens and the hand-written reset, and below the utility classes. */
 const FLOORS = ["theme", "base"] as const;
+
 const CEILING = "utilities";
 
 /** One compiled sheet of the bundle, named by the source file it was compiled from. */

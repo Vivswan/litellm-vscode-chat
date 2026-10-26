@@ -12,6 +12,7 @@ import { RuntimeImportGraph, testFilesUnder } from "../../src/test/runtimeImport
 export interface BunTestSelection {
 	/** Repo-relative posix paths with a ./ prefix: `bun test` reads a bare positional as a substring filter, ./ as a path. */
 	readonly files: readonly string[];
+
 	/** One line for the developer: how many suites run and why. */
 	readonly summary: string;
 }

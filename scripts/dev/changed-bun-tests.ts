@@ -8,12 +8,14 @@ import * as path from "node:path";
 import { selectBunTests } from "./changedBunTests";
 
 const repoRoot = path.resolve(__dirname, "..", "..");
+
 // --no-renames lists a move as its old and new path, so the suites importing either side run.
 const diff = spawnSync("git", ["diff", "--cached", "--name-only", "-z", "--no-renames"], {
 	cwd: repoRoot,
 	encoding: "utf8",
 	stdio: ["ignore", "pipe", "pipe"],
 });
+
 if (diff.status !== 0) {
 	throw new Error(`git diff --cached failed: ${diff.error?.message ?? diff.stderr.trim()}`);
 }

@@ -22,6 +22,7 @@ const production = process.argv.includes("--production");
  * built without a define leaves the identifier bare, a ReferenceError at module load rather than a stale link.
  */
 const manifest = JSON.parse(await fs.readFile("package.json", "utf8")) as { repository?: { url?: unknown } };
+
 if (typeof manifest.repository?.url !== "string") {
 	throw new Error("package.json repository.url must be a string: the GitHub links are built from it");
 }

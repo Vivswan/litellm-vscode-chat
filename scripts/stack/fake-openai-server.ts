@@ -38,6 +38,7 @@ import {
 
 const PORT = Number(process.env.PORT || FAKE_BACKEND_PORT);
 const MAX_CUSTOM_SCENARIO_BYTES = 1024 * 1024;
+
 /** The dev launcher sets this: every chat request and response body lands in the container log. */
 const VERBOSE = process.env.FAKE_VERBOSE === "1";
 

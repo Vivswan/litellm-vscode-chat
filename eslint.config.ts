@@ -9,6 +9,7 @@ import { type AllowedRead, userTextReaders } from "./scripts/lint/userTextReader
  * that judge a call by the declaration it resolves to, and the restricted-syntax rules, which need AST selectors.
  */
 const litellm = { rules: { "output-channel-writes": outputChannelWrites, "user-text-readers": userTextReaders } };
+
 const promiseRules = {
 	"@typescript-eslint/no-floating-promises": ["error", { checkThenables: true }],
 	"@typescript-eslint/no-misused-promises": "error",

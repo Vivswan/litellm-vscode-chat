@@ -15,19 +15,25 @@ import type { FakeModelAlias } from "../../src/test/fakeStack/models";
 export interface DemoUsageKeySpec {
 	/** The literal bearer token; /key/generate accepts a caller-chosen value. */
 	readonly key: string;
+
 	/** key_alias: how the key shows up in LiteLLM's own bookkeeping. */
 	readonly alias: string;
+
 	/** user_id: gives /user/daily/activity a user to aggregate under. */
 	readonly userId: string;
+
 	/** The servers-setting entry label the dev seed declares for this key. */
 	readonly label: string;
+
 	/** The spend fraction the KEY's max_budget is pinned to produce (spend / budget). */
 	readonly keyBudgetRatio: number;
+
 	/**
 	 * When set, the seeded entry carries a manual `budget` pinned to this fraction instead: the entry-over-key override
 	 * demo.
 	 */
 	readonly entryBudgetRatio?: number;
+
 	/**
 	 * The fake model the demo completions run against (pricing varies the spend); catalog-typed, so a rename fails
 	 * typecheck.
@@ -68,30 +74,40 @@ export const DEMO_USAGE_KEYS: readonly DemoUsageKeySpec[] = [
 /** One seeded key's measured outcome; dev.ts turns these into seed entries. */
 export interface SeededDemoUsage {
 	readonly spec: DemoUsageKeySpec;
+
 	/** The key's accumulated spend in USD after the flush (all runs, not just this one). */
 	readonly spend: number;
+
 	/** The max_budget the key was pinned to (spend / keyBudgetRatio). */
 	readonly keyBudget: number;
+
 	/** The entry-level budget for the seed (spend / entryBudgetRatio), when the spec asks for one. */
 	readonly entryBudget?: number;
 }
 
 /** While chats fire, budgets sit at a ceiling no demo spend reaches, so a rerun's over-budget key accepts them. */
 const UNBLOCK_BUDGET_USD = 1_000_000;
+
 /** The spend-log flush is async (~10s); poll /key/info until the new spend lands. */
 const FLUSH_TIMEOUT_MS = 120_000;
+
 const FLUSH_POLL_MS = 2_000;
+
 /**
  * Consecutive equal readings after the first rise before a key counts as flushed: LiteLLM's batch writer lands queued
  * spend roughly every 10s, so the stability window must exceed one batch interval - settling on the first rise could
  * measure a partial batch and pin the budgets off-target.
  */
 const FLUSH_STABLE_POLLS = 6;
+
 const ADMIN_TIMEOUT_MS = 30_000;
+
 /** Whole-call bound on one demo completion (a few thousand streamed words). */
 const CHAT_TIMEOUT_MS = 120_000;
+
 /** How long a standalone run waits for the proxy; the dev launcher's stack start already waited. */
 const READY_TIMEOUT_MS = 60_000;
+
 const READY_POLL_MS = 1_000;
 
 function log(message: string): void {

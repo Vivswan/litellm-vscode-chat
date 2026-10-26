@@ -108,6 +108,7 @@ const selected = selectLabels();
 // The suite must agree with docker-compose on ports and key, so it resolves them with the same ${VAR:-fallback}
 // semantics compose uses.
 const envFile = readEnvFile();
+
 const setting = (key: string, fallback: string): string => composeSetting(key, fallback, envFile);
 
 const litellmPort = setting("LITELLM_PORT", STACK_DEFAULTS.LITELLM_PORT);
@@ -118,6 +119,7 @@ const fakeUrl = `http://localhost:${fakePort}`;
 
 //   the resolution is memoized -> every compose call below reuses this same runtime
 const composeDisplay = resolveComposeCommand().join(" ");
+
 const run = (command: string, env: Record<string, string> = {}): void => {
 	execSync(command, { stdio: "inherit", env: { ...process.env, ...env } });
 };
@@ -165,6 +167,7 @@ const runLeg = async (label: DockerTestLabel, env: Record<string, string>): Prom
 		throw Object.assign(new Error(`${argv.join(" ")} exited with status ${status}`), { status });
 	}
 };
+
 // Compose goes through the shared no-shell executor (runCompose), so a quoted COMPOSE_CMD behaves identically here and
 // in scripts/stack/compose.ts. A non-zero exit throws with `status`, keeping execSync's error shape for the catch and
 // teardown paths.
