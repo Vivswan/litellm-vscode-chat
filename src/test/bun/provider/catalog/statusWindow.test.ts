@@ -25,6 +25,7 @@ const groupServer: GroupServer = {
 
 // The window stores and returns models opaquely; one branded stand-in is enough.
 const models = [{ id: "test-model" } as PreAttachModelInfo];
+
 const served = { discovered: models, declared: [] };
 const NOTHING_SERVED = { discovered: [], declared: [] };
 

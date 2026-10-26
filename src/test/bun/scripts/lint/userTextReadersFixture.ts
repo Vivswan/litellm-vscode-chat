@@ -10,9 +10,12 @@
  *   untagged                     -> not a lib trim, number read, or coercion at all
  */
 declare const text: string;
+
 declare const maybeText: string | undefined;
+
 // biome-ignore lint/suspicious/noExplicitAny: the unresolved-receiver shape
 declare const loose: any;
+
 // biome-ignore lint/suspicious/noExplicitAny: the mutable unresolved-operand shape
 declare let slack: any;
 declare const mystery: unknown;

@@ -42,13 +42,16 @@ export async function compileDashboard(): Promise<string> {
 
 export interface ForcedColorsBlock {
 	readonly text: string;
+
 	/**
 	 * The at-rule preludes wrapping this block, outermost first: a layered copy of a rule written to overrule a
 	 * utility loses to that utility, and a block nested in a width query stops existing at every other width.
 	 */
 	readonly context: readonly string[];
+
 	/** Outside every layer, which is what it takes to beat a utility. */
 	readonly unlayered: boolean;
+
 	/** Inside no width, container, or feature query, so it applies everywhere. */
 	readonly unconditional: boolean;
 }
@@ -56,10 +59,15 @@ export interface ForcedColorsBlock {
 export interface StyleRule {
 	/** The rule's whole selector list, as the printer wrote it. */
 	readonly selectorList: string;
+
 	readonly declarations: string;
+
 	readonly context: readonly string[];
+
 	readonly unlayered: boolean;
+
 	readonly unconditional: boolean;
+
 	/**
 	 * Where the rule's prelude starts in the compiled sheet. Two rules for one selector at equal specificity are
 	 * settled by this alone (the dashboard sheet is one flat layer), so an order assertion needs the offset.

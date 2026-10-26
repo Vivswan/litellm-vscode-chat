@@ -50,6 +50,7 @@ const capabilityFieldEntry: fc.Arbitrary<[string, unknown]> = fc.oneof(
 	fc.tuple(fc.constant("_declare"), fc.boolean()),
 	fc.tuple(fc.constant("_openrouter_model"), recordKey)
 );
+
 const capabilityRecord = fc.dictionary(
 	recordKey,
 	fc.array(capabilityFieldEntry, { maxLength: 6 }).map((entries) => Object.fromEntries(entries)),
@@ -73,6 +74,7 @@ const finiteNumber = fc.double({ noNaN: true, noDefaultInfinity: true }).map((n)
 const headerValueString = fc.string({ maxLength: 20 }).map((s) => s.replace(/[\r\n]/g, " ").trim());
 
 const headerScalar: fc.Arbitrary<HeaderScalar> = fc.oneof(fc.boolean(), finiteNumber, headerValueString);
+
 // Ordinary prototype: parseHeaderRows always returns one, and the round trip compares prototypes. Names are unique
 // case-insensitively (headerNameKey), the one spelling the host accepts per header.
 const headersRecord = fc
@@ -140,6 +142,7 @@ describe("dashboard/recordDraft round-trip properties", () => {
 // directives, so unknown-key is the only hint either side can emit. The charsets carry no underscore, so an open key
 // can never collide with a consumed or core name.
 const openFieldRecord = fc.dictionary(recordKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 3, noNullPrototype: true });
+
 const validConsumedEntry: fc.Arbitrary<[string, unknown]> = fc.oneof(
 	fc.tuple(
 		fc.constantFrom("input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost"),
@@ -155,6 +158,7 @@ const mixedFieldsRecord: fc.Arbitrary<Record<string, unknown>> = fc
 	.tuple(openFieldRecord, fc.array(validConsumedEntry, { maxLength: 3 }))
 	.map(([open, consumed]) => ({ ...open, ...Object.fromEntries(consumed) }));
 const advisoryRecordMap = fc.dictionary(recordKey, mixedFieldsRecord, { maxKeys: 3, noNullPrototype: true });
+
 /**
  * The evidence side: absent entirely, or a mix of open-shaped keys and consumed names (an observed key is real either
  * way).

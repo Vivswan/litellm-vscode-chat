@@ -26,6 +26,7 @@ const NAME_POOL = ["temperature", "top_p", "seed", "stop", "penalty"] as const;
 /** One parser's answer, reduced to what the grammar owns. */
 interface DirectiveRuling {
 	readonly marked: readonly string[];
+
 	/** The grammar's diagnoses in list order, directive name erased so the three compare. */
 	readonly diagnosed: readonly string[];
 }

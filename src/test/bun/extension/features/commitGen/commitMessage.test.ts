@@ -18,6 +18,7 @@ const REF: CommitModelRef = { server: "alpha", model: "gpt-test" };
 
 /** Upstream vscode.git Status values used by the fakes. */
 const UNTRACKED = 7;
+
 const MODIFIED = 5;
 
 function reader(overrides: { modelRef?: CommitModelRef | undefined; prompt?: string } = {}) {

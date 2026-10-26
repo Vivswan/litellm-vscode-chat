@@ -129,8 +129,10 @@ function familyDeclarations(rules: readonly Block[], family: RegExp): { selector
 
 const ALIGNMENT_FAMILY = /^(?:place-self|align-self|justify-self):/;
 const POSITION_FAMILY = /^position:/;
+
 /** The vertical box offsets and every shorthand that can set them; inset-inline stays horizontal. */
 const INSET_FAMILY = /^(?:inset|inset-block|inset-block-start|inset-block-end|top|bottom):/;
+
 /** `all` resets every family at once, so no cluster-targeting rule may declare it at all. */
 const ALL_SHORTHAND = /^all:/;
 

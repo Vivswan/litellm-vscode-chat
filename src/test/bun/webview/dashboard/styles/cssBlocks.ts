@@ -7,11 +7,16 @@
 /** One brace block of a compiled sheet: what opened it, and what is inside. */
 export interface Block {
 	readonly prelude: string;
+
 	readonly body: string;
+
 	readonly text: string;
+
 	readonly context: readonly string[];
+
 	/** Where the block's prelude starts in the sheet; source order settles equal-specificity arguments. */
 	readonly start: number;
+
 	/** Just past the closing brace; an offset between `start` and `end` lies inside this block. */
 	readonly end: number;
 }

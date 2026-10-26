@@ -17,6 +17,7 @@ import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
 
 /** A deleted hook script leaves nothing to derive a requirement from, so the relied-on hooks are listed here. */
 const REQUIRED_HOOKS = ["pre-commit", "commit-msg"];
+
 const HUSKY_DIR = path.join(REPO_ROOT, ".husky");
 const shimOf = (hook: string): string => path.join(HUSKY_DIR, "_", hook);
 

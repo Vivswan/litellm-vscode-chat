@@ -47,7 +47,9 @@ function resolveRelative(from: string, specifier: string): string | undefined {
 
 interface ValueImport {
 	readonly specifier: string;
+
 	readonly target: string | undefined;
+
 	/** The exported name, `default`, or `*` for a namespace import. */
 	readonly imported: string;
 }
@@ -330,9 +332,12 @@ interface Drive {
 
 interface Audit {
 	readonly problems: string[];
+
 	readonly testFiles: number;
+
 	/** Loops inside tests, whether or not the body sleeps. */
 	readonly loops: number;
+
 	/** Loops whose body drives a sleeper, injected or not. */
 	readonly drives: number;
 }

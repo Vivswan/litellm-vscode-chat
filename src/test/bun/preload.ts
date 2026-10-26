@@ -51,6 +51,7 @@ function isDisclosureSummary(node: Element): boolean {
  * input, select, textarea and anchor elements, so summary is the one gap.
  */
 const tabIndexDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "tabIndex");
+
 if (tabIndexDescriptor?.get !== undefined) {
 	const readTabIndex = tabIndexDescriptor.get;
 	Object.defineProperty(HTMLElement.prototype, "tabIndex", {
@@ -71,6 +72,7 @@ if (tabIndexDescriptor?.get !== undefined) {
  * gap is filled; the CSS answer stays happy-dom's.
  */
 const domCheckVisibility = Element.prototype.checkVisibility;
+
 Element.prototype.checkVisibility = function checkVisibility(this: Element, options?: CheckVisibilityOptions): boolean {
 	if (!domCheckVisibility.call(this, options)) {
 		return false;
@@ -89,6 +91,7 @@ Element.prototype.checkVisibility = function checkVisibility(this: Element, opti
 // defect the suite cannot see. The gate fails the test that emitted one; a test
 // that expects an error must stub console.error itself.
 const reportedErrors: string[] = [];
+
 const originalConsoleError = console.error.bind(console);
 console.error = (...args: unknown[]): void => {
 	reportedErrors.push(args.map(String).join(" "));

@@ -9,8 +9,10 @@ import { HANG_PHASES, type Hang, stalledBody } from "./hangingFetch";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";
 const CONFIG: OAuthConfig = { tokenUrl: TOKEN_URL, clientId: "client-1", clientSecret: "secret-1" };
+
 /** Per attempt, far below any real setting: the clocks under test are the attempt's and the budget's. */
 const ATTEMPT_TIMEOUT_MS = 50;
+
 const BUDGET: TimeoutBudget = { ms: ATTEMPT_TIMEOUT_MS, setting: "discovery.timeout" };
 const noBackoff: BackoffSleep = () => Promise.resolve();
 

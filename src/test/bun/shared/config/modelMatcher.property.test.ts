@@ -16,6 +16,7 @@ const SEED = resolveFuzzSeed();
 // No "*" or "/" so a generated literal can never accidentally spell another key form; the parse-level slash edge cases
 // are pinned in the unit suite.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789._-");
+
 const modelIdArb = fc.string({ unit: idChar, minLength: 1, maxLength: 12 });
 
 type KeyIntent =

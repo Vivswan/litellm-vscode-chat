@@ -34,6 +34,7 @@ const toolName = fc.string({ unit: nameChar, minLength: 1, maxLength: 8 });
 // Plain-text pieces never contain ">", so text regions cannot accidentally assemble a complete control token; complete
 // strippable tokens are generated as noise segments instead.
 const plainPiece = fc.string({ maxLength: 12 }).map((s) => s.replace(/>/g, ""));
+
 const tokenFragmentPiece = fc.constantFrom(
 	"<",
 	"|",
@@ -54,6 +55,7 @@ const textSegment: fc.Arbitrary<Segment> = fc
 
 // Complete tokens the parser strips from visible text.
 const sectionChar = fc.constantFrom(..."abgtXZ049_-");
+
 const sectionName = fc.string({ unit: sectionChar, minLength: 1, maxLength: 8 });
 const noiseSegment: fc.Arbitrary<Segment> = fc
 	.oneof(

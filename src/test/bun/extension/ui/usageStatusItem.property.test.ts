@@ -27,12 +27,18 @@ const POLLING_OFF_WINDOW_MS = NUMBER_SETTING_SPECS["usage.pollingOffFreshnessWin
 
 interface GeneratedServer {
 	readonly keyInfo: UsageEndpointState;
+
 	readonly hasKey: boolean;
+
 	/** spendUpdatedAt as an age in freshness-window units; undefined means never updated. */
 	readonly ageInWindows: number | undefined;
+
 	readonly spend: number | undefined;
+
 	readonly entryBudget: number | undefined;
+
 	readonly keyBudget: number | undefined;
+
 	readonly budgetResetAt: number | undefined;
 }
 

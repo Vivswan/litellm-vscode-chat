@@ -33,9 +33,13 @@ test("the declared order passes: theme, base, components, utilities", () => {
 // specificity.
 const rejected: readonly {
 	readonly name: string;
+
 	readonly order: string;
+
 	readonly sheet: { id: string; css: string };
+
 	readonly named: readonly string[];
+
 	/** Printed ahead of the order statement, where a mention ranks before anything the statement says. */
 	readonly lead?: string;
 }[] = [

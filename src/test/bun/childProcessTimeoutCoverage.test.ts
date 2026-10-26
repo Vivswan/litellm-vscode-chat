@@ -33,27 +33,36 @@ const DEADLINE_NAME = "CHILD_PROCESS_TIMEOUT_MS";
 const EXCEPTIONS: readonly { readonly file: string; readonly subject: string; readonly reason: string }[] = [];
 
 const PARSED_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"]);
+
 /** Relative imports that load data, not code; anything else the parser does not read (a .node addon) fails. */
 const INERT_ASSET_EXTENSIONS = new Set([".json", ".css"]);
+
 /**
  * Modules whose JSX the transpiler compiles against an injected import; those imports are classified like written
  * ones.
  */
 const JSX_EXTENSIONS = new Set([".tsx", ".jsx"]);
+
 const CHILD_PROCESS_SPECIFIER = /^(?:node:)?child_process$/;
+
 /** Member names that spawn wherever they appear: Bun.spawn and node:child_process share this vocabulary. */
 const SPAWN_MEMBERS = new Set(["spawn", "spawnSync", "execSync", "execFile", "execFileSync", "fork"]);
+
 /** `exec` only counts in a module that names child_process, since RegExp.prototype.exec is everywhere. */
 const CHILD_PROCESS_ONLY_MEMBERS = new Set(["exec"]);
+
 /** The Bun surface's process-starting members, as `Bun.<name>` and as named exports of "bun". */
 const BUN_SPAWN_EXPORTS = new Set(["spawn", "spawnSync", "$", "openInEditor", "WebView"]);
+
 /**
  * Globals a known-safe module installs whose implementation spawns: happy-dom's synchronous XMLHttpRequest runs the
  * request in a node child, and the asynchronous form shares the constructor, so any use counts.
  */
 const SPAWNING_GLOBALS = new Set(["XMLHttpRequest"]);
+
 /** The only members of `require` the walk follows; `require.call` or `.main.require` would hide a load. */
 const REQUIRE_MEMBERS = new Set(["cache", "resolve"]);
+
 const TEST_NAMES = new Set(["test", "it", "xtest", "xit"]);
 const HOOK_NAMES = new Set(["beforeAll", "beforeEach", "afterAll", "afterEach", "onTestFinished"]);
 
@@ -106,10 +115,13 @@ const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["typescript-eslint", "the parser and config helper; in-process"],
 	["zod", "schema validation"],
 ]);
+
 /** Modules, globals, and members that run source the parser never sees or load modules past the classifier. */
 const DYNAMIC_CODE_MODULES = new Set(["node:vm", "vm"]);
+
 const DYNAMIC_CODE_IDENTIFIERS = new Set(["eval", "Function", "getBuiltinModule", "createRequire", "dlopen"]);
 const PROCESS_LOADER_MEMBERS = new Set(["binding", "_linkedBinding", "dlopen", "getBuiltinModule"]);
+
 /**
  * A computed member of one of these reaches a slot by a name the walk cannot read, whether written as `base[key]` or
  * destructured out with `const { [key]: x } = base`.
@@ -146,9 +158,12 @@ type Binding =
 interface Scope {
 	/** Runs when the module loads (top-level code, a variable initializer) rather than when something calls it. */
 	readonly eager: boolean;
+
 	readonly refs: Set<string>;
+
 	/** Modules a dynamic import, require, or Worker inside this scope loads: every declaration of each counts. */
 	readonly moduleRefs: string[];
+
 	readonly sites: string[];
 }
 
@@ -163,12 +178,19 @@ interface Registration extends Scope {
 
 interface Module {
 	readonly file: string;
+
 	readonly rel: string;
+
 	readonly imports: Map<string, Binding>;
+
 	readonly exports: Map<string, Binding | { readonly kind: "local"; readonly name: string }>;
+
 	readonly exportStars: string[];
+
 	readonly decls: Map<string, Scope[]>;
+
 	readonly registrations: Registration[];
+
 	/** Top-level code: every identifier and site outside any declaration or registration, which runs at load. */
 	readonly moduleScope: Scope;
 }

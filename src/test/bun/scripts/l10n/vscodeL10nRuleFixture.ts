@@ -1,10 +1,15 @@
 /** The one-API rule's known laundering forms, beside the sanctioned forms they imitate. */
 export const VSCODE_L10N_FIXTURES: readonly {
 	readonly name: string;
+
 	readonly source: string;
+
 	readonly flagged: boolean;
+
 	readonly allowBundleReads?: boolean;
+
 	readonly allowVscodeValueUse?: boolean;
+
 	/** Fixture file name; ".tsx" exercises the JSX branch of the walk. */
 	readonly fileName?: string;
 }[] = [

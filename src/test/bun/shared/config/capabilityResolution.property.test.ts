@@ -60,12 +60,14 @@ const CONSUMED_EXTRA_NAMES = Object.keys(CONSUMED_CAPABILITY_FIELDS).filter(
 	(name) => !Object.hasOwn(CAPABILITY_FIELDS, name)
 );
 const OVERRIDE_LEVELS: readonly CapabilityOverrideLevel[] = ["entry", "global", "directive"];
+
 // The directive level is NOT user-set: both catalog paths stay guesses on the wire.
 const USER_SET_LEVELS: readonly CapabilityLevel[] = ["entry", "global", "entry-fallback", "global-fallback"];
 
 // Slash-free so a pre-migration URL key can never collide with a plain key;
 // underscore-free so a random field name can never spell a directive.
 const noSlashChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
+
 const noSlashKey = fc.string({ unit: noSlashChar, minLength: 1, maxLength: 10 });
 
 const scopePool = ["http://a.test", "http://b.test:4000"] as const;
@@ -112,6 +114,7 @@ const fieldValueArb = fc.oneof(
 	{ arbitrary: fc.constantFrom<unknown>(0, 0.000003, -1, 1.5), weight: 2 },
 	{ arbitrary: fc.constantFrom<unknown>([], ["temperature"], [""], "128k", null, { nested: true }), weight: 2 }
 );
+
 const recordKeyArb = fc.oneof(
 	{ arbitrary: fc.constantFrom<string>(...FIELD_NAMES), weight: 5 },
 	{ arbitrary: fc.constantFrom<string>(...CONSUMED_EXTRA_NAMES), weight: 2 },
@@ -120,6 +123,7 @@ const recordKeyArb = fc.oneof(
 	{ arbitrary: fc.constantFrom("toString", "valueOf", "constructor", "hasOwnProperty"), weight: 1 },
 	{ arbitrary: noSlashKey.map((key) => `_${key}`), weight: 1 }
 );
+
 const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 	.tuple(
 		fc.dictionary(recordKeyArb, fieldValueArb, { maxKeys: 5 }),

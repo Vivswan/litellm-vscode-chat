@@ -18,8 +18,10 @@ const OVERLAY_MODULE = "src/provider/transport/authOverlay.ts";
 interface CallSiteRegistration {
 	/** How many applyAuthOverlay calls the file makes. */
 	readonly overlayCalls: number;
+
 	/** How many `.fail(` routings the file carries for them. */
 	readonly failRoutings: number;
+
 	/** Why a file may carry fewer routings than calls. */
 	readonly pairlessBecause?: string;
 }

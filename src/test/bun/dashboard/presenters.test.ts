@@ -20,6 +20,7 @@ import type { FailureCause } from "../../../shared/failureCause";
 
 // Causes as the rows carry them (keys, never text); the pinned lines below are their English renderings.
 const CONNECTION: FailureCause = { kind: "transport", classification: { kind: "connection" } };
+
 const TIMEOUT: FailureCause = { kind: "transport", classification: { kind: "timeout" } };
 const HTTP_404: FailureCause = { kind: "transport", classification: { kind: "http", status: 404 } };
 const UPSERT_FAILED: FailureCause = { kind: "sync", failureClass: "upsertFailed" };

@@ -18,12 +18,18 @@ function change(fsPath: string): Change {
 
 interface FakeRepoParts {
 	head?: Branch | undefined;
+
 	branchBase?: Branch | undefined;
+
 	mergeBase?: string | undefined;
+
 	commits?: Commit[];
+
 	changes?: Change[];
+
 	/** Per-path patch text; a path with no entry throws, standing in for a binary or vanished file. */
 	patches?: Record<string, string>;
+
 	calls?: {
 		log?: { range?: string | undefined };
 		patchPaths?: string[];

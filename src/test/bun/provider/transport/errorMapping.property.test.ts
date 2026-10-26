@@ -15,6 +15,7 @@ import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
+
 /** The host's predicate is vscode.CancellationError, which this tree cannot load; these pins hand the mapper one that never fires. */
 const neverCancelled = (_error: unknown): _error is never => false;
 

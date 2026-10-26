@@ -56,6 +56,7 @@ const REGISTERED_DIRECTIVES: ReadonlySet<string> = new Set([
  * may branch on a directive name.
  */
 const CONFIG_DIR = path.join(REPO_ROOT, "src", "shared", "config");
+
 const SCANNED_SOURCES: readonly string[] = fs
 	.readdirSync(CONFIG_DIR)
 	.filter((name) => name.endsWith(".ts"))

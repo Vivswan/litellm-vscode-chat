@@ -8,6 +8,7 @@ import { DEFAULT_EXPORT_FIXTURES } from "./defaultExportsFixture";
 // The gate fails green, not red, when it goes blind: a default-export shape a selector stops matching is a helper every
 // importer may rename with no signal anywhere, so each fixture pins one shape's verdict under the lint run's selectors.
 const linter = new Linter();
+
 const config: Linter.Config[] = [
 	{
 		files: ["**/*.ts"],

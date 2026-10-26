@@ -18,11 +18,15 @@ const webviewDir = path.join(REPO_ROOT, "src/webview");
 type Disposition =
 	| {
 			readonly kind: "named";
+
 			readonly sheet: "theme" | "dashboard";
+
 			/** The compiled selector of the rule that names the colour. */
 			readonly selector: string;
+
 			/** Its declaration, which has to be inside that same rule. */
 			readonly declaration: string;
+
 			readonly why: string;
 	  }
 	| { readonly kind: "welcome"; readonly why: string }
@@ -31,10 +35,13 @@ type Disposition =
 interface TransparentBorder {
 	/** Path under src/webview/. */
 	readonly file: string;
+
 	/** The matched utility or declaration, verbatim. */
 	readonly text: string;
+
 	/** How many times that exact text appears in that file. */
 	readonly count: number;
+
 	readonly disposition: Disposition;
 }
 
@@ -158,8 +165,10 @@ const TRANSPARENT_BORDERS: readonly TransparentBorder[] = [
  * how an arbitrary Tailwind value spells one.
  */
 const ZERO_ALPHA = String.raw`0(?:\.0+)?%?`;
+
 /** A function's argument list, allowing one level of nested calls. */
 const NESTED_ARGS = String.raw`[^()]*(?:\([^()]*\)[^()]*)*`;
+
 const TRANSPARENT_VALUE = [
 	String.raw`\btransparent\b`,
 	String.raw`#(?:[0-9a-f]{3}0|[0-9a-f]{6}00)\b`,
@@ -180,11 +189,13 @@ const UTILITY_PATTERN = new RegExp(
 	].join("|"),
 	"gi"
 );
+
 /**
  * The lookbehind keeps the property name whole, so a custom property merely ending in "border" is read as the token
  * it is rather than a declaration it is not.
  */
 const DECLARATION_PATTERN = new RegExp(`(?<![a-z-])border[a-z-]*:[^;{}]*(?:${TRANSPARENT_VALUE})[^;{}]*`, "gi");
+
 /**
  * Custom properties that can resolve fully transparent, which is a border wherever a `border-*` utility names
  * one. A `color-mix` into transparent is a partial alpha rather than an off state, so those are excluded below.
@@ -302,10 +313,13 @@ test(
 type FillDisposition =
 	| {
 			readonly kind: "twinned";
+
 			/** The compiled selector of the forced-colors rule that restates the boundary. */
 			readonly selector: string;
+
 			/** Its declaration, which has to be inside that same rule. */
 			readonly declaration: string;
+
 			readonly why: string;
 	  }
 	| { readonly kind: "insideBorder"; readonly why: string }
@@ -317,10 +331,13 @@ interface SeparatingFill {
 	 * fill that moves into a width query is a different claim.
 	 */
 	readonly selector: string;
+
 	/** The compiled background declaration, whitespace-collapsed. */
 	readonly declaration: string;
+
 	/** How many times that selector paints that exact fill. */
 	readonly count: number;
+
 	readonly disposition: FillDisposition;
 }
 
@@ -809,14 +826,19 @@ test("every fill named as twinned compiles to a forced-colors rule restating its
 interface UtilityFill {
 	/** Path under src/webview/. */
 	readonly file: string;
+
 	/** The class list pairing the fill with its twin, verbatim. */
 	readonly text: string;
+
 	/** How many times that exact text appears in that file. */
 	readonly count: number;
+
 	/** The twin utility's compiled selector in the theme sheet. */
 	readonly twinSelector: string;
+
 	/** Its declaration, inside that selector's forced-colors rule. */
 	readonly twinDeclaration: string;
+
 	readonly why: string;
 }
 

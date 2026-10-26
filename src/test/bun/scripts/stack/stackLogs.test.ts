@@ -12,6 +12,7 @@ import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
  * size, and a truncated file would answer the timing question it exists for with a silence.
  */
 const LOG_LINE = `${"x".repeat(1023)}\n`;
+
 const LONG_LINES = 3 * 1024;
 
 const tempDirs: string[] = [];

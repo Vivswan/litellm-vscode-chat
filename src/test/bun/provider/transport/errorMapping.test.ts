@@ -34,6 +34,7 @@ import { assertShows, assertStartsWith } from "../../../pureHelpers";
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 const commitCtx: MapErrorContext = { surface: "commitGeneration", baseUrl: "http://litellm.test", timeoutMs: 5000 };
+
 /** The host's predicate is vscode.CancellationError, which this tree cannot load; these pins hand the mapper one that never fires. */
 const neverCancelled = (_error: unknown): _error is never => false;
 

@@ -16,12 +16,15 @@ import { RequestError } from "../../../../provider/transport/transportErrors";
 import { DISCOVERY_MAX_RETRIES } from "../../../../shared/config/settingSpec";
 
 const BASE_URL = "http://litellm.test";
+
 /** Per attempt, far below any real setting: the clocks under test are the attempt's and the budget's, not the server's. */
 const ATTEMPT_TIMEOUT_MS = 50;
+
 const noBackoff: BackoffSleep = () => Promise.resolve();
 const neverCancelled = (_error: unknown): _error is Error => false;
 
 type Signal = AbortSignal | null | undefined;
+
 /** What undici rejects or errors a body with once the request's signal aborts. */
 const abortError = () => new DOMException("This operation was aborted", "AbortError");
 

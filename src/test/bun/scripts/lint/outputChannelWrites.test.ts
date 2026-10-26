@@ -25,6 +25,7 @@ function taggedLines(source: string, tag: string): number[] {
 // anywhere, so the fixture's refused lines are the one place a missed shape shows. The fixture is linted under its own
 // path, so the type checker resolves vscode's declarations the way the repository's lint run does.
 const source = readFileSync(join(REPO_ROOT, FIXTURE), "utf8");
+
 const ruleTester = new RuleTester({
 	languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: REPO_ROOT } },
 });

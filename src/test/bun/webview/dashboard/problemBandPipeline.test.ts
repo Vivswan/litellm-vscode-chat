@@ -23,10 +23,13 @@ const WEBVIEW_BUNDLE_TREES = ["webview", "dashboard", "shared"] as const;
 // determined concatenation ("row-" + "diagnostic") can evade it - the compiled-CSS leg below still pins what such a
 // class could PAINT, and honest code fails here with the file to fix.
 const BAND_ROOT = /row-diagnostic(?![\w-])/;
+
 const TIER_CLASS = /\btier-(?:error|warn|advisory)\b/;
+
 // What a SOURCE file writes to mint a tier: the literal class, or the pipeline's own template shape - an interpolated
 // `tier-${...}` elsewhere would evade the literal scan.
 const TIER_MINT = /\btier-(?:error|warn|advisory)\b|tier-\$\{/;
+
 const RETIRED = /\bsev-(?:blocking|degraded|advisory)\b|spend-error/;
 
 test("only problemBand.tsx mints the band vocabulary", () => {

@@ -9,6 +9,7 @@ import { REPO_ROOT } from "../../util/repoRoot";
  * file implements is documented at the top of docs/dashboard-visual-language.md.
  */
 const charterPath = path.join(REPO_ROOT, "docs/dashboard-visual-language.md");
+
 const dashboardRoot = path.join(REPO_ROOT, "src/webview/dashboard");
 
 /** First-token file names this grammar recognizes; everything else in backticks is ordinary prose. */

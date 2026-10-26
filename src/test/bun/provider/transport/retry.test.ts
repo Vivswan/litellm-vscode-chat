@@ -7,6 +7,7 @@ import { HANG_PHASES, type Hang, stalledBody } from "./hangingFetch";
 
 /** Per attempt, far below any real setting: the clocks under test are the attempt's and the budget's. */
 const ATTEMPT_TIMEOUT_MS = 50;
+
 const MAX_RETRIES = 2;
 const noBackoff: BackoffSleep = () => Promise.resolve();
 

@@ -94,7 +94,9 @@ export const isTypeOnlyImport = (clause: ts.ImportClause | undefined): boolean =
 
 export interface ImportStatement {
 	readonly statement: ts.ImportDeclaration;
+
 	readonly specifier: string;
+
 	/** `imported` is the exported name, `default`, or `*` for a namespace; a side-effect import has no bindings. */
 	readonly bindings: readonly { readonly local: ts.Identifier; readonly imported: string }[];
 }

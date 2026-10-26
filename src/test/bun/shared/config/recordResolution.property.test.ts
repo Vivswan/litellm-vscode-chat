@@ -26,6 +26,7 @@ const SEED = resolveFuzzSeed();
 // No regex metacharacters, so the naive matcher below can treat the one generated regex form ("/<literal>.*/") with
 // plain startsWith semantics.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789-");
+
 const modelIdArb = fc.string({ unit: idChar, minLength: 1, maxLength: 8 });
 
 const FIELD_POOL = ["temperature", "top_p", "seed", "penalty", "stop"] as const;
@@ -36,13 +37,21 @@ type RawRecord = Record<string, unknown>;
 interface RecordSpec {
 	/** Indexes into the active field pool; deduplicated at build time. */
 	readonly fields: readonly number[];
+
 	readonly inheritable: "absent" | "all" | "list";
+
 	readonly inheritableList: readonly number[];
+
 	readonly marking: "absent" | "all" | "list"; // _force (params) / _fallback (caps)
+
 	readonly markingList: readonly number[];
+
 	readonly inheritFrom: "absent" | "all" | "none" | "list";
+
 	readonly inheritKeys: readonly number[];
+
 	readonly ghostKey: boolean;
+
 	readonly fim: "absent" | "valid" | "invalid";
 }
 
@@ -237,8 +246,11 @@ function naiveChain(id: string, records: Record<string, RawRecord>): string[] {
 
 interface NaiveField {
 	value: unknown;
+
 	sourceKey: string;
+
 	inheritable: boolean;
+
 	marked: boolean; // _force (params) / _fallback (caps)
 }
 

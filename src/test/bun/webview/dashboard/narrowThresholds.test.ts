@@ -107,13 +107,17 @@ function reversalBand(): { readonly low: number; readonly high: number } {
 
 /** `<` and `>=` at the same number partition; anything else is reported. */
 const LEGAL_CSS_QUERY = /^@container pane \(width (?:<|>=) (\d+)px\)$/;
+
 const LEGAL_VARIANT = /^@(?:max|min)-\[(\d+)px\]\/pane:$/;
 
 interface PaneQuery {
 	readonly value: number | undefined;
+
 	readonly source: string;
+
 	/** Which harvest found it, so each can be floored against its own population. */
 	readonly side: "stylesheet" | "component";
+
 	/** What was actually written, for a failure message that can be acted on. */
 	readonly text: string;
 }
@@ -257,6 +261,7 @@ const strongest = (kinds: readonly SubjectKind[]): SubjectKind =>
 
 interface EnclosingRule {
 	readonly selectors: Selector[];
+
 	/** The compiled line that opened the rule, for the report. */
 	readonly line: string;
 }

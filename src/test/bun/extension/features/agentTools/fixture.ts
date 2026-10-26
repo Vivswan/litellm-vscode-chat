@@ -21,8 +21,10 @@ const OAUTH_TOKEN_URL = "http://token.test/oauth";
 export const COPILOT_BASE_URL = "http://copilot.example:4000";
 export const COPILOT_HANDLE = "handle-abc123";
 export const TWIN_HANDLE = "handle-twin456";
+
 /** An external group whose stored URL carries a password; the agent may name it by CRED_DISPLAY_URL too. */
 export const CRED_PASSWORD = "cred-pass-Q7-marker";
+
 export const CRED_BASE_URL = `http://alice:${CRED_PASSWORD}@cred.example:4000`;
 export const CRED_DISPLAY_URL = "http://cred.example:4000";
 export const CRED_HANDLE = "handle-cred789";

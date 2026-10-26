@@ -23,6 +23,7 @@ const SEED = resolveFuzzSeed();
 // A small id pool with shared post-vendor suffixes keeps exact hits, suffix hits, and ambiguous suffixes all common;
 // raw jsonValue keeps the degenerate shapes alive.
 const vendor = fc.constantFrom("openai", "anthropic", "meta-llama", "fireworks");
+
 const suffix = fc.constantFrom("gpt-4o", "llama-3-8b", "claude-3.5", "o1", "a/b");
 const idArb = fc.oneof(
 	fc.tuple(vendor, suffix).map(([v, s]) => `${v}/${s}`),

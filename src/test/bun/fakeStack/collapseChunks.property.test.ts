@@ -21,16 +21,20 @@ import { collapseChunks } from "../../scenarios";
  */
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
+
 // The nightly fuzz raises FUZZ_RUNS by an order of magnitude; the per-test budget scales with it.
 const PROPERTY_TIMEOUT_MS = Math.max(120000, NUM_RUNS * 50);
+
 const SEED = resolveFuzzSeed();
 
 const seedArb = fc.integer({ min: 0, max: 0x7fffffff });
+
 // Kind frequencies mirror the docker fuzzer's weights, matching the stream property suites.
 const kindArb = fc.oneof(
 	{ withCrossShrink: true },
 	...PROPERTY_EVENT_KIND_WEIGHTS.map((entry) => ({ arbitrary: fc.constant(entry.kind), weight: entry.weight }))
 );
+
 const eventSpecArb = fc.tuple(kindArb, seedArb);
 const tailSpecArb = fc.option(fc.tuple(fc.constantFrom(...TAIL_EVENT_KINDS), seedArb), { nil: undefined });
 
