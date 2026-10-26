@@ -29,6 +29,25 @@ const thresholdsArb = fc.array(
 	{ maxLength: 6 }
 );
 
+/**
+ * The thresholds `fraction` newly crosses this step: each armed one at or below it, which it disarms; the ones above
+ * it re-arm. `armed` is the oracle's one flag per threshold, carried across the fraction sequence.
+ */
+function expectedNewlyCrossed(fraction: number, ascending: readonly number[], armed: Map<number, boolean>): number[] {
+	const expected: number[] = [];
+	for (const t of ascending) {
+		if (fraction < t) {
+			armed.set(t, true);
+			continue;
+		}
+		if (armed.get(t) === true) {
+			expected.push(t);
+		}
+		armed.set(t, false);
+	}
+	return expected;
+}
+
 describe("extension/servers/usage threshold-crossing properties", () => {
 	test("crossings are exactly the usable at-or-above thresholds, deduplicated ascending", () => {
 		fc.assert(
@@ -66,24 +85,14 @@ describe("extension/servers/usage threshold-crossing properties", () => {
 				fc.array(fc.double({ min: 0.05, max: 1, noNaN: true }), { minLength: 1, maxLength: 4 }),
 				(fractions, rawThresholds) => {
 					const thresholds = [...new Set(rawThresholds)];
+					const ascending = [...thresholds].sort((a, b) => a - b);
 					// Oracle: one armed flag per threshold, re-armed whenever the fraction sits below it.
 					const armed = new Map<number, boolean>(thresholds.map((t) => [t, true]));
 					let previous: readonly number[] = [];
 					for (const fraction of fractions) {
 						const crossed = crossedThresholds(fraction, thresholds);
 						const newly = newlyCrossedThresholds(previous, crossed);
-						const expected: number[] = [];
-						for (const t of [...thresholds].sort((a, b) => a - b)) {
-							if (fraction >= t) {
-								if (armed.get(t) === true) {
-									expected.push(t);
-								}
-								armed.set(t, false);
-							} else {
-								armed.set(t, true);
-							}
-						}
-						assert.deepStrictEqual([...newly], expected);
+						assert.deepStrictEqual([...newly], expectedNewlyCrossed(fraction, ascending, armed));
 						previous = crossed;
 					}
 				}

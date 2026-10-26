@@ -5,6 +5,7 @@ import {
 	latestCheckedMs,
 	overallStatusText,
 	parseNumberDraft,
+	type ServerOutcomeParts,
 	servedModelsBreakdown,
 	serverOutcomeParts,
 	serverOutcomeText,
@@ -62,6 +63,24 @@ function misconfiguredServer(problems: readonly string[]): DashboardServer {
 		problems,
 		cause: { kind: "misconfiguredEntry" },
 	};
+}
+
+/** How the one-line form attaches the error: a dash after an OK status, a colon after any other, none when absent. */
+function errorSuffix(parts: ServerOutcomeParts): string {
+	if (parts.error === undefined) {
+		return "";
+	}
+	if (parts.status === "OK") {
+		return ` - ${parts.error}`;
+	}
+	return `: ${parts.error}`;
+}
+
+/** The one-line form composed from its parts: the status with its model count, the error, then each notice. */
+function composedOutcomeText(parts: ServerOutcomeParts): string {
+	const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
+	const notice = parts.notice.map((text) => ` - ${text}`).join("");
+	return `${status}${errorSuffix(parts)}${notice}`;
 }
 
 describe("dashboard/presenters renderers", () => {
@@ -419,11 +438,7 @@ describe("dashboard/presenters renderers", () => {
 				}),
 			];
 			for (const server of cases) {
-				const parts = serverOutcomeParts(server);
-				const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
-				const error = parts.error === undefined ? "" : parts.status === "OK" ? ` - ${parts.error}` : `: ${parts.error}`;
-				const notice = parts.notice.map((text) => ` - ${text}`).join("");
-				assert.strictEqual(serverOutcomeText(server), `${status}${error}${notice}`);
+				assert.strictEqual(serverOutcomeText(server), composedOutcomeText(serverOutcomeParts(server)));
 			}
 		});
 	});

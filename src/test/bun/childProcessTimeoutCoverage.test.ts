@@ -181,6 +181,8 @@ interface Registration extends Scope {
 	readonly deadline: ts.Expression | undefined;
 }
 
+type RegistrationKind = Registration["kind"];
+
 /**
  * One parsed file of the tree. `moduleScope` is its top-level code: every identifier and site outside any declaration
  * or registration, which runs at load.
@@ -277,43 +279,44 @@ function resolveRelative(from: string, specifier: string, problems: string[]): s
 const isDynamicLoad = (node: ts.CallExpression): boolean =>
 	node.expression.kind === ts.SyntaxKind.ImportKeyword || baseName(node.expression) === "require";
 
+/** What an import or re-export statement loads at runtime; a type-only form loads nothing. */
+function staticLoadSpecifier(node: ts.ImportDeclaration | ts.ExportDeclaration): string | undefined {
+	if (node.moduleSpecifier === undefined || !ts.isStringLiteralLike(node.moduleSpecifier)) {
+		return undefined;
+	}
+	const typeOnly = ts.isImportDeclaration(node) ? isTypeOnlyImport(node.importClause) : isTypeOnlyExport(node);
+	return typeOnly ? undefined : node.moduleSpecifier.text;
+}
+
+/** The literal module a dynamic import, require, or Worker construction names; undefined when it names none. */
+function dynamicLoadSpecifier(node: ts.Node): string | undefined {
+	if (!(ts.isCallExpression(node) || ts.isNewExpression(node))) {
+		return undefined;
+	}
+	const loads = ts.isCallExpression(node) ? isDynamicLoad(node) : baseName(node.expression) === "Worker";
+	const [first] = node.arguments ?? [];
+	return loads && first !== undefined && ts.isStringLiteralLike(first) ? first.text : undefined;
+}
+
+/** The relative modules a file loads at runtime, statically or dynamically; an unresolvable one is reported. */
 function loadedTargets(sf: ts.SourceFile, problems: string[]): string[] {
 	const file = path.resolve(sf.fileName);
 	const targets: string[] = [];
-	const follow = (specifier: string): void => {
-		if (specifier.startsWith(".")) {
-			const target = resolveRelative(file, specifier, problems);
-			if (target !== undefined) {
-				targets.push(target);
-			}
+	const follow = (specifier: string | undefined): void => {
+		if (specifier === undefined || !specifier.startsWith(".")) {
+			return;
+		}
+		const target = resolveRelative(file, specifier, problems);
+		if (target !== undefined) {
+			targets.push(target);
 		}
 	};
 	const scan = (node: ts.Node): void => {
-		if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
-			if (!isTypeOnlyImport(node.importClause)) {
-				follow(node.moduleSpecifier.text);
-			}
+		if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+			follow(staticLoadSpecifier(node));
 			return;
 		}
-		if (
-			ts.isExportDeclaration(node) &&
-			node.moduleSpecifier !== undefined &&
-			ts.isStringLiteralLike(node.moduleSpecifier)
-		) {
-			if (!isTypeOnlyExport(node)) {
-				follow(node.moduleSpecifier.text);
-			}
-			return;
-		}
-		if (
-			(ts.isCallExpression(node) && isDynamicLoad(node)) ||
-			(ts.isNewExpression(node) && baseName(node.expression) === "Worker")
-		) {
-			const [first] = node.arguments ?? [];
-			if (first !== undefined && ts.isStringLiteralLike(first)) {
-				follow(first.text);
-			}
-		}
+		follow(dynamicLoadSpecifier(node));
 		ts.forEachChild(node, scan);
 	};
 	scan(sf);
@@ -370,204 +373,353 @@ function plainKeys(literal: ts.ObjectLiteralExpression): Set<string> | undefined
 	return keys;
 }
 
-function analyzeModule(sf: ts.SourceFile, context: Context): Module {
-	const { problems, usedSafe, jsxRuntimes } = context;
-	const file = path.resolve(sf.fileName);
-	const module: Module = {
-		file,
-		rel: rel(file),
-		imports: new Map(),
-		exports: new Map(),
-		exportStars: [],
-		decls: new Map(),
-		registrations: [],
-		moduleScope: newScope(true),
+/** Whether a declaration carries the modifier keyword `kind` (`export`, `default`). */
+function hasModifier(node: ts.HasModifiers, kind: ts.SyntaxKind): boolean {
+	return ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) ?? false;
+}
+
+type NamedDeclaration =
+	| ts.FunctionDeclaration
+	| ts.ClassDeclaration
+	| ts.InterfaceDeclaration
+	| ts.TypeAliasDeclaration
+	| ts.EnumDeclaration
+	| ts.ModuleDeclaration;
+
+/** The declaration statements that register under a name of their own. */
+function isNamedDeclaration(node: ts.Node): node is NamedDeclaration {
+	return (
+		ts.isFunctionDeclaration(node) ||
+		ts.isClassDeclaration(node) ||
+		ts.isInterfaceDeclaration(node) ||
+		ts.isTypeAliasDeclaration(node) ||
+		ts.isEnumDeclaration(node) ||
+		ts.isModuleDeclaration(node)
+	);
+}
+
+/**
+ * An object destructuring: the expression it reads from, and each element with the member name it reads, or
+ * undefined for a member the walk cannot name.
+ */
+interface Destructuring {
+	readonly source: ts.Expression;
+	readonly keys: readonly (readonly [ts.Node, string | undefined])[];
+}
+
+/** A binding element and the member it reads; a rest element or a computed name reads one the walk cannot name. */
+function bindingKey(element: ts.BindingElement): readonly [ts.Node, string | undefined] {
+	const key = element.propertyName ?? element.name;
+	return [element, element.dotDotDotToken === undefined && ts.isIdentifier(key) ? key.text : undefined];
+}
+
+/** An assignment target's property and the member it reads; a spread or computed name is one the walk cannot name. */
+function assignedKey(property: ts.ObjectLiteralElementLike): readonly [ts.Node, string | undefined] {
+	const key =
+		ts.isShorthandPropertyAssignment(property) || ts.isPropertyAssignment(property) ? property.name : undefined;
+	return [property, key !== undefined && ts.isIdentifier(key) ? key.text : undefined];
+}
+
+/**
+ * The destructuring a node performs, whether a declaration (`const { [key]: x } = base`) or an assignment
+ * (`({ [key]: x } = base)`); undefined for any other node.
+ */
+function destructuringOf(node: ts.Node): Destructuring | undefined {
+	if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer !== undefined) {
+		return { source: node.initializer, keys: node.name.elements.map(bindingKey) };
+	}
+	if (
+		ts.isBinaryExpression(node) &&
+		node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+		ts.isObjectLiteralExpression(node.left)
+	) {
+		return { source: node.right, keys: node.left.properties.map(assignedKey) };
+	}
+	return undefined;
+}
+
+/** Whether any string literal in the file names child_process, which puts `exec` among the module's spawn names. */
+function mentionsChildProcess(sf: ts.SourceFile): boolean {
+	let found = false;
+	const scan = (node: ts.Node): void => {
+		if (ts.isStringLiteralLike(node) && CHILD_PROCESS_SPECIFIER.test(node.text)) {
+			found = true;
+		}
+		ts.forEachChild(node, scan);
 	};
-	const lineOf = (node: ts.Node): number => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-	const fail = (node: ts.Node, message: string): void => {
-		problems.push(`${module.rel}:${lineOf(node)}: ${message}`);
-	};
-	const cannotRead = (node: ts.Node, what: string): void => {
-		fail(node, `${what} runs or loads code the walk cannot read`);
-	};
-	const admit = (node: ts.Node, specifier: string, name = "*"): boolean => {
+	scan(sf);
+	return found;
+}
+
+/**
+ * One module's walk, two passes over one parse. Pass one learns the names that count as spawn sites or registrations
+ * here, which the scoped walk needs up front: the import table, and the stored aliases of the test runner. Pass two
+ * records declarations, exports, registrations, and every identifier and spawn site under its enclosing scopes. The
+ * node visitors and `visit` are mutually recursive, so `visit` closes their group.
+ */
+class ModuleAnalysis {
+	private readonly sf: ts.SourceFile;
+
+	private readonly file: string;
+
+	private readonly context: Context;
+
+	private readonly module: Module;
+
+	private readonly spawnLocals = new Set([...SPAWN_MEMBERS, ...SPAWNING_GLOBALS]);
+
+	private readonly testLocals = new Set(TEST_NAMES);
+
+	private readonly hookLocals = new Set(HOOK_NAMES);
+
+	private readonly testNamespaces = new Set<string>();
+
+	private readonly spawnImports: { readonly local: string; readonly description: string }[] = [];
+
+	private readonly identifierCallbacks: { readonly node: ts.Node; readonly name: string }[] = [];
+
+	private runnerBindings: ReadonlySet<string> = new Set();
+
+	constructor(sf: ts.SourceFile, context: Context) {
+		this.sf = sf;
+		this.context = context;
+		this.file = path.resolve(sf.fileName);
+		this.module = {
+			file: this.file,
+			rel: rel(this.file),
+			imports: new Map(),
+			exports: new Map(),
+			exportStars: [],
+			decls: new Map(),
+			registrations: [],
+			moduleScope: newScope(true),
+		};
+	}
+
+	/** The 1-based line a node starts on, as the failure messages print it. */
+	private lineOf(node: ts.Node): number {
+		return this.sf.getLineAndCharacterOfPosition(node.getStart(this.sf)).line + 1;
+	}
+
+	private fail(node: ts.Node, message: string): void {
+		this.context.problems.push(`${this.module.rel}:${this.lineOf(node)}: ${message}`);
+	}
+
+	private cannotRead(node: ts.Node, what: string): void {
+		this.fail(node, `${what} runs or loads code the walk cannot read`);
+	}
+
+	/** Whether a load of `name` from `specifier` may be followed: a relative module always, an external one by class. */
+	private admit(node: ts.Node, specifier: string, name = "*"): boolean {
 		if (specifier.startsWith(".")) {
 			return true;
 		}
 		const kind = classifyExternal(specifier, name);
 		if (kind === "dynamic-code") {
-			cannotRead(node, `"${specifier}"`);
+			this.cannotRead(node, `"${specifier}"`);
 			return false;
 		}
 		if (kind === "unclassified") {
-			fail(
+			this.fail(
 				node,
 				`"${specifier}" is neither a known spawner nor in KNOWN_SAFE_MODULES; classify it there with the reason it starts no process`
 			);
 			return false;
 		}
 		if (kind === "safe") {
-			usedSafe.add(specifier);
+			this.context.usedSafe.add(specifier);
 		}
 		return true;
-	};
-	const bindingFor = (specifier: string, name: string): Binding | undefined => {
+	}
+
+	/** The binding an import or re-export of `name` from `specifier` stands for; undefined for an unresolvable one. */
+	private bindingFor(specifier: string, name: string): Binding | undefined {
 		if (!specifier.startsWith(".")) {
 			return { kind: "external", specifier, name };
 		}
-		const target = resolveRelative(file, specifier, problems);
+		const target = resolveRelative(this.file, specifier, this.context.problems);
 		return target === undefined ? undefined : { kind: "internal", target, name };
-	};
-
-	// Pass one: the names that count as spawn sites or registrations in this module, which the scoped walk needs up
-	// front.
-	const spawnLocals = new Set([...SPAWN_MEMBERS, ...SPAWNING_GLOBALS]);
-	const testLocals = new Set(TEST_NAMES);
-	const hookLocals = new Set(HOOK_NAMES);
-	const testNamespaces = new Set<string>();
-	const spawnImports: { readonly local: string; readonly description: string }[] = [];
-	let namesChildProcess = false;
-	for (const { statement, specifier, bindings } of importStatements(sf)) {
-		if (!admit(statement, specifier)) {
-			continue;
-		}
-		const fromBunTest = specifier === "bun:test";
-		for (const { local, imported } of bindings) {
-			const binding = bindingFor(specifier, imported);
-			if (binding !== undefined) {
-				module.imports.set(local.text, binding);
-			}
-			if (spawnsFromExternal(specifier, imported)) {
-				spawnLocals.add(local.text);
-				spawnImports.push({
-					local: local.text,
-					description: `${imported} imported from "${specifier}" at ${module.rel}:${lineOf(local)}`,
-				});
-			}
-			if (fromBunTest && TEST_NAMES.has(imported)) {
-				testLocals.add(local.text);
-			}
-			if (fromBunTest && HOOK_NAMES.has(imported)) {
-				hookLocals.add(local.text);
-			}
-			if (fromBunTest && imported === "*") {
-				testNamespaces.add(local.text);
-			}
-		}
-	}
-	if (JSX_EXTENSIONS.has(path.extname(file))) {
-		for (const runtime of jsxRuntimes) {
-			admit(sf, runtime);
-		}
 	}
 
-	const registrationKind = (callee: ts.Expression): "test" | "hook" | undefined => {
+	/** Whether a name is the runner itself: a namespace import of bun:test, or a test or hook function. */
+	private namesRunner(name: string): boolean {
+		return this.testNamespaces.has(name) || this.testLocals.has(name) || this.hookLocals.has(name);
+	}
+
+	/** What a call registers, read off its callee chain; undefined for a call that registers nothing. */
+	private registrationKind(callee: ts.Expression): RegistrationKind | undefined {
 		const found = calleeRoot(callee);
 		if (found === undefined) {
 			return undefined;
 		}
-		const name = testNamespaces.has(found.root.text) ? found.member : found.root.text;
+		const viaNamespace = this.testNamespaces.has(found.root.text);
+		const name = viaNamespace ? found.member : found.root.text;
 		if (name === undefined) {
 			return undefined;
 		}
-		if (testLocals.has(name) || (testNamespaces.has(found.root.text) && TEST_NAMES.has(name))) {
+		if (this.testLocals.has(name) || (viaNamespace && TEST_NAMES.has(name))) {
 			return "test";
 		}
-		if (hookLocals.has(name) || (testNamespaces.has(found.root.text) && HOOK_NAMES.has(name))) {
+		if (this.hookLocals.has(name) || (viaNamespace && HOOK_NAMES.has(name))) {
 			return "hook";
 		}
 		return undefined;
-	};
-	// A stored alias of a registration function (`const t = test`, `const each = test.each(rows)`) registers under its
-	// own name; found to a fixpoint so an alias of an alias counts too.
-	for (let grew = true, first = true; grew; first = false) {
-		grew = false;
-		const scanAliases = (node: ts.Node): void => {
-			if (first && ts.isStringLiteralLike(node) && CHILD_PROCESS_SPECIFIER.test(node.text)) {
-				namesChildProcess = true;
-			}
-			if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
-				const found = calleeRoot(node.initializer);
-				const fromRunner =
-					found !== undefined &&
-					(testNamespaces.has(found.root.text) || testLocals.has(found.root.text) || hookLocals.has(found.root.text));
-				if (ts.isIdentifier(node.name)) {
-					const kind = registrationKind(node.initializer);
-					const bucket = kind === "test" ? testLocals : kind === "hook" ? hookLocals : undefined;
-					if (bucket !== undefined && !bucket.has(node.name.text)) {
-						bucket.add(node.name.text);
-						grew = true;
-					} else if (fromRunner && kind === undefined && !testNamespaces.has(node.name.text)) {
-						testNamespaces.add(node.name.text);
-						grew = true;
-					}
-				} else {
-					if (fromRunner) {
-						fail(node, "destructuring the test runner is not followed");
-					}
-				}
-			}
-			ts.forEachChild(node, scanAliases);
-		};
-		scanAliases(sf);
 	}
-	if (namesChildProcess) {
-		for (const name of CHILD_PROCESS_ONLY_MEMBERS) {
-			spawnLocals.add(name);
+
+	/** The name set a registration kind's aliases join; undefined for a call that registers nothing. */
+	private localsFor(kind: RegistrationKind | undefined): Set<string> | undefined {
+		if (kind === "test") {
+			return this.testLocals;
+		}
+		if (kind === "hook") {
+			return this.hookLocals;
+		}
+		return undefined;
+	}
+
+	/** One imported binding, into the import table and into the spawn, test, hook, or namespace names it stands for. */
+	private noteImport(specifier: string, local: ts.Identifier, imported: string): void {
+		const binding = this.bindingFor(specifier, imported);
+		if (binding !== undefined) {
+			this.module.imports.set(local.text, binding);
+		}
+		if (spawnsFromExternal(specifier, imported)) {
+			this.spawnLocals.add(local.text);
+			this.spawnImports.push({
+				local: local.text,
+				description: `${imported} imported from "${specifier}" at ${this.module.rel}:${this.lineOf(local)}`,
+			});
+		}
+		if (specifier !== "bun:test") {
+			return;
+		}
+		if (TEST_NAMES.has(imported)) {
+			this.testLocals.add(local.text);
+		}
+		if (HOOK_NAMES.has(imported)) {
+			this.hookLocals.add(local.text);
+		}
+		if (imported === "*") {
+			this.testNamespaces.add(local.text);
 		}
 	}
 
-	// Pass two: declarations, exports, registrations, and every identifier and spawn site under its enclosing scopes.
-	const identifierCallbacks: { readonly node: ts.Node; readonly name: string }[] = [];
-	const addDecl = (name: string, scope: Scope): void => {
-		const existing = module.decls.get(name);
+	/** Pass one: every admitted import's bindings, and the JSX runtime a .tsx module loads without writing it. */
+	private readImports(): void {
+		for (const { statement, specifier, bindings } of importStatements(this.sf)) {
+			if (!this.admit(statement, specifier)) {
+				continue;
+			}
+			for (const { local, imported } of bindings) {
+				this.noteImport(specifier, local, imported);
+			}
+		}
+		if (JSX_EXTENSIONS.has(path.extname(this.file))) {
+			for (const runtime of this.context.jsxRuntimes) {
+				this.admit(this.sf, runtime);
+			}
+		}
+	}
+
+	/** Records a stored alias of a registration function or of the runner; true when it taught the walk a new name. */
+	private noteAlias(node: ts.VariableDeclaration, initializer: ts.Expression): boolean {
+		const found = calleeRoot(initializer);
+		const fromRunner = found !== undefined && this.namesRunner(found.root.text);
+		if (!ts.isIdentifier(node.name)) {
+			if (fromRunner) {
+				this.fail(node, "destructuring the test runner is not followed");
+			}
+			return false;
+		}
+		const name = node.name.text;
+		const locals = this.localsFor(this.registrationKind(initializer));
+		if (locals !== undefined) {
+			if (locals.has(name)) {
+				return false;
+			}
+			locals.add(name);
+			return true;
+		}
+		if (fromRunner && !this.testNamespaces.has(name)) {
+			this.testNamespaces.add(name);
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Pass one, continued: a stored alias of a registration function (`const t = test`, `const each = test.each(rows)`)
+	 * registers under its own name; found to a fixpoint so an alias of an alias counts too.
+	 */
+	private collectAliases(): void {
+		for (let grew = true; grew; ) {
+			grew = false;
+			const scan = (node: ts.Node): void => {
+				if (
+					ts.isVariableDeclaration(node) &&
+					node.initializer !== undefined &&
+					this.noteAlias(node, node.initializer)
+				) {
+					grew = true;
+				}
+				ts.forEachChild(node, scan);
+			};
+			scan(this.sf);
+		}
+	}
+
+	private addDecl(name: string, scope: Scope): void {
+		const existing = this.module.decls.get(name);
 		if (existing === undefined) {
-			module.decls.set(name, [scope]);
+			this.module.decls.set(name, [scope]);
 		} else {
 			existing.push(scope);
 		}
-	};
-	// A barrel around the test runner would register tests under a name this walk does not know.
-	const runnerBindings = new Set([...testLocals, ...hookLocals, ...testNamespaces]);
-	const exportLocal = (node: ts.Node, name: string, exportedAs: string = name): void => {
-		if (runnerBindings.has(name)) {
-			fail(node, `exporting "${name}" of bun:test is not followed`);
+	}
+
+	/**
+	 * A local exported under `exportedAs`. A barrel around the test runner would register tests under a name this walk
+	 * does not know, so exporting a runner binding is refused.
+	 */
+	private exportLocal(node: ts.Node, name: string, exportedAs: string = name): void {
+		if (this.runnerBindings.has(name)) {
+			this.fail(node, `exporting "${name}" of bun:test is not followed`);
 			return;
 		}
-		module.exports.set(exportedAs, { kind: "local", name });
-	};
-	// An imported spawn is a spawning declaration under its local name, so `export { run }` of an aliased import and
-	// every other path that resolves the name lands on a site.
-	for (const { local, description } of spawnImports) {
-		const scope = newScope();
-		scope.sites.push(description);
-		addDecl(local, scope);
+		this.module.exports.set(exportedAs, { kind: "local", name });
 	}
-	const hasModifier = (node: ts.HasModifiers, kind: ts.SyntaxKind): boolean =>
-		ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) ?? false;
-	const enclosing = (scopes: readonly Scope[]): readonly Scope[] =>
-		scopes.length === 0 ? [module.moduleScope] : scopes;
-	const site = (scopes: readonly Scope[], description: string): void => {
-		for (const scope of enclosing(scopes)) {
+
+	/** The scopes a node sits in: the ones given, or the module scope at the top level. */
+	private enclosing(scopes: readonly Scope[]): readonly Scope[] {
+		return scopes.length === 0 ? [this.module.moduleScope] : scopes;
+	}
+
+	private site(scopes: readonly Scope[], description: string): void {
+		for (const scope of this.enclosing(scopes)) {
 			scope.sites.push(description);
 		}
-	};
-	const load = (scopes: readonly Scope[], target: string): void => {
-		for (const scope of enclosing(scopes)) {
+	}
+
+	private load(scopes: readonly Scope[], target: string): void {
+		for (const scope of this.enclosing(scopes)) {
 			scope.moduleRefs.push(target);
 		}
-	};
-	// Only a declaration outside every other declaration and registration gets a name of its own: a nested one flows
-	// its references and sites into the scope enclosing it, so a local in one function cannot alias a local in another.
-	// Not named `declare`: bun 1.3.x's transpiler reads a statement that begins with that contextual keyword as an
-	// ambient declaration and drops the whole call, which silently dropped every function, class, interface, type,
-	// enum, and namespace registration on CI; the top-level declaration control in audit() catches a recurrence.
-	//
-	//   A declaration's own name -> defines, it does not use
-	const registerDeclaration = (node: ts.HasModifiers & { readonly name?: ts.Node }, scopes: readonly Scope[]): void => {
+	}
+
+	private visitChildren(node: ts.Node, scopes: readonly Scope[]): void {
+		ts.forEachChild(node, (child) => this.visit(child, scopes));
+	}
+
+	/**
+	 * Only a declaration outside every other declaration and registration gets a name of its own: a nested one flows
+	 * its references and sites into the scope enclosing it, so a local in one function cannot alias a local in another.
+	 *
+	 *   A declaration's own name -> defines, it does not use
+	 */
+	private registerDeclaration(node: NamedDeclaration, scopes: readonly Scope[]): void {
 		const body = (child: ts.Node, inner: readonly Scope[]): void => {
 			if (child !== node.name) {
-				visit(child, inner);
+				this.visit(child, inner);
 			}
 		};
 		if (scopes.length > 0) {
@@ -576,342 +728,448 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 		}
 		const scope = newScope(ts.isEnumDeclaration(node) || ts.isModuleDeclaration(node));
 		const name = node.name !== undefined && ts.isIdentifier(node.name) ? node.name.text : "default";
-		addDecl(name, scope);
+		this.addDecl(name, scope);
 		if (hasModifier(node, ts.SyntaxKind.ExportKeyword)) {
-			exportLocal(node, name, hasModifier(node, ts.SyntaxKind.DefaultKeyword) ? "default" : name);
+			this.exportLocal(node, name, hasModifier(node, ts.SyntaxKind.DefaultKeyword) ? "default" : name);
 		}
 		if (ts.isClassDeclaration(node)) {
 			const atDefinition = newScope(true);
-			addDecl(name, atDefinition);
+			this.addDecl(name, atDefinition);
 			ts.forEachChild(node, (child) => body(child, [...scopes, runsAtDefinition(child) ? atDefinition : scope]));
 			return;
 		}
 		ts.forEachChild(node, (child) => body(child, [...scopes, scope]));
-	};
-	const visit = (node: ts.Node, scopes: readonly Scope[]): void => {
+	}
+
+	/** `export * from`: a relative target joins the module's star list; anything else cannot be followed. */
+	private exportStar(node: ts.ExportDeclaration, specifier: string | undefined): void {
+		if (specifier === undefined) {
+			this.fail(node, "export declaration without clause or specifier");
+			return;
+		}
+		if (!specifier.startsWith(".")) {
+			this.fail(node, `export * from a non-relative module "${specifier}" cannot be followed`);
+			return;
+		}
+		const target = resolveRelative(this.file, specifier, this.context.problems);
+		if (target !== undefined) {
+			this.module.exportStars.push(target);
+		}
+	}
+
+	/** One re-exported name: a local export without a specifier, a spawn site for a spawner, a binding otherwise. */
+	private reexport(
+		node: ts.ExportDeclaration,
+		specifier: string | undefined,
+		exportedAs: string,
+		imported: string
+	): void {
+		if (specifier === "bun:test") {
+			this.fail(node, `re-exporting "${imported}" of bun:test is not followed`);
+			return;
+		}
+		if (specifier === undefined) {
+			this.exportLocal(node, imported, exportedAs);
+			return;
+		}
+		if (!this.admit(node, specifier, imported)) {
+			return;
+		}
+		if (spawnsFromExternal(specifier, imported)) {
+			const scope = newScope();
+			scope.sites.push(`${imported} re-exported from "${specifier}" at ${this.module.rel}:${this.lineOf(node)}`);
+			this.addDecl(exportedAs, scope);
+			this.exportLocal(node, exportedAs);
+			return;
+		}
+		const binding = this.bindingFor(specifier, imported);
+		if (binding !== undefined) {
+			this.module.exports.set(exportedAs, binding);
+		}
+	}
+
+	/** An export declaration into the export table: a star, a namespace re-export, or each named element. */
+	private visitExport(node: ts.ExportDeclaration): void {
+		if (isTypeOnlyExport(node)) {
+			return;
+		}
+		const specifier =
+			node.moduleSpecifier !== undefined && ts.isStringLiteralLike(node.moduleSpecifier)
+				? node.moduleSpecifier.text
+				: undefined;
+		const clause = node.exportClause;
+		if (clause === undefined) {
+			this.exportStar(node, specifier);
+			return;
+		}
+		if (ts.isNamespaceExport(clause)) {
+			if (specifier === undefined) {
+				this.fail(node, "namespace export without a specifier");
+			} else {
+				this.reexport(node, specifier, clause.name.text, "*");
+			}
+			return;
+		}
+		for (const element of clause.elements) {
+			if (!element.isTypeOnly) {
+				this.reexport(node, specifier, element.name.text, (element.propertyName ?? element.name).text);
+			}
+		}
+	}
+
+	/**
+	 * A default export runs at load. One that mentions the runner is refused, since it could register tests under a
+	 * name this walk does not know.
+	 */
+	private visitExportAssignment(node: ts.ExportAssignment, scopes: readonly Scope[]): void {
+		if (scopes.length > 0) {
+			this.fail(node, "export assignment inside a declaration");
+			return;
+		}
+		const scope = newScope(true);
+		this.addDecl("default", scope);
+		this.exportLocal(node, "default");
+		this.visit(node.expression, [...scopes, scope]);
+		for (const name of scope.refs) {
+			if (this.runnerBindings.has(name)) {
+				this.fail(node, `default export mentions "${name}" of bun:test, which is not followed`);
+			}
+		}
+	}
+
+	/**
+	 * Destructuring reads members like a member access does: a loader member, a computed key, or a rest element
+	 * pulled out of a guarded base fails the same way, and a banned base pulled out of globalThis is that base
+	 * stored under another name. (`require` never reaches here: as an initializer it is already a stored `require`.)
+	 */
+	private checkDestructuring({ source, keys }: Destructuring): void {
+		const base = baseName(source);
+		const guarded = base !== undefined && COMPUTED_MEMBER_BANNED_BASES.has(base);
+		const fromProcess = namesProcess(source);
+		if (!guarded && !fromProcess) {
+			return;
+		}
+		for (const [element, key] of keys) {
+			if (key === undefined) {
+				this.cannotRead(element, `a computed member of ${base ?? "process"}`);
+			} else if (fromProcess && PROCESS_LOADER_MEMBERS.has(key)) {
+				this.cannotRead(element, `process.${key}`);
+			} else if (base === "globalThis" && COMPUTED_MEMBER_BANNED_BASES.has(key)) {
+				this.cannotRead(element, `${key} used other than as a member base or direct call`);
+			}
+		}
+	}
+
+	/**
+	 * One top-level variable: a scope of its own, eager unless its initializer is a function, and exported under each
+	 * of its names when its statement is.
+	 */
+	private declareVariable(declaration: ts.VariableDeclaration, exportedBy: ts.VariableStatement | undefined): void {
+		const scope = newScope(!isDeferred(declaration.initializer));
+		for (const name of bindingNames(declaration.name)) {
+			this.addDecl(name, scope);
+			if (exportedBy !== undefined) {
+				this.exportLocal(exportedBy, name);
+			}
+		}
+		ts.forEachChild(declaration, (child) => this.visit(child, [scope]));
+	}
+
+	/**
+	 * A variable inside a declaration or registration flows into the scope enclosing it; at the top level each
+	 * declaration gets a scope of its own.
+	 */
+	private visitVariables(node: ts.VariableStatement | ts.VariableDeclaration, scopes: readonly Scope[]): void {
+		if (scopes.length > 0) {
+			this.visitChildren(node, scopes);
+			return;
+		}
+		if (ts.isVariableStatement(node)) {
+			const exportedBy = hasModifier(node, ts.SyntaxKind.ExportKeyword) ? node : undefined;
+			for (const declaration of node.declarationList.declarations) {
+				this.declareVariable(declaration, exportedBy);
+			}
+			return;
+		}
+		this.declareVariable(node, undefined);
+	}
+
+	/** A worker boots a second runtime, which pays the same startup cost as a child, and its module may spawn. */
+	private visitWorker(node: ts.NewExpression, scopes: readonly Scope[]): void {
+		const [script, options] = node.arguments ?? [];
+		if (script === undefined || !ts.isStringLiteralLike(script) || !script.text.startsWith(".")) {
+			this.cannotRead(node, "a Worker from anything but a literal relative module path");
+		} else {
+			this.site(scopes, `new Worker("${script.text}") at ${this.module.rel}:${this.lineOf(node)}`);
+			const target = resolveRelative(this.file, script.text, this.context.problems);
+			if (target !== undefined) {
+				this.load(scopes, target);
+			}
+		}
+		if (options !== undefined) {
+			const keys = ts.isObjectLiteralExpression(options) ? plainKeys(options) : undefined;
+			if (keys === undefined || keys.has("eval")) {
+				this.cannotRead(node, "a Worker with eval or unreadable options");
+			}
+		}
+		for (const argument of node.arguments ?? []) {
+			this.visit(argument, scopes);
+		}
+	}
+
+	/** A dynamic import or require: a spawner is a site, a relative module a load, an external one is classified. */
+	private followDynamicLoad(node: ts.CallExpression, first: ts.Expression | undefined, scopes: readonly Scope[]): void {
+		if (first === undefined || !ts.isStringLiteralLike(first)) {
+			this.fail(node, "dynamic import or require without a literal specifier cannot be followed");
+			return;
+		}
+		if (spawnsFromExternal(first.text, "*")) {
+			this.site(scopes, `import("${first.text}") at ${this.module.rel}:${this.lineOf(node)}`);
+			return;
+		}
+		if (first.text.startsWith(".")) {
+			const target = resolveRelative(this.file, first.text, this.context.problems);
+			if (target !== undefined) {
+				this.load(scopes, target);
+			}
+			return;
+		}
+		this.admit(node, first.text);
+	}
+
+	/**
+	 * A test or hook registration: the callee chain (`test.each(rows)`, `it.skipIf(flag)`), the label, and the options
+	 * run when the file loads; only the callback runs under the registration's deadline.
+	 */
+	private visitRegistration(node: ts.CallExpression, kind: RegistrationKind, scopes: readonly Scope[]): void {
+		const [first, second, third] = node.arguments;
+		const callback = kind === "test" ? second : first;
+		if (callback === undefined) {
+			this.visitChildren(node, scopes);
+			return;
+		}
+		if (!isFunctionLike(callback) && !ts.isIdentifier(callback)) {
+			this.fail(
+				node,
+				`unrecognized ${kind} registration shape: the callback argument is ${ts.SyntaxKind[callback.kind]}`
+			);
+			this.visitChildren(node, scopes);
+			return;
+		}
+		if (ts.isIdentifier(callback)) {
+			this.identifierCallbacks.push({ node, name: callback.text });
+		}
+		const registration: Registration = {
+			...newScope(),
+			kind,
+			subject:
+				kind === "test" && first !== undefined && ts.isStringLiteralLike(first)
+					? first.text
+					: node.expression.getText(this.sf),
+			line: this.lineOf(node),
+			deadline: kind === "test" ? third : second,
+		};
+		this.module.registrations.push(registration);
+		this.visit(node.expression, scopes);
+		for (const argument of node.arguments) {
+			this.visit(argument, argument === callback ? [...scopes, registration] : scopes);
+		}
+	}
+
+	/** A call: a dynamic load is followed, a registration is recorded, any other call is read through its children. */
+	private visitCall(node: ts.CallExpression, scopes: readonly Scope[]): void {
+		if (isDynamicLoad(node)) {
+			this.followDynamicLoad(node, node.arguments[0], scopes);
+			if (baseName(node.expression) === "require") {
+				for (const argument of node.arguments) {
+					this.visit(argument, scopes);
+				}
+				return;
+			}
+		}
+		const kind = this.registrationKind(node.expression);
+		if (kind === undefined) {
+			this.visitChildren(node, scopes);
+			return;
+		}
+		this.visitRegistration(node, kind, scopes);
+	}
+
+	/** What a bracketed member read means: a computed or loader member cannot be read, a spawn member is a site. */
+	private judgeElementMember(
+		node: ts.ElementAccessExpression,
+		base: string | undefined,
+		literal: string | undefined,
+		scopes: readonly Scope[]
+	): void {
+		const fromProcess = namesProcess(node.expression);
+		if (literal === undefined) {
+			if ((base !== undefined && COMPUTED_MEMBER_BANNED_BASES.has(base)) || fromProcess) {
+				this.cannotRead(node, `a computed member of ${base ?? "process"}`);
+			}
+			return;
+		}
+		if (this.spawnLocals.has(literal) || (base === "Bun" && BUN_SPAWN_EXPORTS.has(literal))) {
+			this.site(scopes, `["${literal}"] at ${this.module.rel}:${this.lineOf(node)}`);
+			return;
+		}
+		if (fromProcess && PROCESS_LOADER_MEMBERS.has(literal)) {
+			this.cannotRead(node, `process["${literal}"]`);
+		}
+	}
+
+	/** A dotted member read; `Bun` and `require` are read only as a member base or called directly. */
+	private visitPropertyAccess(node: ts.PropertyAccessExpression, scopes: readonly Scope[]): void {
+		const base = baseName(node.expression);
+		if (base === "Bun" && BUN_SPAWN_EXPORTS.has(node.name.text)) {
+			this.site(scopes, `Bun.${node.name.text} at ${this.module.rel}:${this.lineOf(node)}`);
+		}
+		if (namesProcess(node.expression) && PROCESS_LOADER_MEMBERS.has(node.name.text)) {
+			this.cannotRead(node, `process.${node.name.text}`);
+		}
+		// Stored anywhere else, what `Bun` and `require` hand out cannot be followed (`const b = Bun; b[key]`,
+		// `const load = require`), so only the member name is read on.
+		if (base !== "Bun" && base !== "require") {
+			this.visitChildren(node, scopes);
+			return;
+		}
+		if (base === "require" && !REQUIRE_MEMBERS.has(node.name.text)) {
+			this.cannotRead(node, `require.${node.name.text}`);
+		}
+		this.visit(node.name, scopes);
+	}
+
+	/** A bracketed member read; `Bun` and `require` are read only as a member base or called directly. */
+	private visitElementAccess(node: ts.ElementAccessExpression, scopes: readonly Scope[]): void {
+		const base = baseName(node.expression);
+		const literal = ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : undefined;
+		this.judgeElementMember(node, base, literal, scopes);
+		if (base !== "Bun" && base !== "require") {
+			this.visitChildren(node, scopes);
+			return;
+		}
+		if (base === "require" && (literal === undefined || !REQUIRE_MEMBERS.has(literal))) {
+			this.cannotRead(node, "a computed or unlisted member of require");
+		}
+		this.visit(node.argumentExpression, scopes);
+	}
+
+	/**
+	 * An identifier is a reference of every enclosing scope and a site when it names a spawner; the globals the walk
+	 * cannot follow are refused wherever they appear bare.
+	 */
+	private visitIdentifier(node: ts.Identifier, scopes: readonly Scope[]): void {
+		if (node.text === "Bun" || node.text === "require") {
+			this.cannotRead(node, `${node.text} used other than as a member base or direct call`);
+		}
+		if (DYNAMIC_CODE_IDENTIFIERS.has(node.text)) {
+			this.cannotRead(node, node.text);
+		}
+		if (node.text === "Worker") {
+			this.cannotRead(node, "Worker used other than as `new Worker(<relative path>)`");
+		}
+		for (const scope of this.enclosing(scopes)) {
+			scope.refs.add(node.text);
+		}
+		if (this.spawnLocals.has(node.text)) {
+			this.site(scopes, `${node.text} at ${this.module.rel}:${this.lineOf(node)}`);
+		}
+	}
+
+	/** The forms that run or read something, under their enclosing scopes; any other node is read by its children. */
+	private visitCode(node: ts.Node, scopes: readonly Scope[]): void {
+		const destructuring = destructuringOf(node);
+		if (destructuring !== undefined) {
+			this.checkDestructuring(destructuring);
+		}
+		if (ts.isVariableStatement(node) || ts.isVariableDeclaration(node)) {
+			this.visitVariables(node, scopes);
+			return;
+		}
+		if (ts.isNewExpression(node) && baseName(node.expression) === "Worker") {
+			this.visitWorker(node, scopes);
+			return;
+		}
+		if (ts.isCallExpression(node)) {
+			this.visitCall(node, scopes);
+			return;
+		}
+		if (ts.isPropertyAccessExpression(node)) {
+			this.visitPropertyAccess(node, scopes);
+			return;
+		}
+		if (ts.isElementAccessExpression(node)) {
+			this.visitElementAccess(node, scopes);
+			return;
+		}
+		if (ts.isIdentifier(node)) {
+			this.visitIdentifier(node, scopes);
+			return;
+		}
+		this.visitChildren(node, scopes);
+	}
+
+	/** The module-level forms first: types run nothing, imports were read in pass one, exports and declarations count. */
+	private visit(node: ts.Node, scopes: readonly Scope[]): void {
 		// Types run nothing; the one type-node kind with a runtime expression inside is a heritage clause's target.
 		if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) {
 			return;
 		}
-		if (ts.isImportDeclaration(node) || ts.isImportEqualsDeclaration(node)) {
-			if (ts.isImportEqualsDeclaration(node)) {
-				fail(node, "import-equals declarations are not followed");
-			}
+		if (ts.isImportDeclaration(node)) {
+			return;
+		}
+		if (ts.isImportEqualsDeclaration(node)) {
+			this.fail(node, "import-equals declarations are not followed");
 			return;
 		}
 		if (ts.isExportDeclaration(node)) {
-			if (isTypeOnlyExport(node)) {
-				return;
-			}
-			const specifier =
-				node.moduleSpecifier !== undefined && ts.isStringLiteralLike(node.moduleSpecifier)
-					? node.moduleSpecifier.text
-					: undefined;
-			const clause = node.exportClause;
-			if (clause === undefined) {
-				if (specifier === undefined) {
-					fail(node, "export declaration without clause or specifier");
-				} else if (specifier.startsWith(".")) {
-					const target = resolveRelative(file, specifier, problems);
-					if (target !== undefined) {
-						module.exportStars.push(target);
-					}
-				} else {
-					fail(node, `export * from a non-relative module "${specifier}" cannot be followed`);
-				}
-				return;
-			}
-			const reexport = (exportedAs: string, imported: string): void => {
-				if (specifier === "bun:test") {
-					fail(node, `re-exporting "${imported}" of bun:test is not followed`);
-					return;
-				}
-				if (specifier === undefined) {
-					exportLocal(node, imported, exportedAs);
-					return;
-				}
-				if (!admit(node, specifier, imported)) {
-					return;
-				}
-				if (spawnsFromExternal(specifier, imported)) {
-					const scope = newScope();
-					scope.sites.push(`${imported} re-exported from "${specifier}" at ${module.rel}:${lineOf(node)}`);
-					addDecl(exportedAs, scope);
-					exportLocal(node, exportedAs);
-					return;
-				}
-				const binding = bindingFor(specifier, imported);
-				if (binding !== undefined) {
-					module.exports.set(exportedAs, binding);
-				}
-			};
-			if (ts.isNamespaceExport(clause)) {
-				if (specifier === undefined) {
-					fail(node, "namespace export without a specifier");
-				} else {
-					reexport(clause.name.text, "*");
-				}
-				return;
-			}
-			for (const element of clause.elements) {
-				if (!element.isTypeOnly) {
-					reexport(element.name.text, (element.propertyName ?? element.name).text);
-				}
-			}
+			this.visitExport(node);
 			return;
 		}
 		if (ts.isExportAssignment(node)) {
-			if (scopes.length > 0) {
-				fail(node, "export assignment inside a declaration");
-				return;
-			}
-			const scope = newScope(true);
-			addDecl("default", scope);
-			exportLocal(node, "default");
-			visit(node.expression, [...scopes, scope]);
-			for (const name of scope.refs) {
-				if (runnerBindings.has(name)) {
-					fail(node, `default export mentions "${name}" of bun:test, which is not followed`);
-				}
-			}
+			this.visitExportAssignment(node, scopes);
 			return;
 		}
-		if (
-			ts.isFunctionDeclaration(node) ||
-			ts.isClassDeclaration(node) ||
-			ts.isInterfaceDeclaration(node) ||
-			ts.isTypeAliasDeclaration(node) ||
-			ts.isEnumDeclaration(node) ||
-			ts.isModuleDeclaration(node)
-		) {
-			registerDeclaration(node, scopes);
+		if (isNamedDeclaration(node)) {
+			this.registerDeclaration(node, scopes);
 			return;
 		}
-		// Destructuring reads members like a member access does: a loader member, a computed key, or a rest element
-		// pulled out of a guarded base fails the same way, and a banned base pulled out of globalThis is that base
-		// stored under another name. (`require` never reaches here: as an initializer it is already a stored
-		// `require`.)
-		const pattern:
-			| { readonly source: ts.Expression; readonly keys: readonly (readonly [ts.Node, string | undefined])[] }
-			| undefined =
-			ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer !== undefined
-				? {
-						source: node.initializer,
-						keys: node.name.elements.map((element) => {
-							const key = element.propertyName ?? element.name;
-							return [
-								element,
-								element.dotDotDotToken === undefined && ts.isIdentifier(key) ? key.text : undefined,
-							] as const;
-						}),
-					}
-				: ts.isBinaryExpression(node) &&
-						node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-						ts.isObjectLiteralExpression(node.left)
-					? {
-							source: node.right,
-							keys: node.left.properties.map((property) => {
-								const key =
-									ts.isShorthandPropertyAssignment(property) || ts.isPropertyAssignment(property)
-										? property.name
-										: undefined;
-								return [property, key !== undefined && ts.isIdentifier(key) ? key.text : undefined] as const;
-							}),
-						}
-					: undefined;
-		if (pattern !== undefined) {
-			const base = baseName(pattern.source);
-			const guarded = base !== undefined && COMPUTED_MEMBER_BANNED_BASES.has(base);
-			const fromProcess = namesProcess(pattern.source);
-			for (const [element, key] of pattern.keys) {
-				if (!guarded && !fromProcess) {
-					break;
-				}
-				if (key === undefined) {
-					cannotRead(element, `a computed member of ${base ?? "process"}`);
-				} else if (fromProcess && PROCESS_LOADER_MEMBERS.has(key)) {
-					cannotRead(element, `process.${key}`);
-				} else if (base === "globalThis" && COMPUTED_MEMBER_BANNED_BASES.has(key)) {
-					cannotRead(element, `${key} used other than as a member base or direct call`);
-				}
-			}
+		this.visitCode(node, scopes);
+	}
+
+	/** Pass two over the whole file; a registration callback named by identifier must then resolve in this module. */
+	private walk(): void {
+		this.runnerBindings = new Set([...this.testLocals, ...this.hookLocals, ...this.testNamespaces]);
+		// An imported spawn is a spawning declaration under its local name, so `export { run }` of an aliased import and
+		// every other path that resolves the name lands on a site.
+		for (const { local, description } of this.spawnImports) {
+			const scope = newScope();
+			scope.sites.push(description);
+			this.addDecl(local, scope);
 		}
-		if ((ts.isVariableStatement(node) || ts.isVariableDeclaration(node)) && scopes.length > 0) {
-			ts.forEachChild(node, (child) => visit(child, scopes));
-			return;
-		}
-		if (ts.isVariableStatement(node)) {
-			const exported = hasModifier(node, ts.SyntaxKind.ExportKeyword);
-			for (const declaration of node.declarationList.declarations) {
-				const scope = newScope(!isDeferred(declaration.initializer));
-				for (const name of bindingNames(declaration.name)) {
-					addDecl(name, scope);
-					if (exported) {
-						exportLocal(node, name);
-					}
-				}
-				ts.forEachChild(declaration, (child) => visit(child, [...scopes, scope]));
-			}
-			return;
-		}
-		if (ts.isVariableDeclaration(node)) {
-			const scope = newScope(!isDeferred(node.initializer));
-			for (const name of bindingNames(node.name)) {
-				addDecl(name, scope);
-			}
-			ts.forEachChild(node, (child) => visit(child, [...scopes, scope]));
-			return;
-		}
-		if (ts.isNewExpression(node) && baseName(node.expression) === "Worker") {
-			const [script, options] = node.arguments ?? [];
-			if (script === undefined || !ts.isStringLiteralLike(script) || !script.text.startsWith(".")) {
-				cannotRead(node, "a Worker from anything but a literal relative module path");
-			} else {
-				// A worker boots a second runtime, which pays the same startup cost as a child,
-				// and its module may spawn.
-				site(scopes, `new Worker("${script.text}") at ${module.rel}:${lineOf(node)}`);
-				const target = resolveRelative(file, script.text, problems);
-				if (target !== undefined) {
-					load(scopes, target);
-				}
-			}
-			if (options !== undefined) {
-				const keys = ts.isObjectLiteralExpression(options) ? plainKeys(options) : undefined;
-				if (keys === undefined || keys.has("eval")) {
-					cannotRead(node, "a Worker with eval or unreadable options");
-				}
-			}
-			for (const argument of node.arguments ?? []) {
-				visit(argument, scopes);
-			}
-			return;
-		}
-		if (ts.isCallExpression(node)) {
-			const [first, second, third] = node.arguments;
-			if (isDynamicLoad(node)) {
-				if (first === undefined || !ts.isStringLiteralLike(first)) {
-					fail(node, "dynamic import or require without a literal specifier cannot be followed");
-				} else if (spawnsFromExternal(first.text, "*")) {
-					site(scopes, `import("${first.text}") at ${module.rel}:${lineOf(node)}`);
-				} else if (first.text.startsWith(".")) {
-					const target = resolveRelative(file, first.text, problems);
-					if (target !== undefined) {
-						load(scopes, target);
-					}
-				} else {
-					admit(node, first.text);
-				}
-				if (baseName(node.expression) === "require") {
-					for (const argument of node.arguments) {
-						visit(argument, scopes);
-					}
-					return;
-				}
-			}
-			const kind = registrationKind(node.expression);
-			const isTest = kind === "test";
-			const isHook = kind === "hook";
-			const callback = isTest ? second : isHook ? first : undefined;
-			if (callback !== undefined && (isFunctionLike(callback) || ts.isIdentifier(callback))) {
-				if (ts.isIdentifier(callback)) {
-					identifierCallbacks.push({ node, name: callback.text });
-				}
-				const registration: Registration = {
-					...newScope(),
-					kind: isTest ? "test" : "hook",
-					subject:
-						isTest && first !== undefined && ts.isStringLiteralLike(first) ? first.text : node.expression.getText(sf),
-					line: lineOf(node),
-					deadline: isTest ? third : second,
-				};
-				module.registrations.push(registration);
-				// The callee chain (`test.each(rows)`, `it.skipIf(flag)`), the label, and the options run when the file
-				// loads; only the callback runs under the registration's deadline.
-				visit(node.expression, scopes);
-				for (const argument of node.arguments) {
-					visit(argument, argument === callback ? [...scopes, registration] : scopes);
-				}
-				return;
-			}
-			if ((isTest || isHook) && callback !== undefined) {
-				fail(
+		this.visit(this.sf, []);
+		for (const { node, name } of this.identifierCallbacks) {
+			if (!this.module.decls.has(name) && !this.module.imports.has(name)) {
+				this.fail(
 					node,
-					`unrecognized ${isTest ? "test" : "hook"} registration shape: the callback argument is ${ts.SyntaxKind[callback.kind]}`
+					`registration callback "${name}" is neither declared nor imported here, so its body cannot be followed`
 				);
 			}
 		}
-		if (ts.isPropertyAccessExpression(node)) {
-			const base = baseName(node.expression);
-			if (base === "Bun" && BUN_SPAWN_EXPORTS.has(node.name.text)) {
-				site(scopes, `Bun.${node.name.text} at ${module.rel}:${lineOf(node)}`);
-			}
-			if (namesProcess(node.expression) && PROCESS_LOADER_MEMBERS.has(node.name.text)) {
-				cannotRead(node, `process.${node.name.text}`);
-			}
-			// `Bun` and `require` are read only as a member base or called directly: stored anywhere else, what they
-			// hand out cannot be followed (`const b = Bun; b[key]`, `const load = require`).
-			if (base === "Bun" || base === "require") {
-				if (base === "require" && !REQUIRE_MEMBERS.has(node.name.text)) {
-					cannotRead(node, `require.${node.name.text}`);
-				}
-				visit(node.name, scopes);
-				return;
-			}
-		}
-		if (ts.isElementAccessExpression(node)) {
-			const base = baseName(node.expression);
-			const literal = ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : undefined;
-			if (
-				literal === undefined &&
-				((base !== undefined && COMPUTED_MEMBER_BANNED_BASES.has(base)) || namesProcess(node.expression))
-			) {
-				cannotRead(node, `a computed member of ${base ?? "process"}`);
-			} else if (
-				literal !== undefined &&
-				(spawnLocals.has(literal) || (base === "Bun" && BUN_SPAWN_EXPORTS.has(literal)))
-			) {
-				site(scopes, `["${literal}"] at ${module.rel}:${lineOf(node)}`);
-			} else if (literal !== undefined && namesProcess(node.expression) && PROCESS_LOADER_MEMBERS.has(literal)) {
-				cannotRead(node, `process["${literal}"]`);
-			}
-			if (base === "Bun" || base === "require") {
-				if (base === "require" && (literal === undefined || !REQUIRE_MEMBERS.has(literal))) {
-					cannotRead(node, "a computed or unlisted member of require");
-				}
-				visit(node.argumentExpression, scopes);
-				return;
-			}
-		}
-		if (ts.isIdentifier(node)) {
-			if (node.text === "Bun" || node.text === "require") {
-				cannotRead(node, `${node.text} used other than as a member base or direct call`);
-			}
-			if (DYNAMIC_CODE_IDENTIFIERS.has(node.text)) {
-				cannotRead(node, node.text);
-			}
-			if (node.text === "Worker") {
-				cannotRead(node, "Worker used other than as `new Worker(<relative path>)`");
-			}
-			for (const scope of enclosing(scopes)) {
-				scope.refs.add(node.text);
-			}
-			if (spawnLocals.has(node.text)) {
-				site(scopes, `${node.text} at ${module.rel}:${lineOf(node)}`);
-			}
-			return;
-		}
-		ts.forEachChild(node, (child) => visit(child, scopes));
-	};
-	visit(sf, []);
-	for (const { node, name } of identifierCallbacks) {
-		if (!module.decls.has(name) && !module.imports.has(name)) {
-			fail(
-				node,
-				`registration callback "${name}" is neither declared nor imported here, so its body cannot be followed`
-			);
-		}
 	}
-	return module;
+
+	/** The module, analyzed: pass one, then the spawn vocabulary child_process adds, then pass two. */
+	run(): Module {
+		this.readImports();
+		this.collectAliases();
+		if (mentionsChildProcess(this.sf)) {
+			for (const name of CHILD_PROCESS_ONLY_MEMBERS) {
+				this.spawnLocals.add(name);
+			}
+		}
+		this.walk();
+		return this.module;
+	}
 }
 
 /**
@@ -952,6 +1210,32 @@ interface Graph {
 }
 
 /**
+ * Every declaration scope a module's whole export surface stands for: each named export, then each `export *`. The
+ * two star helpers and resolveExport are mutually recursive, so resolveExport closes their group below them.
+ */
+function resolveStar(graph: Graph, file: string, module: Module, visiting: Set<string>): Scope[] {
+	const all: Scope[] = [];
+	for (const exported of module.exports.keys()) {
+		all.push(...(resolveExport(graph, file, exported, visiting) ?? []));
+	}
+	for (const star of module.exportStars) {
+		all.push(...(resolveExport(graph, star, "*", visiting) ?? []));
+	}
+	return all;
+}
+
+/** The scopes the first `export *` target that knows `name` stands for; undefined when none does. */
+function resolveThroughStars(graph: Graph, module: Module, name: string, visiting: Set<string>): Scope[] | undefined {
+	for (const star of module.exportStars) {
+		const found = resolveExport(graph, star, name, visiting);
+		if (found !== undefined) {
+			return found;
+		}
+	}
+	return undefined;
+}
+
+/**
  * The declaration scopes an exported name stands for, following re-exports and `export *`; undefined means
  * unresolved.
  */
@@ -967,24 +1251,11 @@ function resolveExport(graph: Graph, file: string, name: string, visiting: Set<s
 		return [];
 	}
 	if (name === "*") {
-		const all: Scope[] = [];
-		for (const exported of module.exports.keys()) {
-			all.push(...(resolveExport(graph, file, exported, visiting) ?? []));
-		}
-		for (const star of module.exportStars) {
-			all.push(...(resolveExport(graph, star, "*", visiting) ?? []));
-		}
-		return all;
+		return resolveStar(graph, file, module, visiting);
 	}
 	const binding = module.exports.get(name);
 	if (binding === undefined) {
-		for (const star of module.exportStars) {
-			const found = resolveExport(graph, star, name, visiting);
-			if (found !== undefined) {
-				return found;
-			}
-		}
-		return undefined;
+		return resolveThroughStars(graph, module, name, visiting);
 	}
 	if (binding.kind === "local") {
 		return resolveName(graph, module, binding.name, visiting);
@@ -1019,58 +1290,80 @@ function resolveName(graph: Graph, module: Module, name: string, visiting: Set<s
 	return [];
 }
 
-/** Which scopes reach a spawn site, by fixpoint over the reference edges, with one witness chain each. */
-function computeReach(graph: Graph): Map<Scope, string[]> {
-	const edges = new Map<Scope, Set<Scope>>();
-	const scopes: Scope[] = [];
-	for (const module of graph.modules.values()) {
-		for (const scope of [...[...module.decls.values()].flat(), ...module.registrations, module.moduleScope]) {
-			if (edges.has(scope)) {
-				continue;
-			}
-			const targets = new Set<Scope>();
-			for (const ref of scope.refs) {
-				for (const target of resolveName(graph, module, ref, new Set())) {
-					targets.add(target);
-				}
-			}
-			for (const loaded of scope.moduleRefs) {
-				const target = graph.modules.get(loaded);
-				if (target === undefined) {
-					graph.problems.push(`${rel(loaded)} is loaded dynamically but was never analyzed`);
-					continue;
-				}
-				for (const declared of [...target.decls.values()].flat()) {
-					targets.add(declared);
-				}
-				for (const star of resolveExport(graph, loaded, "*", new Set()) ?? []) {
-					targets.add(star);
-				}
-			}
-			targets.delete(scope);
-			edges.set(scope, targets);
-			scopes.push(scope);
+/**
+ * The scopes one scope hands control to: every declaration its references resolve to, and for each module it loads
+ * dynamically, every declaration and every export of that module.
+ */
+function reachTargets(graph: Graph, module: Module, scope: Scope): Set<Scope> {
+	const targets = new Set<Scope>();
+	for (const ref of scope.refs) {
+		for (const target of resolveName(graph, module, ref, new Set())) {
+			targets.add(target);
 		}
 	}
+	for (const loaded of scope.moduleRefs) {
+		const target = graph.modules.get(loaded);
+		if (target === undefined) {
+			graph.problems.push(`${rel(loaded)} is loaded dynamically but was never analyzed`);
+			continue;
+		}
+		for (const declared of [...target.decls.values()].flat()) {
+			targets.add(declared);
+		}
+		for (const star of resolveExport(graph, loaded, "*", new Set()) ?? []) {
+			targets.add(star);
+		}
+	}
+	targets.delete(scope);
+	return targets;
+}
+
+/** Every scope of the graph with its reach targets, in module order; a scope declared under several names once. */
+function reachEdges(graph: Graph): Map<Scope, Set<Scope>> {
+	const edges = new Map<Scope, Set<Scope>>();
+	for (const module of graph.modules.values()) {
+		for (const scope of [...[...module.decls.values()].flat(), ...module.registrations, module.moduleScope]) {
+			if (!edges.has(scope)) {
+				edges.set(scope, reachTargets(graph, module, scope));
+			}
+		}
+	}
+	return edges;
+}
+
+/** The first of `targets` already known to reach a spawn, with its chain; undefined while none is. */
+function reachedThrough(
+	targets: ReadonlySet<Scope>,
+	chains: ReadonlyMap<Scope, string[]>
+): { readonly target: Scope; readonly chain: string[] } | undefined {
+	for (const target of targets) {
+		const chain = chains.get(target);
+		if (chain !== undefined) {
+			return { target, chain };
+		}
+	}
+	return undefined;
+}
+
+/** Which scopes reach a spawn site, by fixpoint over the reference edges, with one witness chain each. */
+function computeReach(graph: Graph): Map<Scope, string[]> {
+	const edges = reachEdges(graph);
 	const chains = new Map<Scope, string[]>();
-	for (const scope of scopes) {
+	for (const scope of edges.keys()) {
 		if (scope.sites.length > 0) {
 			chains.set(scope, [scope.sites[0] ?? "spawn"]);
 		}
 	}
 	for (let changed = true; changed; ) {
 		changed = false;
-		for (const scope of scopes) {
+		for (const [scope, targets] of edges) {
 			if (chains.has(scope)) {
 				continue;
 			}
-			for (const target of edges.get(scope) ?? []) {
-				const chain = chains.get(target);
-				if (chain !== undefined) {
-					chains.set(scope, [nameOf(graph, target), ...chain]);
-					changed = true;
-					break;
-				}
+			const reached = reachedThrough(targets, chains);
+			if (reached !== undefined) {
+				chains.set(scope, [nameOf(graph, reached.target), ...reached.chain]);
+				changed = true;
 			}
 		}
 	}
@@ -1126,13 +1419,12 @@ function readDeadline(module: Module, expression: ts.Expression | undefined, sf:
 	return { ok: false, why: `unrecognized deadline expression ${expression.getText(sf)}` };
 }
 
-function audit(): { readonly problems: string[]; readonly spawningRegistrations: number } {
-	const problems: string[] = [];
-	const roots = listRoots(problems);
-	if (roots.length === 0) {
-		problems.push(`no test files found under ${BUN_TREE}`);
-	}
-	const files = discoverModules(roots, problems);
+type ExceptionRow = (typeof EXCEPTIONS)[number];
+
+type ExceptionMatches = Map<ExceptionRow, string[]>;
+
+/** The parse errors of every discovered file, from a program that reports syntax alone over the walk's own parses. */
+function parseProblems(files: readonly string[], problems: string[]): void {
 	const options: ts.CompilerOptions = {
 		noResolve: true,
 		noLib: true,
@@ -1155,18 +1447,147 @@ function audit(): { readonly problems: string[]; readonly spawningRegistrations:
 		const where = diagnostic.file === undefined ? "?" : rel(path.resolve(diagnostic.file.fileName));
 		problems.push(`${where}: parse error: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`);
 	}
-	const graph: Graph = { modules: new Map(), problems };
-	const context: Context = { problems, usedSafe: new Set(), jsxRuntimes: jsxRuntimeModules(problems) };
+}
+
+/**
+ * Every file analyzed into the graph, with the declaration control's totals: how many top-level declarations the
+ * parser saw, and the ones the walk never registered.
+ */
+function analyzeTree(
+	files: readonly string[],
+	context: Context,
+	graph: Graph
+): { readonly parsedDeclarations: number; readonly unregistered: string[] } {
 	let parsedDeclarations = 0;
 	const unregistered: string[] = [];
 	for (const file of files) {
 		const sf = parsedSource(file);
-		const module = analyzeModule(sf, context);
+		const module = new ModuleAnalysis(sf, context).run();
 		graph.modules.set(file, module);
 		const control = topLevelDeclarationControl(sf, module);
 		parsedDeclarations += control.parsed;
 		unregistered.push(...control.missing);
 	}
+	return { parsedDeclarations, unregistered };
+}
+
+/**
+ * One registration against its reach: a spawning one needs the load-proof deadline or an exception row, and a
+ * non-spawning one may not carry the constant.
+ */
+function judgeRegistration(
+	module: Module,
+	registration: Registration,
+	chain: readonly string[] | undefined,
+	deadline: DeadlineRead,
+	exceptionMatches: ExceptionMatches,
+	problems: string[]
+): void {
+	const where = `${module.rel}:${registration.line} ${registration.kind} "${registration.subject}"`;
+	if (chain === undefined) {
+		if (deadline.ok && deadline.constant) {
+			problems.push(
+				`${where} carries ${DEADLINE_NAME} but reaches no child-process spawn; the deadline is reserved for spawning tests`
+			);
+		}
+		return;
+	}
+	if (deadline.ok) {
+		return;
+	}
+	const exception = EXCEPTIONS.find(
+		(candidate) =>
+			registration.deadline === undefined && candidate.file === module.rel && candidate.subject === registration.subject
+	);
+	if (exception === undefined) {
+		problems.push(
+			`${where} reaches a child-process spawn (${chain.join(" -> ")}) but carries no load-proof deadline (${deadline.why}); pass ${DEADLINE_NAME} from ${DEADLINE_PATH} as the ${registration.kind === "test" ? "test's third" : "hook's second"} argument`
+		);
+		return;
+	}
+	exceptionMatches.get(exception)?.push(where);
+}
+
+/**
+ * One module's verdicts. Code that runs when the module loads answers to no deadline; a function body a test calls
+ * answers to the test's. A spawning function nothing calls is a helper the bun tree does not use (scripts hold
+ * several), not a member. Returns how many registrations reach a spawn and how many sites the module holds.
+ */
+function judgeModule(
+	graph: Graph,
+	module: Module,
+	chains: ReadonlyMap<Scope, string[]>,
+	exceptionMatches: ExceptionMatches,
+	problems: string[]
+): { readonly spawning: number; readonly sites: number } {
+	const sf = parsedSource(module.file);
+	const declared = [...module.decls.values()].flat();
+	const sites = [...declared, ...module.registrations, module.moduleScope].reduce(
+		(count, scope) => count + scope.sites.length,
+		0
+	);
+	for (const scope of [module.moduleScope, ...declared]) {
+		const chain = chains.get(scope);
+		if (scope.eager && chain !== undefined) {
+			problems.push(
+				`${nameOf(graph, scope)} reaches a child-process spawn (${chain.join(" -> ")}) when the module loads, where no deadline applies; a spawner stored in module-level data counts the same, so keep spawns behind functions that only a test or hook calls`
+			);
+		}
+	}
+	let spawning = 0;
+	for (const registration of module.registrations) {
+		const chain = chains.get(registration);
+		if (chain !== undefined) {
+			spawning += 1;
+		}
+		const deadline = readDeadline(module, registration.deadline, sf);
+		judgeRegistration(module, registration, chain, deadline, exceptionMatches, problems);
+	}
+	return { spawning, sites };
+}
+
+/**
+ * Every exception row covers exactly one registration: none means a fixed member left its exception behind, two means
+ * a new member is hiding under an old one.
+ */
+function judgeExceptions(exceptionMatches: ExceptionMatches, problems: string[]): void {
+	for (const [exception, matches] of exceptionMatches) {
+		if (matches.length === 0) {
+			problems.push(
+				`stale exception: ${exception.file} "${exception.subject}" matches no deadline-less spawning registration`
+			);
+		} else if (matches.length > 1) {
+			problems.push(
+				`exception ${exception.file} "${exception.subject}" matches ${matches.length} registrations (${matches.join("; ")}); one entry covers one`
+			);
+		}
+	}
+}
+
+/** Every known-safe row carries its reason and is still loaded somewhere in the tree. */
+function judgeKnownSafe(usedSafe: ReadonlySet<string>, problems: string[]): void {
+	for (const [name, reason] of KNOWN_SAFE_MODULES) {
+		if (reason.trim().length === 0) {
+			problems.push(`known-safe module "${name}" carries no reason`);
+		}
+		if (!usedSafe.has(name)) {
+			problems.push(`stale known-safe module "${name}": nothing in the bun tree's runtime import closure loads it`);
+		}
+	}
+}
+
+/** The whole tree audited: every problem once, in the order found, and how many registrations reach a spawn. */
+function audit(): { readonly problems: string[]; readonly spawningRegistrations: number } {
+	const problems: string[] = [];
+	const roots = listRoots(problems);
+	if (roots.length === 0) {
+		problems.push(`no test files found under ${BUN_TREE}`);
+	}
+	const files = discoverModules(roots, problems);
+	parseProblems(files, problems);
+	const graph: Graph = { modules: new Map(), problems };
+	const context: Context = { problems, usedSafe: new Set(), jsxRuntimes: jsxRuntimeModules(problems) };
+	const { parsedDeclarations, unregistered } = analyzeTree(files, context, graph);
 	if (parsedDeclarations === 0) {
 		problems.push(
 			"the walk parsed no top-level declaration anywhere in the tree, so it is not reading what it claims to read"
@@ -1182,76 +1603,16 @@ function audit(): { readonly problems: string[]; readonly spawningRegistrations:
 		return { problems: [...new Set(problems)], spawningRegistrations: 0 };
 	}
 	const chains = computeReach(graph);
-	const exceptionMatches = new Map<(typeof EXCEPTIONS)[number], string[]>(EXCEPTIONS.map((entry) => [entry, []]));
+	const exceptionMatches: ExceptionMatches = new Map<ExceptionRow, string[]>(EXCEPTIONS.map((entry) => [entry, []]));
 	let spawningRegistrations = 0;
 	let sitesFound = 0;
 	for (const module of graph.modules.values()) {
-		const sf = parsedSource(module.file);
-		const declared = [...module.decls.values()].flat();
-		sitesFound += [...declared, ...module.registrations, module.moduleScope].reduce(
-			(count, scope) => count + scope.sites.length,
-			0
-		);
-		// Code that runs when the module loads answers to no deadline; a function body a test calls answers to the
-		// test's. A spawning function nothing calls is a helper the bun tree does not use (scripts hold several), not
-		// a member.
-		for (const scope of [module.moduleScope, ...declared]) {
-			const chain = chains.get(scope);
-			if (scope.eager && chain !== undefined) {
-				problems.push(
-					`${nameOf(graph, scope)} reaches a child-process spawn (${chain.join(" -> ")}) when the module loads, where no deadline applies; a spawner stored in module-level data counts the same, so keep spawns behind functions that only a test or hook calls`
-				);
-			}
-		}
-		for (const registration of module.registrations) {
-			const chain = chains.get(registration);
-			const deadline = readDeadline(module, registration.deadline, sf);
-			const where = `${module.rel}:${registration.line} ${registration.kind} "${registration.subject}"`;
-			if (chain !== undefined) {
-				spawningRegistrations += 1;
-				if (!deadline.ok) {
-					const exception = EXCEPTIONS.find(
-						(candidate) =>
-							registration.deadline === undefined &&
-							candidate.file === module.rel &&
-							candidate.subject === registration.subject
-					);
-					if (exception === undefined) {
-						problems.push(
-							`${where} reaches a child-process spawn (${chain.join(" -> ")}) but carries no load-proof deadline (${deadline.why}); pass ${DEADLINE_NAME} from ${DEADLINE_PATH} as the ${registration.kind === "test" ? "test's third" : "hook's second"} argument`
-						);
-					} else {
-						exceptionMatches.get(exception)?.push(where);
-					}
-				}
-			} else if (deadline.ok && deadline.constant) {
-				problems.push(
-					`${where} carries ${DEADLINE_NAME} but reaches no child-process spawn; the deadline is reserved for spawning tests`
-				);
-			}
-		}
+		const judged = judgeModule(graph, module, chains, exceptionMatches, problems);
+		spawningRegistrations += judged.spawning;
+		sitesFound += judged.sites;
 	}
-	// An exception covers exactly one registration: none means a fixed member left its exception behind, two means a
-	// new member is hiding under an old one.
-	for (const [exception, matches] of exceptionMatches) {
-		if (matches.length === 0) {
-			problems.push(
-				`stale exception: ${exception.file} "${exception.subject}" matches no deadline-less spawning registration`
-			);
-		} else if (matches.length > 1) {
-			problems.push(
-				`exception ${exception.file} "${exception.subject}" matches ${matches.length} registrations (${matches.join("; ")}); one entry covers one`
-			);
-		}
-	}
-	for (const [name, reason] of KNOWN_SAFE_MODULES) {
-		if (reason.trim().length === 0) {
-			problems.push(`known-safe module "${name}" carries no reason`);
-		}
-		if (!context.usedSafe.has(name)) {
-			problems.push(`stale known-safe module "${name}": nothing in the bun tree's runtime import closure loads it`);
-		}
-	}
+	judgeExceptions(exceptionMatches, problems);
+	judgeKnownSafe(context.usedSafe, problems);
 	if (sitesFound === 0) {
 		problems.push("the detector found no spawn site anywhere in the tree, so it is not reading what it claims to read");
 	}

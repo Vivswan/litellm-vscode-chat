@@ -13,12 +13,9 @@ import { REPO_ROOT } from "../../../util/repoRoot";
 describe("extension/features asRelativePath ownership", () => {
 	test("gitAccess.documentLabel is the only asRelativePath call under features/", () => {
 		const featuresDir = path.join(REPO_ROOT, "src", "extension", "features");
-		const walk = (dir: string): string[] =>
-			readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-				const full = path.join(dir, entry.name);
-				return entry.isDirectory() ? walk(full) : /\.(ts|tsx)$/.test(entry.name) ? [full] : [];
-			});
-		const files = walk(featuresDir);
+		const files = readdirSync(featuresDir, { recursive: true, encoding: "utf8" })
+			.filter((file) => /\.(ts|tsx)$/.test(file))
+			.map((file) => path.join(featuresDir, file));
 		expect(files.length).toBeGreaterThan(1);
 		const offenders = files
 			.filter((file) => readFileSync(file, "utf8").includes("asRelativePath"))

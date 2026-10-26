@@ -81,6 +81,21 @@ describe("shared/config/settingSpec: prose drift guard", () => {
 	});
 });
 
+/** The scope tier the rule assigns a setting: machine-overridable first, then machine, else window. */
+function ruledScope(
+	key: string,
+	machineOverridable: ReadonlySet<string>,
+	machineOnly: ReadonlySet<string>
+): "machine-overridable" | "machine" | "window" {
+	if (machineOverridable.has(key)) {
+		return "machine-overridable";
+	}
+	if (machineOnly.has(key)) {
+		return "machine";
+	}
+	return "window";
+}
+
 describe("shared/config/settingSpec: presentation rules", () => {
 	test("every setting carries exactly its ruled scope tier and trust flag", () => {
 		// The tiers are load-bearing (SETTING_PRESENTATION's header says why); the rule is stated here from the feature
@@ -97,11 +112,7 @@ describe("shared/config/settingSpec: presentation rules", () => {
 		const restricted = new Set<string>([MODEL_PARAMETERS_SETTING_KEY, MODEL_CAPABILITIES_SETTING_KEY]);
 		for (const key of ALL_SETTING_KEYS) {
 			const presentation = SETTING_PRESENTATION[key as SettingId];
-			const expectedScope = machineOverridable.has(key)
-				? "machine-overridable"
-				: machineOnly.has(key)
-					? "machine"
-					: "window";
+			const expectedScope = ruledScope(key, machineOverridable, machineOnly);
 			assert.strictEqual(presentation.scope, expectedScope, `${key} scope`);
 			assert.strictEqual(presentation.restricted, restricted.has(key) ? true : undefined, `${key} restricted`);
 		}

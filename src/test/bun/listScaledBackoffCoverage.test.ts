@@ -92,40 +92,62 @@ function parametersOf(node: ts.Node): readonly ts.ParameterDeclaration[] {
 	return [];
 }
 
-function sleepersOf(file: string): Sleeper[] {
-	const sf = parsedSource(file);
-	if (file === SLEEP_MODULE) {
-		return [{ file, name: SLEEP_NAME, sleepParameter: undefined }];
-	}
-	const sleepLocal = [...valueImports(sf)].find(
+/** The local name the file imports sleepUnlessAborted under, or undefined when it never imports it. */
+function sleepImportLocal(sf: ts.SourceFile): string | undefined {
+	return [...valueImports(sf)].find(
 		([, binding]) => binding.target === SLEEP_MODULE && binding.imported === SLEEP_NAME
 	)?.[0];
-	if (sleepLocal === undefined) {
-		return [];
-	}
-	const sleepers: Sleeper[] = [];
-	const record = (name: string, declaration: ts.Node): void => {
-		if (!mentions(declaration, sleepLocal)) {
-			return;
-		}
-		const index = parametersOf(declaration).findIndex(
-			(parameter) => parameter.initializer !== undefined && baseName(parameter.initializer) === sleepLocal
-		);
-		sleepers.push({ file, name, sleepParameter: index === -1 ? undefined : index });
-	};
+}
+
+/** Every exported declaration of a module by name: a function or class itself, a variable through its initializer. */
+function exportedDeclarations(sf: ts.SourceFile): [string, ts.Node][] {
+	const found: [string, ts.Node][] = [];
 	for (const statement of sf.statements) {
 		if (
 			(ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) &&
 			statement.name !== undefined &&
 			hasExportModifier(statement)
 		) {
-			record(statement.name.text, statement);
-		} else if (ts.isVariableStatement(statement) && hasExportModifier(statement)) {
-			for (const declaration of statement.declarationList.declarations) {
-				if (ts.isIdentifier(declaration.name) && declaration.initializer !== undefined) {
-					record(declaration.name.text, unwrapped(declaration.initializer));
-				}
+			found.push([statement.name.text, statement]);
+			continue;
+		}
+		if (!ts.isVariableStatement(statement) || !hasExportModifier(statement)) {
+			continue;
+		}
+		for (const declaration of statement.declarationList.declarations) {
+			if (ts.isIdentifier(declaration.name) && declaration.initializer !== undefined) {
+				found.push([declaration.name.text, unwrapped(declaration.initializer)]);
 			}
+		}
+	}
+	return found;
+}
+
+/** The sleeper a declaration mentioning the sleep import is; its zero-sleep slot is the parameter defaulting to it. */
+function sleeperOf(file: string, name: string, declaration: ts.Node, sleepLocal: string): Sleeper | undefined {
+	if (!mentions(declaration, sleepLocal)) {
+		return undefined;
+	}
+	const index = parametersOf(declaration).findIndex(
+		(parameter) => parameter.initializer !== undefined && baseName(parameter.initializer) === sleepLocal
+	);
+	return { file, name, sleepParameter: index === -1 ? undefined : index };
+}
+
+function sleepersOf(file: string): Sleeper[] {
+	const sf = parsedSource(file);
+	if (file === SLEEP_MODULE) {
+		return [{ file, name: SLEEP_NAME, sleepParameter: undefined }];
+	}
+	const sleepLocal = sleepImportLocal(sf);
+	if (sleepLocal === undefined) {
+		return [];
+	}
+	const sleepers: Sleeper[] = [];
+	for (const [name, declaration] of exportedDeclarations(sf)) {
+		const sleeper = sleeperOf(file, name, declaration, sleepLocal);
+		if (sleeper !== undefined) {
+			sleepers.push(sleeper);
 		}
 	}
 	return sleepers;
@@ -184,78 +206,106 @@ const isScope = (node: ts.Node): boolean =>
 	ts.isCatchClause(node) ||
 	ts.isClassLike(node);
 
+/** Binds `name` in `scope`: an identifier to `declaration`, each element of a destructuring pattern as opaque. */
+function declare(scope: Map<string, Declaration>, name: ts.BindingName, declaration: Declaration): void {
+	if (ts.isIdentifier(name)) {
+		scope.set(name.text, declaration);
+		return;
+	}
+	for (const element of name.elements) {
+		if (ts.isBindingElement(element)) {
+			declare(scope, element.name, OPAQUE);
+		}
+	}
+}
+
+/** What a variable stands for: the function its initializer is, or the variable itself as a value. */
+function variableDeclaration(declaration: ts.VariableDeclaration): Declaration {
+	const initializer = declaration.initializer === undefined ? undefined : unwrapped(declaration.initializer);
+	if (initializer !== undefined && isFunctionNode(initializer)) {
+		return { kind: "function", node: initializer };
+	}
+	return { kind: "value", node: declaration };
+}
+
+/** Binds what one statement declares: a function or class by its name, a variable statement's every declarator. */
+function declareStatement(scope: Map<string, Declaration>, statement: ts.Statement): void {
+	if (ts.isFunctionDeclaration(statement) && statement.name !== undefined) {
+		scope.set(statement.name.text, { kind: "function", node: statement });
+		return;
+	}
+	if (ts.isClassDeclaration(statement) && statement.name !== undefined) {
+		scope.set(statement.name.text, OPAQUE);
+		return;
+	}
+	if (!ts.isVariableStatement(statement)) {
+		return;
+	}
+	for (const declaration of statement.declarationList.declarations) {
+		declare(scope, declaration.name, variableDeclaration(declaration));
+	}
+}
+
+function declareStatements(scope: Map<string, Declaration>, statements: readonly ts.Statement[]): void {
+	for (const statement of statements) {
+		declareStatement(scope, statement);
+	}
+}
+
+/** Binds what a function-like node declares for its body: its parameters, and a function expression's own name. */
+function declareSignatureScope(scope: Map<string, Declaration>, node: ts.SignatureDeclaration): void {
+	for (const parameter of node.parameters) {
+		declare(scope, parameter.name, OPAQUE);
+	}
+	if (ts.isFunctionExpression(node) && node.name !== undefined) {
+		scope.set(node.name.text, { kind: "function", node });
+	}
+}
+
+/** Binds what a loop head declares for its body: the variables of its initializer, when it declares any. */
+function declareLoopScope(
+	scope: Map<string, Declaration>,
+	node: ts.ForStatement | ts.ForOfStatement | ts.ForInStatement
+): void {
+	if (node.initializer === undefined || !ts.isVariableDeclarationList(node.initializer)) {
+		return;
+	}
+	for (const declaration of node.initializer.declarations) {
+		declare(scope, declaration.name, OPAQUE);
+	}
+}
+
+/** The names a scope-opening node binds for everything inside it. */
+function declarationsOf(node: ts.Node): Map<string, Declaration> {
+	const scope = new Map<string, Declaration>();
+	if (ts.isSourceFile(node) || ts.isBlock(node) || ts.isModuleBlock(node)) {
+		declareStatements(scope, node.statements);
+	}
+	if (ts.isCaseBlock(node)) {
+		for (const clause of node.clauses) {
+			declareStatements(scope, clause.statements);
+		}
+	}
+	if (ts.isFunctionLike(node)) {
+		declareSignatureScope(scope, node);
+	}
+	if (ts.isForStatement(node) || ts.isForOfStatement(node) || ts.isForInStatement(node)) {
+		declareLoopScope(scope, node);
+	}
+	if (ts.isCatchClause(node) && node.variableDeclaration !== undefined) {
+		declare(scope, node.variableDeclaration.name, OPAQUE);
+	}
+	if (ts.isClassLike(node) && node.name !== undefined) {
+		scope.set(node.name.text, OPAQUE);
+	}
+	return scope;
+}
+
 function resolveReferences(
 	sf: ts.SourceFile,
 	imports: ReadonlyMap<string, ValueImport>
 ): Map<ts.Identifier, Declaration> {
 	const resolved = new Map<ts.Identifier, Declaration>();
-	const declare = (scope: Map<string, Declaration>, name: ts.BindingName, declaration: Declaration): void => {
-		if (ts.isIdentifier(name)) {
-			scope.set(name.text, declaration);
-			return;
-		}
-		for (const element of name.elements) {
-			if (ts.isBindingElement(element)) {
-				declare(scope, element.name, OPAQUE);
-			}
-		}
-	};
-	const declareVariable = (scope: Map<string, Declaration>, declaration: ts.VariableDeclaration): void => {
-		const initializer = declaration.initializer === undefined ? undefined : unwrapped(declaration.initializer);
-		declare(
-			scope,
-			declaration.name,
-			initializer !== undefined && isFunctionNode(initializer)
-				? { kind: "function", node: initializer }
-				: { kind: "value", node: declaration }
-		);
-	};
-	const declareStatements = (scope: Map<string, Declaration>, statements: readonly ts.Statement[]): void => {
-		for (const statement of statements) {
-			if (ts.isFunctionDeclaration(statement) && statement.name !== undefined) {
-				scope.set(statement.name.text, { kind: "function", node: statement });
-			} else if (ts.isClassDeclaration(statement) && statement.name !== undefined) {
-				scope.set(statement.name.text, OPAQUE);
-			} else if (ts.isVariableStatement(statement)) {
-				for (const declaration of statement.declarationList.declarations) {
-					declareVariable(scope, declaration);
-				}
-			}
-		}
-	};
-	const declarationsOf = (node: ts.Node): Map<string, Declaration> => {
-		const scope = new Map<string, Declaration>();
-		if (ts.isSourceFile(node) || ts.isBlock(node) || ts.isModuleBlock(node)) {
-			declareStatements(scope, node.statements);
-		}
-		if (ts.isCaseBlock(node)) {
-			for (const clause of node.clauses) {
-				declareStatements(scope, clause.statements);
-			}
-		}
-		if (ts.isFunctionLike(node)) {
-			for (const parameter of node.parameters) {
-				declare(scope, parameter.name, OPAQUE);
-			}
-			if (ts.isFunctionExpression(node) && node.name !== undefined) {
-				scope.set(node.name.text, { kind: "function", node });
-			}
-		}
-		if (ts.isForStatement(node) || ts.isForOfStatement(node) || ts.isForInStatement(node)) {
-			if (node.initializer !== undefined && ts.isVariableDeclarationList(node.initializer)) {
-				for (const declaration of node.initializer.declarations) {
-					declare(scope, declaration.name, OPAQUE);
-				}
-			}
-		}
-		if (ts.isCatchClause(node) && node.variableDeclaration !== undefined) {
-			declare(scope, node.variableDeclaration.name, OPAQUE);
-		}
-		if (ts.isClassLike(node) && node.name !== undefined) {
-			scope.set(node.name.text, OPAQUE);
-		}
-		return scope;
-	};
 	const lookup = (chain: readonly Map<string, Declaration>[], name: string): Declaration | undefined => {
 		for (let index = chain.length - 1; index >= 0; index -= 1) {
 			const found = chain[index]?.get(name);
@@ -280,52 +330,69 @@ function resolveReferences(
 	return resolved;
 }
 
-/** A nested function is followed only where a call receives it: a thunk built for later never runs in the loop. */
-function eachExecuted(
-	node: ts.Node,
-	asCallback: boolean,
-	visit: (child: ts.Node, asCallback: boolean) => boolean
-): void {
-	const walk = (child: ts.Node, asCallbackHere: boolean): void => {
-		if (ts.isTypeNode(child) || ts.isTypeAliasDeclaration(child) || ts.isInterfaceDeclaration(child)) {
-			return;
+type ExecutedVisit = (child: ts.Node, asCallback: boolean) => boolean;
+
+/** Whether a node sits in a type position, which never runs. */
+function isTypePosition(child: ts.Node): boolean {
+	return ts.isTypeNode(child) || ts.isTypeAliasDeclaration(child) || ts.isInterfaceDeclaration(child);
+}
+
+/**
+ * The walk below a visited node: an initializer as code, a property access's object, a call's callee (as a callback
+ * when it is a function written in place) and its arguments as callbacks, anything else child by child.
+ */
+function descendExecuted(child: ts.Node, visit: ExecutedVisit): void {
+	if (ts.isVariableDeclaration(child) || ts.isParameter(child) || ts.isPropertyAssignment(child)) {
+		if (child.initializer !== undefined) {
+			eachExecuted(child.initializer, false, visit);
 		}
-		if (ts.isExpression(child) && unwrapped(child) !== child) {
-			walk(unwrapped(child), asCallbackHere);
-			return;
+		return;
+	}
+	if (ts.isPropertyAccessExpression(child)) {
+		eachExecuted(child.expression, false, visit);
+		return;
+	}
+	if (ts.isCallExpression(child) || ts.isNewExpression(child)) {
+		eachExecuted(child.expression, ts.isFunctionLike(unwrapped(child.expression)), visit);
+		for (const argument of child.arguments ?? []) {
+			eachExecuted(argument, true, visit);
 		}
-		if (ts.isFunctionLike(child) && !asCallbackHere) {
-			return;
-		}
-		if (!visit(child, asCallbackHere)) {
-			return;
-		}
-		if (ts.isVariableDeclaration(child) || ts.isParameter(child) || ts.isPropertyAssignment(child)) {
-			if (child.initializer !== undefined) {
-				walk(child.initializer, false);
-			}
-			return;
-		}
-		if (ts.isPropertyAccessExpression(child)) {
-			walk(child.expression, false);
-			return;
-		}
-		if (ts.isCallExpression(child) || ts.isNewExpression(child)) {
-			walk(child.expression, ts.isFunctionLike(unwrapped(child.expression)));
-			for (const argument of child.arguments ?? []) {
-				walk(argument, true);
-			}
-			return;
-		}
-		ts.forEachChild(child, (grandchild) => walk(grandchild, false));
-	};
-	walk(node, asCallback);
+		return;
+	}
+	ts.forEachChild(child, (grandchild) => eachExecuted(grandchild, false, visit));
+}
+
+/**
+ * A nested function is followed only where a call receives it: a thunk built for later never runs in the loop.
+ * descendExecuted and this walk recurse into each other, so the step sits above the entry point that calls it first.
+ */
+function eachExecuted(node: ts.Node, asCallback: boolean, visit: ExecutedVisit): void {
+	if (isTypePosition(node)) {
+		return;
+	}
+	if (ts.isExpression(node) && unwrapped(node) !== node) {
+		eachExecuted(unwrapped(node), asCallback, visit);
+		return;
+	}
+	if (ts.isFunctionLike(node) && !asCallback) {
+		return;
+	}
+	if (!visit(node, asCallback)) {
+		return;
+	}
+	descendExecuted(node, visit);
 }
 
 /** The first uninjected sleeper site a loop body reaches, and whether the body drives any sleeper at all. */
 interface Drive {
 	readonly site: { readonly description: string; readonly sleeper: Sleeper } | undefined;
 	readonly drives: boolean;
+}
+
+/** A Drive while the walk is still filling it in. */
+interface DriveState {
+	site: Drive["site"];
+	drives: boolean;
 }
 
 /**
@@ -398,18 +465,17 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 		return argument !== undefined && !isUndefined(argument) && !isRealSleep(argument, new Set());
 	};
 
-	const calledBodies = (declaration: Declaration, args: readonly ts.Expression[]): ts.Node[] =>
-		declaration.kind === "function"
-			? [
-					...declaration.node.parameters.flatMap((parameter, position) => {
-						const argument = args[position];
-						return parameter.initializer !== undefined && (argument === undefined || isUndefined(argument))
-							? [parameter.initializer]
-							: [];
-					}),
-					...(declaration.node.body === undefined ? [] : [declaration.node.body]),
-				]
-			: [];
+	const calledBodies = (declaration: Declaration, args: readonly ts.Expression[]): ts.Node[] => {
+		if (declaration.kind !== "function") {
+			return [];
+		}
+		const defaulted = declaration.node.parameters.flatMap((parameter, position) => {
+			const argument = args[position];
+			const takesDefault = parameter.initializer !== undefined && (argument === undefined || isUndefined(argument));
+			return takesDefault ? [parameter.initializer] : [];
+		});
+		return declaration.node.body === undefined ? defaulted : [...defaulted, declaration.node.body];
+	};
 
 	const initializerOf = (declaration: Declaration): ts.Node[] =>
 		declaration.kind === "value" && declaration.node.initializer !== undefined ? [declaration.node.initializer] : [];
@@ -419,78 +485,124 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 			? (declarationOf(declaration.node.initializer) ?? declaration)
 			: declaration;
 
-	const driveOf = (node: ts.Node, visited: Set<ts.Node>, asCallback: boolean): Drive => {
-		let site: Drive["site"];
-		let drives = false;
-		const follow = (
-			declaration: Declaration,
-			bodies: readonly ts.Node[],
-			name: string,
-			asCallbackThere: boolean
-		): void => {
-			for (const body of bodies) {
-				if (site !== undefined) {
-					return;
-				}
-				if (visited.has(body)) {
-					continue;
-				}
-				visited.add(body);
-				const inner = driveOf(body, visited, asCallbackThere);
-				drives ||= inner.drives;
-				if (inner.site !== undefined) {
-					site = {
-						sleeper: inner.site.sleeper,
-						description:
-							declaration.kind === "function"
-								? `${inner.site.description}, through ${name}()`
-								: `${inner.site.description}, held by "${name}"`,
-					};
-				}
+	/** A reached site described through the step that led there: a call for a function, a hold for a value. */
+	const describedThrough = (
+		declaration: Declaration,
+		name: string,
+		found: NonNullable<Drive["site"]>
+	): NonNullable<Drive["site"]> => ({
+		sleeper: found.sleeper,
+		description:
+			declaration.kind === "function"
+				? `${found.description}, through ${name}()`
+				: `${found.description}, held by "${name}"`,
+	});
+
+	/** Follows a declaration's bodies, each once per walk, until one reaches a site; driveOf below recurses back here. */
+	const follow = (
+		drive: DriveState,
+		visited: Set<ts.Node>,
+		declaration: Declaration,
+		bodies: readonly ts.Node[],
+		name: string,
+		asCallbackThere: boolean
+	): void => {
+		for (const body of bodies) {
+			if (drive.site !== undefined) {
+				return;
 			}
-		};
-		eachExecuted(node, asCallback, (child, asCallbackHere) => {
+			if (visited.has(body)) {
+				continue;
+			}
+			visited.add(body);
+			const inner = driveOf(body, visited, asCallbackThere);
+			drive.drives ||= inner.drives;
+			if (inner.site !== undefined) {
+				drive.site = describedThrough(declaration, name, inner.site);
+			}
+		}
+	};
+
+	/** The site a driven sleeper is, when its sleep is not injected; undefined when a zero sleep was passed. */
+	const uninjectedSite = (
+		call: ts.CallExpression | ts.NewExpression,
+		found: Sleeper,
+		args: readonly ts.Expression[]
+	): Drive["site"] => {
+		if (injected(found, args)) {
+			return undefined;
+		}
+		const prefix = ts.isNewExpression(call) ? "new " : "";
+		return { sleeper: found, description: `${prefix}${found.name} at line ${lineOf(call)}` };
+	};
+
+	/** Follows a call into its callee: a function's defaulted parameters and body, or a value's initializer. */
+	const followCallee = (
+		drive: DriveState,
+		visited: Set<ts.Node>,
+		callee: ts.Expression,
+		args: readonly ts.Expression[]
+	): void => {
+		const inner = unwrapped(callee);
+		if (!ts.isIdentifier(inner)) {
+			return;
+		}
+		const declaration = resolved.get(inner);
+		if (declaration === undefined) {
+			return;
+		}
+		const target = aliasTarget(declaration);
+		const bodies = target.kind === "function" ? calledBodies(target, args) : initializerOf(target);
+		follow(drive, visited, target, bodies, inner.text, true);
+	};
+
+	/** Reads a call: a driven sleeper first, then the callee; false stops the walk below a reported site. */
+	const visitCall = (drive: DriveState, visited: Set<ts.Node>, call: ts.CallExpression | ts.NewExpression): boolean => {
+		const found = sleeperFor(call.expression);
+		const args = call.arguments ?? [];
+		if (found !== undefined) {
+			drive.drives = true;
+			const site = uninjectedSite(call, found, args);
 			if (site !== undefined) {
+				drive.site = site;
+				return false;
+			}
+		}
+		followCallee(drive, visited, call.expression, args);
+		return true;
+	};
+
+	/** Reads a bare identifier: a value's initializer runs where it is read, a function's body only as a callback. */
+	const visitIdentifier = (
+		drive: DriveState,
+		visited: Set<ts.Node>,
+		identifier: ts.Identifier,
+		asCallbackHere: boolean
+	): void => {
+		const declaration = resolved.get(identifier);
+		if (declaration?.kind === "value") {
+			follow(drive, visited, declaration, initializerOf(declaration), identifier.text, asCallbackHere);
+		} else if (declaration?.kind === "function" && asCallbackHere) {
+			follow(drive, visited, declaration, calledBodies(declaration, []), identifier.text, true);
+		}
+	};
+
+	const driveOf = (node: ts.Node, visited: Set<ts.Node>, asCallback: boolean): Drive => {
+		const drive: DriveState = { site: undefined, drives: false };
+		eachExecuted(node, asCallback, (child, asCallbackHere) => {
+			if (drive.site !== undefined) {
 				return false;
 			}
 			if (ts.isNewExpression(child) || ts.isCallExpression(child)) {
-				const found = sleeperFor(child.expression);
-				const args = child.arguments ?? [];
-				if (found !== undefined) {
-					drives = true;
-					if (!injected(found, args)) {
-						site = {
-							sleeper: found,
-							description: `${ts.isNewExpression(child) ? "new " : ""}${found.name} at line ${lineOf(child)}`,
-						};
-						return false;
-					}
-				}
-				const callee = unwrapped(child.expression);
-				const declaration = ts.isIdentifier(callee) ? resolved.get(callee) : undefined;
-				if (declaration !== undefined && ts.isIdentifier(callee)) {
-					const target = aliasTarget(declaration);
-					follow(
-						target,
-						target.kind === "function" ? calledBodies(target, args) : initializerOf(target),
-						callee.text,
-						true
-					);
-				}
-				return true;
+				return visitCall(drive, visited, child);
 			}
 			if (ts.isIdentifier(child)) {
-				const declaration = resolved.get(child);
-				if (declaration?.kind === "value") {
-					follow(declaration, initializerOf(declaration), child.text, asCallbackHere);
-				} else if (declaration?.kind === "function" && asCallbackHere) {
-					follow(declaration, calledBodies(declaration, []), child.text, true);
-				}
+				visitIdentifier(drive, visited, child, asCallbackHere);
 				return false;
 			}
 			return true;
 		});
-		return { site, drives };
+		return { site: drive.site, drives: drive.drives };
 	};
 
 	interface Loop {
@@ -588,44 +700,60 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 		return declaration?.kind === "function" ? declaration.node.body : undefined;
 	};
 
+	/** The drive of a loop's bodies taken together: the first uninjected site, and whether any body drives a sleeper. */
+	const driveOfBodies = (bodies: readonly ts.Node[]): Drive => {
+		const visited = new Set<ts.Node>();
+		let drives = false;
+		for (const part of bodies) {
+			const next = driveOf(part, visited, true);
+			drives ||= next.drives;
+			if (next.site !== undefined) {
+				return { site: next.site, drives };
+			}
+		}
+		return { site: undefined, drives };
+	};
+
+	/** Counts one loop a test reaches, and reports it when its bodies drive a sleeper whose sleep is not injected. */
+	const auditLoop = (loop: Loop, registration: ts.CallExpression, subject: string): void => {
+		loops += 1;
+		const drive = driveOfBodies(loop.bodies);
+		if (drive.drives) {
+			drives += 1;
+		}
+		if (drive.site === undefined) {
+			return;
+		}
+		problems.push(
+			`${rel(file)}:${lineOf(registration)} test "${subject}" drives ${drive.site.description} inside a loop ` +
+				`(line ${lineOf(loop.node)}) over ${loop.subject}, paying the retry backoff once per entry; ` +
+				remedy(drive.site.sleeper)
+		);
+	};
+
+	/** Audits one test registration: every loop its callback, and the functions the callback calls, reach. */
+	const auditRegistration = (registration: ts.CallExpression): void => {
+		const [label, second] = registration.arguments;
+		const callback = callbackBody(second);
+		if (callback === undefined) {
+			return;
+		}
+		const subject =
+			label !== undefined && ts.isStringLiteralLike(label) ? label.text : registration.expression.getText(sf);
+		for (const body of reachableBodies(callback)) {
+			eachExecuted(body, true, (child) => {
+				const loop = loopOf(child);
+				if (loop !== undefined) {
+					auditLoop(loop, registration, subject);
+				}
+				return true;
+			});
+		}
+	};
+
 	const visitTests = (node: ts.Node): void => {
 		if (ts.isCallExpression(node) && registersTest(node.expression)) {
-			const [label, second] = node.arguments;
-			const callback = callbackBody(second);
-			if (callback !== undefined) {
-				const subject = label !== undefined && ts.isStringLiteralLike(label) ? label.text : node.expression.getText(sf);
-				for (const body of reachableBodies(callback)) {
-					eachExecuted(body, true, (child) => {
-						const loop = loopOf(child);
-						if (loop === undefined) {
-							return true;
-						}
-						loops += 1;
-						const visited = new Set<ts.Node>();
-						const drive = loop.bodies.reduce<Drive>(
-							(found, part) => {
-								if (found.site !== undefined) {
-									return found;
-								}
-								const next = driveOf(part, visited, true);
-								return { site: next.site, drives: found.drives || next.drives };
-							},
-							{ site: undefined, drives: false }
-						);
-						if (drive.drives) {
-							drives += 1;
-						}
-						if (drive.site !== undefined) {
-							problems.push(
-								`${rel(file)}:${lineOf(node)} test "${subject}" drives ${drive.site.description} inside a loop ` +
-									`(line ${lineOf(loop.node)}) over ${loop.subject}, paying the retry backoff once per entry; ` +
-									remedy(drive.site.sleeper)
-							);
-						}
-						return true;
-					});
-				}
-			}
+			auditRegistration(node);
 		}
 		ts.forEachChild(node, visitTests);
 	};

@@ -102,46 +102,47 @@ function assertAudio(audio: ChunkAudio, label: string): void {
 	assertOptionalString(audio.transcript, `${label}.transcript`);
 }
 
+/** Asserts `items` is an array or undefined, then runs `assertItem` over each element under its indexed label. */
+function assertOptionalList<T>(
+	items: readonly T[] | undefined,
+	label: string,
+	assertItem: (item: T, label: string) => void
+): void {
+	if (items === undefined) {
+		return;
+	}
+	assert.ok(Array.isArray(items), `${label} must be an array or undefined`);
+	for (const [i, item] of items.entries()) {
+		assertItem(item, `${label}[${i}]`);
+	}
+}
+
+/** Asserts a delta's content is a string, null, undefined, or a list of text blocks with string fields. */
+function assertContent(content: ChunkDelta["content"], label: string): void {
+	if (content === undefined || content === null || typeof content === "string") {
+		return;
+	}
+	assert.ok(Array.isArray(content), `${label} must be string | blocks | null | undefined`);
+	for (const [i, block] of content.entries()) {
+		assert.ok(isPlainRecord(block), `${label}[${i}] must be a record`);
+		assertOptionalString(block.type, `${label}[${i}].type`);
+		assertOptionalString(block.text, `${label}[${i}].text`);
+	}
+}
+
 function assertDelta(delta: ChunkDelta, label: string): void {
 	assert.ok(isPlainRecord(delta), `${label} must be a record`);
 	assertOptionalString(delta.role, `${label}.role`);
-	if (delta.content !== undefined && delta.content !== null && typeof delta.content !== "string") {
-		assert.ok(Array.isArray(delta.content), `${label}.content must be string | blocks | null | undefined`);
-		for (const [i, block] of delta.content.entries()) {
-			assert.ok(isPlainRecord(block), `${label}.content[${i}] must be a record`);
-			assertOptionalString(block.type, `${label}.content[${i}].type`);
-			assertOptionalString(block.text, `${label}.content[${i}].text`);
-		}
-	}
-	if (delta.tool_calls !== undefined) {
-		assert.ok(Array.isArray(delta.tool_calls), `${label}.tool_calls must be an array or undefined`);
-		for (const [i, call] of delta.tool_calls.entries()) {
-			assertToolCall(call, `${label}.tool_calls[${i}]`);
-		}
-	}
+	assertContent(delta.content, `${label}.content`);
+	assertOptionalList(delta.tool_calls, `${label}.tool_calls`, assertToolCall);
 	assertThinking(delta.thinking, `${label}.thinking`);
-	if (delta.thinking_blocks !== undefined) {
-		assert.ok(Array.isArray(delta.thinking_blocks), `${label}.thinking_blocks must be an array or undefined`);
-		for (const [i, block] of delta.thinking_blocks.entries()) {
-			assertThinkingBlockDelta(block, `${label}.thinking_blocks[${i}]`);
-		}
-	}
+	assertOptionalList(delta.thinking_blocks, `${label}.thinking_blocks`, assertThinkingBlockDelta);
 	assertOptionalString(delta.reasoning_content, `${label}.reasoning_content`);
 	assertOptionalString(delta.reasoning, `${label}.reasoning`);
 	assertOptionalString(delta.refusal, `${label}.refusal`);
-	if (delta.annotations !== undefined) {
-		assert.ok(Array.isArray(delta.annotations), `${label}.annotations must be an array or undefined`);
-		for (const [i, annotation] of delta.annotations.entries()) {
-			assertAnnotation(annotation, `${label}.annotations[${i}]`);
-		}
-	}
+	assertOptionalList(delta.annotations, `${label}.annotations`, assertAnnotation);
 	assertSearchResults(delta.search_results, `${label}.search_results`);
-	if (delta.images !== undefined) {
-		assert.ok(Array.isArray(delta.images), `${label}.images must be an array or undefined`);
-		for (const [i, image] of delta.images.entries()) {
-			assertImage(image, `${label}.images[${i}]`);
-		}
-	}
+	assertOptionalList(delta.images, `${label}.images`, assertImage);
 	if (delta.audio !== undefined) {
 		assertAudio(delta.audio, `${label}.audio`);
 	}

@@ -33,12 +33,8 @@ function selectorParts(prelude: string): string[] {
 	return parts.map((part) => part.trim()).filter((part) => part.length > 0);
 }
 
-/**
- * The blanking is selective on purpose: a `.server-actions` inside the subject's own `:is()`/`:where()` can BE the
- * cluster and must keep the rule in scope, while one inside `:has()`/`:not()` names a different element (or its
- * absence) and must not claim it.
- */
-function subjectOf(part: string): string {
+/** The compounds of one selector, split at its top-level combinators (whitespace, `>`, `+`, `~`). */
+function compoundsOf(part: string): string[] {
 	const compounds: string[] = [];
 	let current = "";
 	let depth = 0;
@@ -59,37 +55,49 @@ function subjectOf(part: string): string {
 	if (current.length > 0) {
 		compounds.push(current);
 	}
-	const subject = compounds.at(-1) ?? "";
-	let blanked = "";
-	let blankDepth = 0;
-	for (const char of subject) {
-		if (char === "(" || char === "[") {
-			if (blankDepth > 0) {
-				blankDepth += 1;
-				continue;
-			}
-			if (char === "[" || /:(?:has|not)$/i.test(blanked)) {
-				blankDepth = 1;
-			}
-			blanked += char;
-			continue;
-		}
-		if (char === ")" || char === "]") {
-			if (blankDepth > 0) {
-				blankDepth -= 1;
-				if (blankDepth === 0) {
-					blanked += char;
-				}
-				continue;
-			}
-			blanked += char;
-			continue;
-		}
-		if (blankDepth === 0) {
-			blanked += char;
-		}
+	return compounds;
+}
+
+/** The blanked text so far and how deep inside a blanked region the next character lands. */
+interface Blanking {
+	readonly text: string;
+	readonly depth: number;
+}
+
+/**
+ * One character of a compound applied to its blanking: a `[`, or a `(` right after `:has` or `:not`, opens a region
+ * whose contents are dropped and whose nested brackets only count depth; the region's own delimiters stay.
+ */
+function blankStep({ text, depth }: Blanking, char: string): Blanking {
+	const opens = char === "(" || char === "[";
+	const closes = char === ")" || char === "]";
+	if (depth > 0 && opens) {
+		return { text, depth: depth + 1 };
 	}
-	return blanked;
+	if (depth > 0 && closes) {
+		return { text: depth === 1 ? text + char : text, depth: depth - 1 };
+	}
+	if (depth > 0) {
+		return { text, depth };
+	}
+	if (opens && (char === "[" || /:(?:has|not)$/i.test(text))) {
+		return { text: text + char, depth: 1 };
+	}
+	return { text: text + char, depth: 0 };
+}
+
+/**
+ * The blanking is selective on purpose: a `.server-actions` inside the subject's own `:is()`/`:where()` can BE the
+ * cluster and must keep the rule in scope, while one inside `:has()`/`:not()` names a different element (or its
+ * absence) and must not claim it.
+ */
+function subjectOf(part: string): string {
+	const subject = compoundsOf(part).at(-1) ?? "";
+	let blanking: Blanking = { text: "", depth: 0 };
+	for (const char of subject) {
+		blanking = blankStep(blanking, char);
+	}
+	return blanking.text;
 }
 
 const TARGETS_CLUSTER = /\.server-actions(?![\w-])/;

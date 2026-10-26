@@ -137,6 +137,29 @@ const proxyPlainCaseArb: fc.Arbitrary<Auth401Case> = fc
 		return { marker, expected: "proxy" as const, body: bodies[shape] };
 	});
 
+/**
+ * Checks a non-auth HTTP error's two-part message: a headline, then one compact detail line that keeps the status
+ * greppable and is never a re-serialized envelope.
+ */
+function assertCompactDetail(mapped: RequestError, ctx: MapErrorContext, status: number): void {
+	const lines = mapped.message.split("\n");
+	let detail: string;
+	if (joinDetail(ctx.surface, "H", "D") === "H\n\nDetails: D") {
+		assert.strictEqual(lines.length, 3, mapped.message);
+		assert.strictEqual(lines[1], "", mapped.message);
+		const lead = lines[2] ?? "";
+		assert.ok(lead.startsWith("Details: "), mapped.message);
+		detail = lead.slice("Details: ".length);
+	} else {
+		assert.strictEqual(lines.length, 2, mapped.message);
+		detail = lines[1] ?? "";
+	}
+	const marker =
+		ctx.surface === "discovery" ? new RegExp(`^(LiteLLM|HTTP) ${status}\\b`) : new RegExp(`^LiteLLM ${status}\\b`);
+	assert.match(detail, marker, mapped.message);
+	assert.ok(!detail.includes('{"error"'), `never a re-serialized envelope: ${mapped.message}`);
+}
+
 describe("provider/errorMapping properties", () => {
 	test("mapSdkError is total: any input under any context maps to an Error and never throws", () => {
 		fc.assert(
@@ -205,26 +228,7 @@ describe("provider/errorMapping properties", () => {
 						assert.strictEqual(mapped.setupHint, ctx.surface === "discovery" ? "check-base-url" : undefined);
 						assert.strictEqual(mapped.logClassification, `RequestError(http, status 404, ${ctx.surface})`);
 					} else if (status !== 401) {
-						// Two-part shape: a headline, then one compact detail line keeping the status greppable, never
-						// a re-serialized envelope.
-						const lines = mapped.message.split("\n");
-						let detail: string;
-						if (joinDetail(ctx.surface, "H", "D") === "H\n\nDetails: D") {
-							assert.strictEqual(lines.length, 3, mapped.message);
-							assert.strictEqual(lines[1], "", mapped.message);
-							const lead = lines[2] ?? "";
-							assert.ok(lead.startsWith("Details: "), mapped.message);
-							detail = lead.slice("Details: ".length);
-						} else {
-							assert.strictEqual(lines.length, 2, mapped.message);
-							detail = lines[1] ?? "";
-						}
-						const marker =
-							ctx.surface === "discovery"
-								? new RegExp(`^(LiteLLM|HTTP) ${status}\\b`)
-								: new RegExp(`^LiteLLM ${status}\\b`);
-						assert.match(detail, marker, mapped.message);
-						assert.ok(!detail.includes('{"error"'), `never a re-serialized envelope: ${mapped.message}`);
+						assertCompactDetail(mapped, ctx, status);
 					}
 				}
 			),

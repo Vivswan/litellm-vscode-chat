@@ -99,6 +99,28 @@ export interface ImportStatement {
 	readonly bindings: readonly { readonly local: ts.Identifier; readonly imported: string }[];
 }
 
+/** The runtime bindings of an import clause: the default, then the namespace or the named imports that are values. */
+function runtimeBindings(clause: ts.ImportClause | undefined): { local: ts.Identifier; imported: string }[] {
+	const bindings: { local: ts.Identifier; imported: string }[] = [];
+	if (clause?.name !== undefined) {
+		bindings.push({ local: clause.name, imported: "default" });
+	}
+	const named = clause?.namedBindings;
+	if (named === undefined) {
+		return bindings;
+	}
+	if (ts.isNamespaceImport(named)) {
+		bindings.push({ local: named.name, imported: "*" });
+		return bindings;
+	}
+	for (const element of named.elements) {
+		if (!element.isTypeOnly) {
+			bindings.push({ local: element.name, imported: (element.propertyName ?? element.name).text });
+		}
+	}
+	return bindings;
+}
+
 /** Every import statement that loads at runtime, with its runtime bindings; type-only forms are erased and absent. */
 export function importStatements(sf: ts.SourceFile): ImportStatement[] {
 	const statements: ImportStatement[] = [];
@@ -106,25 +128,14 @@ export function importStatements(sf: ts.SourceFile): ImportStatement[] {
 		if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) {
 			continue;
 		}
-		const clause = statement.importClause;
-		if (isTypeOnlyImport(clause)) {
+		if (isTypeOnlyImport(statement.importClause)) {
 			continue;
 		}
-		const bindings: { local: ts.Identifier; imported: string }[] = [];
-		if (clause?.name !== undefined) {
-			bindings.push({ local: clause.name, imported: "default" });
-		}
-		const named = clause?.namedBindings;
-		if (named !== undefined && ts.isNamespaceImport(named)) {
-			bindings.push({ local: named.name, imported: "*" });
-		} else if (named !== undefined) {
-			for (const element of named.elements) {
-				if (!element.isTypeOnly) {
-					bindings.push({ local: element.name, imported: (element.propertyName ?? element.name).text });
-				}
-			}
-		}
-		statements.push({ statement, specifier: statement.moduleSpecifier.text, bindings });
+		statements.push({
+			statement,
+			specifier: statement.moduleSpecifier.text,
+			bindings: runtimeBindings(statement.importClause),
+		});
 	}
 	return statements;
 }

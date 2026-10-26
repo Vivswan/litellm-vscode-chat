@@ -88,6 +88,30 @@ function soleChoiceOf(collapsed: Record<string, unknown>): CollapsedChoice {
 	return expectDefined(choices[0]);
 }
 
+/** `value` as a record, or undefined for anything that is not an object. */
+function recordOf(value: unknown): Record<string, unknown> | undefined {
+	if (typeof value !== "object" || value === null) {
+		return undefined;
+	}
+	return value as Record<string, unknown>;
+}
+
+/** The string `delta.content` values of one raw chunk's choices, in order; a chunk without a choices array has none. */
+function stringContentsOf(chunk: unknown): string[] {
+	const choices = recordOf(chunk)?.choices;
+	if (!Array.isArray(choices)) {
+		return [];
+	}
+	const contents: string[] = [];
+	for (const choice of choices) {
+		const value = recordOf(recordOf(choice)?.delta)?.content;
+		if (typeof value === "string") {
+			contents.push(value);
+		}
+	}
+	return contents;
+}
+
 /**
  * Deliberately re-derived from the raw chunks, not from FuzzEvent.text, because collapseChunks must keep inline tool
  * control tokens and skip non-string content.
@@ -95,26 +119,7 @@ function soleChoiceOf(collapsed: Record<string, unknown>): CollapsedChoice {
 function concatenatedContentOf(chunks: unknown[]): string {
 	let content = "";
 	for (const chunk of chunks) {
-		if (typeof chunk !== "object" || chunk === null) {
-			continue;
-		}
-		const choices = (chunk as Record<string, unknown>).choices;
-		if (!Array.isArray(choices)) {
-			continue;
-		}
-		for (const choice of choices) {
-			if (typeof choice !== "object" || choice === null) {
-				continue;
-			}
-			const delta = (choice as Record<string, unknown>).delta;
-			if (typeof delta !== "object" || delta === null) {
-				continue;
-			}
-			const value = (delta as Record<string, unknown>).content;
-			if (typeof value === "string") {
-				content += value;
-			}
-		}
+		content += stringContentsOf(chunk).join("");
 	}
 	return content;
 }

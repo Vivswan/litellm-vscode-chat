@@ -12,7 +12,7 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { CAPABILITY_FIELDS } from "../../../../shared/config/capabilityResolution";
+import { CAPABILITY_FIELDS, type CatalogLookupResult } from "../../../../shared/config/capabilityResolution";
 import type { CatalogModel } from "../../../../shared/config/openRouterCatalog";
 import {
 	createCatalogLookup,
@@ -92,6 +92,39 @@ function assertWellFormed(models: readonly CatalogModel[]): void {
 	}
 }
 
+/** The catalog models whose post-vendor suffix is exactly `rawId`. */
+function suffixMatchesOf(models: readonly CatalogModel[], rawId: string): CatalogModel[] {
+	return models.filter((model) => {
+		const slash = model.id.indexOf("/");
+		// Mirror the lookup's guard: an empty post-vendor suffix is never indexed, so "" can match nothing
+		// implicitly.
+		const suffix = model.id.slice(slash + 1);
+		return slash > 0 && suffix !== "" && suffix === rawId;
+	});
+}
+
+/** Checks the implicit lookup's answer: an exact id wins, else a lone suffix match, else ambiguous, else not found. */
+function assertImplicitRule(
+	implicit: CatalogLookupResult,
+	rawId: string,
+	exactHit: boolean,
+	suffixMatches: readonly CatalogModel[]
+): void {
+	if (exactHit) {
+		assert.ok(implicit.kind === "found" && implicit.id === rawId);
+		return;
+	}
+	if (suffixMatches.length === 1) {
+		assert.ok(implicit.kind === "found" && implicit.id === suffixMatches[0]?.id);
+		return;
+	}
+	if (suffixMatches.length > 1) {
+		assert.strictEqual(implicit.kind, "ambiguous");
+		return;
+	}
+	assert.strictEqual(implicit.kind, "not-found");
+}
+
 describe("shared/config openRouterCatalog properties", () => {
 	test("mapping and parsing never throw and only produce well-formed models", () => {
 		fc.assert(
@@ -165,22 +198,7 @@ describe("shared/config openRouterCatalog properties", () => {
 					assert.deepStrictEqual(implicit, { kind: "not-found" });
 					return;
 				}
-				const suffixMatches = snapshot.models.filter((model) => {
-					const slash = model.id.indexOf("/");
-					// Mirror the lookup's guard: an empty post-vendor suffix is never indexed, so "" can match nothing
-					// implicitly.
-					const suffix = model.id.slice(slash + 1);
-					return slash > 0 && suffix !== "" && suffix === rawId;
-				});
-				if (byId.has(rawId)) {
-					assert.ok(implicit.kind === "found" && implicit.id === rawId);
-				} else if (suffixMatches.length === 1) {
-					assert.ok(implicit.kind === "found" && implicit.id === suffixMatches[0]?.id);
-				} else if (suffixMatches.length > 1) {
-					assert.strictEqual(implicit.kind, "ambiguous");
-				} else {
-					assert.strictEqual(implicit.kind, "not-found");
-				}
+				assertImplicitRule(implicit, rawId, byId.has(rawId), suffixMatchesOf(snapshot.models, rawId));
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);

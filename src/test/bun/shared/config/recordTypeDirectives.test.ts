@@ -129,6 +129,110 @@ const NAMES_BY_FILE: ReadonlyMap<string, ReadonlySet<string>> = new Map(
 	SCANNED_SOURCES.map((file) => [file, underscoreNames(file)])
 );
 
+/** The prose a bundle entry carries: the string itself or a record's `message` string; anything else is empty. */
+function bundleMessage(value: unknown): string {
+	if (typeof value === "string") {
+		return value;
+	}
+	if (isRecord(value) && typeof value.message === "string") {
+		return value.message;
+	}
+	return "";
+}
+
+/** The l10n bundles and the package.nls files, repository-relative and sorted. */
+function localizedCopyFiles(): string[] {
+	const l10nDir = path.join(REPO_ROOT, "l10n");
+	return [
+		...fs
+			.readdirSync(l10nDir)
+			.filter((name) => name.startsWith("bundle.l10n") && name.endsWith(".json"))
+			.map((name) => path.join("l10n", name)),
+		...fs.readdirSync(REPO_ROOT).filter((name) => name.startsWith("package.nls") && name.endsWith(".json")),
+	].sort();
+}
+
+/** The directive-shaped tokens one bundle's keys and messages spell, and a failure for each unregistered one. */
+function sweepCopyBundle(file: string): { readonly tokens: string[]; readonly failures: string[] } {
+	const bundle = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, file), "utf8")) as Record<string, unknown>;
+	const tokens: string[] = [];
+	const failures: string[] = [];
+	for (const [key, value] of Object.entries(bundle)) {
+		for (const text of [key, bundleMessage(value)]) {
+			for (const token of text.match(DIRECTIVE_TOKEN_PATTERN) ?? []) {
+				tokens.push(token);
+				if (!REGISTERED_DIRECTIVES.has(token)) {
+					failures.push(
+						`${file} entry "${key}" spells "${token}", which is no registered directive: ` +
+							"rename the copy wherever it is minted, re-run l10n:extract, and retranslate"
+					);
+				}
+			}
+		}
+	}
+	return { tokens, failures };
+}
+
+/** Every markdown file under docs/, with forward slashes so the reach pins and messages read the same on every OS. */
+function docFiles(): string[] {
+	return fs
+		.readdirSync(path.join(REPO_ROOT, "docs"), { recursive: true, encoding: "utf8" })
+		.filter((name) => name.endsWith(".md"))
+		.map((name) => `docs/${name.replaceAll("\\", "/")}`)
+		.sort();
+}
+
+/**
+ * The README files, which spell directives in Marketplace-facing prose (the privacy paragraph names _openrouter_model).
+ * CHANGELOG.md stays out deliberately: its historical release notes correctly keep retired names.
+ */
+function readmeFiles(): ReadonlySet<string> {
+	return new Set(fs.readdirSync(REPO_ROOT).filter((name) => name.startsWith("README") && name.endsWith(".md")));
+}
+
+/** The distinct directive-shaped tokens one prose file spells, and a failure for each unregistered, unallowed one. */
+function sweepProseFile(
+	file: string,
+	allowedTokens: ReadonlySet<string>
+): { readonly tokens: ReadonlySet<string>; readonly failures: string[] } {
+	const text = fs.readFileSync(path.join(REPO_ROOT, file), "utf8");
+	const tokens = new Set(text.match(DIRECTIVE_TOKEN_PATTERN) ?? []);
+	const failures: string[] = [];
+	for (const token of tokens) {
+		if (!REGISTERED_DIRECTIVES.has(token) && !allowedTokens.has(token)) {
+			failures.push(
+				`${file} spells "${token}", which is no registered directive: ` +
+					"update the docs (source and translations), or justify a genuine non-directive token in the allowlist"
+			);
+		}
+	}
+	return { tokens, failures };
+}
+
+/**
+ * Every prose file swept: the tokens found in docs/ and in the README files as two sets, since the docs completeness
+ * pin asks whether a directive is documented in docs/, not merely mentioned in a README; and every failure in file
+ * order.
+ */
+function sweepProse(
+	files: readonly string[],
+	readmes: ReadonlySet<string>,
+	allowedTokens: ReadonlySet<string>
+): { readonly docsFound: ReadonlySet<string>; readonly readmeFound: ReadonlySet<string>; readonly failures: string[] } {
+	const docsFound = new Set<string>();
+	const readmeFound = new Set<string>();
+	const failures: string[] = [];
+	for (const file of files) {
+		const legFound = readmes.has(file) ? readmeFound : docsFound;
+		const swept = sweepProseFile(file, allowedTokens);
+		for (const token of swept.tokens) {
+			legFound.add(token);
+		}
+		failures.push(...swept.failures);
+	}
+	return { docsFound, readmeFound, failures };
+}
+
 describe("shared/config record-type directive registry", () => {
 	test("every name is underscore-prefixed and minted in exactly one row, never a shared engine directive", () => {
 		const seen = new Map<string, RecordType>();
@@ -196,33 +300,15 @@ describe("shared/config record-type directive registry", () => {
 		// registry rename would leave those messages teaching a gone name. Fail closed over every l10n bundle's and
 		// package.nls file's keys AND translated values - translations keep directive tokens verbatim - so neither the
 		// source copy nor a locale can drift stale.
-		const l10nDir = path.join(REPO_ROOT, "l10n");
-		const copyFiles = [
-			...fs
-				.readdirSync(l10nDir)
-				.filter((name) => name.startsWith("bundle.l10n") && name.endsWith(".json"))
-				.map((name) => path.join("l10n", name)),
-			...fs.readdirSync(REPO_ROOT).filter((name) => name.startsWith("package.nls") && name.endsWith(".json")),
-		].sort();
+		const copyFiles = localizedCopyFiles();
 		const found = new Set<string>();
 		const failures: string[] = [];
 		for (const file of copyFiles) {
-			const bundle = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, file), "utf8")) as Record<string, unknown>;
-			for (const [key, value] of Object.entries(bundle)) {
-				const message =
-					typeof value === "string" ? value : isRecord(value) && typeof value.message === "string" ? value.message : "";
-				for (const text of [key, message]) {
-					for (const token of text.match(DIRECTIVE_TOKEN_PATTERN) ?? []) {
-						found.add(token);
-						if (!REGISTERED_DIRECTIVES.has(token)) {
-							failures.push(
-								`${file} entry "${key}" spells "${token}", which is no registered directive: ` +
-									"rename the copy wherever it is minted, re-run l10n:extract, and retranslate"
-							);
-						}
-					}
-				}
+			const swept = sweepCopyBundle(file);
+			for (const token of swept.tokens) {
+				found.add(token);
 			}
+			failures.push(...swept.failures);
 		}
 		assert.deepStrictEqual(failures, []);
 		// Positive controls: the source bundle, the settings-UI nls file, and their translations must all be in the
@@ -241,20 +327,9 @@ describe("shared/config record-type directive registry", () => {
 	test("every directive-shaped token in the docs and README files is a registered directive", () => {
 		// The docs teach the record grammar in prose and code fences, so registered spellings are expected and pass;
 		// the sweep detects renames, where a dropped registry name would leave the docs teaching it.
-		const docsDir = path.join(REPO_ROOT, "docs");
-		// Separators normalized so the reach pins and messages read the same on every OS.
-		const docFiles = fs
-			.readdirSync(docsDir, { recursive: true, encoding: "utf8" })
-			.filter((name) => name.endsWith(".md"))
-			.map((name) => `docs/${name.replaceAll("\\", "/")}`)
-			.sort();
-		// The README files spell directives in Marketplace-facing prose (the privacy paragraph names
-		// _openrouter_model). CHANGELOG.md stays out deliberately: its historical release notes correctly keep retired
-		// names.
-		const readmeFiles: ReadonlySet<string> = new Set(
-			fs.readdirSync(REPO_ROOT).filter((name) => name.startsWith("README") && name.endsWith(".md"))
-		);
-		const sweptFiles = [...docFiles, ...readmeFiles].sort();
+		const docs = docFiles();
+		const readmes = readmeFiles();
+		const sweptFiles = [...docs, ...readmes].sort();
 		// Non-directive tokens the docs legitimately spell, each pinned below so a dropped mention retires its entry.
 		//
 		//   DECLARE_DIRECTIVE  -> the retired name the migration docs teach, imported from the migration's own
@@ -262,33 +337,16 @@ describe("shared/config record-type directive registry", () => {
 		//   _reasoning_effort  -> the tail of the capability flag supports_<level>_reasoning_effort, split off by the
 		//                         <level> placeholder
 		const allowedTokens: ReadonlySet<string> = new Set([DECLARE_DIRECTIVE, "_reasoning_effort"]);
-		// Per-leg token sets, so the docs completeness pins below keep their original claim (documented in docs/, not
-		// merely mentioned in a README).
-		const docsFound = new Set<string>();
-		const readmeFound = new Set<string>();
-		const failures: string[] = [];
-		for (const file of sweptFiles) {
-			const legFound = readmeFiles.has(file) ? readmeFound : docsFound;
-			const text = fs.readFileSync(path.join(REPO_ROOT, file), "utf8");
-			for (const token of new Set(text.match(DIRECTIVE_TOKEN_PATTERN) ?? [])) {
-				legFound.add(token);
-				if (!REGISTERED_DIRECTIVES.has(token) && !allowedTokens.has(token)) {
-					failures.push(
-						`${file} spells "${token}", which is no registered directive: ` +
-							"update the docs (source and translations), or justify a genuine non-directive token in the allowlist"
-					);
-				}
-			}
-		}
+		const { docsFound, readmeFound, failures } = sweepProse(sweptFiles, readmes, allowedTokens);
 		assert.deepStrictEqual(failures, []);
 		// Positive controls: the walk must reach the source docs, both translation trees, and every README, and must
 		// still see every registered directive's spelling - a narrowed walk or dead pattern fails here, not silently.
-		assert.ok(docFiles.length >= 24, "the docs sweep no longer reaches the full docs tree");
+		assert.ok(docs.length >= 24, "the docs sweep no longer reaches the full docs tree");
 		for (const file of ["docs/models.md", "docs/zh-cn/models.md", "docs/zh-tw/models.md"]) {
-			assert.ok(docFiles.includes(file), `the docs sweep no longer reaches ${file}`);
+			assert.ok(docs.includes(file), `the docs sweep no longer reaches ${file}`);
 		}
 		for (const file of ["README.md", "README.zh-cn.md", "README.zh-tw.md"]) {
-			assert.ok(readmeFiles.has(file), `the sweep no longer reaches ${file}`);
+			assert.ok(readmes.has(file), `the sweep no longer reaches ${file}`);
 		}
 		assert.ok(
 			readmeFound.has(OPENROUTER_MODEL_DIRECTIVE),

@@ -75,6 +75,20 @@ function fakeRepo(parts: FakeRepoParts): Repository {
 	};
 }
 
+/** Asserts every surrogate in `patch` sits in a complete pair; a lone half is named by its offset and `path`. */
+function expectSurrogatePairsIntact(patch: string, path: string): void {
+	for (let i = 0; i < patch.length; i++) {
+		const code = patch.charCodeAt(i);
+		if (code >= 0xd800 && code <= 0xdbff) {
+			const next = patch.charCodeAt(i + 1);
+			expect(next >= 0xdc00 && next <= 0xdfff, `lone high surrogate at ${String(i)} for ${path}`).toBe(true);
+			i++;
+		} else {
+			expect(code >= 0xdc00 && code <= 0xdfff, `lone low surrogate at ${String(i)} for ${path}`).toBe(false);
+		}
+	}
+}
+
 describe("extension/features/prGen ghprCommitOrder", () => {
 	test("a branch with no upstream was collected from git log, newest first", () => {
 		expect(ghprCommitOrder({ name: "feature" })).toBe("newestFirst");
@@ -356,16 +370,7 @@ describe("extension/features/prGen collectBranchContext", () => {
 			const outcome = await collectBranchContext(repo);
 			const patch = outcome.kind === "collected" ? (outcome.context.patches[0] as { patch: string }).patch : "";
 			expect(patch.length).toBeGreaterThan(0);
-			for (let i = 0; i < patch.length; i++) {
-				const code = patch.charCodeAt(i);
-				if (code >= 0xd800 && code <= 0xdbff) {
-					const next = patch.charCodeAt(i + 1);
-					expect(next >= 0xdc00 && next <= 0xdfff, `lone high surrogate at ${String(i)} for ${path}`).toBe(true);
-					i++;
-				} else {
-					expect(code >= 0xdc00 && code <= 0xdfff, `lone low surrogate at ${String(i)} for ${path}`).toBe(false);
-				}
-			}
+			expectSurrogatePairsIntact(patch, path);
 		}
 	});
 

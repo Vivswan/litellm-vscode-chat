@@ -111,6 +111,24 @@ const BUDGET_MINTS: Record<string, { readonly [setting in "chat.timeout" | "disc
 		"src/extension/servers/usage/spendClient.ts": { "discovery.timeout": 1 },
 	};
 
+/** How many TimeoutBudget mints a source makes per setting identity, the zero counts left out. */
+function budgetMintCounts(source: string): Record<string, number> {
+	const counts: Record<string, number> = {};
+	const chat = countMatches(source, /\bsetting: "chat\.timeout"/g);
+	const discovery = countMatches(source, /\bsetting: "discovery\.timeout"/g);
+	const fixed = countMatches(source, /\bsetting: undefined\b/g);
+	if (chat > 0) {
+		counts["chat.timeout"] = chat;
+	}
+	if (discovery > 0) {
+		counts["discovery.timeout"] = discovery;
+	}
+	if (fixed > 0) {
+		counts.fixed = fixed;
+	}
+	return counts;
+}
+
 describe("provider/transport timeout budget mints", () => {
 	test("every shipped TimeoutBudget mint is registered with the setting its clock is really owned by", () => {
 		// The advice pipeline renders whatever the budget says, so the registry is where a wrong pairing is caught: a new
@@ -124,20 +142,7 @@ describe("provider/transport timeout budget mints", () => {
 			if (relative === BUDGET_MODULE) {
 				continue;
 			}
-			const source = readFileSync(file, "utf8");
-			const counts: Record<string, number> = {};
-			const chat = countMatches(source, /\bsetting: "chat\.timeout"/g);
-			const discovery = countMatches(source, /\bsetting: "discovery\.timeout"/g);
-			const fixed = countMatches(source, /\bsetting: undefined\b/g);
-			if (chat > 0) {
-				counts["chat.timeout"] = chat;
-			}
-			if (discovery > 0) {
-				counts["discovery.timeout"] = discovery;
-			}
-			if (fixed > 0) {
-				counts.fixed = fixed;
-			}
+			const counts = budgetMintCounts(readFileSync(file, "utf8"));
 			if (Object.keys(counts).length > 0) {
 				observed.set(relative, counts);
 			}

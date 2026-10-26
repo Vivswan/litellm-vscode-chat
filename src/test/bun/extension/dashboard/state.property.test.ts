@@ -251,6 +251,49 @@ const validRequest: fc.Arbitrary<RawRequest> = fc.constantFrom(...METHODS).chain
 /** Values the payload shapes refuse, array-valued fields aside; the mutation swaps NaN in where an array is legal. */
 const junkValue: fc.Arbitrary<unknown> = fc.constantFrom(Number.NaN, [], { unexpected: [] });
 
+/** `request` with an undeclared key added to its payload (a record, on even picks) or else to its envelope. */
+function withUnknownKey(request: RawRequest, extraKey: string, junk: unknown, pick: number): Record<string, unknown> {
+	// Strict shapes refuse any undeclared key, envelope and payload alike; the suffix keeps the key unknown, never a
+	// prototype setter.
+	const mutant: Record<string, unknown> = { ...request };
+	const payload = request.payload;
+	const target = payload !== null && pick % 2 === 0 ? (payload as Record<string, unknown>) : mutant;
+	const key = Object.hasOwn(target, extraKey) || isUnsafeRecordKey(extraKey) ? `${extraKey}Extra` : extraKey;
+	if (target === mutant) {
+		mutant[key] = junk;
+	} else {
+		mutant.payload = { ...target, [key]: junk };
+	}
+	return mutant;
+}
+
+/** `request` with one payload field replaced by `junk`, or its whole payload where the method takes a literal null. */
+function withWrongType(request: RawRequest, junk: unknown, pick: number): Record<string, unknown> {
+	const payload = request.payload;
+	if (payload === null) {
+		// The parameterless methods take the literal null and nothing else.
+		return { ...request, payload: junk };
+	}
+	const record = payload as Record<string, unknown>;
+	const keys = Object.keys(record);
+	const key = keys[pick % keys.length] ?? "label";
+	// setUsageAlertThresholds.values, the schema-keywords list, and the language filter's languages patch legally hold
+	// any bounded array of their element type, so the array junk is not a wrong type there; NaN still is.
+	const value = (key === "values" || key === "languages") && Array.isArray(junk) ? Number.NaN : junk;
+	return { ...request, payload: { ...record, [key]: value } };
+}
+
+/** `request` with its id grown past the bound, or on even picks the payload's sourceHandle where it carries one. */
+function withOversizedToken(request: RawRequest, oversize: number, pick: number): Record<string, unknown> {
+	// Every request carries the envelope id; the adopt and hide payloads carry a second bounded token.
+	const payload = request.payload;
+	const record = payload === null ? {} : (payload as Record<string, unknown>);
+	if (Object.hasOwn(record, "sourceHandle") && pick % 2 === 0) {
+		return { ...request, payload: { ...record, sourceHandle: "x".repeat(oversize) } };
+	}
+	return { ...request, id: "x".repeat(oversize) };
+}
+
 describe("extension/dashboard/state webview request schema properties", () => {
 	test("parseDashboardRequest is total over arbitrary values", () => {
 		fc.assert(
@@ -293,43 +336,13 @@ describe("extension/dashboard/state webview request schema properties", () => {
 				fc.integer({ min: REQUEST_ID_MAX_LENGTH + 1, max: REQUEST_ID_MAX_LENGTH + 64 }),
 				fc.nat(),
 				(request, kind, extraKey, junk, oversize, pick) => {
-					const mutant: Record<string, unknown> = { ...request };
-					const payload = request.payload;
+					let mutant: Record<string, unknown>;
 					if (kind === "unknown-key") {
-						// Strict shapes refuse any undeclared key, envelope and payload alike; the suffix keeps the key
-						// unknown, never a prototype setter.
-						const target = payload !== null && pick % 2 === 0 ? (payload as Record<string, unknown>) : mutant;
-						const key = Object.hasOwn(target, extraKey) || isUnsafeRecordKey(extraKey) ? `${extraKey}Extra` : extraKey;
-						if (target === mutant) {
-							mutant[key] = junk;
-						} else {
-							mutant.payload = { ...target, [key]: junk };
-						}
+						mutant = withUnknownKey(request, extraKey, junk, pick);
 					} else if (kind === "wrong-type") {
-						if (payload === null) {
-							// The parameterless methods take the literal null and nothing else.
-							mutant.payload = junk;
-						} else {
-							const record = payload as Record<string, unknown>;
-							const keys = Object.keys(record);
-							const key = keys[pick % keys.length] ?? "label";
-							// setUsageAlertThresholds.values, the schema-keywords list, and the language filter's
-							// languages patch legally hold any bounded array of their element type, so the array junk
-							// is not a wrong type there; NaN still is.
-							mutant.payload = {
-								...record,
-								[key]: (key === "values" || key === "languages") && Array.isArray(junk) ? Number.NaN : junk,
-							};
-						}
+						mutant = withWrongType(request, junk, pick);
 					} else {
-						// Every request carries the envelope id; the adopt and hide payloads carry a second bounded
-						// token.
-						const record = payload === null ? {} : (payload as Record<string, unknown>);
-						if (Object.hasOwn(record, "sourceHandle") && pick % 2 === 0) {
-							mutant.payload = { ...record, sourceHandle: "x".repeat(oversize) };
-						} else {
-							mutant.id = "x".repeat(oversize);
-						}
+						mutant = withOversizedToken(request, oversize, pick);
 					}
 					assert.strictEqual(parseDashboardRequest(mutant).success, false, `a ${kind} mutant must be refused`);
 				}

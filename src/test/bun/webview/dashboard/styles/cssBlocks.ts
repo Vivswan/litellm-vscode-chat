@@ -18,6 +18,60 @@ export interface Block {
 	readonly end: number;
 }
 
+/** A block entered and not yet closed: its prelude, the prelude's start, the body's start, and its wrappers. */
+interface OpenBlock {
+	readonly prelude: string;
+	readonly at: number;
+	readonly bodyStart: number;
+	readonly context: readonly string[];
+}
+
+/** The index of the `/` closing the comment opened at `i`; the sheet's end when it never closes, as in a browser. */
+function commentClose(css: string, i: number): number {
+	const end = css.indexOf("*/", i + 2);
+	return end === -1 ? css.length : end + 1;
+}
+
+/** The index of the quote closing the string opened at `i`, escapes stepped over; past the sheet's end if unclosed. */
+function stringClose(css: string, i: number): number {
+	const quote = css[i];
+	let j = i + 1;
+	for (; j < css.length && css[j] !== quote; j++) {
+		if (css[j] === "\\") {
+			j++;
+		}
+	}
+	return j;
+}
+
+/**
+ * The prelude between `from` and the brace at `to` with its comments cut out: the bundler puts a file banner ahead of
+ * the at-rule it opens, and a prelude carrying one answers to no pattern, reporting a block nested in a width query
+ * as unconditional.
+ */
+function preludeText(css: string, from: number, to: number): string {
+	return css
+		.slice(from, to)
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.trim();
+}
+
+/** Records the innermost open block as closed by the brace at `close`; a stray brace with nothing open is ignored. */
+function closeInnermost(css: string, open: OpenBlock[], close: number, found: Block[]): void {
+	const opened = open.pop();
+	if (opened === undefined) {
+		return;
+	}
+	found.push({
+		prelude: opened.prelude,
+		body: css.slice(opened.bodyStart, close),
+		text: css.slice(opened.at, close + 1).trim(),
+		context: opened.context,
+		start: opened.at,
+		end: close + 1,
+	});
+}
+
 /**
  * Every brace block in a compiled sheet, with the at-rules around it. Exported so a pin can scope a scan to one
  * layer's rules (the utility collision guard reads only `@layer utilities`).
@@ -26,53 +80,21 @@ export interface Block {
  */
 export function blocks(css: string): readonly Block[] {
 	const found: Block[] = [];
-	const open: {
-		readonly prelude: string;
-		readonly at: number;
-		readonly bodyStart: number;
-		readonly context: readonly string[];
-	}[] = [];
+	const open: OpenBlock[] = [];
 	let preludeStart = 0;
 	for (let i = 0; i < css.length; i++) {
 		const char = css[i];
 		if (char === "/" && css[i + 1] === "*") {
-			const end = css.indexOf("*/", i + 2);
-			// An unterminated comment swallows the rest of the sheet, which is
-			// what a browser does with one too.
-			i = end === -1 ? css.length : end + 1;
-			continue;
-		}
-		if (char === '"' || char === "'") {
-			for (i++; i < css.length && css[i] !== char; i++) {
-				if (css[i] === "\\") {
-					i++;
-				}
-			}
-			continue;
-		}
-		if (char === "{") {
-			// Comments out of the prelude TEXT too: the bundler puts a file banner ahead of the at-rule it opens, and a
-			// prelude carrying one answers to no pattern - reporting a block nested in a width query as unconditional.
-			const prelude = css
-				.slice(preludeStart, i)
-				.replace(/\/\*[\s\S]*?\*\//g, "")
-				.trim();
+			i = commentClose(css, i);
+		} else if (char === '"' || char === "'") {
+			i = stringClose(css, i);
+		} else if (char === "{") {
+			const prelude = preludeText(css, preludeStart, i);
 			open.push({ prelude, at: preludeStart, bodyStart: i + 1, context: open.map((entry) => entry.prelude) });
 			preludeStart = i + 1;
 		} else if (char === "}") {
-			const closed = open.pop();
+			closeInnermost(css, open, i, found);
 			preludeStart = i + 1;
-			if (closed === undefined) {
-				continue;
-			}
-			found.push({
-				prelude: closed.prelude,
-				body: css.slice(closed.bodyStart, i),
-				text: css.slice(closed.at, i + 1).trim(),
-				context: closed.context,
-				start: closed.at,
-				end: i + 1,
-			});
 		} else if (char === ";") {
 			preludeStart = i + 1;
 		}

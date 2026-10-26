@@ -49,64 +49,86 @@ function setupBunSteps(file: string): { at: string; step: WorkflowStep }[] {
 	return found;
 }
 
+/** The package.json and installed @types/bun pins that disagree with `pinned`, as the failure lists them. */
+function packagePinDisagreements(pinned: string): string[] {
+	const pkg = JSON.parse(read("package.json")) as {
+		packageManager?: string;
+		devDependencies: Record<string, string>;
+	};
+	const installedTypes = JSON.parse(read("node_modules/@types/bun/package.json")) as { version: string };
+	const declaredTypes = pkg.devDependencies["@types/bun"] ?? "";
+	const packageManager = /^bun@(\d+\.\d+\.\d+)$/.exec(pkg.packageManager ?? "")?.[1] ?? pkg.packageManager;
+
+	const disagreements: string[] = [];
+	if (packageManager !== pinned) {
+		disagreements.push(`package.json packageManager: "${pkg.packageManager}" (want "bun@${pinned}")`);
+	}
+	// @types/bun releases follow bun's major.minor; a patch offset is a stub release, not a toolchain change.
+	if (!RELEASE.test(declaredTypes) || majorMinor(declaredTypes) !== majorMinor(pinned)) {
+		disagreements.push(`package.json devDependencies @types/bun: "${declaredTypes}" (want ${majorMinor(pinned)}.x)`);
+	}
+	if (majorMinor(installedTypes.version) !== majorMinor(pinned)) {
+		disagreements.push(
+			`node_modules/@types/bun: "${installedTypes.version}" (want ${majorMinor(pinned)}.x; run bun install)`
+		);
+	}
+	return disagreements;
+}
+
+/** The compose image tag's disagreement with `pinned`, if any; the file must run an oven/bun alpine image at all. */
+function composePinDisagreements(pinned: string): string[] {
+	const image = /^\s+image: docker\.io\/oven\/bun:(\S+?)-alpine$/m.exec(read("docker/docker-compose.yml"))?.[1];
+	assert.ok(image, "docker/docker-compose.yml runs the fake backend on a docker.io/oven/bun:*-alpine image");
+	if (image === pinned) {
+		return [];
+	}
+	return [`docker/docker-compose.yml oven/bun image: "${image}-alpine" (want "${pinned}-alpine")`];
+}
+
+/** The devcontainer bun feature's disagreement with `pinned`, if any; the file must declare a bun feature at all. */
+function devcontainerPinDisagreements(pinned: string): string[] {
+	const { features } = Bun.JSONC.parse(read(".devcontainer/devcontainer.json")) as {
+		features?: Record<string, { version?: string }>;
+	};
+	const bunFeature = Object.entries(features ?? {}).find(([id]) => /\/bun:\d+$/.test(id));
+	assert.ok(bunFeature, ".devcontainer/devcontainer.json declares a bun feature");
+	if (bunFeature[1].version === pinned) {
+		return [];
+	}
+	return [`.devcontainer/devcontainer.json ${bunFeature[0]} version: "${bunFeature[1].version}" (want "${pinned}")`];
+}
+
+/** Every repo-owned setup-bun step whose one version input is not `bun-version-file: .bun-version`. */
+function workflowPinDisagreements(): string[] {
+	const workflows = fs.readdirSync(path.join(REPO_ROOT, ".github/workflows")).filter((file) => /\.ya?ml$/.test(file));
+	const steps = workflows.sort().flatMap(setupBunSteps);
+	assert.ok(steps.length > 0, "no setup-bun step found under .github/workflows");
+	const disagreements: string[] = [];
+	for (const { at, step } of steps) {
+		const inputs = Object.entries(step.with ?? {}).filter(([key]) => key.startsWith("bun-version"));
+		const [only] = inputs;
+		if (inputs.length !== 1 || only?.[0] !== "bun-version-file" || only[1] !== ".bun-version") {
+			const shown = inputs.map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join(", ") || "(no version input)";
+			disagreements.push(`${at}: ${shown} (want bun-version-file: .bun-version)`);
+		}
+	}
+	return disagreements;
+}
+
 describe("toolchain pins", () => {
 	const pinned = read(".bun-version").trim();
 
 	test("the running bun, packageManager, @types/bun, compose, the devcontainer, and every repo-owned setup-bun step name the .bun-version release", () => {
-		const pkg = JSON.parse(read("package.json")) as {
-			packageManager?: string;
-			devDependencies: Record<string, string>;
-		};
-		const installedTypes = JSON.parse(read("node_modules/@types/bun/package.json")) as { version: string };
-		const declaredTypes = pkg.devDependencies["@types/bun"] ?? "";
-		const packageManager = /^bun@(\d+\.\d+\.\d+)$/.exec(pkg.packageManager ?? "")?.[1] ?? pkg.packageManager;
-
 		const disagreements: string[] = [];
 		if (Bun.version !== pinned) {
 			disagreements.push(`running bun: ${Bun.version} (want ${pinned})`);
 		}
-		if (packageManager !== pinned) {
-			disagreements.push(`package.json packageManager: "${pkg.packageManager}" (want "bun@${pinned}")`);
-		}
-		// @types/bun releases follow bun's major.minor; a patch offset is a stub release, not a toolchain change.
-		if (!RELEASE.test(declaredTypes) || majorMinor(declaredTypes) !== majorMinor(pinned)) {
-			disagreements.push(`package.json devDependencies @types/bun: "${declaredTypes}" (want ${majorMinor(pinned)}.x)`);
-		}
-		if (majorMinor(installedTypes.version) !== majorMinor(pinned)) {
-			disagreements.push(
-				`node_modules/@types/bun: "${installedTypes.version}" (want ${majorMinor(pinned)}.x; run bun install)`
-			);
-		}
-
-		const image = /^\s+image: docker\.io\/oven\/bun:(\S+?)-alpine$/m.exec(read("docker/docker-compose.yml"))?.[1];
-		assert.ok(image, "docker/docker-compose.yml runs the fake backend on a docker.io/oven/bun:*-alpine image");
-		if (image !== pinned) {
-			disagreements.push(`docker/docker-compose.yml oven/bun image: "${image}-alpine" (want "${pinned}-alpine")`);
-		}
-		// devcontainer.json is JSONC; drop full-line comments before parsing.
-		const { features } = JSON.parse(read(".devcontainer/devcontainer.json").replace(/^\s*\/\/.*$/gm, "")) as {
-			features?: Record<string, { version?: string }>;
-		};
-		const bunFeature = Object.entries(features ?? {}).find(([id]) => /\/bun:\d+$/.test(id));
-		assert.ok(bunFeature, ".devcontainer/devcontainer.json declares a bun feature");
-		if (bunFeature[1].version !== pinned) {
-			disagreements.push(
-				`.devcontainer/devcontainer.json ${bunFeature[0]} version: "${bunFeature[1].version}" (want "${pinned}")`
-			);
-		}
-
-		const workflows = fs.readdirSync(path.join(REPO_ROOT, ".github/workflows")).filter((file) => /\.ya?ml$/.test(file));
-		const steps = workflows.sort().flatMap(setupBunSteps);
-		assert.ok(steps.length > 0, "no setup-bun step found under .github/workflows");
-		for (const { at, step } of steps) {
-			const inputs = Object.entries(step.with ?? {}).filter(([key]) => key.startsWith("bun-version"));
-			const [only] = inputs;
-			if (inputs.length !== 1 || only?.[0] !== "bun-version-file" || only[1] !== ".bun-version") {
-				const shown =
-					inputs.map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join(", ") || "(no version input)";
-				disagreements.push(`${at}: ${shown} (want bun-version-file: .bun-version)`);
-			}
-		}
+		disagreements.push(
+			...packagePinDisagreements(pinned),
+			...composePinDisagreements(pinned),
+			...devcontainerPinDisagreements(pinned),
+			...workflowPinDisagreements()
+		);
 
 		assert.deepStrictEqual(disagreements, [], `bun pins disagree with .bun-version (${pinned})`);
 	});

@@ -24,6 +24,17 @@ interface UsageStateOptions {
 	readonly keyInfo?: UsageEndpointState;
 }
 
+/** Which budget the state reports as effective: the entry's when set, else the key's, else none. */
+function budgetSourceOf(options: UsageStateOptions): "entry" | "key" | "none" {
+	if (options.entryBudget !== undefined) {
+		return "entry";
+	}
+	if (options.keyBudget !== undefined) {
+		return "key";
+	}
+	return "none";
+}
+
 function usageState(label: string, options: UsageStateOptions = {}): ServerUsageState {
 	const spend = options.spend ?? 21;
 	const effectiveBudget = "effectiveBudget" in options ? options.effectiveBudget : 50;
@@ -56,7 +67,7 @@ function usageState(label: string, options: UsageStateOptions = {}): ServerUsage
 			entryBudget: options.entryBudget,
 			keyBudget: options.keyBudget,
 			effectiveBudget,
-			budgetSource: options.entryBudget === undefined ? (options.keyBudget === undefined ? "none" : "key") : "entry",
+			budgetSource: budgetSourceOf(options),
 			spend,
 			spentFraction: effectiveBudget !== undefined && effectiveBudget > 0 ? spend / effectiveBudget : undefined,
 			budgetResetAt: options.budgetResetAt,

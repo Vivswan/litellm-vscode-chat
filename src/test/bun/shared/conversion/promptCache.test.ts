@@ -38,6 +38,20 @@ function toolDef(name: string): OpenAIFunctionToolDef {
 	return { type: "function", function: { name, description: "a tool", parameters: { type: "object" } } };
 }
 
+/** The marker of each text block in `message` that carries cache_control, in block order; a string content has none. */
+function blockMarkers(message: OpenAIChatMessage, index: number): string[] {
+	if (!Array.isArray(message.content)) {
+		return [];
+	}
+	const found: string[] = [];
+	for (const [j, block] of message.content.entries()) {
+		if (block.type === "text" && block.cache_control) {
+			found.push(`message:${index}:block:${j}`);
+		}
+	}
+	return found;
+}
+
 function markers(result: PromptCachedRequest): string[] {
 	const found: string[] = [];
 	for (const [i, tool] of (result.tools ?? []).entries()) {
@@ -49,13 +63,7 @@ function markers(result: PromptCachedRequest): string[] {
 		if (message.role === "tool" && message.cache_control) {
 			found.push(`message:${i}`);
 		}
-		if (Array.isArray(message.content)) {
-			for (const [j, block] of message.content.entries()) {
-				if (block.type === "text" && block.cache_control) {
-					found.push(`message:${i}:block:${j}`);
-				}
-			}
-		}
+		found.push(...blockMarkers(message, i));
 	}
 	return found;
 }

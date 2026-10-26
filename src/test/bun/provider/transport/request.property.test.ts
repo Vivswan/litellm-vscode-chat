@@ -35,6 +35,20 @@ const sourceRecord = fc.dictionary(bodyKey, fc.jsonValue({ maxDepth: 2 }), { max
 const MESSAGES: OpenAIChatMessage[] = [{ role: "user", content: "hi" }];
 const BASE_KEYS: ReadonlySet<string> = new Set(["model", "messages", "stream", "stream_options", "max_tokens"]);
 
+/** The entries the body must carry: every source's, owned and underscore keys dropped, a later source winning a key. */
+function expectedPassThrough(sources: readonly Record<string, unknown>[]): Record<string, unknown> {
+	const expected: Record<string, unknown> = {};
+	for (const source of sources) {
+		for (const [key, value] of Object.entries(source)) {
+			if (OWNED_KEY_SET.has(key) || key.startsWith("_")) {
+				continue;
+			}
+			expected[key] = value;
+		}
+	}
+	return expected;
+}
+
 describe("provider/request buildRequestBody ownership properties", () => {
 	test("owned and underscore keys never pass through; everything else does, options over config over params", () => {
 		fc.assert(
@@ -62,15 +76,7 @@ describe("provider/request buildRequestBody ownership properties", () => {
 					assert.ok(!("tools" in body), "tools may come only from toolConfig");
 					assert.ok(!("tool_choice" in body), "tool_choice may come only from toolConfig");
 
-					const expected: Record<string, unknown> = {};
-					for (const source of [modelParams, modelConfiguration, modelOptions]) {
-						for (const [key, value] of Object.entries(source)) {
-							if (OWNED_KEY_SET.has(key) || key.startsWith("_")) {
-								continue;
-							}
-							expected[key] = value;
-						}
-					}
+					const expected = expectedPassThrough([modelParams, modelConfiguration, modelOptions]);
 					const passed = Object.fromEntries(Object.entries(body).filter(([key]) => !BASE_KEYS.has(key)));
 					assert.deepStrictEqual(passed, expected);
 					for (const [key, value] of Object.entries(expected)) {

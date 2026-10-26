@@ -59,6 +59,31 @@ function parseCharter(source: string): { citations: Citation[]; lineNumberForms:
 	return { citations, lineNumberForms };
 }
 
+/** The index just past the comment opening at `i`; an unterminated comment runs to the end of the sheet. */
+function commentStop(css: string, i: number): number {
+	const end = css.indexOf("*/", i + 2);
+	return end === -1 ? css.length : end + 2;
+}
+
+/**
+ * The quoted string opening at `i` with every `{`, `}`, and `;` inside it blanked and backslash escapes kept whole,
+ * and the index of its closing quote (the sheet's end when it never closes).
+ */
+function blankedString(css: string, i: number): { readonly text: string; readonly stop: number } {
+	const quote = css[i] as string;
+	let text = quote;
+	let j = i + 1;
+	while (j < css.length && css[j] !== quote) {
+		const piece = css[j] === "\\" ? css.slice(j, j + 2) : (css[j] as string);
+		text += /[{};]/.test(piece) ? " ".repeat(piece.length) : piece;
+		j += piece.length;
+	}
+	if (j < css.length) {
+		text += quote;
+	}
+	return { text, stop: j };
+}
+
 /**
  * CSS with comments blanked and string contents kept EXCEPT structural characters, so a comment cannot fake a prelude,
  * a `content: "{"` cannot unbalance the walk, and an attribute selector's quoted value still reads as part of its
@@ -69,22 +94,13 @@ function blankCssNoise(css: string): string {
 	for (let i = 0; i < css.length; i++) {
 		const char = css[i] as string;
 		if (char === "/" && css[i + 1] === "*") {
-			const end = css.indexOf("*/", i + 2);
-			const stop = end === -1 ? css.length : end + 2;
+			const stop = commentStop(css, i);
 			out += " ".repeat(stop - i);
 			i = stop - 1;
 		} else if (char === '"' || char === "'") {
-			out += char;
-			let j = i + 1;
-			while (j < css.length && css[j] !== char) {
-				const piece = css[j] === "\\" ? css.slice(j, j + 2) : (css[j] as string);
-				out += /[{};]/.test(piece) ? " ".repeat(piece.length) : piece;
-				j += piece.length;
-			}
-			if (j < css.length) {
-				out += char;
-			}
-			i = j;
+			const quoted = blankedString(css, i);
+			out += quoted.text;
+			i = quoted.stop;
 		} else {
 			out += char;
 		}
@@ -149,6 +165,31 @@ function anchorResolves(citedPath: string, anchor: string, source: string): bool
 	return hasTokenBoundaries(source, anchor);
 }
 
+/** The cited file's text, read once per path; undefined when the file does not exist. */
+function citedSource(cache: Map<string, string | undefined>, citedPath: string): string | undefined {
+	if (!cache.has(citedPath)) {
+		cache.set(citedPath, existsSync(citedPath) ? readFileSync(citedPath, "utf8") : undefined);
+	}
+	return cache.get(citedPath);
+}
+
+/** The text an anchor is searched in, built once per file: the sheet as is, or the module stripped of comments. */
+function anchorText(cache: Map<string, string>, citedPath: string, source: string): string {
+	let text = cache.get(citedPath);
+	if (text === undefined) {
+		text = citedPath.endsWith(".css") ? source : stripTsComments(path.basename(citedPath), source);
+		cache.set(citedPath, text);
+	}
+	return text;
+}
+
+/** The failure line for an anchor the cited file does not carry: a selector miss for a sheet, a text miss otherwise. */
+function anchorFailure(citation: Citation, anchor: string, citedPath: string): string {
+	return citedPath.endsWith(".css")
+		? `charter line ${citation.line}: \`${anchor}\` is not a selector in ${citation.file}`
+		: `charter line ${citation.line}: \`${anchor}\` does not appear in ${citation.file}`;
+}
+
 test("every charter citation resolves against today's source", () => {
 	const charter = readFileSync(charterPath, "utf8");
 	const { citations, lineNumberForms } = parseCharter(charter);
@@ -162,10 +203,7 @@ test("every charter citation resolves against today's source", () => {
 	const anchorTexts = new Map<string, string>();
 	for (const citation of citations) {
 		const citedPath = resolveCitedFile(citation.file);
-		if (!sources.has(citedPath)) {
-			sources.set(citedPath, existsSync(citedPath) ? readFileSync(citedPath, "utf8") : undefined);
-		}
-		const source = sources.get(citedPath);
+		const source = citedSource(sources, citedPath);
 		if (source === undefined) {
 			failures.push(`charter line ${citation.line}: \`${citation.span}\` cites ${citation.file}, which does not exist`);
 			continue;
@@ -173,17 +211,8 @@ test("every charter citation resolves against today's source", () => {
 		if (citation.anchor === undefined) {
 			continue;
 		}
-		let anchorText = anchorTexts.get(citedPath);
-		if (anchorText === undefined) {
-			anchorText = citedPath.endsWith(".css") ? source : stripTsComments(path.basename(citedPath), source);
-			anchorTexts.set(citedPath, anchorText);
-		}
-		if (!anchorResolves(citedPath, citation.anchor, anchorText)) {
-			failures.push(
-				citedPath.endsWith(".css")
-					? `charter line ${citation.line}: \`${citation.anchor}\` is not a selector in ${citation.file}`
-					: `charter line ${citation.line}: \`${citation.anchor}\` does not appear in ${citation.file}`
-			);
+		if (!anchorResolves(citedPath, citation.anchor, anchorText(anchorTexts, citedPath, source))) {
+			failures.push(anchorFailure(citation, citation.anchor, citedPath));
 		}
 	}
 	expect(failures).toEqual([]);

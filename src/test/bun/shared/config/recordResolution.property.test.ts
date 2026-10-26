@@ -15,7 +15,7 @@ import {
 } from "../../../../shared/config/capabilityResolution";
 import type { ParsedParameterRecord } from "../../../../shared/config/parameterResolution";
 import { resolveModelParameters, resolveParameterLayer } from "../../../../shared/config/parameterResolution";
-import type { ResolvedChainField } from "../../../../shared/config/recordResolution";
+import type { RecordChainResolution, ResolvedChainField } from "../../../../shared/config/recordResolution";
 import { isFimTemplateValue } from "../../../../shared/config/recordResolution";
 import { ModelResolutionTable } from "../../../../shared/config/resolutionTable";
 import { resolveFuzzSeed } from "../../../fuzzStream";
@@ -71,6 +71,55 @@ interface Scenario {
 	readonly records: Record<string, RawRecord>;
 }
 
+/** The record key forms a scenario draws: cuts of the model ID, the catch-all, a stranger's ID, and an invalid key. */
+type KeyForm = "glob" | "exact" | "star" | "regex" | "foreign" | "invalid";
+
+/** The field names a directive list names; each index wraps around the record's own fields. */
+function listedFields(indexes: readonly number[], fields: readonly string[]): string[] {
+	return indexes.map((i) => fields[i % Math.max(1, fields.length)]).filter((f) => f !== undefined);
+}
+
+/** A marking directive's value for its mode: every own field, the listed ones, or absent. */
+function markingValue(
+	mode: "absent" | "all" | "list",
+	list: readonly number[],
+	fields: readonly string[]
+): true | string[] | undefined {
+	if (mode === "all") {
+		return true;
+	}
+	if (mode === "list") {
+		return listedFields(list, fields);
+	}
+	return undefined;
+}
+
+/**
+ * A `_fim_template` value: valid templates vary by salt so a winner swap is observable, and the invalid arm covers
+ * both the wrong-type and the missing-placeholder shape.
+ */
+function fimTemplateValue(fim: "valid" | "invalid", salt: number): unknown {
+	if (fim === "valid") {
+		return `<s${salt}>{prefix}|{suffix}`;
+	}
+	return salt % 2 === 0 ? 42 : "{prefix} only";
+}
+
+/** An `_inherit_from` value for its mode: everything, nothing, the named keys plus a ghost key on demand, or absent. */
+function inheritFromValue(spec: RecordSpec, allKeys: readonly string[]): boolean | string[] | undefined {
+	if (spec.inheritFrom === "all") {
+		return true;
+	}
+	if (spec.inheritFrom === "none") {
+		return false;
+	}
+	if (spec.inheritFrom !== "list") {
+		return undefined;
+	}
+	const names = spec.inheritKeys.map((i) => allKeys[i % Math.max(1, allKeys.length)]).filter((k) => k !== undefined);
+	return spec.ghostKey ? [...names, "ghost-key"] : names;
+}
+
 function buildRecord(
 	spec: RecordSpec,
 	allKeys: readonly string[],
@@ -86,34 +135,46 @@ function buildRecord(
 	for (const name of fields) {
 		record[name] = fieldValue(name, salt);
 	}
-	if (spec.inheritable === "all") {
-		record._inheritable = true;
-	} else if (spec.inheritable === "list") {
-		record._inheritable = spec.inheritableList
-			.map((i) => fields[i % Math.max(1, fields.length)])
-			.filter((f) => f !== undefined);
+
+	const inheritable = markingValue(spec.inheritable, spec.inheritableList, fields);
+	if (inheritable !== undefined) {
+		record._inheritable = inheritable;
 	}
-	if (spec.marking === "all") {
-		record[markingDirective] = true;
-	} else if (spec.marking === "list") {
-		record[markingDirective] = spec.markingList
-			.map((i) => fields[i % Math.max(1, fields.length)])
-			.filter((f) => f !== undefined);
+
+	const marking = markingValue(spec.marking, spec.markingList, fields);
+	if (marking !== undefined) {
+		record[markingDirective] = marking;
 	}
+
 	if (markingDirective === "_force" && spec.fim !== "absent") {
-		// Valid templates vary by salt so a winner swap is observable; the invalid arm covers both wrong-type and
-		// missing-placeholder shapes.
-		record._fim_template = spec.fim === "valid" ? `<s${salt}>{prefix}|{suffix}` : salt % 2 === 0 ? 42 : "{prefix} only";
+		record._fim_template = fimTemplateValue(spec.fim, salt);
 	}
-	if (spec.inheritFrom === "all") {
-		record._inherit_from = true;
-	} else if (spec.inheritFrom === "none") {
-		record._inherit_from = false;
-	} else if (spec.inheritFrom === "list") {
-		const names = spec.inheritKeys.map((i) => allKeys[i % Math.max(1, allKeys.length)]).filter((k) => k !== undefined);
-		record._inherit_from = spec.ghostKey ? [...names, "ghost-key"] : names;
+
+	const inheritFrom = inheritFromValue(spec, allKeys);
+	if (inheritFrom !== undefined) {
+		record._inherit_from = inheritFrom;
 	}
+
 	return record;
+}
+
+/** The key one spec asks for: a cut of the ID in its form, the catch-all, or a key built off the unrelated ID. */
+function keyFor(form: KeyForm, cut: number, id: string, otherId: string): string {
+	const prefix = id.slice(0, cut % (id.length + 1));
+	switch (form) {
+		case "glob":
+			return `${prefix}*`;
+		case "exact":
+			return prefix || id;
+		case "star":
+			return "*";
+		case "regex":
+			return `/${prefix}.*/`;
+		case "foreign":
+			return otherId;
+		case "invalid":
+			return `${otherId}*${otherId}`;
+	}
 }
 
 function scenarioArb(fieldPool: readonly string[], markingDirective: "_force" | "_fallback"): fc.Arbitrary<Scenario> {
@@ -124,7 +185,7 @@ function scenarioArb(fieldPool: readonly string[], markingDirective: "_force" | 
 			keySpecs: fc.array(
 				fc.record({
 					cut: fc.nat(),
-					form: fc.constantFrom("glob", "exact", "star", "regex", "foreign", "invalid"),
+					form: fc.constantFrom<KeyForm>("glob", "exact", "star", "regex", "foreign", "invalid"),
 					spec: recordSpecArb,
 				}),
 				{ maxLength: 5 }
@@ -135,19 +196,7 @@ function scenarioArb(fieldPool: readonly string[], markingDirective: "_force" | 
 			const keys: { key: string; spec: RecordSpec }[] = [];
 			const seen = new Set<string>();
 			for (const { cut, form, spec } of keySpecs) {
-				const cutOf = (base: string) => base.slice(0, cut % (base.length + 1));
-				const key =
-					form === "glob"
-						? `${cutOf(id)}*`
-						: form === "exact"
-							? cutOf(id) || id
-							: form === "star"
-								? "*"
-								: form === "regex"
-									? `/${cutOf(id)}.*/`
-									: form === "foreign"
-										? otherId
-										: `${otherId}*${otherId}`;
+				const key = keyFor(form, cut, id, otherId);
 				if (!seen.has(key)) {
 					seen.add(key);
 					keys.push({ key, spec });
@@ -272,45 +321,82 @@ function naiveOwnFields(
 	return fields;
 }
 
+/** The view's inheritable fields alone: what a record takes when it says nothing about inheritance. */
+function inheritableFields(view: ReadonlyMap<string, NaiveField>): Map<string, NaiveField> {
+	const accepted = new Map<string, NaiveField>();
+	for (const [name, field] of view) {
+		if (field.inheritable) {
+			accepted.set(name, field);
+		}
+	}
+	return accepted;
+}
+
+/**
+ * The own fields of the records an `_inherit_from` list names, laid down broadest first so the most specific named
+ * record wins per field; a name that is no matching record of the chain is skipped.
+ */
+function namedRecordFields(
+	inheritFrom: readonly unknown[],
+	id: string,
+	records: Record<string, RawRecord>,
+	chain: readonly string[],
+	markingDirective: "_force" | "_fallback"
+): Map<string, NaiveField> {
+	const named = [...new Set(inheritFrom)].filter((k): k is string => {
+		if (typeof k !== "string" || !Object.hasOwn(records, k)) {
+			return false;
+		}
+		const matcher = naiveParse(k);
+		return matcher !== undefined && naiveMatches(matcher, id);
+	});
+	named.sort((a, b) => chain.indexOf(a) - chain.indexOf(b));
+
+	const accepted = new Map<string, NaiveField>();
+	for (const namedKey of named) {
+		for (const [name, field] of naiveOwnFields(namedKey, records[namedKey] as RawRecord, markingDirective)) {
+			accepted.set(name, field);
+		}
+	}
+	return accepted;
+}
+
+/**
+ * The fields a record inherits before its own are laid on top, as its `_inherit_from` value admits them: the view's
+ * inheritable fields when absent, the whole view on `true`, the named records' own fields on a list, nothing on
+ * `false`.
+ */
+function inheritedFields(
+	view: ReadonlyMap<string, NaiveField>,
+	inheritFrom: unknown,
+	id: string,
+	records: Record<string, RawRecord>,
+	chain: readonly string[],
+	markingDirective: "_force" | "_fallback"
+): Map<string, NaiveField> {
+	if (inheritFrom === undefined) {
+		return inheritableFields(view);
+	}
+	if (inheritFrom === true) {
+		return new Map(view);
+	}
+	if (Array.isArray(inheritFrom)) {
+		return namedRecordFields(inheritFrom, id, records, chain, markingDirective);
+	}
+	return new Map();
+}
+
 function naiveResolve(
 	id: string,
 	records: Record<string, RawRecord>,
 	markingDirective: "_force" | "_fallback"
 ): Map<string, NaiveField> {
+	const chain = naiveChain(id, records);
 	let view = new Map<string, NaiveField>();
-	for (const key of naiveChain(id, records)) {
+	for (const key of chain) {
 		const record = records[key] as RawRecord;
-		const accepted = new Map<string, NaiveField>();
 		const inheritFrom = Object.hasOwn(record, "_inherit_from") ? record._inherit_from : undefined;
-		if (inheritFrom === undefined) {
-			for (const [name, field] of view) {
-				if (field.inheritable) {
-					accepted.set(name, field);
-				}
-			}
-		} else if (inheritFrom === true) {
-			for (const [name, field] of view) {
-				accepted.set(name, field);
-			}
-		} else if (Array.isArray(inheritFrom)) {
-			const named = [...new Set(inheritFrom)].filter((k): k is string => {
-				if (typeof k !== "string" || !Object.hasOwn(records, k)) {
-					return false;
-				}
-				const matcher = naiveParse(k);
-				return matcher !== undefined && naiveMatches(matcher, id);
-			});
-			// Nearest-first is specificity order: apply broadest first so the most specific named record wins per
-			// field.
-			const chainOrder = naiveChain(id, records);
-			named.sort((a, b) => chainOrder.indexOf(a) - chainOrder.indexOf(b));
-			for (const namedKey of named) {
-				for (const [name, field] of naiveOwnFields(namedKey, records[namedKey] as RawRecord, markingDirective)) {
-					accepted.set(name, field);
-				}
-			}
-		}
-		// inheritFrom === false accepts nothing.
+		const accepted = inheritedFields(view, inheritFrom, id, records, chain, markingDirective);
 		for (const [name, field] of naiveOwnFields(key, record, markingDirective)) {
 			accepted.set(name, field);
 		}
@@ -331,6 +417,30 @@ function engineView(fields: ReadonlyMap<string, ResolvedChainField>, markingDire
 			},
 		])
 	);
+}
+
+/** Whether an `_inherit_from` value closes the chain: `false`, or an empty list. */
+function isBarrier(inheritFrom: unknown): boolean {
+	return inheritFrom === false || (Array.isArray(inheritFrom) && inheritFrom.length === 0);
+}
+
+/** Every resolved field was written by the winner itself. */
+function assertOnlyOwnFields(resolution: RecordChainResolution, winnerKey: string): void {
+	for (const field of resolution.fields.values()) {
+		assert.strictEqual(field.sourceKey, winnerKey, "a barrier blocks all pass-through");
+	}
+}
+
+/** Every resolved field was written by the winner or by a record its list names. */
+function assertOnlyNamedSources(
+	resolution: RecordChainResolution,
+	winnerKey: string,
+	inheritFrom: readonly unknown[]
+): void {
+	const allowed = new Set<string>([winnerKey, ...inheritFrom.filter((k): k is string => typeof k === "string")]);
+	for (const field of resolution.fields.values()) {
+		assert.ok(allowed.has(field.sourceKey), "an exclusive list draws only from itself and the named records");
+	}
 }
 
 describe("shared/config recordResolution inheritance fuzzer", () => {
@@ -372,23 +482,13 @@ describe("shared/config recordResolution inheritance fuzzer", () => {
 				if (winnerKey === undefined) {
 					return;
 				}
-				const winner = records[winnerKey] as RawRecord;
+				const inheritFrom = (records[winnerKey] as RawRecord)._inherit_from;
 				const resolution = resolveParameterLayer(id, records);
-				const inheritFrom = winner._inherit_from;
-				const isBarrier = inheritFrom === false || (Array.isArray(inheritFrom) && inheritFrom.length === 0);
-				if (isBarrier) {
-					for (const field of resolution.fields.values()) {
-						assert.strictEqual(field.sourceKey, winnerKey, "a barrier blocks all pass-through");
-					}
+				if (isBarrier(inheritFrom)) {
+					assertOnlyOwnFields(resolution, winnerKey);
 				}
 				if (Array.isArray(inheritFrom)) {
-					const allowed = new Set<string>([
-						winnerKey,
-						...inheritFrom.filter((k): k is string => typeof k === "string"),
-					]);
-					for (const field of resolution.fields.values()) {
-						assert.ok(allowed.has(field.sourceKey), "an exclusive list draws only from itself and the named records");
-					}
+					assertOnlyNamedSources(resolution, winnerKey, inheritFrom);
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }

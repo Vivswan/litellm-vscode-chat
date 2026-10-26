@@ -32,13 +32,15 @@ const DOCS_BASE = `${links.DOCS_SITE_URL}/`;
 
 /** Swept from a namespace import, so a future host link cannot escape the checks by not being hand-listed. */
 function hostLinkUrls(): [name: string, url: string][] {
-	return Object.entries(links).flatMap(([name, value]): [string, string][] =>
-		typeof value === "string"
-			? [[name, value]]
-			: typeof value === "object"
-				? Object.entries(value).map(([key, url]): [string, string] => [`${name}.${key}`, url])
-				: []
-	);
+	return Object.entries(links).flatMap(([name, value]): [string, string][] => {
+		if (typeof value === "string") {
+			return [[name, value]];
+		}
+		if (typeof value === "object") {
+			return Object.entries(value).map(([key, url]): [string, string] => [`${name}.${key}`, url]);
+		}
+		return [];
+	});
 }
 
 /**

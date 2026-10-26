@@ -51,6 +51,34 @@ function selectsRailItself(selectorList: string): boolean {
 }
 
 /**
+ * Whether the block opened by the brace at `open` holds a rule whose selector list names `.rail` itself; a selector
+ * runs from the last brace or semicolon to the brace that opens its rule.
+ */
+function blockSelectsRail(css: string, open: number): boolean {
+	let depth = 0;
+	let selectorStart = open + 1;
+	for (let index = open; index < css.length; index++) {
+		const char = css[index];
+		if (char === "{") {
+			depth += 1;
+			if (depth === 2 && selectsRailItself(css.slice(selectorStart, index))) {
+				return true;
+			}
+			selectorStart = index + 1;
+		} else if (char === "}") {
+			depth -= 1;
+			selectorStart = index + 1;
+			if (depth === 0) {
+				return false;
+			}
+		} else if (char === ";") {
+			selectorStart = index + 1;
+		}
+	}
+	return false;
+}
+
+/**
  * `<=`, the rail's own spelling (its block in dashboard.css derives it): layout applies a `< N` block AT N under the
  * render harness while matchMedia reports false there, and `<=` is the spelling both evaluate the same way at every
  * integer. Brace-matched rather than pattern-anchored: the anchored regex could not tell membership from adjacency and
@@ -60,25 +88,8 @@ function railCollapseWidth(): number {
 	const css = stylesheet().replace(/\/\*.*?\*\//gs, "");
 	for (const match of css.matchAll(/@media \(width <= (\d+)px\) \{/g)) {
 		const open = match.index + match[0].length - 1;
-		let depth = 0;
-		let selectorStart = open + 1;
-		for (let index = open; index < css.length; index++) {
-			const char = css[index];
-			if (char === "{") {
-				depth += 1;
-				if (depth === 2 && selectsRailItself(css.slice(selectorStart, index))) {
-					return Number(match[1]);
-				}
-				selectorStart = index + 1;
-			} else if (char === "}") {
-				depth -= 1;
-				selectorStart = index + 1;
-				if (depth === 0) {
-					break;
-				}
-			} else if (char === ";") {
-				selectorStart = index + 1;
-			}
+		if (blockSelectsRail(css, open)) {
+			return Number(match[1]);
 		}
 	}
 	throw new Error("could not read the rail's collapse width from dashboard.css");
@@ -143,13 +154,8 @@ function constrainsPaneWidth(text: string): boolean {
 	return name === undefined || name === "pane" || name === "not" || name === "and" || name === "or" || name === "none";
 }
 
-/**
- * Both halves match BROADLY and judge afterwards: a matcher recognizing only the spellings someone thought of would
- * report a sheet full of `max-width` as a sheet with no thresholds, and every assertion below passes over an empty
- * list - hence the floors. Regexes over source, not a parser: CSS built by a template literal or a variant minted by
- * `@variant` is invisible here (there are none of either).
- */
-function paneQueries(): PaneQuery[] {
+/** The pane queries the stylesheets spell, legal or not; a query that constrains no pane width is left out. */
+function stylesheetPaneQueries(): PaneQuery[] {
 	const found: PaneQuery[] = [];
 	for (const { file, css } of stylesheetSources()) {
 		// Case-insensitive because CSS at-rules are, so `@CONTAINER` is caught and reported rather than passing
@@ -163,29 +169,50 @@ function paneQueries(): PaneQuery[] {
 			found.push({ value: legal === null ? undefined : Number(legal[1]), source: file, side: "stylesheet", text });
 		}
 	}
-	// The components' own halves: a row's track template sits with the component because a utility always beats the
-	// stylesheet.
+	return found;
+}
+
+/** The at-rule variants one component source spells, legal or not, as pane queries. */
+function variantQueriesOf(source: string, file: string): PaneQuery[] {
+	const found: PaneQuery[] = [];
+	// Unnamed counts because `@max-[620px]:` compiles to an unnamed query, which lands on the pane anyway.
+	// Stopping at the colon keeps a second variant on the same class from being swallowed whole.
+	for (const match of source.matchAll(/@[^\s"'`{}:]+:/g)) {
+		const text = match[0];
+		// Tailwind's arbitrary at-rule variants put their `@` directly after a `[` and are not container
+		// variants at all - except the one whose at-rule IS `@container`, a pane query wearing a bracket.
+		if (source[(match.index ?? 0) - 1] === "[" && !text.startsWith("@container")) {
+			continue;
+		}
+		const legal = LEGAL_VARIANT.exec(text);
+		found.push({ value: legal === null ? undefined : Number(legal[1]), source: file, side: "component", text });
+	}
+	return found;
+}
+
+/** The pane queries the components spell as variants, over every class root. */
+function componentPaneQueries(): PaneQuery[] {
+	const found: PaneQuery[] = [];
 	for (const root of classRoots()) {
 		for (const file of readdirSync(root, { recursive: true, encoding: "utf8" })) {
 			if (!file.endsWith(".tsx") && !file.endsWith(".ts")) {
 				continue;
 			}
-			const source = readFileSync(join(root, file), "utf8");
-			// Unnamed counts because `@max-[620px]:` compiles to an unnamed query, which lands on the pane anyway.
-			// Stopping at the colon keeps a second variant on the same class from being swallowed whole.
-			for (const match of source.matchAll(/@[^\s"'`{}:]+:/g)) {
-				const text = match[0];
-				// Tailwind's arbitrary at-rule variants put their `@` directly after a `[` and are not container
-				// variants at all - except the one whose at-rule IS `@container`, a pane query wearing a bracket.
-				if (source[(match.index ?? 0) - 1] === "[" && !text.startsWith("@container")) {
-					continue;
-				}
-				const legal = LEGAL_VARIANT.exec(text);
-				found.push({ value: legal === null ? undefined : Number(legal[1]), source: file, side: "component", text });
-			}
+			found.push(...variantQueriesOf(readFileSync(join(root, file), "utf8"), file));
 		}
 	}
 	return found;
+}
+
+/**
+ * Both halves match BROADLY and judge afterwards: a matcher recognizing only the spellings someone thought of would
+ * report a sheet full of `max-width` as a sheet with no thresholds, and every assertion below passes over an empty
+ * list - hence the floors. Regexes over source, not a parser: CSS built by a template literal or a variant minted by
+ * `@variant` is invisible here (there are none of either). The components' own halves count because a row's track
+ * template sits with the component, since a utility always beats the stylesheet.
+ */
+function paneQueries(): PaneQuery[] {
+	return [...stylesheetPaneQueries(), ...componentPaneQueries()];
 }
 
 /**
@@ -206,6 +233,17 @@ function stylesheetSources(): { readonly file: string; readonly css: string }[] 
 }
 
 type SubjectKind = "root" | "parent" | "other";
+
+/** The subject kind a list of kinds amounts to: root over parent over other. */
+function strongest(kinds: readonly SubjectKind[]): SubjectKind {
+	if (kinds.includes("root")) {
+		return "root";
+	}
+	if (kinds.includes("parent")) {
+		return "parent";
+	}
+	return "other";
+}
 
 /**
  * What one selector points AT: its subject, the compound after the last combinator (`& body` styles body). `root`
@@ -256,9 +294,6 @@ function nestedSelectors(component: Extract<SelectorComponent, { type: "pseudo-c
 	}
 }
 
-const strongest = (kinds: readonly SubjectKind[]): SubjectKind =>
-	kinds.includes("root") ? "root" : kinds.includes("parent") ? "parent" : "other";
-
 /** A rule open above the current one; `line` is the compiled line that opened it, for the report. */
 interface EnclosingRule {
 	readonly selectors: Selector[];
@@ -279,8 +314,16 @@ function selectsRoot(stack: readonly EnclosingRule[]): boolean {
 	return false;
 }
 
-const styleOf = (rule: Rule) =>
-	rule.type === "style" ? rule.value : rule.type === "nesting" ? rule.value.style : undefined;
+/** The style rule a visited rule carries: its own for a style rule, the inner one for a nesting rule, else nothing. */
+function styleOf(rule: Rule) {
+	if (rule.type === "style") {
+		return rule.value;
+	}
+	if (rule.type === "nesting") {
+		return rule.value.style;
+	}
+	return undefined;
+}
 
 /**
  * Every rule setting a font size on the ROOT box - the one `rem` resolves against, so the one that decides what this
@@ -334,6 +377,25 @@ function paneThresholds(): { readonly value: number; readonly source: string }[]
 		}
 	}
 	return thresholds;
+}
+
+/**
+ * The index of the brace closing the block whose opening brace is the first `{` at or after `from`, brace-balanced;
+ * `from` itself when the block never closes, so the slice up to it is empty.
+ */
+function blockEndFrom(css: string, from: number): number {
+	let depth = 0;
+	for (let index = css.indexOf("{", from); index < css.length; index++) {
+		if (css[index] === "{") {
+			depth += 1;
+		} else if (css[index] === "}") {
+			depth -= 1;
+			if (depth === 0) {
+				return index;
+			}
+		}
+	}
+	return from;
 }
 
 test("no pane threshold sits inside the band the rail's collapse creates", () => {
@@ -407,19 +469,7 @@ test(
 		// The label cap sits in the SAME wide block (brace-balanced slice), so it flips at the same width the
 		// tracks do; the two-column stacked band opens at the same threshold's other side.
 		const blockStart = css.indexOf(wide[0]);
-		let depth = 0;
-		let blockEnd = blockStart;
-		for (let index = css.indexOf("{", blockStart); index < css.length; index++) {
-			if (css[index] === "{") {
-				depth += 1;
-			} else if (css[index] === "}") {
-				depth -= 1;
-				if (depth === 0) {
-					blockEnd = index;
-					break;
-				}
-			}
-		}
+		const blockEnd = blockEndFrom(css, blockStart);
 		const wideBlock = css.slice(blockStart, blockEnd);
 		// The cell's own bound reads the SAME token as the track, so the gutter has one width rather than a track and a cap
 		// that can disagree.
@@ -430,19 +480,7 @@ test(
 		// template, so the label column and the rows turn at one width.
 		const stackedOpen = css.indexOf(`@container pane (width < ${threshold}px) {`, blockEnd);
 		expect(stackedOpen, `no stacked band opens at ${threshold}`).toBeGreaterThan(-1);
-		let stackedDepth = 0;
-		let stackedEnd = stackedOpen;
-		for (let index = css.indexOf("{", stackedOpen); index < css.length; index++) {
-			if (css[index] === "{") {
-				stackedDepth += 1;
-			} else if (css[index] === "}") {
-				stackedDepth -= 1;
-				if (stackedDepth === 0) {
-					stackedEnd = index;
-					break;
-				}
-			}
-		}
+		const stackedEnd = blockEndFrom(css, stackedOpen);
 		expect(css.slice(stackedOpen, stackedEnd)).toContain("grid-template-columns: auto 1fr");
 		// The tracks are rem and the threshold px, so a root font size other than the CSS default of 16 would move
 		// one side of the comparison. That is a fact about the stylesheets rather than a constant, so it is checked.

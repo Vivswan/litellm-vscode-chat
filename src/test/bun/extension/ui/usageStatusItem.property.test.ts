@@ -42,6 +42,9 @@ interface GeneratedServer {
 	readonly budgetResetAt: number | undefined;
 }
 
+/** The documented exclusion rules, one spoiler each, that keep a server out of the aggregation. */
+type Spoiler = "stale" | "no-key" | "endpoint-error" | "no-spend";
+
 const amountArb = fc.oneof(
 	fc.double({ min: 0, max: 1000, noNaN: true }),
 	fc.constantFrom(0, 0.004, 1, 42, 56, 112, 1e6)
@@ -158,6 +161,27 @@ const scenarioArb = fc
 		};
 	});
 
+/** The documented severity of the worst fresh fraction against the usable thresholds; undefined with no contributor. */
+function severityOf(
+	worst: number | undefined,
+	lowest: number | undefined,
+	highest: number | undefined
+): "error" | "warning" | "plain" | undefined {
+	if (worst === undefined) {
+		return undefined;
+	}
+	if (worst > 1) {
+		return "error";
+	}
+	if (highest !== undefined && worst >= highest) {
+		return "error";
+	}
+	if (lowest !== undefined && worst >= lowest) {
+		return "warning";
+	}
+	return "plain";
+}
+
 function oracle(
 	states: readonly ServerUsageState[],
 	nowMs: number,
@@ -173,17 +197,51 @@ function oracle(
 	const usable = [...new Set(thresholds.filter((t) => Number.isFinite(t) && t > 0 && t <= 1))].sort((a, b) => a - b);
 	const lowest = usable[0];
 	const highest = usable.at(-1);
-	const severity =
-		worst === undefined
-			? undefined
-			: worst > 1
-				? "error"
-				: highest !== undefined && worst >= highest
-					? "error"
-					: lowest !== undefined && worst >= lowest
-						? "warning"
-						: "plain";
+	const severity = severityOf(worst, lowest, highest);
 	return { fractions, worst, lowest, highest, severity };
+}
+
+/** Checks a rendered severity against the band the thresholds define for `worst`; each message names its rule. */
+function assertSeverityBand(
+	severity: "error" | "warning" | "plain",
+	worst: number,
+	lowest: number | undefined,
+	highest: number | undefined
+): void {
+	if (lowest === undefined) {
+		assert.strictEqual(
+			severity,
+			worst > 1 ? "error" : "plain",
+			"an empty usable list renders plain up to the whole budget, error past it"
+		);
+	}
+	if (lowest !== undefined && lowest === highest) {
+		assert.strictEqual(
+			severity,
+			worst >= lowest ? "error" : "plain",
+			"a single-threshold list goes straight to error, never warning"
+		);
+	}
+	if (severity === "error") {
+		assert.ok(worst > 1 || (highest !== undefined && worst >= highest));
+	}
+	if (severity === "warning") {
+		assert.ok(lowest !== undefined && worst >= lowest && (highest === undefined || worst < highest));
+	}
+}
+
+/** `extra` spoiled out of the aggregation by the exclusion rule `spoiler` names. */
+function spoil(extra: GeneratedServer, spoiler: Spoiler): GeneratedServer {
+	switch (spoiler) {
+		case "stale":
+			return { ...extra, ageInWindows: 2 };
+		case "no-key":
+			return { ...extra, hasKey: false };
+		case "endpoint-error":
+			return { ...extra, keyInfo: { kind: "error" } };
+		case "no-spend":
+			return { ...extra, spend: undefined };
+	}
 }
 
 describe("extension/ui renderUsageStatus properties", () => {
@@ -243,26 +301,7 @@ describe("extension/ui renderUsageStatus properties", () => {
 				if (view.severity === "warning") {
 					warnings += 1;
 				}
-				if (lowest === undefined) {
-					assert.strictEqual(
-						view.severity,
-						worst > 1 ? "error" : "plain",
-						"an empty usable list renders plain up to the whole budget, error past it"
-					);
-				}
-				if (lowest !== undefined && lowest === highest) {
-					assert.strictEqual(
-						view.severity,
-						worst >= lowest ? "error" : "plain",
-						"a single-threshold list goes straight to error, never warning"
-					);
-				}
-				if (view.severity === "error") {
-					assert.ok(worst > 1 || (highest !== undefined && worst >= highest));
-				}
-				if (view.severity === "warning") {
-					assert.ok(lowest !== undefined && worst >= lowest && (highest === undefined || worst < highest));
-				}
+				assertSeverityBand(view.severity, worst, lowest, highest);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
@@ -273,12 +312,7 @@ describe("extension/ui renderUsageStatus properties", () => {
 	});
 
 	test("adding stale or budget-less servers never changes visibility, the number, or the severity", () => {
-		const spoilerArb = fc.constantFrom<"stale" | "no-key" | "endpoint-error" | "no-spend">(
-			"stale",
-			"no-key",
-			"endpoint-error",
-			"no-spend"
-		);
+		const spoilerArb = fc.constantFrom<Spoiler>("stale", "no-key", "endpoint-error", "no-spend");
 		fc.assert(
 			fc.property(
 				scenarioArb,
@@ -289,15 +323,7 @@ describe("extension/ui renderUsageStatus properties", () => {
 					// Each extra is spoiled out of the aggregation by construction, one spoiler per documented
 					// exclusion rule.
 					const nonContributing = extras.map(([extra, spoiler], index) => {
-						const spoiled: GeneratedServer =
-							spoiler === "stale"
-								? { ...extra, ageInWindows: 2 }
-								: spoiler === "no-key"
-									? { ...extra, hasKey: false }
-									: spoiler === "endpoint-error"
-										? { ...extra, keyInfo: { kind: "error" } }
-										: { ...extra, spend: undefined };
-						const state = toState(spoiled, `x${index}`, nowMs, windowMs);
+						const state = toState(spoil(extra, spoiler), `x${index}`, nowMs, windowMs);
 						assert.ok(
 							!(
 								isUsageFresh(state, nowMs, pollIntervalMs, POLLING_OFF_WINDOW_MS) &&
