@@ -17,7 +17,6 @@ import type { HeaderScalar } from "../shared/util/headers";
 import { trimHttpWhitespace } from "../shared/util/headers";
 import { nonFiniteNumberPath } from "../shared/util/json";
 import type { DashboardServer, DeclaredServerNotice, SettingScope, VerdictRow } from "./viewModels";
-import { BOOLEAN_SETTING_IDS } from "./viewModels";
 
 /**
  * Shared by the hero, the status bar, the notifier, and the Diagnostics tab, so their headline judgement cannot
@@ -709,12 +708,18 @@ const BOOLEAN_SETTING_PRESENTATIONS: Readonly<Record<BooleanSettingId, () => Boo
 	}),
 };
 
-/** The id can arrive over the webview wire, so membership is tested before the table is read; a stray name throws. */
+/** The table as a Map, so an id arriving over the webview wire reads own entries only, never a prototype's. */
+const BOOLEAN_SETTING_PRESENTATION_LOOKUP: ReadonlyMap<string, () => BooleanSettingPresentation> = new Map(
+	Object.entries(BOOLEAN_SETTING_PRESENTATIONS)
+);
+
+/** typeof, not an undefined test: CodeQL's dynamic-method-call query takes only a function check as its guard. */
 export function booleanSettingPresentation(id: BooleanSettingId): BooleanSettingPresentation {
-	if (!BOOLEAN_SETTING_IDS.includes(id)) {
+	const presentation = BOOLEAN_SETTING_PRESENTATION_LOOKUP.get(id);
+	if (typeof presentation !== "function") {
 		throw new Error("Not a boolean setting id");
 	}
-	return BOOLEAN_SETTING_PRESENTATIONS[id]();
+	return presentation();
 }
 
 /**
