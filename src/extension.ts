@@ -24,6 +24,7 @@ interface ActivationIdentity {
 	readonly ua: HeaderValue;
 }
 
+/** The extension's version off `context` ("unknown" when packageJSON has none), the host's own, and the User-Agent built from both. */
 function activationIdentity(context: vscode.ExtensionContext): ActivationIdentity {
 	const extVersion: string = context.extension.packageJSON?.version ?? "unknown";
 	const vscodeVersion = vscode.version;

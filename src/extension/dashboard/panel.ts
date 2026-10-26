@@ -246,18 +246,7 @@ type IntentRunners = {
 	) => Promise<IntentAckNotice | undefined>;
 };
 
-/**
- * The page's generation protocol: a ready handshake is judged against the generation current when it ARRIVED, so a
- * handshake handled late cannot vouch for the next page. The page is provably listening only while `_readyGeneration`
- * equals `_pageGeneration`.
- *
- * A loading or reloading page silently drops posts, so the pending focus section waits for the ready handshake; it is
- * consumed once, so a later reload cannot replay a stale jump. Concurrent-channel reads run off the message chain, and
- * a malformed message is rejected before reaching it.
- *
- * The readInlineSecrets answer is secret material, so the read arm stays log-free. The responder and runner maps are
- * concrete per entry, so the method-payload correlation the request union erases is rebuilt without a cast.
- */
+/** The one dashboard panel's owner: its lifetime, its page generations, and the chain its mutating intents run on. */
 export class DashboardController implements vscode.Disposable {
 	/** The open panel; undefined until open() creates one, and again once it is disposed. */
 	private _panel: DashboardPanel | undefined;
@@ -280,7 +269,7 @@ export class DashboardController implements vscode.Disposable {
 	/** Bumped whenever the page is torn down or replaced: hidden without retainContextWhenHidden, or disposed. */
 	private _pageGeneration = 0;
 
-	/** The generation whose ready handshake completed; undefined until the first handshake. */
+	/** The generation whose ready handshake completed; the page is provably listening only while it equals _pageGeneration. */
 	private _readyGeneration: number | undefined;
 
 	constructor(private readonly env: DashboardControllerEnv) {}
@@ -477,6 +466,10 @@ export class DashboardController implements vscode.Disposable {
 		};
 	}
 
+	/**
+	 * Posts the pending focus once the page provably listens, since a loading or reloading page drops posts silently;
+	 * consumed once, so a later reload cannot replay a stale jump.
+	 */
 	private flushPendingFocus(): void {
 		if (this._pendingFocusSection === undefined || this._readyGeneration !== this._pageGeneration) {
 			return;
@@ -490,7 +483,8 @@ export class DashboardController implements vscode.Disposable {
 	private readonly readResponders: ReadResponders = {
 		readInlineSecrets: (request) => ({
 			// The edit form's on-demand prefill: values only for fields stored inline in the servers setting (already
-			// plaintext there), and only while the entry still matches the identity the form displayed.
+			// plaintext there), and only while the entry still matches the identity the form displayed. The answer is
+			// secret material, which is why the read arm logs nothing.
 			kind: "response",
 			id: request.id,
 			method: "readInlineSecrets",

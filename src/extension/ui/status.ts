@@ -26,12 +26,8 @@ import { applySyncFailures } from "../servers/syncFailureOverlay";
  * normal cold-start ordering, but a second consecutive empty report is evidence of persistence, so the presentation
  * degrades to a warning with an actionable tooltip.
  *
- * `zeroModel` is the judgment made once over the owner's verdict rows when the connected status was judged; the
- * renderer and the command toasts present it, never re-deriving it. A degraded status never carries one.
- *
- * The error arm's `cause` is the headline's key (shared/failureCause.ts): the first unexpected failure's cause, or
- * misconfiguredEntry when every entry the parser refused and nothing reports. It is rendered at display time, never
- * stored as text. `baseUrl` is the failing server's URL, where the cause's text names it.
+ * The error arm's `cause` is the headline's key (shared/failureCause.ts), rendered at display time; `baseUrl` is the
+ * failing server's URL, where the cause's text names it.
  */
 export type ConnectionStatus =
 	| { state: "not-configured"; lastChecked?: string | undefined }
@@ -791,34 +787,26 @@ interface JudgedWindow {
 }
 
 /**
- * `lastConnectingAttention` is the attention verdict of the last connecting status, held across a transient "loading"
- * overwrite (the connection test) and cleared by every other state, so a degraded connecting resumes degraded after
- * the test instead of resetting to the neutral spinner. It is session state, never persisted.
- *
- * `lastAggregated` is the last provider report, pre-overlay, so refreshFromSync can re-render with fresh declared views
- * when a sync outcome changes the overlay without any provider report. The empty report stands in before the first
- * callback, exactly what the groupless cold-start refresh sends.
- *
- * `lastJudgedOverlay` is the overlaid window last judged, as JSON, for refreshFromSync's no-change skip. The rendering
- * is deterministic because both sides serialize the same base status objects through the same overlay construction,
- * so equal worlds stringify equal.
- *
- * `seededConnecting` is true while the status is still the constructor's restore-less connecting seed (a configured
- * install whose blob failed the versioned restore). The seed is presentation, not evidence: the empty-report
- * escalation must not count it as an already-reported empty window, or the first real empty report after a version
- * bump would render the warning.
+ * `_connectionStatus` is the one persisted field (LAST_CONNECTION_STATUS_KEY); every other field is session state a
+ * restore never sees.
  */
 export class StatusBarManager {
+	/** The status last judged or restored (updateStatusBar). */
 	private _connectionStatus: ConnectionStatus = { state: "not-configured" };
 
+	/** The rendering surface, as the constructor's `item` describes it. */
 	private readonly _statusBarItem: StatusItemLike;
 
+	/** The attention verdict carried across a transient "loading" (the connection test), so a degraded connecting resumes degraded after it. */
 	private lastConnectingAttention = false;
 
+	/** The last provider report, pre-overlay, so refreshFromSync can re-judge it after a sync-only change. */
 	private lastAggregated: AggregatedStatus | undefined;
 
+	/** The overlaid window last judged, as JSON, for refreshFromSync's no-change skip. */
 	private lastJudgedOverlay: string | undefined;
 
+	/** True while the status is still the constructor's connecting seed (a configured install whose blob failed the restore). */
 	private seededConnecting = false;
 
 	constructor(
@@ -861,14 +849,17 @@ export class StatusBarManager {
 		void this.updateStatusBar();
 	}
 
+	/** The current status, as the commands, the issue report, and the agent tools' diagnostics read it. */
 	get connectionStatus(): ConnectionStatus {
 		return this._connectionStatus;
 	}
 
+	/** Whether the connecting status renders as the warning rather than the neutral spinner. */
 	get connectingAttention(): boolean {
 		return this._connectionStatus.state === "connecting" && this._connectionStatus.attention;
 	}
 
+	/** The item's click command as rendered, for the suites to assert. */
 	get clickCommand(): string | vscode.Command | undefined {
 		return this._statusBarItem.command;
 	}
@@ -899,6 +890,8 @@ export class StatusBarManager {
 		if (this.hasConfiguredServers()) {
 			const previous = this._connectionStatus;
 			this.logger.log("No server statuses yet; configured servers have not reported");
+			// The seed is presentation, not evidence: it is no already-reported empty window, or the first real empty
+			// report after a version bump would render the warning.
 			void this.updateStatusBar({
 				state: "connecting",
 				attention: (previous.state === "connecting" && !this.seededConnecting) || this.lastConnectingAttention,
@@ -1022,6 +1015,7 @@ export class StatusBarManager {
 	 *   Before any report -> only a non-empty overlay says something a restored status does not
 	 */
 	refreshFromSync(): void {
+		// Before the first callback the empty report stands in: exactly what the groupless cold-start refresh sends.
 		const base = this.lastAggregated ?? { serverStatuses: [], totalModels: 0, silent: true };
 		const overlaid = applySyncFailures(base.serverStatuses, this.verdict.declared().views);
 		// Before any report, news is a non-empty overlay or a non-empty row set (a refused entry is a row with no
@@ -1030,7 +1024,8 @@ export class StatusBarManager {
 			return;
 		}
 		// The same key handleAggregatedStatus judged by: an entry leaving or entering the awaiting set changes the
-		// verdict rows without changing one overlaid status.
+		// verdict rows without changing one overlaid status. JSON is a sound key because both sides serialize the same
+		// base status objects through the same overlay construction, so equal worlds stringify equal.
 		if (JSON.stringify([overlaid, this.verdict.rows()]) === this.lastJudgedOverlay) {
 			return;
 		}

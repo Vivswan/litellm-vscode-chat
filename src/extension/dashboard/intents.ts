@@ -73,10 +73,9 @@ import { applyTestServerDraft } from "./testDraftConnection";
  *   englishMessage     -> the message's English twin, relayed to the agent tools' calling model (model-facing text
  *                         stays English); a site without one leaves the model the localized message
  *   logClassification  -> fixed, so the public log surfaces (publicErrorText) record neither text
- *   classification     -> never message text, so it rides both the fail envelope and the boundary's rejection log line
  */
 export class DashboardValidationError extends MirroredError {
-	/** The transport classification behind the failure, when a probe supplied one: enum ids and a status number only. */
+	/** The probe's transport classification, if any: enum ids and a status number only, so the fail envelope and the log line both carry it. */
 	readonly classification?: TransportErrorClassification;
 
 	constructor(

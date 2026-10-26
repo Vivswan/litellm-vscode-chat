@@ -25,7 +25,7 @@ export interface UsageViewInput {
 	/** The normalized alert thresholds, as getUsageAlertThresholds returns them. */
 	readonly thresholds: readonly number[];
 
-	/** The usage.pollInterval setting: the freshness window while polling is on. */
+	/** The usage.pollInterval setting; while polling is on, data stays fresh for twice this interval (freshness.ts). */
 	readonly pollIntervalMs: number;
 
 	/** The usage.pollingOffFreshnessWindow setting: the freshness window while polling is off. */

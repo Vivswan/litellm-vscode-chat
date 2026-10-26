@@ -46,11 +46,7 @@ const MIN_SCHEDULE_DELAY_MS = 60_000;
 /** The budget of one fetch attempt; the backoff sleeps between attempts stay well under MIN_SCHEDULE_DELAY_MS. */
 const REFRESH_FETCH_TIMEOUT_MS = 30_000;
 
-/**
- * `fetchCatalog` is the injectable network seam; the default GETs OPENROUTER_MODELS_URL and returns the parsed JSON
- * payload, and a failure retries only in the SDK's error vocabulary (see fetchOpenRouterCatalog), anything else being
- * settled.
- */
+/** What createOpenRouterCatalogStore reads; the optional members are the seams tests inject. */
 export interface OpenRouterCatalogStoreOptions {
 	/** Where the packaged dist/ snapshot is read from. */
 	readonly extensionUri: vscode.Uri;

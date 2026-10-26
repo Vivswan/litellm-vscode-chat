@@ -451,6 +451,7 @@ function recordTrees(
 	const allModels = models.map((model) => ({ id: model.rawId }));
 	const trees: RecordTreeView[] = [];
 	const parseCapability = (record: Readonly<Record<string, unknown>>) => parseCapabilityRecord(record);
+	/** One parameters tree at `layer` (an entry's under `entryLabel`) over `records`, judged for the `scoped` models. */
 	const parameterTree = (
 		layer: "global" | "entry",
 		entryLabel: string | undefined,
@@ -466,6 +467,7 @@ function recordTrees(
 			parse: parseParameterRecord,
 			resolveLayer: resolveParameterLayer,
 		});
+	/** One capabilities tree at `layer` (an entry's under `entryLabel`) over `records`, judged for the `scoped` models. */
 	const capabilityTree = (
 		layer: "global" | "entry",
 		entryLabel: string | undefined,
