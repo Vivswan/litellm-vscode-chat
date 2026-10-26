@@ -951,21 +951,29 @@ export interface ResolvedModelRow {
 
 /**
  * One row of the overall verdict's input (classifyOverall), the shape the status bar, the notifier, and the dashboard
- * hero all classify. The host builds the set once per surface from the status window joined with the declared entries
- * (verdictRows) and publishes the dashboard's copy here, so the webview classifies the host's rows instead of
- * rebuilding them from the servers table. Field names follow ServerStatus, so a status window is a row set as it is.
+ * hero all classify. Field names follow ServerStatus, so a status window is a row set as it is.
  *
- *   hiddenByRemoval -> a group the user's configuration hides: answering, but counted apart in the zero-model detail
- *   misconfigured   -> a parser-refused entry's row: configuration, not transport, so it fails the overall verdict
- *                      only when nothing else is there
- *   failure         -> why an error row fails and whose URL its text names, for the paste line (error rows only)
+ * The host builds the set once per surface from the status window joined with the declared entries (verdictRows) and
+ * publishes the dashboard's copy here, so the webview classifies the host's rows instead of rebuilding them from the
+ * servers table.
  */
 export interface VerdictRow {
+	/** ServerStatus knows ok and error alone: "unchecked" is a declared entry awaiting its first report (verdictRows). */
 	readonly state: "ok" | "error" | "unchecked";
+
+	/** May exceed zero on an error row: a failure still serving stale or declared models never reads as dead. */
 	readonly servedModelCount: number;
+
+	/** A failure the user declared expected (error rows only): it neither degrades nor fails the verdict. */
 	readonly expected?: boolean | undefined;
+
+	/** A group the user's configuration hides: answering, but counted apart in the zero-model detail. */
 	readonly hiddenByRemoval?: boolean | undefined;
+
+	/** A parser-refused entry: configuration, not transport, so it fails the verdict only when every row is one. */
 	readonly misconfigured?: boolean | undefined;
+
+	/** Why an error row fails and whose URL its text names, for the paste line (error rows only). */
 	readonly failure?: { readonly cause: FailureCause; readonly baseUrl: string } | undefined;
 }
 

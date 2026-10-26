@@ -334,23 +334,8 @@ export type NotifyingMethod = AckedMethod | FireAndForgetMethod;
 
 /**
  * A method missing a row breaks the RequestPayload mapped type; a read missing `response` breaks ResponseFor. What a
- * method does and refuses sits on its DASHBOARD_ENDPOINTS row; the payload rules the schema re-checks sit here.
- *
- *   setCurrencySymbol               -> any short string, "" included (bare numbers); the schema bounds the length
- *   setAdditionalToolSchemaKeywords -> non-empty keyword names; the extension refuses anything else
- *   setUsageAlertThresholds         -> fractions in (0, 1]; the extension refuses out-of-range entries
- *   setFeatureModel                 -> an entry label plus a raw model ID (user configuration, never a secret); null
- *                                      clears the pick and resets the setting
- *   setCommitPrompt                 -> the empty string resets the setting
- *   setLanguageFilter               -> one field per request, since each settings row sends only its own half (the
- *                                      schema refuses both or neither); the type stays the optional pair so
- *                                      executeDashboardIntent keeps its own empty-patch refusal for a bypassing caller
- *   saveServerSetting, testServerDraft
- *                                   -> `replace` is the displayed identity of the edited entry, absent when adding
- *   readModelCapabilities, readModelParameters
- *                                   -> addressed by scope key plus raw ID; a stale key de-resolves, and an absent
- *                                      result says so instead of inventing values; `globalRecordKey` and `chains`
- *                                      are extension-computed
+ * method does and refuses sits on its DASHBOARD_ENDPOINTS row; the payload rules the schema re-checks sit on the
+ * method's request and response fields here.
  */
 interface DashboardEndpointIO {
 	ready: { request: null };
@@ -363,22 +348,42 @@ interface DashboardEndpointIO {
 	setUsageStatusBar: { request: { readonly value: UsageStatusBarMode } };
 	setChatSessionId: { request: { readonly value: SessionIdMode } };
 	setTokenEstimation: { request: { readonly value: TokenEstimationMode } };
-	setCurrencySymbol: { request: { readonly value: string } };
-	setAdditionalToolSchemaKeywords: { request: { readonly values: readonly string[] } };
+	setCurrencySymbol: {
+		/** Any short string, "" included (bare numbers); the schema bounds the length. */
+		request: { readonly value: string };
+	};
+	setAdditionalToolSchemaKeywords: {
+		/** Non-empty keyword names; the extension refuses anything else. */
+		request: { readonly values: readonly string[] };
+	};
 	setUiTheme: { request: { readonly value: UiTheme } };
 	setUiAccent: { request: { readonly value: UiAccent } };
-	setUsageAlertThresholds: { request: { readonly values: readonly number[] } };
-	setFeatureModel: { request: { readonly feature: FeatureModelId; readonly value: FeatureModelRef | null } };
-	setCommitPrompt: { request: { readonly value: string } };
+	setUsageAlertThresholds: {
+		/** Fractions in (0, 1]; the extension refuses out-of-range entries. */
+		request: { readonly values: readonly number[] };
+	};
+	setFeatureModel: {
+		/** `value` is user configuration, never a secret; null clears the pick and resets the setting. */
+		request: { readonly feature: FeatureModelId; readonly value: FeatureModelRef | null };
+	};
+	setCommitPrompt: {
+		/** The empty string resets the setting. */
+		request: { readonly value: string };
+	};
 	setLanguageFilter: {
+		/** One field per request: each settings row sends only its own half, and the schema refuses both or neither. */
 		request: {
+			/** Optional like `languages`, so executeDashboardIntent keeps its empty-patch refusal for a bypassing caller. */
 			readonly mode?: LanguageFilterMode | undefined;
+
+			/** Exact VS Code language IDs; the extension refuses one that trims to empty and writes them deduplicated. */
 			readonly languages?: readonly string[] | undefined;
 		};
 	};
 	refreshCatalog: { request: null };
 	refreshUsage: { request: null };
 	saveServerSetting: {
+		/** `replace` is the displayed identity of the edited entry, absent when adding. */
 		request: {
 			readonly server: SaveServerPayload;
 			readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
@@ -386,6 +391,7 @@ interface DashboardEndpointIO {
 		};
 	};
 	testServerDraft: {
+		/** `replace` is the displayed identity of the edited entry, absent when adding. */
 		request: {
 			readonly server: SaveServerPayload;
 			readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
@@ -416,7 +422,10 @@ interface DashboardEndpointIO {
 		response: { readonly values: Readonly<Partial<Record<SecretFieldId, string>>> };
 	};
 	readModelCapabilities: {
+		/** Addressed by scope key plus raw ID; a stale key de-resolves to an absent result instead of invented values. */
 		request: { readonly scopeKey: string; readonly rawId: string };
+
+		/** `globalRecordKey` and `chains` are extension-computed. */
 		response: {
 			readonly capabilities?: EffectiveCapabilities | undefined;
 			readonly globalRecordKey?: string | undefined;
@@ -424,7 +433,10 @@ interface DashboardEndpointIO {
 		};
 	};
 	readModelParameters: {
+		/** Addressed by scope key plus raw ID; a stale key de-resolves to an absent result instead of invented values. */
 		request: { readonly scopeKey: string; readonly rawId: string };
+
+		/** `globalRecordKey` and `chains` are extension-computed. */
 		response: {
 			readonly projection?: EffectiveParametersProjection | undefined;
 			readonly globalRecordKey?: string | undefined;
@@ -487,26 +499,30 @@ interface IntentAckMessage {
 	readonly tone?: IntentAckTone | undefined;
 }
 
-/**
- * A refused or failed intent. Text here is webview-safe, never a secret, and the classification is an enum id, never
- * message text.
- *
- *   message        -> what the webview shows
- *   englishMessage -> its English twin when the thrower supplied one; the agent tools relay it to the calling model,
- *                     since model-facing text stays English
- *   failureKind    -> "validation" means nothing landed, so the editor's draft is still the truth
- *   classification -> the transport classification behind a failed probe
- *   row            -> the failed scalar write's owning settings row (settingWriteRow), derived from the validated
- *                     payload, never webview-minted
- */
+/** A refused or failed intent. Text here is webview-safe, never a secret. */
 interface IntentFailMessage {
+	/** The one outcome notice a fire-and-forget method sends: its success is the next push, never an ack. */
 	readonly kind: "fail";
+
+	/** The refused request's correlation token: a form tells its own send's outcome from an older one by it. */
 	readonly id: string;
+
+	/** What the webview routes by: an acked method's hook and the per-method failure store both select on it. */
 	readonly method: NotifyingMethod;
+
+	/** What the webview shows. */
 	readonly message: string;
+
+	/** Its English twin when the thrower supplied one; the agent tools relay it, as model-facing text stays English. */
 	readonly englishMessage?: string | undefined;
+
+	/** "validation" means nothing landed, so the editor's draft is still the truth. */
 	readonly failureKind: "validation" | "operation";
+
+	/** The transport classification behind a failed probe: enum ids and an optional status, never message text. */
 	readonly classification?: TransportErrorClassification | undefined;
+
+	/** The failed scalar write's settings row (settingWriteRow): from the validated payload, never webview-minted. */
 	readonly row?: SettingRowId | undefined;
 }
 
