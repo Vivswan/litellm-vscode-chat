@@ -77,8 +77,11 @@ export function createCaptureServer(options?: { modelId?: string }): CaptureServ
 	let lastRequest: Record<string, unknown> | null = null;
 	const seenAuthorizations = new Set<string>();
 	let activeScenario = "text-only";
+
+	/** Built-in scenarios plus the ones addScenario registers at runtime, by name. */
 	const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
 
+	/** PUT /_test/scenario: the body names the scenario later chat completions play; an unknown name answers 404. */
 	const setScenario = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
 		const body = await readBody(req);
 		const name = body.trim();
@@ -89,6 +92,7 @@ export function createCaptureServer(options?: { modelId?: string }): CaptureServ
 		return sendJson(res, 200, { scenario: name });
 	};
 
+	/** POST /v1/chat/completions: records the body as the last request, then streams the active scenario. */
 	const playChatCompletion = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
 		const raw = await readBody(req);
 		try {
@@ -107,6 +111,7 @@ export function createCaptureServer(options?: { modelId?: string }): CaptureServ
 		return playScenario(res, scenario, true);
 	};
 
+	/** Dispatch one request by method and path; an unmatched one answers 404. */
 	const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
 		const url = new URL(req.url || "/", `http://${req.headers.host}`);
 		const route = `${req.method} ${url.pathname}`;
@@ -138,6 +143,7 @@ export function createCaptureServer(options?: { modelId?: string }): CaptureServ
 		}
 	};
 
+	/** The HTTP server behind the fixture; start() binds it to an ephemeral port read back through `port`. */
 	const server = http.createServer((req, res) => {
 		handleRequest(req, res).catch(() => {
 			// A failed handler must not hang the connection open.

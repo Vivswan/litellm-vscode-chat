@@ -436,8 +436,14 @@ export function generateWalk(random: () => number, stepCount: number): MonkeyAct
 	const live: string[] = [];
 	let labelCounter = 0;
 	let serial = 0;
+
+	/** A planned-live label drawn at random; pickActionKind routes here only while one exists. */
 	const randomLive = (): string => expectDefined(live[Math.floor(random() * live.length)]);
+
+	/** The secret field a set- or clear-secret action targets. */
 	const secretField = (): SecretFieldId => (random() < 0.7 ? "apiKey" : "oauthClientSecret");
+
+	/** A declare-server action for a fresh label; a parseable credential makes the label planned-live. */
 	const declare = (): MonkeyAction => {
 		// Labels are never recycled BY DESIGN: a removed label's fingerprint is pruned at end of pass, so
 		// re-declaring it would hit the add-only duplicate rejection while the oracle expects undefined.
@@ -451,11 +457,14 @@ export function generateWalk(random: () => number, stepCount: number): MonkeyAct
 		const extras = generateDeclareExtras(random, serial);
 		return { kind: "declare-server", label, credential, ...(extras === undefined ? {} : { extras }) };
 	};
+
+	/** A remove-server action for a random live label, which leaves the planned live set. */
 	const remove = (): MonkeyAction => {
 		const label = randomLive();
 		live.splice(live.indexOf(label), 1);
 		return { kind: "remove-server", label };
 	};
+
 	for (let step = 0; step < stepCount; step++) {
 		serial++;
 		const kind = pickActionKind(random(), live.length > 0);
@@ -515,9 +524,10 @@ type HealthKind = "proxy" | "fake" | "dark";
 /**
  * The oracle's record of one declared label. hidden marks copies that left the model-count floors: a redeclare made
  * its live group a superseded leftover (the provider serves nothing from a labeled group whose entry declares another
- * URL), or a removal tombstoned it; the flag guards the floor subtraction against being taken twice. Entry-scoped
- * configuration reaches a group only while the entry matches it on label AND base URL, so the probes stop expecting
- * the declared model once syncedBaseUrl and the entry's URL diverge.
+ * URL), or a removal tombstoned it.
+ *
+ * Entry-scoped configuration reaches a group only while the entry matches it on label AND base URL, so the probes stop
+ * expecting the declared model once syncedBaseUrl and the entry's URL diverge.
  */
 interface OracleEntry {
 	/** The raw settings entry as currently declared (post any redeclare mutation). */
@@ -637,13 +647,6 @@ function discoveryBlock(
 /**
  * One monkey session per extension host: the oracle state spans walks because provider groups and settings do.
  * runActions namespaces each run's labels freshly, so shrink candidates and replays never collide with earlier runs.
- *
- * The live model-count floor per health class is baselineCopies + everSyncedHealthy - hiddenHealthy. hiddenHealthy
- * counts healthy ever-synced groups the provider now answers with zero models: their entry was explicitly removed (the
- * removal tombstones the group) or re-pointed at another URL (the group is a superseded leftover). baselineCopies keeps
- * a NEW healthy group that fails discovery from hiding behind pre-existing groups' copies satisfying a bare count. The
- * log cursor scans every line once, which sees every secret a line could carry: a line can only carry secrets that
- * existed when it was logged.
  */
 export class MonkeySession {
 	/** The oracle's record of each declared label (OracleEntry), by its real label. */
@@ -655,7 +658,7 @@ export class MonkeySession {
 	/** Add-only across the whole session: healthy group counts only ever grow. */
 	private everSyncedHealthy = { proxy: 0, fake: 0 };
 
-	/** Healthy ever-synced groups now answering zero models (class doc); subtracted from the model-count floor. */
+	/** Healthy ever-synced groups now answering zero models (hideLabelCopies says why); subtracted from the floors. */
 	private hiddenHealthy = { proxy: 0, fake: 0 };
 
 	/** What each touched setting key should read back; UNSET marks a key a reset removed. */
@@ -676,7 +679,7 @@ export class MonkeySession {
 	/** Model IDs the host served before the session; the unknown-model probe admits them too. */
 	private baselineModelIds: ReadonlySet<string> = new Set();
 
-	/** Pre-session copies of the two anchor IDs, the model-count floors' base (class doc). */
+	/** Pre-session anchor copies, so a new healthy group failing discovery cannot hide behind pre-existing copies. */
 	private baselineCopies = { proxy: 0, fake: 0 };
 
 	/** Counts runActions calls; each run's label namespace carries the count. */
@@ -1004,9 +1007,9 @@ export class MonkeySession {
 	}
 
 	/**
-	 * Move a proven-healthy label's copies to the hidden side of the floors, once: a redeclare (superseded leftover)
-	 * and a later removal of the same label hide the same group. Returns the anchor whose drop the caller must observe,
-	 * or undefined when nothing leaves the floors.
+	 * Move a proven-healthy label's copies to the hidden side of the floors, once: a redeclare and a later removal of
+	 * the same label hide the same group, which the provider then answers with zero models (OracleEntry.hidden says
+	 * how). Returns the anchor whose drop the caller must observe, or undefined when nothing leaves the floors.
 	 */
 	private hideLabelCopies(oracle: OracleEntry): string | undefined {
 		if (!oracle.provenHealthy || oracle.hidden) {
@@ -1530,6 +1533,10 @@ export class MonkeySession {
 		assert.strictEqual(reply, marker, "the known-good model must echo the probe");
 	}
 
+	/**
+	 * Every anchor keeps at least its live floor of baselineCopies + everSyncedHealthy - hiddenHealthy copies, every
+	 * served model is known, and an entry still at its synced URL still serves its declared ID.
+	 */
 	private async probeModelList(): Promise<void> {
 		const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
 		// Live floors: every healthy ever-synced group keeps its models UNLESS the provider hides it - its entry
@@ -1604,6 +1611,10 @@ export class MonkeySession {
 		}
 	}
 
+	/**
+	 * Each log line is scanned once, which sees every secret it could carry: a line can only carry secrets that existed
+	 * when it was logged.
+	 */
 	private async probeSecretHygiene(): Promise<void> {
 		const batch = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", this.logCursor)) as {
 			next: number;
