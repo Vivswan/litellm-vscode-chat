@@ -11,9 +11,10 @@ import type { ReviewPlacement } from "./placements";
  * renders as untrusted markdown so no command links execute, and they never reach the logger.
  */
 
-/** The thread contextValues the manifest's `commentThread ==` when-clauses match. */
+/** The contextValue the manifest's `commentThread == resolved` when-clauses match. */
 const RESOLVED_CONTEXT = "resolved";
 
+/** Its twin: the manifest's `commentThread == unresolved` when-clauses match this one. */
 const UNRESOLVED_CONTEXT = "unresolved";
 
 /** Persists the whole live snapshot; called after every mutation. */
@@ -35,13 +36,16 @@ function userAuthor(): vscode.CommentAuthorInformation {
 	return { name: l10n.t("You") };
 }
 
+/**
+ * The live side of the review threads. `byUri` keys them by document URI string, the same key the store persists
+ * under; `records` is the reverse lookup a menu command needs, since the host hands back a CommentThread and nothing
+ * else.
+ */
 export class ReviewCommentController implements vscode.Disposable {
 	private readonly controller: vscode.CommentController;
 
-	/** Live threads by document URI string - the same key the store persists under. */
 	private readonly byUri = new Map<string, LiveThread[]>();
 
-	/** The reverse lookup a menu command needs: the host hands back a CommentThread and nothing else. */
 	private readonly records = new WeakMap<vscode.CommentThread, LiveThread>();
 
 	private disposed = false;

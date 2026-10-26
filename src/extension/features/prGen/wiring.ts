@@ -68,10 +68,7 @@ export function createPrProbe(send: PrGenerationModelSend): (model: FeatureModel
 		});
 }
 
-/**
- * The probe's canned branch: two commit messages and one small patch, enough for any model to produce a title and a
- * sentence. Nothing here is read from the user's repository - a probe must never send a real diff.
- */
+/** The probe's canned branch: two commit messages and one small patch, never anything from the user's repository. */
 const PROBE_CONTEXT: TitleAndDescriptionContext = {
 	commitMessages: ["feat: add a retry to the upload path", "test: cover the upload retry"],
 	patches: [
@@ -205,16 +202,15 @@ export interface GhprRegistrar {
 	dispose(): void;
 }
 
+/**
+ * Drives the one GHPR registration. `wanted` says whether the feature currently wants to be registered at all
+ * (enabled AND configured).
+ */
 export function createGhprRegistrar(deps: {
-	/** Whether the feature currently wants to be registered at all (enabled AND configured). */
 	readonly wanted: () => boolean;
-
 	readonly resolveApi: () => Promise<GitHubPullRequestsApi | undefined>;
-
 	readonly title: () => string;
-
 	readonly provider: () => TitleAndDescriptionProvider;
-
 	readonly log: (message: string, data?: unknown) => void;
 }): GhprRegistrar {
 	let registration: vscode.Disposable | undefined;

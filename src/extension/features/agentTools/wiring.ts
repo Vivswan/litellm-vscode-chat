@@ -75,23 +75,19 @@ type SecretPromptFn = (
 	token: vscode.CancellationToken
 ) => Thenable<string | undefined>;
 
+/**
+ * What the tools take from the host. `settings` is the one settings reader the cards read current values through (the
+ * dashboard's own access). `getDeclared` is the sync engine's declared views, the credential reading the diagnostics
+ * tool reports (ui/diagnostics.ts).
+ */
 export interface AgentToolsDeps {
 	readonly dashboard: Pick<DashboardController, "submit" | "readState">;
-
-	/** The one settings reader the cards read current values through (the dashboard's own access). */
 	readonly settings: Pick<SettingsAccess, "readEffective" | "inspect">;
-
 	readonly getConnectionStatus: () => ConnectionStatus;
-
-	/** The sync engine's declared views: the credential reading the diagnostics tool reports (ui/diagnostics.ts). */
 	readonly getDeclared: () => readonly DeclaredServerView[];
-
 	readonly issueReporter: IssueReporter;
-
 	readonly extVersion: string;
-
 	readonly vscodeVersion: string;
-
 	readonly promptSecret?: SecretPromptFn | undefined;
 }
 

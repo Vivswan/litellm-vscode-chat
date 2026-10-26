@@ -20,15 +20,19 @@ export interface BudgetStatus {
 	/** The budget alerting and bars run against: entry over key. */
 	readonly effectiveBudget: number | undefined;
 
+	/** Which budget is the effective one, or "none" when neither the entry nor the key carries one. */
 	readonly budgetSource: BudgetSource;
 
+	/** The key-reported spend (USD), when the key carries a usable number. */
 	readonly spend: number | undefined;
 
+	/** spend over effectiveBudget; undefined when either is missing or the budget is zero. */
 	readonly spentFraction: number | undefined;
 
 	/** The key-reported reset instant (epoch ms), when the key carries one. */
 	readonly budgetResetAt: number | undefined;
 
+	/** The configured alert thresholds the spent fraction has reached. */
 	readonly crossedThresholds: readonly number[];
 }
 

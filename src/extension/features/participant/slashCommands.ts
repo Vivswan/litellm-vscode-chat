@@ -44,30 +44,29 @@ export interface SlashCommandTurn {
 /**
  * `Name` is the literal a table declares, so the registry's vocabulary (SlashCommandName) can be read off the tables;
  * the registry itself and synthetic commands in tests use the string default.
+ *
+ * The manifest carries its own package.nls copy of each `description` for the host's `/` picker, because the host
+ * reads the manifest long before this process exists and the two runtimes cannot share one string. What IS shared is
+ * the name vocabulary: the manifest's command list is generated from the tables.
  */
 export interface SlashCommand<Name extends string = string> {
 	/** The name the host routes on: the contribution's command name, without the slash. */
 	readonly name: Name;
 
-	/**
-	 * The manifest carries its own package.nls copy of the same prose for the host's `/` picker, because the host reads
-	 * the manifest long before this process exists and the two runtimes cannot share one string. What IS shared is the
-	 * name vocabulary: the manifest's command list is generated from the tables.
-	 *
-	 *   Shown in the participant's help listing -> resolved through the RUNTIME l10n bundle
-	 */
+	/** Shown in the participant's help listing, resolved through the RUNTIME l10n bundle. */
 	readonly description: string;
 
 	run(turn: SlashCommandTurn): Promise<void>;
 }
 
-/** Model-facing text stays English by policy. */
+/** Heads the /tests prompt; model-facing text stays English by policy. */
 export const TESTS_INSTRUCTION = [
 	"Write tests for the code or request below.",
 	"Reply with runnable test code in fenced code blocks, following the conventions visible in the conversation.",
 	"State any assumptions briefly before the code.",
 ].join("\n");
 
+/** Heads the /docs prompt; model-facing text stays English by policy. */
 export const DOCS_INSTRUCTION = [
 	"Write documentation for the code or request below.",
 	"Reply in markdown, concise and example-led: what it is for, how to use it, and the edge cases worth knowing.",

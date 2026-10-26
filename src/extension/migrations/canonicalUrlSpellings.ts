@@ -19,6 +19,9 @@
  * it for the next activation, while a deferred setting write costs nothing (the parser reads the canonical form
  * either way). The carry needs no salt gate: a record equals the old spelling's print only under the salt that wrote
  * it, and the new print is computed under that same salt.
+ *
+ * The write turn the migration takes is module state, alive from the moment the module loads, and the migration is
+ * awaited before the import commands and the dashboard register, so no other writer exists yet.
  */
 
 import { SERVER_SYNC_FINGERPRINTS_KEY } from "../../shared/config/storageKeys";
@@ -109,11 +112,7 @@ export async function canonicalizeUrlSpellingsFor(
 	return rewrites > 0 ? "migrated" : "nothing-to-do";
 }
 
-/**
- * Runs before the sync engine's first pass, so an entry whose spelling changed reads as in-sync on that pass instead
- * of degrading to a re-add. The write turn it takes is module state, alive from the moment the module loads, and the
- * migration is awaited before the import commands and the dashboard register, so no other writer exists yet.
- */
+/** Runs before the sync engine's first pass, so a respelled entry reads as in-sync instead of being re-added. */
 export const canonicalUrlSpellingsMigration: ExtensionMigration<"uncanonical-url-spellings"> = {
 	state: "uncanonical-url-spellings",
 	description: "Rewrote server URLs to their canonical spelling and carried their group identities across",

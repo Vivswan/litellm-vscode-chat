@@ -1,6 +1,15 @@
 /**
  * The contributed inputSchema documents the shape for the model; this parse binds it, because the host forwards
- * whatever the model sent.
+ * whatever the model sent. AGENT_TOOL_INPUT_SCHEMAS is the one source of what the model is told and what the parse
+ * accepts: its `.describe` texts are model-facing English, and `bun run manifest:generate` writes them, with the
+ * shapes, into package.json's languageModelTools contributions.
+ *
+ * Labels are trimmed in order before their length bound, so a padded label at the limit still fits and the manifest
+ * keeps its string shape. Without the trim an untrimmed " Prod " would miss the stored Prod in the planner (new-entry
+ * defaults, no replace identity) and then overwrite Prod on save, deleting its fields.
+ *
+ * The agent's secret directive differs from the dashboard's, which always carries the value the form collected: the
+ * planner turns the agent's shape into the dashboard's before anything is submitted.
  */
 
 import { z } from "zod";
@@ -15,12 +24,7 @@ import { recordFromKeys } from "../../../shared/util/json";
 /** The catalog search's own bound; every other string takes the dashboard's wire limit for its kind. */
 const QUERY_MAX = 200;
 
-/**
- * Labels lose edge HTTP whitespace here, the dashboard save's one trim rule, as an in-order check before the length
- * bounds (so a padded label at the limit still fits and the manifest keeps its string shape): an untrimmed " Prod "
- * would miss the stored Prod in the planner (new-entry defaults, no replace identity) and then overwrite Prod on save,
- * deleting its fields. A U+00A0 is part of the spelling and stays.
- */
+/** Edge HTTP whitespace is trimmed here, the dashboard save's one trim rule; a U+00A0 is spelling and stays. */
 const label = z.string().overwrite(trimHttpWhitespace).min(1).max(WIRE_LIMITS.label);
 
 /** The sections of the configuration read, so an agent can ask for the slice it needs instead of everything. */
@@ -28,13 +32,10 @@ const CONFIGURATION_SECTIONS = ["servers", "settings", "models", "hiddenGroups",
 
 export type ConfigurationSection = (typeof CONFIGURATION_SECTIONS)[number];
 
-/**
- * A save directive as the AGENT writes it: `set` may omit the value, which asks the extension to prompt the user for it
- * in a masked box. The dashboard's own directive always carries the value (the form collected it); this shape exists
- * for the prompt, and the planner turns it into the dashboard's shape before anything is submitted.
- */
+/** The stored-secret homes, spelled as shared/serverEntry's SecretLocation. */
 const secretLocation = z.enum(["settings", "secure"]);
 
+/** The agent's directive: `set` may omit the value, which asks the extension to prompt for it in a masked box. */
 const agentSecretDirectiveSchema = z.discriminatedUnion("action", [
 	z.strictObject({ action: z.literal("keep").describe("Keep the stored secret.") }),
 	z.strictObject({ action: z.literal("clear").describe("Remove the stored secret.") }),
@@ -95,11 +96,6 @@ const groupBaseUrl = baseUrlInput.describe(
 
 const serverLabel = label.describe("The entry's label (its identity; the model picker groups models under it).");
 
-/**
- * The `.describe` texts are model-facing English: `bun run manifest:generate` writes them, with the shapes, into
- * package.json's languageModelTools contributions, so this table is the one source of what the model is told and what
- * the parse accepts.
- */
 export const AGENT_TOOL_INPUT_SCHEMAS = {
 	diagnostics: z.strictObject({
 		includeLogs: z
@@ -277,10 +273,7 @@ export const AGENT_TOOL_INPUT_SCHEMAS = {
 
 export type AgentToolInput<K extends AgentToolId> = z.infer<(typeof AGENT_TOOL_INPUT_SCHEMAS)[K]>;
 
-/**
- * What the manifest tells the model each tool does (its `modelDescription`), beside the envelopes that tell it the
- * shape. Model-facing English by policy; the generated manifest carries these verbatim.
- */
+/** Each tool's manifest `modelDescription`: model-facing English by policy, carried verbatim by manifest:generate. */
 export const AGENT_TOOL_MODEL_DESCRIPTIONS = {
 	diagnostics: [
 		"Read the LiteLLM extension's health: connection state, each configured LiteLLM server (label, base",

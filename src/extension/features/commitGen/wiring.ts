@@ -31,11 +31,7 @@ export function wireCommitGeneration(
 	);
 }
 
-/**
- * The probe's canned change: one small patch hunk any model can describe. Nothing here is read from the user's
- * repository - a probe must never send a real diff - and the canned subjects stand in for the style examples a real
- * generation reads from the log.
- */
+/** The probe's canned change: one small hunk any model can describe, never a real diff from the user's repository. */
 const PROBE_DIFF = [
 	"diff --git a/upload.ts b/upload.ts",
 	"--- a/upload.ts",
@@ -49,6 +45,7 @@ const PROBE_DIFF = [
 	" }",
 ].join("\n");
 
+/** Canned subjects standing in for the style examples a real generation reads from the log. */
 const PROBE_SUBJECTS = ["feat: add the upload path", "test: cover the upload path"] as const;
 
 /** One pipeline, one truth. */

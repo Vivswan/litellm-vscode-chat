@@ -24,21 +24,22 @@ export type { SnapshotSource } from "./snapshots";
  * quick fixes register /fix and /explain once at activation and a disable/enable cycle must not drop them.
  */
 
+/**
+ * What the other features reach the participant through. `slashCommands` is their extension table; `isRegistered` is
+ * read per use, never cached, because the setting alone is not this fact: the host can refuse the registration, which
+ * is classified and left unregistered rather than thrown, both halves change at runtime, and the quick fixes'
+ * lightbulb would otherwise submit a turn addressed to a name with nothing behind it.
+ *
+ *   package.json's `commands` is generated from the command factories (scripts/dev/manifest)
+ *     -> a new command needs a presentation row there too
+ *   register during activation wiring  -> turns in flight are unaffected, this is not a runtime toggle
+ *   name package.json does not declare -> never invoked, the HOST decides what `/name` routes to us
+ */
 export interface ChatParticipantWiring {
-	/**
-	 * The table other features extend the participant through. package.json's `commands` is generated from the
-	 * command factories (scripts/dev/manifest), so a new command needs a presentation row there too.
-	 *
-	 *   register during activation wiring  -> turns in flight are unaffected, this is not a runtime toggle
-	 *   name package.json does not declare -> never invoked, the HOST decides what `/name` routes to us
-	 */
+	/** The table other features extend the participant through; the manifest's command list is generated from it. */
 	readonly slashCommands: SlashCommandRegistry;
 
-	/**
-	 * The setting alone is not this fact, because the host can refuse the registration, and that refusal is classified
-	 * and left unregistered rather than thrown. Read per use, never cached, since both halves change at runtime and the
-	 * quick fixes' lightbulb would otherwise submit a turn addressed to a name with nothing behind it.
-	 */
+	/** Whether the host accepted the registration; read per use, never cached. */
 	readonly isRegistered: () => boolean;
 }
 

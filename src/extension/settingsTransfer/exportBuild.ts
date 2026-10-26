@@ -21,22 +21,21 @@ export interface SettingsExportEnv {
 	readonly extensionVersion: string;
 }
 
+/**
+ * What the export command writes and reports. `unmaterializedSecretCount` counts blob secret fields with no legal
+ * inline position in their entry, reported in the success note when nonzero.
+ *
+ * `mismatchedSecretCount` counts blob secret fields whose ownership stamp names a different destination than their
+ * entry (resolveOwnedSecrets' `mismatched`, the stale-stamped fields the entry cannot send included, not just the
+ * refused ones), left out of the file. Materializing one inline would hand a retired credential to the entry's
+ * current host on any import, since inline values bypass the ownership check. The count is reported so the omission
+ * is never silent.
+ */
 export interface SettingsExportResult {
 	readonly envelope: SettingsExportEnvelope;
-
 	readonly settingCount: number;
-
 	readonly serverCount: number;
-
-	/** Blob secret fields with no legal inline position in their entry; reported in the success note when nonzero. */
 	readonly unmaterializedSecretCount: number;
-
-	/**
-	 * Blob secret fields whose ownership stamp names a different destination than their entry (resolveOwnedSecrets'
-	 * `mismatched` - the stale-stamped fields the entry cannot send included, not just the refused ones), left out of
-	 * the file: materializing one inline would hand a retired credential to the entry's current host on any import,
-	 * since inline values bypass the ownership check. Reported so the omission is never silent.
-	 */
 	readonly mismatchedSecretCount: number;
 }
 

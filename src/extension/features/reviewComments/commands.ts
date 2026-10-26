@@ -28,18 +28,16 @@ import { buildDiffReviewPrompt, buildFileReviewPrompt, buildReplyMessages } from
  * enable hint instead of doing nothing. These handlers are their own single logging boundary.
  */
 
+/**
+ * The commands' host dependencies. `controller` is the live controller while the feature is enabled, and undefined
+ * while it is off.
+ */
 export interface ReviewCommandDeps {
 	readonly oneShot: OneShotClient;
-
 	readonly secrets: vscode.SecretStorage;
-
 	readonly logger: Logger;
-
 	readonly outputChannel: vscode.OutputChannel;
-
-	/** The live controller while the feature is enabled; undefined while it is off. */
 	readonly controller: () => ReviewCommentController | undefined;
-
 	readonly resolveGit?: () => Promise<API | undefined>;
 }
 
@@ -379,10 +377,7 @@ async function answerReply(
 	}
 }
 
-/**
- * Each thread's in-flight reply chain: a promise that settles when that turn's THREAD WORK is done, never when its
- * notification is dismissed. See runReviewReply.
- */
+/** Each thread's in-flight reply chain: settled when the thread work is done, never when the toast is dismissed. */
 const replyQueue = new WeakMap<vscode.CommentThread, Promise<void>>();
 
 export function setThreadResolved(deps: ReviewCommandDeps, thread: vscode.CommentThread, resolved: boolean): void {

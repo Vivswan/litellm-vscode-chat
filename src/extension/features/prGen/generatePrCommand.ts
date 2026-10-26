@@ -24,22 +24,17 @@ import { createTitleAndDescriptionProvider } from "./provider";
  * pipeline provider.ts runs.
  */
 
+/**
+ * The command's host dependencies. `copy` defaults to the system clipboard; it is injected because vscode.env.clipboard
+ * is read-only and a test cannot replace it.
+ */
 export interface GeneratePrDeps {
 	readonly logger: Logger;
-
 	readonly outputChannel: vscode.OutputChannel;
-
-	/**
-	 * Defaults to the system clipboard; injected because vscode.env.clipboard is read-only and a test cannot replace
-	 * it.
-	 */
 	readonly copy?: (text: string) => Thenable<void>;
 }
 
-/**
- * The clipboard always receives the whole thing; this only stops a model that ignored the one-line instruction from
- * filling the screen with a toast.
- */
+/** Caps the toast only; the clipboard receives the whole title even when a model ignored the one-line rule. */
 const NOTIFIED_TITLE_LIMIT = 120;
 
 function notifiedTitle(title: string): string {

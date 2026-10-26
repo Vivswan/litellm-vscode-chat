@@ -34,9 +34,7 @@ export interface PreImportSnapshot {
 	/** The previous blob of every label the import touches (overwritten, renamed-to, appended). */
 	readonly blobs: Readonly<Record<string, SnapshotBlobEntry>>;
 
-	/**
-	 *   Snapshot time -> the undo summary states it
-	 */
+	/** The snapshot time (ISO); the undo summary states it. */
 	readonly at: string;
 }
 
@@ -76,9 +74,7 @@ export async function buildPreImportSnapshot(
 }
 
 export interface SnapshotRestore {
-	/**
-	 * The recorded servers setting (undefined: recorded absent), set apart because the undo writes it before any blob.
-	 */
+	/** The recorded servers setting (undefined: recorded absent); the undo writes it before any blob. */
 	readonly serversValue: unknown;
 
 	/** The other keys to write back to the user scope with their recorded values. */
@@ -94,10 +90,7 @@ export interface SnapshotRestore {
 		readonly owners: StoredSecretOwners;
 	}[];
 
-	/**
-	 * Labels recorded blob-less, whose current blob is deleted (an appended label's import-written secrets leave with
-	 * it).
-	 */
+	/** Labels recorded blob-less, whose current blob is deleted (an appended label's secrets leave with it). */
 	readonly blobRemovals: readonly string[];
 }
 

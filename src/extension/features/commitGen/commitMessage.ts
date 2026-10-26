@@ -13,14 +13,13 @@ import { repositoryRelativePath } from "../gitPaths";
 /** Head-truncation bound for the diff sent to the model; everything past it is noise for a commit subject. */
 export const DIFF_CHAR_LIMIT = 80_000;
 
+/** The log depth read for style examples: the `maxEntries` of the one `repo.log` call. */
 export const STYLE_EXAMPLE_COUNT = 5;
 
+/** Untracked paths listed in the prompt; past it a count stands in for the rest. */
 export const UNTRACKED_PATHS_LIMIT = 100;
 
-/**
- * Model-facing text, so it lives here and stays English by policy (it is quoted in the docs for users to copy-edit
- * into their own prompt setting).
- */
+/** Model-facing text, English by policy; the docs quote it for users to copy-edit into their own prompt setting. */
 export const BUILT_IN_COMMIT_INSTRUCTION = [
 	"Write a commit message for the change in the diff below.",
 	'Use the Conventional Commits form: one subject line like "type(scope): summary" (types such as feat, fix, docs, refactor, test, chore), at most about 72 characters, in the imperative mood.',
@@ -49,8 +48,10 @@ export type CommitMessageOutcome =
 	| { readonly kind: "emptyResult" };
 
 export interface CommitPromptArgs {
+	/** The commitGeneration.prompt setting as the user wrote it. */
 	readonly customPrompt: string;
 
+	/** The staged diff, or the working tree's on the fallback; head-truncated here at DIFF_CHAR_LIMIT. */
 	readonly diff: string;
 
 	/** Recent commit subjects, newest first - subjects only, bodies never ride along. */
@@ -87,10 +88,7 @@ export function commitSubjects(commits: readonly Commit[]): string[] {
 	return commits.map((commit) => (commit.message.split("\n", 1)[0] ?? "").trim()).filter((subject) => subject !== "");
 }
 
-/**
- * Upstream vscode.git's Status.UNTRACKED (extensions/git/src/api/git.d.ts in microsoft/vscode); a plain number because
- * the upstream const enum has no runtime object a hand-typed subset could import.
- */
+/** Upstream vscode.git's Status.UNTRACKED; a plain number because the upstream const enum has no runtime object. */
 const GIT_STATUS_UNTRACKED = 7;
 
 /**

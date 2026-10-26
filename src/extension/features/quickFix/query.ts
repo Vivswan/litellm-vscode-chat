@@ -142,6 +142,7 @@ function truncate(text: string, max: number): string {
 	return max <= 3 ? truncateKeepingHead(text, max) : `${truncateKeepingHead(text, max - 3)}...`;
 }
 
+/** Indexed by the host's DiagnosticSeverity order (Error first); a value outside it reads as "Diagnostic". */
 const SEVERITY_LABELS = ["Error", "Warning", "Information", "Hint"] as const;
 
 /** Origin fields arrive from arbitrary providers; bound them like messages. */

@@ -18,20 +18,17 @@ import type { StoredServerSecrets } from "../servers/serverSync/secrets";
 
 type MutableSecrets = { -readonly [K in SecretFieldId]?: string };
 
+/**
+ * The entry with its secret text moved out, and the moved values. Flat-vs-nested collisions resolve by the
+ * settings-redesign migration's OWN rule, so a transfer can never change which credentials an entry sends: a
+ * record-shaped `auth` wins WHOLESALE and flat secret text beside it is DISCARDED, never moved into the blob, exactly
+ * as the activation migration discards it. `unsanitizable` is true when text the walk cannot reach may hide a
+ * credential; the import skips such an entry rather than land unmovable credential text, while textless scalars are
+ * mere misconfiguration and stay sanitizable.
+ */
 export interface StrippedEntry {
 	readonly entry: Readonly<Record<string, unknown>>;
-
-	/**
-	 * Flat-vs-nested collisions resolve by the settings-redesign migration's OWN rule, so a transfer can never
-	 * change which credentials an entry sends. A record-shaped `auth` wins WHOLESALE and flat secret text beside
-	 * it is DISCARDED, never moved into the blob, exactly as the activation migration discards it.
-	 */
 	readonly secrets: StoredServerSecrets;
-
-	/**
-	 * True when text the walk cannot reach may hide a credential; the import skips such an entry rather than land
-	 * unmovable credential text. Textless scalars are mere misconfiguration and stay sanitizable.
-	 */
 	readonly unsanitizable: boolean;
 }
 
@@ -129,16 +126,10 @@ export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): 
 }
 
 export interface MaterializedEntry {
-	/**
-	 *   The entry with each blob value placed at its inline position -> only where the entry's auth shape already
-	 *       gives the field a legal home
-	 */
+	/** The entry with each blob value placed inline, only where its auth shape already gives the field a legal home. */
 	readonly entry: Readonly<Record<string, unknown>>;
 
-	/**
-	 * Blob fields with no legal inline position in this entry's auth shape; counted and reported, never guessed into
-	 * the file.
-	 */
+	/** Blob fields with no legal inline position in this entry's auth shape; counted and reported, never guessed in. */
 	readonly unmaterialized: number;
 }
 

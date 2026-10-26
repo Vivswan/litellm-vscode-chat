@@ -64,17 +64,16 @@ function credentialDigestOf(entry: DeclaredServer): string {
 
 /**
  * Detection is synchronous and side-effect-free beyond its own digests; persisting a rotation is the caller's separate
- * `bump`, so seeding the digests at activation cannot accidentally write anything.
+ * `bump`, so seeding the digests at activation cannot accidentally write anything. The events that trigger bumps (a
+ * secrets change naming several entries, a settings import rotating a batch) arrive without being awaited, so the
+ * bumps are serialized through `writes`: interleaved read-modify-writes of the one shared record would drop
+ * increments and leave a counter that can stall or regress.
  */
 export class McpVersionCounters {
 	/** In memory only, and never persisted or logged: these summarize secret material. */
 	private readonly digests = new Map<string, string>();
 
-	/**
-	 * Every bump is a read-modify-write of one shared record, and the events that trigger them (a secrets change naming
-	 * several entries, a settings import rotating a batch) arrive without being awaited, so unserialized writes would
-	 * interleave and drop increments - leaving a counter that can stall or regress.
-	 */
+	/** Bumps queue behind each other; see the class doc for the interleaving they would otherwise suffer. */
 	private writes: Promise<unknown> = Promise.resolve();
 
 	constructor(private readonly store: VersionStore) {}

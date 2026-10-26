@@ -1,3 +1,17 @@
+/**
+ * Deletes the retired legacy server registry's state: every globalState key the registry and its migrations (the
+ * pre-registry single-server import, the registry-to-provider-groups seeding, the retired label-scoped
+ * modelParameters expansion) ever wrote, plus the settings-redesign migration's retired parked-global-headers record.
+ * That record was a verbatim copy of headers the migration had already written into declared entries; its recovery
+ * flow is gone, so the copy only kept possible auth values in unencrypted globalState. It holds header values, never
+ * per-server secret ids, so referencedSecretIds does not read it.
+ *
+ * Keys that can hold PLAINTEXT credential material are purged before ANY keychain touch, the single-server probe
+ * reads included, so a locked keychain (whose get or delete throws and defers the rest of the pass to the next
+ * activation) can never keep the plaintext alive with it. A successful cleanup logs only the runner's "migrated"
+ * line, and no stored value reaches any log line.
+ */
+
 import type * as vscode from "vscode";
 import {
 	apiKeySecret,
@@ -17,21 +31,10 @@ import {
 } from "../../shared/config/storageKeys";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
-/**
- * Keys that can hold PLAINTEXT credential material (auth header values) and reference no per-server secret. Purged
- * before ANY keychain touch - the single-server probe reads included - so a locked keychain (whose get or delete throws
- * and defers the rest of the pass to the next activation) can never keep the plaintext alive with it.
- */
+/** Can hold plaintext auth header values and reference no per-server secret; purged before any keychain touch. */
 const PLAINTEXT_FIRST_KEYS: readonly string[] = [PARKED_GLOBAL_HEADERS_KEY];
 
-/**
- * Every globalState key the retired legacy server registry and its migrations (the pre-registry single-server import,
- * the registry-to-provider-groups seeding, and the retired label-scoped modelParameters expansion) ever wrote, plus the
- * settings-redesign migration's retired parked-global-headers record (a verbatim copy of headers the migration had
- * already written into declared entries; its recovery flow is gone, so the copy only kept possible auth values in
- * unencrypted globalState). The parked record holds header values, never per-server secret ids, so referencedSecretIds
- * does not read it.
- */
+/** Every globalState key the retired registry, its migrations, and the parked-headers record ever used. */
 const LEGACY_STATE_KEYS: readonly string[] = [
 	...PLAINTEXT_FIRST_KEYS,
 	SERVER_REGISTRY_KEY,
@@ -105,11 +108,7 @@ async function cleanUpLegacyRegistryState(ctx: MigrationContext): Promise<Migrat
 	return "migrated";
 }
 
-/**
- * Deletes only, with no import and no user notice, so an install still carrying legacy servers re-adds them through
- * the dashboard or the servers setting. A successful cleanup logs only the runner's "migrated" line, and no stored
- * value reaches any log line.
- */
+/** Deletes only, no import, no notice: legacy servers are re-added through the dashboard or the servers setting. */
 export const legacyRegistryCleanupMigration: ExtensionMigration<"legacy-registry-state"> = {
 	state: "legacy-registry-state",
 	description: "Deleted leftover legacy state: registry keys, their stored secrets, and retired parked records",

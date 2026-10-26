@@ -30,6 +30,11 @@ import {
  * The tool registers only while consultTool.enabled is on AND consultTool.model names a pair, so an agent is
  * never offered a tool whose every call could only answer "nothing is configured". This module is the feature's
  * single logging boundary.
+ *
+ * CONSULT_PROMPT_CHAR_LIMIT is fixed in code like the sibling one-shot features' input limits (commit generation's
+ * DIFF_CHAR_LIMIT, inline completions' context window), and it is deliberately not the host's `tokenBudget`, which
+ * governs what the tool returns (fitConsultReply). It is generous enough that a real question with its code context
+ * passes untouched.
  */
 
 type LogFn = (message: string, data?: unknown) => void;
@@ -44,20 +49,10 @@ export type ConsultSend = (request: {
 	readonly token: vscode.CancellationToken;
 }) => Promise<string>;
 
-/**
- * The outgoing prompt's own bound, in UTF-16 code units, fixed in code like the sibling one-shot features' input
- * limits (commit generation's DIFF_CHAR_LIMIT, inline completions' context window). It exists so a runaway agent
- * cannot POST an unbounded body; it is deliberately NOT the host's `tokenBudget`, which governs what the tool RETURNS
- * - see fitConsultReply.
- *
- *   Generous enough -> a real question with its code context passes untouched
- */
+/** Bounds the outgoing prompt (UTF-16 code units) so a runaway agent cannot POST an unbounded body. */
 export const CONSULT_PROMPT_CHAR_LIMIT = 60_000;
 
-/**
- * The prompt bound as the core's fitting machinery consumes it: one "token" per code unit, so the same measured
- * bisection that fits a token budget fits this character budget, with no second truncation pipeline.
- */
+/** The prompt bound as the core's fitting consumes it: one "token" per code unit, so one bisection serves both. */
 const PROMPT_BUDGET: ConsultTokenizationOptions = {
 	tokenBudget: CONSULT_PROMPT_CHAR_LIMIT,
 	countTokens: (text) => Promise.resolve(text.length),
@@ -100,10 +95,7 @@ function createConsultSend(secrets: vscode.SecretStorage, oneShot: OneShotClient
 	};
 }
 
-/**
- * Model-facing text, so it stays English by policy, and it carries nothing of the user's - no file, no selection, no
- * chat history.
- */
+/** Model-facing English by policy, carrying nothing of the user's: no file, no selection, no chat history. */
 export const PROBE_QUESTION = "Reply with one short sentence confirming that you received this question.";
 
 /**

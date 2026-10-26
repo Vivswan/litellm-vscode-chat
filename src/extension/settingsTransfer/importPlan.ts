@@ -51,18 +51,14 @@ export interface SettingWrite {
 	readonly value: unknown;
 }
 
-/** One non-servers key the plan refuses, and why. */
+/**
+ * One non-servers key the plan refuses, and why. The one reason is the scalar gate (acceptsScalar): a spec'd number
+ * key whose value is outside its contract, a boolean key whose value is not a boolean, or usage.statusBar outside its
+ * enum; the other structured keys pass through to their readers' existing leniency. A servers value that is not an
+ * array cannot travel through incomingServers, so it lands here rather than dropping.
+ */
 export interface SkippedKey {
 	readonly key: string;
-
-	/**
-	 * The scalar gate (acceptsScalar): a spec'd number key whose value is outside its contract, a boolean key whose value
-	 * is not a boolean, or usage.statusBar outside its enum. The other structured keys pass through to their readers'
-	 * existing leniency.
-	 *
-	 *   a servers value that is not an array cannot travel through incomingServers
-	 *     -> it lands here rather than dropping
-	 */
 	readonly reason: "wrong-type";
 }
 
@@ -71,18 +67,19 @@ export interface SkippedKey {
  * whose auth text the secret surgery could move; its label is therefore usable and unique within the file. Neither
  * variant's entry text may cross the webview boundary or reach the log buffer; the preview surfaces render the
  * remarks beside it, never the entry itself.
+ *
+ * A kept entry is normalized through the settings-redesign restructure, so a pre-redesign flat export lands working
+ * entries instead of waiting for the next activation's migration.
  */
 export type IncomingServer =
 	| {
+			/** The parser accepted the entry and the secret surgery could move its auth text. */
 			readonly kept: true;
 
+			/** Usable and unique within the file; the collision and rename flows key on it. */
 			readonly label: string;
 
-			/**
-			 * The entry as it lands before respellEntryUrls: the file's entry normalized to the current settings shape (the
-			 * settings-redesign restructure, so a pre-redesign flat export lands working entries instead of waiting for the
-			 * next activation's migration), secret values stripped out.
-			 */
+			/** The entry before respellEntryUrls: normalized to the current settings shape, secret values stripped out. */
 			readonly entry: Readonly<Record<string, unknown>>;
 
 			/** The stripped secret values that will be stored: a value the request path could not send is already gone. */
@@ -91,17 +88,17 @@ export type IncomingServer =
 			/** The parser's verdict, from the same serverSettingReports pass the dashboard diagnostics run. */
 			readonly report: ServerEntryReport;
 
-			/**
-			 * What the entry carries that will not take effect, each line naming a field and never a value: the parser's
-			 * ignored diagnostics, a credential the request path would refuse, a key outside the entry vocabulary.
-			 */
+			/** Lines on what will not take effect (ignored diagnostics, refused credentials, unknown keys); never a value. */
 			readonly notes: readonly string[];
 	  }
 	| {
+			/** The parser rejected the entry, or its auth text could not be moved. */
 			readonly kept: false;
 
+			/** The entry as the judgment saw it, restructured to the current shape; never shown, never logged. */
 			readonly raw: unknown;
 
+			/** The parser's verdict for the entry, as for a kept one. */
 			readonly report: ServerEntryReport;
 
 			/** The first line the entry failed on, naming the field and never a value. */
@@ -113,20 +110,18 @@ export interface EntryRemark {
 	/** The quoted label, or `entry N` (1-based) when the entry has no usable one; the parser's lines predicate it. */
 	readonly subject: string;
 
+	/** The remark, naming fields and never values. */
 	readonly text: string;
 }
 
-/** One label collision between the file and the current setting's raw labels. */
+/**
+ * One label collision between the file and the current setting's raw labels. `connectionChanged` is true when the
+ * incoming entry changes connection-level fields (baseUrl or auth material) against the current entry; with
+ * storedSecrets provided, the current side compares by EFFECTIVE secret material, so a secret merely moving between
+ * inline and SecretStorage does not flag.
+ */
 export interface ServerCollision {
 	readonly label: string;
-
-	/**
-	 * With storedSecrets provided, the current side compares by EFFECTIVE secret material, so a secret merely moving
-	 * between inline and SecretStorage does not flag.
-	 *
-	 *   the incoming entry changes connection-level fields (baseUrl or auth material) against the current entry
-	 *     -> True
-	 */
 	readonly connectionChanged: boolean;
 }
 
@@ -135,6 +130,7 @@ export interface ImportPlan {
 	/** Non-servers keys to write, in ALL_SETTING_KEYS order; the servers key travels through incomingServers instead. */
 	readonly settingsWrites: readonly SettingWrite[];
 
+	/** Keys refused as wrong-type: the scalar gate, or a servers value that is not an array; never written. */
 	readonly skippedKeys: readonly SkippedKey[];
 
 	/** The file's servers array, one verdict per entry; empty when the file carries no servers key. */
@@ -379,54 +375,44 @@ export type CollisionDecision =
  */
 export type CollisionDecisions = Readonly<Record<string, CollisionDecision>>;
 
-/** One label's SecretStorage writes, stripped out of its incoming entry. */
+/**
+ * One label's SecretStorage writes, stripped out of its incoming entry. `owners` is derived from the written entry as
+ * the parser reads it back, so it fails closed: fixing the entry re-pairs the secret deliberately.
+ */
 export interface SecretWrite {
+	/** The label the entry lands under: a renamed entry's new label. */
 	readonly label: string;
 
 	/** The fields to store; blob fields the label already holds but this record omits are cleared as stale. */
 	readonly secrets: StoredServerSecrets;
 
-	/**
-	 * The ownership stamp per stored field: the destination the imported entry pairs it with (the import IS the
-	 * deliberate pairing).
-	 *
-	 *   Derived from the written entry as the parser reads it back -> fail closed, so fixing the entry re-pairs the
-	 *                                                                 secret deliberately
-	 */
+	/** Per stored field, the destination the imported entry pairs it with; the import IS the deliberate pairing. */
 	readonly owners: StoredSecretOwners;
 }
 
-/** The exact writes the host flow applies (settings first, the servers array last). */
+/**
+ * The exact writes the host flow applies (settings first, the servers array last). Overwrites replace their entry IN
+ * PLACE, so the sync engine's removal detector sees an edit rather than a removal, and existing non-colliding entries
+ * are never mutated or reordered. A renamed entry's notes name the new label; a skipped entry's notes are not carried,
+ * since there is nothing to re-enter.
+ */
 export interface ImportApplication {
 	/** The plan's settingsWrites, passed through for the apply loop. */
 	readonly settingsWrites: readonly SettingWrite[];
 
-	/**
-	 * The full servers array to write LAST, or undefined when the import touches no servers. Secrets are stripped out
-	 * of every written entry.
-	 *
-	 *   Overwrites replace their entry IN PLACE -> the sync engine's removal detector sees an edit rather than a
-	 *                                              removal
-	 *   existing non-colliding entries          -> are never mutated or reordered
-	 */
+	/** The full servers array, written LAST, or undefined when no servers are touched; secrets stripped out. */
 	readonly serversValue: readonly unknown[] | undefined;
 
 	/** Per-label SecretStorage writes, applied entry by entry before the servers write. */
 	readonly secretWrites: readonly SecretWrite[];
 
-	/**
-	 * Every label the import writes (overwritten, renamed-to, appended); the pre-import snapshot records their previous
-	 * blobs.
-	 */
+	/** Every label the import writes (overwritten, renamed-to, appended); the snapshot records their previous blobs. */
 	readonly touchedLabels: readonly string[];
 
 	/** The plan's dropped entries, passed through for the completion notice. */
 	readonly dropped: readonly EntryRemark[];
 
-	/**
-	 * The notes of the entries that landed, under the label each landed as: a renamed entry's notes name the new
-	 * label, a skipped entry's notes are not carried (nothing to re-enter). The plan's notes stay the preview's.
-	 */
+	/** The landed entries' notes under the label each landed as; the plan's notes stay the preview's. */
 	readonly notes: readonly EntryRemark[];
 
 	/** The summary notification's counts. */
@@ -434,8 +420,10 @@ export interface ImportApplication {
 		/** New entries appended under their own label. */
 		readonly imported: number;
 
+		/** Counts the overwrite decisions; each replaced the current entry in place. */
 		readonly overwritten: number;
 
+		/** Counts the rename decisions; each appended the entry under its new label. */
 		readonly renamed: number;
 
 		/** Skip decisions, plus a rename whose target the flow should have refused. */

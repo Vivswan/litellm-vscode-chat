@@ -9,19 +9,17 @@ import { oauthStampClientIdMigration } from "./oauthStampClientId";
 import { settingsRedesignMigration } from "./settingsRedesign/apply";
 import { stampSecretOwnersMigration } from "./stampSecretOwners";
 
+/**
+ * What every migration's run receives. `fingerprintSalt` is the session's fingerprint-salt view: a migration that
+ * persists fingerprints must call confirmDurable() at decision time and defer unless it reports "durable", since
+ * records written under a salt later sessions will not see would match nothing. The one exception is a rewrite gated
+ * on a stored record equal to a print computed this session (canonicalUrlSpellings.ts): that equality already proves
+ * the salt.
+ */
 export interface MigrationContext {
 	globalState: vscode.Memento;
-
 	secrets: vscode.SecretStorage;
-
 	logger: Logger;
-
-	/**
-	 * The session's fingerprint-salt view. A migration that persists fingerprints must call confirmDurable() at
-	 * decision time and defer unless it reports "durable": records written under a salt later sessions will not see
-	 * would match nothing. The one exception is a rewrite gated on a stored record equal to a print computed this
-	 * session (canonicalUrlSpellings.ts): that equality already proves the salt.
-	 */
 	fingerprintSalt: FingerprintSaltSession;
 }
 
@@ -56,10 +54,7 @@ export interface ExtensionMigration<State extends string = MigrationStateId> {
 	run(ctx: MigrationContext): Promise<MigrationOutcome>;
 }
 
-/**
- * Chronological by sourceRelease, ties keeping registration order (a test pins this). Registration order is execution
- * order.
- */
+/** Chronological by sourceRelease with ties in registration order, which a test pins. The order is execution order. */
 export const MIGRATIONS = [
 	legacyRegistryCleanupMigration,
 	settingsRedesignMigration,

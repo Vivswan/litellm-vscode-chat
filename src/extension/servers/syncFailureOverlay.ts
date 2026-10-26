@@ -73,6 +73,7 @@ function syncFailureStatus(
 
 /** The overlaid statuses (the window's rows plus the synthesized failures) and the count of entries awaiting a report. */
 interface OverlaidWindow {
+	/** The window's rows with a failing entry's row replaced, plus a synthesized row per failing entry without one. */
 	readonly statuses: ServerStatus[];
 
 	/** The declared entries no report and no sync failure reached: the dashboard's unchecked rows. */

@@ -8,6 +8,11 @@
  *
  *   That split -> keeps the formatting pure and pinnable, and it is why the input here is already-read text
  *   Every string this module emits is MODEL-FACING -> it ships English by policy
+ *
+ * REFERENCE_CHAR_LIMIT bounds the rendered section, heading and notices included, and is separate from
+ * HISTORY_CHAR_LIMIT because history sheds whole old messages while attachments, the user's current explicit input,
+ * are trimmed from the end with the trim announced. SECTION_OVERHEAD_RESERVE is generous on purpose: overshooting it
+ * costs a few hundred characters of file content, and undershooting it would make the documented cap a lie.
  */
 
 import { truncateKeepingHead } from "../../../shared/util/text";
@@ -16,8 +21,10 @@ interface ReadReference {
 	/** What the block is labeled with, e.g. "src/foo.ts" or "src/foo.ts:10-24". */
 	readonly name: string;
 
+	/** The attachment's text as the wiring read it; the block interpolates it whole or trimmed. */
 	readonly content: string;
 
+	/** Absent on a read reference, so the union narrows on it; see ResolvedReference. */
 	readonly unreadable?: undefined;
 }
 
@@ -38,19 +45,10 @@ function isUnreadable(reference: ResolvedReference): reference is UnreadableRefe
 	return reference.unreadable === true;
 }
 
-/**
- * Bounds the whole RENDERED attachment section, heading and notices included, because the fence around a block grows
- * with its longest backtick run and counting raw content would let a pathological file emit three times its bill.
- * Separate from HISTORY_CHAR_LIMIT because history sheds whole old messages while attachments, the user's current
- * explicit input, are trimmed from the end with the trim announced.
- */
+/** Bounds the whole RENDERED section: a fence grows with its longest backtick run, so raw content would undercount. */
 export const REFERENCE_CHAR_LIMIT = 40_000;
 
-/**
- * Held back from the budget for the heading, the data-only instruction and up to two notices, so the cap above bounds
- * the section rather than just the blocks inside it. Generous on purpose: overshooting the reserve costs a few hundred
- * characters of file content, and undershooting it would make the documented cap a lie.
- */
+/** Held back for the heading, the instruction, and up to two notices, so the cap bounds the section itself. */
 const SECTION_OVERHEAD_RESERVE = 400;
 
 /** Blocks are joined by a blank line, so each one costs its own separator. */

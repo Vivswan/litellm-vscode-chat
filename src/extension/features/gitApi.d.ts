@@ -10,10 +10,12 @@ export interface InputBox {
 	value: string;
 }
 
+/**
+ * One changed file. `status` is upstream's Status enum value, a number here because a const enum in a .d.ts has no
+ * runtime object to import.
+ */
 export interface Change {
 	readonly uri: Uri;
-
-	/** Upstream's Status enum value; declared as number here because a const enum in a .d.ts has no runtime object to import. */
 	readonly status: number;
 }
 
@@ -35,52 +37,38 @@ export interface UpstreamRef {
  */
 export interface Branch {
 	readonly name?: string;
-
 	readonly commit?: string;
-
-	/** The remote this branch lives on, on remote-tracking branches only. */
 	readonly remote?: string;
-
 	readonly upstream?: UpstreamRef;
-
 	readonly ahead?: number;
-
 	readonly behind?: number;
 }
 
+/**
+ * `HEAD` is the checked-out branch, or undefined before the repository state has loaded. It is present but partial in
+ * two states, because upstream builds it from `.git/HEAD` first and only then resolves the ref: on an unborn branch
+ * `name` is set and `commit` is absent (there is no commit to resolve, and `git diff HEAD` cannot answer), and on a
+ * detached HEAD `commit` is set and `name` may be absent.
+ *
+ * `untrackedChanges` holds the untracked files when git.untrackedChanges is "separate"; "mixed" (the default) puts
+ * them in `workingTreeChanges`.
+ */
 export interface RepositoryState {
-	/**
-	 * The checked-out branch, or undefined before the repository state has
-	 * loaded. Present but partial in two states, because upstream builds it
-	 * from `.git/HEAD` first and only then resolves the ref: on an unborn
-	 * branch `name` is set and `commit` is absent (there is no commit to
-	 * resolve, and `git diff HEAD` cannot answer), and on a detached HEAD
-	 * `commit` is set and `name` may be absent.
-	 */
 	readonly HEAD: Branch | undefined;
-
 	readonly indexChanges: Change[];
-
 	readonly workingTreeChanges: Change[];
-
-	/** Holds the untracked files when git.untrackedChanges is "separate"; "mixed" (the default) puts them in workingTreeChanges. */
 	readonly untrackedChanges: Change[];
 }
 
+/** One log entry. `parents` holds the parent hashes; a merge commit has more than one. */
 export interface Commit {
 	readonly hash: string;
-
 	readonly message: string;
-
-	/** The commit's parent hashes; a merge commit has more than one. */
 	readonly parents: string[];
 }
 
 export interface LogOptions {
-	/**
-	 * Max number of log entries. IGNORED when `range` is set: git's own log
-	 * builder passes either the range or `-n<maxEntries>`, never both.
-	 */
+	/** Max log entries; IGNORED when `range` is set, since git's log builder passes the range or -n, never both. */
 	readonly maxEntries?: number;
 
 	/** A git revision range, e.g. "<mergeBase>..HEAD"; the log answers newest first within it. */

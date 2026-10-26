@@ -14,8 +14,10 @@ import type { OneShotChatMessage } from "../../../provider/transport/oneShotClie
 import { truncateHeadWithMarker, truncationMarker } from "../../../shared/util/text";
 import { LINE_BREAK_PATTERN, NO_FINDINGS_REPLY } from "./placements";
 
+/** Head-truncation bound for a working-tree diff; the marker tells the model the cut happened. */
 export const REVIEW_DIFF_CHAR_LIMIT = 80_000;
 
+/** Head-truncation bound for a whole file, applied after numbering so the kept lines keep their numbers. */
 export const REVIEW_FILE_CHAR_LIMIT = 80_000;
 
 /** The shared model-facing instruction; the LINE format literals here are what placements.ts parses. */
@@ -87,25 +89,26 @@ function numberedHead(content: string): string {
 	return truncateHeadWithMarker(numbered, REVIEW_FILE_CHAR_LIMIT, truncationMarker("file"));
 }
 
+/** Head-truncation bound for the anchored snippet a reply prompt quotes. */
 export const REVIEW_SNIPPET_CHAR_LIMIT = 8_000;
 
+/** Head-truncation bound for each thread turn's body in a reply prompt. */
 export const REVIEW_COMMENT_CHAR_LIMIT = 4_000;
 
-/**
- * Bounding the bodies alone leaves the TURN COUNT unbounded, so a long-running thread would grow the request without
- * limit; the newest turns are the ones the reply is about, so the oldest are what a long thread drops.
- */
+/** Oldest turns drop first: the newest are what the reply is about, and bounding bodies alone leaves the count open. */
 export const REVIEW_REPLY_TURN_LIMIT = 20;
 
 export interface ReplyPromptArgs {
+	/** The document's path as the prompt names it to the model. */
 	readonly path: string;
 
 	/** The anchored lines, already line-numbered by the caller; empty when the document could not be read. */
 	readonly snippet: string;
 
-	/** The thread's 1-based inclusive line range, as shown to the model. */
+	/** The thread's 1-based inclusive range start, as shown to the model. */
 	readonly startLine: number;
 
+	/** The thread's 1-based inclusive range end, as shown to the model. */
 	readonly endLine: number;
 
 	/** The thread so far, oldest first, ending with the user turn being answered. */

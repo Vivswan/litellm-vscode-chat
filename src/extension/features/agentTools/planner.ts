@@ -143,13 +143,6 @@ const featureModelRoute =
 	(feature: FeatureModelId): SettingRoute =>
 	(value) => [{ method: "setFeatureModel", payload: { feature, value } }];
 
-/**
- * One half per call, exactly the dashboard's grammar: each row sends only its own half, and the intent reads the stored
- * filter and merges. Two halves in one call are refused rather than split into two requests, because the second
- * request's merge would read a filter the first one just moved between scopes.
- *
- *   A value that is not an object goes through as-is -> the schema, not this table, refuses it
- */
 const languageFilterRoute: SettingRoute = (value) => [{ method: "setLanguageFilter", payload: value }];
 
 const STRUCTURED_SETTING_ROUTES = {
@@ -187,7 +180,6 @@ const SETTING_ROUTES: ReadonlyMap<string, SettingRoute> = new Map<string, Settin
 	...Object.entries(STRUCTURED_SETTING_ROUTES),
 ]);
 
-/** Which tool owns a setting set_setting must refuse. */
 const SETTINGS_OWNED_ELSEWHERE: Readonly<Record<string, string>> = {
 	[SERVERS_SETTING_KEY]: "saveServer",
 	[MODEL_PARAMETERS_SETTING_KEY]: "editModelRecords",
@@ -210,6 +202,10 @@ export function planSetSetting(input: AgentToolInput<"setSetting">): ToolPlan {
 	if (value === null) {
 		return requests({ method: "resetSetting", payload: { setting } });
 	}
+	// The language filter travels one half per call, exactly the dashboard's grammar: the intent reads the stored
+	// filter and merges the half it was sent. Two halves in one call are refused rather than split into two requests,
+	// because the second request's merge would read a filter the first one just moved between scopes. A value that is
+	// not an object goes through as-is; the schema, not this guard, refuses it.
 	if (
 		setting === INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY &&
 		isRecord(value) &&
@@ -291,6 +287,7 @@ function replaceIdentityOf(row: EditableDashboardServer): ReplacedEntryIdentity 
 	};
 }
 
+/** The secrets half of a save that touches no credential: a record edit or a stored-entry probe keeps every field. */
 const KEEP_ALL: Readonly<Record<SecretFieldId, SecretDirective>> = recordFromKeys(SECRET_FIELD_IDS, () => ({
 	action: "keep",
 }));

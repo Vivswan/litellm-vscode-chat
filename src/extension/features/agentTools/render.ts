@@ -13,12 +13,10 @@ import type { DiagnosticsSnapshot } from "../../ui/issueReporter";
 import type { ConfigurationSection } from "./inputSchema";
 import type { AgentRequest, RefusalReason, SecretPrompt } from "./planner";
 
-/**
- * The reply bound, in UTF-16 code units, fixed in code like the consult tool's outgoing bound: a configuration with
- * hundreds of models must not flood the agent's context. The cut is marked so the agent knows to ask for a section.
- */
+/** The reply bound, in UTF-16 code units and fixed in code: hundreds of models must not flood the agent's context. */
 const AGENT_RESULT_CHAR_LIMIT = 60_000;
 
+/** Appended at the cut so the agent knows to ask for a section instead of retrying the whole read. */
 const TRUNCATION_MARKER = '... [truncated: ask for fewer "sections", or inspect one model at a time]';
 
 /** JSON for the model, through the one output door, cut at the bound with a visible marker. */
@@ -74,11 +72,7 @@ export function shapeDiagnostics(
 	};
 }
 
-/**
- * What a configuration read shows in place of a credential-bearing custom header's value: the header's name is the
- * agent's to see (it edits the entry), its value is not. A header is a credential by isCredentialHeader, the entry's
- * own carrier included.
- */
+/** Shown in place of a credential header's value: the agent sees the name (it edits the entry), never the value. */
 export const CREDENTIAL_HEADER_PLACEHOLDER = "<redacted header value>";
 
 function withCredentialHeaderValuesHidden<T extends DashboardServer>(server: T): T {

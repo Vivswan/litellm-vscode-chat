@@ -15,14 +15,13 @@ import { buildFallbackPrompt } from "./query";
  *
  *   code-action provider -> exists ONLY while enabled, so no LiteLLM entry appears in a lightbulb while it is off
  *   keybindings and executeCommand ignore the enable setting -> command registered unconditionally
+ *
+ * QUICK_FIX_SELECTOR names `file` alone. Under `pattern: "**"` a diagnostic can sit on documents this feature cannot
+ * act on (a git diff, an output pane), and the chat view attaches only files that exist, so on an `untitled` document
+ * the model would be asked to fix code it cannot see.
  */
 
-/**
- * `file` alone, deliberately, because an action that quietly sends no code is worse than no action.
- *
- *   `pattern: "**"` -> a diagnostic can sit on documents this feature cannot act on, a git diff, an output pane
- *   `untitled` -> the chat view attaches only files that exist, so the model would be asked to fix code it cannot see
- */
+/** `file` alone, deliberately: an action that quietly sends no code is worse than no action. */
 const QUICK_FIX_SELECTOR: vscode.DocumentSelector = [{ scheme: "file" }];
 
 /**
@@ -56,15 +55,16 @@ export function createQuickFixProbe(
 	return (model) => withProbeToken((token) => sendFallbackPrompt(oneShot, secrets, model, probePrompt(), token, log));
 }
 
+/**
+ * Registers the command unconditionally and the provider while enabled. `isParticipantAvailable` is the participant
+ * wiring's own readiness predicate; the chat path is taken only while it says yes.
+ */
 export function wireQuickFix(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	deps: {
 		readonly oneShot: OneShotClient;
-
 		readonly outputChannel: vscode.OutputChannel;
-
-		/** The participant wiring's own readiness predicate; the chat path is only taken while it says yes. */
 		readonly isParticipantAvailable: () => boolean;
 	}
 ): void {

@@ -37,10 +37,7 @@ export interface ConsultTokenizationOptions {
 	readonly countTokens: (text: string) => PromiseLike<number>;
 }
 
-/**
- * What the manifest tells the calling model this tool does (its `modelDescription`). Model-facing text, so it stays
- * English by policy; the generated manifest carries it verbatim.
- */
+/** This tool's manifest `modelDescription`: model-facing English by policy, carried verbatim by manifest:generate. */
 export const CONSULT_TOOL_MODEL_DESCRIPTION = [
 	"Ask a second, independently configured LiteLLM model for its opinion, and get its answer back as",
 	"text. Reach for it when you want a second opinion before committing to an approach, when you want a",
@@ -51,15 +48,19 @@ export const CONSULT_TOOL_MODEL_DESCRIPTION = [
 	"yourself, and treat it as one opinion rather than as fact.",
 ].join(" ");
 
+/** Heads every consult prompt (assembleConsultPrompt); model-facing English by policy. */
 export const CONSULT_INSTRUCTION = [
 	"Another AI assistant is consulting you for a second opinion.",
 	"Answer the question directly and concisely. When you are not sure, say so rather than guessing.",
 ].join("\n");
 
+/** Appended to a cut context so the consulted model knows the material ends early. */
 export const CONTEXT_TRUNCATION_MARKER = "[context truncated to fit the token budget]";
 
+/** Appended to a cut question; the question is cut only after the context is gone (fitConsultPrompt). */
 export const QUESTION_TRUNCATION_MARKER = "[question truncated to fit the token budget]";
 
+/** The bisection depth of largestFittingCandidate; each step is one awaited countTokens call. */
 export const TRUNCATION_BISECTION_STEPS = 16;
 
 /** Blank context reads as absent - one rule, shared by assembly and fitting. */
@@ -115,11 +116,13 @@ async function largestFittingCandidate(
 }
 
 export interface ConsultPromptFit {
+	/** The assembled prompt, cut as the flags say; the best effort even when `withinBudget` is false. */
 	readonly prompt: string;
 
 	/** True when the context was cut or dropped entirely. */
 	readonly contextTruncated: boolean;
 
+	/** True when the question itself was cut, which happens only once the context is gone. */
 	readonly questionTruncated: boolean;
 
 	/** False only when even the minimal candidates overflowed (the prompt is still the best effort). */
@@ -199,6 +202,7 @@ export const EMPTY_REPLY_TEXT = "The consulted model returned an empty reply.";
 export const REPLY_TRUNCATION_MARKER = "[reply truncated to fit the caller's token budget]";
 
 export interface ConsultReplyFit {
+	/** The reply cut to the caller's token budget, marker appended; empty when not even the marker fits. */
 	readonly text: string;
 
 	/** True when anything was cut, the nothing-fits case included. */

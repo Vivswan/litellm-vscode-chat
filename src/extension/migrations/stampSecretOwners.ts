@@ -8,6 +8,10 @@
  *                                                  re-add resolves it exactly as before
  *   OAuth client secret on an entry, no token URL -> waits for an activation where the entry declares one; an empty
  *                                                  destination now would refuse the pairing the user is completing
+ *
+ * Deletable once installs with pre-stamping blobs are judged extinct. As long as it lives, a rerun also re-stamps
+ * blobs an interim DOWNGRADE rewrote (an old version's read-modify-write drops the whole `_owner` map), so ownership
+ * protection converges again on the next activation rather than staying erased.
  */
 
 import type { Logger } from "../../shared/logger";
@@ -65,12 +69,7 @@ export async function stampSecretOwnersFor(
 	return stamped > 0 ? "migrated" : "nothing-to-do";
 }
 
-/**
- * Migrates away from: the unstamped SecretStorage blobs of v0.4.7 and earlier. Deletable once installs with
- * pre-stamping blobs are judged extinct - though as long as it lives, a rerun also re-stamps blobs an interim DOWNGRADE
- * rewrote (an old version's read-modify-write drops the whole `_owner` map), so ownership protection converges again on
- * the next activation rather than staying erased.
- */
+/** Migrates away from the unstamped blobs of v0.4.7 and earlier; a rerun also heals an interim downgrade's erasure. */
 export const stampSecretOwnersMigration: ExtensionMigration<"unstamped-server-secrets"> = {
 	state: "unstamped-server-secrets",
 	description: "Stamped stored server secrets with the destinations their entries pair them with",

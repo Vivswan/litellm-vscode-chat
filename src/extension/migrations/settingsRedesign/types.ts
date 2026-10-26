@@ -27,15 +27,18 @@ export interface SettingWrite {
 	readonly value: unknown;
 }
 
+/**
+ * What applySettingsRedesign writes and logs. `writes` is ordered: every value write precedes every deletion, so a
+ * crash between the two loses nothing, since the rerun finds both the old and the new value and the sync-race rule
+ * (keep the new, drop the old) completes the move.
+ */
 export interface RedesignPlan {
-	/**
-	 * Ordered: every value write precedes every deletion, so a crash between the two loses nothing - the rerun finds
-	 * both the old and the new value and the sync-race rule (keep the new, drop the old) completes the move.
-	 */
+	/** Value writes first, then deletions; see above for why the order matters. */
 	readonly writes: readonly SettingWrite[];
 
 	/** English, counts only: the log lines feed the public issue-report buffer. */
 	readonly logLines: readonly string[];
 
+	/** What the runner reports: "migrated" when any write is planned, else "nothing-to-do". */
 	readonly outcome: MigrationOutcome;
 }

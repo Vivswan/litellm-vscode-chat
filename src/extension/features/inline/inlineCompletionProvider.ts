@@ -21,15 +21,14 @@ import { languageAllowed } from "./languageFilter";
 /** Typing pause before any work; the token check after it absorbs bursts. */
 export const INLINE_COMPLETION_DEBOUNCE_MS = 200;
 
+/**
+ * One FIM request. `prefix` and `suffix` are the budget-truncated document context: exactly the cache key's prefix
+ * tail and suffix head.
+ */
 export interface InlineCompletionRequest {
 	readonly modelRef: FeatureModelRef;
-
-	/** Budget-truncated document context: exactly the cache key's prefix tail. */
 	readonly prefix: string;
-
-	/** Budget-truncated document context: exactly the cache key's suffix head. */
 	readonly suffix: string;
-
 	readonly token: vscode.CancellationToken;
 }
 
@@ -40,17 +39,15 @@ export interface InlineCompletionRequest {
  */
 export type InlineCompletionSend = (request: InlineCompletionRequest) => Promise<string | undefined>;
 
+/**
+ * `cache` is owned by the wiring, which invalidates it on model or configuration changes. `log` is the extension's
+ * output-channel logger, English-only lines; the provider runs on every keystroke, so it deduplicates its own lines
+ * once per session per class, since an unbounded per-invocation line would evict the real errors from the issue-report
+ * buffer.
+ */
 export interface InlineCompletionProviderDeps {
 	readonly send: InlineCompletionSend;
-
-	/** Owned by the wiring, which invalidates it on model or configuration changes. */
 	readonly cache: CompletionCache;
-
-	/**
-	 * The extension's output-channel logger; English-only lines. The provider runs on every keystroke, so it
-	 * deduplicates its own lines once per session per class - an unbounded per-invocation line would evict the real
-	 * errors from the issue-report buffer.
-	 */
 	readonly log: (message: string, data?: unknown) => void;
 }
 
@@ -63,13 +60,13 @@ function isCancellation(error: unknown): boolean {
 	}
 }
 
+/**
+ * Logs through a once-latch rather than Logger.advisory, deliberately: advisory() only protects the issue-report
+ * buffer, and a provider running on every keystroke would still flood the channel with one line per keystroke, while
+ * a send failure is a real once-per-session error that belongs in the buffer exactly once per failure class.
+ */
 class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
-	/**
-	 * Advisory classes already logged; every line below goes through adviseOnce, so none can recur per keystroke.
-	 * Deliberately a once-latch rather than Logger.advisory: advisory() only protects the issue-report buffer, and a
-	 * provider running on every keystroke would still flood the CHANNEL with one line per keystroke - while a send
-	 * failure is a real once-per-session error that belongs in the buffer exactly once per failure class.
-	 */
+	/** Advisory classes already logged: every line goes through adviseOnce, so none recurs per keystroke. */
 	private readonly advised = new Set<string>();
 
 	constructor(private readonly deps: InlineCompletionProviderDeps) {}

@@ -14,6 +14,10 @@
  *   both versions compare only by equality            -> healed the same way
  *   record matching neither proof                     -> left for the engine, which re-adds and reads a duplicate
  *                                                        refusal as blocked, as before
+ *
+ * Migrations precede provider registration and wireServers, so the projection lands before the engine's first pass.
+ * LEGACY_ARGS_KEY_ORDER is the pre-projection engine's rendering key by key; a field added later never enters it,
+ * since the old engine never wrote it.
  */
 
 import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../shared/config/storageKeys";
@@ -30,10 +34,7 @@ import { parseServersSetting } from "../servers/serverSync/setting";
 import { canonicalEntryBaseUrls, readRawServersSetting } from "../servers/serverSync/vscodeEnv";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
-/**
- * The pre-projection engine's args, key by key in the order it serialized them, so buildGroupArgs' insertion order
- * carries no meaning here; a field added later never enters this rendering, since the old engine never wrote it.
- */
+/** The old engine's serialization order; buildGroupArgs' insertion order means nothing here. */
 const LEGACY_ARGS_KEY_ORDER = [
 	"name",
 	"vendor",
@@ -147,10 +148,7 @@ export async function projectSyncFingerprintsFor(
 	return Object.keys(rewrites).length > 0 ? "migrated" : "nothing-to-do";
 }
 
-/**
- * Runs before the sync engine's first pass (migrations precede provider registration and wireServers), so a healthy
- * entry's record reads as in-sync on the very first pass instead of degrading to a doomed re-add.
- */
+/** Runs before the sync engine's first pass, so a healthy entry reads as in-sync instead of being re-added. */
 export const fingerprintProjectionMigration: ExtensionMigration<"full-args-sync-fingerprints"> = {
 	state: "full-args-sync-fingerprints",
 	description: "Projected server-sync fingerprints onto the group-identity rendering",

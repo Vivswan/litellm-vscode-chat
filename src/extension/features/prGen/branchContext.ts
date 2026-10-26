@@ -12,12 +12,10 @@ import { PATCHES_CHAR_LIMIT, type TitleAndDescriptionContext } from "./prompt";
 /** How many changed files may contribute a patch block; a huge branch costs one git call per file. */
 export const PR_PATCH_FILE_LIMIT = 100;
 
-/**
- * Fixed characters one assembled patch block adds beyond its header name: the "File: " lead, its newline, and the
- * block separator.
- */
+/** What a patch block adds beyond its header name: the "File: " lead, its newline, and the block separator. */
 const PATCH_BLOCK_FIXED_OVERHEAD = "File: \n\n\n".length;
 
+/** Appended where a patch is cut to its budget, on its own line. */
 const PATCH_TRUNCATION_MARKER = "\n[patch truncated]";
 
 export type CommitListOrder = "oldestFirst" | "newestFirst";

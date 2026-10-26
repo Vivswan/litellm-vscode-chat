@@ -65,14 +65,14 @@ export interface DeclaredGroupClaim {
 	readonly group: GroupKey | undefined;
 }
 
+/**
+ * One live group by its ids. `label` is the status label: the configuration stamp, else the URL host
+ * (groupDiscovery.ts).
+ */
 export interface GroupKey {
 	readonly groupId: string;
-
-	/** The status label: the configuration stamp, else the URL host (groupDiscovery.ts). */
 	readonly label: string;
-
 	readonly entryLabel: string | undefined;
-
 	readonly baseUrl: string;
 }
 
@@ -236,7 +236,9 @@ function parseVersionedRecords(raw: unknown): VersionedRecords {
 /**
  * Closes the #220 globalState hazard, an awaited update reverting moments later to a stale value. A persist failure is
  * reported, never thrown, since a throwing persist would make callers report the opposite of the effective state; with
- * no later successful persist the loss lands on the NEXT session, never this one.
+ * no later successful persist the loss lands on the NEXT session, never this one. A write persists the records as of
+ * the generation it read, and serialized writes read the latest records, so an earlier success can cover a later
+ * failure's content.
  *
  *   stale revert of our own write     -> older-or-equal version, ignored
  *   another window's genuine mutation -> it synced before mutating
@@ -244,24 +246,25 @@ function parseVersionedRecords(raw: unknown): VersionedRecords {
  *   two windows mutating at once      -> last-write-wins
  */
 class VersionedRegion<T> {
+	/** The region's content; memory is truth and storage trails it. */
 	private records: readonly T[];
 
 	/** Records that live in memory only: listed and matched like the rest, never written, kept across adoption. */
 	private transient = new Set<T>();
 
+	/** The version of the blob memory holds; a stored read is adopted only when strictly newer. */
 	private version: bigint;
 
+	/** True while a write is in flight; nothing is adopted from storage meanwhile. */
 	private persisting = false;
 
+	/** The blob we wrote last: Memento caches updates optimistically, so a failed persist can hand it back. */
 	private lastWrittenBlob: unknown;
 
-	/**
-	 * Commit/persist generations, compared to decide whether memory is ahead of storage: a write persists the records
-	 * as of the generation it read, and serialized writes read the latest records, so an earlier success can cover a
-	 * later failure's content.
-	 */
+	/** Bumped per commit; ahead of persistedGeneration exactly while memory is ahead of storage. */
 	private commitGeneration = 0;
 
+	/** The commit generation the last successful persist covered. */
 	private persistedGeneration = 0;
 
 	constructor(
@@ -433,19 +436,21 @@ class TombstoneIndex {
 	}
 }
 
+/**
+ * The removal truth: the tombstones (what the host must hide) and the orphaned-group provenance (why a leftover
+ * exists), each a VersionedRegion. The two listener slots are set-once rather than listener sets: the store has no
+ * logger, so it could not isolate multiple listeners' failures the way the activation wiring (the one consumer)
+ * already does, and a silent replacement would detach the host re-resolve wiring (hidden groups' models would never
+ * leave the picker) or swallow the only signal that storage is behind memory.
+ */
 export class GroupRemovalStore {
+	/** The one onDidChange listener, assigned once. */
 	private didChangeListener: (() => void) | undefined;
 
+	/** The one onPersistError listener, assigned once. */
 	private persistErrorListener: ((error: unknown) => void) | undefined;
 
-	/**
-	 * A single set-once slot rather than a listener set: the store has no logger, so it could not isolate multiple
-	 * listeners' failures the way the activation wiring (the one consumer) already does. The setter throws on a second
-	 * assignment because a silent replacement would detach the host re-resolve wiring - hidden groups' models would
-	 * never leave the picker.
-	 *
-	 *   Fired after every effective tombstone mutation -> synchronously between commit and persist
-	 */
+	/** Fired synchronously after every effective tombstone mutation, before the persist; a second assignment throws. */
 	set onDidChange(listener: () => void) {
 		if (this.didChangeListener !== undefined) {
 			throw new Error("GroupRemovalStore.onDidChange is already assigned");
@@ -453,10 +458,7 @@ export class GroupRemovalStore {
 		this.didChangeListener = listener;
 	}
 
-	/**
-	 * Reports a failed best-effort persist (log-only). Set-once like onDidChange: a silent replacement would swallow
-	 * the only signal that storage is behind memory.
-	 */
+	/** Reports a failed best-effort persist (log-only); set-once like onDidChange, a second assignment throws. */
 	set onPersistError(listener: (error: unknown) => void) {
 		if (this.persistErrorListener !== undefined) {
 			throw new Error("GroupRemovalStore.onPersistError is already assigned");
@@ -464,10 +466,13 @@ export class GroupRemovalStore {
 		this.persistErrorListener = listener;
 	}
 
+	/** Every tombstoned identity, versioned against other windows' writes. */
 	private readonly tombstoneRegion: VersionedRegion<TombstoneIdentity>;
 
+	/** The tombstones indexed for matching, recomputed only when the region's list is replaced. */
 	private readonly tombstoneIndex: () => TombstoneIndex;
 
+	/** The origin recorded for each orphaned group, versioned like the tombstones. */
 	private readonly provenanceRegion: VersionedRegion<OrphanedGroupRecord>;
 
 	constructor(

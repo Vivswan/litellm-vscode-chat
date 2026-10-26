@@ -15,16 +15,13 @@ import type { ProviderSnapshot, SnapshotModel } from "./modelsMarkdown";
 
 /**
  * Everything past the id is optional here even where the host's own type requires it, because a snapshot round-trips
- * through the host and a missing field must render as "not reported" rather than throw.
+ * through the host and a missing field must render as "not reported" rather than throw. `litellm.rawModelId` is the
+ * mint-stamped raw model ID; a copy that lost it falls back to the exposed id, which group mints keep raw.
  */
 interface SnapshotSourceModel {
 	readonly id: string;
-
-	/** The mint-stamped raw model ID; a copy that lost it falls back to the exposed id, which group mints keep raw. */
 	readonly litellm?: { readonly rawModelId?: string | undefined } | undefined;
-
 	readonly maxInputTokens?: number | undefined;
-
 	readonly capabilities?:
 		| {
 				readonly toolCalling?: boolean | number | undefined;

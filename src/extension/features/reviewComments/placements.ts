@@ -8,19 +8,17 @@
  *     returns no errors at all
  *   Finding bodies do carry model text - they are the product, rendered as comment bodies -> they stay out of logs
  *   Line numbers here are 1-based -> the comment controller converts to VS Code's 0-based ranges at thread creation
+ *
+ * FINDING_PATTERN writes its en/em dashes as escapes so the source stays ASCII, and its optional bold closer swallows
+ * its trailing whitespace (`(?:\*\*\s*)?:`) rather than sitting between two `\s*`, which would backtrack quadratically
+ * on a whitespace run with no colon behind it. A signed anchor is out-of-range, not malformed: a negative line number
+ * clamps to line one.
  */
 
-/**
- * The exact reply the prompt requests when the model has nothing to report; recognized case- and
- * punctuation-insensitively.
- */
+/** The exact reply the prompt requests for a clean file; recognized case- and punctuation-insensitively. */
 export const NO_FINDINGS_REPLY = "NO FINDINGS";
 
-/**
- * A line break in this feature's one splitting vocabulary: CRLF, lone LF, or lone CR (VS Code's text buffer counts a
- * bare CR as a line break, so the whole-file prompt's numbering and this parser must agree with it and with each
- * other). reviewPrompt.ts imports this for its line numbering.
- */
+/** CRLF, lone LF, or lone CR: VS Code's buffer counts a bare CR, so the prompt's numbering and this parser agree. */
 export const LINE_BREAK_PATTERN = /\r\n|[\r\n]/;
 
 /** One parsed finding: a 1-based inclusive line range and the model's finding text. */
@@ -30,26 +28,19 @@ export interface ReviewPlacement {
 	readonly body: string;
 }
 
+/**
+ * What the parse read out of one answer. `dropped` counts the lines dropped: interleaved prose, and a finding line
+ * with no body. `sawNoFindings` says the model SAID the file is clean: a caller clearing a file's existing comments on
+ * a findingless answer needs that, and no other signal proves it, since an empty answer, a lone code fence, and a page
+ * of blank lines all parse to zero placements and zero drops too.
+ */
 export interface ParsedPlacements {
 	readonly placements: readonly ReviewPlacement[];
-
 	readonly dropped: number;
-
-	/**
-	 * A caller clearing a file's existing comments on a findingless answer needs to know the model SAID the file is
-	 * clean, and no other signal proves that: an empty answer, a lone code fence, and a page of blank lines all parse
-	 * to zero placements and zero drops too.
-	 */
 	readonly sawNoFindings: boolean;
 }
 
-/**
- * The range dash tolerates en/em dashes (as escapes - source stays ASCII). The optional bold closer swallows its
- * trailing whitespace (`(?:\*\*\s*)?:`) rather than sitting between two `\s*`, which would backtrack quadratically on a
- * whitespace run with no colon behind it.
- *
- *   Anchors may be signed -> a negative line number is out-of-range, not malformed, and clamps to line one
- */
+/** LINE <n>[-<m>]: <text>, with en/em dashes and an optional bold closer tolerated; anchors may be signed. */
 const FINDING_PATTERN = /^line\s*(-?\d+)(?:\s*[-\u2013\u2014]\s*(-?\d+))?\s*(?:\*\*\s*)?:\s*(.*)$/i;
 
 /** Leading decoration models like to add: blockquote marks, list bullets, bold openers. */

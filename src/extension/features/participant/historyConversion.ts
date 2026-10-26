@@ -2,6 +2,10 @@
  * The input types are minimal structural mirrors of vscode.ChatRequestTurn and vscode.ChatResponseTurn - the wiring
  * passes context.history straight in - so the module needs no vscode import and stays pure for the bun tree. The output
  * is equally neutral: the wiring maps each ChatMessage onto the host's LanguageModelChatMessage constructors.
+ *
+ * HISTORY_CHAR_LIMIT keeps every request bounded when a chat has accumulated huge turns (a /models table on a large
+ * install, pasted logs): the newest messages stay and the oldest whole ones are shed. History may drop to nothing; the
+ * current prompt never rides through here.
  */
 
 type ChatMessageRole = "user" | "assistant";
@@ -28,12 +32,7 @@ export interface HistoryResponseTurn {
 
 export type HistoryTurn = HistoryRequestTurn | HistoryResponseTurn;
 
-/**
- * Head-drop bound for the converted history's total content length: a chat that accumulated huge turns (a /models table
- * on a large install, pasted logs) keeps its newest messages and sheds the oldest whole ones, so every request stays
- * bounded without truncating any message mid-text. History may drop to nothing; the current prompt never rides through
- * here.
- */
+/** Head-drop bound for the converted history: the oldest whole messages go first, never a message mid-text. */
 export const HISTORY_CHAR_LIMIT = 80_000;
 
 /** Request turns carry a string prompt; response turns never do. */

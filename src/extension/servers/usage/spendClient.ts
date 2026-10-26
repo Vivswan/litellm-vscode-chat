@@ -55,8 +55,10 @@ export function dailyActivityUrl(baseUrl: string, apiVersion: string | undefined
  * never logged.
  */
 export interface UsageConnection {
+	/** The declared entry's label; the usage store keys on it. */
 	readonly label: string;
 
+	/** Normalized at resolution (normalizeBaseUrl); serverRootOf derives the endpoint root from it. */
 	readonly baseUrl: string;
 
 	/** The entry's apiVersion override, forwarded to serverRootOf; see DeclaredServer.apiVersion. */
@@ -68,8 +70,10 @@ export interface UsageConnection {
 	/** The entry's custom headers (there is no global headers setting); auth headers win conflicts. */
 	readonly headers: Readonly<Record<string, HeaderValue>>;
 
+	/** Drives the bearer overlay; tokens cache across polls and invalidate on 401 exactly like the chat path. */
 	readonly oauth?: OAuthConfig | undefined;
 
+	/** Drives the virtual-key header overlay, which wins over a same-named custom header. */
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 }
 
@@ -114,45 +118,31 @@ export function usageConnectionFor(
 	};
 }
 
-/** The caller's own key as /key/info reports it: budget and spend numbers only. */
+/**
+ * The caller's own key as /key/info reports it: budget and spend numbers only. `budgetResetAt` is epoch milliseconds,
+ * so the reset cadence surfaces through it and the raw budget_duration token (response-derived text) is never
+ * retained. `hasUser` says whether the key carries a user, which gates the /user/info rollup call; the ID itself is
+ * never retained.
+ */
 export interface KeyUsage {
 	readonly spend: number | undefined;
-
 	readonly maxBudget: number | undefined;
-
 	readonly softBudget: number | undefined;
-
-	/**
-	 * Epoch milliseconds; the reset cadence surfaces through this, so the raw budget_duration token (response-derived
-	 * text) is never retained.
-	 */
 	readonly budgetResetAt: number | undefined;
-
-	/** Whether the key carries a user (gates the /user/info rollup call); the ID itself is never retained. */
 	readonly hasUser: boolean;
 }
 
-/** One day of /user/daily/activity, every field a checked number. */
+/** One day of /user/daily/activity, every field a checked number; `date` is YYYY-MM-DD, pattern-validated. */
 export interface UsageDay {
-	/** YYYY-MM-DD, pattern-validated. */
 	readonly date: string;
-
 	readonly spend: number;
-
 	readonly promptTokens: number;
-
 	readonly completionTokens: number;
-
 	readonly totalTokens: number;
-
 	readonly apiRequests: number;
-
 	readonly successfulRequests: number;
-
 	readonly failedRequests: number;
-
 	readonly cacheReadInputTokens: number;
-
 	readonly cacheCreationInputTokens: number;
 }
 
@@ -165,13 +155,10 @@ export interface DailyUsage {
 	readonly totals: UsageTotals;
 }
 
-/** The user-level rollup /user/info reports when the key carries a user. */
+/** The user-level rollup /user/info reports when the key carries a user; `budgetResetAt` is epoch milliseconds. */
 export interface UserUsage {
 	readonly spend: number | undefined;
-
 	readonly maxBudget: number | undefined;
-
-	/** Epoch milliseconds. */
 	readonly budgetResetAt: number | undefined;
 }
 
@@ -356,16 +343,14 @@ function usageHttpError(url: string, status: number): RequestError {
 	);
 }
 
+/**
+ * What the client takes from its owner. `getTimeoutMs` is read per GET, so a setting edit needs no rebuild; the client
+ * has no log of its own, so the reader's invalid-value warning goes wherever the caller's reader sends it
+ * (createUsagePollerEnv dedups it). `sleep` is the retry backoff, injectable for tests; the default is the real timer.
+ */
 export interface UsageClientOptions {
 	readonly userAgent: HeaderValue;
-
-	/**
-	 * Each attempt's timeout, read per GET so a setting edit needs no rebuild. The client has no log of its own: the
-	 * reader's invalid-value warning goes wherever the caller's reader sends it (createUsagePollerEnv dedups it).
-	 */
 	readonly getTimeoutMs: () => number;
-
-	/** The retry backoff, injectable for tests; the default is the real timer. */
 	readonly sleep?: BackoffSleep;
 }
 

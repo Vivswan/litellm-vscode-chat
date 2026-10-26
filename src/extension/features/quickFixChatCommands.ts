@@ -4,6 +4,10 @@
  * and nothing more - the same helper the built-in /tests and /docs are built from - so the answer streams from the
  * REQUEST's own model, never the quickFix.model setting, which backs only the fallback path.
  *
+ * Both instructions are model-facing English by policy and ask for markdown rather than a patch: the answer lands in
+ * the chat view, where a fenced block is what the user can read, compare, and copy, and the participant applies no
+ * edits.
+ *
  *   The sibling-import ban is per-feature-directory -> a bridge between two features can live in neither of them
  */
 
@@ -11,17 +15,14 @@ import * as l10n from "@vscode/l10n";
 import type { SlashCommand, SlashCommandRegistry } from "./participant/slashCommands";
 import { promptCommand } from "./participant/slashCommands";
 
-/**
- * The model-facing instructions the two commands prepend, English by policy like every other prompt text. Both ask for
- * markdown rather than a patch: the answer lands in the chat view, where a fenced block is what the user can read,
- * compare, and copy - the participant applies no edits.
- */
+/** The /fix lead, asking for markdown rather than a patch: the participant applies no edits. */
 export const FIX_INSTRUCTION = [
 	"Fix the problem described below in the attached code.",
 	"Reply in markdown: name the cause in a sentence, then show the corrected code in a fenced block.",
 	"If the diagnostics do not explain the failure, say what else you would need to see.",
 ].join("\n");
 
+/** The /explain lead, markdown too: the chat view is where the user reads and compares the answer. */
 export const EXPLAIN_INSTRUCTION = [
 	"Explain the problem described below in the attached code.",
 	"Reply in markdown: what the diagnostic means, why it is firing on this code, and how it is usually resolved.",

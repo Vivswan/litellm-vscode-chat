@@ -9,26 +9,22 @@ import type { TitleAndDescriptionProvider } from "./githubPullRequestsApi";
 /** The GHPR-provided generation context, derived from the vendored provider signature so the two cannot drift. */
 export type TitleAndDescriptionContext = Parameters<TitleAndDescriptionProvider["provideTitleAndDescription"]>[0];
 
+/** Head-truncation bound for the joined patch blocks, the prompt's bulk. */
 export const PATCHES_CHAR_LIMIT = 120_000;
 
-/**
- * An over-long list is thinned from the MIDDLE rather than from one end, so which messages survive does not depend on
- * knowing which end is the recent one - the upstream context's order is inferred, and an inference must not decide
- * content.
- */
+/** The list is thinned from the MIDDLE: the upstream order is inferred, and an inference must not decide content. */
 export const COMMIT_MESSAGE_COUNT = 20;
 
 /** Head-truncation bound for the joined commit messages (merge-heavy branches carry huge bodies). */
 export const COMMIT_MESSAGES_CHAR_LIMIT = 8_000;
 
+/** Head-truncation bound for the repository's pull request template, when the context carries one. */
 export const TEMPLATE_CHAR_LIMIT = 10_000;
 
+/** Head-truncation bound for the referenced issues' joined text, when the context carries any. */
 export const ISSUES_CHAR_LIMIT = 10_000;
 
-/**
- * The instruction heading every prompt; the parse module's Title:/Description: grammar is the answer shape this asks
- * for. Model-facing text, so it stays English by policy.
- */
+/** Heads every prompt and asks for the parse module's Title:/Description: shape; model-facing English by policy. */
 export const BUILT_IN_PR_INSTRUCTION = [
 	"Write a pull request title and description for the change in the patches below.",
 	"The title is one line like a commit subject: at most about 72 characters, in the imperative mood.",

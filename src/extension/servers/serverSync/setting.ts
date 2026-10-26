@@ -386,20 +386,16 @@ export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; 
  * One raw servers-setting entry's acceptance verdict, for the dashboard's Configuration diagnostics and its
  * Misconfigured rows: the same acceptEntries pass parseServersSetting runs, reported per entry. `label` and `baseUrl`
  * are present when the raw entry carries usable text for them (reserved labels stay absent - callers key map records on
- * labels); `problems` are the parser's structural reports without the "entry N " prefix.
+ * labels); `problems` are the parser's structural reports without the "entry N " prefix; `index` is the entry's
+ * position in the raw array (0-based).
  *
  *   `accepted` false with a usable label and baseUrl -> the misconfigured-entry row
  */
 export interface ServerEntryReport {
-	/** The entry's position in the raw array (0-based). */
 	readonly index: number;
-
 	readonly label?: string | undefined;
-
 	readonly baseUrl?: string | undefined;
-
 	readonly problems: readonly string[];
-
 	readonly accepted: boolean;
 }
 

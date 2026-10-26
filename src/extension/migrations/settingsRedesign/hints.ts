@@ -11,6 +11,7 @@ import { isUrlScopedKey } from "./records";
 export type LegacyHintKind = "inert-url-scoped-key" | "inert-global-headers";
 
 export interface LegacyHint {
+	/** Which leftover this is; the dashboard picks the wording by it. */
 	readonly kind: LegacyHintKind;
 
 	/** The leftover key: a record key for scoped-key hints, the setting id for the headers hint. */
@@ -24,8 +25,10 @@ export interface LegacyHintInput {
 	/** The global `headers` value (the removed setting's leftover), as configured. */
 	readonly globalHeadersValue: unknown;
 
+	/** The models.parameters value as configured; its URL-scoped keys are the inert leftovers. */
 	readonly modelParametersValue: unknown;
 
+	/** The models.capabilities value as configured; its URL-scoped keys are the inert leftovers. */
 	readonly modelCapabilitiesValue: unknown;
 }
 

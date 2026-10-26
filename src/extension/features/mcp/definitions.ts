@@ -5,18 +5,13 @@ import { mcpEndpointOf } from "../../../shared/util/baseUrl";
  * The view of one opted-in entry this mapping consumes, injected by the caller: parsing the servers setting and
  * counting credential rotations both stay outside this module. `mcp` is the entry's opt-in as the settings parser
  * accepted it - `true` derives the default endpoint, the object form names the exact URL in its one spelling.
+ * `version` is the entry's credential-rotation counter: firing the definitions change event is what actually
+ * re-provides, and the stamp rides the definition so the host can see that a rotation happened.
  */
 export type McpEntryView = {
 	readonly label: string;
-
 	readonly baseUrl: string;
-
 	readonly mcp: McpOptIn;
-
-	/**
-	 * The entry's credential-rotation counter. Firing the definitions change event is what actually re-provides; this
-	 * stamp rides the definition so the host can see that a rotation happened.
-	 */
 	readonly version: number;
 };
 

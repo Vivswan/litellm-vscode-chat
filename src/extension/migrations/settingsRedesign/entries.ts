@@ -326,6 +326,7 @@ const LIST_DIRECTIVES: readonly {
 	{ name: "_fallback", marksUnderTrue: fallbackMarksUnderTrue },
 ];
 
+/** The list-directive keys, read off LIST_DIRECTIVES so the two tables cannot drift apart. */
 const LIST_DIRECTIVE_NAMES: readonly string[] = LIST_DIRECTIVES.map((directive) => directive.name);
 
 /**

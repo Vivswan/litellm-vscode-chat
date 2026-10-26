@@ -12,30 +12,24 @@
 import type { ReviewPlacement } from "./placements";
 import { parsePlacements } from "./placements";
 
-/**
- * A wide refactor would otherwise be one request per file with no ceiling; the command tells the user how many it left
- * out.
- */
+/** Files one run reviews at most, so a wide refactor is not one request per file; the command reports the rest. */
 export const REVIEW_FILE_LIMIT = 20;
 
+/** One file's review input. `lineCount` is the reviewed document's line count; placements clamp into it. */
 export interface ReviewUnit<T> {
 	readonly target: T;
-
-	/** The reviewed document's line count; placements clamp into it. */
 	readonly lineCount: number;
-
 	readonly prompt: string;
 }
 
 export interface ReviewRunDeps<T> {
+	/** One model call per unit, awaited before the next unit starts. */
 	readonly send: (prompt: string) => Promise<string>;
 
-	/**
-	 * Returns false when the caller refused - the document moved under the request, so anchoring the answer would put
-	 * comments on the wrong lines.
-	 */
+	/** False when the caller refused because the document moved under the request and the lines no longer match. */
 	readonly apply: (target: T, placements: readonly ReviewPlacement[]) => boolean;
 
+	/** Progress hook, called just before each unit's send with its 0-based index and the run's total. */
 	readonly onFileStart?: (index: number, total: number) => void;
 
 	/** Cancellation, read between files; the send's own token aborts a call in flight. */

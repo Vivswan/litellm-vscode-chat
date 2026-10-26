@@ -46,6 +46,7 @@ export interface TokenDefaultsMerge {
 	/** The source ids to delete from user settings (empty when blocked or untouched). */
 	readonly consumedIds: readonly string[];
 
+	/** Sources whose value filled a capability field of the "*" record. */
 	readonly movedFields: number;
 
 	/** Sources drained without a fill (already covered, or values the removed readers never honored). */

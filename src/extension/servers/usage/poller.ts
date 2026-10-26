@@ -91,26 +91,18 @@ export interface UsageEndpointFailure {
 	readonly reason?: "unsupported" | "forbidden" | undefined;
 }
 
+/**
+ * One server's share of a refresh pass, for the refresh command's toast. Each optional flag means the pass never
+ * reached the network: `secretsUnreadable` when the entry's stored secrets could not be read, `secretsMismatched`
+ * when a stored secret is stamped for a different destination (resolveOwnedSecrets), and `credentialsRefused` when a
+ * configured key cannot ride its header (usageConnectionFor), naming the fields for the toast and never a value.
+ */
 export interface UsageServerRefreshOutcome {
 	readonly label: string;
-
 	readonly failures: readonly UsageEndpointFailure[];
-
 	readonly succeededAny: boolean;
-
-	/** The pass never reached the network: the entry's stored secrets could not be read. */
 	readonly secretsUnreadable?: true | undefined;
-
-	/**
-	 * The pass never reached the network: a stored secret is stamped for a different destination
-	 * (resolveOwnedSecrets).
-	 */
 	readonly secretsMismatched?: true | undefined;
-
-	/**
-	 * The pass never reached the network: a configured key cannot ride its header (usageConnectionFor). The fields
-	 * name which, for the toast; never a value.
-	 */
 	readonly credentialsRefused?: readonly [RejectedCredentialField, ...RejectedCredentialField[]] | undefined;
 }
 
@@ -175,6 +167,18 @@ export function usageRefreshFailureSummary(outcome: UsageRefreshOutcome): string
 	return failed.join("; ");
 }
 
+/**
+ * Polls each declared server's usage endpoints and publishes the results through `store`. The per-endpoint failure
+ * streaks and the token-retry grants live here rather than in the store, deliberately: no carried store state can
+ * then replay a stale backoff. A usage 401 on an OAuth connection earns exactly one fresh-token retry, since a bearer
+ * the server has revoked is rejected exactly like a key never allowed to read usage, and the client drops the rejected
+ * token on that answer (authOverlay.ts), so the next attempt exchanges afresh.
+ *
+ *   usage 401, retry not yet granted   -> transient standing; granted
+ *   usage 401, retry already granted   -> forbidden: the fresh token was rejected too
+ *   the endpoint succeeds              -> the grant is forgotten
+ *   OAuth beside a virtual key owning Authorization (no token sent) -> one extra poll before the same verdict
+ */
 export class UsagePoller {
 	readonly store: UsageStore;
 
@@ -205,19 +209,8 @@ export class UsagePoller {
 
 	private probePending = false;
 
-	/** Deliberately NOT in the store: no carried store state can then replay a stale backoff. */
 	private readonly errorStreaks = new Map<string, Map<UsageEndpointId, EndpointFailureStreak>>();
 
-	/**
-	 * The one fresh-token retry a usage 401 earns on an OAuth connection: a bearer the server has revoked is rejected
-	 * exactly like a key never allowed to read usage, and the client drops the rejected token on that answer
-	 * (authOverlay.ts), so the next attempt exchanges afresh. Kept out of the store like errorStreaks.
-	 *
-	 *   usage 401, retry not yet granted   -> transient standing; granted
-	 *   usage 401, retry already granted   -> forbidden: the fresh token was rejected too
-	 *   the endpoint succeeds              -> the grant is forgotten
-	 *   OAuth beside a virtual key owning Authorization (no token sent) -> one extra poll before the same verdict
-	 */
 	private readonly tokenRetryGranted = new Map<string, Set<UsageEndpointId>>();
 
 	private disposed = false;

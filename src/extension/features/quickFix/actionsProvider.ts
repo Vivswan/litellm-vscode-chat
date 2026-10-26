@@ -15,25 +15,17 @@ import { selectDiagnostics } from "./query";
 
 /**
  * Real objects, not a serialized payload: the command is internal and in-process, so the diagnostics ride through
- * unflattened and the fallback prompt can read their code and source.
+ * unflattened and the fallback prompt can read their code and source. `range` is the lines the action claimed,
+ * already padded and clamped: what gets attached to the chat turn.
  */
 export interface QuickFixChatArgs {
 	readonly uri: vscode.Uri;
-
-	/** The lines the action claimed, already padded and clamped; what gets attached to the chat turn. */
 	readonly range: vscode.Range;
-
 	readonly diagnostics: readonly vscode.Diagnostic[];
-
 	readonly mode: QuickFixMode;
 }
 
-/**
- * Lines of surrounding code the attached range carries beyond the claimed diagnostics.
- *
- *   A diagnostic's own range is frequently one token wide ("Cannot find name 'x'") -> a model handed one token has
- *     been told nothing
- */
+/** Surrounding lines the range carries: a diagnostic's own range is often one token, which tells a model nothing. */
 const CONTEXT_LINES = 2;
 
 /** Whole lines matter: a range ending mid-token attaches a fragment the model has to guess the shape of. */

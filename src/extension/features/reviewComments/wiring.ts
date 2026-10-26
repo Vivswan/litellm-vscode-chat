@@ -45,10 +45,7 @@ const PROBE_DIFF = [
 	" }",
 ].join("\n");
 
-/**
- * The probe diff's post-change line count, from its `@@ -1,5 +1,7 @@` header. The parse anchors against it exactly as a
- * real review anchors against the document, so an out-of-range finding clamps here the way it would there.
- */
+/** From the probe diff's `@@ -1,5 +1,7 @@` header; out-of-range findings clamp into it as in a real review. */
 const PROBE_LINE_COUNT = 7;
 
 /**

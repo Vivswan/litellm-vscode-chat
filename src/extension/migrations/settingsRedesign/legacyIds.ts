@@ -1,6 +1,13 @@
 /**
  *   the migration must keep working (and keep compiling) while the settings shell around it is rewritten
  *     -> The new-name targets are re-declared here as literals on purpose
+ *
+ * REMOVED_TOKEN_DEFAULTS places the two below-server settings under `_fallback`; the input limit, which beat the
+ * server-reported value, stays a plain override. LEGACY_ENTRY_FIELD_IDS covers the credential fields plus the
+ * per-entry records and expectedFailures, which move under `models` and `discovery`. PROVIDER_OWNED_KEYS is the
+ * unforceable-key rule quarantined with the rest of the legacy identifiers: records.ts rewrites a migrated `_force` to
+ * the names it really forced when written, so the move can never newly force max_tokens (which the live grammar
+ * allows), and the live rule can move without silently changing what an old config meant.
  */
 
 /** Old scalar setting id -> its renamed id, values carried verbatim. */
@@ -13,21 +20,22 @@ export const LEGACY_SCALAR_RENAMES = [
 	{ oldId: "maskApiKeyInput", newId: "ui.maskSecretInputs" },
 ] as const;
 
-/** The record settings' rename pair, transformed (not just moved) on the way. */
+/** The old record setting id for parameters; its value is transformed, not just moved, on the way. */
 export const LEGACY_MODEL_PARAMETERS_ID = "modelParameters";
 
+/** The old record setting id for capabilities; transformed on the way like the parameters one. */
 export const LEGACY_MODEL_CAPABILITIES_ID = "modelCapabilities";
+
+/** The parameters record's new id; a literal, not an import, per the module doc. */
 export const NEW_MODEL_PARAMETERS_ID = "models.parameters";
+
+/** The capabilities record's new id; a literal, not an import, per the module doc. */
 export const NEW_MODEL_CAPABILITIES_ID = "models.capabilities";
 
 /** The removed global headers setting; its value moves into the entries. */
 export const LEGACY_HEADERS_ID = "headers";
 
-/**
- * The removed default* token trio with each setting's target capability field and placement in the models.capabilities
- * "*" record: the two below-server settings ride `_fallback`, the input limit (which beat the server-reported value)
- * stays a plain override.
- */
+/** The removed default* trio, each with its target capability field and placement in the "*" capabilities record. */
 export const REMOVED_TOKEN_DEFAULTS = [
 	{ id: "defaultContextLength", field: "context_length", placement: "fallback" },
 	{ id: "defaultMaxInputTokens", field: "max_input_tokens", placement: "override" },
@@ -37,9 +45,7 @@ export const REMOVED_TOKEN_DEFAULTS = [
 /** The servers setting keeps its id; its entries are restructured in place. */
 export const SERVERS_ID = "servers";
 
-/**
- * The flat per-entry credential fields of the pre-redesign entry shape, restructured into the entry's `auth` object.
- */
+/** The flat credential fields of the pre-redesign entry shape, restructured into the entry's `auth` object. */
 export const LEGACY_ENTRY_AUTH_FIELD_IDS = [
 	"apiKey",
 	"oauthTokenUrl",
@@ -52,10 +58,7 @@ export const LEGACY_ENTRY_AUTH_FIELD_IDS = [
 
 export type LegacyEntryAuthFieldId = (typeof LEGACY_ENTRY_AUTH_FIELD_IDS)[number];
 
-/**
- * Every flat field the restructure consumes: the credential fields plus the per-entry records and expectedFailures,
- * which move under `models` and `discovery`. An entry carrying any of these is old-world.
- */
+/** Every flat field the restructure consumes; an entry carrying any of these is old-world. */
 export const LEGACY_ENTRY_FIELD_IDS = [
 	...LEGACY_ENTRY_AUTH_FIELD_IDS,
 	"modelParameters",
@@ -66,12 +69,7 @@ export const LEGACY_ENTRY_FIELD_IDS = [
 /** The removed `_declare` capability directive: an exact-ID record key opting into existing without discovery. */
 export const DECLARE_DIRECTIVE = "_declare";
 
-/**
- * The unforceable-key rule as the OLD `_force` parser applied it, quarantined with the rest of the legacy identifiers:
- * records.ts rewrites a migrated `_force` to the names it really forced when written, so the move can never newly force
- * max_tokens (which the live grammar allows). Declared here rather than imported so the live rule can move without
- * silently changing what an old config meant.
- */
+/** The OLD `_force` parser's unforceable keys; declared here, not imported, so the live rule can move freely. */
 const PROVIDER_OWNED_KEYS: ReadonlySet<string> = new Set([
 	"model",
 	"messages",

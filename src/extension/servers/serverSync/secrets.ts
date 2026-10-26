@@ -9,6 +9,11 @@
  *   migrations/stampSecretOwners.ts                   -> back-fills declared entries
  *   two windows writing one label at once             -> last-write-wins (no compare-and-swap)
  *   a misplaced value                                 -> is still refused where it lands
+ *
+ * Within one window, writes to one label queue behind each other (labelWriteMutexes): every blob write is a
+ * read-modify-write of the whole SecretStorage value, and two interleaved writes could resurrect a field the other one
+ * cleared. Cross-window writes cannot be serialized here, and the ownership stamp is what bounds that residual. The
+ * queue is keyed by label alone, so distinct stores sharing a label (tests) merely serialize, which is harmless.
  */
 
 import { Mutex } from "async-mutex";
@@ -105,14 +110,7 @@ export async function readServerSecretsRecord(secrets: SecretStore, label: strin
 	return parseRecord(await secrets.get(serverSecretsKey(label)));
 }
 
-/**
- * Every blob write is a read-modify-write of the whole SecretStorage value, and two interleaved writes in one window
- * can resurrect a field the other one cleared, so writes to one label queue behind each other. Cross-window writes
- * cannot be serialized here (SecretStorage has no compare-and-swap); see the module comment for why the ownership
- * stamp bounds that residual.
- *
- *   Keyed by label alone -> distinct stores sharing a label (tests) merely serialize, which is harmless
- */
+/** One queue per label: interleaved read-modify-writes of a blob could resurrect a field the other cleared. */
 const labelWriteMutexes = new Map<string, Mutex>();
 
 function serializedWrite<T>(label: string, task: () => Promise<T>): Promise<T> {
@@ -256,23 +254,21 @@ export function upgradedStamp(entry: SecretDestinationEntry, field: SecretFieldI
 	return owner === "" ? {} : { tokenUrl: owner };
 }
 
-/** resolveOwnedSecrets' outcome; see there. */
+/**
+ * resolveOwnedSecrets' outcome; see there. `refused` is what the pairing gates (the sync engine, the usage poller,
+ * entryConnection.ts) stop on: a stored field the ownership check refused where the entry's shape uses the field
+ * (entryUsesSecretField, the one wire rule) and no inline value shadows it. `mismatched` adds the inert fields the
+ * entry cannot send; the export reads that superset for its accounting, so a value left out of the file is never a
+ * silent omission.
+ */
 export interface OwnedSecretsResolution {
 	/** The stored values this entry may resolve: stamp matches the entry's destination, or predates stamping. */
 	readonly values: StoredServerSecrets;
 
-	/**
-	 *   Stored fields the ownership check refused -> the entry's shape uses the field (entryUsesSecretField, the one
-	 *                                                wire rule) and no inline value shadows it
-	 */
+	/** Stored fields the ownership check refused where the entry would send them and no inline value stands in. */
 	readonly refused: readonly SecretFieldId[];
 
-	/**
-	 * Every stored field the stamp mismatch dropped with nothing standing in (no inline value): `refused` plus the
-	 * inert fields the entry cannot send. The export reads this superset for its accounting, so a value
-	 * left out of the file is never a silent omission; the pairing gates (the sync engine, the usage poller,
-	 * entryConnection.ts) read `refused`.
-	 */
+	/** Every field the stamp mismatch dropped with no inline value standing in: `refused` plus the inert fields. */
 	readonly mismatched: readonly SecretFieldId[];
 }
 

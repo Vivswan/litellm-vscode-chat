@@ -7,6 +7,10 @@
  *   Credentials enter only in resolve, which the editor calls when it is about to start a session
  *     -> composing them is exactly as legitimate as composing them for a chat request
  *   what the session must dial -> The definitions themselves carry the URL in its one spelling
+ *
+ * The token exchange a resolve may trigger is auth plumbing, not a chat call: each attempt runs on `discovery.timeout`
+ * and fails toward the discovery surface, whose timeout advice names exactly that setting. The publisher itself makes
+ * no LiteLLM API request, so it owns no error surface of its own.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -28,24 +32,23 @@ import type { McpDefinitionDescriptor, McpEntryView } from "./definitions";
 import { mcpDefinitionsOf } from "./definitions";
 import type { McpVersionCounters } from "./versions";
 
-/**
- * The token exchange an MCP resolve may trigger is auth plumbing, not a chat call, so each of its attempts runs on
- * `discovery.timeout` and it fails toward the discovery surface - whose timeout advice names exactly that setting. The
- * publisher itself makes no LiteLLM API request, so it owns no error surface of its own.
- */
+/** The surface an MCP resolve's token exchange runs on and fails toward; auth plumbing, never a chat call. */
 const MCP_AUTH_SURFACE = "discovery" as const;
 
 export interface McpProviderDeps {
+	/** Read at resolve time, through entryConnectionFor, never when the definitions are published. */
 	readonly secrets: vscode.SecretStorage;
 
+	/** Builds the auth headers at resolve, running any OAuth exchange on the discovery surface (MCP_AUTH_SURFACE). */
 	readonly oneShot: Pick<OneShotClient, "authHeaders">;
 
+	/** The credential-rotation counters each published definition's `version` is stamped from. */
 	readonly versions: McpVersionCounters;
 
 	/** Channel-only notes that recur per session start; they must not evict the issue report's errors. */
 	readonly advisory: (message: string, data?: unknown) => void;
 
-	/** A refusal of this module's own, whose text names only the configured label; it becomes the report's latest error. */
+	/** A refusal of this module's own, naming only the configured label; it becomes the report's latest error. */
 	readonly logError: (message: string, error: unknown) => void;
 
 	/** A failure caught from the token exchange, whose text can quote the identity provider's answer. */

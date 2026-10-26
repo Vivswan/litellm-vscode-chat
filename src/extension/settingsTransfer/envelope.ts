@@ -13,8 +13,10 @@ import { isRecord, nonFiniteNumberPath } from "../../shared/util/json";
 export const SETTINGS_EXPORT_FORMAT_VERSION = 1;
 
 export interface SettingsExportEnvelope {
+	/** The section name doubles as the format marker: its value is the version, so a foreign JSON file is refused. */
 	readonly [CONFIG_SECTION]: typeof SETTINGS_EXPORT_FORMAT_VERSION;
 
+	/** The writing extension's version; informational only, never a compatibility gate. */
 	readonly exportedBy: string;
 
 	/** Setting values keyed by their litellm-vscode-chat.* key names (section prefix stripped). */

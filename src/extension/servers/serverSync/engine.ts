@@ -74,9 +74,12 @@ export interface DeclaredGroupIdentity {
 
 /**
  * One consistent reading of what the setting declares, as the group ownership (extension/dashboard/declaredJoin.ts)
- * consumes it, with the raw setting value it was read from (ServerSyncEngine.resolveDeclaredIdentities).
+ * consumes it, with the raw setting value it was read from (ServerSyncEngine.resolveDeclaredIdentities). The secret
+ * values cover accepted entries and rejected carriers alike: a live group holding any of them is that label's
+ * leftover.
  */
 export interface DeclaredIdentities {
+	/** The raw setting value this reading was taken from. */
 	readonly setting: unknown;
 
 	/** The accepted entries. */
@@ -85,32 +88,28 @@ export interface DeclaredIdentities {
 	/** The labels the setting carries outside an accepted entry (rejectedCarrierLabels). */
 	readonly carriers: readonly string[];
 
-	/**
-	 * Every secret value each declared label stores or carries inline, accepted entries and rejected carriers alike;
-	 * extension-side only, never pushed. A live group holding any of them is that label's leftover.
-	 */
+	/** Every secret value each declared label stores or carries inline; extension-side only, never pushed. */
 	readonly secretValues: ReadonlyMap<string, readonly string[]>;
 }
 
-/** The non-secret view of a declared server the dashboard renders; secret values stay out. */
+/**
+ * The non-secret view of a declared server the dashboard renders; secret values stay out. `rejectedCredentials` is
+ * the field-level detail behind a credentialsRefused failure (a key the platform's Headers would refuse), which the
+ * dashboard's diagnostics point at beside the entry. `credentials` is groupHasCredentials over the parser's output,
+ * the one answer the group report gives too; the dashboard row and the issue report read it instead of judging
+ * locations or inline fields themselves.
+ */
 export interface DeclaredServerView extends DeclaredGroupIdentity, NonSecretOptionalFields, EntryViewFields {
+	/** Where each secret field lives; locations only, never values. */
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 
 	/** The label's last sync failure, cleared by the next success. */
 	readonly syncFailure?: SyncFailure | undefined;
 
-	/**
-	 * The credential fields the group narrowing dropped (a key the platform's Headers would refuse): the field-level
-	 * detail behind a credentialsRefused failure, which the dashboard's diagnostics point at beside the entry. Fields
-	 * only, never values.
-	 */
+	/** The credential fields the group narrowing dropped; fields only, never values. */
 	readonly rejectedCredentials?: readonly CredentialRejection["field"][] | undefined;
 
-	/**
-	 * What the group parser kept of the entry's credentials (groupHasCredentials over its output), the one answer the
-	 * group report gives too; undefined when the entry resolves to no usable group configuration. The dashboard row
-	 * and the issue report read it instead of judging locations or inline fields themselves.
-	 */
+	/** What the group parser kept of the entry's credentials; undefined when no usable group configuration results. */
 	readonly credentials?: DeclaredCredentials | undefined;
 }
 
@@ -154,24 +153,18 @@ function declaredGroupIdentity(
  * "renamed" means a label NEW this pass (see declaredLabelsLastPass) now declares the removed label's base URL,
  * so the old group is a rename leftover rather than an explicit removal. A "removed" baseUrl is undefined when
  * neither the ledger nor an unambiguous host observation names it, because the env must never tombstone a guess.
+ *
+ * `groupIds` is what a leftover of the removed entry hides by: the client and connection IDs its last readable pass
+ * carried and the live group it joined (ServerSyncEngine.joinedGroupOf), minus any an entry still present carries;
+ * those are `sharedGroupIds`, kept and not tombstoned. A pre-label group the host reports only after the removal
+ * matches by these on its first observation.
  */
 export type RemovedEntryEvent =
 	| {
 			readonly kind: "removed";
-
 			readonly label: string;
-
 			readonly baseUrl: string | undefined;
-
-			/**
-			 * What a leftover of the removed entry hides by: the client and connection IDs its last readable pass
-			 * carried and the live group it joined (ServerSyncEngine.joinedGroupOf), minus any an entry still present
-			 * carries. A pre-label group the host reports only after the removal matches by these on its first
-			 * observation.
-			 */
 			readonly groupIds: readonly string[];
-
-			/** The removed entry's keys an entry still present carries too: kept, not tombstoned. */
 			readonly sharedGroupIds: readonly string[];
 	  }
 	| { readonly kind: "renamed"; readonly oldLabel: string; readonly newLabel: string; readonly baseUrl: string };
@@ -325,6 +318,7 @@ export function groupArgsFingerprint(args: Record<string, string>): string {
 /** How many times resolveDeclaredIdentities re-reads a setting+secrets pair that changed under it before giving up. */
 const IDENTITY_READ_ATTEMPTS = 3;
 
+/** The refusal thrown after the last attempt; a classification, never the setting's text. */
 const SETTING_UNSTABLE_MESSAGE =
 	"The servers setting or its stored secrets changed on every read while identities were being resolved; retry";
 
@@ -378,65 +372,57 @@ interface RetryState {
  * Keeps provider groups in step with the servers setting. syncNow is serialized: a call during an in-flight pass queues
  * exactly one follow-up and resolves after that follow-up (the pass that includes the caller's request). requestSync
  * debounces bursts from settings.json keystrokes.
+ *
+ * `fingerprints` and `ledger` are seeded from the store on the first pass and are session truth from then on, each
+ * pass merging one fresh store read presence-only underneath, so another window's records fill gaps but never shadow
+ * a record this session holds. The monkey fuzzer showed why trusting more wedges entries: an awaited
+ * globalState.update can revert moments later to a stale whole-key value, and #220 was this hazard on the ledger.
+ *
+ *   syncPass's duplicate confirmation and carryLastGood -> take a store re-read presence-only; absence proves nothing
+ *   stale fingerprint read -> pass re-adds its own group -> duplicate rejection read as a foreign name conflict
+ *                          -> no last-known-good to carry -> error forever
+ *   ledger read reverted to a pre-declare version -> removed label read as ledger-less -> untracked notice
+ *                                                 -> its models never left the host list
+ *
+ * `unresolvedRemovals` holds removed labels whose group identity no pass could resolve yet (typically a cold-start
+ * removal, before the host reported any group), each with the labels NEW at detection so a later add or re-point
+ * cannot flip the removal into a rename or the reverse; the label's fingerprint record is carried in the persisted map
+ * meanwhile, because it is the only durable evidence. With no carried fingerprint and a session that ends before the
+ * host reports the group (a dead server probes for the timeout), there is no candidate and the label is probed
+ * forever.
+ *
+ * `declaredLabelsLastPass` is the baseline the rename delta is taken against: every label the setting declared
+ * (accepted or not) at the end of the last pass with a valid container. A label absent from it is NEW this pass; a
+ * pre-existing entry that never synced or was never observed (blocked, unreadable secrets) is not, however few
+ * records it has. Undefined until the first valid pass, where the delta falls back to record absence.
+ *
+ * `lastIdentities` keeps each label's identity as its last readable accepted view published it, while the label stays
+ * in the setting (a rejected shape publishes no view, a failed or refused secret read a credential-less one); the
+ * removal event, the rename classification, and the tombstone clear all read it through joinedGroupOf.
  */
 export class ServerSyncEngine implements vscode.Disposable {
+	/** The declared views as the last pass published them; what the dashboard renders. */
 	private views: DeclaredServerView[] = [];
 
 	/** Each declared label's secret values as the last pass read them; published with the views, never pushed. */
 	private secretValues: ReadonlyMap<string, readonly string[]> = new Map();
 
-	/**
-	 * The monkey fuzzer showed why trusting more wedges entries, since an awaited globalState.update can revert
-	 * moments later to a stale whole-key value.
-	 *
-	 *   Seeded from the store on the first pass -> session truth from then on
-	 *   syncPass's duplicate confirmation and carryLastGood -> take a store re-read presence-only
-	 *   an absence -> proves nothing
-	 *   stale read -> pass re-adds its own group -> duplicate rejection read as a foreign name conflict
-	 *              -> no last-known-good to carry -> error forever
-	 */
+	/** Seeded once, then session truth; a store re-read fills gaps presence-only (see the class doc). */
 	private fingerprints: Record<string, string> | undefined;
 
-	/**
-	 * Seed-once like `fingerprints` and for the same reason, with each pass merging one fresh store read
-	 * presence-only underneath, so another window's records fill gaps but never shadow a record this session
-	 * holds. #220 was this hazard on the ledger.
-	 *
-	 *   fresh read reverted to a pre-declare version -> removed label read as ledger-less -> untracked notice
-	 *                                                -> its models never left the host list
-	 */
+	/** Seed-once like `fingerprints` and for the same reason; a fresh read never shadows this session's record. */
 	private ledger: Record<string, string> | undefined;
 
 	/** Per-label retry state that must survive between passes; see RetryState. */
 	private retry = new Map<string, RetryState>();
 
-	/**
-	 * Removed labels whose group identity no pass could resolve yet (typically a cold-start removal, before the
-	 * host reported any group), each with the labels NEW at detection so a later add or re-point cannot flip the
-	 * removal into a rename or the reverse. The label's fingerprint record is carried in the persisted map
-	 * meanwhile, because it is the only durable evidence.
-	 *
-	 *   no carried fingerprint, session ends before the host reports the group (a dead server probes for the timeout)
-	 *     -> no candidate -> probed forever
-	 */
+	/** Removed labels no pass could resolve yet, each with the labels NEW at detection; see the class doc. */
 	private readonly unresolvedRemovals = new Map<string, ReadonlyMap<string, string>>();
 
-	/**
-	 * Every label the setting declared (accepted or not) at the end of the last pass with a valid container: the
-	 * baseline the rename delta is taken against. Undefined until the first valid pass, where the delta falls back to
-	 * record absence.
-	 *
-	 *   A label absent from it -> NEW this pass
-	 *   a pre-existing entry that never synced or was never observed (blocked, unreadable secrets)
-	 *     -> is not, however few records it has
-	 */
+	/** The rename delta's baseline: every label declared at the end of the last valid pass; undefined before one. */
 	private declaredLabelsLastPass: ReadonlySet<string> | undefined;
 
-	/**
-	 * Each label's identity as its last readable accepted view published it, kept while the label stays in the
-	 * setting (a rejected shape publishes no view, a failed or refused secret read a credential-less one). The removal
-	 * event, the rename classification, and the tombstone clear all read it through joinedGroupOf.
-	 */
+	/** Each label's identity as its last readable accepted view published it, read through joinedGroupOf. */
 	private readonly lastIdentities = new Map<string, DeclaredGroupIdentity>();
 
 	/**
@@ -489,16 +475,22 @@ export class ServerSyncEngine implements vscode.Disposable {
 		}
 	}
 
+	/** The pass in flight; a syncNow during it queues exactly one follow-up instead of starting another. */
 	private running: Promise<void> | undefined;
 
+	/** The one follow-up every syncNow during a pass joins; `force` is OR-ed across the joiners. */
 	private queued: { force: boolean; promise: Promise<void>; resolve: () => void } | undefined;
 
+	/** requestSync's debounce timer; a hold cancels it and parks the request in heldRequest. */
 	private timer: ReturnType<typeof setTimeout> | undefined;
 
+	/** Active hold() callers; while above zero every request parks in heldRequest and no pass starts. */
 	private holds = 0;
 
+	/** The request parked while held, with its waiters; released as one pass when the last hold ends. */
 	private heldRequest: { force: boolean; waiters: (() => void)[] } | undefined;
 
+	/** Set by dispose, which also settles the queued and held waiters. */
 	private disposed = false;
 
 	/** Listeners on completed sync passes; see onDidSync. */

@@ -4,7 +4,8 @@ import { closesFence, fenceLine, unwrapWholeReplyFence } from "../../../shared/u
  * The empty variant carries nothing, so no response-derived text can ride a failure into logs or issue reports.
  * Only a fence wrapping the WHOLE reply is unwrapped as a pair (the shared predicate); any other leading fence is
  * judged line by line below, because a description that merely ends with a code block would otherwise lose that
- * block's closer.
+ * block's closer. A title label beyond the first counts only when the line before it reads as a preamble (ends with a
+ * colon) or carries the description label, so a label-looking body line cannot hijack the title.
  */
 
 /** A parsed one-shot answer; `empty` means no usable title could be read. */
@@ -12,19 +13,19 @@ export type TitleAndDescriptionParse =
 	| { readonly kind: "parsed"; readonly title: string; readonly description: string | undefined }
 	| { readonly kind: "empty" };
 
+/** "Title:" with any markdown furniture before it and emphasis around the word; case-insensitive. */
 const TITLE_LABEL = /^[\s#>*_`-]*title[\s*_`]*:\s*(.*)$/i;
 
+/** "Description:" in the same tolerant shape as TITLE_LABEL. */
 const DESCRIPTION_LABEL = /^[\s#>*_`-]*description[\s*_`]*:\s*(.*)$/i;
 
 /** A line of pure markdown furniture (rules, heading marks, emphasis runs) - the labels' noise vocabulary, alone. */
 const NOISE_ONLY = /^[\s#>*_`-]+$/;
 
-/**
- * A label beyond the first counts only when the line before it reads as a preamble (ends with a colon) or carries the
- * description label, so a label-looking body line cannot hijack the title.
- */
+/** Content lines the title label may sit on; a later label counts only after a preamble or the description label. */
 const TITLE_SCAN_LINES = 2;
 
+/** Wrappers stripped from a title when a pair encloses the whole of it and the opener does not recur inside. */
 const WRAPPING_PAIRS: readonly (readonly [string, string])[] = [
 	["**", "**"],
 	["*", "*"],

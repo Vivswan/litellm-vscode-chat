@@ -49,18 +49,14 @@ async function toggleLanguage(languageId: string, log: (message: string, data?: 
  * THE ONE CREATION POINT for this extension's language status row: at most one live row per host, self-healing like
  * the status bar's slot registry (a double construction disposes the stale holder and logs the replacement through
  * `logger.log` - a slot conflict is a real once-per-session bug signal, so it keeps the issue-report buffer like the
- * status bar's twin). The refresh path instead reads settings through `logger.advisory`: refresh runs on every editor
- * switch, so a malformed setting would otherwise write a buffer line per switch and evict real errors from the
- * issue-report ring.
+ * status bar's twin). The refresh path instead reads settings through `logger.advisory` (the `advisory` field): refresh
+ * runs on every editor switch, so a malformed setting would otherwise write a buffer line per switch and evict real
+ * errors from the issue-report ring.
  */
 export class InlineLanguageStatusRow implements vscode.Disposable {
 	private readonly item: vscode.LanguageStatusItem;
-
 	private readonly subscriptions: vscode.Disposable[] = [];
-
 	private disposed = false;
-
-	/** The refresh path's channel-only settings sink; see the class doc. */
 	private readonly advisory = (message: string, data?: unknown): void => {
 		this.logger.advisory(message, data);
 	};

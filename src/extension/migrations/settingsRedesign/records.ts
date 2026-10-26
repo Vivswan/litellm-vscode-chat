@@ -68,6 +68,7 @@ function isDeclarableKey(key: string): boolean {
 export type RecordKind = "parameters" | "capabilities";
 
 interface DeclareStripResult {
+	/** The record without its `_declare` key, or the input untouched when it carried none. */
 	readonly value: unknown;
 
 	/** True when the record carried a legal `_declare: true` (moved when the key can name an ID). */
@@ -123,18 +124,22 @@ function assembleRecord(transformed: readonly TransformedKey[]): { record: Recor
 }
 
 export interface EntryRecordTransform {
+	/** The transformed record, or the raw value verbatim when it was not a record. */
 	readonly value: unknown;
 
 	/** Exact IDs whose record carried an honored `_declare: true`. */
 	readonly declared: readonly string[];
 
+	/** Counts the keys rewritten to the explicit matcher spelling (explicitMatcherKey). */
 	readonly starredKeys: number;
 
+	/** Counts the keys dropped because "" and "*" both map to "*" and the "*" source wins (assembleRecord). */
 	readonly droppedAliasKeys: number;
 
+	/** Counts the `_declare` keys removed without producing a declaration. */
 	readonly strippedInertDeclares: number;
 
-	/** Records whose migrated `_force` was rewritten to its old forceable coverage. */
+	/** Counts the records whose migrated `_force` was rewritten to its old forceable coverage. */
 	readonly rewroteForce: number;
 }
 
@@ -202,24 +207,31 @@ export interface ScopedMoveTargetState extends ScopedMoveTarget {
 }
 
 export interface GlobalRecordTransform {
+	/** The global record with its moved scoped keys removed, or the raw value verbatim when it was not a record. */
 	readonly value: unknown;
 
+	/** Per entry index: the moved scoped keys' values under their new keys, the entry record's additions. */
 	readonly entryAdditions: ReadonlyMap<number, ReadonlyMap<string, unknown>>;
 
 	/** Per entry index: exact IDs its scoped keys declared. */
 	readonly entryDeclares: ReadonlyMap<number, readonly string[]>;
 
+	/** Counts the keys rewritten to the explicit matcher spelling (explicitMatcherKey). */
 	readonly starredKeys: number;
 
+	/** Counts the keys dropped in the "" versus "*" collision (assembleRecord). */
 	readonly droppedAliasKeys: number;
 
+	/** Counts the URL-scoped keys that moved into every declared entry at their URL. */
 	readonly movedScopedKeys: number;
 
+	/** Counts the URL-scoped keys kept verbatim: no entry at their URL, or one that cannot take them. */
 	readonly inertScopedKeys: number;
 
+	/** Counts the `_declare` keys removed without producing a declaration, once per key. */
 	readonly strippedInertDeclares: number;
 
-	/** Records whose migrated `_force` was rewritten to its old forceable coverage. */
+	/** Counts the records whose migrated `_force` was rewritten to its old forceable coverage. */
 	readonly rewroteForce: number;
 }
 

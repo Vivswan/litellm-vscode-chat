@@ -57,55 +57,55 @@ export function usageAvailabilityOf(endpoints: UsageEndpointStates): UsageAvaila
 	return "unknown";
 }
 
+/**
+ * One server's usage as the store holds it. `availability` is usually usageAvailabilityOf(endpoints), but only a
+ * both-endpoints-unavailable verdict hides a server the poller has seen available once. The freshness rule and the
+ * "last updated" labels read `spendUpdatedAt`, never `lastUpdatedAt`.
+ */
 export interface ServerUsageState {
 	/** The declared entry's label: the store key and the join key back to the server rows. */
 	readonly label: string;
 
+	/** The entry's base URL as the last pass resolved it (normalized). */
 	readonly baseUrl: string;
 
+	/** Each usage endpoint's latest standing. */
 	readonly endpoints: UsageEndpointStates;
 
-	/**
-	 * The card-visibility verdict. Usually usageAvailabilityOf(endpoints), but sticky: the poller keeps a
-	 * once-available server "available" through transient failures, and only a both-endpoints-unavailable verdict hides
-	 * it.
-	 */
+	/** The card-visibility verdict; sticky, so a once-available server stays "available" through transient failures. */
 	readonly availability: UsageAvailability;
 
 	/** When any endpoint last answered successfully (epoch ms). */
 	readonly lastUpdatedAt: number | undefined;
 
-	/**
-	 * When /key/info last answered successfully (epoch ms): the age of the SPEND numbers specifically. The freshness
-	 * rule and the "last updated" labels read this one - an activity-endpoint success must not relabel old spend as
-	 * current.
-	 */
+	/** When /key/info last succeeded (epoch ms): the SPEND numbers' age; an activity success never refreshes it. */
 	readonly spendUpdatedAt: number | undefined;
 
 	/** When the poller last tried this server (epoch ms), success or not. */
 	readonly lastAttemptAt: number | undefined;
 
+	/** The latest /key/info reading, when one has succeeded. */
 	readonly key: KeyUsage | undefined;
 
+	/** The latest /user/daily/activity window, when one has succeeded. */
 	readonly daily: DailyUsage | undefined;
 
+	/** The latest /user/info rollup, when the key carries a user and one has succeeded. */
 	readonly user: UserUsage | undefined;
 
+	/** resolveBudget's verdict over the entry budget, the key, and the spend. */
 	readonly budget: BudgetStatus;
 }
 
+/**
+ * What the store emits. On "updated", `newlyCrossedThresholds` lists the alert thresholds this update crossed for the
+ * first time since they were last below: the once-per-crossing dedup the notifier keys on.
+ */
 export type UsageChangeEvent =
 	| {
 			readonly kind: "updated";
-
 			readonly label: string;
-
 			readonly state: ServerUsageState;
-
-			/**
-			 * Alert thresholds this update crossed for the first time since they were last below (the once-per-crossing
-			 * dedup the notifier keys on).
-			 */
 			readonly newlyCrossedThresholds: readonly number[];
 	  }
 	| { readonly kind: "removed"; readonly label: string };
