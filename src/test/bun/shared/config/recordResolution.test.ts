@@ -19,7 +19,7 @@ function diagnosticsOf(id: string, records: Record<string, Record<string, unknow
 
 // The diagnostic vocabulary, pinned at compile time rather than in a test that could only ever report green: a kind
 // added to the union is a missing property here, a kind removed is an excess one, and either fails typecheck.
-({
+void ({
 	"invalid-matcher": true,
 	"invalid-directive": true,
 	"wrong-record-type": true,
@@ -27,7 +27,7 @@ function diagnosticsOf(id: string, records: Record<string, Record<string, unknow
 	"unforceable-key": true,
 	"unrecognized-key": true,
 	"invalid-value": true,
-}) satisfies Record<RecordDiagnosticKind, true>;
+} satisfies Record<RecordDiagnosticKind, true>);
 
 describe("shared/config recordResolution defaults", () => {
 	test("the most specific matching record wins wholesale; nothing leaks without directives", () => {

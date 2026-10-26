@@ -132,16 +132,16 @@ function makeFixture(initialMemento?: Record<string, unknown>): Fixture {
 	removals.onDidChange = () => host.reportAgain();
 	const engine = new ServerSyncEngine(
 		{
-			...createServerSyncEnv(
+			...createServerSyncEnv({
 				context,
 				logger,
-				salt,
+				fingerprintSalt: salt,
 				removals,
-				(label) => window.observedGroupBaseUrls(label),
-				() => window.snapshots(),
+				observedGroupBaseUrls: (label) => window.observedGroupBaseUrls(label),
+				observedSnapshots: () => window.snapshots(),
 				// Silent: a removal here must never toast the real window, where another suite may be listening.
-				async () => {}
-			),
+				showRemovalNotice: async () => {},
+			}),
 			readServersSetting: () => setting,
 			addProviderGroup: host.addProviderGroup,
 		},

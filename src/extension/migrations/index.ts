@@ -9,10 +9,6 @@ import { oauthStampClientIdMigration } from "./oauthStampClientId";
 import { settingsRedesignMigration } from "./settingsRedesign/apply";
 import { stampSecretOwnersMigration } from "./stampSecretOwners";
 
-// The expiry registry lives in its own zero-import leaf so the release-PR comment script can static-import it without
-// this module's vscode graph.
-export { MIGRATION_EXPIRIES, type MigrationExpiry } from "./expiries";
-
 export interface MigrationContext {
 	globalState: vscode.Memento;
 	secrets: vscode.SecretStorage;

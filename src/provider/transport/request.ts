@@ -3,11 +3,6 @@ import type { ToolConfig } from "../../shared/conversion/tools";
 import type { OpenAIChatMessage } from "../../shared/conversion/wire";
 import type { ModelConfigurationRequestParams } from "../catalog/modelConfiguration";
 
-// The matcher resolution, precedence merge, and max_tokens machinery live in
-// the shared module (the dashboard's inspector consumes the same functions);
-// these re-exports keep this module the transport-side entry point.
-export { DEFAULT_MAX_TOKENS_CAP, resolveMaxTokens } from "../../shared/config/parameterResolution";
-
 export interface RequestBodyParams {
 	rawModelId: string;
 	openaiMessages: OpenAIChatMessage[];

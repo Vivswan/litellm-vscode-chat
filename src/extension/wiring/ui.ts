@@ -160,15 +160,14 @@ export function wireUiCommands(
 
 	//   Sync Models Now -> a forced server sync first (reconciling groups edited natively), then a
 	//       discovery-cache-skipping refetch
-	registerSyncModelsCommand(
-		context,
-		deps.provider,
-		deps.statusBar,
-		deps.outputChannel,
+	registerSyncModelsCommand(context, {
+		provider: deps.provider,
+		statusBar: deps.statusBar,
+		outputChannel: deps.outputChannel,
 		logger,
-		deps.hasConfiguredServers,
-		() => deps.syncEngine.syncNow(true)
-	);
+		hasConfiguredServers: deps.hasConfiguredServers,
+		beforeSync: () => deps.syncEngine.syncNow(true),
+	});
 
 	registerHelpAndFeedbackCommand(context);
 

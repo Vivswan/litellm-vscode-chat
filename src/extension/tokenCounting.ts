@@ -109,7 +109,7 @@ export function createTokenCountingController(deps: TokenCountingDeps): TokenCou
 				return;
 			}
 			default: {
-				mode satisfies never;
+				void (mode satisfies never);
 				return;
 			}
 		}

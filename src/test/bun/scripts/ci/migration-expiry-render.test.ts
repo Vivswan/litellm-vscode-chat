@@ -3,13 +3,11 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { renderMigrationExpiryTable } from "../../../../../scripts/ci/migration-expiry-render";
-import { MIGRATION_EXPIRIES } from "../../../../extension/migrations/expiries";
-import type { MigrationExpiry } from "../../../../extension/migrations/index";
+import { MIGRATION_EXPIRIES, type MigrationExpiry } from "../../../../extension/migrations/expiries";
 import { REPO_ROOT } from "../../../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
 
-// Synthetic rows typed as the real registry entry type, taken through the index re-export on purpose: this pins that
-// the re-export stays in place for consumers (the type itself is the leaf's, so it cannot drift).
+// Synthetic rows typed as the real registry entry type, so they cannot drift from the leaf's shape.
 const ENTRIES: readonly MigrationExpiry[] = [
 	{ state: "settings-redesign", file: "settingsRedesign/apply.ts", introduced: "2026-08-08", expires: "2026-11-08" },
 	{ state: "expires-today", file: "expiresToday.ts", introduced: "2026-06-01", expires: "2026-09-01" },

@@ -99,21 +99,24 @@ function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boole
 	return details.length > 0 ? [headline, `  ${details.join(", ")}`] : [headline];
 }
 
+interface UsageStatusInput {
+	states: readonly ServerUsageState[];
+	nowMs: number;
+	pollIntervalMs: number;
+	pollingOffWindowMs: number;
+	thresholds: readonly number[];
+	mode: UsageStatusBarMode;
+	currencySymbol: string;
+}
+
 /**
  * The whole rendering decision, pure. The severity is the shared fraction-to-tone map (src/dashboard's spendTone via
  * worstSpendTone): warning at the lowest usable threshold, error at the highest - so a single-threshold list goes
  * straight to the error background - and past the whole budget error even with an empty threshold list; an empty list
  * otherwise renders plain.
  */
-export function renderUsageStatus(
-	states: readonly ServerUsageState[],
-	nowMs: number,
-	pollIntervalMs: number,
-	pollingOffWindowMs: number,
-	thresholds: readonly number[],
-	mode: UsageStatusBarMode,
-	currencySymbol: string
-): UsageStatusView | "hidden" {
+export function renderUsageStatus(input: UsageStatusInput): UsageStatusView | "hidden" {
+	const { states, nowMs, pollIntervalMs, pollingOffWindowMs, thresholds, mode, currencySymbol } = input;
 	if (mode === "off") {
 		return "hidden";
 	}
@@ -204,15 +207,15 @@ export class UsageStatusBar implements vscode.Disposable {
 		const pollIntervalMs = this.options.getPollIntervalMs();
 		const pollingOffWindowMs = this.options.getPollingOffWindowMs();
 		const states = this.options.store.getStates();
-		const view = renderUsageStatus(
+		const view = renderUsageStatus({
 			states,
 			nowMs,
 			pollIntervalMs,
 			pollingOffWindowMs,
-			this.options.getThresholds(),
-			this.options.getMode(),
-			this.options.getCurrencySymbol()
-		);
+			thresholds: this.options.getThresholds(),
+			mode: this.options.getMode(),
+			currencySymbol: this.options.getCurrencySymbol(),
+		});
 		if (view === "hidden") {
 			this.options.item.hide();
 		} else {

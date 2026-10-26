@@ -174,15 +174,18 @@ export function resolveModelRecordChains(
 	return chains;
 }
 
-function buildTree(
-	kind: "parameters" | "capabilities",
-	layer: "global" | "entry",
-	entryLabel: string | undefined,
-	records: ModelRecordMap,
-	models: readonly { readonly id: string }[],
-	parse: (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord,
-	resolveLayer: (id: string, records: ModelRecordMap) => { fields: ReadonlyMap<string, { value: unknown }> }
-): RecordTreeView {
+interface TreeInput {
+	kind: "parameters" | "capabilities";
+	layer: "global" | "entry";
+	entryLabel?: string;
+	records: ModelRecordMap;
+	models: readonly { readonly id: string }[];
+	parse: (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord;
+	resolveLayer: (id: string, records: ModelRecordMap) => { fields: ReadonlyMap<string, { value: unknown }> };
+}
+
+function buildTree(input: TreeInput): RecordTreeView {
+	const { kind, layer, entryLabel, records, models, parse, resolveLayer } = input;
 	const parentVotes = new Map<string, Map<string, number>>();
 	const leavesByKey = new Map<string, { id: string; resolvedText: string }[]>();
 	const unmatched: string[] = [];
@@ -376,28 +379,26 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 	const parseCapability = (record: Readonly<Record<string, unknown>>) => parseCapabilityRecord(record);
 	if (Object.keys(globalParameters).length > 0) {
 		trees.push(
-			buildTree(
-				"parameters",
-				"global",
-				undefined,
-				globalParameters,
-				allModels,
-				parseParameterRecord,
-				resolveParameterLayer
-			)
+			buildTree({
+				kind: "parameters",
+				layer: "global",
+				records: globalParameters,
+				models: allModels,
+				parse: parseParameterRecord,
+				resolveLayer: resolveParameterLayer,
+			})
 		);
 	}
 	if (Object.keys(globalCapabilities).length > 0) {
 		trees.push(
-			buildTree(
-				"capabilities",
-				"global",
-				undefined,
-				globalCapabilities,
-				allModels,
-				parseCapability,
-				resolveCapabilityLayer
-			)
+			buildTree({
+				kind: "capabilities",
+				layer: "global",
+				records: globalCapabilities,
+				models: allModels,
+				parse: parseCapability,
+				resolveLayer: resolveCapabilityLayer,
+			})
 		);
 	}
 	let entryRecordCount = 0;
@@ -406,29 +407,29 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 		if (view.modelParameters !== undefined && Object.keys(view.modelParameters).length > 0) {
 			entryRecordCount += Object.keys(view.modelParameters).length;
 			trees.push(
-				buildTree(
-					"parameters",
-					"entry",
-					view.label,
-					view.modelParameters,
-					entryModels,
-					parseParameterRecord,
-					resolveParameterLayer
-				)
+				buildTree({
+					kind: "parameters",
+					layer: "entry",
+					entryLabel: view.label,
+					records: view.modelParameters,
+					models: entryModels,
+					parse: parseParameterRecord,
+					resolveLayer: resolveParameterLayer,
+				})
 			);
 		}
 		if (view.modelCapabilities !== undefined && Object.keys(view.modelCapabilities).length > 0) {
 			entryRecordCount += Object.keys(view.modelCapabilities).length;
 			trees.push(
-				buildTree(
-					"capabilities",
-					"entry",
-					view.label,
-					view.modelCapabilities,
-					entryModels,
-					parseCapability,
-					resolveCapabilityLayer
-				)
+				buildTree({
+					kind: "capabilities",
+					layer: "entry",
+					entryLabel: view.label,
+					records: view.modelCapabilities,
+					models: entryModels,
+					parse: parseCapability,
+					resolveLayer: resolveCapabilityLayer,
+				})
 			);
 		}
 	}

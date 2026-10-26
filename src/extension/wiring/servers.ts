@@ -60,14 +60,14 @@ export function wireServers(
 	const { catalogStore, notifyModelsChanged } = deps;
 	// Created before the dashboard, which edits the setting and reads the engine's declared-server view.
 	const syncEngine = new ServerSyncEngine(
-		createServerSyncEnv(
+		createServerSyncEnv({
 			context,
 			logger,
-			deps.fingerprintSalt,
-			deps.groupRemovals,
-			deps.observedGroupBaseUrls,
-			deps.observedSnapshots
-		)
+			fingerprintSalt: deps.fingerprintSalt,
+			removals: deps.groupRemovals,
+			observedGroupBaseUrls: deps.observedGroupBaseUrls,
+			observedSnapshots: deps.observedSnapshots,
+		})
 	);
 	const usagePoller = new UsagePoller(createUsagePollerEnv(context, logger, userAgent));
 	// One state for every headline surface: the provider's window, the engine's views (the setting before the first

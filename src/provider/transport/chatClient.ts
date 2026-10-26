@@ -1,6 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseOptions } from "vscode";
 import * as vscode from "vscode";
+import { resolveMaxTokens } from "../../shared/config/parameterResolution";
 import { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import { SESSION_ID_HEADER_NAME } from "../../shared/config/sessionId";
 import {
@@ -41,7 +42,7 @@ import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./
 import { mapSdkError } from "./errorMapping";
 import type { TransportFetch } from "./nodeHttpFetch";
 import { nodeHttpFetch } from "./nodeHttpFetch";
-import { buildRequestBody, resolveMaxTokens } from "./request";
+import { buildRequestBody } from "./request";
 import { chatSessionIdHeader } from "./sessionId";
 import type { ToolCallIdSource } from "./streaming/processor";
 import { StreamProcessor } from "./streaming/processor";
