@@ -224,7 +224,7 @@ export function parameterCellProvenance(cell: ParameterCellProvenance): {
 		source: parameterProvenance(cell),
 		marks: [
 			...(cell.forced === true ? [forcedCellMark()] : []),
-			...(cell.inheritedBy !== undefined ? [inheritedCellMark(cell.inheritedBy)] : []),
+			...(cell.inheritedBy === undefined ? [] : [inheritedCellMark(cell.inheritedBy)]),
 		],
 	};
 }
@@ -238,8 +238,8 @@ export function capabilityCellProvenance(cell: CapabilityCellProvenance): {
 	return {
 		source,
 		marks: [
-			...(mark !== undefined ? [{ mark }] : []),
-			...(cell.inheritedBy !== undefined ? [inheritedCellMark(cell.inheritedBy)] : []),
+			...(mark === undefined ? [] : [{ mark }]),
+			...(cell.inheritedBy === undefined ? [] : [inheritedCellMark(cell.inheritedBy)]),
 		],
 	};
 }
@@ -276,12 +276,12 @@ export function Provenance({ source }: { source: ProvenanceView }) {
 	const badge = (
 		<span className="prov">
 			<span className="prov-scope">{source.scope}</span>
-			{source.recordKey !== undefined ? (
+			{source.recordKey === undefined ? null : (
 				<>
 					{" "}
 					<span className="prov-key">{source.recordKey}</span>
 				</>
-			) : null}
+			)}
 		</span>
 	);
 	return tip === undefined ? badge : <HoverTip tip={tip}>{badge}</HoverTip>;
@@ -308,12 +308,12 @@ export function CellMarks({ marks }: { marks: readonly CellMark[] }) {
 				<Fragment key={index}>
 					{index > 0 ? " " : null}
 					<Mark mark={cellMark.mark}>
-						{cellMark.operand !== undefined ? (
+						{cellMark.operand === undefined ? null : (
 							<>
 								{" "}
 								<code>{cellMark.operand}</code>
 							</>
-						) : null}
+						)}
 					</Mark>
 				</Fragment>
 			))}

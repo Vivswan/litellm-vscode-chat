@@ -690,7 +690,7 @@ export function ModelsSection({
 					{/* The active scope as its own quiet line under the header: the filter input and the count moved
 					    onto the header line, but the chip is a STATE, not an action - it narrows what the whole page
 					    below it shows, so it stands where that narrowing starts. */}
-					{scope !== undefined ? (
+					{scope === undefined ? null : (
 						<div className="filterbar">
 							<span className="chip">
 								<span className="chip-label" title={l10n.t("Server: {0}", scope.label)}>
@@ -706,7 +706,7 @@ export function ModelsSection({
 								</Button>
 							</span>
 						</div>
-					) : null}
+					)}
 					<FilterPills
 						options={pillOptions}
 						active={pills}

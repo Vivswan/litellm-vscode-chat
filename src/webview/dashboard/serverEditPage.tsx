@@ -265,7 +265,7 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 		virtualKeyValue: secretDraft(locations.virtualKeyValue),
 		headers: toHeaderRows(original.config.headers ?? {}),
 		declaredModels: (original.config.declaredModels ?? []).join("\n"),
-		budget: original.config.budget !== undefined ? String(original.config.budget) : "",
+		budget: original.config.budget === undefined ? "" : String(original.config.budget),
 		mcp: mcpDraftOf(original.config.mcp),
 		modelParameters: toGroups(original.config.modelParameters ?? {}),
 		modelCapabilities: toCapabilityGroups(original.config.modelCapabilities ?? {}),
@@ -580,7 +580,7 @@ function ServerForm({
 			? {
 					label: target.original.label,
 					baseUrl: target.original.baseUrl,
-					...(target.original.config.apiVersion !== undefined ? { apiVersion: target.original.config.apiVersion } : {}),
+					...(target.original.config.apiVersion === undefined ? {} : { apiVersion: target.original.config.apiVersion }),
 					...pickNonSecretOptionalFields(target.original.config),
 					secrets: target.original.config.secrets.locations,
 				}
@@ -664,7 +664,7 @@ function ServerForm({
 				text: testOutcome.message ?? l10n.t("Connected"),
 				// The zero-model probe passes with a warning tone (the shared zero-model vocabulary); a quiet success
 				// carries none.
-				...(testOutcome.tone !== undefined ? { tone: testOutcome.tone } : {}),
+				...(testOutcome.tone === undefined ? {} : { tone: testOutcome.tone }),
 			});
 		} else {
 			setTestState({
@@ -680,8 +680,8 @@ function ServerForm({
 	// `original` is the frozen open-time identity above.
 	const parse = parseServerForm(draft, {
 		takenLabels: declaredLabels,
-		...(original !== undefined ? { original } : {}),
-		...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
+		...(original === undefined ? {} : { original }),
+		...(observedModelInfoKeys === undefined ? {} : { observedModelInfoKeys }),
 	});
 	const label = trimHttpWhitespace(draft.label);
 	const renaming = target.kind === "edit" && label !== target.original.label;
@@ -805,8 +805,8 @@ function ServerForm({
 		setDraft(next);
 		const cleared = parseServerForm(next, {
 			takenLabels: declaredLabels,
-			...(original !== undefined ? { original } : {}),
-			...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
+			...(original === undefined ? {} : { original }),
+			...(observedModelInfoKeys === undefined ? {} : { observedModelInfoKeys }),
 		});
 		if (cleared.ok) {
 			postSave(cleared.intent);
@@ -821,7 +821,7 @@ function ServerForm({
 		if (testState.kind === "testing" || saving) {
 			return;
 		}
-		const testParse = parseServerFormForTest(draft, original !== undefined ? { original } : {});
+		const testParse = parseServerFormForTest(draft, original === undefined ? {} : { original });
 		if (!testParse.ok) {
 			setTouched((current) => {
 				const next = new Set(current);
@@ -1043,7 +1043,7 @@ function ServerForm({
 					{testState.kind === "fail" ? (
 						<span className="test-result error text-[11.5px]" role="alert">
 							{testState.text}
-							{testState.classification?.setupHint !== undefined ? (
+							{testState.classification?.setupHint === undefined ? null : (
 								// The troubleshooting link rides inside the alert so one announcement carries failure
 								// and way out; the leading space keeps copied text from gluing label onto message.
 								<>
@@ -1060,7 +1060,7 @@ function ServerForm({
 										</DocsLink>
 									</span>
 								</>
-							) : null}
+							)}
 						</span>
 					) : null}
 				</FieldUnderRow>
@@ -1470,11 +1470,11 @@ function ServerForm({
 				<Button variant="secondary" onClick={onRequestClose}>
 					{l10n.t("Discard changes")}
 				</Button>
-				{firstBlocking !== undefined ? (
+				{firstBlocking === undefined ? null : (
 					<span className="error text-[11.5px]" role="alert">
 						{l10n.t("Cannot save: fix {0}", serverFormFieldLabel(firstBlocking))}
 					</span>
-				) : null}
+				)}
 				{phase.phase === "prefill" ? (
 					<span className="hint m-0 text-[11.5px]">{l10n.t("Loading stored values...")}</span>
 				) : null}
@@ -1505,7 +1505,7 @@ function ServerForm({
 			{/* The stale-key question a Save raised: modal like the discard confirm - a
 			    credential decision interrupts the save, it has no in-place anywhere.
 			    Esc/"Keep editing" posts nothing; the two verbs answer the ONE question. */}
-			{staleKeyFields !== undefined ? (
+			{staleKeyFields === undefined ? null : (
 				<ConfirmDialog
 					question={l10n.t("Keep using the stored key for the new destination?")}
 					detail={staleKeyDetail()}
@@ -1517,7 +1517,7 @@ function ServerForm({
 					onAlternate={answerStaleKeyKeep}
 					onCancel={() => setStaleKeyFields(undefined)}
 				/>
-			) : null}
+			)}
 		</div>
 	);
 }

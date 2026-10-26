@@ -74,8 +74,8 @@ export function FormSection({
 				level={4}
 				title={title}
 				help={help}
-				{...(docs !== undefined ? { docs } : {})}
-				{...(aside !== undefined ? { meta: aside } : {})}
+				{...(docs === undefined ? {} : { docs })}
+				{...(aside === undefined ? {} : { meta: aside })}
 				className={cn("form-section-head mb-0.5", quiet === true && "text-muted-foreground")}
 			/>
 			{/* The rule's only paint is a fill, which forced colours repaint to Canvas - the section seam vanished;
@@ -144,7 +144,7 @@ export function FormFieldRow({
 					wide === true && "self-start pt-1"
 				)}
 			>
-				{htmlFor !== undefined ? <label htmlFor={htmlFor}>{label}</label> : <span>{label}</span>}
+				{htmlFor === undefined ? <span>{label}</span> : <label htmlFor={htmlFor}>{label}</label>}
 			</span>
 			<div
 				className={cn(
@@ -312,7 +312,7 @@ export function TextField({
 			htmlFor={id}
 			label={serverFormFieldLabel(field)}
 			help={<Help text={serverFieldHelp(field)} name={l10n.t("Help: {0}", serverFormFieldLabel(field))} />}
-			{...(hint !== undefined ? { hint } : {})}
+			{...(hint === undefined ? {} : { hint })}
 			problem={problem}
 			errorId={errorId}
 		>
@@ -384,8 +384,8 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 				htmlFor={id}
 				label={serverFormFieldLabel(field)}
 				help={<Help text={help ?? serverFieldHelp(field)} name={l10n.t("Help: {0}", serverFormFieldLabel(field))} />}
-				{...(storageHint !== undefined ? { hint: storageHint } : {})}
-				{...(hintTone !== undefined ? { hintTone } : {})}
+				{...(storageHint === undefined ? {} : { hint: storageHint })}
+				{...(hintTone === undefined ? {} : { hintTone })}
 				problem={problem}
 				errorId={errorId}
 			>
@@ -459,7 +459,7 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 			</FieldUnderRow>
 			{/* Removal is destructive, so it takes a line of its own: beside the
 			    storage radios it read as a third place to put the value. */}
-			{value.existing !== "none" ? (
+			{value.existing === "none" ? null : (
 				<FieldUnderRow>
 					<label className={cn("secret-remove flex items-center gap-1.5 text-[12px]", value.clear && "armed text-err")}>
 						<Checkbox
@@ -470,7 +470,7 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 						{l10n.t("Remove the stored {0} on save", serverFormFieldLabel(field))}
 					</label>
 				</FieldUnderRow>
-			) : null}
+			)}
 		</>
 	);
 }

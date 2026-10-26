@@ -18,8 +18,8 @@ export function FailureText({
 	const detail = statusErrorDetail(message);
 	return (
 		<>
-			{frame !== undefined ? frame(headline) : headline}
-			{detail !== undefined ? <span className="failure-detail">{detail}</span> : null}
+			{frame === undefined ? headline : frame(headline)}
+			{detail === undefined ? null : <span className="failure-detail">{detail}</span>}
 		</>
 	);
 }

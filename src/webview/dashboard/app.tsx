@@ -401,8 +401,8 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			if (message.kind === "ack") {
 				const base = toastText(message.method);
 				if (base !== undefined) {
-					const caveat = message.method !== "adoptServer" ? message.message : undefined;
-					const text = caveat !== undefined ? `${base}. ${caveat}` : base;
+					const caveat = message.method === "adoptServer" ? undefined : message.message;
+					const text = caveat === undefined ? base : `${base}. ${caveat}`;
 					setToasts((current) => [...current, { id: seq, text }].slice(-3));
 				}
 				return;
@@ -660,14 +660,14 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					{paneTopFailures.map(({ method, failure }) => (
 						<PaneFailureLine key={tupleKey(method, failure.seq)} failure={failure} />
 					))}
-					{awaySettingFailure !== undefined ? (
+					{awaySettingFailure === undefined ? null : (
 						<PaneFailureLine key={awaySettingFailure.seq} failure={awaySettingFailure} />
-					) : null}
+					)}
 					{/* The destination lives INSIDE the Servers panel: the rail still says Servers. The list stays
 					    mounted behind it - hidden, not unmounted - so the row that opened the page survives to take
 					    focus back, with its scroll position. */}
 					<SectionPanel section="overview" active={activeSection}>
-						{editing !== undefined ? (
+						{editing === undefined ? null : (
 							<ServerEditPage
 								key={editing.key}
 								request={editing.request}
@@ -677,7 +677,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 								onRequestClose={requestLeaveEdit}
 								onSaved={leaveEdit}
 							/>
-						) : null}
+						)}
 						<div hidden={editing !== undefined}>
 							<ServersSection
 								servers={state.servers}
@@ -719,7 +719,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 							serverCount={state.servers.length}
 							currencySymbol={state.settings.usage.currencySymbol}
 							scope={
-								serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
+								serverScope === undefined ? undefined : { label: serverScope, onClear: () => setServerScope(undefined) }
 							}
 							onInspect={inspectModel}
 						/>
@@ -740,7 +740,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				<ToastHost toasts={toasts} durationMs={toastDurationMs} onDismiss={dismissToast} />
 				{/* The inspector overlay, above the tab panels so it opens in place on any tab; the configure-jumps
 				    close the overlay first - the editor they land on is the next surface. */}
-				{inspectedModel !== undefined ? (
+				{inspectedModel === undefined ? null : (
 					<ModelInspector
 						model={inspectedModel}
 						stateSeq={stateSeq}
@@ -757,7 +757,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 							editEntry(label);
 						}}
 					/>
-				) : null}
+				)}
 				{/* The navigation guard's question, a modal: leaving a dirty page is a decision about the whole
 				    page. */}
 				{editing !== undefined && confirmingDiscard ? (

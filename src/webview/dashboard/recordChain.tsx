@@ -55,7 +55,9 @@ export function RecordChainFigure({
 								// links, never mid-marker or with an arrow stranded at a line's end.
 								<span className="record-chain-link" key={link.key}>
 									{index > 0 ? <span className="record-chain-arrow"> {"->"} </span> : null}
-									{onJump !== undefined ? (
+									{onJump === undefined ? (
+										<code>{link.key}</code>
+									) : (
 										<Button
 											variant="secondary"
 											size="compact"
@@ -69,8 +71,6 @@ export function RecordChainFigure({
 										>
 											<code>{link.key}</code>
 										</Button>
-									) : (
-										<code>{link.key}</code>
 									)}
 									{link.barrier ? <span className="tree-barrier"> [{l10n.t("inheritance stops here")}]</span> : null}
 									{!link.barrier && link.inheritFrom !== undefined ? (

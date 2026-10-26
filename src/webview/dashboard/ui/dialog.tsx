@@ -92,7 +92,7 @@ export function ConfirmDialog({
 				role="alertdialog"
 				aria-modal="true"
 				aria-labelledby={questionId}
-				aria-describedby={detail !== undefined ? detailId : undefined}
+				aria-describedby={detail === undefined ? undefined : detailId}
 				onOpenAutoFocus={(event) => event.preventDefault()}
 				onCloseAutoFocus={(event) => event.preventDefault()}
 				// Belt and braces behind the window-capture listener above: if the key somehow reached Radix's own
@@ -103,16 +103,16 @@ export function ConfirmDialog({
 				<h3 className="confirm-question" id={questionId}>
 					{question}
 				</h3>
-				{detail !== undefined ? (
+				{detail === undefined ? null : (
 					<p className="confirm-detail" id={detailId}>
 						{detail}
 					</p>
-				) : null}
+				)}
 				<div className="confirm-actions">
 					{/* With an alternate verb present it takes the primary rank and the
 					    safe verb steps down to secondary - the affirmative answer reads
 					    first-class while default focus (and Esc) stay on the way out. */}
-					<Button ref={cancelRef} variant={alternateLabel !== undefined ? "secondary" : undefined} onClick={onCancel}>
+					<Button ref={cancelRef} variant={alternateLabel === undefined ? undefined : "secondary"} onClick={onCancel}>
 						{cancelLabel}
 					</Button>
 					{alternateLabel !== undefined && onAlternate !== undefined ? (

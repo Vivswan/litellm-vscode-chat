@@ -181,9 +181,9 @@ export function RecordMatcherTable({
 								// Both marks said in words: a border is invisible to a screen reader, and the card's
 								// verdict names the matcher, not this field. Descriptions rather than name parts, so
 								// the chip still announces as its key and value first.
-								const hintId = issue?.hint !== undefined ? `${tableId}-hint-${groupIndex}-${rowIndex}` : undefined;
+								const hintId = issue?.hint === undefined ? undefined : `${tableId}-hint-${groupIndex}-${rowIndex}`;
 								const problemId =
-									issue?.problem !== undefined ? `${tableId}-problem-${groupIndex}-${rowIndex}` : undefined;
+									issue?.problem === undefined ? undefined : `${tableId}-problem-${groupIndex}-${rowIndex}`;
 								const describedBy = [problemId, hintId].filter((id) => id !== undefined).join(" ") || undefined;
 								// The chip's states resolve through chipVariants (the module's one table); worst mark
 								// first, so the exclusivity between the two marks is the variant's shape rather than
@@ -193,7 +193,7 @@ export function RecordMatcherTable({
 										editable,
 										catalog,
 										open: openHere,
-										mark: issue?.problem !== undefined ? "invalid" : issue?.hint !== undefined ? "hint" : "none",
+										mark: issue?.problem === undefined ? (issue?.hint === undefined ? "none" : "hint") : "invalid",
 									})
 								);
 								const flags = chipFlags(kind, group, key);
@@ -246,15 +246,15 @@ export function RecordMatcherTable({
 												<span className="visually-hidden">{l10n.t("Edit field")}</span>
 												{body}
 											</button>
-										) : flagNote !== undefined ? (
+										) : flagNote === undefined ? (
+											<span className={chipClass}>{body}</span>
+										) : (
 											// A read-only chip cannot open the popover and a native title never
 											// reliably renders in the webview host, so the flag's sentence rides the
 											// tip primitive: hover, keyboard focus, and aria-describedby all reach it.
 											<HoverTip tip={flagNote}>
 												<span className={chipClass}>{body}</span>
 											</HoverTip>
-										) : (
-											<span className={chipClass}>{body}</span>
 										)}
 										{problemId !== undefined && issue?.problem !== undefined ? (
 											<span id={problemId} className="visually-hidden">

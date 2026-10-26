@@ -301,7 +301,7 @@ function ShadowedRow({
 			</td>
 			<ValueCell text={value} numeric={numeric === true} struck />
 			<td className="res-source">
-				<Provenance source={source} /> {mark !== undefined ? <Mark mark={mark} /> : null}
+				<Provenance source={source} /> {mark === undefined ? null : <Mark mark={mark} />}
 			</td>
 		</tr>
 	);
@@ -360,14 +360,14 @@ function ParameterRow({
 				<ValueCell text={formatJsonValue(row.value)} numeric={typeof row.value === "number"} />
 				<td className="res-source">
 					<Provenance source={source} /> <CellMarks marks={marks} />{" "}
-					{row.skipReason !== undefined ? (
+					{row.skipReason === undefined ? null : (
 						<span className="mark-quiet">
 							<HoverTip tip={skipReasonText(row.skipReason)}>
 								<span>{l10n.t("not sent")}</span>
 							</HoverTip>
 						</span>
-					) : null}
-					{onEditSource !== undefined ? (
+					)}
+					{onEditSource === undefined ? null : (
 						<RowEdit
 							label={
 								row.source.layer === "entry"
@@ -376,7 +376,7 @@ function ParameterRow({
 							}
 							onClick={() => onEditSource(row.source)}
 						/>
-					) : null}
+					)}
 				</td>
 			</tr>
 			{row.shadowed.map((shadow) => (
@@ -566,7 +566,7 @@ function Subhead({ title, meta, action }: { title: string; meta?: ReactNode; act
 	return (
 		<div className="inspector-subhead">
 			<h5>{title}</h5>
-			{meta !== undefined ? <span className="section-meta">{meta}</span> : null}
+			{meta === undefined ? null : <span className="section-meta">{meta}</span>}
 			{action}
 		</div>
 	);
@@ -821,7 +821,7 @@ export function ModelInspector({
 					docs={{ href: DOCS_LINK_PARAMS_INSPECTOR, label: l10n.t("Open the effective-parameters guide") }}
 					{...(sentCount > 0 ? { meta: sentCount === 1 ? l10n.t("1 sent") : l10n.t("{0} sent", sentCount) } : {})}
 					actions={
-						onEditRecord !== undefined ? (
+						onEditRecord === undefined ? undefined : (
 							<Button
 								variant="secondary"
 								size="compact"
@@ -831,16 +831,16 @@ export function ModelInspector({
 									// Reuse the most specific matching global record when one exists; otherwise a fresh
 									// draft keyed by the exact model ID.
 									const key = answeredParams?.globalRecordKey;
-									if (key !== undefined) {
-										onEditRecord("parameters", key, false);
-									} else {
+									if (key === undefined) {
 										onEditRecord("parameters", model.rawId, true);
+									} else {
+										onEditRecord("parameters", key, false);
 									}
 								}}
 							>
 								{l10n.t("Configure parameters for this model")}
 							</Button>
-						) : undefined
+						)
 					}
 				>
 					{answeredParams === undefined ? (
@@ -876,25 +876,25 @@ export function ModelInspector({
 					) : null}
 					{/* What the model accepts, right beside what we send. Still a capability on the wire, so it rides
 					    the capability feed and renders as soon as THAT answer lands. */}
-					{caps !== undefined ? (
+					{caps === undefined ? null : (
 						<SupportedParamsBlock
 							fields={caps.fields}
 							serverLabel={model.serverLabel}
 							currencySymbol={currencySymbol}
 							onEditField={editCapField}
 						/>
-					) : null}
-					{maxTokens !== undefined ? (
+					)}
+					{maxTokens === undefined ? null : (
 						<p className="max-tokens">
 							<code className="max-tokens-name">max_tokens</code>{" "}
 							{/* Formatted like every other token count on the panel: the same number in two
 							    renderings on one screen reads as two numbers. */}
 							<span className="max-tokens-value">{formatTokens(maxTokens.value)}</span>{" "}
-							{maxTokens.source !== undefined ? <Provenance source={maxTokens.source} /> : null}{" "}
-							{maxTokens.mark !== undefined ? <Mark mark={maxTokens.mark} /> : null}
-							{maxTokens.reason !== undefined ? <span className="hint">{maxTokens.reason}</span> : null}
+							{maxTokens.source === undefined ? null : <Provenance source={maxTokens.source} />}{" "}
+							{maxTokens.mark === undefined ? null : <Mark mark={maxTokens.mark} />}
+							{maxTokens.reason === undefined ? null : <span className="hint">{maxTokens.reason}</span>}
 						</p>
-					) : null}
+					)}
 					{/* Fixed truth about the extension, not about this answer: the grid renders while the
 					    projection is still in flight, because "Resolving parameters..." followed by nothing at all
 					    reads as a section that failed to load. */}
@@ -956,7 +956,7 @@ export function ModelInspector({
 					docs={{ href: DOCS_LINK_CAPS_INSPECTOR, label: l10n.t("Open the effective-capabilities guide") }}
 					{...(fieldCount > 0 ? { meta: fieldCount === 1 ? l10n.t("1 field") : l10n.t("{0} fields", fieldCount) } : {})}
 					actions={
-						onEditRecord !== undefined ? (
+						onEditRecord === undefined ? undefined : (
 							<Button
 								variant="secondary"
 								size="compact"
@@ -966,16 +966,16 @@ export function ModelInspector({
 									// Reuse the most specific matching global record when one exists; otherwise a fresh
 									// draft keyed by the exact model ID.
 									const key = answeredCaps?.globalRecordKey;
-									if (key !== undefined) {
-										onEditRecord("capabilities", key, false);
-									} else {
+									if (key === undefined) {
 										onEditRecord("capabilities", model.rawId, true);
+									} else {
+										onEditRecord("capabilities", key, false);
 									}
 								}}
 							>
 								{l10n.t("Configure capabilities for this model")}
 							</Button>
-						) : undefined
+						)
 					}
 				>
 					{answeredCaps === undefined ? (

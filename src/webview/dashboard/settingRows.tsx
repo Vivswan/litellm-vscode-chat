@@ -394,7 +394,7 @@ export function SettingRow({
 				// this" is selection semantics, amber means "needs attention". The var-shorthand form
 				// reads the RUNTIME --accent-hue chain directly: a named utility needs a @theme alias,
 				// and the last one was deleted as orphaned - the bar silently fell back to grey.
-				configuredScope !== null ? "modified border-l-(--accent-hue)" : "border-l-transparent",
+				configuredScope === null ? "border-l-transparent" : "modified border-l-(--accent-hue)",
 				// A compact control keeps the two-column line at every stacked width (dashboard.css
 				// .setting-row.setting-compact).
 				compactControl === true && "setting-compact",
@@ -436,29 +436,31 @@ export function SettingRow({
 					    subtree, and a glyph inside it would ride every announcement of the field's problem. The
 					    write-failure cover is keyed on the seq so a repeat re-mounts and announces afresh (useAlertOnce
 					    dedupes to one announcement per seq); the glyph is its sibling and outlives the remount. */}
-					{errorLine !== undefined ? (
+					{errorLine === undefined ? (
+						failureText !== undefined && writeFailure !== undefined ? (
+							<span key={writeFailure.seq} className="setting-cover flex min-w-0 flex-1 items-center gap-2">
+								<span className="error min-w-0 truncate" role={writeFailureRole}>
+									{failureText}
+								</span>
+								{detailsButton}
+							</span>
+						) : notice === undefined ? (
+							<span className="setting-rest contents">{restingFlow}</span>
+						) : (
+							<span className="setting-cover flex min-w-0 flex-1 items-center gap-2">
+								<span className={cn("min-w-0 truncate", coverToneClass)} role="status">
+									{notice.text}
+								</span>
+								{detailsButton}
+							</span>
+						)
+					) : (
 						<span className="setting-cover flex min-w-0 flex-1 items-center gap-2">
 							<span className="error min-w-0 truncate" id={errorId}>
 								{errorLine}
 							</span>
 							{detailsButton}
 						</span>
-					) : failureText !== undefined && writeFailure !== undefined ? (
-						<span key={writeFailure.seq} className="setting-cover flex min-w-0 flex-1 items-center gap-2">
-							<span className="error min-w-0 truncate" role={writeFailureRole}>
-								{failureText}
-							</span>
-							{detailsButton}
-						</span>
-					) : notice !== undefined ? (
-						<span className="setting-cover flex min-w-0 flex-1 items-center gap-2">
-							<span className={cn("min-w-0 truncate", coverToneClass)} role="status">
-								{notice.text}
-							</span>
-							{detailsButton}
-						</span>
-					) : (
-						<span className="setting-rest contents">{restingFlow}</span>
 					)}
 					{glyphTrail(title, help)}
 					{covered ? null : trailingNote}
@@ -494,9 +496,9 @@ export function SettingRow({
 			<div className="setting-actions flex items-center justify-end gap-4.5 self-start justify-self-end">
 				{companion === true ? null : (
 					<>
-						{configuredScope !== null ? (
+						{configuredScope === null ? null : (
 							<ResetButton title={title} scope={configuredScope} settingId={settingId} />
-						) : null}
+						)}
 						<RevealButton title={title} settingId={settingId} />
 					</>
 				)}
@@ -603,9 +605,9 @@ function NumberField({
 					<span className="setting-unit whitespace-nowrap text-muted-foreground tabular-nums" id={unitId}>
 						{presentation.unit}
 					</span>
-					{equiv !== undefined ? (
+					{equiv === undefined ? null : (
 						<span className="setting-equiv whitespace-nowrap text-muted-foreground tabular-nums">{equiv}</span>
-					) : null}
+					)}
 				</>
 			}
 		/>
@@ -661,7 +663,7 @@ function BooleanField({
 					checked={value}
 					// A meta row has no description <label> to name the checkbox, so the title names it directly;
 					// label-named rows must not carry a second, competing name.
-					aria-label={meta !== undefined ? presentation.label : undefined}
+					aria-label={meta === undefined ? undefined : presentation.label}
 					onChange={(event) => sendRequest("setBooleanSetting", { setting: id, value: event.currentTarget.checked })}
 				/>
 			}
@@ -897,8 +899,8 @@ export function SettingGroup({
 				{/* Behind the glyph, not above the rows: a group's explanation is read once, and a
 				    standing paragraph costs every later visit space while telling a returning reader
 				    nothing. */}
-				{help !== undefined ? <Help text={help()} name={l10n.t("Help: {0}", title())} /> : null}
-				{note !== undefined ? note() : null}
+				{help === undefined ? null : <Help text={help()} name={l10n.t("Help: {0}", title())} />}
+				{note === undefined ? null : note()}
 			</div>
 			{numbers.map((id) => (
 				<NumberField

@@ -209,17 +209,17 @@ function RequestFacts({ server }: { server: UsageServerView }) {
 				{outdated ? <Why text={l10n.t("may be outdated: the last statistics fetch failed")} /> : null}
 			</Fact>
 			<Fact label={l10n.t("Success rate")}>
-				{requests.successRate !== undefined ? (
-					formatPercent(requests.successRate)
-				) : (
+				{requests.successRate === undefined ? (
 					<Absent reason={l10n.t("no requests in the window to compute it from")} />
+				) : (
+					formatPercent(requests.successRate)
 				)}
 			</Fact>
 			<Fact label={l10n.t("Cache hit rate")}>
-				{requests.cacheHitRate !== undefined ? (
-					formatPercent(requests.cacheHitRate)
-				) : (
+				{requests.cacheHitRate === undefined ? (
 					<Absent reason={l10n.t("the window reports no prompt tokens")} />
+				) : (
+					formatPercent(requests.cacheHitRate)
 				)}
 			</Fact>
 		</>
@@ -245,14 +245,14 @@ function UsageFacts({
 	return (
 		<>
 			<Fact label={l10n.t("Spend")}>
-				{server.spend !== undefined ? formatMoney(server.spend, currencySymbol) : <Absent reason={spendReason} />}
+				{server.spend === undefined ? <Absent reason={spendReason} /> : formatMoney(server.spend, currencySymbol)}
 			</Fact>
 			<BudgetFact server={server} currencySymbol={currencySymbol} />
 			<Fact label={l10n.t("Next reset")}>
-				{server.budgetResetAt !== undefined ? (
-					new Date(server.budgetResetAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
-				) : (
+				{server.budgetResetAt === undefined ? (
 					<Absent reason={l10n.t("the key does not report a reset date")} />
+				) : (
+					new Date(server.budgetResetAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
 				)}
 			</Fact>
 			<RequestFacts server={server} />
@@ -262,7 +262,7 @@ function UsageFacts({
 				) : (
 					<span className={server.fresh ? undefined : "text-warn"}>
 						{relativeTime(server.lastUpdatedAt, now)}
-						{staleness !== undefined ? <Why text={staleness} /> : null}
+						{staleness === undefined ? null : <Why text={staleness} />}
 					</span>
 				)}
 			</Fact>
@@ -424,11 +424,13 @@ export function ServerDrawer({
 						/>
 					</Fact>
 				) : null}
-				{numbers !== undefined ? (
+				{numbers === undefined ? (
+					usage?.kind === "forbidden" ? (
+						<DeniedUsageFacts card={usage} pollingOff={pollingOff} />
+					) : null
+				) : (
 					<UsageFacts server={numbers} pollingOff={pollingOff} now={now} currencySymbol={currencySymbol} />
-				) : usage?.kind === "forbidden" ? (
-					<DeniedUsageFacts card={usage} pollingOff={pollingOff} />
-				) : null}
+				)}
 			</dl>
 			{details.map((detail) => (
 				<p key={detail} className="usage-detail mt-2 mb-0 font-mono text-[0.85em] text-muted-foreground">

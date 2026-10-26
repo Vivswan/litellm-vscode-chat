@@ -142,7 +142,7 @@ function InheritFromControl({
 						onChange={(event) => writeKeys(event.currentTarget.value)}
 					/>
 				) : null}
-				{hint !== undefined ? <span className="hint">{hint}</span> : null}
+				{hint === undefined ? null : <span className="hint">{hint}</span>}
 			</span>
 		</span>
 	);
@@ -449,7 +449,7 @@ export function ParamGroupsFields({
 								    lands per keystroke, and a line mounted only when it speaks moves the rows below.
 								    Worst first - a problem outranks a hint. */}
 								<span
-									className={cn("row-status", rowProblem !== undefined ? "error" : rowHint !== undefined && "hint")}
+									className={cn("row-status", rowProblem === undefined ? rowHint !== undefined && "hint" : "error")}
 								>
 									{rowProblem ?? rowHint}
 								</span>
@@ -1003,7 +1003,7 @@ export function CapabilityGroupsFields({
 								) : (
 									<span className="cell value">
 										<Input
-											type={numberProps !== undefined ? "number" : "text"}
+											type={numberProps === undefined ? "text" : "number"}
 											min={numberProps?.min}
 											step={numberProps?.step}
 											className="value"
@@ -1060,7 +1060,7 @@ export function CapabilityGroupsFields({
 								<span
 									className={cn(
 										"row-status",
-										issue?.problem !== undefined ? "error" : issue?.hint !== undefined && "hint"
+										issue?.problem === undefined ? issue?.hint !== undefined && "hint" : "error"
 									)}
 								>
 									{issue?.problem?.message ?? issue?.hint}

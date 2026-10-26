@@ -211,14 +211,14 @@ function englishDiagnosticLine(diagnostic: PageConfigDiagnostic): string {
 		case "record": {
 			const lint = diagnostic.diagnostic;
 			const where =
-				diagnostic.entryLabel !== undefined
-					? `${diagnostic.setting} (entry "${diagnostic.entryLabel}")`
-					: diagnostic.setting;
+				diagnostic.entryLabel === undefined
+					? diagnostic.setting
+					: `${diagnostic.setting} (entry "${diagnostic.entryLabel}")`;
 			const keys = lint.key === lint.recordKey ? `"${lint.recordKey}"` : `"${lint.recordKey}" / "${lint.key}"`;
 			return `${tier} ${where} ${lint.kind} ${keys}`;
 		}
 		case "entry": {
-			const name = diagnostic.label !== undefined ? `"${diagnostic.label}"` : `#${diagnostic.position}`;
+			const name = diagnostic.label === undefined ? `#${diagnostic.position}` : `"${diagnostic.label}"`;
 			return `${tier} servers entry ${name}: ${diagnostic.problems.join("; ")}`;
 		}
 		case "legacy":
@@ -308,7 +308,7 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 		case "record": {
 			// An entry-layer record lives inside the servers setting, so that is the place to reveal; a global one
 			// lives in its own setting.
-			const setting: RevealableSettingId = diagnostic.entryLabel !== undefined ? "servers" : diagnostic.setting;
+			const setting: RevealableSettingId = diagnostic.entryLabel === undefined ? diagnostic.setting : "servers";
 			const lint = diagnostic.diagnostic;
 			// Identifiers joined by a slash, never a localized phrase: the pair is machine text a reader retypes, and
 			// it needs no translation. An invalid matcher key IS the record key, so naming it twice would read as a
@@ -323,7 +323,7 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 				headline: recordProblemText(lint),
 				where: [
 					diagnostic.setting,
-					...(diagnostic.entryLabel !== undefined ? [l10n.t("entry {0}", diagnostic.entryLabel)] : []),
+					...(diagnostic.entryLabel === undefined ? [] : [l10n.t("entry {0}", diagnostic.entryLabel)]),
 					...(namesRecord ? [] : [lint.recordKey]),
 				],
 				//   Learn more                              -> on the one lint the sentence cannot fix by itself
@@ -338,7 +338,7 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 			};
 		}
 		case "entry": {
-			const name = diagnostic.label !== undefined ? `"${diagnostic.label}"` : `#${diagnostic.position}`;
+			const name = diagnostic.label === undefined ? `#${diagnostic.position}` : `"${diagnostic.label}"`;
 			return {
 				// The position, not the label: a rejected entry can reuse a label an accepted one already owns, and
 				// that is exactly the case whose two diagnostics must not collapse onto one key - or one button name,
@@ -467,7 +467,7 @@ function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
 					</p>
 				) : undefined
 			}
-			details={problem.detail !== undefined ? [problem.detail] : undefined}
+			details={problem.detail === undefined ? undefined : [problem.detail]}
 			actions={
 				problem.actions.length > 0 ? (
 					<div className="row-diagnostic-actions">
@@ -660,19 +660,19 @@ function CapabilityCell({ cell }: { cell: ResolvedCapCell }) {
 	const label = capabilityDisplayLabel(cell.name);
 	return (
 		<span className="resolved-cell">
-			{label !== undefined ? (
-				<HoverTip tip={`${cell.name} ${cell.valueText}`}>
-					<span className="resolved-field">
-						{label} <code>{cell.valueText}</code>
-					</span>
-				</HoverTip>
-			) : (
+			{label === undefined ? (
 				<code>
 					{/* Key and value each hold together; a narrow column breaks the line BETWEEN them, never inside a
 					    token - a quoted value like "gold-eu-west" was splitting at its hyphens. */}
 					<span className="whitespace-nowrap">{cell.name}</span>{" "}
 					<span className="whitespace-nowrap">{cell.valueText}</span>
 				</code>
+			) : (
+				<HoverTip tip={`${cell.name} ${cell.valueText}`}>
+					<span className="resolved-field">
+						{label} <code>{cell.valueText}</code>
+					</span>
+				</HoverTip>
 			)}
 			<span className="chip-prov">
 				<ChipTokens text={capabilityProvenancePhrase(cell)} />
@@ -793,7 +793,7 @@ function CapabilityCells({ cells, currencySymbol }: { cells: readonly ResolvedCa
 					})}
 				</span>
 			) : null}
-			{params !== undefined ? <ParamsListCell cell={params} /> : null}
+			{params === undefined ? null : <ParamsListCell cell={params} />}
 		</div>
 	);
 }

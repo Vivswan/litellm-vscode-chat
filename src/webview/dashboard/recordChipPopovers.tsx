@@ -352,7 +352,7 @@ export function FieldChipPopover({
 				<CatalogPicker value={row.valueText} disabled={disabled} invalid={valueInvalid} onValue={patchValue} />
 			) : (
 				<Input
-					type={numberProps !== undefined ? "number" : "text"}
+					type={numberProps === undefined ? "text" : "number"}
 					min={numberProps?.min}
 					step={numberProps?.step}
 					className="value"
@@ -432,11 +432,13 @@ export function FieldChipPopover({
 				</Button>
 			</div>
 			<div className="chip-popover-status" id={statusId}>
-				{issue?.problem !== undefined ? (
+				{issue?.problem === undefined ? (
+					issue?.hint === undefined ? null : (
+						<p className="hint">{issue.hint}</p>
+					)
+				) : (
 					<p className="error">{issue.problem.message}</p>
-				) : issue?.hint !== undefined ? (
-					<p className="hint">{issue.hint}</p>
-				) : null}
+				)}
 			</div>
 		</PopoverShell>
 	);
@@ -552,11 +554,11 @@ export function AddFieldPopover({
 				<CatalogPicker value={valueText} disabled={disabled} invalid={false} onValue={setValueText} />
 			) : (
 				<Input
-					type={numberProps !== undefined ? "number" : "text"}
+					type={numberProps === undefined ? "text" : "number"}
 					min={numberProps?.min}
 					step={numberProps?.step}
 					className="value"
-					aria-describedby={problem !== undefined ? statusId : undefined}
+					aria-describedby={problem === undefined ? undefined : statusId}
 					aria-label={l10n.t("New field value")}
 					placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
 					value={valueText}
@@ -620,7 +622,7 @@ export function AddFieldPopover({
 				</Button>
 			</div>
 			<div className="chip-popover-status" id={statusId}>
-				{problem !== undefined ? <p className="error">{problem}</p> : null}
+				{problem === undefined ? null : <p className="error">{problem}</p>}
 			</div>
 		</PopoverShell>
 	);

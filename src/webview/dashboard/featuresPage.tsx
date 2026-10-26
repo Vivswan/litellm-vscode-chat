@@ -739,11 +739,11 @@ export function FeaturesSection({
 			>
 				{/* The fallback for a failure no mounted row claims; a claimed one
 				    renders under its own row instead (see SettingRow). */}
-				{unclaimed !== undefined ? (
+				{unclaimed === undefined ? null : (
 					<p key={unclaimed.seq} className="error" role={unclaimedRole}>
 						{writeFailureText(unclaimed)}
 					</p>
-				) : null}
+				)}
 				{nothingMatches ? <p className="empty">{l10n.t("No features match the filter.")}</p> : null}
 				{comingShown ? <p className="hint">{featuresComingHint()}</p> : null}
 				<div className={SETTING_GRID_TRACKS}>
@@ -762,7 +762,7 @@ export function FeaturesSection({
 								tailVisible={(model !== undefined && modelVisible(model)) || tailVisible(feature)}
 								tail={
 									<>
-										{model !== undefined ? (
+										{model === undefined ? null : (
 											<FeatureModelRow
 												feature={model}
 												value={settings.featureModels[model]}
@@ -772,8 +772,8 @@ export function FeaturesSection({
 												hidden={!modelVisible(model)}
 												probeAvailable={featureProbes?.includes(model) === true}
 											/>
-										) : null}
-										{descriptor.tail !== undefined ? descriptor.tail.rows(tailContext, !tailVisible(feature)) : null}
+										)}
+										{descriptor.tail === undefined ? null : descriptor.tail.rows(tailContext, !tailVisible(feature))}
 									</>
 								}
 							/>

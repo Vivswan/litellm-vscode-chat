@@ -133,17 +133,17 @@ function catalogStatusParts(
 	if (!enabled) {
 		return { off: l10n.t("Catalog off: no refreshes and no implicit ID matching.") };
 	}
-	const updated = catalog.lastSuccessAt !== undefined ? relativeTime(catalog.lastSuccessAt, now) : undefined;
+	const updated = catalog.lastSuccessAt === undefined ? undefined : relativeTime(catalog.lastSuccessAt, now);
 	const count = catalog.modelCount === 1 ? l10n.t("1 catalog model") : l10n.t("{0} catalog models", catalog.modelCount);
-	const age = updated !== undefined ? l10n.t("updated {0}", updated) : l10n.t("bundled snapshot");
+	const age = updated === undefined ? l10n.t("bundled snapshot") : l10n.t("updated {0}", updated);
 	return {
 		summary: `${count} - ${age}`,
 		// The classification is CatalogRefreshFailure's fixed English vocabulary, protocol-ish like header names, so it
 		// renders raw.
 		failure:
-			catalog.lastFailure !== undefined
-				? l10n.t("Last refresh failed ({0}); serving the cached snapshot.", catalog.lastFailure.classification)
-				: undefined,
+			catalog.lastFailure === undefined
+				? undefined
+				: l10n.t("Last refresh failed ({0}); serving the cached snapshot.", catalog.lastFailure.classification),
 	};
 }
 
@@ -178,7 +178,7 @@ function CatalogMeta({ catalog, enabled, now }: { catalog: CatalogStatusView; en
 				)}
 			</Button>{" "}
 			<DocsLink href={DOCS_LINK_OPENROUTER_CATALOG} label={l10n.t("Open the OpenRouter catalog guide")} />
-			{parts.failure !== undefined ? (
+			{parts.failure === undefined ? null : (
 				<>
 					{/* The break gives the failure a line start of its own without
 					    jamming red text beside Refresh, while the error itself stays
@@ -187,7 +187,7 @@ function CatalogMeta({ catalog, enabled, now }: { catalog: CatalogStatusView; en
 					<br />
 					<span className="error">{parts.failure}</span>
 				</>
-			) : null}
+			)}
 		</span>
 	);
 }
@@ -520,7 +520,7 @@ function UsageThresholdsRow({
 			description={
 				<>
 					{usageThresholdsDescription(custom)}
-					{semanticsHint !== undefined ? <span className="ml-1 text-foreground">{semanticsHint}</span> : null}
+					{semanticsHint === undefined ? null : <span className="ml-1 text-foreground">{semanticsHint}</span>}
 				</>
 			}
 			// The tip instructs the two boxes, so it renders only where they do: the custom branch has no fields to
@@ -917,11 +917,11 @@ export function SettingsSection({
 			>
 				{/* The fallback for a failure no mounted row claims; a claimed one renders under its own row instead
 				    (see SettingRow). */}
-				{unclaimed !== undefined ? (
+				{unclaimed === undefined ? null : (
 					<p key={unclaimed.seq} className="error" role={unclaimedRole}>
 						{writeFailureText(unclaimed)}
 					</p>
-				) : null}
+				)}
 				{nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
 				{/* The wide tier's track owner (SETTING_GRID_TRACKS): groups and rows
 				    subgrid onto these columns, so the label gutter is one measured

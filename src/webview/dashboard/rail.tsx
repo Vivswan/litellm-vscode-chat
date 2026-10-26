@@ -113,11 +113,11 @@ function RailTab<Id extends string>({
 				{section.icon}
 			</span>
 			<span className="rail-label">{section.label}</span>
-			{section.count !== undefined ? (
+			{section.count === undefined ? null : (
 				<span aria-hidden="true" className={cn("rail-count", section.countTone === "warn" ? "text-warn" : undefined)}>
 					{section.count}
 				</span>
-			) : null}
+			)}
 			{collapsed ? <TipBubble tip={tip}>{named}</TipBubble> : null}
 		</button>
 	);
@@ -263,11 +263,11 @@ export function Rail<Id extends string>({
 						<span className="rail-word">{overall.word}</span>
 						{collapsed ? <TipBubble tip={verdictTip}>{verdict}</TipBubble> : null}
 					</p>
-					{synced !== undefined ? (
+					{synced === undefined ? null : (
 						<p className="rail-synced" id={syncedId}>
 							{l10n.t("last sync {0}", synced)}
 						</p>
-					) : null}
+					)}
 					{/* The acked method, not the fire-and-forget command post: on the command route this rode
 					    the chained channel and held every later message for the whole pass. Nothing waits on
 					    the ack, but the row-level Retry correlates by id, so this cannot clear its spinner. */}

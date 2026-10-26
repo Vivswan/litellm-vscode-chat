@@ -338,8 +338,9 @@ export function serverDiagnostics(
 								openAiCompatibleGuide,
 							]
 						: []),
-					...(classification?.setupHint !== undefined
-						? [
+					...(classification?.setupHint === undefined
+						? []
+						: [
 								{
 									kind: "docs" as const,
 									id: "troubleshoot",
@@ -352,8 +353,7 @@ export function serverDiagnostics(
 									label: l10n.t("Troubleshoot"),
 									ariaLabel: l10n.t("Troubleshoot: {0}", troubleshootingLink(classification.setupHint).topic),
 								},
-							]
-						: []),
+							]),
 				],
 			});
 		} else if (verdict === "expected") {
@@ -844,11 +844,11 @@ type UsageEndpointPath = (typeof USAGE_ENDPOINT_PATHS)[UsageEndpoint];
  * re-probe live in the surrounding diagnostic, refusal alone here.
  */
 function forbiddenLine(path: UsageEndpointPath, status: number | undefined): string {
-	return `LiteLLM ${path}:${status !== undefined ? ` HTTP ${status} -` : ""} this key may not read usage data`;
+	return `LiteLLM ${path}:${status === undefined ? "" : ` HTTP ${status} -`} this key may not read usage data`;
 }
 
 function notServedLine(path: UsageEndpointPath, status: number | undefined): string {
-	return `LiteLLM ${path}: not served on this server${status !== undefined ? ` (HTTP ${status})` : ""}`;
+	return `LiteLLM ${path}: not served on this server${status === undefined ? "" : ` (HTTP ${status})`}`;
 }
 
 /**
@@ -872,11 +872,11 @@ export function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: numbe
 				return `LiteLLM ${path}: timed out (discovery.timeout allows ${discoveryTimeoutMs}ms per attempt). If the server is just slow, raise the discovery.timeout setting.`;
 			}
 			const how =
-				standing.status !== undefined
-					? `HTTP ${standing.status}`
-					: standing.classification === "network"
+				standing.status === undefined
+					? standing.classification === "network"
 						? "network error"
-						: "request failed";
+						: "request failed"
+					: `HTTP ${standing.status}`;
 			return `LiteLLM ${path}: ${how} on the last attempt`;
 		}
 	}
@@ -895,13 +895,13 @@ export function activityDetail(server: UsageServerView): string | undefined {
 			return standing.reason === "forbidden" ? forbiddenLine(path, standing.status) : undefined;
 		case "error": {
 			const how =
-				standing.status !== undefined
-					? `HTTP ${standing.status}`
-					: standing.classification === "timeout"
+				standing.status === undefined
+					? standing.classification === "timeout"
 						? "timed out"
 						: standing.classification === "network"
 							? "network error"
-							: "request failed";
+							: "request failed"
+					: `HTTP ${standing.status}`;
 			return `LiteLLM ${path}: ${how}`;
 		}
 	}

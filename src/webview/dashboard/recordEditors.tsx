@@ -206,17 +206,17 @@ function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undef
 	//   Text         -> stays webview-only
 	//   role="alert" -> needs the element to pre-exist
 	const spoken = dirty ? failure : undefined;
-	const detail = spoken !== undefined ? statusErrorDetail(spoken.message) : undefined;
+	const detail = spoken === undefined ? undefined : statusErrorDetail(spoken.message);
 	return (
 		<p
 			className={cn("failure-note", spoken !== undefined && "error")}
 			role="alert"
-			{...(spoken !== undefined ? { title: spoken.message } : {})}
+			{...(spoken === undefined ? {} : { title: spoken.message })}
 		>
-			{spoken !== undefined
-				? l10n.t("Saving failed - your edits are kept: {0}", statusErrorHeadline(spoken.message))
-				: ""}
-			{detail !== undefined ? <span className="visually-hidden"> {detail}</span> : null}
+			{spoken === undefined
+				? ""
+				: l10n.t("Saving failed - your edits are kept: {0}", statusErrorHeadline(spoken.message))}
+			{detail === undefined ? null : <span className="visually-hidden"> {detail}</span>}
 		</p>
 	);
 }
@@ -358,7 +358,7 @@ export function RecordStatusSlot({
 	const refusing = refusal !== undefined && refusal.failure !== undefined && refusal.dirty;
 	return (
 		<span className="editor-status">
-			{refusal !== undefined ? <FailureNote failure={refusal.failure} dirty={refusal.dirty} /> : null}
+			{refusal === undefined ? null : <FailureNote failure={refusal.failure} dirty={refusal.dirty} />}
 			{refusing ? null : <RecordVerdictLine groups={groups} issues={issues} openField={openField} />}
 		</span>
 	);
@@ -494,15 +494,32 @@ export function ModelParametersEditor({
 			<div className="record-frame">
 				{/* Where Apply writes, said only when it is news: the write-scope rule sends edits to a scope that
 				    already sets the record, and "not your User settings" is the one case worth a line. */}
-				{scoped.editScope !== "global" ? (
+				{scoped.editScope === "global" ? null : (
 					<p className="hint editor-scope-note">
 						{l10n.t(
 							"Apply writes {0} settings - that scope already sets this record.",
 							settingScopeLabel(scoped.editScope)
 						)}
 					</p>
-				) : null}
-				{json !== undefined ? (
+				)}
+				{json === undefined ? (
+					<>
+						{groups.length === 0 ? (
+							<p className="empty">{l10n.t("No model parameters configured in this scope.")}</p>
+						) : null}
+						{groups.length > 0 ? (
+							<RecordMatcherTable
+								kind="params"
+								groups={groups}
+								issues={issueViews}
+								keySuggestions={COMMON_PARAMETER_NAMES}
+								onChange={(next) => draft.update(next)}
+								onOpenEditor={openEditor}
+								onOpenFieldChange={setOpenField}
+							/>
+						) : null}
+					</>
+				) : (
 					<div className="record-json">
 						<Textarea
 							className="w-full px-2 py-1"
@@ -526,23 +543,6 @@ export function ModelParametersEditor({
 							{jsonParse !== undefined && !jsonParse.ok ? jsonParse.problem : null}
 						</p>
 					</div>
-				) : (
-					<>
-						{groups.length === 0 ? (
-							<p className="empty">{l10n.t("No model parameters configured in this scope.")}</p>
-						) : null}
-						{groups.length > 0 ? (
-							<RecordMatcherTable
-								kind="params"
-								groups={groups}
-								issues={issueViews}
-								keySuggestions={COMMON_PARAMETER_NAMES}
-								onChange={(next) => draft.update(next)}
-								onOpenEditor={openEditor}
-								onOpenFieldChange={setOpenField}
-							/>
-						) : null}
-					</>
 				)}
 				<div className="toolbar editor-actions">
 					{json === undefined ? (
@@ -766,15 +766,32 @@ export function ModelCapabilitiesEditor({
 			{/* The parameters editor's frame, on this editor's own parse. */}
 			<div className="record-frame">
 				{/* The write scope, said only when it is news (the parameters editor's rule). */}
-				{scoped.editScope !== "global" ? (
+				{scoped.editScope === "global" ? null : (
 					<p className="hint editor-scope-note">
 						{l10n.t(
 							"Apply writes {0} settings - that scope already sets this record.",
 							settingScopeLabel(scoped.editScope)
 						)}
 					</p>
-				) : null}
-				{json !== undefined ? (
+				)}
+				{json === undefined ? (
+					<>
+						{groups.length === 0 ? (
+							<p className="empty">{l10n.t("No model capabilities configured in this scope.")}</p>
+						) : null}
+						{groups.length > 0 ? (
+							<RecordMatcherTable
+								kind="caps"
+								groups={groups}
+								issues={issueViews}
+								keySuggestions={keySuggestions}
+								onChange={(next) => draft.update(next)}
+								onOpenEditor={openEditor}
+								onOpenFieldChange={setOpenField}
+							/>
+						) : null}
+					</>
+				) : (
 					<div className="record-json">
 						<Textarea
 							className="w-full px-2 py-1"
@@ -797,23 +814,6 @@ export function ModelCapabilitiesEditor({
 							{jsonParse !== undefined && !jsonParse.ok ? jsonParse.problem : null}
 						</p>
 					</div>
-				) : (
-					<>
-						{groups.length === 0 ? (
-							<p className="empty">{l10n.t("No model capabilities configured in this scope.")}</p>
-						) : null}
-						{groups.length > 0 ? (
-							<RecordMatcherTable
-								kind="caps"
-								groups={groups}
-								issues={issueViews}
-								keySuggestions={keySuggestions}
-								onChange={(next) => draft.update(next)}
-								onOpenEditor={openEditor}
-								onOpenFieldChange={setOpenField}
-							/>
-						) : null}
-					</>
 				)}
 				<div className="toolbar editor-actions">
 					{json === undefined ? (

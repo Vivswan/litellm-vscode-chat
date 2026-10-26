@@ -53,12 +53,12 @@ export function SectionHeader({
 			</Heading>
 			{/* Named for what it opens rather than for the section: "Servers"
 			    would announce a button that performs no action. */}
-			{help !== undefined ? (
+			{help === undefined ? null : (
 				<Help text={help} name={l10n.t("Help: {0}", title)} {...(helpBelow === true ? { below: true } : {})} />
-			) : null}
-			{docs !== undefined ? <DocsLink href={docs.href} label={docs.label} /> : null}
-			{meta !== undefined ? <span className="section-meta">{meta}</span> : null}
-			{actions !== undefined ? <div className="section-actions">{actions}</div> : null}
+			)}
+			{docs === undefined ? null : <DocsLink href={docs.href} label={docs.label} />}
+			{meta === undefined ? null : <span className="section-meta">{meta}</span>}
+			{actions === undefined ? null : <div className="section-actions">{actions}</div>}
 		</div>
 	);
 }

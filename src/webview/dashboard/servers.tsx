@@ -367,13 +367,13 @@ function ServerRow({
 			))}
 			{/* A closed drawer keeps its notices in the ACCESSIBLE tree: the meter's tone is colour, which a screen
 			    reader never gets. The open drawer renders the visible line, so the twin stands down with it. */}
-			{!open
-				? drawerDiagnostics.map((diagnostic) => (
+			{open
+				? null
+				: drawerDiagnostics.map((diagnostic) => (
 						<div key={diagnostic.key} className="visually-hidden">
 							{severityLabel(diagnostic.severity, "server")} {diagnostic.headline}
 						</div>
-					))
-				: null}
+					))}
 		</li>
 	);
 }
@@ -471,7 +471,7 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 									>
 										{l10n.t("Unhide")}
 									</Button>{" "}
-									{group.syncedName !== undefined ? (
+									{group.syncedName === undefined ? null : (
 										<>
 											<Button
 												variant="secondary"
@@ -486,7 +486,7 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 												{l10n.t("Manage Language Models")}
 											</Button>{" "}
 										</>
-									) : null}
+									)}
 									<Button
 										variant="secondary"
 										size="compact"
@@ -495,12 +495,12 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 										{l10n.t("Open Models File")}
 									</Button>{" "}
 									<span className="hidden-reason">
-										{group.syncedName !== undefined
+										{group.syncedName === undefined
 											? l10n.t(
-													"VS Code still keeps this group; delete it in Manage Language Models or from the models file, then reload the window"
+													"VS Code still keeps this group; delete its object from the models file, then reload the window"
 												)
 											: l10n.t(
-													"VS Code still keeps this group; delete its object from the models file, then reload the window"
+													"VS Code still keeps this group; delete it in Manage Language Models or from the models file, then reload the window"
 												)}
 									</span>
 								</>
@@ -700,7 +700,7 @@ export function ServersSection({
 		const base = l10n.t(
 			"Adopted into the servers setting. Models appear twice until the original group's object is deleted: open the models file, remove it, reload the window."
 		);
-		setAdoptNotice(adoptedCaveat !== undefined ? `${base} ${adoptedCaveat}` : base);
+		setAdoptNotice(adoptedCaveat === undefined ? base : `${base} ${adoptedCaveat}`);
 	}, [adoptedId]);
 
 	return (
@@ -754,7 +754,7 @@ export function ServersSection({
 				)
 			}
 		>
-			{removedNotice !== undefined ? (
+			{removedNotice === undefined ? null : (
 				<div className="notice" role="status">
 					<p>
 						{l10n.t(
@@ -782,8 +782,8 @@ export function ServersSection({
 						</Button>
 					</div>
 				</div>
-			) : null}
-			{adoptNotice !== undefined ? (
+			)}
+			{adoptNotice === undefined ? null : (
 				<div className="notice" role="status">
 					<p>{adoptNotice}</p>
 					<div className="toolbar">
@@ -795,48 +795,48 @@ export function ServersSection({
 						</Button>
 					</div>
 				</div>
-			) : null}
-			{adoptFailure !== undefined ? (
+			)}
+			{adoptFailure === undefined ? null : (
 				<IntentFailureBanner message={adoptFailure.message} onDismiss={adoptIntent.reset} />
-			) : null}
-			{saveFailure !== undefined ? (
+			)}
+			{saveFailure === undefined ? null : (
 				<IntentFailureBanner message={saveFailure.message} onDismiss={saveIntent.reset} />
-			) : null}
-			{removeFailure !== undefined ? (
+			)}
+			{removeFailure === undefined ? null : (
 				<IntentFailureBanner
 					message={removeFailure.message}
 					heading={l10n.t("Removing failed:")}
 					onDismiss={removeIntent.reset}
 				/>
-			) : null}
-			{hideFailure !== undefined ? (
+			)}
+			{hideFailure === undefined ? null : (
 				<IntentFailureBanner
 					message={hideFailure.message}
 					heading={l10n.t("Hiding the group failed:")}
 					onDismiss={hideIntent.reset}
 				/>
-			) : null}
-			{unhideFailure !== undefined ? (
+			)}
+			{unhideFailure === undefined ? null : (
 				<IntentFailureBanner
 					message={unhideFailure.message}
 					heading={l10n.t("Unhiding the group failed:")}
 					onDismiss={unhideIntent.reset}
 				/>
-			) : null}
-			{manageFailure !== undefined ? (
+			)}
+			{manageFailure === undefined ? null : (
 				<IntentFailureBanner
 					message={manageFailure.message}
 					heading={l10n.t("Opening Manage Language Models failed:")}
 					onDismiss={manageIntent.reset}
 				/>
-			) : null}
-			{declareFailure !== undefined ? (
+			)}
+			{declareFailure === undefined ? null : (
 				<IntentFailureBanner
 					message={declareFailure.message}
 					heading={l10n.t("Declaring the expected failure failed:")}
 					onDismiss={declareIntent.reset}
 				/>
-			) : null}
+			)}
 			{noServers ? (
 				<div className="empty-start">
 					<h3>{l10n.t("Connect LiteLLM to Copilot Chat")}</h3>
@@ -872,10 +872,10 @@ export function ServersSection({
 					    once. */}
 					<p className="visually-hidden" role="status" aria-live="polite">
 						{[
-							retrying !== undefined ? l10n.t("Checking {0}", retrying.label) : undefined,
-							pendingDeclare !== undefined
-								? l10n.t("Declaring the expected failure for {0}", pendingDeclare.label)
-								: undefined,
+							retrying === undefined ? undefined : l10n.t("Checking {0}", retrying.label),
+							pendingDeclare === undefined
+								? undefined
+								: l10n.t("Declaring the expected failure for {0}", pendingDeclare.label),
 							usage?.refreshingExplicitly === true ? l10n.t("Refreshing usage data") : undefined,
 						]
 							.filter((line): line is string => line !== undefined)
