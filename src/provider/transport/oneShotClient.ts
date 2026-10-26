@@ -99,16 +99,11 @@ export interface OneShotCallOptions {
  * reads as an empty answer rather than an error, so a malformed 200 body never rides into an error message.
  */
 function oneShotContentOf(payload: string): string {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(payload);
-	} catch {
+	const parsed = tryParseJSONObject(payload);
+	if (!parsed.ok || !Array.isArray(parsed.value.choices)) {
 		return "";
 	}
-	if (!isRecord(parsed) || !Array.isArray(parsed.choices)) {
-		return "";
-	}
-	const first: unknown = parsed.choices[0];
+	const first: unknown = parsed.value.choices[0];
 	if (!isRecord(first) || !isRecord(first.message)) {
 		return "";
 	}
@@ -165,13 +160,8 @@ export class OneShotClient {
 			stream: false,
 		});
 		const payload = await this.postJson(url, body, connection, "completion", opts);
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(payload);
-		} catch {
-			return undefined;
-		}
-		return parseCompletionText(parsed);
+		const parsed = tryParseJSONObject(payload);
+		return parsed.ok ? parseCompletionText(parsed.value) : undefined;
 	}
 
 	/**
