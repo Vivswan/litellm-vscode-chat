@@ -5,6 +5,7 @@ import type { TimeoutBudget } from "../../../provider/transport/auth";
 import type { OneShotChatMessage, OneShotConnection } from "../../../provider/transport/oneShotClient";
 import { OneShotClient } from "../../../provider/transport/oneShotClient";
 import { RequestError } from "../../../provider/transport/transportErrors";
+import { resolveSessionIdHeader } from "../../../shared/config/sessionId";
 import { fixedHeaderValue } from "../../../shared/util/headers";
 import {
 	CHAT_COMPLETIONS_URL,
@@ -15,6 +16,7 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../../mocks/handlers";
+import { withConfig, withWorkspaceFolder } from "../../testUtils";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";
 
@@ -634,6 +636,99 @@ suite("provider/transport/oneShotClient", () => {
 				callOptions()
 			);
 			assert.strictEqual(seen, "application/vnd.litellm");
+		});
+	});
+
+	suite("session id", () => {
+		const FOLDER = "/home/dev/litellm-workspace-fixture";
+
+		function sendChat(overrides: Partial<OneShotConnection>): Promise<unknown> {
+			return client().completeChatOnce(
+				connection(overrides),
+				{ model: "m", messages: [{ role: "user", content: "diff" }] },
+				"commitGeneration",
+				callOptions()
+			);
+		}
+
+		function sendFim(overrides: Partial<OneShotConnection>): Promise<unknown> {
+			return client().completeFim(
+				connection(overrides),
+				{ model: "m", prompt: "function add(a, b) {", maxTokens: 8 },
+				callOptions()
+			);
+		}
+
+		/**
+		 * The session id one request carried under the given mode (the default when undefined), or null for none.
+		 * A send that reached no server fails here, so a null is always an observed request without the header.
+		 */
+		async function sessionIdUnder(
+			mode: string | undefined,
+			send: (overrides: Partial<OneShotConnection>) => Promise<unknown>,
+			overrides: Partial<OneShotConnection> = {}
+		): Promise<string | null> {
+			let seen: string | null | undefined;
+			const record = (request: Request): void => {
+				seen = request.headers.get("x-litellm-session-id");
+			};
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
+					record(request);
+					return chatJson("ok");
+				}),
+				http.post(COMPLETIONS_URL, ({ request }) => {
+					record(request);
+					return completionJsonResponse("ok");
+				})
+			);
+			await withConfig(mode === undefined ? {} : { "chat.sessionId": mode }, () => send(overrides));
+			assert.ok(seen !== undefined, "the request must have reached the server");
+			return seen;
+		}
+
+		test("a one-shot request has no chat to be identified by, so by default it rides the window's session, as window does; the chat and FIM paths alike", async () => {
+			const windowSession = resolveSessionIdHeader({
+				mode: "window",
+				context: { windowSessionId: vscode.env.sessionId },
+			});
+			assert.ok(windowSession !== undefined);
+			assert.match(windowSession, /^vscode-window-[0-9a-f]{12}$/);
+			assert.strictEqual(await sessionIdUnder(undefined, sendChat), windowSession);
+			assert.strictEqual(await sessionIdUnder(undefined, sendFim), windowSession);
+			assert.strictEqual(await sessionIdUnder("window", sendChat), windowSession);
+		});
+
+		test("folder groups a one-shot request with the chat requests made in that folder: the resolver's hash of the host's open folder, nothing with no folder open", async () => {
+			const sessionId = await withWorkspaceFolder(FOLDER, () => sessionIdUnder("folder", sendFim));
+			assert.strictEqual(
+				sessionId,
+				resolveSessionIdHeader({
+					mode: "folder",
+					context: { windowSessionId: vscode.env.sessionId, folderPath: vscode.Uri.file(FOLDER).fsPath },
+				})
+			);
+			assert.strictEqual(await sessionIdUnder("folder", sendChat), null);
+		});
+
+		test("off sends no session id, so the request goes out as it did before the setting existed", async () => {
+			assert.strictEqual(await sessionIdUnder("off", sendChat), null);
+			assert.strictEqual(await sessionIdUnder("off", sendFim), null);
+		});
+
+		test("a header already spelling the session id's name keeps its value: a custom header's or a credential's", async () => {
+			assert.strictEqual(
+				await sessionIdUnder(undefined, sendChat, {
+					headers: { "x-litellm-session-id": fixedHeaderValue("entry-session") },
+				}),
+				"entry-session"
+			);
+			assert.strictEqual(
+				await sessionIdUnder(undefined, sendChat, {
+					virtualKey: { header: "X-LiteLLM-Session-Id", value: fixedHeaderValue("gateway-key") },
+				}),
+				"gateway-key"
+			);
 		});
 	});
 });

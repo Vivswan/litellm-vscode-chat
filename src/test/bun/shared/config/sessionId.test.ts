@@ -115,9 +115,10 @@ describe("shared/config/sessionId", () => {
 		assert.notStrictEqual(chatSession([image([1], [2])]), chatSession([image([1, 0, 2])]));
 	});
 
-	test("a chat with nothing to hash rides the window's session", () => {
+	test("a chat with nothing to hash, or a one-shot request with no chat at all, rides the window's session", () => {
 		const windowSession = resolveSessionIdHeader({ mode: "window", context: context() });
 		assert.strictEqual(chatSession([]), windowSession);
 		assert.strictEqual(chatSession([{ role: "user", text: "", data: [] }]), windowSession);
+		assert.strictEqual(resolveSessionIdHeader({ mode: "on", context: context() }), windowSession);
 	});
 });

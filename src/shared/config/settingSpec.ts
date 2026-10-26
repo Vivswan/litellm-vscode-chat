@@ -83,7 +83,7 @@ export const FEATURE_MODEL_SETTING_KEY_LIST: readonly FeatureModelSettingKey[] =
 );
 
 /**
- * What LiteLLM groups a chat request under: the session id the request carries.
+ * What LiteLLM groups a request under: the session id the request carries.
  *
  *   off     -> no session id rides the request
  *   on      -> one session per chat, the way other LiteLLM clients send theirs
@@ -96,7 +96,7 @@ export type SessionIdMode = (typeof SESSION_ID_MODES)[number];
 
 export const DEFAULT_SESSION_ID_MODE: SessionIdMode = "on";
 
-/** The session id setting's key; it covers the Copilot chat, the agent path, and the @litellm participant. */
+/** The session id setting's key; it covers the chat paths and every one-shot feature's request alike. */
 export const CHAT_SESSION_ID_SETTING_KEY = "chat.sessionId";
 
 /**

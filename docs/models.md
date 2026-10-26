@@ -360,6 +360,8 @@ One header is the extension's own, and it is not a parameter: `x-litellm-session
 | `window` | A hash of the VS Code window's own id, which changes when the window closes |
 | `off` | No header |
 
+The one-shot features send the same header, so a commit message, a PR description, a quick fix, a review, a consult answer, or an inline completion counts toward the folder's or the window's session like a chat turn does. Under `on` they ride the window's session: a one-shot request has no chat to be identified by.
+
 The hashes keep every question and path on the machine, and nothing has to be turned on in the proxy: LiteLLM writes the value to its spend log's session column as it arrives.
 
 Anything on the server entry already named `x-litellm-session-id` wins: a credential or a custom header there keeps its value. A custom `x-litellm-trace-id` header outranks the session id too, because LiteLLM reads the trace id first.

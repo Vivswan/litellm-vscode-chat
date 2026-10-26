@@ -1,17 +1,19 @@
 import { APIConnectionError, APIError } from "openai";
 import * as vscode from "vscode";
+import { SESSION_ID_HEADER_NAME } from "../../shared/config/sessionId";
 import { fixedHeaderValue, type HeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "./auth";
 import { OAuthTokenSource } from "./auth";
 import type { AuthOverlayScope } from "./authOverlay";
-import { applyAuthOverlay, plainFetchBaseHeaders, setOwnedHeader } from "./authOverlay";
+import { applyAuthOverlay, hasHeader, plainFetchBaseHeaders, setOwnedHeader } from "./authOverlay";
 import { isHostCancellation } from "./cancellation";
 import { chatCompletionsUrl, completionsUrl } from "./clients";
 import { mapSdkError } from "./errorMapping";
 import { parseCompletionText } from "./fim";
 import type { TransportFetch } from "./nodeHttpFetch";
 import { nodeHttpFetch } from "./nodeHttpFetch";
+import { sessionIdHeader } from "./sessionId";
 import type { MapErrorContext, TransportErrorSurface } from "./transportErrors";
 import { RequestError, timeoutRequestError } from "./transportErrors";
 
@@ -259,6 +261,12 @@ export class OneShotClient {
 				timeout: opts.timeout,
 				signal: requestSignal,
 			});
+			// The session id yields to any header already spelling its name, a credential's or a custom one: the
+			// precedence the chat request keeps.
+			const sessionId = hasHeader(headers, SESSION_ID_HEADER_NAME) ? undefined : sessionIdHeader();
+			if (sessionId !== undefined) {
+				headers[SESSION_ID_HEADER_NAME] = sessionId;
+			}
 			let response: Response;
 			try {
 				response = await this.fetch(url, { method: "POST", headers, body, signal: requestSignal });

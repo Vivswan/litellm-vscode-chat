@@ -52,6 +52,7 @@ Pull requests that were merged, or whose implementations and ideas were folded i
 | [@qisthidev](https://github.com/qisthidev) | Provider missing on newest VS Code ([#105](https://github.com/Vivswan/litellm-vscode-chat/issues/105)) |
 | [@s0301132](https://github.com/s0301132) | Server profiles request ([#94](https://github.com/Vivswan/litellm-vscode-chat/issues/94)) |
 | [@TheLastNever](https://github.com/TheLastNever) | max_tokens from model_info request ([#174](https://github.com/Vivswan/litellm-vscode-chat/issues/174)) |
+| [@theodiem](https://github.com/theodiem) | The one-shot requests riding the session id too, so per-project cost accounting in the proxy's logs sees every request (asked in [#588](https://github.com/Vivswan/litellm-vscode-chat/pull/588)) |
 | [@Tomoushie](https://github.com/Tomoushie) | Unresolvable `www.localhost` base URL, which drove the bare-localhost suggestion ([#269](https://github.com/Vivswan/litellm-vscode-chat/issues/269)) |
 | [@uiop860](https://github.com/uiop860) | Wrong gpt-5.5 default parameters ([#82](https://github.com/Vivswan/litellm-vscode-chat/issues/82)) |
 | [@Unlifate](https://github.com/Unlifate) | Base URL trailing-slash normalization ([#54](https://github.com/Vivswan/litellm-vscode-chat/issues/54)) |
