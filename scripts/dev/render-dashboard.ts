@@ -216,8 +216,8 @@ async function main(): Promise<void> {
 		usage();
 	}
 	const fixture = await loadFixture(values.fixture);
-	const width = values.width !== undefined ? Number(values.width) : (fixture.viewport?.width ?? 1300);
-	const height = values.height !== undefined ? Number(values.height) : (fixture.viewport?.height ?? 950);
+	const width = values.width === undefined ? (fixture.viewport?.width ?? 1300) : Number(values.width);
+	const height = values.height === undefined ? (fixture.viewport?.height ?? 950) : Number(values.height);
 	if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
 		throw new Error(`Viewport must be positive integers; got ${width}x${height}`);
 	}

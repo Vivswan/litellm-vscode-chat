@@ -245,10 +245,10 @@ export class CdpConnection {
 			return;
 		}
 		this.pending.delete(message.id);
-		if (message.error !== undefined) {
-			waiter.reject(new Error(message.error.message ?? "DevTools command failed"));
-		} else {
+		if (message.error === undefined) {
 			waiter.resolve(message.result);
+		} else {
+			waiter.reject(new Error(message.error.message ?? "DevTools command failed"));
 		}
 	}
 

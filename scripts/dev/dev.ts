@@ -466,7 +466,7 @@ const seed: DevSeed = {
 			label: spec.label,
 			baseUrl: seedIdentity.baseUrl,
 			apiKey: spec.key,
-			...(entryBudget !== undefined ? { budget: entryBudget } : {}),
+			...(entryBudget === undefined ? {} : { budget: entryBudget }),
 		})),
 		...errorEntries,
 	],

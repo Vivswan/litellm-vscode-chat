@@ -284,12 +284,12 @@ export async function seedDemoUsage(baseUrl: string, masterKey: string): Promise
 			}
 			const keyBudget = await pinKeyBudget(baseUrl, masterKey, spec, spend);
 			const entryBudget =
-				spec.entryBudgetRatio !== undefined ? Number((spend / spec.entryBudgetRatio).toFixed(6)) : undefined;
+				spec.entryBudgetRatio === undefined ? undefined : Number((spend / spec.entryBudgetRatio).toFixed(6));
 			const effective = entryBudget ?? keyBudget;
 			log(
 				`${spec.alias}: spend $${spend.toFixed(4)}, budget $${effective.toFixed(4)} (~${Math.round((spend / effective) * 100)}% spent)`
 			);
-			results.push({ spec, spend, keyBudget, ...(entryBudget !== undefined ? { entryBudget } : {}) });
+			results.push({ spec, spend, keyBudget, ...(entryBudget === undefined ? {} : { entryBudget }) });
 		}
 		return results;
 	} catch (error) {

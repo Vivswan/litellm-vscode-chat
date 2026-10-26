@@ -707,9 +707,7 @@ function collectBindings(sourceFile: ts.SourceFile, scope: "module" | "file"): B
 				// A local namespace import's member is the same alias by member name: `const t = helpers.title` binds
 				// `title`'s laziness to t. Any other member chain binds the name to a read of its root.
 				const member = namespaceMemberName(source, sourceFile);
-				if (member !== undefined) {
-					pushAlias({ name, of: member });
-				} else {
+				if (member === undefined) {
 					const root = memberChainRoot(source, sourceFile);
 					const literal = root === undefined ? literalChainRoot(source) : undefined;
 					if (root !== undefined) {
@@ -717,6 +715,8 @@ function collectBindings(sourceFile: ts.SourceFile, scope: "module" | "file"): B
 					} else if (literal !== undefined) {
 						push(name, "table", invocationEvidence([literal], sourceFile));
 					}
+				} else {
+					pushAlias({ name, of: member });
 				}
 			}
 		}
