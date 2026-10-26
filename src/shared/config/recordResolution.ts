@@ -157,10 +157,10 @@ export function parseMarkingDirective(
 				diagnostics.push({ kind: "invalid-directive", key: directiveName });
 			} else if (markable !== undefined && !markable.allows(name)) {
 				diagnostics.push({ kind: markable.refusalKind, key: name });
-			} else if (!Object.hasOwn(fields, name)) {
-				diagnostics.push({ kind: "invalid-directive", key: directiveName });
-			} else {
+			} else if (Object.hasOwn(fields, name)) {
 				marked.add(name);
+			} else {
+				diagnostics.push({ kind: "invalid-directive", key: directiveName });
 			}
 		}
 	} else if (directive !== false) {

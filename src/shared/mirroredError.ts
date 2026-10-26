@@ -55,6 +55,6 @@ export class MirroredError extends Error {
 export function localizedError(display: string, english: string, logClassification?: string): MirroredError {
 	return new MirroredError(display, {
 		englishMessage: english,
-		...(logClassification !== undefined ? { logClassification } : {}),
+		...(logClassification === undefined ? {} : { logClassification }),
 	});
 }

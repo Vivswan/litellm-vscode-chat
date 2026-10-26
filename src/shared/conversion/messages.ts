@@ -333,15 +333,15 @@ export function convertMessages(
 					contentBlocks.push(block);
 				} else {
 					const decoded = decodeDataPartText(part);
-					if (decoded !== null) {
-						textParts.push(decoded);
-					} else {
+					if (decoded === null) {
 						// The mime is model-controlled on assistant turns and this log feeds the issue-report buffer,
 						// so it is allowlisted by shape.
 						logDroppedDataPart("Skipping LanguageModelDataPart with no wire mapping", {
 							role,
 							mimeType: isSafeMimeType(part.mimeType) ? part.mimeType : "unparseable",
 						});
+					} else {
+						textParts.push(decoded);
 					}
 				}
 			} else if (part instanceof vscode.LanguageModelPromptTsxPart) {

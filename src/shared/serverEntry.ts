@@ -86,8 +86,8 @@ export function secretDestination(entry: SecretDestinationEntry, field: SecretFi
 		return normalizeBaseUrl(entry.baseUrl);
 	}
 	return {
-		...(entry.oauthTokenUrl !== undefined ? { tokenUrl: entry.oauthTokenUrl } : {}),
-		...(entry.oauthClientId !== undefined ? { clientId: entry.oauthClientId } : {}),
+		...(entry.oauthTokenUrl === undefined ? {} : { tokenUrl: entry.oauthTokenUrl }),
+		...(entry.oauthClientId === undefined ? {} : { clientId: entry.oauthClientId }),
 	};
 }
 
@@ -144,8 +144,8 @@ export function parseSecretOwner(raw: unknown, field: SecretFieldId): SecretOwne
 		return undefined;
 	}
 	return {
-		...(tokenUrl !== undefined ? { tokenUrl: canonicalUrl(tokenUrl) ?? tokenUrl } : {}),
-		...(clientId !== undefined ? { clientId } : {}),
+		...(tokenUrl === undefined ? {} : { tokenUrl: canonicalUrl(tokenUrl) ?? tokenUrl }),
+		...(clientId === undefined ? {} : { clientId }),
 	};
 }
 

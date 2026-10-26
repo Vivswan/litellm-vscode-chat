@@ -137,7 +137,7 @@ export function parseParameterRecord(record: Readonly<Record<string, unknown>>):
 		forced: force.marked,
 		fallback: new Set(),
 		inheritFrom: shared.inheritFrom,
-		...(fimTemplate !== undefined ? { fimTemplate } : {}),
+		...(fimTemplate === undefined ? {} : { fimTemplate }),
 		...(fimTemplateDeclared ? { fimTemplateDeclared: true as const } : {}),
 		diagnostics,
 	};
@@ -264,7 +264,7 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 		sources.set(name, {
 			...attribution("entry", entry, name),
 			shadowed:
-				globalField !== undefined ? [{ layer: "global", key: globalField.sourceKey, value: globalField.value }] : [],
+				globalField === undefined ? [] : [{ layer: "global", key: globalField.sourceKey, value: globalField.value }],
 			...(field.forced ? { forced: true as const } : {}),
 		});
 	}
@@ -299,7 +299,7 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 		params,
 		forcedParams,
 		sources,
-		...(fimTemplate !== undefined ? { fimTemplate } : {}),
+		...(fimTemplate === undefined ? {} : { fimTemplate }),
 		diagnostics,
 	};
 }
@@ -438,9 +438,9 @@ export function projectResolvedParameters(
 			name,
 			value,
 			sent: skipReason === undefined,
-			...(skipReason !== undefined ? { skipReason } : {}),
+			...(skipReason === undefined ? {} : { skipReason }),
 			source: sourceRef(attribution.source),
-			...(attribution.inheritedBy !== undefined ? { inheritedBy: attribution.inheritedBy } : {}),
+			...(attribution.inheritedBy === undefined ? {} : { inheritedBy: attribution.inheritedBy }),
 			shadowed: attribution.shadowed.map((shadow) => ({ ...sourceRef(shadow), value: shadow.value })),
 			...(attribution.forced === true ? { forced: true } : {}),
 		});
@@ -458,7 +458,7 @@ export function projectResolvedParameters(
 		value: resolvedMax.value,
 		// resolveMaxTokens never answers "runtime" for an undefined runtime option.
 		source: resolvedMax.source as Exclude<MaxTokensSource, "runtime">,
-		...(configuredSource !== undefined ? { configuredSource: sourceRef(configuredSource) } : {}),
+		...(configuredSource === undefined ? {} : { configuredSource: sourceRef(configuredSource) }),
 	};
 
 	return { rows, maxTokens, diagnostics: resolved.diagnostics };

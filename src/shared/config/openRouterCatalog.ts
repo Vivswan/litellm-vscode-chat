@@ -115,7 +115,7 @@ export function mapOpenRouterEntry(entry: unknown): CatalogModel | undefined {
 	const name = nonBlankString(entry.name);
 	return {
 		id,
-		...(name !== undefined ? { name } : {}),
+		...(name === undefined ? {} : { name }),
 		fields: { ...numbers, ...booleans },
 	};
 }
@@ -152,17 +152,17 @@ function slimEntry(entry: unknown): SlimOpenRouterModel | undefined {
 	const parameters = stringTokens(entry.supported_parameters);
 	return {
 		id: model.id,
-		...(model.name !== undefined ? { name: model.name } : {}),
-		...(fields.context_length !== undefined ? { context_length: fields.context_length } : {}),
-		...(modalities !== undefined
-			? { architecture: { input_modalities: MAPPED_INPUT_MODALITIES.filter((token) => modalities.includes(token)) } }
-			: {}),
-		...(fields.max_output_tokens !== undefined
-			? { top_provider: { max_completion_tokens: fields.max_output_tokens } }
-			: {}),
-		...(parameters !== undefined
-			? { supported_parameters: MAPPED_SUPPORTED_PARAMETERS.filter((token) => parameters.includes(token)) }
-			: {}),
+		...(model.name === undefined ? {} : { name: model.name }),
+		...(fields.context_length === undefined ? {} : { context_length: fields.context_length }),
+		...(modalities === undefined
+			? {}
+			: { architecture: { input_modalities: MAPPED_INPUT_MODALITIES.filter((token) => modalities.includes(token)) } }),
+		...(fields.max_output_tokens === undefined
+			? {}
+			: { top_provider: { max_completion_tokens: fields.max_output_tokens } }),
+		...(parameters === undefined
+			? {}
+			: { supported_parameters: MAPPED_SUPPORTED_PARAMETERS.filter((token) => parameters.includes(token)) }),
 	};
 }
 
@@ -226,7 +226,7 @@ export function createCatalogLookup(
 	return {
 		byExactId: (id) => {
 			const model = byId.get(id);
-			return model !== undefined ? foundResult(model) : NOT_FOUND;
+			return model === undefined ? NOT_FOUND : foundResult(model);
 		},
 		byRawModelId: (rawId) => {
 			if (!options.implicitLookup) {

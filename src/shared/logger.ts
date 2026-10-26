@@ -220,8 +220,8 @@ export function recordedError(error: unknown): RecordedError {
 	const classification = transportClassificationOf(error);
 	return {
 		message: publicErrorText(error),
-		...(stack !== undefined ? { stack } : {}),
-		...(classification !== undefined ? { classification } : {}),
+		...(stack === undefined ? {} : { stack }),
+		...(classification === undefined ? {} : { classification }),
 	};
 }
 
@@ -368,7 +368,7 @@ export class Logger {
 	}
 
 	log(message: string, data?: unknown): void {
-		const text = data !== undefined ? `${message}: ${logDataText(data)}` : message;
+		const text = data === undefined ? message : `${message}: ${logDataText(data)}`;
 		this.write("info", text, `[${new Date().toISOString()}] ${text}`);
 	}
 
@@ -378,7 +378,7 @@ export class Logger {
 	 * classification-only rule is unchanged: keys and classifications, never response-derived text.
 	 */
 	advisory(message: string, data?: unknown): void {
-		this.write("info", data !== undefined ? `${message}: ${logDataText(data)}` : message);
+		this.write("info", data === undefined ? message : `${message}: ${logDataText(data)}`);
 	}
 
 	error(message: string, error: unknown): void {

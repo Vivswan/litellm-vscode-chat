@@ -230,7 +230,7 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 		forced: new Set(),
 		fallback: fallback.marked,
 		inheritFrom: shared.inheritFrom,
-		...(openrouterModel !== undefined ? { openrouterModel } : {}),
+		...(openrouterModel === undefined ? {} : { openrouterModel }),
 		diagnostics,
 	};
 }
@@ -412,7 +412,7 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 	const entryWinner = entry.winner as ParsedCapabilityRecord | undefined;
 	const globalWinner = global.winner as ParsedCapabilityRecord | undefined;
 	const directiveId = entryWinner?.openrouterModel ?? globalWinner?.openrouterModel;
-	const directiveLookup = directiveId !== undefined ? catalog.byExactId(directiveId) : undefined;
+	const directiveLookup = directiveId === undefined ? undefined : catalog.byExactId(directiveId);
 	const directive: DirectiveOutcome | undefined =
 		directiveId === undefined
 			? undefined
@@ -499,7 +499,7 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 	return {
 		fields,
 		fallbackFields,
-		...(directive !== undefined ? { directive } : {}),
+		...(directive === undefined ? {} : { directive }),
 		implicitCatalog: catalog.byRawModelId(rawModelId),
 		diagnostics,
 	};
@@ -598,7 +598,7 @@ function resolveField(
 			value: override.value,
 			level: override.level,
 			key: override.key,
-			...(override.inheritedBy !== undefined ? { inheritedBy: override.inheritedBy } : {}),
+			...(override.inheritedBy === undefined ? {} : { inheritedBy: override.inheritedBy }),
 			shadowed: [...override.shadowed, ...lower],
 		};
 	}
@@ -609,8 +609,8 @@ function resolveField(
 	return {
 		value: winner.value,
 		level: winner.level,
-		...(winner.key !== undefined ? { key: winner.key } : {}),
-		...(winner.inheritedBy !== undefined ? { inheritedBy: winner.inheritedBy } : {}),
+		...(winner.key === undefined ? {} : { key: winner.key }),
+		...(winner.inheritedBy === undefined ? {} : { inheritedBy: winner.inheritedBy }),
 		shadowed,
 	};
 }
@@ -645,7 +645,7 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 
 	const fromServer = (name: string): LevelCandidate[] => {
 		const value = capabilityField(serverValues, name);
-		return value !== undefined ? [{ level: "server", value }] : [];
+		return value === undefined ? [] : [{ level: "server", value }];
 	};
 	const fromFallback = (name: string): LevelCandidate[] => [...(capabilityField(overrides.fallbackFields, name) ?? [])];
 	const fromCatalog = (name: string): LevelCandidate[] => {
@@ -715,7 +715,7 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 	return {
 		fields: fields as EffectiveCapabilityFields,
 		defaultMaxTokens,
-		...(overrides.directive !== undefined ? { directive: overrides.directive } : {}),
+		...(overrides.directive === undefined ? {} : { directive: overrides.directive }),
 		diagnostics: overrides.diagnostics,
 	};
 }
