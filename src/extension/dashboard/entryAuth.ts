@@ -40,18 +40,6 @@ interface InlineCredentialFields {
 	readonly virtualKeyValue: string | undefined;
 }
 
-function usableInlineFields(inline: OptionalEntryFields): InlineCredentialFields {
-	return {
-		tokenUrl: usableHttpText(inline.oauthTokenUrl),
-		clientId: usableHttpText(inline.oauthClientId),
-		scopes: usableHttpText(inline.oauthScopes),
-		header: usableHttpText(inline.virtualKeyHeader),
-		apiKey: usableHttpText(inline.apiKey),
-		clientSecret: usableHttpText(inline.oauthClientSecret),
-		virtualKeyValue: usableHttpText(inline.virtualKeyValue),
-	};
-}
-
 /**
  * The first pairing rule the fields break, in the fixed order (the OAuth unit, then the virtual key pair), or
  * undefined when every unit is whole. OAuth is one unit: anything OAuth-shaped requires the token URL and client ID
@@ -87,36 +75,29 @@ function virtualKeyUnit(fields: InlineCredentialFields): Record<string, string> 
 	return { header: fields.header, ...(fields.virtualKeyValue === undefined ? {} : { value: fields.virtualKeyValue }) };
 }
 
-/** The OAuth unit with its companions nested under it, as the grammar ranks them. */
-function oauthUnit(
-	fields: InlineCredentialFields,
-	pair: { readonly tokenUrl: string; readonly clientId: string },
-	virtualKey: Record<string, string> | undefined
-): Record<string, unknown> {
-	return {
-		tokenUrl: pair.tokenUrl,
-		clientId: pair.clientId,
-		...(fields.clientSecret === undefined ? {} : { clientSecret: fields.clientSecret }),
-		...(fields.scopes === undefined ? {} : { scopes: fields.scopes }),
-		...(fields.apiKey === undefined ? {} : { apiKey: fields.apiKey }),
-		...(virtualKey === undefined ? {} : { virtualKey }),
-	};
-}
-
 /** The nested `auth` object for already-paired fields, or undefined when no credential is declared inline. */
 function assembledAuth(fields: InlineCredentialFields): Readonly<Record<string, unknown>> | undefined {
-	const { tokenUrl, clientId } = fields;
+	const { tokenUrl, clientId, clientSecret, scopes, apiKey } = fields;
 	const virtualKey = virtualKeyUnit(fields);
-	const auth: Record<string, unknown> = {};
 	if (tokenUrl !== undefined && clientId !== undefined) {
-		auth.oauth = oauthUnit(fields, { tokenUrl, clientId }, virtualKey);
-	} else {
-		if (fields.apiKey !== undefined) {
-			auth.apiKey = fields.apiKey;
-		}
-		if (virtualKey !== undefined) {
-			auth.virtualKey = virtualKey;
-		}
+		return {
+			oauth: {
+				tokenUrl,
+				clientId,
+				...(clientSecret === undefined ? {} : { clientSecret }),
+				...(scopes === undefined ? {} : { scopes }),
+				...(apiKey === undefined ? {} : { apiKey }),
+				...(virtualKey === undefined ? {} : { virtualKey }),
+			},
+		};
+	}
+
+	const auth: Record<string, unknown> = {};
+	if (apiKey !== undefined) {
+		auth.apiKey = apiKey;
+	}
+	if (virtualKey !== undefined) {
+		auth.virtualKey = virtualKey;
 	}
 
 	return Object.keys(auth).length > 0 ? auth : undefined;
@@ -124,7 +105,15 @@ function assembledAuth(fields: InlineCredentialFields): Readonly<Record<string, 
 
 /** Failures come in a fixed order: the OAuth unit (token URL, then client ID), then the virtual key pair. */
 export function assembleEntryAuth(inline: OptionalEntryFields, resolves: SecretResolution = {}): AssembledEntryAuth {
-	const fields = usableInlineFields(inline);
+	const fields: InlineCredentialFields = {
+		tokenUrl: usableHttpText(inline.oauthTokenUrl),
+		clientId: usableHttpText(inline.oauthClientId),
+		scopes: usableHttpText(inline.oauthScopes),
+		header: usableHttpText(inline.virtualKeyHeader),
+		apiKey: usableHttpText(inline.apiKey),
+		clientSecret: usableHttpText(inline.oauthClientSecret),
+		virtualKeyValue: usableHttpText(inline.virtualKeyValue),
+	};
 	const failure = pairingFailureOf(fields, resolves);
 	if (failure !== undefined) {
 		return { failure };

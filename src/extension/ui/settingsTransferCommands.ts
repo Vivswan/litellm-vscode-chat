@@ -790,24 +790,6 @@ function refuseEmptyImport(env: SettingsTransferEnv, plan: ImportPlan): void {
 	);
 }
 
-/** The preview modal's facts, its lists capped. */
-function previewSummaryOf(plan: ImportPlan, kept: readonly KeptServer[], parsed: ImportFile): ImportPreviewSummary {
-	return {
-		settingCount: plan.settingsWrites.length,
-		settingKeys: plan.settingsWrites.slice(0, PREVIEW_KEY_CAP).map((write) => write.key),
-		serverCount: kept.length,
-		collisionCount: plan.collisions.length,
-		connectionChangedCount: plan.collisions.filter((collision) => collision.connectionChanged).length,
-		secretFieldCount: plan.secretFieldCount,
-		droppedLines: plan.dropped.slice(0, PREVIEW_REMARK_CAP).map(remarkSentence),
-		droppedCount: plan.dropped.length,
-		noteLines: plan.notes.slice(0, PREVIEW_REMARK_CAP).map(remarkSentence),
-		noteCount: plan.notes.length,
-		skippedKeys: plan.skippedKeys.map((skipped) => skipped.key),
-		unknownKeyCount: parsed.unknownKeys.length,
-	};
-}
-
 /** The rename input's validation message, or undefined for a usable label. */
 function renamedLabelProblem(candidate: string, taken: ReadonlySet<string>): string | undefined {
 	const trimmed = trimHttpWhitespace(candidate);
@@ -1106,7 +1088,21 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			refuseEmptyImport(env, plan);
 			return;
 		}
-		if (!(await env.prompts.confirmImport(previewSummaryOf(plan, kept, parsed)))) {
+		const summary: ImportPreviewSummary = {
+			settingCount: plan.settingsWrites.length,
+			settingKeys: plan.settingsWrites.slice(0, PREVIEW_KEY_CAP).map((write) => write.key),
+			serverCount: kept.length,
+			collisionCount: plan.collisions.length,
+			connectionChangedCount: plan.collisions.filter((collision) => collision.connectionChanged).length,
+			secretFieldCount: plan.secretFieldCount,
+			droppedLines: plan.dropped.slice(0, PREVIEW_REMARK_CAP).map(remarkSentence),
+			droppedCount: plan.dropped.length,
+			noteLines: plan.notes.slice(0, PREVIEW_REMARK_CAP).map(remarkSentence),
+			noteCount: plan.notes.length,
+			skippedKeys: plan.skippedKeys.map((skipped) => skipped.key),
+			unknownKeyCount: parsed.unknownKeys.length,
+		};
+		if (!(await env.prompts.confirmImport(summary))) {
 			return;
 		}
 		const decisions = await collectCollisionDecisions(env, plan, kept, currentServersRaw);

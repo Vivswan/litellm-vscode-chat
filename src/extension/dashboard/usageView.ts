@@ -12,12 +12,6 @@ import type {
 } from "../../dashboard/viewModels";
 import type { ServerUsageState, UsageEndpointState } from "../servers/usage/store";
 
-/** The budget half of a usage card: the source always, the figures only where the store holds them. */
-type BudgetFields = Pick<UsageServerView, "budgetSource"> &
-	Partial<
-		Pick<UsageServerView, "spend" | "effectiveBudget" | "keyBudget" | "entryBudget" | "spentFraction" | "budgetResetAt">
-	>;
-
 export interface UsageViewInput {
 	/** One usage state per tracked server, label-sorted as UsageStore.getStates lists them. */
 	readonly states: readonly ServerUsageState[];
@@ -93,19 +87,6 @@ function requestsView(totals: NonNullable<ServerUsageState["daily"]>["totals"]):
 	};
 }
 
-/** The budget facts a card states; each optional one appears only when the store holds it. */
-function budgetFields(budget: ServerUsageState["budget"]): BudgetFields {
-	return {
-		...(budget.spend === undefined ? {} : { spend: budget.spend }),
-		...(budget.effectiveBudget === undefined ? {} : { effectiveBudget: budget.effectiveBudget }),
-		...(budget.keyBudget === undefined ? {} : { keyBudget: budget.keyBudget }),
-		...(budget.entryBudget === undefined ? {} : { entryBudget: budget.entryBudget }),
-		budgetSource: budget.budgetSource,
-		...(budget.spentFraction === undefined ? {} : { spentFraction: budget.spentFraction }),
-		...(budget.budgetResetAt === undefined ? {} : { budgetResetAt: budget.budgetResetAt }),
-	};
-}
-
 function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageServerCardView | undefined {
 	if (state.availability !== "available") {
 		return forbiddenStanding(state.endpoints.keyInfo) || forbiddenStanding(state.endpoints.dailyActivity)
@@ -113,6 +94,7 @@ function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageS
 			: undefined;
 	}
 	const totals = state.daily?.totals;
+	const budget = state.budget;
 	const view: UsageServerView = {
 		kind: "usage",
 		label: state.label,
@@ -121,7 +103,13 @@ function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageS
 		keyInfo: endpointStandingView(state.endpoints.keyInfo),
 		dailyActivity: endpointStandingView(state.endpoints.dailyActivity),
 		...(state.spendUpdatedAt === undefined ? {} : { lastUpdatedAt: state.spendUpdatedAt }),
-		...budgetFields(state.budget),
+		...(budget.spend === undefined ? {} : { spend: budget.spend }),
+		...(budget.effectiveBudget === undefined ? {} : { effectiveBudget: budget.effectiveBudget }),
+		...(budget.keyBudget === undefined ? {} : { keyBudget: budget.keyBudget }),
+		...(budget.entryBudget === undefined ? {} : { entryBudget: budget.entryBudget }),
+		budgetSource: budget.budgetSource,
+		...(budget.spentFraction === undefined ? {} : { spentFraction: budget.spentFraction }),
+		...(budget.budgetResetAt === undefined ? {} : { budgetResetAt: budget.budgetResetAt }),
 		...(totals === undefined ? {} : { requests: requestsView(totals) }),
 	};
 	return view;

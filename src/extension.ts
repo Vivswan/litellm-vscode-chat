@@ -140,53 +140,36 @@ async function wireSurfaces(
 	return { servers, status, dashboard, devSeed };
 }
 
-/**
- * The tail of activation: the test seams, the status fan-out, the first sync pass, the welcome, and the palette
- * commands, each at the moment its call-site comment states.
- */
-async function finishActivation(
+/** The suites' seams: the test-only commands in non-production mode, and the catalog seeding seam, inert in production. */
+function registerTestSeams(
 	context: vscode.ExtensionContext,
 	logging: ActivationLogging,
-	identity: ActivationIdentity,
 	core: ActivationCore,
 	wired: WiredSurfaces
-): Promise<void> {
-	const { logger, outputChannel, issueReporter, sessionLogTee } = logging;
-	const { catalogStore, provider, hasDeclaredServers, hasConfiguredServers } = core.provider;
-	const { servers, dashboard, devSeed } = wired;
-	const { statusBar, notifier } = wired.status;
+): void {
+	const { issueReporter, sessionLogTee } = logging;
 	// Test-only commands; registered after the sync engine and the dashboard exist because the suites read the engine's
 	// declared views through them and the monkey fuzzer injects dashboard messages.
 	if (sessionLogTee !== undefined) {
-		registerTestCommands(context, provider, issueReporter, servers.syncEngine, dashboard, sessionLogTee);
+		registerTestCommands(
+			context,
+			core.provider.provider,
+			issueReporter,
+			wired.servers.syncEngine,
+			wired.dashboard,
+			sessionLogTee
+		);
 	}
 	// The docker-resolution suite's deterministic catalog seeding (inert in production).
-	registerOpenRouterCatalogTestSeam(context, catalogStore);
-	// Wired before the first sync pass so its completion re-judges the status surfaces (the pass's sync failures reach
-	// the bar with no provider report).
-	wireStatusFanout(context, logger, { provider, syncEngine: servers.syncEngine, statusBar, notifier, dashboard });
-	// The first pass runs off the activation path: it may hit the host command (which validates groups against the
-	// provider) and the network.
-	void servers.syncEngine.syncNow(true);
+	registerOpenRouterCatalogTestSeam(context, core.provider.catalogStore);
+}
 
-	if (devSeed?.openDashboard) {
-		void vscode.commands.executeCommand(CMD.openDashboard).then(undefined, (error: unknown) => {
-			logger.error("Dev seed dashboard open failed", error);
-		});
+function openSeededDashboard(devSeed: DevSeed | undefined, logger: Logger): void {
+	if (!devSeed?.openDashboard) {
+		return;
 	}
-
-	await maybeShowWelcome(context, logger, { hasDeclaredServers });
-
-	wireUiCommands(context, logger, {
-		provider,
-		statusBar,
-		outputChannel,
-		syncEngine: servers.syncEngine,
-		getDeclared: () => servers.verdict.declared().views,
-		issueReporter,
-		extVersion: identity.extVersion,
-		vscodeVersion: identity.vscodeVersion,
-		hasConfiguredServers,
+	void vscode.commands.executeCommand(CMD.openDashboard).then(undefined, (error: unknown) => {
+		logger.error("Dev seed dashboard open failed", error);
 	});
 }
 
@@ -226,13 +209,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// activation path.
 	wireTokenCounting(context, logger);
 	const core: ActivationCore = { storage, provider: wireProvider(context, logger, identity.ua, storage) };
+	const { provider, hasDeclaredServers, hasConfiguredServers } = core.provider;
 
 	await storage.runMigrations();
 
-	vscode.lm.registerLanguageModelChatProvider(VENDOR_ID, core.provider.provider);
+	vscode.lm.registerLanguageModelChatProvider(VENDOR_ID, provider);
 
 	const wired = await wireSurfaces(context, logging, identity, core);
-	await finishActivation(context, logging, identity, core, wired);
+	const { servers, dashboard } = wired;
+	const { statusBar, notifier } = wired.status;
+	registerTestSeams(context, logging, core, wired);
+	// Wired before the first sync pass so its completion re-judges the status surfaces (the pass's sync failures reach
+	// the bar with no provider report).
+	wireStatusFanout(context, logger, { provider, syncEngine: servers.syncEngine, statusBar, notifier, dashboard });
+	// The first pass runs off the activation path: it may hit the host command (which validates groups against the
+	// provider) and the network.
+	void servers.syncEngine.syncNow(true);
+	openSeededDashboard(wired.devSeed, logger);
+	await maybeShowWelcome(context, logger, { hasDeclaredServers });
+	wireUiCommands(context, logger, {
+		provider,
+		statusBar,
+		outputChannel,
+		syncEngine: servers.syncEngine,
+		getDeclared: () => servers.verdict.declared().views,
+		issueReporter: logging.issueReporter,
+		extVersion: identity.extVersion,
+		vscodeVersion: identity.vscodeVersion,
+		hasConfiguredServers,
+	});
 }
 
 export function deactivate() {}

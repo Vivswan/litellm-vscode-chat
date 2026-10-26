@@ -444,20 +444,23 @@ async function rollbackStagedSecrets(
 function unrestoredSaveError(inputs: {
 	readonly env: IntentEnvironment;
 	readonly label: string;
-	readonly newEntry: Record<string, unknown>;
+	readonly intendedEntry: DeclaredServer | undefined;
 	readonly restoreFailures: readonly SecretFieldId[];
 	readonly error: unknown;
 }): DashboardOperationError {
-	const { env, label, newEntry, restoreFailures, error } = inputs;
+	const { env, label, intendedEntry, restoreFailures, error } = inputs;
 	env.log("A failed save left a secure value unrestored", {
 		error: errorLabel(error),
 	});
 	// A failed settings write fires no configuration event, so a sync is requested here, but ONLY while the standing
 	// entry still names every destination the user was saving. A concurrent re-point of the host or the OAuth token
 	// URL must not route the stranded credential there; a create or rename has no standing entry.
-	const intended = acceptedEntry([newEntry], label);
 	const standing = acceptedEntry(env.readServersSetting(), label);
-	if (intended !== undefined && standing !== undefined && nonSecretIdentityMatches(standing.entry, intended.entry)) {
+	if (
+		intendedEntry !== undefined &&
+		standing !== undefined &&
+		nonSecretIdentityMatches(standing.entry, intendedEntry)
+	) {
 		env.requestServerSync();
 	}
 	return new DashboardOperationError(
@@ -628,7 +631,7 @@ export async function applySaveServerSetting(
 	} catch (error) {
 		const restoreFailures = await rollbackStagedSecrets(env, label, staged);
 		if (restoreFailures.length > 0) {
-			throw unrestoredSaveError({ env, label, newEntry, restoreFailures, error });
+			throw unrestoredSaveError({ env, label, intendedEntry, restoreFailures, error });
 		}
 		throw error;
 	}
