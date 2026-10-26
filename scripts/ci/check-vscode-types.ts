@@ -28,8 +28,7 @@ function parseVersion(value: unknown, label: string): readonly [number, number] 
 	return [Number(match[1]), Number(match[2])];
 }
 
-// Anchored on this script's own location, not the CWD, and resolved like an import, so the check reads the manifest the
-// compiler actually sees.
+// Anchored on this script's location, not the cwd, and resolved like an import: the manifest the compiler sees.
 const rootManifestPath = path.resolve(__dirname, "../../package.json");
 
 function resolveTypesManifest(): string {

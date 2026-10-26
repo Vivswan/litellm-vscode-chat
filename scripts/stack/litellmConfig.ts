@@ -23,21 +23,19 @@ import {
 export type { GenerateOptions };
 export { COPILOT_TOKEN_DIR, composeSetting, STACK_DEFAULTS };
 
-/**
- * The well-known first-party Copilot editor client id (with the matching Editor-Version/Copilot-Integration-Id headers
- * below) that third-party tools reuse to reach the Copilot API. GitHub's Copilot terms can treat use outside a
- * supported client as unauthorized; running copilot-login is the account owner's deliberate acceptance of that risk.
- */
+/** The first-party Copilot editor client id third-party tools reuse; copilot-login is the owner's acceptance. */
 export const COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98";
 
+/** Bound on each Copilot request, so a stalled GitHub never holds the stack start. */
 const COPILOT_FETCH_TIMEOUT_MS = 15_000;
 
 /**
- * The generation-time Copilot catalog fetch: cached device-flow token ->
- * short-lived Copilot key -> live model list. Returns [] when no login has
- * been seeded (the common case); every other failure is loud but non-fatal,
- * so the stack still starts and serves the fake catalog without
- * github_copilot routes.
+ * The generation-time Copilot catalog fetch: cached device-flow token -> short-lived Copilot key -> live model list.
+ * Returns [] when no login has been seeded (the common case); every other failure is loud but non-fatal, so the stack
+ * still starts and serves the fake catalog without github_copilot routes. The client id and the matching
+ * Editor-Version/Copilot-Integration-Id headers are the first-party editor's, which GitHub's Copilot terms can treat as
+ * unauthorized outside a supported client; running copilot-login is the account owner's deliberate acceptance of that
+ * risk.
  */
 export async function fetchCopilotModels(): Promise<CopilotModel[]> {
 	try {
@@ -108,10 +106,7 @@ export interface GeneratedConfig {
 	/** Absolute path of the generated file. */
 	path: string;
 
-	/**
-	 * A running litellm container never re-reads its config, so a content change means the caller must recreate the
-	 * service for the new config to apply.
-	 */
+	/** A running litellm container never re-reads its config: on a change the caller must recreate the service. */
 	changed: boolean;
 }
 

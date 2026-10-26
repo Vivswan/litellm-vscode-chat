@@ -32,19 +32,20 @@ export function highContrastLightCss(): string {
 	return hostThemeTokens("high-contrast-light.css");
 }
 
+/** A declaration of a --vscode-* or --font-* custom property, the tokens the host theme files define. */
 const isHostToken = (declaration: Declaration): boolean =>
 	declaration.property === "custom" &&
 	(declaration.value.name.startsWith("--vscode-") || declaration.value.name.startsWith("--font-"));
 
+/** Exempt everywhere: the ordinary themes never define them, and the stylesheet reads them behind a fallback. */
+const CONTRAST_ONLY_TOKENS = new Set(["--vscode-contrastBorder", "--vscode-contrastActiveBorder"]);
+
 /**
  * Every --vscode-* token the stylesheet reads must be defined by the ORDINARY themes: VS Code hands the real webview a
  * full token set, so a token omitted here falls back to whatever literal the stylesheet carries, and those literals
- * were written against dark. High contrast is exempt on purpose - the real HC themes leave those values null, so its
- * sparseness IS the fidelity - and contrast-only tokens are exempt everywhere, since the ordinary themes do not define
- * them and the stylesheet reads them behind a fallback.
+ * were written against dark. High contrast is exempt on purpose: the real HC themes leave those values null, so its
+ * sparseness IS the fidelity.
  */
-const CONTRAST_ONLY_TOKENS = new Set(["--vscode-contrastBorder", "--vscode-contrastActiveBorder"]);
-
 export function assertThemeCoversStylesheet(stylesheet: string, tokensCss: string, hostTheme: string): void {
 	const referenced = new Set<string>();
 	transform({

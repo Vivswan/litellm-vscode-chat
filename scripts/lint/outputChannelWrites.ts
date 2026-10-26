@@ -20,6 +20,7 @@ const NON_WRITING_MEMBERS: ReadonlySet<string> = new Set([
 	"onDidChangeLogLevel",
 ]);
 
+/** The vscode channel types whose members are judged, beside the one createOutputChannel function. */
 const CHANNEL_INTERFACES: ReadonlySet<string> = new Set(["OutputChannel", "LogOutputChannel"]);
 
 function isVscodeTypings(file: ts.SourceFile): boolean {

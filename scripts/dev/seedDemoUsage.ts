@@ -28,16 +28,10 @@ export interface DemoUsageKeySpec {
 	/** The spend fraction the KEY's max_budget is pinned to produce (spend / budget). */
 	readonly keyBudgetRatio: number;
 
-	/**
-	 * When set, the seeded entry carries a manual `budget` pinned to this fraction instead: the entry-over-key override
-	 * demo.
-	 */
+	/** When set, the seeded entry carries a manual budget pinned to this fraction: the entry-over-key override demo. */
 	readonly entryBudgetRatio?: number;
 
-	/**
-	 * The fake model the demo completions run against (pricing varies the spend); catalog-typed, so a rename fails
-	 * typecheck.
-	 */
+	/** The fake model the completions run against, chosen since pricing varies the spend; a rename fails typecheck. */
 	readonly model: FakeModelAlias;
 }
 
@@ -73,6 +67,7 @@ export const DEMO_USAGE_KEYS: readonly DemoUsageKeySpec[] = [
 
 /** One seeded key's measured outcome; dev.ts turns these into seed entries. */
 export interface SeededDemoUsage {
+	/** The key this outcome was measured for. */
 	readonly spec: DemoUsageKeySpec;
 
 	/** The key's accumulated spend in USD after the flush (all runs, not just this one). */
@@ -91,15 +86,13 @@ const UNBLOCK_BUDGET_USD = 1_000_000;
 /** The spend-log flush is async (~10s); poll /key/info until the new spend lands. */
 const FLUSH_TIMEOUT_MS = 120_000;
 
+/** The /key/info polling period while the flush is awaited. */
 const FLUSH_POLL_MS = 2_000;
 
-/**
- * Consecutive equal readings after the first rise before a key counts as flushed: LiteLLM's batch writer lands queued
- * spend roughly every 10s, so the stability window must exceed one batch interval - settling on the first rise could
- * measure a partial batch and pin the budgets off-target.
- */
+/** Equal readings after the first rise before a key counts as flushed; the window must outlast one ~10s batch. */
 const FLUSH_STABLE_POLLS = 6;
 
+/** Whole-call bound on one admin request: key generate, update, or info. */
 const ADMIN_TIMEOUT_MS = 30_000;
 
 /** Whole-call bound on one demo completion (a few thousand streamed words). */
@@ -108,6 +101,7 @@ const CHAT_TIMEOUT_MS = 120_000;
 /** How long a standalone run waits for the proxy; the dev launcher's stack start already waited. */
 const READY_TIMEOUT_MS = 60_000;
 
+/** The liveliness-probe period, and each probe's own timeout, while a standalone run waits for the proxy. */
 const READY_POLL_MS = 1_000;
 
 function log(message: string): void {
@@ -214,7 +208,8 @@ async function fireChat(baseUrl: string, spec: DemoUsageKeySpec, words: number):
 /**
  * Poll /key/info until every key's spend has risen above its pre-chat baseline AND held steady for FLUSH_STABLE_POLLS
  * consecutive readings: risen means the async flush started landing, steady means no partial batch is still queued
- * behind it.
+ * behind it. LiteLLM's batch writer lands queued spend roughly every 10s, so the stability window must exceed one batch
+ * interval; settling on the first rise could measure a partial batch and pin the budgets off-target.
  */
 async function awaitSpendFlush(baseUrl: string, masterKey: string, baselines: Map<string, number>): Promise<void> {
 	const deadline = Date.now() + FLUSH_TIMEOUT_MS;

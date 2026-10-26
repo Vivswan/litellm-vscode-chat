@@ -12,6 +12,7 @@ export const DOC_LOCALES = ["en", "zhCn", "zhTw"] as const;
 
 export type DocLocale = (typeof DOC_LOCALES)[number];
 
+/** The page each locale's table is stamped into, relative to the repository root the generator runs from. */
 export const SETTINGS_DOC_PATHS: Record<DocLocale, string> = {
 	en: "docs/settings.md",
 	zhCn: "docs/zh-cn/settings.md",
@@ -25,29 +26,30 @@ export const TABLE_HEADERS: Record<DocLocale, string> = {
 	zhTw: "| 設定 | 預設值 | 行為 |",
 };
 
+/** The header's separator row; the column widths are nominal, since markdown ignores them. */
 const TABLE_SEPARATOR = "|---------|---------|-------------|";
 
+/** The generated region's opening marker, carrying the regeneration instructions a reader of the doc sees. */
 export const BEGIN_MARKER =
 	"<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->";
+
+/** Fixed text, so it needs no pattern the way the begin marker does. */
 export const END_MARKER = "<!-- settings-reference:end -->";
 
-/**
- * Any begin marker, whatever provenance text it carries: an older BEGIN_MARKER wording still delimits the region, so
- * changing the wording regenerates the marker line instead of orphaning the doc.
- */
+/** Any begin marker, whatever its provenance text, so a reworded BEGIN_MARKER cannot orphan the doc's region. */
 const BEGIN_MARKER_PATTERN = /<!-- settings-reference:begin\b[^\n]*?-->/;
 
 function beginMarkerCount(content: string): number {
 	return content.match(new RegExp(BEGIN_MARKER_PATTERN.source, "g"))?.length ?? 0;
 }
 
-/** The bounds a number setting's spec declares; a value outside them reads as the default. */
+/**
+ * The bounds a number setting's spec declares; a value outside them reads as the default. `offValue` is the documented
+ * off switch, taken below the minimum.
+ */
 interface SettingBounds {
 	readonly minimum: number;
-
 	readonly maximum: number;
-
-	/** The documented off switch, taken below the minimum. */
 	readonly offValue?: number | undefined;
 }
 

@@ -7,8 +7,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 
-// Every doc stating the minimum VS Code version. A doc missing here keeps its old floor at the next bump, which the
-// claims test in stackDrift.test.ts turns red.
+// Every doc stating the VS Code floor; one missing here keeps its old floor, which stackDrift.test.ts turns red.
 const FLOOR_DOCS = [
 	"README.md",
 	"README.zh-cn.md",
@@ -60,11 +59,15 @@ if (Number(pin[2]) <= Number(floorMatch[3])) {
 	process.exit(0);
 }
 
-// Validate every file before writing any, so a failure never leaves the tree half-raised.
+// The raised floor. Every file is validated before any is written, so a failure never leaves the tree half-raised.
 const raised = `${pin[1]}.${pin[2]}.0`;
 
+// Read as text, so the one engines line is replaced in place and the manifest's formatting survives.
 const manifestSource = readFileSync(manifestPath, "utf8");
+
+// Replaced verbatim; it must occur exactly once, or the manifest's shape is not the one this script knows.
 const enginesLine = `"vscode": "^${floor}"`;
+
 if (manifestSource.split(enginesLine).length !== 2) {
 	fail(`package.json must contain exactly one occurrence of ${enginesLine}`);
 }

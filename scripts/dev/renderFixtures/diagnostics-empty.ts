@@ -9,9 +9,7 @@ import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, NO_SECRETS } from "./shared.ts";
 
-// A just-declared server before its first sync: nothing checked, nothing discovered, no records written - the state
-// every empty sentence below is about. Usage and the record maps are empty too: a rail wearing spend, or a Settings
-// destination showing four matcher records, would contradict "no matcher records configured" one tab away.
+/** A just-declared server before its first sync: nothing checked, nothing discovered, no records written. */
 const base = baseState({
 	servers: [
 		{
@@ -30,6 +28,7 @@ const base = baseState({
 	diagnostics: [],
 });
 
+/** Usage and the record maps emptied too: rail spend or Settings records would contradict the empty sentences. */
 const state: DashboardState = {
 	...base,
 	usage: { ...base.usage, servers: [] },
@@ -40,6 +39,7 @@ const state: DashboardState = {
 	},
 };
 
+/** Diagnostics focused, with the resolution request answered empty so both empty-state sentences render. */
 const fixture: RenderFixture = {
 	messages: [
 		{ kind: "push", state },

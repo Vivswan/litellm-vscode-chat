@@ -7,25 +7,24 @@
 
 import { StringDecoder } from "node:string_decoder";
 
+/** Electron's watchdog line; with no mocha output at all, the one shape that earns a relaunch. */
 export const HOST_STALL_MARKER = "CodeWindow: detected unresponsive";
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: strips mocha's ANSI color codes before matching
 const ANSI = /\u001b\[[0-9;]*m/g;
 
-/**
- * A line mocha's spec reporter has printed: it indents everything, suite titles included, by at least two spaces (a
- * suite title precedes suiteSetup, so a stall after it may already have run state-mutating setup), and its summary
- * stands alone. Judged per complete line, so indentation is read only where the line's start is known.
- *
- *   vscode-test's own progress   -> start at column 0
- *   VS Code's "[main ...]" lines -> start at column 0
- */
+/** A line mocha's spec reporter printed: indented by two or more spaces, or its standalone summary line. */
 const MOCHA_LINE = /^[ \t]{2,}\S|^[ \t]*\d+ (?:passing|failing|pending)\b/;
 
 /** An unterminated line kept past this loses its head and is then judged with its start unknown. */
 const MAX_PARTIAL_LINE = 4096;
 
-/** One per pipe: the decoder rejoins multi-byte glyphs split across chunks, the partial line rejoins text. */
+/**
+ * One per pipe: the decoder rejoins multi-byte glyphs split across chunks, the partial line rejoins text. Lines are
+ * judged whole, so indentation is read only where the line's start is known. Mocha indents everything it prints by at
+ * least two spaces, suite titles included, while vscode-test's own progress and VS Code's "[main ...]" lines start at
+ * column 0; a suite title precedes suiteSetup, so a stall after it may already have run state-mutating setup.
+ */
 export class HostStallDetector {
 	private readonly decoder = new StringDecoder("utf8");
 

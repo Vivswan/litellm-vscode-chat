@@ -13,18 +13,13 @@ import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai"
 import { isRetryableFailure } from "../../src/provider/transport/retry";
 import { OPENROUTER_MODELS_URL } from "../../src/shared/config/openRouterCatalog";
 
-/**
- * Per-attempt budget covering the connect, the headers, and the whole body read; one signal carries it through every
- * phase so a stall anywhere trips the same clock.
- */
+/** Per-attempt budget over connect, headers, and the whole body read: one signal, so a stall anywhere trips it. */
 export const FETCH_TIMEOUT_MS = 20_000;
 
-/**
- * Retryable failures (idempotent GET; CI runners hit rate limits) get this many attempts; settled answers and schema
- * drift get one.
- */
+/** Attempts for a retryable failure (an idempotent GET; CI runners hit rate limits); a settled answer gets one. */
 const FETCH_ATTEMPTS = 3;
 
+/** The first pause; retryDelayMs triples it per attempt. */
 const RETRY_BASE_DELAY_MS = 5_000;
 
 /** The pause after failed attempt `attempt` (1-based): 5 s, 15 s, 45 s, ... - a rate limit wants room, not a hammer. */

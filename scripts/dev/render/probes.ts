@@ -1,22 +1,13 @@
 import { OVERFLOW_SIDEWAYS_MARKER } from "../overflowMarkers.ts";
 import { type CdpConnection, evaluate, setWidth } from "./chrome.ts";
 
-/**
- * Where a --pane-widths search starts, from each side of the rail's collapse. Starting points only - the search
- * corrects itself from what it measures.
- */
+/** The --pane-widths search's start on the rail's collapsed side; a start only, since the search self-corrects. */
 const NARROW_PROBE_WIDTH = 320;
 
+/** The search's start on the expanded side of the rail's collapse. */
 const WIDE_PROBE_WIDTH = 1920;
 
-/**
- * The page-level number is the whole claim; the names under it are a diagnostic from two questions that fail in
- * opposite directions. Anything inside a scroller is skipped in both, since a deliberate overflow-x adds nothing to the
- * document's own scroll.
- *
- *   boxes reaching past the edge -> miss an unbreakable text run inside a block that stays in bounds
- *   boxes overflowing THEMSELVES -> catch that run, plus the min-width ancestor the deepest-offender filter drops
- */
+/** The page-level overflow is the whole claim; the names under it are a diagnostic from two opposite questions. */
 const OVERFLOW_PROBE = `(() => {
 	const root = document.documentElement;
 	const overflow = root.scrollWidth - root.clientWidth;
@@ -62,6 +53,13 @@ const OVERFLOW_PROBE = `(() => {
 	return JSON.stringify({ overflow, clientWidth: root.clientWidth, culprits });
 })()`;
 
+/**
+ * Anything inside a scroller is skipped by both of the probe's questions, since a deliberate overflow-x adds nothing to
+ * the document's own scroll.
+ *
+ *   boxes reaching past the edge -> miss an unbreakable text run inside a block that stays in bounds
+ *   boxes overflowing THEMSELVES -> catch that run, plus the min-width ancestor the deepest-offender filter drops
+ */
 export async function assertNoHorizontalOverflow(cdp: CdpConnection, width: number): Promise<void> {
 	const found = (await evaluate(cdp, OVERFLOW_PROBE)) as string | null;
 	if (found === null) {

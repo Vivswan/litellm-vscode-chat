@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 import { selectBunTests } from "./changedBunTests";
 
+// Two levels up from scripts/dev: the directory git runs in and the selection resolves against.
 const repoRoot = path.resolve(__dirname, "..", "..");
 
 // --no-renames lists a move as its old and new path, so the suites importing either side run.

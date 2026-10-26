@@ -21,16 +21,22 @@ import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import { OVERFLOW_SIDEWAYS_MARKER, OWN_WIDTH_ONLY_MARKER } from "./overflowMarkers.ts";
 
+/** Anchored on this script's location, not the cwd, so the sweep runs from any directory. */
 const REPO_ROOT = path.resolve(__dirname, "../..");
+
+/** Every fixture module here but shared.ts is one page the sweep renders. */
 const FIXTURE_DIR = path.join(REPO_ROOT, "scripts/dev/renderFixtures");
+
+/** render-dashboard.ts, spawned per fixture with the harvested widths and pane widths. */
 const HARNESS = path.join(REPO_ROOT, "scripts/dev/render-dashboard.ts");
+
+/** The dashboard's own rules: the shell's floor and the container and window queries are read out of it. */
 const STYLESHEET = path.join(REPO_ROOT, "src/webview/dashboard/styles/dashboard.css");
+
+/** Read with the stylesheet, since the Tailwind entry can declare queries of its own. */
 const THEME = path.join(REPO_ROOT, "src/webview/dashboard/styles/theme.css");
 
-/**
- * The trees a class string can live in: the same two theme.css hands Tailwind in its @source lines. A scan narrower
- * than the compiler's has a blind spot.
- */
+/** The trees a class string can live in, the same two theme.css hands Tailwind: a narrower scan has a blind spot. */
 const CLASS_TREES = [path.join(REPO_ROOT, "src/webview"), path.join(REPO_ROOT, "src/dashboard")];
 
 function declared(source: string, pattern: RegExp, what: string): number {

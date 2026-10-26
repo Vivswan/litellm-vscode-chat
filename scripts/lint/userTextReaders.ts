@@ -28,13 +28,17 @@ export interface AllowedRead {
 	/** The nearest named function around the read; a nameless callback belongs to its holder. */
 	readonly function: string;
 
+	/** Why the read is not user text, for the reviewer of the config; the rule does not read it. */
 	readonly reason: string;
 }
 
+/** The lib string members that trim, judged by the declaration a call resolves to. */
 const TRIM_MEMBERS: ReadonlySet<string> = new Set(["trim", "trimStart", "trimEnd", "trimLeft", "trimRight"]);
 
+/** The global parsers whose text argument is refused; parseInt's radix is read like its text. */
 const NUMBER_PARSERS: ReadonlySet<string> = new Set(["parseFloat", "parseInt"]);
 
+/** The lib interface of the Number global, so Number(x) and new Number(x) are judged alike. */
 const NUMBER_CONSTRUCTOR = "NumberConstructor";
 
 /** Everything that is not text: a constant or a value Number() reads without a grammar. */
@@ -46,6 +50,7 @@ const NOT_TEXT =
 	ts.TypeFlags.Null |
 	ts.TypeFlags.Undefined;
 
+/** A type the checker cannot settle is text, so it is a refusal, never a pass. */
 const UNRESOLVED = ts.TypeFlags.Any | ts.TypeFlags.Unknown;
 
 function constituents(checker: ts.TypeChecker, type: ts.Type): readonly ts.Type[] {
@@ -85,6 +90,7 @@ interface Judged {
 	/** As reported: `.trim()`, `Number.parseInt()`, `unary +`, `binary *=`, `.trim() on an unresolved receiver`. */
 	readonly shape: string;
 
+	/** Whether the read is reported; a recognized read either way satisfies an allow row naming its function. */
 	readonly refused: boolean;
 }
 
@@ -227,6 +233,7 @@ const COERCING_UNARIES: ReadonlyMap<ts.SyntaxKind, string> = new Map([
 	[ts.SyntaxKind.MinusMinusToken, "--"],
 ]);
 
+/** Binary operators and compound assignments that read operands as numbers; + stays out, since it concatenates. */
 const COERCING_OPERATORS: ReadonlyMap<ts.SyntaxKind, string> = new Map([
 	[ts.SyntaxKind.AsteriskToken, "*"],
 	[ts.SyntaxKind.SlashToken, "/"],
@@ -252,6 +259,7 @@ const COERCING_OPERATORS: ReadonlyMap<ts.SyntaxKind, string> = new Map([
 	[ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken, ">>>="],
 ]);
 
+/** The comparisons refused when the sides are of mixed kinds; isMixedOrdering decides what mixed means. */
 const ORDERING_OPERATORS: ReadonlyMap<ts.SyntaxKind, string> = new Map([
 	[ts.SyntaxKind.LessThanToken, "<"],
 	[ts.SyntaxKind.LessThanEqualsToken, "<="],

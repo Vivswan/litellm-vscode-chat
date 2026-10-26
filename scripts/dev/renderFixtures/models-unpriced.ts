@@ -13,6 +13,7 @@ import type { DashboardModel } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, MODELS, PROD_SERVER } from "./shared.ts";
 
+/** The priced row the others are cloned from; each clone changes only the fields it names. */
 const PRICED = MODELS[0] as DashboardModel;
 
 /** Shared with models-unpriced-columnar.ts: same rows, the other tier. */
@@ -41,6 +42,7 @@ export const UNPRICED_ROWS: readonly DashboardModel[] = [
 	{ ...PRICED, id: "priced-b", rawId: "priced-b", name: "Priced again", inputCost: 0.3, outputCost: 1.2 },
 ];
 
+/** Asserts every row's name offset agrees, so a missing price shifts nothing against its neighbours. */
 const fixture: RenderFixture = {
 	messages: [
 		{ kind: "push", state: baseState({ servers: [PROD_SERVER], models: UNPRICED_ROWS }) },

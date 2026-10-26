@@ -2,6 +2,9 @@
 // Launches an Extension Development Host preconfigured against the local fake LiteLLM stack: starts the docker proxy +
 // fake OpenAI backend, builds the dev bundle, drops a one-shot seed file the extension consumes on its next
 // development-mode activation (src/extension/devSeed.ts), and opens a new VS Code window in extension-development mode.
+// The seeded record settings own exactly the matcher keys they name, and a user's other keys survive verbatim. The demo
+// records show inheritance, a barrier, a forced field, a fallback, an OpenRouter derivation, and entry-over-global at
+// once in the Resolved models view and both inspectors.
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -27,13 +30,16 @@ import { DEV_SEED_FILENAME, type DevSeed, type DevSeedEntry, type DevSeedModels 
 import { composeSetting, readEnvFile, STACK_DEFAULTS } from "../stack/litellmConfig";
 import { DEMO_USAGE_KEYS, type SeededDemoUsage } from "./seedDemoUsage";
 
+// The cwd: the repository paths below hang off it, and the preflight refuses one that is not this repository's root.
 const root = process.cwd();
 
-// The seed must agree with what docker-compose resolves, so it uses the same ${VAR:-fallback} semantics: shell env wins
-// even when empty, .env fills in only unset variables, and an empty result takes the compose default.
+// Read with compose's ${VAR:-fallback} semantics (composeSetting), so the seed agrees with what compose resolves.
 const envFile = readEnvFile();
 
+// The proxy port, shared by the seed's base URL and the stack.
 const port = composeSetting("LITELLM_PORT", STACK_DEFAULTS.LITELLM_PORT, envFile);
+
+// The master key; the seed's main entry and the misconfigured demo entry both authenticate with it.
 const apiKey = composeSetting("LITELLM_MASTER_KEY", STACK_DEFAULTS.LITELLM_MASTER_KEY, envFile);
 
 function run(label: string, cmd: string[], extraEnv?: Record<string, string>): void {
@@ -63,11 +69,7 @@ function run(label: string, cmd: string[], extraEnv?: Record<string, string>): v
 	}
 }
 
-// ---- Teardown on signal ----
-// Installed before the stack starts, so Ctrl+C at any later point (bundling, the host launch, the log follow) tears the
-// stack down instead of leaving it running.
-//
-//   The handler -> is upgraded once log-following starts
+// Absolute, like demoUsageCli below: knip's literal-argv scan must not resolve the script path relative to this file.
 const composeCli = join(root, "scripts", "stack", "compose.ts");
 
 function composeDownExitCode(): number {
@@ -90,6 +92,11 @@ let firstSignalAt = 0;
 let shutdown = (): void => {
 	process.exit(composeDownExitCode());
 };
+
+/**
+ * Installed before the stack starts, so Ctrl+C at any later point (bundling, the host launch, the log follow) tears the
+ * stack down instead of leaving it running. `shutdown` is upgraded once log-following starts.
+ */
 function onSignal(signal: NodeJS.Signals): void {
 	const now = Date.now();
 	if (shuttingDown) {
@@ -110,22 +117,14 @@ function onSignal(signal: NodeJS.Signals): void {
 process.on("SIGINT", onSignal);
 process.on("SIGTERM", onSignal);
 
-/**
- * The main entry's group identity, known before the stack starts. It joins the usage and error entries' identities in
- * the profile fingerprint - together they shape the host's provider groups; the full seed is assembled after the stack
- * is up.
- */
+/** The main entry's group identity, known before the stack is up, so the profile fingerprint can include it. */
 const seedIdentity = {
 	label: "Fake LiteLLM",
 	baseUrl: `http://localhost:${port}`,
 	apiKey,
 } as const;
 
-// ---- Demo model records ----
-// Seeded as the global models.parameters / models.capabilities settings (owning exactly these keys; other keys survive
-// verbatim) plus one entry-level record, so the Resolved models view and both inspectors show inheritance, a barrier, a
-// forced field, a fallback, an OpenRouter derivation, and entry-over-global at once. docs/models.md is the grammar
-// these demonstrate.
+// The global models.* records; each entry demonstrates one rule of docs/models.md, named in its comment.
 const DEMO_GLOBAL_RECORDS: DevSeedModels = {
 	parameters: {
 		// Inheritable house defaults; every model without a better match shows them.
@@ -148,15 +147,12 @@ const DEMO_GLOBAL_RECORDS: DevSeedModels = {
 	},
 };
 
-// Entry-over-global on gpt-5.2-mini: the entry's max_tokens beats the global exact record's 8192, while its temperature
-// stays shadowed by the global gpt-5* record's forced value - both visible in the Params inspector.
+// Entry-over-global on gpt-5.2-mini: max_tokens beats the global exact record; temperature stays forced by gpt-5*.
 const DEMO_MAIN_ENTRY_MODELS: DevSeedModels = {
 	parameters: { "gpt-5.2-mini": { max_tokens: 4000, temperature: 0.2 } },
 };
 
-// ---- Demo error servers ----
-// Error-state entries, seeded verbatim (nothing to measure), so the Servers page always shows failure presentation
-// beside the healthy demos.
+// Seeded verbatim (nothing to measure), so the Servers page always shows failure presentation beside the healthy demos.
 const DEMO_ERROR_ENTRIES: readonly DevSeedEntry[] = [
 	{
 		//   Port 4 -> IANA-unassigned, outside every OS ephemeral range, and privileged on Unix-likes
@@ -184,28 +180,18 @@ const DEMO_ERROR_ENTRIES: readonly DevSeedEntry[] = [
 	},
 ];
 
-// DEV_NO_ERROR_SEED=1 drops the error zoo for a clean Servers page (e.g. healthy-state presentation work). The
-// fingerprint below tracks the choice, so flipping the flag resets the profile and removes the other mode's entries.
+// DEV_NO_ERROR_SEED=1 drops the error zoo; the fingerprint tracks the choice, so flipping it resets the profile.
 const errorEntries: readonly DevSeedEntry[] = process.env.DEV_NO_ERROR_SEED === "1" ? [] : DEMO_ERROR_ENTRIES;
 
-// Profile preflight, before anything starts or gets written, so a refusal exits with no stack to tear down and no seed
-// on disk.
-//
-//   The host's provider-group command is add-only -> a group left by an earlier run with a different port, key, or
-//                                                     label could never be brought up to date
-//   a marker in the profile records the seed configuration that populated it -> any change wipes the profile before
-//                                                                                 launch
-//   The wipe              -> discards the Copilot Chat sign-in, so the next run signs in again
-//   F5's "Run Extension"  -> shares this profile
-//   VS Code allows one instance per user-data-dir -> `bun run dev` under a live F5 host hands it the arguments
+// The dedicated user-data-dir; F5's "Run Extension" shares it, and the preflight below may wipe it.
 const profileDir = join(root, ".dev-profile");
 
-// rmSync below is destructive, so the root must be this repository before it runs: a wrong cwd must not let it delete
-// an unrelated .dev-profile.
+// Read before anything starts or is written: rmSync below is destructive, so the root must be this repository.
 const rootPackageJson = join(root, "package.json");
 
-// A malformed package.json must produce the refusal below, not a raw SyntaxError, so the parse failure reads as "not
-// this repository".
+// The preflight runs before anything starts or is written, so a refusal exits with no stack to tear down and no seed on
+// disk. A malformed package.json must produce the refusal below, not a raw SyntaxError, so the parse failure reads as
+// "not this repository".
 let packageMeta: { name?: string; publisher?: string } = {};
 try {
 	if (existsSync(rootPackageJson)) {
@@ -219,11 +205,11 @@ if (!rootIsThisRepo) {
 	console.error(`[dev] refusing to manage the dev profile: ${root} is not the litellm-vscode-chat repository root`);
 	process.exit(1);
 }
+
+// Holds the fingerprint of the seed configuration that populated the profile.
 const markerFile = join(profileDir, "seed-fingerprint");
 
-// The fingerprint covers exactly what shapes the host's provider groups. The demo budgets and records stay out on
-// purpose: they are measured or tuned per run, land as plain settings the seed upserts freely, and must not wipe the
-// profile (with its Copilot Chat sign-in) when they change.
+// Exactly what shapes the host's provider groups; the budgets and records stay out, since they change per run.
 const seedGroupIdentity = [
 	seedIdentity,
 	...DEMO_USAGE_KEYS.map((spec) => ({ label: spec.label, baseUrl: seedIdentity.baseUrl, apiKey: spec.key })),
@@ -233,6 +219,7 @@ const seedGroupIdentity = [
 // codeql[js/insufficient-password-hash] -- not password storage: a change-detection fingerprint of the dev seed
 const seedFingerprint = createHash("sha256").update(JSON.stringify(seedGroupIdentity)).digest("hex");
 
+// Undefined on a fresh profile, which then reads as a configuration change and is created from scratch.
 const previousFingerprint = existsSync(markerFile) ? readFileSync(markerFile, "utf8").trim() : undefined;
 
 function readProfileFile(...relative: string[]): string | undefined {
@@ -381,12 +368,16 @@ function profileHasSeededGroup(): boolean {
 	);
 }
 
-// A matching fingerprint only promises the profile was seeded for this configuration; a developer can still delete the
-// group by hand, which re-seeds the same way a configuration change does. One reset per loss, tracked by a breadcrumb:
-// while it is present a still-missing group logs instead of wiping again, because the group add itself is failing and
-// wiping every run would pile sign-in loss on top of that bug.
+// One reset per lost group: while the breadcrumb is present, a still-missing group logs instead of wiping again.
 const reseedBreadcrumb = join(profileDir, "seed-reseeded");
 
+// The host's provider-group command is add-only, so a group left by an earlier run could never be brought up to date:
+// any change to the fingerprint wipes the profile before launch, and the wipe discards the Copilot Chat sign-in.
+//
+//   budgets and records              -> out of the fingerprint: plain settings the seed upserts freely, tuned per run
+//   fingerprint matches, group gone  -> a developer deleted it by hand; re-seed once, as a configuration change would
+//   still gone after that reset      -> the group add itself is failing; log, since wiping every run would pile
+//                                       sign-in loss on top of that bug
 let wipeReason: string | undefined;
 let missingGroupReset = false;
 if (previousFingerprint !== seedFingerprint) {
@@ -430,14 +421,13 @@ run("starting the fake LiteLLM stack", ["bun", "scripts/stack/compose.ts", "up",
 	FAKE_VERBOSE: process.env.FAKE_VERBOSE ?? "1",
 });
 
-// Run as a child script because this file is CommonJS (no top-level await), with the measured results coming back
-// through a JSON file. A failure costs the usage demo, never the run; DEV_NO_USAGE_SEED=1 skips it for a faster launch.
+// The child seeding script (this file is CommonJS, so no top-level await) writes its measurements here.
 const demoResultsPath = join(root, "docker", ".generated", "dev-demo-usage.json");
 
-// Absolute path like composeCli above: knip's literal-argv scan must not try to resolve the script path relative to
-// this file.
+// Absolute, like composeCli: knip's literal-argv scan must not resolve the script path relative to this file.
 const demoUsageCli = join(root, "scripts", "dev", "seed-demo-usage.ts");
 
+// A failure costs the usage demo, never the run; DEV_NO_USAGE_SEED=1 skips it for a faster launch.
 let demoUsage: SeededDemoUsage[] = [];
 if (process.env.DEV_NO_USAGE_SEED === "1") {
 	console.log("[dev] DEV_NO_USAGE_SEED=1: skipping the demo usage seeding");
@@ -606,14 +596,15 @@ function killLogChildren(): void {
 	}
 }
 
-// The extension's output channel is backed by files under the dev profile. Offsets are primed from a snapshot taken
-// BEFORE the host launches: everything already in a channel file is history, everything appended afterwards streams,
-// including appends to a session directory that predates this launch (which happens when the single-instance hand-off
-// routes the new window into one).
+// publisher.name: the directory under the profile's exthost logs that holds the extension's output channel files.
 const extensionLogId = `${packageMeta.publisher ?? ""}.${packageMeta.name ?? ""}`;
 
+// Bytes already forwarded per channel file; a file first seen mid-run starts at 0 and streams whole.
 const tailOffsets = new Map<string, number>();
+
+// The host's channel lines, mirrored to one file beside the stack service logs.
 const vscodeSink = createWriteStream(join(logsDir, "vscode-extension.log"));
+
 logSinks.push(vscodeSink);
 const forwardVscode = forwardLines("vscode", vscodeSink);
 
@@ -678,7 +669,9 @@ function tailExtensionLogsOnce(): void {
 }
 
 // Snapshot BEFORE the host launches so its very first log lines stream (a post-launch snapshot would either skip them
-// or replay a pre-existing session file's whole history).
+// or replay a pre-existing session file's whole history). Everything already in a channel file is history, everything
+// appended afterwards streams, including appends to a session directory that predates this launch, which happens when
+// the single-instance hand-off routes the new window into one.
 for (const file of extensionLogFiles()) {
 	try {
 		tailOffsets.set(file, statSync(file).size);
@@ -687,15 +680,16 @@ for (const file of extensionLogFiles()) {
 	}
 }
 
-// Anything after the script name is handed to the `code` invocation, so `bun run dev -- --locale=zh-cn` launches a
-// localized dev host (--locale needs the matching language pack in the real extensions directory; without it the host
-// stays English).
+// Handed to the `code` invocation, so `bun run dev -- --locale=zh-cn` launches a localized dev host.
 const passthroughArgs = process.argv.slice(2);
 
 if (passthroughArgs[0] === "--") {
 	passthroughArgs.shift();
 }
 
+// --locale needs the matching language pack in the real extensions directory; without it the host stays English. F5's
+// "Run Extension" shares this profile, and VS Code allows one instance per user-data-dir, so `bun run dev` under a live
+// F5 host hands it the arguments.
 run("opening the Extension Development Host", [
 	"code",
 	"--new-window",
@@ -705,12 +699,10 @@ run("opening the Extension Development Host", [
 ]);
 console.log("[dev] window launched; the seed configures the server on activation");
 
-// Warn loudly; never auto-install.
-//
-//   Without GitHub Copilot Chat installed there -> the dev extension still activates but has no chat surface, which
-//                                                  reads as "does nothing"
+// Where the dev host loads extensions from; extensions installed into a VS Code profile are invisible to it.
 const defaultExtensionsDir = join(homedir(), ".vscode", "extensions");
 
+// Judged by directory name alone, and an unreadable extensions directory must not fail the launch.
 const hasCopilotChat = (() => {
 	try {
 		return readdirSync(defaultExtensionsDir).some((entry) => entry.startsWith("github.copilot-chat-"));
@@ -718,6 +710,9 @@ const hasCopilotChat = (() => {
 		return false;
 	}
 })();
+
+// Warn loudly, never auto-install: without Copilot Chat the extension activates but has no chat surface, which reads
+// as "does nothing".
 if (!hasCopilotChat) {
 	console.error("[dev] ============================================================");
 	console.error("[dev] WARNING: GitHub Copilot Chat is not installed in the DEFAULT");

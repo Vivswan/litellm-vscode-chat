@@ -6,11 +6,7 @@ const DEFAULT_FLOOR = 85;
 /** line number -> hit at least once. */
 type FileLines = Map<number, boolean>;
 
-/**
- * The two coverage runs and, for each, a source file only that runner can load. The sentinels are drift guards:
- * path-form or filter drift in either report must fail loudly, never shrink the floor's denominator to whichever report
- * still parses.
- */
+/** The two coverage runs, each with a sentinel file only that runner loads, so path or filter drift fails loudly. */
 const REPORTS = [
 	{ lcovPath: path.join("coverage", "lcov.info"), sentinel: "src/extension.ts" },
 	{ lcovPath: path.join("coverage", "bun", "lcov.info"), sentinel: "src/webview/dashboard/app.tsx" },

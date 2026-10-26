@@ -89,23 +89,11 @@ function stubScript(nonce: string, messages: readonly unknown[], respond: Readon
 	</script>`;
 }
 
-/**
- * Always-on determinism styles: CSS animations, transitions, and the text caret's blink phase depend on capture timing,
- * so two renders of the same fixture would differ pixel for pixel.
- */
+/** Animations, transitions, and the caret's blink depend on capture timing; without this two renders would differ. */
 export const DETERMINISM_CSS =
 	"*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
 
-/**
- * VS Code writes these into every webview document AHEAD of the extension's stylesheets, so any author rule beats them.
- * Both halves are emulated so a --show-scrollbars render proves the dashboard's scrollbar rules beat whichever the host
- * injects.
- *
- *   current hosts    -> the html scrollbar-color rule (webview/browser/pre/index.html)
- *   a non-auto value -> inherits into every scroller, paints the track in opaque editor-background, and DISABLES
- *                       ::-webkit-scrollbar styling wholesale
- *   older hosts      -> the ::-webkit-scrollbar rules
- */
+/** What VS Code injects ahead of the extension's stylesheets, emulated so --show-scrollbars proves our rules win. */
 export const VSCODE_DEFAULT_CSS = `@layer vscode-default {
 	html { scrollbar-color: var(--vscode-scrollbarSlider-background) var(--vscode-editor-background); }
 	::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -115,18 +103,10 @@ export const VSCODE_DEFAULT_CSS = `@layer vscode-default {
 	::-webkit-scrollbar-thumb:active { background-color: var(--vscode-scrollbarSlider-activeBackground); }
 }`;
 
-/**
- * Only measurement runs (--widths, --pane-widths) read these faces: design review judges the host's own fonts,
- * measurement the pinned ones.
- *
- *   ascent/descent overrides     -> every line box is a fixed fraction of the font size, so a green macOS sweep
- *                                   predicts the Linux-only gate; the host's mono fallback once rounded a mixed
- *                                   sans+mono line box 1px taller there
- *   CSS cannot override advances -> only metric-compatible faces share a local() chain; the engagement control
- *                                   fails any other face
- */
+/** Metric-compatible sans faces: Arial and Liberation Sans share design advances, so either may answer the chain. */
 const PINNED_SANS_SOURCES = `local("Arial"), local("Liberation Sans")`;
 
+/** Metric-compatible mono faces: Courier New and Liberation Mono share design advances. */
 const PINNED_MONO_SOURCES = `local("Courier New"), local("Liberation Mono")`;
 
 /** Near Arial's real metrics, so pinning moves today's measurements as little as possible. */
@@ -138,6 +118,7 @@ const DIVERGENT_FONT_METRICS = { ascent: 160, descent: 40 };
 /** What a line-height: normal line box must measure under each face, at 100px font size. */
 export const PINNED_CONTROL_PX = PINNED_FONT_METRICS.ascent + PINNED_FONT_METRICS.descent;
 
+/** The same line box under the divergent faces, so the metric probe can prove the swap engaged. */
 export const DIVERGENT_CONTROL_PX = DIVERGENT_FONT_METRICS.ascent + DIVERGENT_FONT_METRICS.descent;
 
 /** The advance-width control: this string at 100px must measure the faces' shared design advances. */
@@ -159,6 +140,16 @@ function fontFace(family: string, sources: string, metrics: { ascent: number; de
 	);
 }
 
+/**
+ * The pinned and divergent faces. Only measurement runs (--widths, --pane-widths) read them: design review judges the
+ * host's own fonts, measurement the pinned ones.
+ *
+ *   ascent/descent overrides     -> every line box is a fixed fraction of the font size, so a green macOS sweep
+ *                                   predicts the Linux-only gate; the host's mono fallback once rounded a mixed
+ *                                   sans+mono line box 1px taller there
+ *   CSS cannot override advances -> only metric-compatible faces share a local() chain; the engagement control
+ *                                   fails any other face
+ */
 export function measurementFontCss(): string {
 	return [
 		fontFace("geometry-pinned-sans", PINNED_SANS_SOURCES, PINNED_FONT_METRICS),
@@ -228,7 +219,12 @@ export function buildPageHtml(
 		accent,
 	});
 	// The editor injects its defaults before the extension's stylesheets; the emulation keeps that order so the layer
-	// cascade matches the webview's.
+	// cascade matches the webview's, and it carries both halves of what the host injects.
+	//
+	//   current hosts    -> the html scrollbar-color rule (webview/browser/pre/index.html)
+	//   a non-auto value -> inherits into every scroller, paints the track in opaque editor-background, and DISABLES
+	//                       ::-webkit-scrollbar styling wholesale
+	//   older hosts      -> the ::-webkit-scrollbar rules
 	const dashboardLink = `<link rel="stylesheet" href="./${DASHBOARD_STYLESHEET_FILENAME}">`;
 	if (!html.includes(dashboardLink)) {
 		throw new Error("Unexpected dashboard HTML shape: the stylesheet link was not found");

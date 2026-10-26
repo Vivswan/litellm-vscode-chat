@@ -1,15 +1,15 @@
 /**
- * Allowlist, not denylist: the package is a small known file set, and a denylist only catches leaks someone predicted
- * (the repo-tooling files it missed shipped in a VSIX before anyone noticed). A new asset type or localization catalog
- * is added here deliberately.
+ * What the VSIX may contain and the bounds its build output must meet. The listing is an allowlist, not a denylist:
+ * the package is a small known file set, and a denylist only catches leaks someone predicted (repo-tooling files it
+ * missed once shipped in a VSIX). The size bounds were set against a fresh production `bun run bundle`; the test entry
+ * points rebuild dist as an unminified development bundle these bounds are not written for.
  */
+
+/** A new asset type or localization catalog is added here deliberately. */
 const ALLOWED_PACKAGED_FILE =
 	/^(package\.json|README\.md|CHANGELOG\.md|LICENSE\.md|ThirdPartyNotices\.txt|dist\/extension\.js|dist\/chunks\/[A-Za-z0-9_.-]+\.js|dist\/webview\/dashboard\.js|dist\/webview\/dashboard\.css|dist\/openrouter-models\.json)$|^assets\/.+\.(png|md)$|^package\.nls(\.[A-Za-z0-9_-]+)?\.json$|^l10n\/bundle\.l10n(\.[A-Za-z0-9_-]+)?\.json$/;
 
-/**
- * Without package.nls.json the host renders raw %key% placeholders; without the English bundle vscode.l10n and the
- * webview injection have nothing to read.
- */
+/** Missing package.nls.json shows raw %key% placeholders; the English bundle feeds vscode.l10n and the webview. */
 export const REQUIRED_PACKAGED_FILES = [
 	"dist/extension.js",
 	"dist/webview/dashboard.js",
@@ -45,28 +45,24 @@ export interface SizeBound {
 	readonly max?: SizeLimit;
 }
 
-/**
- * Byte bounds on build output no test suite loads, set against a fresh production `bun run bundle` (the test entry
- * points rebuild dist as an unminified development bundle, which these bounds are not written for).
- *
- *   dist/extension.js          561,000 bytes (2026-08-13)  -> ceiling: each encoding's ranks alone are 1-2 MB
- *   dist/chunks/*_base.js      the rank data itself        -> floors: the ranks shipped
- *   dist/webview/dashboard.js  487,104 bytes (2026-08-13)  -> floor: a truncated emit; ceiling: zod once quadrupled it
- *   dist/webview/dashboard.css  80,769 bytes (2026-08-13)  -> floor: a truncated emit or a missing leg; ceiling: a scan
- *                                                             gone wide
- */
+/** Byte bounds on build output no test suite loads, each set against the production size its comment records. */
 export const SIZE_BOUNDS: readonly SizeBound[] = [
+	// 561,000 bytes on 2026-08-13; each encoding's ranks alone are 1-2 MB, so the ceiling catches them inlined.
 	{
 		file: "dist/extension.js",
 		max: { bytes: 1_200_000, reason: "the tokenizer ranks look inlined into the eager bundle" },
 	},
+	// The rank data itself; the floors say the ranks shipped.
 	{ file: "dist/chunks/o200k_base.js", min: { bytes: 1_500_000, reason: "too small to carry its rank data" } },
 	{ file: "dist/chunks/cl100k_base.js", min: { bytes: 700_000, reason: "too small to carry its rank data" } },
+	// 487,104 bytes on 2026-08-13; the floor catches a truncated emit, the ceiling a dependency like zod, which once
+	// quadrupled it.
 	{
 		file: "dist/webview/dashboard.js",
 		min: { bytes: 350_000, reason: "the dashboard bundle looks broken" },
 		max: { bytes: 700_000, reason: "a heavy dependency has landed in the webview graph" },
 	},
+	// 80,769 bytes on 2026-08-13; the floor catches a truncated emit or a missing leg, the ceiling a scan gone wide.
 	{
 		file: "dist/webview/dashboard.css",
 		min: { bytes: 55_000, reason: "the dashboard stylesheet looks broken" },
@@ -84,14 +80,15 @@ export function sizeProblem(bound: SizeBound, size: number): string | null {
 	return null;
 }
 
-/**
- * The tokenizer rank data rides the lazy chunks, never the eager entry: scripts/dev/bundle.mts splits them into
- * dist/chunks/ and dist/extension.js reaches each only through the deferred `.then(()=>require(...))` thunk. A
- * top-level require, an eagerly evaluated `then(require(...))`, or a bundler that changes the emitted shape fails here
- * rather than passing unproven. The activation-side twin is src/test/activation/production.test.ts.
- */
+/** The gpt-tokenizer encodings scripts/dev/bundle.mts splits into dist/chunks/, reached only through a lazy thunk. */
 const LAZY_CHUNKS = ["o200k_base", "cl100k_base"] as const;
 
+/**
+ * The rank data rides the lazy chunks, never the eager entry: dist/extension.js reaches each chunk exactly once,
+ * through the deferred `.then(()=>require(...))` thunk. A top-level require, an eagerly evaluated `then(require(...))`,
+ * or a bundler that changes the emitted shape fails here rather than passing unproven. The activation-side twin is
+ * src/test/activation/production.test.ts.
+ */
 export function lazyEdgeProblems(entrySource: string): string[] {
 	const problems: string[] = [];
 	for (const chunk of LAZY_CHUNKS) {
@@ -109,22 +106,21 @@ export function lazyEdgeProblems(entrySource: string): string[] {
 	return problems;
 }
 
-/**
- * Wire method names from src/dashboard/endpoints.ts, never UI copy: a copy marker fails on a redesign with the build
- * healthy (the dashboard's visible title once did), a method name only when the protocol breaks. Spread across
- * surfaces (server save, secret prefill, usage settings) so one dead tree cannot pass.
- */
+/** Wire method names from src/dashboard/endpoints.ts, spread across surfaces so one dead tree cannot pass. */
 const DASHBOARD_MARKERS = ["setUsageAlertThresholds", "readInlineSecrets", "saveServerSetting"] as const;
 
-/**
- * The bundle's NODE_ENV define decides which React build ships, and the size floor would pass a development build:
- * the define must have replaced every process.env.NODE_ENV read, and React's dev-only warning text must be gone.
- */
+/** What a development React build leaves behind, which the size floor alone would pass. */
 const DEVELOPMENT_BUILD_MARKERS = ["process.env.NODE_ENV", "Each child in a list"] as const;
 
 /** Every rule reads the host's theme tokens, and the semantic --primary token exists only if the Tailwind leg ran. */
 const STYLESHEET_MARKERS = ["var(--vscode-", "--primary"] as const;
 
+/**
+ * The dashboard bundle's content checks. A marker is a wire method name, never UI copy: copy fails on a redesign with
+ * the build healthy (the dashboard's visible title once did), a method name only when the protocol breaks. The NODE_ENV
+ * define decides which React build ships, so it must have replaced every process.env.NODE_ENV read, and React's
+ * dev-only warning text must be gone.
+ */
 export function dashboardMarkerProblems(script: string): string[] {
 	const problems: string[] = [];
 	for (const marker of DASHBOARD_MARKERS) {

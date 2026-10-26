@@ -8,11 +8,7 @@ import { z } from "zod";
 /** The English reference bundle: what extract writes and check re-derives. */
 export const BUNDLE_PATH = path.join(process.cwd(), "l10n", "bundle.l10n.json");
 
-/**
- * The generated English bundle's values: a message, optionally wrapped with translator comments. Translated bundles are
- * NOT allowed the wrapped shape (check.ts parses them with nlsSchema; the webview bootstrap drops non-string values
- * wholesale).
- */
+/** The English bundle's values: a message, or one wrapped with translator comments; translated bundles stay flat. */
 export const bundleSchema = z.record(
 	z.string(),
 	z.union([z.string(), z.object({ message: z.string(), comment: z.array(z.string()) })])
@@ -20,7 +16,7 @@ export const bundleSchema = z.record(
 
 export type BundleFile = z.infer<typeof bundleSchema>;
 
-/** Flat key-to-string tables: package.nls*.json and translated bundle.l10n.<locale>.json. */
+/** Flat key-to-string tables (package.nls*.json, translated bundles): the webview bootstrap drops non-string values. */
 export const nlsSchema = z.record(z.string(), z.string());
 
 export function bundleMessage(value: BundleFile[string]): string {
@@ -125,12 +121,10 @@ type LazyKind = "helper" | "table";
 
 /** One binding of a name to localization evidence, before the closure. */
 interface Binding {
+	/** The binding's name as call sites spell it; same-named bindings in other files share one entry after closure. */
 	readonly name: string;
 
-	/**
-	 * A table is an object or array literal walked whole: its thunks run later, exactly like a class's deferred members,
-	 * and reading into it is how a resolver reaches them (`TABLE[key]()`, `TABLE[key].surface()`).
-	 */
+	/** A table is an object or array literal walked whole; reading into it reaches its thunks (TABLE[key]()). */
 	readonly kind: "function" | "class" | "table" | "alias";
 
 	/** The declaration (default parameters included) contains a direct l10n.t or vscode.l10n.t call. */
@@ -139,21 +133,18 @@ interface Binding {
 	/** Every bare-identifier call-site name inside the declaration; an alias of a name carries that name here. */
 	readonly callees: ReadonlySet<string>;
 
-	/**
-	 * The root names of the member chains the declaration reads into; an alias of a member chain (`TEXTS.a`, or `a`
-	 * destructured off TEXTS) carries the chain's root here.
-	 */
+	/** Roots of the member chains read; an alias of a chain (TEXTS.a, or a destructured off TEXTS) carries its root. */
 	readonly reads: ReadonlySet<string>;
 }
 
+/**
+ * What a walk of one declaration found, before it becomes a Binding. `thisMembers` are the members read or called on
+ * `this`: a constructor's path into the class's own methods.
+ */
 interface InvocationEvidence {
 	direct: boolean;
-
 	readonly callees: Set<string>;
-
 	readonly reads: Set<string>;
-
-	/** The members read or called on `this`: a constructor's path into the class's own methods. */
 	readonly thisMembers: Set<string>;
 }
 
@@ -223,13 +214,13 @@ function stripForwarding(node: ts.Expression, sourceFile: ts.SourceFile): ts.Exp
 	}
 }
 
-/**
- * Local (relative-specifier) namespace-import names of one file, computed once per SourceFile. The "." prefix is the
- * locality test: a tsconfig `paths` alias or a package subpath would not resolve here (none exist in shipped source;
- * the check is defensive, not load-bearing).
- */
+/** Per SourceFile, the local (relative-specifier) namespace-import names, computed once. */
 const localNamespaceCache = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
 
+/**
+ * The "." prefix is the locality test: a tsconfig `paths` alias or a package subpath would not resolve here. None exist
+ * in shipped source, so the check is defensive, not load-bearing.
+ */
 function localNamespaceImports(sourceFile: ts.SourceFile): ReadonlySet<string> {
 	const cached = localNamespaceCache.get(sourceFile);
 	if (cached !== undefined) {

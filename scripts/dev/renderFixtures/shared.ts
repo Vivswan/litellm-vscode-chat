@@ -12,8 +12,7 @@ import { makeSettings } from "../../../src/test/dashboardSettingsFixture.ts";
 import { verdictRowsOf } from "../../../src/test/dashboardVerdictFixture.ts";
 import { RENDER_EPOCH_MS } from "../renderClock.ts";
 
-// The harness freezes the page's clock to the same instant, so every relative and absolute time label renders
-// identically on every run.
+/** The harness freezes the page clock to this instant, so relative and absolute time labels render identically. */
 const NOW = RENDER_EPOCH_MS;
 
 export function minutesAgoMs(minutes: number): number {
@@ -28,8 +27,10 @@ export function provenSecrets(overrides: Partial<Record<SecretFieldId, SecretLoc
 	};
 }
 
+/** Proven, with every location "none": the baseline for a server that stores nothing. */
 export const NO_SECRETS: ServerSecretsView = provenSecrets();
 
+/** The healthy declared row: a secure API key, a custom header, a forced parameter record, and a budget. */
 export const PROD_SERVER: DashboardServer = {
 	origin: "declared",
 	label: "prod",
@@ -48,6 +49,7 @@ export const PROD_SERVER: DashboardServer = {
 	},
 };
 
+/** The OAuth row in an expected error state: one declared model served behind a 404 the entry declares expected. */
 export const GATEWAY_SERVER: DashboardServer = {
 	origin: "declared",
 	label: "gateway",
@@ -74,6 +76,7 @@ export const GATEWAY_SERVER: DashboardServer = {
 	// expected failure serving nothing at all.
 };
 
+/** The misconfigured row: an entry problem the sync refused, so no credentials and an error state. */
 export const MISCONFIGURED_SERVER: DashboardServer = {
 	origin: "misconfigured",
 	label: "broken",
@@ -87,6 +90,7 @@ export const MISCONFIGURED_SERVER: DashboardServer = {
 	problems: ["has auth.apiKey beside auth.oauth; move it to auth.oauth.apiKey"],
 };
 
+/** The host-adopted external row with OAuth; with EXTERNAL_KEYED_SERVER it covers both external credential kinds. */
 export const EXTERNAL_SERVER: DashboardServer = {
 	origin: "external",
 	label: "Copilot proxy",
@@ -102,8 +106,7 @@ export const EXTERNAL_SERVER: DashboardServer = {
 	adoptHandle: "handle-fixture",
 };
 
-// The external-API-key specimen: "API key" + "external" is the widest badge pair a row can produce, so the overflow
-// sweep must keep measuring it.
+/** "API key" + "external" is the widest badge pair a row can produce, so the overflow sweep must keep measuring it. */
 export const EXTERNAL_KEYED_SERVER: DashboardServer = {
 	origin: "external",
 	label: "Legacy proxy",
@@ -134,6 +137,7 @@ function model(overrides: Partial<DashboardModel> & Pick<DashboardModel, "id" | 
 	};
 }
 
+/** The rows most fixtures share: priced prod models and a declared, unpriced DeepSeek on the gateway. */
 export const MODELS: readonly DashboardModel[] = [
 	model({ id: "gpt-5.6", name: "GPT-5.6", inputCost: 1.75, outputCost: 12, reasoning: true, imageInput: true }),
 	model({ id: "gpt-5-mini", name: "GPT-5 mini", inputCost: 0.3, outputCost: 1.2 }),
@@ -158,6 +162,7 @@ export const MODELS: readonly DashboardModel[] = [
 	}),
 ];
 
+/** Spend cards in every state the rail renders, from healthy through unsupported, errored, unknown, and forbidden. */
 export const USAGE: DashboardUsage = {
 	servers: [
 		{
@@ -234,10 +239,7 @@ export const USAGE: DashboardUsage = {
 	generatedAt: NOW,
 };
 
-/**
- * A realistic full supported_openai_params report (27 entries, the shape a LiteLLM /model/info answer carries for an
- * Anthropic-backed route): the worst case the params-list rendering must stay readable against.
- */
+/** A full supported_openai_params report, as LiteLLM answers for an Anthropic route: the params list's worst case. */
 const OPENAI_PARAMS_FULL: readonly string[] = [
 	"frequency_penalty",
 	"logit_bias",
@@ -328,12 +330,11 @@ export function worstCaseRecordFields(): Record<string, unknown> {
 	};
 }
 
-/**
- *   A genuinely long matcher key -> the length real users write
- */
+/** A genuinely long matcher key, the length real users write. */
 export const LONG_MATCHER_KEY =
 	"/^(openrouter|github_copilot)\\/(anthropic|google)[./](claude|gemini)-[0-9][\\w.-]*(-thinking)?$/i";
 
+/** The resolution the Diagnostics fixtures answer readResolvedModels with: the record trees and the verdict rows. */
 export const RESOLVED_VIEW: ResolvedModelsView = {
 	trees: [
 		{

@@ -107,15 +107,21 @@ interface CommentThreadItem<Key extends string = string> {
 	readonly thread?: "resolved" | "unresolved";
 }
 
+/** What renderMenus reads: the real tables by default, injected ones from the test. */
 export interface MenuInputs<Key extends string = string> {
+	/** Command key to contributed id; a menu naming a key outside it is refused. */
 	readonly commands: Readonly<Record<string, string>>;
 
+	/** Command key to the feature gating it; an ungated command gets no palette entry and can sit in no menu. */
 	readonly features: Readonly<Record<string, FeatureId | undefined>>;
 
+	/** The commands shown as SCM title buttons, on git providers only. */
 	readonly scmTitle: readonly Key[];
 
+	/** The comment thread's inline context-menu items, scoped to this extension's controller. */
 	readonly commentThreadContext: readonly CommentThreadItem<Key>[];
 
+	/** Items on the thread's title bar; `thread` limits one to resolved or unresolved threads, `group` orders them. */
 	readonly commentThreadTitle: readonly CommentThreadItem<Key>[];
 
 	/** Gated commands contributed only so a menu may name them; the palette hides them, they need a thread to act on. */
@@ -185,6 +191,7 @@ export function renderMenus(inputs: MenuInputs = MENU_INPUTS): ContributedMenus 
 	};
 }
 
+/** The codicon each agent tool contributes; `satisfies` keeps the table total over AgentToolId. */
 const AGENT_TOOL_ICONS = {
 	diagnostics: "$(pulse)",
 	configuration: "$(settings-gear)",
@@ -197,12 +204,10 @@ const AGENT_TOOL_ICONS = {
 	runAction: "$(play)",
 } as const satisfies Record<AgentToolId, string>;
 
-/**
- * The consult tool's input schema, authored: its parser (consultTool/invocation.ts readConsultInput) is hand-rolled,
- * so there is no envelope to derive it from. The property descriptions are model-facing English.
- */
+/** Authored by hand: readConsultInput (consultTool/invocation.ts) has no envelope to derive a schema from. */
 const CONSULT_TOOL_INPUT_SCHEMA: JsonObject = {
 	type: "object",
+	// The property descriptions are model-facing English.
 	properties: {
 		question: {
 			type: "string",
@@ -302,6 +307,7 @@ interface Disambiguation {
 	/** Machine-readable and stable, so deliberately not localized. */
 	readonly category: string;
 
+	/** How many example prompts the nls table carries under the category, rendered as %...example<n>% keys. */
 	readonly examples: number;
 }
 
@@ -316,10 +322,7 @@ export interface ParticipantInputs {
 	readonly disambiguation: readonly (Disambiguation & { readonly key: string })[];
 }
 
-/**
- * /models lists from the snapshots and takes no prompt, so it does not stay in the input the way the prompt commands
- * do.
- */
+/** /models lists from the snapshots and takes no prompt, so it is not sticky the way the prompt commands are. */
 const SLASH_COMMANDS = {
 	tests: { isSticky: true, category: "litellm_test_generation", examples: 2 },
 	docs: { isSticky: true, category: "litellm_documentation_writing", examples: 2 },
@@ -515,11 +518,13 @@ type CompletionEvent =
 	| "onStepSelected";
 
 export interface WalkthroughStep {
+	/** Names the step's manifest id and its nls title and description keys (litellm.walkthrough.<id>...). */
 	readonly id: string;
 
 	/** The step's markdown, repo-relative; shipped with the extension, so it must exist in the checkout. */
 	readonly media: string;
 
+	/** The events that complete the step, typed so a renamed command or setting fails to compile. */
 	readonly completionEvents: readonly CompletionEvent[];
 }
 

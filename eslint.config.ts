@@ -1,21 +1,25 @@
+/**
+ * Biome owns formatting and every check it has a rule for. This config carries what Biome cannot express: the promise
+ * rules that need the type checker (VS Code APIs return Thenables, which Biome's rule cannot see), the two local rules
+ * that judge a call by the declaration it resolves to, and the restricted-syntax rules, which need AST selectors.
+ * DEFAULT_EXPORT_BAN is exported so the test replays the selectors the lint run applies.
+ */
 import type { Linter } from "eslint";
 import tseslint from "typescript-eslint";
 import { outputChannelWrites } from "./scripts/lint/outputChannelWrites";
 import { type AllowedRead, userTextReaders } from "./scripts/lint/userTextReaders";
 
-/**
- * Biome owns formatting and every check it has a rule for. This config carries what Biome cannot express: the promise
- * rules that need the type checker (VS Code APIs return Thenables, which Biome's rule cannot see), the two local rules
- * that judge a call by the declaration it resolves to, and the restricted-syntax rules, which need AST selectors.
- */
+/** The local rules, under the plugin name their rule ids carry. */
 const litellm = { rules: { "output-channel-writes": outputChannelWrites, "user-text-readers": userTextReaders } };
 
+/** checkThenables is on because VS Code APIs return Thenables rather than Promises. */
 const promiseRules = {
 	"@typescript-eslint/no-floating-promises": ["error", { checkThenables: true }],
 	"@typescript-eslint/no-misused-promises": "error",
 	"@typescript-eslint/await-thenable": "error",
 } satisfies Linter.RulesRecord;
 
+/** Reported on a __dirname or import.meta path read inside src/test; the test-file block near the end applies it. */
 const REPO_ROOT_FIX =
 	"Repository paths under src/test come from REPO_ROOT: import it from src/test/util/repoRoot.ts and " +
 	"path.join(REPO_ROOT, ...). Importing the marker is what makes the pre-commit selection run the suite on any " +
@@ -24,18 +28,15 @@ const REPO_ROOT_FIX =
 /** Every extension bun runs as a suite or a helper (BUN_TEST_FILE in src/test/runtimeImportGraph.ts). */
 const TEST_FILES = "src/test/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}";
 
+/** The shipped source with its tests; a block that excludes the tests says so in its ignores. */
 const SOURCE_FILES = "src/**/*.{ts,tsx,mts,cts}";
 
+/** Reported with each DEFAULT_EXPORT_BAN selector; the guard it names is the l10n gate (scripts/l10n/check.ts). */
 const DEFAULT_EXPORT_MESSAGE =
 	"default export; the lazy-helper inference follows call-site names, and a default export lets every importer " +
 	"rename a helper out from under the guard - export it by name.";
 
-/**
- * The l10n gate (scripts/l10n/check.ts) judges module-scope localization by the names call sites use, and a default
- * export is the one shape where every importer picks its own name. Exported so the test replays the selectors the lint
- * run applies. Top-level statements only, as the gate's walks read them; a type-only form mints nothing a call site can
- * name, so it passes.
- */
+/** Top-level value exports only: the gate reads top-level statements, and a type-only form mints no callable name. */
 export const DEFAULT_EXPORT_BAN = [
 	// export default <expression | function | class>; export default interface is type-only.
 	'Program > ExportDefaultDeclaration:not([declaration.type="TSInterfaceDeclaration"])',
@@ -49,11 +50,7 @@ export const DEFAULT_EXPORT_BAN = [
 	'Program > ExportAllDeclaration[exportKind="value"]:matches([exported.name="default"], [exported.value="default"])',
 ].map((selector) => ({ selector, message: DEFAULT_EXPORT_MESSAGE }));
 
-/**
- * The settings readers: where a user's text is taken in, so a trim or number read there must go through the two homes
- * (src/shared/util/headers.ts, src/shared/util/decimalText.ts). The homes are not listed: every read inside them is the
- * rule itself.
- */
+/** Where a user's text is taken in; the two homes the rule points at stay out, since every read there is the rule. */
 const READER_MODULES = [
 	"src/shared/config/**/*.{ts,tsx,mts,cts}",
 	"src/extension/servers/serverSync/setting.ts",
@@ -84,11 +81,7 @@ const ALLOWED_READS: AllowedRead[] = [
 	},
 ];
 
-/**
- * Text leaves the extension through one door per surface, where Logger.redact runs once. Each entry is a VS Code API,
- * the files allowed to call it, and the door to call instead. A flat config replaces a rule's whole option list per
- * file, so the entries are composed per door: every other file bans all of them, and a door bans all but its own.
- */
+/** One door per exit surface, where Logger.redact runs once: the API, the files allowed to call it, and the message. */
 const DOORS = [
 	{
 		doors: ["src/extension/ui/notifier.ts"],
@@ -128,8 +121,13 @@ const DOORS = [
 	},
 ] as const;
 
+/** Deduplicated, so the map at the end hands each door exactly one config block. */
 const DOOR_FILES = [...new Set(DOORS.flatMap((entry) => entry.doors))];
 
+/**
+ * The restricted-API rules for one file: a door bans every door's API but its own, and any other file bans all of
+ * them. A flat config replaces a rule's whole option list per file, so the list is composed per door, never merged.
+ */
 function restrictedApiRules(file?: string): Linter.RulesRecord {
 	const applicable = DOORS.filter((entry) => file === undefined || !(entry.doors as readonly string[]).includes(file));
 	return {

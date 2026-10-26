@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 // Runs the docker-stack test suites against the dockerized LiteLLM proxy in the canonical order of
 // src/test/dockerTestLabels.ts. docker-monkey goes last because it deliberately dirties host state; --only (the CI
-// shards use it) replaces the selection but keeps the order.
+// shards use it) replaces the selection but keeps the order. The flag-per-label mapping lives in
+// src/test/dockerTestLabels.ts so the nightly-fuzz drift guard reads the same source; `docker` has no skip flag.
 //
 // Usage:
 //   bun run test:docker                     every label in canonical order (see src/test/dockerTestLabels.ts)
@@ -36,16 +37,16 @@ import { composeSetting, ensureGeneratedConfig, readEnvFile, STACK_DEFAULTS } fr
 import { seedStackUsageBudgetKey } from "./stack/seedUsage";
 import { STACK_LOG_DIR_ENV, writeStackLogs } from "./stack/stackLogs";
 
+// Everything after the script name; validateArgs refuses any token outside the flag vocabulary.
 const args = process.argv.slice(2);
 
+// Exit 2 marks a usage error, apart from a test failure's 1.
 const usageError = (message: string): never => {
 	console.error(message);
 	process.exit(2);
 };
 
-// --skip-* carves legs out of the default full run; --only replaces the selection outright, so combining the two has no
-// coherent meaning and errors. The flag-per-label mapping lives in src/test/dockerTestLabels.ts so the nightly-fuzz
-// drift guard reads the same source; `docker` has no skip flag.
+// --skip-* carves legs out of the full run; --only replaces the selection outright, so combining the two is an error.
 const KNOWN_SKIP_FLAGS: ReadonlySet<string> = new Set(Object.values(DOCKER_SKIP_FLAGS));
 
 /**
@@ -103,32 +104,39 @@ function selectLabels(): ReadonlySet<DockerTestLabel> {
 	}
 }
 
+// The labels to run, in canonical order; --only or the skip flags narrow them.
 const selected = selectLabels();
 
-// The suite must agree with docker-compose on ports and key, so it resolves them with the same ${VAR:-fallback}
-// semantics compose uses.
+// Read with compose's ${VAR:-fallback} semantics, so the suite agrees with docker-compose on ports and key.
 const envFile = readEnvFile();
 
+// One compose-resolved setting: the shell environment over .env over the stack default.
 const setting = (key: string, fallback: string): string => composeSetting(key, fallback, envFile);
 
+// The host port compose publishes the LiteLLM proxy on.
 const litellmPort = setting("LITELLM_PORT", STACK_DEFAULTS.LITELLM_PORT);
+
+// The host port compose publishes the fake OpenAI backend on.
 const fakePort = setting("FAKE_OPENAI_PORT", STACK_DEFAULTS.FAKE_OPENAI_PORT);
+
+// The proxy's master key, which the suites authenticate and the usage seed administers with.
 const masterKey = setting("LITELLM_MASTER_KEY", STACK_DEFAULTS.LITELLM_MASTER_KEY);
+
+// The LiteLLM proxy as the suites reach it, handed to them as LITELLM_DOCKER_BASE_URL.
 const baseUrl = `http://localhost:${litellmPort}`;
+
+// The fake backend as the suites reach it directly, handed to them as LITELLM_DOCKER_FAKE_URL.
 const fakeUrl = `http://localhost:${fakePort}`;
 
-//   the resolution is memoized -> every compose call below reuses this same runtime
+// The compose command as resolved once (memoized), so every compose call below uses this same runtime.
 const composeDisplay = resolveComposeCommand().join(" ");
 
+// A shell command inherited to the console; a non-zero exit throws with execSync's error shape.
 const run = (command: string, env: Record<string, string> = {}): void => {
 	execSync(command, { stdio: "inherit", env: { ...process.env, ...env } });
 };
 
-/**
- * One vscode-test leg, streamed to the console and watched for the host-stall signature (scripts/stack/hostStall.ts). A
- * stall before any test ran relaunches the leg once; anything else, a test verdict included, throws with execSync's
- * error shape so the catch and teardown paths below stay as they are.
- */
+// One vscode-test leg, watched for the host-stall signature; a stall before any test ran relaunches it once.
 const runLeg = async (label: DockerTestLabel, env: Record<string, string>): Promise<void> => {
 	// argv form, no shell, like runCompose: the label is the one variable and it comes from DOCKER_TEST_LABELS.
 	const argv = ["vscode-test", "--config", ".vscode-test.mjs", "--label", label];
@@ -164,15 +172,15 @@ const runLeg = async (label: DockerTestLabel, env: Record<string, string>): Prom
 			);
 			continue;
 		}
+		// A test verdict included: execSync's error shape, so the catch and teardown paths below stay as they are.
 		throw Object.assign(new Error(`${argv.join(" ")} exited with status ${status}`), { status });
 	}
 };
 
-// Compose goes through the shared no-shell executor (runCompose), so a quoted COMPOSE_CMD behaves identically here and
-// in scripts/stack/compose.ts. A non-zero exit throws with `status`, keeping execSync's error shape for the catch and
-// teardown paths.
+// Compose through the shared no-shell executor, so a quoted COMPOSE_CMD behaves as in scripts/stack/compose.ts.
 const compose = (...composeArgs: string[]): void => {
 	const status = runCompose(composeArgs);
+	// status rides the error, as on execSync's, for the catch and teardown paths.
 	if (status !== 0) {
 		throw Object.assign(new Error(`${composeDisplay} ${composeArgs.join(" ")} exited with status ${status}`), {
 			status,

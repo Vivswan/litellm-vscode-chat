@@ -34,6 +34,7 @@ function virtualKeySchema(descriptionKey: "description" | "markdownDescription",
 	};
 }
 
+/** The servers setting's item schema, a second statement of the parser's shape (serverSync/setting.ts). */
 export const SERVERS_ENTRY_SCHEMA: JsonObject = {
 	type: "object",
 	required: ["label", "baseUrl"],
@@ -125,10 +126,7 @@ export const SERVERS_ENTRY_SCHEMA: JsonObject = {
 	},
 };
 
-/**
- * The parser's field ids and the manifest's property names differ for the nested ones, so the map is explicit rather
- * than derived.
- */
+/** Explicit rather than derived, since the parser's field ids and the manifest's property names differ when nested. */
 const ENTRY_VIEW_FIELD_PATHS: Readonly<Record<(typeof ENTRY_VIEW_FIELD_IDS)[number], string>> = {
 	apiVersion: "apiVersion",
 	headers: "headers",

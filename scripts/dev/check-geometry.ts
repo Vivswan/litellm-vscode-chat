@@ -31,21 +31,22 @@ import ts from "typescript";
 import type { Dim, StatePair, WidthSurface } from "./geometryRegistry";
 import { marker, paneWidthStep, STATE_PAIRS, UNGUARDED_FIXTURE_PINS, WIDTH_SURFACES } from "./geometryRegistry";
 
+/** Anchored on this script's location, not the cwd, so the sweep runs from any directory. */
 const REPO_ROOT = path.resolve(__dirname, "../..");
 
+/** Every fixture module the registries name lives here; a case's fixture is a file name in it. */
 const FIXTURE_DIR = path.join(REPO_ROOT, "scripts/dev/renderFixtures");
 
+/** render-dashboard.ts, spawned per case on a generated fixture that carries the case's steps. */
 const HARNESS = path.join(REPO_ROOT, "scripts/dev/render-dashboard.ts");
 
-/**
- * Sub-pixel slack for antialiased layout: two paints of the same box can differ by a rounding step without any rule
- * having moved. Past half a pixel is a rule.
- */
+/** Sub-pixel slack: two paints of one box differ by a rounding step with no rule moved; past half a pixel is a rule. */
 const TOLERANCE_PX = 0.5;
 
 /** The width-extreme viewport: past the pane's 1560px cap plus the rail, so every surface is at its widest. */
 const WIDE_VIEWPORT_PX = 2000;
 
+/** The grandfathered fixtures by file name, each with the steps digest its exemption is pinned to. */
 const UNGUARDED_FIXTURES: ReadonlyMap<string, string> = new Map(UNGUARDED_FIXTURE_PINS);
 
 /** The steps digest an exemption pins: content-addressed, so any edit to the flow re-opens the question. */
@@ -74,7 +75,14 @@ function stepThrows(step: string): boolean {
 
 /**
  * The static guard sweep, over each fixture's EXPORTED shape rather than its text: steps arrive by spread and import as
- * well as by literal, and the assertion has to live in the steps that actually run.
+ * well as by literal, and the assertion has to live in the steps that actually run. A fixture running its steps against
+ * the wrong page exits 0 with a plausible PNG, which has happened at scale, so a flow without a throwing assertion is a
+ * finding unless UNGUARDED_FIXTURE_PINS grandfathers it under a digest of its steps.
+ *
+ *   a grandfathered flow modified                   -> the exemption is void, the same as a new unguarded flow
+ *   an entry whose fixture throws, lost its steps, or is gone -> stale
+ *   a digest updated to the changed steps           -> re-grandfathers them and defeats the leg; add the assertion
+ *                                                      and delete the entry instead
  */
 async function fixtureGuardFindings(): Promise<string[]> {
 	const findings: string[] = [];
@@ -321,13 +329,18 @@ function widthStep(surface: WidthSurface): string {
 	})()`;
 }
 
+/** One sweep case, a state pair or a width surface, as the harness runs it. */
 interface SweepCase {
+	/** The registry entry's name, as --only filters and the report spell it. */
 	readonly name: string;
 
+	/** The renderFixtures/ file the generated fixture extends. */
 	readonly fixture: string;
 
+	/** The page expressions appended to the fixture's own steps. */
 	readonly steps: readonly string[];
 
+	/** A viewport width written into the generated fixture in place of the base fixture's. */
 	readonly viewportWidth?: number;
 
 	/** Whether the case carries an expectedDrift marker (its probe then never exits green). */

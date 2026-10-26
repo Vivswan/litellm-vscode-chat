@@ -36,13 +36,18 @@ import {
 	sendJson,
 } from "../../src/test/scenarios";
 
+/** PORT from the container environment, else the fake backend's conventional port. */
 const PORT = Number(process.env.PORT || FAKE_BACKEND_PORT);
+
+/** Cap on a posted custom scenario; past it the body is drained and the request answered 413. */
 const MAX_CUSTOM_SCENARIO_BYTES = 1024 * 1024;
 
 /** The dev launcher sets this: every chat request and response body lands in the container log. */
 const VERBOSE = process.env.FAKE_VERBOSE === "1";
 
+/** The built-in scenarios plus any posted custom ones, by name. */
 const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
+
 let lastRequest: Record<string, unknown> | null = null;
 /** Its own slot: a reader of either route must never wonder which arm wrote what it sees. */
 let lastCompletionRequest: Record<string, unknown> | null = null;

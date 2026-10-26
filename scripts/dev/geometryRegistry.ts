@@ -9,24 +9,33 @@ export function marker(kind: "SETUP" | "DRIFT" | "XDRIFT" | "STALE" | "WIDTH", r
 
 export type Dim = "x" | "y" | "width" | "height";
 
+/**
+ * A known drift the sweep tolerates, bounded on both axes: a marker that accepted every drift would hide a new defect
+ * behind a known one, and a prefix alone would bless a 40px regression in the same place as a known 1px one. A marker
+ * whose drift is gone fails as stale, so it is removed in the change that fixes the defect.
+ */
 interface ExpectedDrift {
 	/** Why the drift stands on today's main, for the reader of this registry. */
 	readonly reason: string;
 
-	/**
-	 * The drifts the marker covers, each as the "<target> <dim>" prefix of a drift line. Any drift OUTSIDE this list
-	 * still fails the pair: a marker that accepted every drift would hide a new defect behind a known one.
-	 */
+	/** The drifts covered, each a "<target> <dim>" prefix of a drift line; any drift outside the list still fails. */
 	readonly where: readonly string[];
 
-	/**
-	 * The largest magnitude the marker accepts, in px, for every drift it names. Required, because a prefix alone would
-	 * bless a 40px regression in the same place as a known 1px one.
-	 */
+	/** The largest magnitude accepted, in px, for every drift the marker names. */
 	readonly maxAbsPx: number;
 }
 
+/**
+ * One element and one state change, measured before and after. viewportWidth and paneWidth force a tier the fixture's
+ * own width never reaches. The pane's container queries answer to its content box, so an inline pane width engages a
+ * tier directly: the armed cover's floor tier lives under a 400px pane, below the ~500px minimum macOS puts on a real
+ * window.
+ *
+ * A platform minimum can hand back something wider than asked, so such a pair's restVerify should also prove the tier
+ * engaged.
+ */
 interface StatePairBase {
+	/** The pair's name, as --only filters and the report spell it. */
 	readonly name: string;
 
 	/** The render fixture (a renderFixtures/ file name) whose page hosts the element. */
@@ -41,64 +50,47 @@ interface StatePairBase {
 	/** Steps run before the baseline measurement (open the popover the pair lives in). */
 	readonly setup?: readonly string[];
 
-	/**
-	 * A viewport width forced onto the pair's fixture, for a tier the fixture's own width never reaches; the restVerify
-	 * should then also prove the tier engaged, since a platform minimum can hand back something wider.
-	 */
+	/** A viewport width forced onto the pair's fixture, for a tier the fixture's own width never reaches. */
 	readonly viewportWidth?: number;
 
-	/**
-	 * An inline width forced onto .pane itself, for a tier below what any viewport can reach (the platform's window
-	 * minimum is ~500px on macOS, and the armed cover's floor tier lives under a 400px pane). The pane's container
-	 * queries answer to its content box, so an inline width engages the tier directly; the restVerify should still
-	 * prove it engaged.
-	 */
+	/** An inline width forced onto .pane itself, whose container queries then engage a tier directly. */
 	readonly paneWidth?: number;
 
+	/** The steps that induce the state change between the two measurements. */
 	readonly toggle: readonly string[];
 
-	/**
-	 * A page expression that must be truthy at the BASELINE, proving the rest state is really at rest: a fixture that
-	 * one day starts in the toggled state would otherwise compare the state against itself.
-	 */
+	/** Must be truthy at the baseline, so a fixture that starts toggled cannot compare the state against itself. */
 	readonly restVerify: string;
 
 	/** The mirror guard after the toggle: truthy proves the state was actually induced. */
 	readonly verify: string;
 
-	/**
-	 * Dimensions a NAMED target is allowed to change, with the reason in the entry's comment. Per target on purpose: an
-	 * exemption one element earns must not silently cover its neighbours.
-	 */
+	/** Dimensions a named target may change, per target so an exemption one element earns never covers its neighbours. */
 	readonly intended?: Readonly<Record<string, readonly Dim[]>>;
 }
 
 /**
  * metricProbe and expectedDrift are mutually exclusive by type: an expected-drift compare never returns, so a probe
- * behind one would never run.
+ * behind one would never run. A metric probe re-measures each named slot after the pair holds, under the harness's
+ * divergent font faces (same glyph sources, deliberately different vertical metrics, so the swap changes nothing but
+ * the metrics): once with only the mono token pair diverging (the mixed sans+mono line box that broke on Linux) and
+ * once with both. A height that moves would pass on one platform's fonts and fail on another's, so it fails here on
+ * every platform instead.
  */
 export type StatePair = StatePairBase &
 	(
 		| {
-				/**
-				 * Text-bearing slots whose HEIGHT must not depend on font metrics: after the pair holds, each is
-				 * re-measured under the harness's divergent font faces (same glyph sources, deliberately different
-				 * vertical metrics, so the swap changes nothing but the metrics) - once with only the mono token pair
-				 * diverging (the mixed sans+mono line box that broke on Linux) and once with both. A height that moves
-				 * would pass on one platform's fonts and fail on another's, so it fails here on every platform instead.
-				 */
+				/** Text-bearing slots re-measured under divergent fonts after the pair holds; their height must not move. */
 				readonly metricProbe?: readonly string[];
 
+				/** Declared as undefined, so the two arms stay disjoint for narrowing. */
 				readonly expectedDrift?: undefined;
 		  }
 		| {
-				/**
-				 * The pair drifts on today's main and the defect is known: the sweep stays green by asserting the NAMED
-				 * drifts are still there, within the marker's bound, and nothing else moved. Remove the marker in the
-				 * same change that fixes the defect - a marker whose drift is gone fails as stale.
-				 */
+				/** A known drift the sweep holds green by asserting the named drifts persist and nothing else moved. */
 				readonly expectedDrift: ExpectedDrift;
 
+				/** Declared as undefined, so the two arms stay disjoint for narrowing. */
 				readonly metricProbe?: undefined;
 		  }
 	);
@@ -106,41 +98,43 @@ export type StatePair = StatePairBase &
 /** The theme appearance row, the settings row every pair on that page anchors to. */
 const THEME_ROW = '.setting-row:has([id="setting-ui.theme"])';
 
+/** The inline-completions model row: the feature-model-dangling and fim-probe-outcome pairs' subject. */
 const INLINE_MODEL_ROW = '.setting-row:has([id="setting-inlineCompletions.model"])';
 
+/** The commit-message model row: the covered-slot disclosure's subject, and a held neighbour of the filter switch. */
 const COMMIT_MODEL_ROW = '.setting-row:has([id="setting-commitGeneration.model"])';
 
+/** The commit prompt's row, whose height the textarea-grows pair lets change with the box. */
 const COMMIT_PROMPT_ROW = '.setting-row:has([id="setting-commitGeneration.prompt"])';
 
+/** The commit prompt textarea itself, the box the textarea-grows pair types into. */
 const COMMIT_PROMPT_BOX = '[id="setting-commitGeneration.prompt"]';
 
+/** The language-filter mode row, the mode-switch pair's anchor; its sibling, the list row, must not move. */
 const LANGUAGE_FILTER_MODE_ROW = '.setting-row:has([id="setting-inlineCompletions.languageFilter-mode"])';
 
+/** The language-filter list row, whose label flips with the mode while its box must hold. */
 const LANGUAGE_FILTER_LIST_ROW = '.setting-row:has([id="setting-inlineCompletions.languageFilter"])';
 
+/** The usage alert-thresholds row, host of the parse-error and write-refusal overlay pairs. */
 const THRESHOLDS_ROW = '.setting-row:has([id="setting-usage.alertThresholds-warning"])';
 
-/**
- * That row's PARSE-error overlay, named by the id its inputs' aria-describedby points at rather than by `.setting-hint
- * .error`: a refused write renders its own overlay in the same covered slot with the same class, and guards that cannot
- * tell the two apart stop naming the state they induce.
- */
+/** The parse-error overlay, by the id its inputs' aria-describedby names; the refusal overlay shares its class. */
 const THRESHOLDS_PARSE_ERROR = `${THRESHOLDS_ROW} .setting-hint span.error[id="setting-usage.alertThresholds-problem"]`;
 
-/**
- * The same row's write-REFUSAL overlay: the covered slot's other tenant, identified by NOT carrying the parse error's
- * id (err-scalar.ts pins the same disambiguation).
- */
+/** The write-refusal overlay, the covered slot's other tenant: it carries no id, as err-scalar.ts pins. */
 const THRESHOLDS_REFUSAL = `${THRESHOLDS_ROW} .setting-hint .setting-cover > span.error:not([id])`;
 
 /** The row's ONE help glyph, in the live flow beside whichever tenant the covered slot shows. */
 const THRESHOLDS_GLYPH = `${THRESHOLDS_ROW} .setting-hint .setting-live button.help`;
 
+/** The first server row, whose hover-revealed actions the actions-reveal pair measures. */
 const FIRST_SERVER_ITEM = ".server-list > li.server-item:first-child";
 
 /** The locked-down row (servers-spend.ts's fifth server), whose band is the page's one warn-tier band. */
 const LOCKED_DOWN_ITEM = ".server-list > li.server-item:nth-child(5)";
 
+/** The locked-down row's problem band, whose paint tier the tier-lift pair raises. */
 const LOCKED_DOWN_BAND = `${LOCKED_DOWN_ITEM} .row-diagnostic`;
 
 /** The chip whose popover is open - the one chip a state toggle can address across both measurements. */
@@ -149,6 +143,7 @@ const OPEN_CHIP = ".chip-anchor:has(.chip-popover) > button.chip-field";
 /** The server edit form's first custom-header row (the only .row users on that page are the header rows). */
 const FIRST_HEADER_ROW = "#server-edit-page .row";
 
+/** The parameters record frame in chip mode, where the apply-failure note appears. */
 const PARAMS_FRAME = ".record-frame:has(#params-add-matcher)";
 
 /** The same frame in JSON mode, where the add button (the resting anchor) is replaced by the side door. */
@@ -160,6 +155,7 @@ const GPT5_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor
 /** The LAST record row, the one nearest the footer its card's verdict covers. */
 const LAST_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor for "claude-sonnet-4"'])`;
 
+/** The third diagnostics tool button, the copy whose flash the copy-flash pair measures. */
 const COPY_TOOL = ".diagnostics-tools li:nth-child(3) button";
 
 /** A rail destination that is never the selected one on the coverage fixtures, so its tip is a real reveal. */
@@ -225,10 +221,7 @@ function reactType(selector: string, value: string): string {
 	})()`;
 }
 
-/**
- * Every entry is one element and one state change, with the intended presentation delta named in its comment and
- * everything else held.
- */
+/** Every entry is one element and one state change; the intended delta is named in its comment, all else held. */
 export const STATE_PAIRS: readonly StatePair[] = [
 	{
 		//   The band pipeline's one-geometry claim (problemBand.tsx)
@@ -1173,9 +1166,15 @@ export const STATE_PAIRS: readonly StatePair[] = [
 	},
 ];
 
+/**
+ * A structural container the charter rules full-bleed: structure runs to the pane's content edge and only prose keeps
+ * a reading measure, so the rendered box has to reach the edge.
+ */
 export interface WidthSurface {
+	/** The surface's name, as --only filters and the report spell it. */
 	readonly name: string;
 
+	/** The renderFixtures/ file whose page hosts the surface. */
 	readonly fixture: string;
 
 	/** The surface's structural container, whose right edge is the claim. */
@@ -1185,11 +1184,7 @@ export interface WidthSurface {
 	readonly within?: number;
 }
 
-/**
- * The width extremes: each surface rendered at 2000px, asserting its structural container's right edge lands on the
- * pane's content edge (the charter's ruling that structure runs full-bleed and only prose keeps a reading measure); the
- * rendered box has to reach the edge.
- */
+/** Each surface is rendered at 2000px, and its container's right edge must land on the pane's content edge. */
 export const WIDTH_SURFACES: readonly WidthSurface[] = [
 	{ name: "models-list-full-bleed", fixture: "models.ts", selector: ".model-list" },
 	{ name: "servers-list-full-bleed", fixture: "servers-spend.ts", selector: "ul.server-list" },
@@ -1215,16 +1210,7 @@ export const WIDTH_SURFACES: readonly WidthSurface[] = [
 	},
 ];
 
-/**
- * Fixtures that drive a flow through steps WITHOUT a throwing assertion on their own subject, grandfathered as found -
- * each pinned to a digest of its steps, so MODIFYING a grandfathered flow invalidates the exemption along with adding a
- * new one. THIS LIST ONLY SHRINKS: a fixture running its steps against the wrong page exits 0 with a plausible PNG,
- * which has happened at scale.
- *
- *   An entry whose fixture now throws (or lost its steps, or is gone)           -> fails as stale
- *   To update a digest is to re-grandfather changed steps, which defeats the leg -> add the throwing assertion and
- *                                                                                   DELETE the entry
- */
+/** Fixtures grandfathered without a throwing assertion, each pinned to its steps digest. THIS LIST ONLY SHRINKS. */
 export const UNGUARDED_FIXTURE_PINS: readonly (readonly [string, string])[] = [
 	["confirm-discard.ts", "8bca510c05ad"],
 	["diagnostics-inspector.ts", "8a1701a0f708"],

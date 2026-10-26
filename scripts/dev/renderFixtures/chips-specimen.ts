@@ -20,6 +20,7 @@ const UNCHECKED_SERVER: DashboardServer = {
 	config: { secrets: NO_SECRETS },
 };
 
+/** Clones the live page's chips, family by family, into a specimen section; the harvest throws on a missing chip. */
 const fixture: RenderFixture = {
 	messages: [
 		{

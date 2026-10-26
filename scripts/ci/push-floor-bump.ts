@@ -15,6 +15,7 @@ import { setOutput } from "./githubActions";
 /** Only the files sync-vscode-floor.ts owns, so a stray runner edit can never ride along. */
 const FLOOR_FILES = ["package.json", "README.md", "README.zh-cn.md", "README.zh-tw.md", "docs"];
 
+/** A rejected push rebases onto Dependabot's moved head and retries; past this many the step fails loudly. */
 const PUSH_ATTEMPTS = 3;
 
 function env(name: string): string {

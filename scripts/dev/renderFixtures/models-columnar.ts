@@ -25,6 +25,7 @@ const FILLER: readonly DashboardModel[] = Array.from({ length: 60 }, (_, index) 
 	};
 });
 
+/** Pushes the windowed list and asserts the columnar tier engaged, since a stacked fallback would still exit 0. */
 const fixture: RenderFixture = {
 	messages: [
 		{

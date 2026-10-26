@@ -62,53 +62,47 @@ import {
 	windowWidthsForPanes,
 } from "./render/probes.ts";
 
-/** What a fixture module default-exports; `messages` are ExtensionToWebviewMessage objects. */
+/**
+ * What a fixture module default-exports.
+ *
+ * Narrow behaviour belongs to a fixture opened AT the narrow width: a chip popover picks its side by measuring its
+ * anchor at open time, so narrowing afterwards leaves it on a side the component would never have chosen.
+ *
+ * The high-contrast themes layer the way an OS mode does: forced-colors adds forced-colors: active on top of HC dark,
+ * overriding author colors. Classic scrollbars take space and paint bands the default render can never show.
+ *
+ * A below-floor fixture inverts the overflow assertion: the sideways scroll must be present, since it is the state such
+ * a fixture exists to photograph, and the width must really be under the floor.
+ */
 export interface RenderFixture {
+	/** Posted to the page in order before the steps run; each is an ExtensionToWebviewMessage. */
 	readonly messages: readonly unknown[];
 
+	/** Page expressions evaluated in order once the page has settled; a throw fails the render. */
 	readonly steps?: readonly string[];
 
+	/** The window size the page is laid out at; --width and --height override it. */
 	readonly viewport?: { readonly width: number; readonly height: number };
 
-	/**
-	 * Required when the fixture's subject IS the viewport edge - anything measuring against it or flipping away from
-	 * it - because a full-page capture expands the viewport until the edge is not there.
-	 */
+	/** Capture the viewport, not the full page: a full-page capture expands the viewport until its edge is gone. */
 	readonly clipViewport?: boolean;
 
+	/** The wait after the messages land before the steps and the capture, for layout that settles asynchronously. */
 	readonly settleMs?: number;
 
-	/**
-	 * For a fixture whose state was MEASURED when it was built: a chip popover picks its side by measuring its anchor
-	 * at open time, so narrowing afterwards leaves it on a side the component would never have chosen. Narrow
-	 * behaviour belongs to a fixture opened AT the narrow width.
-	 */
+	/** The state was measured when the fixture was built, so the sweeps never narrow this fixture. */
 	readonly measuredAtOwnWidth?: boolean;
 
-	/**
-	 * The two high-contrast kinds raise prefers-contrast; "forced-colors" adds forced-colors: active on top of HC dark,
-	 * the way an OS high-contrast mode overrides author colors.
-	 */
+	/** The emulated host theme; the HC kinds raise prefers-contrast, and forced-colors adds forced-colors: active. */
 	readonly hostTheme?: HostTheme;
 
-	/**
-	 * Canned answers for posted requests: a request whose `method` matches a key gets the mapped envelope template
-	 * dispatched back with its `id` and `method` filled in (the correlation the real extension performs).
-	 */
+	/** Canned answers by request method: the envelope template goes back with the request's id and method filled in. */
 	readonly respond?: Readonly<Record<string, unknown>>;
 
-	/**
-	 * Launch Chrome without --hide-scrollbars, as the --show-scrollbars flag does: the webview's classic scrollbars
-	 * take space and paint bands the default render can never show. Fixture-level so a scrollbar-state guard keeps its
-	 * bars when the sweeps run it without flags.
-	 */
+	/** Show Chrome's scrollbars, as --show-scrollbars does, so a scrollbar-state guard keeps its bars in the sweeps. */
 	readonly showScrollbars?: boolean;
 
-	/**
-	 * The fixture's width sits under the shell's min-width floor, where the page scrolls sideways BY DESIGN. The
-	 * harness inverts its overflow assertion: the sideways scroll must be PRESENT (it is the state such a fixture
-	 * exists to photograph), and the width must really be under the floor.
-	 */
+	/** The width sits under the shell's min-width floor, so the harness demands the sideways scroll it exists to show. */
 	readonly belowFloor?: boolean;
 }
 

@@ -17,6 +17,7 @@
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, EXTERNAL_SERVER, GATEWAY_SERVER, MISCONFIGURED_SERVER, PROD_SERVER, USAGE } from "./shared.ts";
 
+/** Long enough to outgrow a fixed name track; the usage card is renamed with it, since usage joins by label. */
 const LONG_LABEL = "Dev Error (unreachable host for connection diagnostics)";
 
 /** Shared with servers-long-label-squeeze.ts: same page, the other end of the tier. */
@@ -33,6 +34,7 @@ export const LONG_LABEL_MESSAGES: readonly unknown[] = [
 	},
 ];
 
+/** Asserts the pane is wide, the label renders whole, every URL's wbr is suppressed, and the usage join survived. */
 const fixture: RenderFixture = {
 	messages: LONG_LABEL_MESSAGES,
 	steps: [

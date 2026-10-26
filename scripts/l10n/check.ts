@@ -137,10 +137,7 @@ const BUNDLE_READ_FILES = new Set(
 	["src/extension/l10nConfig.ts", "src/extension/dashboard/panel.ts"].map((file) => path.join(process.cwd(), file))
 );
 
-/**
- * The constructor-probe files pass the vscode module object into Reflect probes; that value use carries no
- * localization. Everything else in them stays under the rule.
- */
+/** The constructor-probe files pass the vscode module object into Reflect probes, a value use with no localization. */
 const VSCODE_VALUE_USE_FILES = new Set(
 	["src/shared/conversion/dataPart.ts", "src/shared/conversion/thinkingPart.ts"].map((file) =>
 		path.join(process.cwd(), file)
@@ -164,14 +161,11 @@ function checkVscodeL10nUsage(sources: readonly SourceFile[]): void {
 	}
 }
 
-/**
- * Non-prose token families beyond the {N} placeholders that a translated value must carry verbatim, compared as
- * multisets: $(icon) codicons, command:<id> occurrences, and markdown link TARGETS including percent-encoded ones (a
- * reworded target breaks deep-links). The /g literals are consumed only through matchAll, which iterates over a clone.
- */
+/** Token families a translation carries verbatim beyond {N}, compared as multisets; matchAll clones each /g literal. */
 const PRESERVED_TOKENS: readonly { readonly what: string; readonly pattern: RegExp }[] = [
 	{ what: "$(codicon) tokens", pattern: /\$\(([a-z0-9~-]+)\)/g },
 	{ what: "command IDs", pattern: /command:[A-Za-z0-9_.-]+/g },
+	// Percent-encoded targets included: a reworded target breaks deep-links.
 	{ what: "markdown link targets", pattern: /\]\(([^()\s]+)\)/g },
 ];
 

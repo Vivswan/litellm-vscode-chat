@@ -4,13 +4,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+/** How long one launch waits for Chrome to write its DevTools port file before it counts as starved. */
 export const READY_TIMEOUT_MS = 15000;
 
-/**
- * Launch is the one phase that retries: on a loaded CI runner several Chromes starting at once can starve each other
- * past READY_TIMEOUT_MS, which says nothing about the page. Anything after the DevTools server is up is a finding about
- * the code, and retrying it would mask nondeterminism instead of noise.
- */
+/** Launch alone retries: a loaded CI runner starves Chromes starting at once, which says nothing about the page. */
 const LAUNCH_ATTEMPTS = 3;
 
 export function findChrome(): string {
@@ -76,10 +73,7 @@ async function waitForDevtoolsPort(chrome: ChildProcess, userDataDir: string, ti
 	throw new Error(`Chrome did not write ${portFile} within ${timeoutMs}ms`);
 }
 
-/**
- * Whether this platform has POSIX process groups. Windows does not: a negative-pid probe reports ESRCH for a live
- * Chrome there, and reading that as "group gone" would skip the kill entirely.
- */
+/** Windows lacks POSIX process groups: a negative-pid probe says ESRCH for a live Chrome, which would skip the kill. */
 const CAN_SIGNAL_PROCESS_GROUP = process.platform !== "win32";
 
 /**
@@ -136,7 +130,8 @@ export async function killChromeTree(chrome: ChildProcess): Promise<void> {
  * included) behind; they live under the caller's tmpRoot, so its one removal sweeps every attempt. `onSpawn` hands the
  * caller each attempt's process so a cancellation mid-wait has something to kill, and `stopped` is read before every
  * spawn with no await in between: a cancellation that landed BETWEEN attempts already ran its cleanup, and a relaunch
- * after it would be a Chrome nothing kills.
+ * after it would be a Chrome nothing kills. Anything after the DevTools server is up is a finding about the code, and
+ * retrying it would mask nondeterminism instead of noise.
  */
 export async function launchChrome(
 	chromeBin: string,

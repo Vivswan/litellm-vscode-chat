@@ -19,6 +19,7 @@ const FILLER: readonly DashboardModel[] = Array.from({ length: 60 }, (_, index) 
 	};
 });
 
+/** The Models destination past the windowing threshold, at a tall viewport. */
 const fixture: RenderFixture = {
 	messages: [
 		{

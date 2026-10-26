@@ -1,4 +1,11 @@
 /// <reference types="bun" />
+/**
+ * The two rolldown bundles (the extension host and the dashboard webview) and the Tailwind leg of the stylesheet. The
+ * source reads build-time constants as bare identifiers, which oxc's define substitutes as JS expression strings:
+ * __LITELLM_REPOSITORY_URL__ is package.json's repository.url, which src/shared/util/links.ts derives every GitHub link
+ * from, and the test runners set the same global from the same field (src/test/util/buildDefines.ts). A bundle built
+ * without the define leaves the identifier bare, a ReferenceError at module load rather than a stale link.
+ */
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { BuildOptions, Plugin } from "rolldown";
@@ -11,21 +18,20 @@ import {
 import { tailwindCliBin } from "../../src/test/bun/webview/dashboard/styles/tailwindCliBin.ts";
 import { assertLayersOrdered } from "./cascadeLayers.ts";
 
+/** --watch rebuilds on change and prints the begin/end markers .vscode/tasks.json's problem matcher reads. */
 const watchMode = process.argv.includes("--watch");
+
+/** --production minifies, hides the source maps, and ships React's production build. */
 const production = process.argv.includes("--production");
 
-/**
- * The build-time constants the source reads as bare identifiers, as the JS expression strings oxc's define
- * substitutes. package.json's `repository.url` owns the repository URL that src/shared/util/links.ts derives
- * every GitHub link from; the root tsconfig cannot import the manifest from src/shared, so the bundle injects
- * it, and the test runners set the same global from the same field (src/test/util/buildDefines.ts). A bundle
- * built without a define leaves the identifier bare, a ReferenceError at module load rather than a stale link.
- */
+/** Read for repository.url: the root tsconfig cannot import the manifest from src/shared, so the bundle injects it. */
 const manifest = JSON.parse(await fs.readFile("package.json", "utf8")) as { repository?: { url?: unknown } };
 
 if (typeof manifest.repository?.url !== "string") {
 	throw new Error("package.json repository.url must be a string: the GitHub links are built from it");
 }
+
+/** The identifier src/shared/util/links.ts reads, as the JSON expression oxc substitutes for it. */
 const buildDefines = { __LITELLM_REPOSITORY_URL__: JSON.stringify(manifest.repository.url) };
 
 /**
@@ -49,11 +55,7 @@ function cssErrorMessage(error: unknown): string {
 	return lines.length > 0 ? lines.join("\n") : String(error);
 }
 
-/**
- * Package stylesheets compiled into the emitted css (Tailwind's own layer
- * files, say): they ship inside dashboard.css, so the third-party notices
- * must see them alongside the JS module graph.
- */
+/** Package stylesheets compiled into dashboard.css (Tailwind's layer files), so the third-party notices see them. */
 const cssModuleIds = new Set<string>();
 
 /**
@@ -175,12 +177,7 @@ function stylesheetPlugin(): Plugin {
 	};
 }
 
-/**
- * The extension host bundle. A dir output rather than `file`: rolldown refuses
- * `output.file` when the graph holds dynamic imports, and the gpt-tokenizer
- * encodings load that way precisely so their multi-megabyte rank data splits
- * into lazy chunks instead of riding the eager dist/extension.js.
- */
+/** The extension host bundle; a dir output, since rolldown refuses output.file over a graph with dynamic imports. */
 const extensionOptions: BuildOptions = {
 	input: "src/extension.ts",
 	platform: "node",
@@ -190,6 +187,7 @@ const extensionOptions: BuildOptions = {
 	output: {
 		dir: "dist",
 		entryFileNames: "extension.js",
+		// The gpt-tokenizer encodings are dynamic imports so their multi-megabyte rank data lands here, not in the entry.
 		chunkFileNames: "chunks/[name].js",
 		format: "cjs",
 		minify: production,
@@ -197,12 +195,7 @@ const extensionOptions: BuildOptions = {
 	},
 };
 
-/**
- * The dashboard webview bundle: browser code, React via the automatic JSX
- * runtime, everything inlined. Rolldown never defines NODE_ENV on its own, so
- * the define below decides whether React's production or development build is
- * bundled; without it every build would ship the development build.
- */
+/** The dashboard webview bundle: browser code, React through the automatic JSX runtime, everything inlined. */
 const webviewOptions: BuildOptions = {
 	input: "src/webview/dashboard/index.tsx",
 	platform: "browser",
@@ -216,6 +209,7 @@ const webviewOptions: BuildOptions = {
 		jsx: { runtime: "automatic", importSource: "react" },
 		define: {
 			...buildDefines,
+			// Rolldown never defines NODE_ENV on its own; without this every build would ship React's development build.
 			"process.env.NODE_ENV": JSON.stringify(production ? "production" : "development"),
 		},
 	},
@@ -228,6 +222,7 @@ const webviewOptions: BuildOptions = {
 	},
 };
 
+/** Both bundles, built or watched together so one pass reports both. */
 const builds = [extensionOptions, webviewOptions];
 
 if (watchMode) {

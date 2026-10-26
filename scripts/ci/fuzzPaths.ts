@@ -4,6 +4,7 @@
  * streaming transport whose leniency contract the fuzzer pins, the bun leg's root and preload, and the docker
  * orchestrator with its label list. A rename here is pinned by src/test/bun/scripts/ci/fuzzPaths.test.ts.
  */
+
 export const FUZZ_PATHS = {
 	files: [
 		"bunfig.toml",

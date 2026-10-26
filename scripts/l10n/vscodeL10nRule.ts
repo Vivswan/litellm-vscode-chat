@@ -9,11 +9,7 @@ interface VscodeL10nRuleOptions {
 	/** Whether this file may read `vscode.l10n.bundle` (the two bundle-feeding sites). */
 	readonly allowBundleReads: boolean;
 
-	/**
-	 * Whether this file may reference a vscode-module binding as a plain value
-	 * (the Reflect constructor-probe files). Member access rules still apply;
-	 * `.l10n` stays flagged.
-	 */
+	/** Whether a vscode binding may be used as a plain value (the Reflect probe files); .l10n access stays flagged. */
 	readonly allowVscodeValueUse: boolean;
 }
 
