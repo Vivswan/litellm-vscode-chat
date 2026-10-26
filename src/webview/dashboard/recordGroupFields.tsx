@@ -261,6 +261,12 @@ interface ParamRowProps {
 	readonly paramIndex: number;
 }
 
+interface ParamFlagCellProps {
+	readonly row: ParamRowContext;
+	readonly param: ParamRow;
+	readonly wrongType: WrongTypeNote | undefined;
+}
+
 interface MatcherSectionProps {
 	readonly group: PrefixGroup;
 	readonly prefixProblem: string | undefined;
@@ -351,15 +357,7 @@ function ParamRowsHead() {
  * checkboxes (a directive cannot be forced or inherited); unforceable keys keep the box visible but disabled, the help
  * naming why. A directive key of the other record type gets the wrong-type note in the cell instead.
  */
-function ParamFlagCell({
-	row,
-	param,
-	wrongType,
-}: {
-	row: ParamRowContext;
-	param: ParamRow;
-	wrongType: WrongTypeNote | undefined;
-}) {
+function ParamFlagCell({ row, param, wrongType }: ParamFlagCellProps) {
 	const { group, inert, forcedFields, onChange } = row;
 	if (param.key.startsWith("_") || trimHttpWhitespace(param.key).length === 0) {
 		return wrongType === undefined ? null : <WrongTypeFlagCell note={wrongType.note} id={wrongType.id} />;
@@ -838,7 +836,7 @@ export function capabilityValueKind(key: string): "number" | "boolean" | "cost" 
 }
 
 /** The number-family value inputs' shared attributes; costs allow 0 and decimals, token counts do not. */
-export function numberInputProps(kind: "number" | "cost"): { min: number; step: number | "any"; placeholder: string } {
+function numberInputProps(kind: "number" | "cost"): { min: number; step: number | "any"; placeholder: string } {
 	return kind === "cost"
 		? { min: 0, step: "any", placeholder: l10n.t("Cost per token, e.g. 0.000002") }
 		: { min: 1, step: 1, placeholder: l10n.t("Tokens, e.g. 128000") };
@@ -1050,6 +1048,35 @@ interface CapabilityValueCellProps {
 	readonly onKeyDown: ((event: KeyboardEvent) => void) | undefined;
 }
 
+interface CapabilityFlagCellProps {
+	readonly row: CapabilityRowContext;
+	readonly fieldKey: string;
+	readonly wrongType: WrongTypeNote | undefined;
+}
+
+/** The words and keys the bare input takes from its caller. */
+interface CapabilityInputAttributes {
+	readonly ariaLabel: string;
+	readonly describedBy?: string | undefined;
+	readonly placeholder: string;
+	readonly onKeyDown?: ((event: KeyboardEvent<HTMLInputElement>) => void) | undefined;
+}
+
+/**
+ * What the shared capability control takes. The callers own the words and the boxes: the flag label's class differs by
+ * grid, and only the row grid boxes the bare input (the picker and the flag label are boxes of their own).
+ */
+interface CapabilityControlProps {
+	readonly kind: ReturnType<typeof capabilityControlKind>;
+	readonly valueText: string;
+	readonly disabled: boolean;
+	readonly invalid: boolean | undefined;
+	readonly flagClassName: string;
+	readonly inputClassName?: string | undefined;
+	readonly input: CapabilityInputAttributes;
+	readonly onValue: (next: string) => void;
+}
+
 function CapabilityRowsHead() {
 	return (
 		<div className="rows-head">
@@ -1065,14 +1092,18 @@ function CapabilityRowsHead() {
 	);
 }
 
-/** The value cell by the key's kind: a checkbox, the catalog picker, or a number or text input. */
-function CapabilityValueCell({ kind, valueText, inert, invalid, onValue, onKeyDown }: CapabilityValueCellProps) {
+/**
+ * The value control every capability editor shares, by the key's kind: a checkbox for a boolean capability, the catalog
+ * picker for the OpenRouter model directive, a number or text input otherwise.
+ */
+export function CapabilityControl(props: CapabilityControlProps) {
+	const { kind, valueText, disabled, invalid, flagClassName, inputClassName, input, onValue } = props;
 	if (kind === "boolean") {
 		return (
-			<label className="cell value capability-flag">
+			<label className={flagClassName}>
 				<Checkbox
 					checked={trimHttpWhitespace(valueText) === "true"}
-					disabled={inert}
+					disabled={disabled}
 					onChange={(event) => onValue(event.currentTarget.checked ? "true" : "false")}
 				/>
 				{l10n.t("supported")}
@@ -1080,25 +1111,41 @@ function CapabilityValueCell({ kind, valueText, inert, invalid, onValue, onKeyDo
 		);
 	}
 	if (kind === "catalog-id") {
-		return <CatalogPicker value={valueText} disabled={inert} invalid={invalid} onValue={onValue} />;
+		return <CatalogPicker value={valueText} disabled={disabled} invalid={invalid === true} onValue={onValue} />;
 	}
 	const numberProps = kind === "number" || kind === "cost" ? numberInputProps(kind) : undefined;
+	const control = (
+		<Input
+			type={numberProps === undefined ? "text" : "number"}
+			min={numberProps?.min}
+			step={numberProps?.step}
+			className="value"
+			aria-invalid={invalid}
+			aria-describedby={input.describedBy}
+			aria-label={input.ariaLabel}
+			placeholder={numberProps?.placeholder ?? input.placeholder}
+			value={valueText}
+			disabled={disabled}
+			onChange={(event) => onValue(event.currentTarget.value)}
+			onKeyDown={input.onKeyDown}
+		/>
+	);
+	return inputClassName === undefined ? control : <span className={inputClassName}>{control}</span>;
+}
+
+/** The value cell by the key's kind, in the row grid's boxes. */
+function CapabilityValueCell({ kind, valueText, inert, invalid, onValue, onKeyDown }: CapabilityValueCellProps) {
 	return (
-		<span className="cell value">
-			<Input
-				type={numberProps === undefined ? "text" : "number"}
-				min={numberProps?.min}
-				step={numberProps?.step}
-				className="value"
-				aria-invalid={invalid}
-				aria-label={l10n.t("Value")}
-				placeholder={numberProps?.placeholder ?? l10n.t("JSON value")}
-				value={valueText}
-				disabled={inert}
-				onChange={(event) => onValue(event.currentTarget.value)}
-				onKeyDown={onKeyDown}
-			/>
-		</span>
+		<CapabilityControl
+			kind={kind}
+			valueText={valueText}
+			disabled={inert}
+			invalid={invalid}
+			flagClassName="cell value capability-flag"
+			inputClassName="cell value"
+			input={{ ariaLabel: l10n.t("Value"), placeholder: l10n.t("JSON value"), onKeyDown }}
+			onValue={onValue}
+		/>
 	);
 }
 
@@ -1106,15 +1153,7 @@ function CapabilityValueCell({ kind, valueText, inert, invalid, onValue, onKeyDo
  * The row's flag cell. The vocabulary is open, so every non-directive field carries the fallback box - the resolver's
  * `_fallback` accepts any field the record sets; a directive key of the other record type gets the wrong-type note.
  */
-function CapabilityFlagCell({
-	row,
-	fieldKey,
-	wrongType,
-}: {
-	row: CapabilityRowContext;
-	fieldKey: string;
-	wrongType: WrongTypeNote | undefined;
-}) {
+function CapabilityFlagCell({ row, fieldKey, wrongType }: CapabilityFlagCellProps) {
 	const { group, inert, fallbackFields, onChange } = row;
 	if (directiveEligible(FALLBACK_DIRECTIVE, fieldKey)) {
 		return (

@@ -715,6 +715,50 @@ interface RecordProblemsProps {
 	readonly notes: boolean;
 }
 
+/** A section or body that renders from the inspector's shared context alone. */
+interface InspectorContextProps {
+	readonly ctx: InspectorContext;
+}
+
+interface ConfigureButtonProps {
+	readonly disabled: boolean;
+	readonly label: string;
+	readonly onClick: () => void;
+}
+
+interface FeedStatusProps {
+	readonly text: string;
+}
+
+interface InspectorHeadProps {
+	readonly model: DashboardModel;
+}
+
+interface MaxTokensLineProps {
+	readonly projection: EffectiveParametersProjection;
+}
+
+interface InspectorNotesProps {
+	readonly projection: EffectiveParametersProjection | undefined;
+	readonly reasoning: boolean;
+}
+
+interface CapabilitiesBodyProps {
+	readonly ctx: InspectorContext;
+	readonly caps: EffectiveCapabilities;
+	readonly partition: CapabilityPartition;
+}
+
+interface CapabilitiesSectionProps {
+	readonly ctx: InspectorContext;
+	readonly partition: CapabilityPartition;
+}
+
+interface PricingSectionProps {
+	readonly ctx: InspectorContext;
+	readonly pricingNames: readonly string[];
+}
+
 /**
  * The two feeds are two independent hook instances: each holds its own in-flight id, so a slow capabilities answer
  * never orphans a fast parameters one.
@@ -843,7 +887,7 @@ function configureRecord(
 }
 
 /** A section's Configure action; disabled until its feed has answered, so the record key it reuses is known. */
-function ConfigureButton({ disabled, label, onClick }: { disabled: boolean; label: string; onClick: () => void }) {
+function ConfigureButton({ disabled, label, onClick }: ConfigureButtonProps) {
 	return (
 		<Button variant="secondary" size="compact" className="section-action" disabled={disabled} onClick={onClick}>
 			{label}
@@ -852,7 +896,7 @@ function ConfigureButton({ disabled, label, onClick }: { disabled: boolean; labe
 }
 
 /** The status line a feed shows before its answer, or when the model left the list under the open panel. */
-function FeedStatus({ text }: { text: string }) {
+function FeedStatus({ text }: FeedStatusProps) {
 	return (
 		<p className="hint" role="status">
 			{text}
@@ -861,7 +905,7 @@ function FeedStatus({ text }: { text: string }) {
 }
 
 /** The panel's head: the name, the identity line, and the orientation facts (the token limits deliberately do NOT repeat here - the capabilities table below carries them with provenance). */
-function InspectorHead({ model }: { model: DashboardModel }) {
+function InspectorHead({ model }: InspectorHeadProps) {
 	const chips = capabilityList(model);
 	return (
 		<>
@@ -899,7 +943,7 @@ function InspectorHead({ model }: { model: DashboardModel }) {
  * The parameters table or its absence. A configured or forced max_tokens is real configuration even though it renders
  * on the derivation line, not as a row, so an empty table says nothing while one stands.
  */
-function ParametersBody({ ctx }: { ctx: InspectorContext }) {
+function ParametersBody({ ctx }: InspectorContextProps) {
 	const answer = ctx.feeds.params;
 	if (answer === undefined) {
 		return <FeedStatus text={l10n.t("Resolving parameters...")} />;
@@ -924,7 +968,7 @@ function ParametersBody({ ctx }: { ctx: InspectorContext }) {
 }
 
 /** The derivation line for max_tokens, formatted like every other token count on the panel: the same number in two renderings on one screen reads as two numbers. */
-function MaxTokensLine({ projection }: { projection: EffectiveParametersProjection }) {
+function MaxTokensLine({ projection }: MaxTokensLineProps) {
 	const maxTokens = maxTokensParts(projection.maxTokens);
 	return (
 		<p className="max-tokens">
@@ -947,13 +991,7 @@ function MaxTokensLine({ projection }: { projection: EffectiveParametersProjecti
  * max_tokens is forced from the derivation line, not from a row, and runtime options lose to it just the same - so the
  * runtime exception has to count it or this line contradicts the forced value rendered directly above it.
  */
-function InspectorNotes({
-	projection,
-	reasoning,
-}: {
-	projection: EffectiveParametersProjection | undefined;
-	reasoning: boolean;
-}) {
+function InspectorNotes({ projection, reasoning }: InspectorNotesProps) {
 	const anyForced =
 		projection !== undefined &&
 		(projection.rows.some((row) => row.forced === true) || projection.maxTokens.source === "forced");
@@ -998,7 +1036,7 @@ function InspectorNotes({
 	);
 }
 
-function ParametersSection({ ctx }: { ctx: InspectorContext }) {
+function ParametersSection({ ctx }: InspectorContextProps) {
 	const { model, onEditRecord } = ctx;
 	const answer = ctx.feeds.params;
 	const projection = answer?.projection;
@@ -1104,15 +1142,7 @@ function RecordProblems({ title, diagnostics, notes }: RecordProblemsProps) {
  * stay ahead of it; the directive note is a standing note about the configuration, not an event: status, never alert,
  * so a push that re-renders the panel does not re-announce it.
  */
-function CapabilitiesBody({
-	ctx,
-	caps,
-	partition,
-}: {
-	ctx: InspectorContext;
-	caps: EffectiveCapabilities;
-	partition: CapabilityPartition;
-}) {
+function CapabilitiesBody({ ctx, caps, partition }: CapabilitiesBodyProps) {
 	const { capabilityNames, extraNames } = partition;
 	return (
 		<>
@@ -1158,7 +1188,7 @@ function CapabilitiesBody({
 	);
 }
 
-function CapabilitiesSection({ ctx, partition }: { ctx: InspectorContext; partition: CapabilityPartition }) {
+function CapabilitiesSection({ ctx, partition }: CapabilitiesSectionProps) {
 	const { model, onEditRecord } = ctx;
 	const answer = ctx.feeds.caps;
 	const caps = answer?.capabilities;
@@ -1205,7 +1235,7 @@ function CapabilitiesSection({ ctx, partition }: { ctx: InspectorContext; partit
  * missing section: a server that reports no prices (or the 0/0 pair that means the same thing) says so, and no number
  * is invented to fill the gap.
  */
-function PricingSection({ ctx, pricingNames }: { ctx: InspectorContext; pricingNames: readonly string[] }) {
+function PricingSection({ ctx, pricingNames }: PricingSectionProps) {
 	const answer = ctx.feeds.caps;
 	const caps = answer?.capabilities;
 	let body: ReactNode;

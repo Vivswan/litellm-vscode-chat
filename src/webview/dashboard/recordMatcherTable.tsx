@@ -99,15 +99,20 @@ interface ChipBodyProps {
 	readonly flags: ReturnType<typeof chipFlags>;
 }
 
-interface ChipFaceProps {
-	readonly row: RowContext;
-	readonly chipClass: string;
-	readonly body: ReactNode;
+/** One field chip's identity among exact duplicates, the marks it wears, and the ids its spoken descriptions take. */
+interface FieldChipMarks {
+	readonly key: string;
+	readonly issue: RowIssueView | undefined;
+	readonly catalog: boolean;
+	readonly ordinal: number;
 	readonly openHere: boolean;
-	readonly describedBy: string | undefined;
 	readonly invalid: boolean;
+	readonly hintId: string | undefined;
+	readonly problemId: string | undefined;
+	readonly describedBy: string | undefined;
+	readonly chipClass: string;
+	readonly flags: ReturnType<typeof chipFlags>;
 	readonly flagNote: string | undefined;
-	readonly onToggle: (anchor: EventTarget | null) => void;
 }
 
 interface ChipDescriptionsProps {
@@ -205,37 +210,35 @@ function ChipBody({ catalog, fieldKey, valueText, flags }: ChipBodyProps) {
 	);
 }
 
-/**
- * The chip as a control on an editable row. The action rides a hidden prefix so the accessible name keeps the chip's
- * visible content - key, value, and flag badges - instead of masking it. A read-only chip cannot open the popover and
- * a native title never reliably renders in the webview host, so the flag's sentence rides the tip primitive: hover,
- * keyboard focus, and aria-describedby all reach it.
- */
-function ChipFace({ row, chipClass, body, openHere, describedBy, invalid, flagNote, onToggle }: ChipFaceProps) {
-	if (row.edit !== undefined) {
-		return (
-			<button
-				type="button"
-				className={chipClass}
-				aria-expanded={openHere}
-				aria-describedby={describedBy}
-				aria-invalid={invalid || undefined}
-				disabled={row.edit.disabled}
-				onClick={(event) => onToggle(event.currentTarget)}
-			>
-				<span className="visually-hidden">{l10n.t("Edit field")}</span>
-				{body}
-			</button>
-		);
-	}
-	if (flagNote === undefined) {
-		return <span className={chipClass}>{body}</span>;
-	}
-	return (
-		<HoverTip tip={flagNote}>
-			<span className={chipClass}>{body}</span>
-		</HoverTip>
-	);
+/** The chip's marks from the row's issue view and open popover; its states resolve through chipVariants, the module's one table. */
+function fieldChipMarks(row: RowContext, rowIndex: number, param: ParamRow): FieldChipMarks {
+	const { kind, group, groupIndex, popover, tableId } = row;
+	const key = resolvedFieldName(kind, param.key);
+	const issue = row.issueView?.rows[rowIndex];
+	const catalog = kind === "caps" && key === OPENROUTER_MODEL_DIRECTIVE;
+	const ordinal = occurrenceOrdinal(group.params, rowIndex);
+	const openHere =
+		popover?.kind === "field" &&
+		groupHere(popover, row) &&
+		popover.fieldKey === param.key &&
+		popover.ordinal === ordinal;
+	const hintId = issue?.hint === undefined ? undefined : `${tableId}-hint-${groupIndex}-${rowIndex}`;
+	const problemId = issue?.problem === undefined ? undefined : `${tableId}-problem-${groupIndex}-${rowIndex}`;
+	const flags = chipFlags(kind, group, key);
+	return {
+		key,
+		issue,
+		catalog,
+		ordinal,
+		openHere,
+		invalid: issue?.problem !== undefined,
+		hintId,
+		problemId,
+		describedBy: [problemId, hintId].filter((id) => id !== undefined).join(" ") || undefined,
+		chipClass: cn(chipVariants({ editable: row.edit !== undefined, catalog, open: openHere, mark: chipMark(issue) })),
+		flags,
+		flagNote: flags.find((flag) => flag.note !== undefined)?.note,
+	};
 }
 
 /**
@@ -261,57 +264,70 @@ function ChipDescriptions({ problemId, hintId, issue }: ChipDescriptionsProps) {
 
 /**
  * One field chip with its popover. Chip identity mirrors the group's: the RAW key plus the occurrence ordinal among
- * exact duplicates, so each duplicate answers its OWN popover and Remove field can never aim at a sibling row. The
- * chip's states resolve through chipVariants, the module's one table.
+ * exact duplicates, so each duplicate answers its OWN popover and Remove field can never aim at a sibling row.
+ *
+ * On an editable row the chip is a control whose action rides a hidden prefix, so the accessible name keeps the chip's
+ * visible content - key, value, and flag badges - instead of masking it. A read-only chip cannot open the popover and
+ * a native title never reliably renders in the webview host, so the flag's sentence rides the tip primitive: hover,
+ * keyboard focus, and aria-describedby all reach it.
  */
 function FieldChip({ row, rowIndex }: FieldChipProps) {
 	const param = row.group.params[rowIndex];
 	if (param === undefined) {
 		return null;
 	}
-	const { kind, group, groupIndex, groupKey, groupOrdinal, popover, tableId } = row;
-	const key = resolvedFieldName(kind, param.key);
-	const issue = row.issueView?.rows[rowIndex];
-	const catalog = kind === "caps" && key === OPENROUTER_MODEL_DIRECTIVE;
-	const ordinal = occurrenceOrdinal(group.params, rowIndex);
-	const openHere =
-		popover?.kind === "field" &&
-		groupHere(popover, row) &&
-		popover.fieldKey === param.key &&
-		popover.ordinal === ordinal;
-	const hintId = issue?.hint === undefined ? undefined : `${tableId}-hint-${groupIndex}-${rowIndex}`;
-	const problemId = issue?.problem === undefined ? undefined : `${tableId}-problem-${groupIndex}-${rowIndex}`;
-	const describedBy = [problemId, hintId].filter((id) => id !== undefined).join(" ") || undefined;
-	const chipClass = cn(
-		chipVariants({ editable: row.edit !== undefined, catalog, open: openHere, mark: chipMark(issue) })
-	);
-	const flags = chipFlags(kind, group, key);
-	const toggle = (anchor: EventTarget | null) =>
-		row.setPopover(
-			openHere
-				? undefined
-				: { kind: "field", groupKey, groupOrdinal, fieldKey: param.key, ordinal, align: popoverAlign(anchor) }
+	const { kind, groupKey, groupOrdinal, popover } = row;
+	const chip = fieldChipMarks(row, rowIndex, param);
+	const body = <ChipBody catalog={chip.catalog} fieldKey={chip.key} valueText={param.valueText} flags={chip.flags} />;
+	let face: ReactNode;
+	if (row.edit !== undefined) {
+		face = (
+			<button
+				type="button"
+				className={chip.chipClass}
+				aria-expanded={chip.openHere}
+				aria-describedby={chip.describedBy}
+				aria-invalid={chip.invalid || undefined}
+				disabled={row.edit.disabled}
+				onClick={(event) =>
+					row.setPopover(
+						chip.openHere
+							? undefined
+							: {
+									kind: "field",
+									groupKey,
+									groupOrdinal,
+									fieldKey: param.key,
+									ordinal: chip.ordinal,
+									align: popoverAlign(event.currentTarget),
+								}
+					)
+				}
+			>
+				<span className="visually-hidden">{l10n.t("Edit field")}</span>
+				{body}
+			</button>
 		);
+	} else if (chip.flagNote === undefined) {
+		face = <span className={chip.chipClass}>{body}</span>;
+	} else {
+		face = (
+			<HoverTip tip={chip.flagNote}>
+				<span className={chip.chipClass}>{body}</span>
+			</HoverTip>
+		);
+	}
 	return (
 		<span className="chip-anchor">
-			<ChipFace
-				row={row}
-				chipClass={chipClass}
-				body={<ChipBody catalog={catalog} fieldKey={key} valueText={param.valueText} flags={flags} />}
-				openHere={openHere}
-				describedBy={describedBy}
-				invalid={issue?.problem !== undefined}
-				flagNote={flags.find((flag) => flag.note !== undefined)?.note}
-				onToggle={toggle}
-			/>
-			<ChipDescriptions problemId={problemId} hintId={hintId} issue={issue} />
-			{openHere && popover !== undefined && row.edit !== undefined ? (
+			{face}
+			<ChipDescriptions problemId={chip.problemId} hintId={chip.hintId} issue={chip.issue} />
+			{chip.openHere && popover !== undefined && row.edit !== undefined ? (
 				<FieldChipPopover
 					kind={kind}
 					groups={row.groups}
-					groupIndex={groupIndex}
+					groupIndex={row.groupIndex}
 					rowIndex={rowIndex}
-					issue={issue}
+					issue={chip.issue}
 					disabled={row.edit.disabled === true}
 					align={popover.align}
 					onChange={row.edit.onChange}

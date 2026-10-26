@@ -249,7 +249,7 @@ function coveredDetail(message: CoveredMessage | undefined): string | undefined 
 }
 
 /** A transient tone-styled status in the covered slot (a probe's outcome). */
-interface RowNotice {
+export interface RowNotice {
 	readonly text: string;
 	readonly tone: "ok" | "warning" | "error";
 }

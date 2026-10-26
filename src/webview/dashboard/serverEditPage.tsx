@@ -384,6 +384,21 @@ interface ConnectionSectionProps {
 	readonly connectionEdited: boolean;
 }
 
+/** A section or row that renders from the shared form model alone. */
+export interface FormProps {
+	readonly form: FormModel;
+}
+
+interface TestResultProps {
+	readonly testState: TestState;
+}
+
+interface TestConnectionRowProps {
+	readonly form: FormModel;
+	readonly testState: TestState;
+	readonly onTest: () => void;
+}
+
 /** The record options every parse of this form reads: the taken labels, the frozen identity, the live evidence. */
 function parseOptions(
 	declaredLabels: readonly string[],
@@ -811,7 +826,7 @@ function LabelNotes({ target, parse, renaming, collides, heldByGroup }: LabelNot
  * leads with the visible verb (Label in Name); the helper's sentence label buries "Troubleshoot" where speech input
  * cannot match it.
  */
-function TestResult({ testState }: { testState: TestState }) {
+function TestResult({ testState }: TestResultProps) {
 	if (testState.kind === "pass") {
 		return (
 			<span
@@ -850,7 +865,7 @@ function TestResult({ testState }: { testState: TestState }) {
  * The probe belongs to the URL it probes, not the save bar: testing is not committing. Quiet rank on purpose - Save is
  * the page's one accent - shaped by its icon instead.
  */
-function TestConnectionRow({ form, testState, onTest }: { form: FormModel; testState: TestState; onTest: () => void }) {
+function TestConnectionRow({ form, testState, onTest }: TestConnectionRowProps) {
 	return (
 		<FieldUnderRow>
 			<Button
@@ -876,7 +891,7 @@ function TestConnectionRow({ form, testState, onTest }: { form: FormModel; testS
 }
 
 /** The API version's mode select, and the custom segment's input while that mode is live. */
-function ApiVersionRows({ form }: { form: FormModel }) {
+function ApiVersionRows({ form }: FormProps) {
 	const { draft, props, saving } = form;
 	return (
 		<>
@@ -1068,6 +1083,22 @@ interface TakenLabels {
 	readonly liveGroupLabels: readonly string[];
 }
 
+interface EditPageFrameProps {
+	readonly pageRef: RefObject<HTMLElement | null>;
+	readonly children: ReactNode;
+}
+
+interface StandInCardProps {
+	readonly title: string;
+	readonly hint: string;
+	readonly onRequestClose: () => void;
+}
+
+interface PageFailureNoticeProps {
+	readonly failure: PageFailure;
+	readonly onDismiss: () => void;
+}
+
 /**
  * The outcome decides the page's fate: ok leaves, a validation failure stays with its message here (an operation
  * failure leaves like a success and the list's banner takes it). The list keeps its own hook for notice and banner -
@@ -1201,7 +1232,7 @@ function takenLabels(servers: readonly DashboardServer[]): TakenLabels {
  * a name. tabIndex -1: the page takes focus itself when it holds no field, never in the tab order. The id is where the
  * discard-confirm modal returns focus on "keep editing".
  */
-function EditPageFrame({ pageRef, children }: { pageRef: RefObject<HTMLElement | null>; children: ReactNode }) {
+function EditPageFrame({ pageRef, children }: EditPageFrameProps) {
 	return (
 		<section
 			className="server-edit-page max-w-[860px]"
@@ -1216,7 +1247,7 @@ function EditPageFrame({ pageRef, children }: { pageRef: RefObject<HTMLElement |
 }
 
 /** A card standing in for the form, with the one way back. */
-function StandInCard({ title, hint, onRequestClose }: { title: string; hint: string; onRequestClose: () => void }) {
+function StandInCard({ title, hint, onRequestClose }: StandInCardProps) {
 	return (
 		<div className="form-card server-form">
 			<h3 id="server-form-title">{title}</h3>
@@ -1229,7 +1260,7 @@ function StandInCard({ title, hint, onRequestClose }: { title: string; hint: str
 }
 
 /** The validation failure a round trip left beside the draft, with the frame naming which write refused it. */
-function PageFailureNotice({ failure, onDismiss }: { failure: PageFailure; onDismiss: () => void }) {
+function PageFailureNotice({ failure, onDismiss }: PageFailureNoticeProps) {
 	return (
 		<div className="banner banner-error" role="alert">
 			<p>

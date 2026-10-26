@@ -501,6 +501,19 @@ interface OtherScopeFrameProps {
 	readonly issues: readonly GroupIssueView[];
 }
 
+interface EditScopeNoteProps {
+	readonly editScope: SettingScope;
+}
+
+interface OtherParamScopesProps {
+	readonly scopes: ScopedRecordSetting<RecordValue>["otherScopes"];
+}
+
+interface OtherCapabilityScopesProps {
+	readonly scopes: ScopedRecordSetting<RecordValue>["otherScopes"];
+	readonly recognizedKeys: ReadonlySet<string> | undefined;
+}
+
 /**
  * The Edit-as-JSON side door. A JSON view without a live draft follows the store like the rows do. Any draft - dirty,
  * in flight, or acked - pins it: a dirty one because the text is (or seeded) the user's, the others because resyncing
@@ -658,7 +671,7 @@ function EditorHeading({ title, settingId, help, docsHref, docsLabel }: EditorHe
  * Where Apply writes, said only when it is news: the write-scope rule sends edits to a scope that already sets the
  * record, and "not your User settings" is the one case worth a line.
  */
-function EditScopeNote({ editScope }: { editScope: SettingScope }) {
+function EditScopeNote({ editScope }: EditScopeNoteProps) {
 	if (editScope === "global") {
 		return null;
 	}
@@ -809,7 +822,7 @@ function OtherScopeFrame({ kind, scope, groups, issues }: OtherScopeFrameProps) 
  * The other scopes' parameter records. The static tables judge their rows with the same parse as the edit scope:
  * absorption reads the hints, and a directive the badges cannot faithfully summarize must keep its raw chip here too.
  */
-function OtherParamScopes({ scopes }: { scopes: ScopedRecordSetting<RecordValue>["otherScopes"] }) {
+function OtherParamScopes({ scopes }: OtherParamScopesProps) {
 	return (
 		<>
 			{scopes.map((other) => {
@@ -826,13 +839,7 @@ function OtherParamScopes({ scopes }: { scopes: ScopedRecordSetting<RecordValue>
  * The other scopes' capability records, under the same-parse rule as the parameters editor's static tables and with
  * the same evidence: other scopes still hold global records.
  */
-function OtherCapabilityScopes({
-	scopes,
-	recognizedKeys,
-}: {
-	scopes: ScopedRecordSetting<RecordValue>["otherScopes"];
-	recognizedKeys: ReadonlySet<string> | undefined;
-}) {
+function OtherCapabilityScopes({ scopes, recognizedKeys }: OtherCapabilityScopesProps) {
 	return (
 		<>
 			{scopes.map((other) => {

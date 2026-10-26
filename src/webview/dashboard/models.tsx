@@ -507,6 +507,12 @@ interface ListWindow {
 	readonly trailingHeight: number;
 }
 
+/** The open row's index in the current order and the window around it. */
+interface ListLayout {
+	readonly openIndex: number;
+	readonly slice: ListWindow;
+}
+
 interface ModelRowProps {
 	readonly model: DashboardModel;
 	readonly position: number;
@@ -535,16 +541,11 @@ interface ModelRowActionsProps {
 }
 
 interface ModelListProps {
-	readonly scrollport: Scrollport;
-	readonly window: ListWindow;
 	readonly rows: readonly DashboardModel[];
-	readonly openIndex: number;
+	readonly scopeLabel: string | undefined;
 	readonly showServer: boolean;
 	readonly currencySymbol: string;
-	readonly copyFlash: CopyFlash;
-	readonly onToggle: (rowId: string, open: boolean) => void;
 	readonly onInspect: (target: InspectTarget) => void;
-	readonly measureDetail: (element: HTMLDivElement | null) => void;
 }
 
 /** The server scope narrowing the page, with the clear the chip offers; one object so a scope without a working clear cannot exist. */
@@ -568,14 +569,17 @@ interface ModelsToolbarProps {
 	readonly onSort: (sort: Sort | undefined) => void;
 }
 
-interface ModelsBodyProps {
-	readonly scope: ModelScope | undefined;
-	readonly listing: ModelListing;
-	readonly pills: ModelFilter;
-	readonly onPills: (update: (filter: ModelFilter) => ModelFilter) => void;
+interface EmptyModelsProps {
+	readonly serverCount: number;
+}
+
+interface ScopeChipProps {
+	readonly scope: ModelScope;
+}
+
+interface NoMatchProps {
 	readonly canClear: boolean;
 	readonly onClear: () => void;
-	readonly list: ModelListProps;
 }
 
 /**
@@ -755,10 +759,33 @@ function listWindow({ count, scrollTop, rowHeight, viewport, openIndex, delta }:
 }
 
 /**
+ * Where the open row sits and what the window renders. Absent (-1) means no row is open OR the open row has been sorted
+ * or filtered away; both are the same thing to everything below. One row can be taller than the others, and only one:
+ * the delta is a single number the layout adds in one place, not a per-row height table.
+ */
+function useListLayout(
+	sorted: readonly DashboardModel[],
+	openRow: string | undefined,
+	scrollport: Scrollport,
+	detail: DetailStrip
+): ListLayout {
+	const openIndex = openRow === undefined ? -1 : sorted.findIndex((model) => rowIdOf(model) === openRow);
+	const slice = listWindow({
+		count: sorted.length,
+		scrollTop: scrollport.scrollTop,
+		rowHeight: scrollport.rowHeight,
+		viewport: scrollport.viewport,
+		openIndex,
+		delta: openIndex >= 0 ? detail.height : 0,
+	});
+	return { openIndex, slice };
+}
+
+/**
  * Two different nothings: with no servers, telling the reader to sync would send them to ask nobody - they need a
  * server first. With servers, a sync is exactly right.
  */
-function EmptyModels({ serverCount }: { serverCount: number }) {
+function EmptyModels({ serverCount }: EmptyModelsProps) {
 	return (
 		<div className="empty-block">
 			{serverCount === 0 ? (
@@ -781,7 +808,7 @@ function EmptyModels({ serverCount }: { serverCount: number }) {
  * line, but the chip is a STATE, not an action - it narrows what the whole page below it shows, so it stands where
  * that narrowing starts.
  */
-function ScopeChip({ scope }: { scope: ModelScope }) {
+function ScopeChip({ scope }: ScopeChipProps) {
 	return (
 		<div className="filterbar">
 			<span className="chip">
@@ -925,18 +952,13 @@ function ModelRow(props: ModelRowProps) {
  * position in a list only a window of which is in the DOM. Visiting every row by Tab is out of scope: off-window rows
  * are reached by scrolling.
  */
-function ModelList(props: ModelListProps) {
-	const {
-		scrollport,
-		window: slice,
-		rows,
-		openIndex,
-		showServer,
-		currencySymbol,
-		copyFlash,
-		onToggle,
-		onInspect,
-	} = props;
+function ModelList({ rows, scopeLabel, showServer, currencySymbol, onInspect }: ModelListProps) {
+	// The one open row, held by row id rather than index: sorting and filtering renumber the list.
+	const [openRow, setOpenRow] = useState<string | undefined>(undefined);
+	const scrollport = useScrollport(scopeLabel);
+	const detail = useDetailStrip();
+	const copyFlash = useCopyFlash();
+	const { openIndex, slice } = useListLayout(rows, openRow, scrollport, detail);
 	const visible = rows.slice(slice.start, slice.end);
 	return (
 		<section
@@ -964,12 +986,12 @@ function ModelList(props: ModelListProps) {
 							showServer={showServer}
 							currencySymbol={currencySymbol}
 							copied={copyFlash.copied === rowId}
-							onToggle={() => onToggle(rowId, open)}
+							onToggle={() => setOpenRow(open ? undefined : rowId)}
 							onCopy={() => copyFlash.copy(model, rowId)}
 							onInspect={() =>
 								onInspect({ scopeKey: model.scopeKey, rawId: model.rawId, serverLabel: model.serverLabel })
 							}
-							measureDetail={props.measureDetail}
+							measureDetail={detail.measure}
 						/>
 					);
 				})}
@@ -982,7 +1004,7 @@ function ModelList(props: ModelListProps) {
 }
 
 /** The "nothing matches" line; its Clear button only when this section's own filters caused the nothing. */
-function NoMatch({ canClear, onClear }: { canClear: boolean; onClear: () => void }) {
+function NoMatch({ canClear, onClear }: NoMatchProps) {
 	return (
 		<p className="empty">
 			{l10n.t("No models match the filter.")}
@@ -1000,39 +1022,10 @@ function NoMatch({ canClear, onClear }: { canClear: boolean; onClear: () => void
 	);
 }
 
-/** The open row's index in the current order and the window around it. */
-interface ListLayout {
-	readonly openIndex: number;
-	readonly slice: ListWindow;
-}
-
 /** The filter box's ref and the clear both Clear buttons share. */
 interface FilterReset {
 	readonly inputRef: React.RefObject<HTMLInputElement | null>;
 	readonly clearFilters: () => void;
-}
-
-/**
- * Where the open row sits and what the window renders. Absent (-1) means no row is open OR the open row has been sorted
- * or filtered away; both are the same thing to everything below. One row can be taller than the others, and only one:
- * the delta is a single number the layout adds in one place, not a per-row height table.
- */
-function useListLayout(
-	sorted: readonly DashboardModel[],
-	openRow: string | undefined,
-	scrollport: Scrollport,
-	detail: DetailStrip
-): ListLayout {
-	const openIndex = openRow === undefined ? -1 : sorted.findIndex((model) => rowIdOf(model) === openRow);
-	const slice = listWindow({
-		count: sorted.length,
-		scrollTop: scrollport.scrollTop,
-		rowHeight: scrollport.rowHeight,
-		viewport: scrollport.viewport,
-		openIndex,
-		delta: openIndex >= 0 ? detail.height : 0,
-	});
-	return { openIndex, slice };
 }
 
 /**
@@ -1083,24 +1076,6 @@ function ModelsToolbar({ filter, filterInputRef, onFilter, listing, onSort }: Mo
 	);
 }
 
-function ModelsBody({ scope, listing, pills, onPills, canClear, onClear, list }: ModelsBodyProps) {
-	return (
-		<>
-			{scope === undefined ? null : <ScopeChip scope={scope} />}
-			<FilterPills
-				options={listing.pillOptions}
-				active={pills}
-				showServers={listing.showServerColumn}
-				showClear={isFilterActive(pills) && listing.sorted.length > 0}
-				onChange={onPills}
-				onClearAll={onClear}
-			/>
-			<ModelList {...list} />
-			{listing.sorted.length === 0 ? <NoMatch canClear={canClear} onClear={onClear} /> : null}
-		</>
-	);
-}
-
 /**
  * The Models page: every discovered model across the servers, filtered, sorted, and windowed. The id anchors a server
  * row's model-count link: it navigates here and App moves focus onto this section, so the keyboard position follows
@@ -1129,27 +1104,9 @@ export function ModelsSection({
 	const [filter, setFilter] = useState("");
 	const [pills, setPills] = useState<ModelFilter>(EMPTY_MODEL_FILTER);
 	const [sort, setSort] = useState<Sort | undefined>(undefined);
-	// The one open row, held by row id rather than index: sorting and filtering renumber the list.
-	const [openRow, setOpenRow] = useState<string | undefined>(undefined);
-	const scrollport = useScrollport(scope?.label);
-	const detail = useDetailStrip();
-	const copyFlash = useCopyFlash();
 	const listing = useModelListing(models, serverCount, scope?.label, filter, pills, sort);
 	const reset = useFilterReset(setFilter, setPills);
-	const { openIndex, slice } = useListLayout(listing.sorted, openRow, scrollport, detail);
-	const list: ModelListProps = {
-		scrollport,
-		window: slice,
-		rows: listing.sorted,
-		openIndex,
-		showServer: listing.showServerColumn,
-		currencySymbol,
-		copyFlash,
-		onToggle: (rowId, open) => setOpenRow(open ? undefined : rowId),
-		onInspect,
-		measureDetail: detail.measure,
-	};
-
+	const canClear = trimHttpWhitespace(filter).length > 0 || isFilterActive(pills);
 	return (
 		<Section
 			id="models"
@@ -1172,15 +1129,25 @@ export function ModelsSection({
 			{models.length === 0 ? (
 				<EmptyModels serverCount={serverCount} />
 			) : (
-				<ModelsBody
-					scope={scope}
-					listing={listing}
-					pills={pills}
-					onPills={setPills}
-					canClear={trimHttpWhitespace(filter).length > 0 || isFilterActive(pills)}
-					onClear={reset.clearFilters}
-					list={list}
-				/>
+				<>
+					{scope === undefined ? null : <ScopeChip scope={scope} />}
+					<FilterPills
+						options={listing.pillOptions}
+						active={pills}
+						showServers={listing.showServerColumn}
+						showClear={isFilterActive(pills) && listing.sorted.length > 0}
+						onChange={setPills}
+						onClearAll={reset.clearFilters}
+					/>
+					<ModelList
+						rows={listing.sorted}
+						scopeLabel={scope?.label}
+						showServer={listing.showServerColumn}
+						currencySymbol={currencySymbol}
+						onInspect={onInspect}
+					/>
+					{listing.sorted.length === 0 ? <NoMatch canClear={canClear} onClear={reset.clearFilters} /> : null}
+				</>
 			)}
 		</Section>
 	);

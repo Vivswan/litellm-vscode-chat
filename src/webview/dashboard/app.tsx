@@ -127,7 +127,6 @@ interface ToastItem {
 }
 
 type AckMessage = Extract<ExtensionToWebviewMessage, { kind: "ack" }>;
-type FailMessage = Extract<ExtensionToWebviewMessage, { kind: "fail" }>;
 
 /** The standing scalar-write failures by method, as the Features and Settings pages and the away line read them. */
 type SettingWriteFailures = Partial<Record<SettingWriteMethod, SettingWriteFailure>>;
@@ -277,6 +276,20 @@ interface ShellModel {
 	readonly editRecordRequest: EditRecordRequest | undefined;
 	readonly editRecord: (kind: "parameters" | "capabilities", key: string, create: boolean) => void;
 	readonly editEntry: (label: string) => void;
+}
+
+/** A piece of the shell that renders from the whole model. */
+interface ShellPartProps {
+	readonly shell: ShellModel;
+}
+
+interface ShellProps {
+	readonly shell: ShellModel;
+	readonly toastDurationMs: number;
+}
+
+interface DiscardQuestionProps {
+	readonly destination: EditDestination;
 }
 
 /** How long a toast lingers; App takes it as a prop only so tests need not wait out the real value. */
@@ -477,10 +490,6 @@ function ackToast(message: AckMessage, id: number): ToastItem | undefined {
 	return { id, text: caveat === undefined ? base : `${base}. ${caveat}` };
 }
 
-function intentFailure(message: FailMessage, seq: number): IntentFailure {
-	return { seq, message: message.message, kind: message.failureKind, row: message.row };
-}
-
 /**
  * One host message's effect on the shell. Read responses belong to the useRpc hook instances that posted them. The
  * deep link's includes check drops an unknown section instead of blanking every panel; recorded, then applied through
@@ -513,7 +522,10 @@ function receiveHostMessage(message: ExtensionToWebviewMessage, sinks: HostSinks
 	if (isAckedMethod(message.method)) {
 		return;
 	}
-	sinks.setFailures((current) => ({ ...current, [message.method]: intentFailure(message, seq) }));
+	sinks.setFailures((current) => ({
+		...current,
+		[message.method]: { seq, message: message.message, kind: message.failureKind, row: message.row },
+	}));
 }
 
 /**
@@ -843,7 +855,7 @@ function useShell(): ShellModel | undefined {
  * All lines announce once per failure seq and then stand silently (PaneFailureLine): the away line re-mounts on every
  * navigation away from Settings while its failure stands unchanged.
  */
-function PaneTopLines({ shell }: { shell: ShellModel }) {
+function PaneTopLines({ shell }: ShellPartProps) {
 	const { failures, writeFailures, activeSection } = shell;
 	const paneTop = PANE_TOP_FAIL_METHODS.flatMap((method) => {
 		const failure = failures[method];
@@ -864,7 +876,7 @@ function PaneTopLines({ shell }: { shell: ShellModel }) {
  * The destination lives INSIDE the Servers panel: the rail still says Servers. The list stays mounted behind it -
  * hidden, not unmounted - so the row that opened the page survives to take focus back, with its scroll position.
  */
-function ServersPanel({ shell }: { shell: ShellModel }) {
+function ServersPanel({ shell }: ShellPartProps) {
 	const { state, now, activeSection, destination, scope } = shell;
 	const { editing } = destination;
 	return (
@@ -897,69 +909,57 @@ function ServersPanel({ shell }: { shell: ShellModel }) {
 	);
 }
 
-function FeaturesPanel({ shell }: { shell: ShellModel }) {
-	const { state, activeSection, writeFailures } = shell;
+/**
+ * The panels after Servers, in rail order. Every panel stays mounted behind the active one, so a tab's filter text,
+ * open rows, and scroll position survive a visit elsewhere.
+ */
+function PlainPanels({ shell }: ShellPartProps) {
+	const { state, stateSeq, now, section, activeSection, writeFailures, editRecordRequest, scope, inspector } = shell;
 	return (
-		<SectionPanel section="features" active={activeSection}>
-			<FeaturesSection
-				settings={state.settings}
-				models={state.models}
-				declaredServerLabels={state.servers
-					.filter((server) => server.origin === "declared")
-					.map((server) => server.label)}
-				featureProbes={state.featureProbes}
-				writeFailures={writeFailures}
-			/>
-		</SectionPanel>
-	);
-}
-
-function SettingsPanel({ shell }: { shell: ShellModel }) {
-	const { state, now, activeSection, editRecordRequest, writeFailures } = shell;
-	return (
-		<SectionPanel section="settings" active={activeSection}>
-			<SettingsSection
-				settings={state.settings}
-				models={state.models}
-				observedModelInfoKeys={state.observedModelInfoKeys}
-				now={now}
-				editRecordRequest={editRecordRequest}
-				writeFailures={writeFailures}
-			/>
-		</SectionPanel>
-	);
-}
-
-function ModelsPanel({ shell }: { shell: ShellModel }) {
-	const { state, activeSection, scope, inspector } = shell;
-	return (
-		<SectionPanel section="models" active={activeSection}>
-			<ModelsSection
-				models={state.models}
-				serverCount={state.servers.length}
-				currencySymbol={state.settings.usage.currencySymbol}
-				scope={scope.label === undefined ? undefined : { label: scope.label, onClear: scope.clear }}
-				onInspect={inspector.inspect}
-			/>
-		</SectionPanel>
-	);
-}
-
-function DiagnosticsPanel({ shell }: { shell: ShellModel }) {
-	const { state, stateSeq, section, activeSection, inspector } = shell;
-	return (
-		<SectionPanel section="diagnostics" active={activeSection}>
-			<DiagnosticsSection
-				servers={state.servers}
-				verdictRows={state.verdictRows}
-				modelCount={state.servedModelCount}
-				diagnostics={state.diagnostics}
-				active={section === "diagnostics"}
-				stateSeq={stateSeq}
-				currencySymbol={state.settings.usage.currencySymbol}
-				onInspect={inspector.inspect}
-			/>
-		</SectionPanel>
+		<>
+			<SectionPanel section="features" active={activeSection}>
+				<FeaturesSection
+					settings={state.settings}
+					models={state.models}
+					declaredServerLabels={state.servers
+						.filter((server) => server.origin === "declared")
+						.map((server) => server.label)}
+					featureProbes={state.featureProbes}
+					writeFailures={writeFailures}
+				/>
+			</SectionPanel>
+			<SectionPanel section="settings" active={activeSection}>
+				<SettingsSection
+					settings={state.settings}
+					models={state.models}
+					observedModelInfoKeys={state.observedModelInfoKeys}
+					now={now}
+					editRecordRequest={editRecordRequest}
+					writeFailures={writeFailures}
+				/>
+			</SectionPanel>
+			<SectionPanel section="models" active={activeSection}>
+				<ModelsSection
+					models={state.models}
+					serverCount={state.servers.length}
+					currencySymbol={state.settings.usage.currencySymbol}
+					scope={scope.label === undefined ? undefined : { label: scope.label, onClear: scope.clear }}
+					onInspect={inspector.inspect}
+				/>
+			</SectionPanel>
+			<SectionPanel section="diagnostics" active={activeSection}>
+				<DiagnosticsSection
+					servers={state.servers}
+					verdictRows={state.verdictRows}
+					modelCount={state.servedModelCount}
+					diagnostics={state.diagnostics}
+					active={section === "diagnostics"}
+					stateSeq={stateSeq}
+					currencySymbol={state.settings.usage.currencySymbol}
+					onInspect={inspector.inspect}
+				/>
+			</SectionPanel>
+		</>
 	);
 }
 
@@ -967,7 +967,7 @@ function DiagnosticsPanel({ shell }: { shell: ShellModel }) {
  * The inspector overlay, above the tab panels so it opens in place on any tab; the configure-jumps close the overlay
  * first - the editor they land on is the next surface.
  */
-function InspectorOverlay({ shell }: { shell: ShellModel }) {
+function InspectorOverlay({ shell }: ShellPartProps) {
 	const { state, stateSeq, section, inspector } = shell;
 	if (inspector.model === undefined) {
 		return null;
@@ -993,7 +993,7 @@ function InspectorOverlay({ shell }: { shell: ShellModel }) {
 }
 
 /** The navigation guard's question, a modal: leaving a dirty page is a decision about the whole page. */
-function DiscardQuestion({ destination }: { destination: EditDestination }) {
+function DiscardQuestion({ destination }: DiscardQuestionProps) {
 	if (destination.editing === undefined || !destination.confirmingDiscard) {
 		return null;
 	}
@@ -1014,7 +1014,7 @@ function DiscardQuestion({ destination }: { destination: EditDestination }) {
  * listbox and matcher overlay stop their own). On the shell rather than the pane because the rail is a sibling - a
  * reader who just clicked a rail item has focus there.
  */
-function Shell({ shell, toastDurationMs }: { shell: ShellModel; toastDurationMs: number }) {
+function Shell({ shell, toastDurationMs }: ShellProps) {
 	const { state, now, activeSection, destination } = shell;
 	return (
 		<AnnounceOnceScope>
@@ -1040,10 +1040,7 @@ function Shell({ shell, toastDurationMs }: { shell: ShellModel; toastDurationMs:
 				<div className="pane">
 					<PaneTopLines shell={shell} />
 					<ServersPanel shell={shell} />
-					<FeaturesPanel shell={shell} />
-					<SettingsPanel shell={shell} />
-					<ModelsPanel shell={shell} />
-					<DiagnosticsPanel shell={shell} />
+					<PlainPanels shell={shell} />
 				</div>
 				<ToastHost toasts={shell.toasts} durationMs={toastDurationMs} onDismiss={shell.dismissToast} />
 				<InspectorOverlay shell={shell} />

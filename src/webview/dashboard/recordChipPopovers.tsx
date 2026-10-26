@@ -26,18 +26,16 @@ import { helpFallbackFlag, helpForceFlag, helpForceFlagDisabled, helpInheritable
 import { IconAdd, IconTrash } from "./icons";
 import { fallbackWord, flagDirectivesFor, forceWord, inheritableWord } from "./recordFlags";
 import {
-	CatalogPicker,
+	CapabilityControl,
 	capabilityControlKind,
 	capabilityValueKind,
 	InheritableFlag,
-	numberInputProps,
 	SuggestInput,
 } from "./recordGroupFields";
 import type { RecordEditorKind, RowIssueView } from "./recordIssues";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { cn } from "./ui/cn";
-import { Input } from "./ui/input";
 import { watchPopoverFlip } from "./ui/popoverFlip";
 
 /** The open field popover's row as "groupIndex:rowIndex"; chip identity is the raw key plus its duplicate ordinal. */
@@ -355,46 +353,35 @@ interface Candidate {
 	readonly commit: () => void;
 }
 
+interface IssueStatusProps {
+	readonly id: string;
+	readonly issue: RowIssueView | undefined;
+}
+
 /**
- * The value's control by its kind: a checkbox for a boolean capability, the catalog picker for the OpenRouter model
- * directive, a number or text input otherwise. Enter runs `onEnter`, since the draft already holds every keystroke.
+ * The popover's value control: the shared capability control with the popover's label and placeholder, and Enter
+ * running `onEnter`, since the draft already holds every keystroke.
  */
 function ValueControl(props: ValueControlProps) {
 	const { valueKind, valueText, disabled, ariaInvalid, describedBy, ariaLabel, onValue, onEnter } = props;
-	if (valueKind === "boolean") {
-		return (
-			<label className="capability-flag">
-				<Checkbox
-					checked={trimHttpWhitespace(valueText) === "true"}
-					disabled={disabled}
-					onChange={(event) => onValue(event.currentTarget.checked ? "true" : "false")}
-				/>
-				{l10n.t("supported")}
-			</label>
-		);
-	}
-	if (valueKind === "catalog-id") {
-		return <CatalogPicker value={valueText} disabled={disabled} invalid={ariaInvalid === true} onValue={onValue} />;
-	}
-	const numberProps = valueKind === "number" || valueKind === "cost" ? numberInputProps(valueKind) : undefined;
 	return (
-		<Input
-			type={numberProps === undefined ? "text" : "number"}
-			min={numberProps?.min}
-			step={numberProps?.step}
-			className="value"
-			aria-invalid={ariaInvalid}
-			aria-describedby={describedBy}
-			aria-label={ariaLabel}
-			placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
-			value={valueText}
+		<CapabilityControl
+			kind={valueKind}
+			valueText={valueText}
 			disabled={disabled}
-			onChange={(event) => onValue(event.currentTarget.value)}
-			onKeyDown={(event) => {
-				if (event.key === "Enter") {
-					onEnter();
-				}
+			invalid={ariaInvalid}
+			flagClassName="capability-flag"
+			input={{
+				ariaLabel,
+				describedBy,
+				placeholder: l10n.t("JSON value, e.g. 0.2"),
+				onKeyDown: (event) => {
+					if (event.key === "Enter") {
+						onEnter();
+					}
+				},
 			}}
+			onValue={onValue}
 		/>
 	);
 }
@@ -506,7 +493,7 @@ function CandidateFlags({ kind, name, keyTyped, disabled, flagChecked, onToggle 
  * Remove field under the pointer (the charter's transients clause). Worst first, one message at a time
  * (chip-popover-status is one line).
  */
-function IssueStatus({ id, issue }: { id: string; issue: RowIssueView | undefined }) {
+function IssueStatus({ id, issue }: IssueStatusProps) {
 	let line: ReactNode = null;
 	if (issue?.problem !== undefined) {
 		line = <p className="error">{issue.problem.message}</p>;

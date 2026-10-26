@@ -374,11 +374,6 @@ interface SecretRemovalRowProps {
 	readonly onClear: (clear: boolean) => void;
 }
 
-/** Whether the field still shows the inline value the form prefilled from settings.json, untouched. */
-function isUnchangedPrefill(value: SecretFieldDraft): boolean {
-	return value.prefill !== undefined && value.value === value.prefill && value.location === "settings";
-}
-
 /**
  * One short line, only where it says what the reader cannot see: where the value is now, or what Save will do with the
  * typed one. A problem takes its place, so the row stays one line tall; the states need separate sentences (tense
@@ -476,7 +471,8 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 	const errorId = `${id}-error`;
 	const patchSecret = (patch: Partial<SecretFieldDraft>) =>
 		props.patch({ [field]: { ...value, ...patch } } as Partial<ServerFormDraft>);
-	const unchangedPrefill = isUnchangedPrefill(value);
+	const unchangedPrefill =
+		value.prefill !== undefined && value.value === value.prefill && value.location === "settings";
 	const storageHint = secretStorageHint(value, empty, unchangedPrefill);
 	// Two states earn a tone: a value on its way into plain text, and a stored value on its way out - consequences one
 	// Save away. An unchanged prefill states itself plainly.

@@ -39,7 +39,7 @@ import {
 } from "./helpText";
 import { type IntentOutcome, useIntentOutcome } from "./hooks";
 import { tupleKey } from "./keys";
-import type { CoveredMessage, SettingWriteFailure } from "./settingRows";
+import type { CoveredMessage, RowNotice, SettingWriteFailure } from "./settingRows";
 import {
 	CommaListRow,
 	commaListCustom,
@@ -221,6 +221,22 @@ interface PickContext {
 	readonly openCustom: (draft: CustomModelDraft) => void;
 }
 
+/** Which of the row's own notices the covered slot carries: the dangling warning, or the landed probe outcome. */
+interface SlotNotices {
+	readonly warningShown: boolean;
+	readonly probeNotice: RowNotice | undefined;
+}
+
+interface FeatureModelRowProps {
+	readonly feature: FeatureModelId;
+	readonly value: FeatureModelRef | null;
+	readonly options: readonly FeatureModelRef[];
+	readonly declaredLabels: readonly string[];
+	readonly configuredScope: SettingScope | null;
+	readonly hidden: boolean;
+	readonly probeAvailable: boolean;
+}
+
 /**
  * The probe's own round trip (hook order is fixed; only probe-carrying rows render the button). The outcome is keyed
  * to the request id AND the tested pair, so a result can never sit beside a model it did not test.
@@ -400,87 +416,36 @@ function optionsWithValue(
 	return listed ? options : [...options, value];
 }
 
-interface FeatureModelControlProps {
-	readonly feature: FeatureModelId;
-	readonly value: FeatureModelRef | null;
-	readonly options: readonly FeatureModelRef[];
-	readonly declaredLabels: readonly string[];
-	readonly inputId: string;
-	readonly dangling: boolean;
-	readonly describedBy: string | undefined;
-	readonly probeAvailable: boolean;
-	readonly probe: FeatureModelProbe;
-	readonly custom: CustomModelDraftState;
-}
-
-/** The row's control cell: the picker or the open custom editor, and the test button beside a closed picker. */
-function FeatureModelControl(props: FeatureModelControlProps) {
-	const { feature, value, options, declaredLabels, inputId, dangling, describedBy, probeAvailable, probe, custom } =
-		props;
-	const selected = value === null ? "" : modelRefIdentity(value);
-	if (custom.draft !== undefined) {
-		return (
-			<CustomModelEditor
-				inputId={inputId}
-				draft={custom.draft}
-				declaredLabels={declaredLabels}
-				committable={custom.committable}
-				onDraft={custom.update}
-				onCommit={custom.commit}
-			/>
-		);
-	}
-	return (
-		<>
-			<ModelPicker
-				inputId={inputId}
-				selected={selected}
-				options={options}
-				dangling={dangling}
-				describedBy={describedBy}
-				onPick={(next) =>
-					pickModel(next, { feature, value, selected, options, declaredLabels, openCustom: custom.update })
-				}
-			/>
-			{probeAvailable ? (
-				<Button
-					size="compact"
-					variant="secondary"
-					disabled={value === null || dangling || probe.probing}
-					onClick={probe.start}
-				>
-					{probe.probing ? l10n.t("Testing...") : l10n.t("Test model")}
-				</Button>
-			) : null}
-		</>
-	);
+/**
+ * A standing write failure outranks the dangling warning in the covered slot, because the warning never clears on its
+ * own: SettingRow shows the failure only while `error` is empty, so the warning yields here and resurfaces once the
+ * next push clears the failure. The landed probe outcome ranks below both and travels whole: the cover renders its
+ * first truncated line and the Details disclosure reveals the whole two-part text selectable.
+ */
+function useSlotNotices(
+	settingId: SettingRowId,
+	dangling: boolean,
+	custom: CustomModelDraftState,
+	probe: FeatureModelProbe
+): SlotNotices {
+	const writeFailure = useContext(SettingFailuresContext)[settingId];
+	const warningShown = dangling && writeFailure === undefined && custom.draft === undefined;
+	const probeNotice =
+		probe.outcome === undefined || warningShown
+			? undefined
+			: { text: probe.outcome.message ?? "", tone: probeTone(probe.outcome) };
+	return { warningShown, probeNotice };
 }
 
 /**
  * A configured ref no offered pair backs stays IN the option list, selected with the same rendered text, so the
- * dangling state changes no geometry (check-geometry pins it, feature-model-dangling). A standing write failure
- * outranks the dangling warning in the covered slot, because the warning never clears on its own.
+ * dangling state changes no geometry (check-geometry pins it, feature-model-dangling).
  *
  *   "Custom model ID..." -> the escape hatch for models the picker cannot list
  *   test button outcome  -> counts and classified messages; the model's completion text never renders
  */
-function FeatureModelRow({
-	feature,
-	value,
-	options,
-	declaredLabels,
-	configuredScope,
-	hidden,
-	probeAvailable,
-}: {
-	feature: FeatureModelId;
-	value: FeatureModelRef | null;
-	options: readonly FeatureModelRef[];
-	declaredLabels: readonly string[];
-	configuredScope: SettingScope | null;
-	hidden: boolean;
-	probeAvailable: boolean;
-}) {
+function FeatureModelRow(props: FeatureModelRowProps) {
+	const { feature, value, options, declaredLabels, configuredScope, hidden, probeAvailable } = props;
 	// Dangling is judged by the SERVER label alone: the feature resolves a ref through its declared entry, and a
 	// declared server may legitimately serve IDs the chat catalog does not list (completion-mode FIM models above
 	// all, unless the entry includes the mode), so absence from the options proves nothing about the model.
@@ -490,17 +455,9 @@ function FeatureModelRow({
 	const errorId = `${inputId}-error`;
 	const probe = useFeatureModelProbe(feature, value);
 	const custom = useCustomModelDraft(feature, declaredLabels, probe.clear);
-	// SettingRow shows a write failure only while `error` is empty, so the standing warning yields to it here; the
-	// warning resurfaces once the next push clears the failure.
-	const writeFailure = useContext(SettingFailuresContext)[settingId];
-	const warningShown = dangling && writeFailure === undefined && custom.draft === undefined;
-	// The landed probe outcome rides the covered-description slot (the height-keeping overlay), below the dangling
-	// warning and write failures. The FULL message travels: the cover renders its first truncated line and the Details
-	// disclosure reveals the whole two-part text selectable.
-	const probeNotice =
-		probe.outcome === undefined || warningShown
-			? undefined
-			: { text: probe.outcome.message ?? "", tone: probeTone(probe.outcome) };
+	const { warningShown, probeNotice } = useSlotNotices(settingId, dangling, custom, probe);
+	const selected = value === null ? "" : modelRefIdentity(value);
+	const offered = optionsWithValue(options, value);
 	return (
 		<SettingRow
 			settingId={settingId}
@@ -514,20 +471,48 @@ function FeatureModelRow({
 			configuredScope={configuredScope}
 			hidden={hidden}
 			control={
-				<FeatureModelControl
-					feature={feature}
-					value={value}
-					options={optionsWithValue(options, value)}
-					declaredLabels={declaredLabels}
-					inputId={inputId}
-					dangling={dangling}
-					// Only while the warning element actually renders under errorId; the write-failure cover that can
-					// replace it carries no id.
-					describedBy={warningShown ? errorId : undefined}
-					probeAvailable={probeAvailable}
-					probe={probe}
-					custom={custom}
-				/>
+				custom.draft === undefined ? (
+					<>
+						<ModelPicker
+							inputId={inputId}
+							selected={selected}
+							options={offered}
+							dangling={dangling}
+							// Only while the warning element actually renders under errorId; the write-failure cover that
+							// can replace it carries no id.
+							describedBy={warningShown ? errorId : undefined}
+							onPick={(next) =>
+								pickModel(next, {
+									feature,
+									value,
+									selected,
+									options: offered,
+									declaredLabels,
+									openCustom: custom.update,
+								})
+							}
+						/>
+						{probeAvailable ? (
+							<Button
+								size="compact"
+								variant="secondary"
+								disabled={value === null || dangling || probe.probing}
+								onClick={probe.start}
+							>
+								{probe.probing ? l10n.t("Testing...") : l10n.t("Test model")}
+							</Button>
+						) : null}
+					</>
+				) : (
+					<CustomModelEditor
+						inputId={inputId}
+						draft={custom.draft}
+						declaredLabels={declaredLabels}
+						committable={custom.committable}
+						onDraft={custom.update}
+						onCommit={custom.commit}
+					/>
+				)
 			}
 		/>
 	);

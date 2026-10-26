@@ -34,7 +34,7 @@ import { IconAdd } from "./icons";
 import type { GroupIssueView, RecordEditorKind } from "./recordIssues";
 import { capabilityIssueViews, paramIssueViews } from "./recordIssues";
 import { RecordMatcherEditorOverlay, RecordMatcherTable } from "./recordMatcherTable";
-import type { FormModel, FormPhase, MatcherEditorTarget, ServerFormModel } from "./serverEditPage";
+import type { FormModel, FormPhase, FormProps, MatcherEditorTarget, ServerFormModel } from "./serverEditPage";
 import {
 	COMMIT_BAR_CLASS,
 	CompanionNote,
@@ -94,6 +94,20 @@ interface MatcherOverlayProps {
 	readonly editor: MatcherEditorTarget;
 	readonly onClose: () => void;
 	readonly onRemoved: () => void;
+}
+
+interface CheckboxSetProps {
+	readonly ariaLabel: string;
+	readonly children: ReactNode;
+}
+
+interface HeadersSectionProps {
+	readonly form: FormModel;
+	readonly headerProblems: readonly (string | undefined)[];
+}
+
+interface FormOverlaysProps {
+	readonly model: ServerFormModel;
 }
 
 /** One expected-failure category's checkbox label; endpoint paths stay English (protocol terms). */
@@ -249,7 +263,7 @@ function matcherSectionWords(kind: RecordEditorKind): MatcherSectionWords {
  * differently at every pane width, and mutually exclusive options are read by scanning down. The cost is one row's
  * height, paid once.
  */
-function AuthMethodRow({ form }: { form: FormModel }) {
+function AuthMethodRow({ form }: FormProps) {
 	const { draft, props, saving } = form;
 	return (
 		<FormFieldRow label={l10n.t("Method")} wide={true}>
@@ -275,7 +289,7 @@ function AuthMethodRow({ form }: { form: FormModel }) {
 }
 
 /** The fields of the selected authentication method; the virtual-key pair rides along with every keyed method. */
-function AuthFields({ form }: { form: FormModel }) {
+function AuthFields({ form }: FormProps) {
 	const { draft, props } = form;
 	const virtualKeyPair = (
 		<>
@@ -327,7 +341,7 @@ function AuthFields({ form }: { form: FormModel }) {
  * The tone-text register (state-warn), not utility spellings: one register keeps heading and lines in one voice and
  * carries the forced-colors squiggle the utilities lack.
  */
-function StoredOrphans({ form }: { form: FormModel }) {
+function StoredOrphans({ form }: FormProps) {
 	const orphans = storedInactiveSecrets(form.draft);
 	if (!(orphans.apiKey || orphans.virtualKeyValue || orphans.oauthClientSecret)) {
 		return null;
@@ -357,7 +371,7 @@ function StoredOrphans({ form }: { form: FormModel }) {
 	);
 }
 
-export function AuthenticationSection({ form }: { form: FormModel }) {
+export function AuthenticationSection({ form }: FormProps) {
 	return (
 		<FormSection
 			title={serverFormFieldLabel("authForm")}
@@ -446,7 +460,7 @@ export function MatcherSection({ form, kind, onOpenEditor }: MatcherSectionProps
  * for it to inherit. One row while the pair fits, a column below the stylesheet's own 560px tier (same exclusive
  * `width < 560px` semantics); between, wrap depended on the translation's width.
  */
-function CheckboxSet({ ariaLabel, children }: { ariaLabel: string; children: ReactNode }) {
+function CheckboxSet({ ariaLabel, children }: CheckboxSetProps) {
 	return (
 		<fieldset
 			className="expected-failures m-0 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 border-0 p-0 text-[12.5px] @max-[560px]/pane:flex-col @max-[560px]/pane:items-start"
@@ -559,13 +573,7 @@ export function DiscoverySection({ form, offeredModes, skippedModeCounts }: Disc
 	);
 }
 
-export function HeadersSection({
-	form,
-	headerProblems,
-}: {
-	form: FormModel;
-	headerProblems: readonly (string | undefined)[];
-}) {
+export function HeadersSection({ form, headerProblems }: HeadersSectionProps) {
 	const { draft, props, saving } = form;
 	return (
 		<FormSection
@@ -592,7 +600,7 @@ export function HeadersSection({
  * live, so an opted-out entry shows no dead input. Its hint is the DERIVED default, not an abstract restatement: the
  * form knows the base URL, so it can show the exact address an empty field publishes.
  */
-export function McpSection({ form }: { form: FormModel }) {
+export function McpSection({ form }: FormProps) {
 	const { draft, props, saving } = form;
 	return (
 		<FormSection quiet={true} title={l10n.t("MCP")} aside={l10n.t("optional")} help={helpMcpSection()}>
@@ -745,7 +753,7 @@ function MatcherOverlay({ form, editor, onClose, onRemoved }: MatcherOverlayProp
  * discard confirm, since a credential decision interrupts the save and has no in-place anywhere. Esc/"Keep editing"
  * posts nothing; the two verbs answer the ONE question.
  */
-export function FormOverlays({ model }: { model: ServerFormModel }) {
+export function FormOverlays({ model }: FormOverlaysProps) {
 	const { form, matcherEditor, setMatcherEditor, staleKey, commit, original } = model;
 	const closeMatcherEditor = (editor: MatcherEditorTarget) => {
 		const removal = pristineMatcherRemoval(form.draft, editor);

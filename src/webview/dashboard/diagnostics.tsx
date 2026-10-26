@@ -130,6 +130,14 @@ interface ConfigProblem {
 	readonly actions: readonly DiagnosticAction[];
 }
 
+interface TreeModelProps {
+	readonly model: RecordTreeNode["models"][number];
+}
+
+interface TreeNodeProps {
+	readonly node: RecordTreeNode;
+}
+
 /**
  * An exhaustive classification, never a filter predicate: a boolean predicate once let a new diagnostic kind reach the
  * page unclassified. No default and an annotated return type, so a new kind fails to compile here instead.
@@ -594,7 +602,7 @@ function nodeFieldText(field: RecordTreeNode["fields"][number]): string {
 }
 
 /** One matched model under a tree node, with the value it resolved to when one did. */
-function TreeModel({ model }: { model: RecordTreeNode["models"][number] }) {
+function TreeModel({ model }: TreeModelProps) {
 	return (
 		<li className="tree-model">
 			<span className="tree-model-id">{model.id}</span>
@@ -608,7 +616,7 @@ function TreeModel({ model }: { model: RecordTreeNode["models"][number] }) {
 	);
 }
 
-function TreeTail({ node }: { node: RecordTreeNode }) {
+function TreeTail({ node }: TreeNodeProps) {
 	if (node.children.length > 0 || node.models.length > 0) {
 		return (
 			<ul>
@@ -624,7 +632,7 @@ function TreeTail({ node }: { node: RecordTreeNode }) {
 	return <span className="hint"> {l10n.t("(matches no current model)")}</span>;
 }
 
-function TreeNode({ node }: { node: RecordTreeNode }) {
+function TreeNode({ node }: TreeNodeProps) {
 	return (
 		<li className="tree-node">
 			<span className="tree-key">

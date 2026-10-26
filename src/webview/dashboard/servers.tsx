@@ -158,6 +158,11 @@ interface RowActionsClusterProps {
 	readonly onConfirmRemove: () => void;
 }
 
+interface HiddenNoticeTwinsProps {
+	readonly open: boolean;
+	readonly notices: readonly DrawerNotice[];
+}
+
 /** The credential KIND for the row's badge; the kind is the information, so it is the visible text. */
 function credentialBadgeText(server: DashboardServer): string {
 	if (server.hasOAuth) {
@@ -306,7 +311,7 @@ function RowActionsCluster({ server, armed, onEdit, onArmRemove, onConfirmRemove
  * A closed drawer keeps its notices in the ACCESSIBLE tree: the meter's tone is colour, which a screen reader never
  * gets. The open drawer renders the visible line, so the twin stands down with it.
  */
-function HiddenNoticeTwins({ open, notices }: { open: boolean; notices: readonly DrawerNotice[] }) {
+function HiddenNoticeTwins({ open, notices }: HiddenNoticeTwinsProps) {
 	if (open) {
 		return null;
 	}
@@ -695,6 +700,29 @@ interface ServerListProps {
 	readonly onAdoptServer: (handle: string) => void;
 }
 
+interface RefreshUsageButtonProps {
+	readonly usage: DashboardUsage | undefined;
+	readonly disabled: boolean;
+}
+
+interface RemovedNoticeProps {
+	readonly notice: { readonly label: string; readonly baseUrl: string };
+	readonly onDismiss: () => void;
+}
+
+interface AdoptNoticeProps {
+	readonly text: string;
+	readonly onDismiss: () => void;
+}
+
+interface FailureBannersProps {
+	readonly intents: ListIntents;
+}
+
+interface EmptyStartProps {
+	readonly onAddServer: () => void;
+}
+
 /**
  * One row's unanswered request, keyed by row identity (the label rides along only for the aria-live text), like the
  * armed Remove.
@@ -857,7 +885,7 @@ function openEditDestination(
  * on every scheduled poll read as the app acting unasked. Both labels stay mounted in one grid cell, the hidden one
  * holding the width, so the swap cannot resize the button; check-geometry's servers-refresh-busy pair holds that.
  */
-function RefreshUsageButton({ usage, disabled }: { usage: DashboardUsage | undefined; disabled: boolean }) {
+function RefreshUsageButton({ usage, disabled }: RefreshUsageButtonProps) {
 	const explicit = usage?.refreshingExplicitly === true;
 	return (
 		<Button
@@ -891,7 +919,7 @@ function RefreshUsageButton({ usage, disabled }: { usage: DashboardUsage | undef
 }
 
 /** The guidance notice after a hide: how to delete the host-owned group for good. */
-function RemovedNotice({ notice, onDismiss }: { notice: { label: string; baseUrl: string }; onDismiss: () => void }) {
+function RemovedNotice({ notice, onDismiss }: RemovedNoticeProps) {
 	return (
 		<div className="notice" role="status">
 			<p>
@@ -924,7 +952,7 @@ function RemovedNotice({ notice, onDismiss }: { notice: { label: string; baseUrl
 }
 
 /** The post-adoption notice with the models-file route beside it. */
-function AdoptNotice({ text, onDismiss }: { text: string; onDismiss: () => void }) {
+function AdoptNotice({ text, onDismiss }: AdoptNoticeProps) {
 	return (
 		<div className="notice" role="status">
 			<p>{text}</p>
@@ -944,7 +972,7 @@ function AdoptNotice({ text, onDismiss }: { text: string; onDismiss: () => void 
  * The list's failure banners, one per acked method. The edit page keeps a validation failure beside the draft it
  * refused; the list hears the same envelope and shows only the failures whose disposition closed the page.
  */
-function FailureBanners({ intents }: { intents: ListIntents }) {
+function FailureBanners({ intents }: FailureBannersProps) {
 	const failed = (state: { readonly outcome: IntentOutcome | undefined }) =>
 		state.outcome?.result === "fail" ? state.outcome : undefined;
 	const adoptFailure = closingFailure(intents.adopt.outcome);
@@ -1002,7 +1030,7 @@ function FailureBanners({ intents }: { intents: ListIntents }) {
 }
 
 /** First run: the guided card alone, not a header of dead disabled buttons. */
-function EmptyStart({ onAddServer }: { onAddServer: () => void }) {
+function EmptyStart({ onAddServer }: EmptyStartProps) {
 	return (
 		<div className="empty-start">
 			<h3>{l10n.t("Connect LiteLLM to Copilot Chat")}</h3>
