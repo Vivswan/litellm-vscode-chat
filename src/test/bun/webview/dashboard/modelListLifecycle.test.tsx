@@ -21,8 +21,8 @@ function manyModels(count: number): DashboardModel[] {
 	);
 }
 
-function section(models: readonly DashboardModel[]) {
-	return <ModelsSection currencySymbol="$" models={models} serverCount={1} onInspect={() => {}} />;
+function section(models: readonly DashboardModel[], currencySymbol = "$") {
+	return <ModelsSection currencySymbol={currencySymbol} models={models} serverCount={1} onInspect={() => {}} />;
 }
 
 function scrollportOf(root: ParentNode): HTMLElement {
@@ -117,6 +117,64 @@ test("an offset remembered through a refill inside a hidden panel is taken once 
 		expect(renderedNames(root)).toContain("Model 105");
 	} finally {
 		Object.defineProperty(Element.prototype, "scrollTop", descriptor);
+	}
+});
+
+test("a reader's scroll to the top whose event is still queued survives an unrelated rerender", () => {
+	// CSSOM queues scroll events for later dispatch. A Home key or a drag that reaches the top puts 0 in the DOM before
+	// the section's onScroll has run, and a push or a settings change can commit a render in between. The restore
+	// belongs to a fresh scrollport alone: a render that finds a live scrollport at 0 must leave it there.
+	const models = manyModels(200);
+	const root = mount(section(models));
+	const scrollport = scrollportOf(root);
+	scrollTo(scrollport, ROW * 100);
+	expect(renderedNames(root)).toContain("Model 105");
+
+	scrollport.scrollTop = 0;
+	render(section(models, "EUR"), root);
+	expect(scrollportOf(root).scrollTop).toBe(0);
+	expect(renderedNames(root)).toContain("Model 105");
+
+	void act(() => {
+		scrollport.dispatchEvent(new Event("scroll"));
+	});
+	expect(renderedNames(root)).toContain("Model 000");
+	expect(renderedNames(root)).not.toContain("Model 105");
+});
+
+test("a restore clamped to the top by a short refill keeps the window at the top when the list grows again", () => {
+	// CSSOM clamps a scrollTop write to the scroll range and fires no scroll event when the position does not move, so a
+	// refill shorter than the remembered offset lands at 0 and tells the state nothing. The state must follow what the
+	// element reads at settle time, or the next longer push windows the rows below a viewport still at the top.
+	//
+	// happy-dom lays nothing out: the box and the clamp are emulated.
+	const scrollTopDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop") as PropertyDescriptor;
+	const boxDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight") as PropertyDescriptor;
+	let maxScrollTop = Number.POSITIVE_INFINITY;
+	Object.defineProperty(Element.prototype, "scrollTop", {
+		...scrollTopDescriptor,
+		set(this: Element, top: number) {
+			scrollTopDescriptor.set?.call(this, Math.min(top, maxScrollTop));
+		},
+	});
+	Object.defineProperty(HTMLElement.prototype, "clientHeight", { ...boxDescriptor, get: () => 500 });
+	try {
+		const models = manyModels(200);
+		const root = mount(section(models));
+		scrollTo(scrollportOf(root), ROW * 100);
+		render(section([]), root);
+
+		maxScrollTop = 0;
+		render(section(models.slice(0, 1)), root);
+		expect(scrollportOf(root).scrollTop).toBe(0);
+
+		maxScrollTop = Number.POSITIVE_INFINITY;
+		render(section(models), root);
+		expect(scrollportOf(root).scrollTop).toBe(0);
+		expect(renderedNames(root)[0]).toBe("Model 000");
+	} finally {
+		Object.defineProperty(Element.prototype, "scrollTop", scrollTopDescriptor);
+		Object.defineProperty(HTMLElement.prototype, "clientHeight", boxDescriptor);
 	}
 });
 

@@ -623,16 +623,38 @@ function useScrollTopVariable(element: HTMLElement | null): void {
 
 /**
  * An empty push unmounts the scrollport and the refill mounts a fresh one at offset 0, while the remembered offset
- * still places the window; writing it back shows the viewport the rows the window rendered.
+ * still places the window. Writing it back shows the viewport the rows the window rendered.
  *
- * Retried after every render, not once per element: a scrollport born behind a hidden panel has no layout box, a
- * write to it does nothing (CSSOM), and the panel's showing is a render. A scrollport at 0 under a remembered offset
- * is always one that has not taken it, since a scroll to the top reports 0 before anything renders.
+ * The restore is a pending operation on a fresh element, never a standing rule over a live one. A new element under a
+ * non-zero offset arms it, and the first write that takes or lands on a boxed element consumes it. A scrollport born
+ * behind a hidden panel has no layout box, so its write does nothing (CSSOM) and is retried each render until the
+ * panel shows.
+ *
+ * A consumed write may have clamped: a refill shorter than the remembered offset lands lower, or stays at 0 with no
+ * scroll event owed. The state follows what the element reads, so a later longer list is not windowed below a
+ * viewport still at the top.
+ *
+ * A live element reading 0 never re-arms it. Scroll events are queued, so a reader's scroll to the top reaches the
+ * DOM before onScroll reaches the state, and an unrelated render in between must not scroll them away.
  */
-function useRestoredOffset(element: HTMLElement | null, scrollTop: number): void {
+function useRestoredOffset(element: HTMLElement | null, scrollTop: number, setScrollTop: (top: number) => void): void {
+	const settled = useRef<HTMLElement | null>(null);
 	useLayoutEffect(() => {
-		if (element !== null && element.scrollTop === 0 && scrollTop !== 0) {
+		if (element === null || settled.current === element) {
+			return;
+		}
+		if (scrollTop !== 0) {
 			element.scrollTop = scrollTop;
+		}
+		const taken = element.scrollTop;
+		const pending = scrollTop !== 0 && taken === 0 && element.clientHeight === 0;
+		if (pending) {
+			return;
+		}
+
+		settled.current = element;
+		if (taken !== scrollTop) {
+			setScrollTop(taken);
 		}
 	});
 }
@@ -657,7 +679,7 @@ function useScrollport(scopeLabel: string | undefined): Scrollport {
 		}
 	});
 	useScrollTopVariable(element);
-	useRestoredOffset(element, scrollTop);
+	useRestoredOffset(element, scrollTop, setScrollTop);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scopeLabel is the deliberate rewind key (see above)
 	useEffect(() => {
 		if (element !== null) {
