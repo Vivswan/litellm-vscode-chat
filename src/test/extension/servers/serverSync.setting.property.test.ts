@@ -249,23 +249,6 @@ function serializeAuth(entry: DeclaredServer): Record<string, unknown> {
 	};
 }
 
-/** The models block: the parameter and capability records the entry carries. */
-function serializeModels(entry: DeclaredServer): Record<string, unknown> {
-	return {
-		...(entry.modelParameters === undefined ? {} : { parameters: entry.modelParameters }),
-		...(entry.modelCapabilities === undefined ? {} : { capabilities: entry.modelCapabilities }),
-	};
-}
-
-/** The discovery block: expected failures, declared models, and include modes. */
-function serializeDiscovery(entry: DeclaredServer): Record<string, unknown> {
-	return {
-		...(entry.expectedFailures === undefined ? {} : { expectedFailures: entry.expectedFailures }),
-		...(entry.declaredModels === undefined ? {} : { declared: entry.declaredModels }),
-		...(entry.includeModes === undefined ? {} : { includeModes: entry.includeModes }),
-	};
-}
-
 /**
  * A parsed entry rendered back to the nested settings shape (the same assembly saveServer.ts applies): flat credential
  * fields fold into the auth grammar by rank, and the extension-side fields return to their
@@ -273,8 +256,15 @@ function serializeDiscovery(entry: DeclaredServer): Record<string, unknown> {
  */
 function serializeEntry(entry: DeclaredServer): Record<string, unknown> {
 	const auth = serializeAuth(entry);
-	const models = serializeModels(entry);
-	const discovery = serializeDiscovery(entry);
+	const models: Record<string, unknown> = {
+		...(entry.modelParameters === undefined ? {} : { parameters: entry.modelParameters }),
+		...(entry.modelCapabilities === undefined ? {} : { capabilities: entry.modelCapabilities }),
+	};
+	const discovery: Record<string, unknown> = {
+		...(entry.expectedFailures === undefined ? {} : { expectedFailures: entry.expectedFailures }),
+		...(entry.declaredModels === undefined ? {} : { declared: entry.declaredModels }),
+		...(entry.includeModes === undefined ? {} : { includeModes: entry.includeModes }),
+	};
 	return {
 		label: entry.label,
 		baseUrl: entry.baseUrl,

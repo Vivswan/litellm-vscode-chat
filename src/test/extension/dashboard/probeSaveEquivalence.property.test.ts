@@ -223,14 +223,6 @@ function replaceIdentityFor(
 	return existing !== undefined && declaresReplacement ? displayedIdentity(existing, blob) : undefined;
 }
 
-/** The parse options of the saved form: the edit form names the entry it replaces, the add form the taken labels. */
-function parseOptionsFor(
-	editing: boolean,
-	replace: ReturnType<typeof displayedIdentity> | undefined
-): Parameters<typeof parseServerForm>[1] {
-	return editing && replace !== undefined ? { original: replace } : { takenLabels: ["Prod"] };
-}
-
 /** An inactive field's directive is clear or keep, nothing else (parseInactiveSecret never sets). */
 function clearOrKeepDirectives(removals: Record<SecretFieldId, boolean>): Record<SecretFieldId, SecretDirective> {
 	return recordFromKeys(
@@ -345,7 +337,10 @@ suite("extension/dashboard: probe-save equivalence", () => {
 					// appears exactly when the form's own resolution says the field resolves - the webview signal this
 					// pins against the host's plans.
 					const draft = secretFormDraft(editing, label, removals, shown);
-					const parse = parseServerForm(draft, parseOptionsFor(editing, replace));
+					const parse = parseServerForm(
+						draft,
+						editing && replace !== undefined ? { original: replace } : { takenLabels: ["Prod"] }
+					);
 					// The contested half is the resolution the parse reports through its problems.
 					const plans = secretPlans(clearOrKeepDirectives(removals), showing, sources.storedOld);
 					for (const field of SECRET_FIELD_IDS) {

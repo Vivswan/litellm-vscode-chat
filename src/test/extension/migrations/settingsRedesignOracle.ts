@@ -421,14 +421,15 @@ function trioFlowDiverges(
 }
 
 /** Whether a documented descoping or star-ordering divergence puts this (server, model) outside the equivalence. */
-function oldWorldSkipsEquivalence(
-	globalParameters: Record<string, Record<string, unknown>>,
-	entryParameters: Record<string, Record<string, unknown>> | undefined,
-	globalCapabilities: Record<string, Record<string, unknown>>,
-	entryCapabilities: Record<string, Record<string, unknown>> | undefined,
-	scope: string,
-	modelId: string
-): boolean {
+function oldWorldSkipsEquivalence(input: {
+	readonly globalParameters: Record<string, Record<string, unknown>>;
+	readonly entryParameters: Record<string, Record<string, unknown>> | undefined;
+	readonly globalCapabilities: Record<string, Record<string, unknown>>;
+	readonly entryCapabilities: Record<string, Record<string, unknown>> | undefined;
+	readonly scope: string;
+	readonly modelId: string;
+}): boolean {
+	const { globalParameters, entryParameters, globalCapabilities, entryCapabilities, scope, modelId } = input;
 	return (
 		descopingDiverges(globalParameters, entryParameters, scope, modelId, "params") ||
 		descopingDiverges(globalCapabilities, entryCapabilities, scope, modelId, "caps") ||
@@ -514,14 +515,14 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 	const tokenDefaults = oldTokenDefaults(snapshot);
 
 	const scope = scopes[0] as string;
-	const skipEquivalence = oldWorldSkipsEquivalence(
+	const skipEquivalence = oldWorldSkipsEquivalence({
 		globalParameters,
-		hasEntryParameters ? entryParameters : undefined,
+		entryParameters: hasEntryParameters ? entryParameters : undefined,
 		globalCapabilities,
-		hasEntryCapabilities ? entryCapabilities : undefined,
+		entryCapabilities: hasEntryCapabilities ? entryCapabilities : undefined,
 		scope,
-		modelId
-	);
+		modelId,
+	});
 	return {
 		parameters: { ...params.params },
 		forced: { ...params.forcedParams },

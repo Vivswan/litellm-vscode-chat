@@ -226,12 +226,12 @@ function oldCapabilityValue(name: CapabilityFieldName, value: unknown): number |
 	return typeof value === "boolean" ? value : undefined;
 }
 
-/** The record's capability fields by the old vocabulary, directives and unknown keys skipped. */
+/** The capability fields among a record's entries by the old vocabulary, directives and unknown keys skipped. */
 function oldCapabilityFields(
-	record: Readonly<Record<string, unknown>>
+	entries: ReadonlyMap<string, unknown>
 ): Partial<Record<CapabilityFieldName, number | boolean>> {
 	const fields: Partial<Record<CapabilityFieldName, number | boolean>> = {};
-	for (const [key, value] of Object.entries(record)) {
+	for (const [key, value] of entries) {
 		if (key === OPENROUTER_MODEL_DIRECTIVE || key.startsWith("_") || !isCapabilityFieldName(key)) {
 			continue;
 		}
@@ -241,16 +241,6 @@ function oldCapabilityFields(
 		}
 	}
 	return fields;
-}
-
-/** Whether an old `_declare: true` counts: read once among the record's own entries, where the key may declare. */
-function oldDeclareFlag(record: Readonly<Record<string, unknown>>, allowDeclare: boolean): boolean {
-	for (const [key, value] of Object.entries(record)) {
-		if (key === DECLARE_DIRECTIVE) {
-			return value === true && allowDeclare;
-		}
-	}
-	return false;
 }
 
 /** The parsed fields an old `_fallback` demotes: all of them for `true`, the named present ones for a list. */
@@ -282,17 +272,18 @@ function oldFallbackNames(
 
 /**
  * The pre-redesign capability-record parse, minus diagnostics and `_openrouter_model` (the oracle runs catalog-free).
+ * The record is enumerated once, so a value is read once however many of its directives the parse consults.
  */
 export function parseOldCapabilityRecord(
 	record: Readonly<Record<string, unknown>>,
 	options: { readonly allowDeclare: boolean }
 ): OldParsedCapabilityRecord {
-	const fields = oldCapabilityFields(record);
-	const fallbackDirective = Object.hasOwn(record, FALLBACK_DIRECTIVE) ? record[FALLBACK_DIRECTIVE] : undefined;
+	const entries = new Map(Object.entries(record));
+	const fields = oldCapabilityFields(entries);
 	return {
 		fields: fields as Readonly<Partial<CapabilityFieldValues>>,
-		declare: oldDeclareFlag(record, options.allowDeclare),
-		fallback: oldFallbackNames(fallbackDirective, fields),
+		declare: entries.get(DECLARE_DIRECTIVE) === true && options.allowDeclare,
+		fallback: oldFallbackNames(entries.get(FALLBACK_DIRECTIVE), fields),
 	};
 }
 
@@ -357,11 +348,6 @@ function oldBanApplies(
 	return lifted !== true && parsed?.declare === true && parsed.fallback.length > 0 && declaredId === rawModelId;
 }
 
-/** The id an entry-level key declares: the key itself, unless it is the empty or catch-all key. */
-function entryDeclarableId(key: string | undefined): string | undefined {
-	return key === undefined || key === "" || key === CATCH_ALL_PREFIX ? undefined : key;
-}
-
 /**
  * The entry-over-global field chain: each field's override from the first unfallen level, its fallback from the first
  * demoted one.
@@ -416,7 +402,10 @@ export function resolveOldCapabilityOverrides(input: {
 		entryWinner === undefined ? undefined : parseOldCapabilityRecord(entryWinner.value, { allowDeclare: true });
 
 	const lifted = input.liftDeclareFallbackBan;
-	const entryBanned = oldBanApplies(parsedEntry, entryDeclarableId(entryWinner?.key), rawModelId, lifted);
+	const entryKey = entryWinner?.key;
+	const entryDeclaredId =
+		entryKey === undefined || entryKey === "" || entryKey === CATCH_ALL_PREFIX ? undefined : entryKey;
+	const entryBanned = oldBanApplies(parsedEntry, entryDeclaredId, rawModelId, lifted);
 	const globalDeclaredId = globalWinner === undefined ? undefined : scopedDeclarableId(globalWinner.key, serverScopes);
 	const globalBanned = oldBanApplies(parsedGlobal, globalDeclaredId, rawModelId, lifted);
 	const entryFallback: readonly CapabilityFieldName[] = entryBanned ? [] : (parsedEntry?.fallback ?? []);

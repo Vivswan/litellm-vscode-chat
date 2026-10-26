@@ -295,8 +295,13 @@ function assertWriteDiscipline(snapshot: SettingsSnapshot): void {
 	}
 }
 
-/** The old-world snapshot of the trio settings, each present only when drawn. */
-function trioSnapshot(context: unknown, input: unknown, output: unknown): SettingsSnapshot {
+/** The old-world snapshot of the trio settings, each present only when its value was drawn. */
+function trioSnapshot(values: {
+	readonly context: unknown;
+	readonly input: unknown;
+	readonly output: unknown;
+}): SettingsSnapshot {
+	const { context, input, output } = values;
 	return {
 		...(context === undefined ? {} : { defaultContextLength: { globalValue: context } }),
 		...(input === undefined ? {} : { defaultMaxInputTokens: { globalValue: input } }),
@@ -381,11 +386,6 @@ function assertWalksAgree(old: ReturnType<typeof resolveOldWorld>, projected: Ef
 			assert.strictEqual(oldWalk.wireMaxTokens, Math.min(4096, oldWalk.fields.max_output_tokens as number));
 		}
 	}
-}
-
-/** Whether a "*" record's junk directive makes the trio merge unmergeable, so every source stays blocked. */
-function blocksTrioMerge(catchAll: Record<string, unknown> | undefined): boolean {
-	return catchAll !== undefined && (catchAll._fallback === "garbage" || catchAll._inheritable === "garbage");
 }
 
 /**
@@ -483,7 +483,7 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 			fc.property(
 				fc.record({ context: trioValueArb, input: trioValueArb, output: trioValueArb, catchAll: catchAllArb }),
 				({ context, input, output, catchAll }) => {
-					const snapshot = trioSnapshot(context, input, output);
+					const snapshot = trioSnapshot({ context, input, output });
 					const capabilities = catchAll === undefined ? undefined : { "*": catchAll };
 					const merge = mergeTokenDefaults(capabilities, snapshot);
 					const configured = [context, input, output].filter((value) => value !== undefined).length;
@@ -492,7 +492,7 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 						assert.deepStrictEqual(merge, { consumedIds: [], movedFields: 0, drainedKeys: 0, blockedValues: 0 });
 						return;
 					}
-					if (blocksTrioMerge(catchAll)) {
+					if (catchAll !== undefined && (catchAll._fallback === "garbage" || catchAll._inheritable === "garbage")) {
 						assert.strictEqual(merge.blockedValues, configured, "an unmergeable record blocks every source");
 						assert.strictEqual(merge.capabilitiesValue, undefined);
 						assert.deepStrictEqual(merge.consumedIds, []);
