@@ -124,6 +124,36 @@ export interface ParsedRecord {
 	readonly diagnostics: readonly Omit<RecordDiagnostic, "recordKey">[];
 }
 
+/** Which keys may carry a mark and how a refused list entry is diagnosed (`_force`'s forceability rule). */
+interface MarkableRule {
+	readonly allows: (key: string) => boolean;
+	readonly refusalKind: RecordDiagnosticKind;
+}
+
+/** The marks a directive list carries, each entry judged in the order the parseMarkingDirective doc states. */
+function markListedFields(
+	names: readonly unknown[],
+	directiveName: string,
+	fields: Readonly<Record<string, unknown>>,
+	markable: MarkableRule | undefined
+): { marked: Set<string>; diagnostics: Omit<RecordDiagnostic, "recordKey">[] } {
+	const marked = new Set<string>();
+	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [];
+	for (const name of names) {
+		if (typeof name !== "string") {
+			diagnostics.push({ kind: "invalid-directive", key: directiveName });
+		} else if (markable !== undefined && !markable.allows(name)) {
+			diagnostics.push({ kind: markable.refusalKind, key: name });
+		} else if (Object.hasOwn(fields, name)) {
+			marked.add(name);
+		} else {
+			diagnostics.push({ kind: "invalid-directive", key: directiveName });
+		}
+	}
+
+	return { marked, diagnostics };
+}
+
 /**
  * The one parse of the marking-directive grammar, shared by `_inheritable` (here), `_force` (parameters records), and
  * `_fallback` (capabilities records). `markable` narrows which keys may carry the mark (`_force`'s forceability rule),
@@ -134,39 +164,73 @@ export function parseMarkingDirective(
 	record: Readonly<Record<string, unknown>>,
 	directiveName: string,
 	fields: Readonly<Record<string, unknown>>,
-	markable?: {
-		readonly allows: (key: string) => boolean;
-		readonly refusalKind: RecordDiagnosticKind;
-	}
+	markable?: MarkableRule
 ): { marked: ReadonlySet<string>; diagnostics: readonly Omit<RecordDiagnostic, "recordKey">[] } {
-	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [];
-	const marked = new Set<string>();
 	if (!Object.hasOwn(record, directiveName)) {
-		return { marked, diagnostics };
+		return { marked: new Set<string>(), diagnostics: [] };
 	}
+
 	const directive = record[directiveName];
 	if (directive === true) {
+		const marked = new Set<string>();
 		for (const name of Object.keys(fields)) {
 			if (markable === undefined || markable.allows(name)) {
 				marked.add(name);
 			}
 		}
-	} else if (Array.isArray(directive)) {
-		for (const name of directive) {
-			if (typeof name !== "string") {
-				diagnostics.push({ kind: "invalid-directive", key: directiveName });
-			} else if (markable !== undefined && !markable.allows(name)) {
-				diagnostics.push({ kind: markable.refusalKind, key: name });
-			} else if (Object.hasOwn(fields, name)) {
-				marked.add(name);
-			} else {
-				diagnostics.push({ kind: "invalid-directive", key: directiveName });
-			}
-		}
-	} else if (directive !== false) {
-		diagnostics.push({ kind: "invalid-directive", key: directiveName });
+		return { marked, diagnostics: [] };
 	}
-	return { marked, diagnostics };
+
+	if (Array.isArray(directive)) {
+		return markListedFields(directive, directiveName, fields, markable);
+	}
+
+	if (directive === false) {
+		return { marked: new Set<string>(), diagnostics: [] };
+	}
+
+	return { marked: new Set<string>(), diagnostics: [{ kind: "invalid-directive", key: directiveName }] };
+}
+
+/**
+ * `_inherit_from` as the record spells it, "default" when absent. The empty list names no sources and behaves exactly
+ * like `false`, barrier included.
+ */
+function parseInheritFromDirective(record: Readonly<Record<string, unknown>>): {
+	inheritFrom: InheritFromDirective;
+	diagnostics: Omit<RecordDiagnostic, "recordKey">[];
+} {
+	if (!Object.hasOwn(record, INHERIT_FROM_DIRECTIVE)) {
+		return { inheritFrom: { kind: "default" }, diagnostics: [] };
+	}
+
+	const directive = record[INHERIT_FROM_DIRECTIVE];
+	if (directive === true) {
+		return { inheritFrom: { kind: "all" }, diagnostics: [] };
+	}
+
+	if (directive === false) {
+		return { inheritFrom: { kind: "none" }, diagnostics: [] };
+	}
+
+	if (!Array.isArray(directive)) {
+		return {
+			inheritFrom: { kind: "default" },
+			diagnostics: [{ kind: "invalid-directive", key: INHERIT_FROM_DIRECTIVE }],
+		};
+	}
+
+	const keys: string[] = [];
+	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [];
+	for (const name of directive) {
+		if (typeof name === "string") {
+			keys.push(name);
+		} else {
+			diagnostics.push({ kind: "invalid-directive", key: INHERIT_FROM_DIRECTIVE });
+		}
+	}
+
+	return { inheritFrom: { kind: "keys", keys }, diagnostics };
 }
 
 /**
@@ -182,32 +246,13 @@ export function parseSharedDirectives(
 	diagnostics: Omit<RecordDiagnostic, "recordKey">[];
 } {
 	const inheritable = parseMarkingDirective(record, INHERITABLE_DIRECTIVE, fields);
-	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [...inheritable.diagnostics];
+	const inheritFrom = parseInheritFromDirective(record);
 
-	let inheritFrom: InheritFromDirective = { kind: "default" };
-	if (Object.hasOwn(record, INHERIT_FROM_DIRECTIVE)) {
-		const directive = record[INHERIT_FROM_DIRECTIVE];
-		if (directive === true) {
-			inheritFrom = { kind: "all" };
-		} else if (directive === false) {
-			inheritFrom = { kind: "none" };
-		} else if (Array.isArray(directive)) {
-			const keys: string[] = [];
-			for (const name of directive) {
-				if (typeof name === "string") {
-					keys.push(name);
-				} else {
-					diagnostics.push({ kind: "invalid-directive", key: INHERIT_FROM_DIRECTIVE });
-				}
-			}
-			// The empty list names no sources and behaves exactly like `false`, barrier included.
-			inheritFrom = { kind: "keys", keys };
-		} else {
-			diagnostics.push({ kind: "invalid-directive", key: INHERIT_FROM_DIRECTIVE });
-		}
-	}
-
-	return { inheritable: inheritable.marked, inheritFrom, diagnostics };
+	return {
+		inheritable: inheritable.marked,
+		inheritFrom: inheritFrom.inheritFrom,
+		diagnostics: [...inheritable.diagnostics, ...inheritFrom.diagnostics],
+	};
 }
 
 export interface ResolvedChainField {
@@ -233,64 +278,59 @@ export interface RecordChainResolution {
 	readonly diagnostics: readonly RecordDiagnostic[];
 }
 
+/** The problems one walk reports, each (kind, record, key) once, in first-report order. */
+class DiagnosticSet {
+	readonly all: RecordDiagnostic[] = [];
+	private readonly seen = new Set<string>();
+
+	add(diagnostic: RecordDiagnostic): void {
+		const dedupeKey = `${diagnostic.kind}\u0000${diagnostic.recordKey}\u0000${diagnostic.key}`;
+		if (this.seen.has(dedupeKey)) {
+			return;
+		}
+
+		this.seen.add(dedupeKey);
+		this.all.push(diagnostic);
+	}
+}
+
 /** Record-level lint of one record map, independent of any model. */
 export function lintRecordMap(
 	records: ModelRecordMap,
 	parse: (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord
 ): readonly RecordDiagnostic[] {
-	const diagnostics: RecordDiagnostic[] = [];
-	const seen = new Set<string>();
-	const diagnose = (diagnostic: RecordDiagnostic): void => {
-		const dedupeKey = `${diagnostic.kind}\u0000${diagnostic.recordKey}\u0000${diagnostic.key}`;
-		if (!seen.has(dedupeKey)) {
-			seen.add(dedupeKey);
-			diagnostics.push(diagnostic);
-		}
-	};
+	const diagnostics = new DiagnosticSet();
 	for (const [key, record] of Object.entries(records)) {
 		const parsedKey = parseMatcherKey(key);
 		if (!parsedKey.ok) {
-			diagnose({ kind: "invalid-matcher", recordKey: key, key });
+			diagnostics.add({ kind: "invalid-matcher", recordKey: key, key });
 		}
 		const parsed = parse(record, key);
 		for (const diagnostic of parsed.diagnostics) {
-			diagnose({ ...diagnostic, recordKey: key });
+			diagnostics.add({ ...diagnostic, recordKey: key });
 		}
 		if (parsed.inheritFrom.kind === "keys") {
 			for (const named of parsed.inheritFrom.keys) {
 				if (!Object.hasOwn(records, named)) {
-					diagnose({ kind: "unknown-inherit-key", recordKey: key, key: named });
+					diagnostics.add({ kind: "unknown-inherit-key", recordKey: key, key: named });
 				}
 			}
 		}
 	}
-	return diagnostics;
+	return diagnostics.all;
 }
 
-export function resolveRecordChain(
-	id: string,
+/**
+ * The parse of each record, shared between chain membership and `_inherit_from` lookups, so a record parsed for both
+ * reports its problems once.
+ */
+function parseCache(
 	records: ModelRecordMap,
 	parse: (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord
-): RecordChainResolution {
-	const { chain, diagnostics: matcherDiagnostics } = matchChain(id, records);
-
-	const diagnostics: RecordDiagnostic[] = [];
-	const seen = new Set<string>();
-	const diagnose = (diagnostic: RecordDiagnostic): void => {
-		const dedupeKey = `${diagnostic.kind}\u0000${diagnostic.recordKey}\u0000${diagnostic.key}`;
-		if (!seen.has(dedupeKey)) {
-			seen.add(dedupeKey);
-			diagnostics.push(diagnostic);
-		}
-	};
-	for (const diagnostic of matcherDiagnostics) {
-		diagnose({ kind: "invalid-matcher", recordKey: diagnostic.key, key: diagnostic.key });
-	}
-
-	// Parses are shared between chain membership and `_inherit_from` lookups, so a record parsed for both reports its
-	// problems once.
+): (key: string) => ParsedRecord | undefined {
 	const parsedByKey = new Map<string, ParsedRecord>();
-	const parsedFor = (key: string): ParsedRecord | undefined => {
+
+	return (key) => {
 		const record = records[key];
 		if (record === undefined) {
 			return undefined;
@@ -302,94 +342,141 @@ export function resolveRecordChain(
 		}
 		return parsed;
 	};
+}
 
-	const ownFieldsOf = (key: string, parsed: ParsedRecord): Map<string, ResolvedChainField> => {
-		const own = new Map<string, ResolvedChainField>();
-		for (const [name, value] of Object.entries(parsed.fields)) {
-			own.set(name, {
-				value,
-				sourceKey: key,
-				inheritable: parsed.inheritable.has(name),
-				forced: parsed.forced.has(name),
-				fallback: parsed.fallback.has(name),
-			});
+function ownFieldsOf(key: string, parsed: ParsedRecord): Map<string, ResolvedChainField> {
+	const own = new Map<string, ResolvedChainField>();
+	for (const [name, value] of Object.entries(parsed.fields)) {
+		own.set(name, {
+			value,
+			sourceKey: key,
+			inheritable: parsed.inheritable.has(name),
+			forced: parsed.forced.has(name),
+			fallback: parsed.fallback.has(name),
+		});
+	}
+
+	return own;
+}
+
+/** What one chain walk's steps share: the model, the record map, the parse cache, and the problem collector. */
+interface ChainWalk {
+	readonly id: string;
+	readonly records: ModelRecordMap;
+	readonly parsedFor: (key: string) => ParsedRecord | undefined;
+	readonly diagnostics: DiagnosticSet;
+}
+
+/** A record an `_inherit_from` list names, with its position in the record map for the specificity tie-break. */
+interface NamedSource {
+	readonly key: string;
+	readonly parsed: ParsedRecord;
+	readonly position: number;
+}
+
+/** Broadest first, so the most specific named record wins per field: specificity order, not list order. */
+function bySpecificity(a: NamedSource, b: NamedSource): number {
+	const aParse = parseMatcherKey(a.key);
+	const bParse = parseMatcherKey(b.key);
+	if (!aParse.ok || !bParse.ok) {
+		return 0; // Unreachable: non-matching keys were filtered above.
+	}
+
+	return compareSpecificity(
+		{ matcher: aParse.matcher, position: a.position },
+		{ matcher: bParse.matcher, position: b.position }
+	);
+}
+
+/**
+ * The records an `_inherit_from` list names that match this model, in specificity order. An unknown key is diagnosed;
+ * a named record that does not match this model contributes nothing, and an invalid key already carries its own
+ * diagnostic.
+ */
+function namedSources(walk: ChainWalk, recordKey: string, keys: readonly string[]): NamedSource[] {
+	const named: NamedSource[] = [];
+	const namedSeen = new Set<string>();
+	for (const nameKey of keys) {
+		if (namedSeen.has(nameKey)) {
+			continue;
 		}
-		return own;
-	};
+		namedSeen.add(nameKey);
+		if (!Object.hasOwn(walk.records, nameKey)) {
+			walk.diagnostics.add({ kind: "unknown-inherit-key", recordKey, key: nameKey });
+			continue;
+		}
+		const namedParse = parseMatcherKey(nameKey);
+		if (!namedParse.ok || !matcherMatches(namedParse.matcher, walk.id)) {
+			continue;
+		}
+		const namedParsed = walk.parsedFor(nameKey);
+		if (namedParsed !== undefined) {
+			named.push({ key: nameKey, parsed: namedParsed, position: Object.keys(walk.records).indexOf(nameKey) });
+		}
+	}
+
+	return named.sort(bySpecificity);
+}
+
+/** The fields a record accepts from the chain above it, by its `_inherit_from`; named sources give their LITERAL fields only. */
+function acceptedFields(
+	inheritFrom: InheritFromDirective,
+	incoming: ReadonlyMap<string, ResolvedChainField>,
+	walk: ChainWalk,
+	recordKey: string
+): Map<string, ResolvedChainField> {
+	const accepted = new Map<string, ResolvedChainField>();
+	switch (inheritFrom.kind) {
+		case "default":
+			for (const [name, field] of incoming) {
+				if (field.inheritable) {
+					accepted.set(name, field);
+				}
+			}
+			break;
+		case "all":
+			for (const [name, field] of incoming) {
+				accepted.set(name, field);
+			}
+			break;
+		case "none":
+			break;
+		case "keys":
+			for (const source of namedSources(walk, recordKey, inheritFrom.keys)) {
+				for (const [name, field] of ownFieldsOf(source.key, source.parsed)) {
+					accepted.set(name, field);
+				}
+			}
+			break;
+	}
+
+	return accepted;
+}
+
+export function resolveRecordChain(
+	id: string,
+	records: ModelRecordMap,
+	parse: (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord
+): RecordChainResolution {
+	const { chain, diagnostics: matcherDiagnostics } = matchChain(id, records);
+	const diagnostics = new DiagnosticSet();
+	for (const diagnostic of matcherDiagnostics) {
+		diagnostics.add({ kind: "invalid-matcher", recordKey: diagnostic.key, key: diagnostic.key });
+	}
+	const walk: ChainWalk = { id, records, parsedFor: parseCache(records, parse), diagnostics };
 
 	let incoming = new Map<string, ResolvedChainField>();
 	let winner: { key: string; parsed: ParsedRecord } | undefined;
 	for (const match of chain) {
-		const parsed = parsedFor(match.key);
+		const parsed = walk.parsedFor(match.key);
 		if (parsed === undefined) {
 			continue; // Unreachable: chain keys come from the record map.
 		}
 		for (const diagnostic of parsed.diagnostics) {
-			diagnose({ ...diagnostic, recordKey: match.key });
+			diagnostics.add({ ...diagnostic, recordKey: match.key });
 		}
 
-		const accepted = new Map<string, ResolvedChainField>();
-		switch (parsed.inheritFrom.kind) {
-			case "default":
-				for (const [name, field] of incoming) {
-					if (field.inheritable) {
-						accepted.set(name, field);
-					}
-				}
-				break;
-			case "all":
-				for (const [name, field] of incoming) {
-					accepted.set(name, field);
-				}
-				break;
-			case "none":
-				break;
-			case "keys": {
-				// Named sources contribute their LITERAL fields only, merged broadest first so the most specific named
-				// record wins per field - specificity order, not list order.
-				const named: { key: string; parsed: ParsedRecord; position: number }[] = [];
-				const namedSeen = new Set<string>();
-				for (const nameKey of parsed.inheritFrom.keys) {
-					if (namedSeen.has(nameKey)) {
-						continue;
-					}
-					namedSeen.add(nameKey);
-					if (!Object.hasOwn(records, nameKey)) {
-						diagnose({ kind: "unknown-inherit-key", recordKey: match.key, key: nameKey });
-						continue;
-					}
-					const namedParse = parseMatcherKey(nameKey);
-					if (!namedParse.ok || !matcherMatches(namedParse.matcher, id)) {
-						// A named record that does not match this model contributes nothing; an invalid key already
-						// carries its own diagnostic.
-						continue;
-					}
-					const namedParsed = parsedFor(nameKey);
-					if (namedParsed !== undefined) {
-						named.push({ key: nameKey, parsed: namedParsed, position: Object.keys(records).indexOf(nameKey) });
-					}
-				}
-				named.sort((a, b) => {
-					const aParse = parseMatcherKey(a.key);
-					const bParse = parseMatcherKey(b.key);
-					if (!aParse.ok || !bParse.ok) {
-						return 0; // Unreachable: non-matching keys were filtered above.
-					}
-					return compareSpecificity(
-						{ matcher: aParse.matcher, position: a.position },
-						{ matcher: bParse.matcher, position: b.position }
-					);
-				});
-				for (const source of named) {
-					for (const [name, field] of ownFieldsOf(source.key, source.parsed)) {
-						accepted.set(name, field);
-					}
-				}
-				break;
-			}
-		}
-
-		const view = accepted;
+		const view = acceptedFields(parsed.inheritFrom, incoming, walk, match.key);
 		for (const [name, field] of ownFieldsOf(match.key, parsed)) {
 			view.set(name, field);
 		}
@@ -401,6 +488,6 @@ export function resolveRecordChain(
 		fields: incoming,
 		winnerKey: winner?.key,
 		winner: winner?.parsed,
-		diagnostics,
+		diagnostics: diagnostics.all,
 	};
 }

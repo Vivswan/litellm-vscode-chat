@@ -33,6 +33,29 @@ export function cloneJson<T>(value: T): T {
 	return value;
 }
 
+interface PendingValue {
+	value: unknown;
+	path: string;
+}
+
+/** A container's children pushed last first, so the pop order visits the document in reading order. */
+function pushChildren(pending: PendingValue[], value: unknown, path: string): void {
+	if (Array.isArray(value)) {
+		for (let index = value.length - 1; index >= 0; index -= 1) {
+			pending.push({ value: value[index], path: `${path}[${index}]` });
+		}
+		return;
+	}
+
+	if (!isRecord(value)) {
+		return;
+	}
+
+	for (const [key, item] of Object.entries(value).reverse()) {
+		pending.push({ value: item, path: path === "" ? key : `${path}.${key}` });
+	}
+}
+
 /**
  * The path of the first non-finite number under `root`, or undefined when there is none: JSON.parse reads an
  * overflowing literal ("1e999") as Infinity, which JSON.stringify then writes as null, so the refusal names where.
@@ -40,25 +63,16 @@ export function cloneJson<T>(value: T): T {
  * Whatever JSON.parse accepted must pass through here, a value 5000 deep or 200000 members wide included.
  */
 export function nonFiniteNumberPath(root: unknown): string | undefined {
-	const pending: { value: unknown; path: string }[] = [{ value: root, path: "" }];
+	const pending: PendingValue[] = [{ value: root, path: "" }];
 	while (pending.length > 0) {
 		const next = pending.pop();
 		if (next === undefined) {
 			break;
 		}
-		const { value, path } = next;
-		if (typeof value === "number" && !Number.isFinite(value)) {
-			return path;
+		if (typeof next.value === "number" && !Number.isFinite(next.value)) {
+			return next.path;
 		}
-		if (Array.isArray(value)) {
-			for (let index = value.length - 1; index >= 0; index -= 1) {
-				pending.push({ value: value[index], path: `${path}[${index}]` });
-			}
-		} else if (isRecord(value)) {
-			for (const [key, item] of Object.entries(value).reverse()) {
-				pending.push({ value: item, path: path === "" ? key : `${path}.${key}` });
-			}
-		}
+		pushChildren(pending, next.value, next.path);
 	}
 	return undefined;
 }

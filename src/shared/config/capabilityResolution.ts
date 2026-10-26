@@ -160,6 +160,58 @@ export interface ParsedCapabilityRecord extends ParsedRecord {
 	readonly openrouterModel?: string | undefined;
 }
 
+/** A `_fallback` or `_inheritable` list entry in canonical spelling; a non-string entry stays for the directive parse. */
+function canonicalListEntry(entry: unknown): unknown {
+	return typeof entry === "string" ? canonicalFieldKey("capabilities", entry) : entry;
+}
+
+/**
+ * The record with every key, and every `_fallback` and `_inheritable` list entry, in canonical spelling.
+ * Null-prototyped so a trimmed "__proto__" defines an own key instead of walking the chain. `_inherit_from` entries
+ * stay raw: they name MATCHER keys, and the matcher grammar trims nothing.
+ */
+function canonicalCapabilityRecord(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
+	const normalized: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+	for (const [rawKey, rawValue] of Object.entries(record)) {
+		const key = canonicalFieldKey("capabilities", rawKey);
+		if ((key === FALLBACK_DIRECTIVE || key === INHERITABLE_DIRECTIVE) && Array.isArray(rawValue)) {
+			normalized[key] = rawValue.map(canonicalListEntry);
+			continue;
+		}
+		normalized[key] = rawValue;
+	}
+	return normalized;
+}
+
+/**
+ * One field into the bag: a consumed key must pass its kind (diagnosed and left unset otherwise), an open key is kept
+ * as-is with a hint. Settings values arrive from JSON, so anything present is serializable; only an undefined (an
+ * in-memory caller's hole) is dropped.
+ */
+function readCapabilityField(
+	key: string,
+	value: unknown,
+	fields: Record<string, CapabilityJsonValue>,
+	diagnostics: Omit<RecordDiagnostic, "recordKey">[]
+): void {
+	const kind = consumedFieldKind(key);
+	if (kind === undefined) {
+		if (value !== undefined) {
+			fields[key] = value as CapabilityJsonValue;
+			diagnostics.push({ kind: "unrecognized-key", key });
+		}
+		return;
+	}
+
+	if (!isValidConsumedCapabilityValue(kind, value)) {
+		diagnostics.push({ kind: "invalid-value", key });
+		return;
+	}
+
+	// A cost of -0 would ride a negative sign into arithmetic; "free" is +0.
+	fields[key] = kind === "cost" && value === 0 ? 0 : (value as CapabilityJsonValue);
+}
+
 /**
  * The one typing boundary of the capability vocabulary.
  * Every dynamic read downstream is hasOwn-guarded, so prototype names like "toString" are legal open fields.
@@ -170,16 +222,7 @@ export interface ParsedCapabilityRecord extends ParsedRecord {
  *                                    "__proto__" out
  */
 export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>): ParsedCapabilityRecord {
-	// Null-prototyped so a trimmed "__proto__" defines an own key instead of walking the chain. `_inherit_from`
-	// entries stay raw: they name MATCHER keys, and the matcher grammar trims nothing.
-	const normalized: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-	for (const [rawKey, rawValue] of Object.entries(record)) {
-		const key = canonicalFieldKey("capabilities", rawKey);
-		normalized[key] =
-			(key === FALLBACK_DIRECTIVE || key === INHERITABLE_DIRECTIVE) && Array.isArray(rawValue)
-				? rawValue.map((entry) => (typeof entry === "string" ? canonicalFieldKey("capabilities", entry) : entry))
-				: rawValue;
-	}
+	const normalized = canonicalCapabilityRecord(record);
 	const fields: Record<string, CapabilityJsonValue> = {};
 	let openrouterModel: string | undefined;
 	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [];
@@ -200,22 +243,7 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 		if (key.startsWith("_")) {
 			continue;
 		}
-		const kind = consumedFieldKind(key);
-		if (kind !== undefined) {
-			if (isValidConsumedCapabilityValue(kind, value)) {
-				// A cost of -0 would ride a negative sign into arithmetic; "free" is +0.
-				fields[key] = kind === "cost" && value === 0 ? 0 : (value as CapabilityJsonValue);
-			} else {
-				diagnostics.push({ kind: "invalid-value", key });
-			}
-			continue;
-		}
-		// Settings values arrive from JSON, so anything present is serializable;
-		// only an undefined (an in-memory caller's hole) is dropped.
-		if (value !== undefined) {
-			fields[key] = value as CapabilityJsonValue;
-			diagnostics.push({ kind: "unrecognized-key", key });
-		}
+		readCapabilityField(key, value, fields, diagnostics);
 	}
 
 	const fallback = parseMarkingDirective(normalized, FALLBACK_DIRECTIVE, fields);
@@ -403,6 +431,49 @@ export interface ResolvedCapabilityOverrides {
 	readonly diagnostics: readonly CapabilityDiagnostic[];
 }
 
+/** A layer's value for a field with the record that spelled it, and the winner that inherited it when they differ. */
+interface LayerField {
+	value: CapabilityJsonValue;
+	key: string;
+	inheritedBy?: string;
+}
+
+/** A layer's field at the wanted level: an override (`wantFallback` false) or a `_fallback`-demoted value. */
+function layerField(resolution: RecordChainResolution, name: string, wantFallback: boolean): LayerField | undefined {
+	const field = resolution.fields.get(name);
+	if (field === undefined || field.fallback !== wantFallback) {
+		return undefined;
+	}
+
+	return {
+		// The chain carries only parseCapabilityRecord output, so the value is already a kept capability value.
+		value: field.value as CapabilityJsonValue,
+		key: field.sourceKey,
+		...(resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
+			? { inheritedBy: resolution.winnerKey }
+			: {}),
+	};
+}
+
+/** The `_openrouter_model` directive as the walk reads it; `fields` is empty unless its catalog entry was found. */
+interface ResolvedDirective {
+	readonly outcome: DirectiveOutcome | undefined;
+	readonly fields: Readonly<Partial<CapabilityFieldValues>>;
+}
+
+function resolveDirective(directiveId: string | undefined, catalog: CapabilityCatalogLookup): ResolvedDirective {
+	if (directiveId === undefined) {
+		return { outcome: undefined, fields: {} };
+	}
+
+	const lookup = catalog.byExactId(directiveId);
+	if (lookup.kind !== "found") {
+		return { outcome: { kind: "not-found", id: directiveId }, fields: {} };
+	}
+
+	return { outcome: { kind: "applied", id: directiveId }, fields: lookup.fields };
+}
+
 export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInput): ResolvedCapabilityOverrides {
 	const { rawModelId, globalCapabilities, entryCapabilities, catalog } = input;
 
@@ -411,35 +482,7 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 
 	const entryWinner = entry.winner as ParsedCapabilityRecord | undefined;
 	const globalWinner = global.winner as ParsedCapabilityRecord | undefined;
-	const directiveId = entryWinner?.openrouterModel ?? globalWinner?.openrouterModel;
-	const directiveLookup = directiveId === undefined ? undefined : catalog.byExactId(directiveId);
-	const directive: DirectiveOutcome | undefined =
-		directiveId === undefined
-			? undefined
-			: directiveLookup?.kind === "found"
-				? { kind: "applied", id: directiveId }
-				: { kind: "not-found", id: directiveId };
-	const directiveFields: Readonly<Partial<CapabilityFieldValues>> =
-		directiveLookup?.kind === "found" ? directiveLookup.fields : {};
-
-	const layerField = (
-		resolution: RecordChainResolution,
-		name: string,
-		wantFallback: boolean
-	): { value: CapabilityJsonValue; key: string; inheritedBy?: string } | undefined => {
-		const field = resolution.fields.get(name);
-		if (field === undefined || field.fallback !== wantFallback) {
-			return undefined;
-		}
-		return {
-			// The chain carries only parseCapabilityRecord output, so the value is already a kept capability value.
-			value: field.value as CapabilityJsonValue,
-			key: field.sourceKey,
-			...(resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
-				? { inheritedBy: resolution.winnerKey }
-				: {}),
-		};
-	};
+	const directive = resolveDirective(entryWinner?.openrouterModel ?? globalWinner?.openrouterModel, catalog);
 
 	const overrideField = (name: string): ResolvedCapabilityOverrideField | undefined => {
 		const layered: {
@@ -456,9 +499,9 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		if (fromGlobal !== undefined) {
 			layered.push({ level: "global", ...fromGlobal });
 		}
-		const derivedValue = isCapabilityFieldName(name) ? directiveFields[name] : undefined;
-		if (derivedValue !== undefined && directiveId !== undefined) {
-			layered.push({ level: "directive", key: directiveId, value: derivedValue });
+		const derivedValue = isCapabilityFieldName(name) ? directive.fields[name] : undefined;
+		if (derivedValue !== undefined && directive.outcome !== undefined) {
+			layered.push({ level: "directive", key: directive.outcome.id, value: derivedValue });
 		}
 		const [winner, ...shadowed] = layered;
 		return winner === undefined ? undefined : { ...winner, shadowed };
@@ -482,7 +525,7 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		...global.diagnostics.map((d) => ({ ...d, layer: "global" as const })),
 	];
 
-	const names = new Set<string>([...entry.fields.keys(), ...global.fields.keys(), ...Object.keys(directiveFields)]);
+	const names = new Set<string>([...entry.fields.keys(), ...global.fields.keys(), ...Object.keys(directive.fields)]);
 	const fields: Record<string, ResolvedCapabilityOverrideField> = {};
 	const fallbackFields: Record<string, readonly CapabilityFallbackCandidate[]> = {};
 	for (const name of names) {
@@ -499,7 +542,7 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 	return {
 		fields,
 		fallbackFields,
-		...(directive === undefined ? {} : { directive }),
+		...(directive.outcome === undefined ? {} : { directive: directive.outcome }),
 		implicitCatalog: catalog.byRawModelId(rawModelId),
 		diagnostics,
 	};
@@ -637,6 +680,26 @@ export function isUserSetLevel(level: CapabilityLevel): boolean {
 	return LEVEL_IS_USER_SET[level];
 }
 
+/**
+ * The request default under the resolved output limit: a user-written limit is the default whole; the server level's
+ * is the baseline's, since the collapse decided it beside the value and the two minima can come from different
+ * contributors; a guessed limit is capped.
+ */
+function defaultMaxTokensFor(
+	maxOutputTokens: EffectiveCapabilityField<number>,
+	serverDeclared: ServerDeclaredCapabilities
+): number {
+	if (LEVEL_IS_USER_SET[maxOutputTokens.level]) {
+		return maxOutputTokens.value;
+	}
+
+	if (maxOutputTokens.level === "server" && serverDeclared.kind === "discovered") {
+		return serverDeclared.defaultMaxTokens;
+	}
+
+	return guessedMaxTokensDefault(maxOutputTokens.value);
+}
+
 export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): EffectiveCapabilities {
 	const overrides = resolveCapabilityOverrides(input);
 	const serverValues: Readonly<Record<string, CapabilityJsonValue | undefined>> =
@@ -678,13 +741,7 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 	const booleanField = (name: BooleanCapabilityField): EffectiveCapabilityField<boolean> =>
 		coreField(name, { level: "floor", value: CAPABILITY_FLOOR[name] });
 
-	// The server level's default is the baseline's: the collapse decided it beside the value, and the two minima can come
-	// from different contributors.
-	const defaultMaxTokens = LEVEL_IS_USER_SET[maxOutputTokens.level]
-		? maxOutputTokens.value
-		: maxOutputTokens.level === "server" && input.serverDeclared.kind === "discovered"
-			? input.serverDeclared.defaultMaxTokens
-			: guessedMaxTokensDefault(maxOutputTokens.value);
+	const defaultMaxTokens = defaultMaxTokensFor(maxOutputTokens, input.serverDeclared);
 
 	const fields: Record<string, EffectiveCapabilityField> = {
 		context_length: contextLength,

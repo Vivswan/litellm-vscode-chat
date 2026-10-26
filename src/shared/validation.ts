@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import { isToolResultPart, pairToolCallIds, wireIdKey } from "./conversion/toolCallIds";
-import { chatErrorMessage, englishChatErrorMessage, localizedError } from "./mirroredError";
+import { isToolResultPart, pairToolCallIds, type ToolCallPairing, wireIdKey } from "./conversion/toolCallIds";
+import { chatErrorMessage, englishChatErrorMessage, localizedError, type MirroredError } from "./mirroredError";
 
 /**
  * The call IDs in the detail are response-derived, so the thrown error also carries a count-only logClassification; the
@@ -26,11 +26,7 @@ function toolMismatchHeadline(): string {
 	);
 }
 
-/**
- * Pairing verdicts come from the same pairToolCallIds analysis conversion ships, so a passing request is wire-paired by
- * construction.
- */
-export function validateRequest(messages: readonly vscode.LanguageModelChatRequestMessage[]): void {
+function requireMessages(messages: readonly vscode.LanguageModelChatRequestMessage[]): void {
 	const lastMessage = messages[messages.length - 1];
 	if (!lastMessage) {
 		throw localizedError(
@@ -46,86 +42,119 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 			)
 		);
 	}
+}
 
-	const pairing = pairToolCallIds(messages);
+function unpairedToolCallsError(toolCallIds: ReadonlySet<string>): MirroredError {
+	const ids = Array.from(toolCallIds).join(", ");
+
+	return localizedError(
+		chatErrorMessage(toolPairingHeadline(), l10n.t("Unpaired tool call IDs: {0}.", ids)),
+		englishChatErrorMessage(TOOL_PAIRING_HEADLINE_ENGLISH, `Unpaired tool call IDs: ${ids}.`),
+		`ValidationError(unpaired tool calls: ${toolCallIds.size})`
+	);
+}
+
+/** The constructor name is caller-controlled text, so it stays out of the classification. */
+function nonToolResultPartError(part: unknown): MirroredError {
+	const ctorName =
+		(Object.getPrototypeOf(part as object) as { constructor?: { name?: string } } | undefined)?.constructor?.name ??
+		typeof part;
+
+	return localizedError(
+		chatErrorMessage(toolPairingHeadline(), l10n.t("Expected a tool result after a tool call, got {0}.", ctorName)),
+		englishChatErrorMessage(
+			TOOL_PAIRING_HEADLINE_ENGLISH,
+			`Expected a tool result after a tool call, got ${ctorName}.`
+		),
+		"ValidationError(non-tool-result part after tool call)"
+	);
+}
+
+/**
+ * The positional walk: each assistant message's tool calls are answered by the tool results of the user messages that
+ * follow it, with nothing else between. It gives the sharper errors; requireCleanPairing catches what it cannot see.
+ */
+function requireToolResultsAfterCalls(
+	messages: readonly vscode.LanguageModelChatRequestMessage[],
+	pairing: ToolCallPairing
+): void {
 	const wireId = (messageIndex: number, partIndex: number, raw: string): string =>
 		pairing.wireIds.get(wireIdKey(messageIndex, partIndex)) ?? raw;
 
 	messages.forEach((message, i) => {
-		if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
-			const toolCallIds = new Set<string>();
-			message.content.forEach((part, partIndex) => {
-				if (part instanceof vscode.LanguageModelToolCallPart) {
-					toolCallIds.add(wireId(i, partIndex, part.callId));
+		if (message.role !== vscode.LanguageModelChatMessageRole.Assistant) {
+			return;
+		}
+		const toolCallIds = new Set<string>();
+		message.content.forEach((part, partIndex) => {
+			if (part instanceof vscode.LanguageModelToolCallPart) {
+				toolCallIds.add(wireId(i, partIndex, part.callId));
+			}
+		});
+		if (toolCallIds.size === 0) {
+			return;
+		}
+
+		let nextMessageIdx = i + 1;
+		while (toolCallIds.size > 0) {
+			const nextMessage = messages[nextMessageIdx++];
+			if (!nextMessage || nextMessage.role !== vscode.LanguageModelChatMessageRole.User) {
+				throw unpairedToolCallsError(toolCallIds);
+			}
+
+			nextMessage.content.forEach((part, partIndex) => {
+				if (!isToolResultPart(part)) {
+					throw nonToolResultPartError(part);
 				}
+				toolCallIds.delete(wireId(nextMessageIdx - 1, partIndex, part.callId));
 			});
-			if (toolCallIds.size === 0) {
-				return;
-			}
-
-			let nextMessageIdx = i + 1;
-			while (toolCallIds.size > 0) {
-				const nextMessage = messages[nextMessageIdx++];
-				if (!nextMessage || nextMessage.role !== vscode.LanguageModelChatMessageRole.User) {
-					const ids = Array.from(toolCallIds).join(", ");
-					throw localizedError(
-						chatErrorMessage(toolPairingHeadline(), l10n.t("Unpaired tool call IDs: {0}.", ids)),
-						englishChatErrorMessage(TOOL_PAIRING_HEADLINE_ENGLISH, `Unpaired tool call IDs: ${ids}.`),
-						`ValidationError(unpaired tool calls: ${toolCallIds.size})`
-					);
-				}
-
-				nextMessage.content.forEach((part, partIndex) => {
-					if (!isToolResultPart(part)) {
-						const ctorName =
-							(Object.getPrototypeOf(part as object) as { constructor?: { name?: string } } | undefined)?.constructor
-								?.name ?? typeof part;
-						// The constructor name is caller-controlled text, so it stays out of the classification.
-						throw localizedError(
-							chatErrorMessage(
-								toolPairingHeadline(),
-								l10n.t("Expected a tool result after a tool call, got {0}.", ctorName)
-							),
-							englishChatErrorMessage(
-								TOOL_PAIRING_HEADLINE_ENGLISH,
-								`Expected a tool result after a tool call, got ${ctorName}.`
-							),
-							"ValidationError(non-tool-result part after tool call)"
-						);
-					}
-					toolCallIds.delete(wireId(nextMessageIdx - 1, partIndex, part.callId));
-				});
-			}
 		}
 	});
+}
 
-	// The positional walk above gives the sharper errors; these catch what it cannot see.
+/** The pairing's own verdicts, which no positional walk sees: unpaired calls, stray results, and live id reuse. */
+function requireCleanPairing(pairing: ToolCallPairing): void {
 	if (
-		pairing.unpairedCallIds.length > 0 ||
-		pairing.strayResultIds.length > 0 ||
-		pairing.duplicateLiveCallIds.length > 0
+		pairing.unpairedCallIds.length === 0 &&
+		pairing.strayResultIds.length === 0 &&
+		pairing.duplicateLiveCallIds.length === 0
 	) {
-		const details: string[] = [];
-		const englishDetails: string[] = [];
-		if (pairing.unpairedCallIds.length > 0) {
-			const ids = pairing.unpairedCallIds.join(", ");
-			details.push(l10n.t("Unpaired tool call IDs: {0}.", ids));
-			englishDetails.push(`Unpaired tool call IDs: ${ids}.`);
-		}
-		if (pairing.strayResultIds.length > 0) {
-			const ids = pairing.strayResultIds.join(", ");
-			details.push(l10n.t("Tool results with no matching tool call: {0}.", ids));
-			englishDetails.push(`Tool results with no matching tool call: ${ids}.`);
-		}
-		if (pairing.duplicateLiveCallIds.length > 0) {
-			const ids = pairing.duplicateLiveCallIds.join(", ");
-			details.push(l10n.t("Tool call IDs reused while still awaiting a result: {0}.", ids));
-			englishDetails.push(`Tool call IDs reused while still awaiting a result: ${ids}.`);
-		}
-		throw localizedError(
-			chatErrorMessage(toolMismatchHeadline(), details.join(" ")),
-			englishChatErrorMessage(TOOL_MISMATCH_HEADLINE_ENGLISH, englishDetails.join(" ")),
-			`ValidationError(tool pairing: ${pairing.unpairedCallIds.length} unpaired, ${pairing.strayResultIds.length} stray, ${pairing.duplicateLiveCallIds.length} duplicate)`
-		);
+		return;
 	}
+
+	const details: string[] = [];
+	const englishDetails: string[] = [];
+	if (pairing.unpairedCallIds.length > 0) {
+		const ids = pairing.unpairedCallIds.join(", ");
+		details.push(l10n.t("Unpaired tool call IDs: {0}.", ids));
+		englishDetails.push(`Unpaired tool call IDs: ${ids}.`);
+	}
+	if (pairing.strayResultIds.length > 0) {
+		const ids = pairing.strayResultIds.join(", ");
+		details.push(l10n.t("Tool results with no matching tool call: {0}.", ids));
+		englishDetails.push(`Tool results with no matching tool call: ${ids}.`);
+	}
+	if (pairing.duplicateLiveCallIds.length > 0) {
+		const ids = pairing.duplicateLiveCallIds.join(", ");
+		details.push(l10n.t("Tool call IDs reused while still awaiting a result: {0}.", ids));
+		englishDetails.push(`Tool call IDs reused while still awaiting a result: ${ids}.`);
+	}
+
+	throw localizedError(
+		chatErrorMessage(toolMismatchHeadline(), details.join(" ")),
+		englishChatErrorMessage(TOOL_MISMATCH_HEADLINE_ENGLISH, englishDetails.join(" ")),
+		`ValidationError(tool pairing: ${pairing.unpairedCallIds.length} unpaired, ${pairing.strayResultIds.length} stray, ${pairing.duplicateLiveCallIds.length} duplicate)`
+	);
+}
+
+/**
+ * Pairing verdicts come from the same pairToolCallIds analysis conversion ships, so a passing request is wire-paired by
+ * construction.
+ */
+export function validateRequest(messages: readonly vscode.LanguageModelChatRequestMessage[]): void {
+	requireMessages(messages);
+
+	const pairing = pairToolCallIds(messages);
+	requireToolResultsAfterCalls(messages, pairing);
+	requireCleanPairing(pairing);
 }

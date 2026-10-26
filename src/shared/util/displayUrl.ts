@@ -170,19 +170,11 @@ function scanText(text: string): TextScan {
 }
 
 /**
- * The widest candidate around the "@" at `at` that the parser reads as a URL with userinfo, inside the delimiting
- * quotes that enclose it (a JSON key and its value are two strings, never one URL). Starts, nearest first: each "//"
- * inside the "@"-run (nearest the "@" first), the run's start, then every run start to its left (down to `floor`)
- * whose run holds a ":" or opens with "//". A start's span grows one "@"-bearing run at a time while the parser reads
- * it as a URL WITH userinfo (a password may hold spaces and a second "@": "http://u:pa@ss word@host"); the first start
- * the parser gives a host settles the "@".
+ * Where a URL around the "@" at `at` may start, nearest first: each "//" inside the "@"-run (nearest the "@" first),
+ * the run's start, then every run start to its left (down to `segmentStart`) whose run holds a ":" or opens with
+ * "//".
  */
-function cutAround(text: string, at: number, floor: number, scan: TextScan): Cut | undefined {
-	const { atRunStarts, atRunEnds, delimiters } = scan;
-	const delimiterIndex = lowerBound(delimiters, at);
-	const segmentStart = Math.max(floor, delimiterIndex === 0 ? 0 : (delimiters[delimiterIndex - 1] as number) + 1);
-	const segmentEnd = delimiterIndex < delimiters.length ? (delimiters[delimiterIndex] as number) : text.length;
-	const runStart = Math.max(atRunStarts[lowerBound(atRunEnds, at + 1)] as number, segmentStart);
+function candidateStarts(text: string, at: number, runStart: number, segmentStart: number): number[] {
 	const starts: number[] = [];
 	for (let i = at - 1; i > runStart; i--) {
 		if (text[i] === "/" && text[i - 1] === "/") {
@@ -190,6 +182,7 @@ function cutAround(text: string, at: number, floor: number, scan: TextScan): Cut
 			i--;
 		}
 	}
+
 	starts.push(runStart);
 	for (let i = runStart; i > segmentStart; ) {
 		let j = i - 1;
@@ -203,59 +196,115 @@ function cutAround(text: string, at: number, floor: number, scan: TextScan): Cut
 		}
 		i = start;
 	}
-	for (const start of starts) {
-		for (const candidateStart of OPENERS.has(text[start] as string) ? [start, start + 1] : [start]) {
-			let accepted = false;
-			let best: Cut | undefined;
-			for (let index = lowerBound(atRunEnds, candidateStart + 1); index < atRunEnds.length; index++) {
-				const end = atRunEnds[index] as number;
-				// Runs never cross a delimiter, so a run ending past the segment lies outside it.
-				if (end > segmentEnd) {
-					break;
-				}
-				let trimmed = end;
-				while (trimmed > candidateStart && CLOSERS.has(text[trimmed - 1] as string)) {
-					trimmed--;
-				}
-				let parsed: URL | undefined;
-				let closedHere = false;
-				// Without its closing punctuation first: a span the parser reads either way ends before it ("host:" is a
-				// host with an empty port to the parser, and the colon would open the rest of the line as userinfo).
-				for (const candidateEnd of trimmed === end ? [end] : [trimmed, end]) {
-					const span = text.slice(candidateStart, candidateEnd);
-					const read = parsedUrl(span);
-					// An opaque "word:" read (no host) is no URL around this "@"; a span with a host is.
-					if (read === undefined || read.host === "") {
-						continue;
-					}
-					parsed = read;
-					// The parser took the span without its closing punctuation: the URL ends there.
-					closedHere = candidateEnd !== end;
-					if (read.username !== "" || read.password !== "") {
-						const cut = cutUserinfo(span);
-						if (cut !== undefined) {
-							best = {
-								from: candidateStart,
-								replacement: cut.replacement,
-								resumeAt: candidateStart + cut.authorityEnd,
-							};
-							// A path, query, or fragment closes the authority: a longer span only grows the path.
-							closedHere ||= cut.authorityEnd < span.length || cut.authorityEnd > MAX_AUTHORITY_LENGTH;
-						}
-					}
-					break;
-				}
-				if (parsed === undefined) {
-					break;
-				}
-				accepted = true;
-				// Without userinfo the authority is settled too.
-				if (closedHere || (parsed.username === "" && parsed.password === "") || end === segmentEnd) {
-					break;
-				}
+
+	return starts;
+}
+
+/** What the parser made of one candidate span: the URL, its userinfo cut when it has one, and whether the authority is settled. */
+interface CandidateRead {
+	readonly parsed: URL;
+	readonly cut: Cut | undefined;
+	readonly closedHere: boolean;
+}
+
+/**
+ * The read of the span from `candidateStart` to the run end at `end`, without its closing punctuation first: a span
+ * the parser reads either way ends before it ("host:" is a host with an empty port to the parser, and the colon would
+ * open the rest of the line as userinfo). An opaque "word:" read (no host) is no URL around this "@"; a span with a
+ * host is.
+ */
+function readCandidate(text: string, candidateStart: number, end: number): CandidateRead | undefined {
+	let trimmed = end;
+	while (trimmed > candidateStart && CLOSERS.has(text[trimmed - 1] as string)) {
+		trimmed--;
+	}
+
+	for (const candidateEnd of trimmed === end ? [end] : [trimmed, end]) {
+		const span = text.slice(candidateStart, candidateEnd);
+		const read = parsedUrl(span);
+		if (read === undefined || read.host === "") {
+			continue;
+		}
+		// The parser took the span without its closing punctuation: the URL ends there.
+		let closedHere = candidateEnd !== end;
+		let cut: Cut | undefined;
+		if (read.username !== "" || read.password !== "") {
+			const userinfo = cutUserinfo(span);
+			if (userinfo !== undefined) {
+				cut = {
+					from: candidateStart,
+					replacement: userinfo.replacement,
+					resumeAt: candidateStart + userinfo.authorityEnd,
+				};
+				// A path, query, or fragment closes the authority: a longer span only grows the path.
+				closedHere ||= userinfo.authorityEnd < span.length || userinfo.authorityEnd > MAX_AUTHORITY_LENGTH;
 			}
-			if (accepted) {
-				return best;
+		}
+		return { parsed: read, cut, closedHere };
+	}
+
+	return undefined;
+}
+
+/** The "@" settled from one start: the cut the widest URL with userinfo gave, or none when the URL carries no userinfo. */
+interface SettledAt {
+	readonly cut: Cut | undefined;
+}
+
+/**
+ * The span from `candidateStart` grown one "@"-bearing run at a time while the parser reads it as a URL WITH userinfo
+ * (a password may hold spaces and a second "@": "http://u:pa@ss word@host"); settled once the parser gives any span a
+ * host, undefined when it never does.
+ */
+function settleFrom(
+	text: string,
+	candidateStart: number,
+	segmentEnd: number,
+	atRunEnds: readonly number[]
+): SettledAt | undefined {
+	let accepted = false;
+	let best: Cut | undefined;
+	for (let index = lowerBound(atRunEnds, candidateStart + 1); index < atRunEnds.length; index++) {
+		const end = atRunEnds[index] as number;
+		// Runs never cross a delimiter, so a run ending past the segment lies outside it.
+		if (end > segmentEnd) {
+			break;
+		}
+		const read = readCandidate(text, candidateStart, end);
+		if (read === undefined) {
+			break;
+		}
+		accepted = true;
+		if (read.cut !== undefined) {
+			best = read.cut;
+		}
+		// Without userinfo the authority is settled too.
+		if (read.closedHere || (read.parsed.username === "" && read.parsed.password === "") || end === segmentEnd) {
+			break;
+		}
+	}
+
+	return accepted ? { cut: best } : undefined;
+}
+
+/**
+ * The widest candidate around the "@" at `at` that the parser reads as a URL with userinfo, inside the delimiting
+ * quotes that enclose it (a JSON key and its value are two strings, never one URL). The starts are tried nearest
+ * first (candidateStarts), each also one past an opening bracket, and the first start the parser gives a host
+ * settles the "@".
+ */
+function cutAround(text: string, at: number, floor: number, scan: TextScan): Cut | undefined {
+	const { atRunStarts, atRunEnds, delimiters } = scan;
+	const delimiterIndex = lowerBound(delimiters, at);
+	const segmentStart = Math.max(floor, delimiterIndex === 0 ? 0 : (delimiters[delimiterIndex - 1] as number) + 1);
+	const segmentEnd = delimiterIndex < delimiters.length ? (delimiters[delimiterIndex] as number) : text.length;
+	const runStart = Math.max(atRunStarts[lowerBound(atRunEnds, at + 1)] as number, segmentStart);
+
+	for (const start of candidateStarts(text, at, runStart, segmentStart)) {
+		for (const candidateStart of OPENERS.has(text[start] as string) ? [start, start + 1] : [start]) {
+			const settled = settleFrom(text, candidateStart, segmentEnd, atRunEnds);
+			if (settled !== undefined) {
+				return settled.cut;
 			}
 		}
 	}

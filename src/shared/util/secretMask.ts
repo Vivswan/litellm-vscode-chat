@@ -29,6 +29,9 @@ export function revealOf(value: string): string | undefined {
 }
 type Span = readonly [from: number, to: number];
 
+/** A found span carrying the raw configured value when it is exactly one raw occurrence of it. */
+type ValueSpan = Span & { readonly value?: string };
+
 /** One merged span to replace; `value` is the raw configured value when the span is exactly one raw occurrence of it. */
 export interface SecretSpan {
 	readonly from: number;
@@ -96,8 +99,12 @@ function isHexDigit(ch: string): boolean {
 
 /** Whether `spelling[i]` is a hex digit of a complete percent escape ("%HH") in `spelling`. */
 function inEscape(spelling: string, i: number): boolean {
-	const percent = spelling.charAt(i - 1) === "%" ? i - 1 : spelling.charAt(i - 2) === "%" ? i - 2 : -1;
-	return percent >= 0 && isHexDigit(spelling.charAt(percent + 1)) && isHexDigit(spelling.charAt(percent + 2));
+	const percent = [i - 1, i - 2].find((at) => spelling.charAt(at) === "%");
+	if (percent === undefined) {
+		return false;
+	}
+
+	return isHexDigit(spelling.charAt(percent + 1)) && isHexDigit(spelling.charAt(percent + 2));
 }
 
 /** Whether `spelling` sits at `at` in `text`; the two hex digits of a complete percent escape match in either case. */
@@ -138,7 +145,7 @@ function occurrences(text: string, spelling: string, folds: boolean): Span[] {
  * Overlapping or touching spans merged into disjoint ascending ones, so each is replaced once and no tail survives;
  * a span that absorbed another loses its value, since the reveal of one value must not show a character of the next.
  */
-function mergedSpans(spans: readonly (Span & { readonly value?: string })[]): SecretSpan[] {
+function mergedSpans(spans: readonly ValueSpan[]): SecretSpan[] {
 	const merged: { from: number; to: number; value: string | undefined }[] = [];
 	for (const span of [...spans].sort((a, b) => a[0] - b[0])) {
 		const [from, to] = span;
@@ -153,11 +160,7 @@ function mergedSpans(spans: readonly (Span & { readonly value?: string })[]): Se
 	return merged;
 }
 
-/**
- * Every span of `text` the door replaces: each spelling of each known value, merged, minus any span contained in an
- * existing marker (the idempotence rule). Occurrences are searched up to `upTo` only: a cut needs nothing past it.
- */
-export function secretSpans(text: string, values: readonly string[], upTo = text.length): SecretSpan[] {
+function markerSpans(text: string, values: readonly string[]): Span[] {
 	const markers = occurrences(text, REDACTED_MARKER, false);
 	for (const value of values) {
 		const reveal = revealOf(value);
@@ -165,21 +168,39 @@ export function secretSpans(text: string, values: readonly string[], upTo = text
 			markers.push(...occurrences(text, reveal, false));
 		}
 	}
+
+	return markers;
+}
+
+function collectValueSpans(searched: string, value: string, markers: readonly Span[], spans: ValueSpan[]): void {
 	const insideMarker = (from: number, to: number): boolean =>
 		markers.some(([markerFrom, markerTo]) => markerFrom <= from && to <= markerTo);
-	const spans: (Span & { readonly value?: string })[] = [];
-	const searched = upTo < text.length ? text.slice(0, upTo) : text;
-	for (const value of values) {
-		if (value.length >= MIN_SECRET_LENGTH) {
-			for (const spelling of spellingsOf(value)) {
-				for (const [from, to] of occurrences(searched, spelling.text, spelling.folds)) {
-					if (!insideMarker(from, to)) {
-						spans.push(Object.assign([from, to] as [number, number], spelling.raw ? { value } : {}));
-					}
-				}
+	for (const spelling of spellingsOf(value)) {
+		for (const [from, to] of occurrences(searched, spelling.text, spelling.folds)) {
+			if (insideMarker(from, to)) {
+				continue;
 			}
+			spans.push(Object.assign([from, to] as [number, number], spelling.raw ? { value } : {}));
 		}
 	}
+}
+
+/**
+ * Every span of `text` the door replaces: each spelling of each known value, merged, minus any span contained in an
+ * existing marker (the idempotence rule). Occurrences are searched up to `upTo` only: a cut needs nothing past it.
+ */
+export function secretSpans(text: string, values: readonly string[], upTo = text.length): SecretSpan[] {
+	const markers = markerSpans(text, values);
+	const searched = upTo < text.length ? text.slice(0, upTo) : text;
+
+	const spans: ValueSpan[] = [];
+	for (const value of values) {
+		if (value.length < MIN_SECRET_LENGTH) {
+			continue;
+		}
+		collectValueSpans(searched, value, markers, spans);
+	}
+
 	return mergedSpans(spans);
 }
 

@@ -9,6 +9,7 @@
 import type { ModelRecordMap } from "./config/modelMatcher";
 import { canonicalStoredBaseUrl, canonicalUrl, normalizeBaseUrl } from "./util/baseUrl";
 import { type HeaderValue, headerNameKey } from "./util/headers";
+import { isRecord } from "./util/json";
 
 /**
  * The order carries no meaning for the sync fingerprints: the "i1:" print reads only the identity projection
@@ -113,6 +114,39 @@ export function sameSecretDestination(a: SecretOwner, b: SecretOwner): boolean {
 	return a.tokenUrl === b.tokenUrl && a.clientId === b.clientId;
 }
 
+function canonicalStringOwner(raw: string, field: SecretFieldId): string {
+	if (raw === "") {
+		return raw;
+	}
+
+	const canonical = field === "oauthClientSecret" ? canonicalUrl(raw) : canonicalStoredBaseUrl(raw);
+
+	return canonical ?? raw;
+}
+
+function parseOAuthDestination(raw: unknown): OAuthSecretDestination | undefined {
+	if (!isRecord(raw)) {
+		return undefined;
+	}
+
+	const { tokenUrl, clientId, ...rest } = raw;
+	if (Object.keys(rest).length > 0) {
+		return undefined;
+	}
+
+	if (
+		(tokenUrl !== undefined && typeof tokenUrl !== "string") ||
+		(clientId !== undefined && typeof clientId !== "string")
+	) {
+		return undefined;
+	}
+
+	return {
+		...(tokenUrl === undefined ? {} : { tokenUrl: canonicalUrl(tokenUrl) ?? tokenUrl }),
+		...(clientId === undefined ? {} : { clientId }),
+	};
+}
+
 /**
  * The one decoder of a persisted stamp (a SecretStorage blob's `_owner` value, a snapshot's `owners` value): a string
  * ("" included) or an OAuth destination object with no other key; anything else is no stamp. URLs are read in their
@@ -125,28 +159,9 @@ export function sameSecretDestination(a: SecretOwner, b: SecretOwner): boolean {
  */
 export function parseSecretOwner(raw: unknown, field: SecretFieldId): SecretOwner | undefined {
 	if (typeof raw === "string") {
-		if (raw === "") {
-			return raw;
-		}
-		return (field === "oauthClientSecret" ? canonicalUrl(raw) : canonicalStoredBaseUrl(raw)) ?? raw;
+		return canonicalStringOwner(raw, field);
 	}
-	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-		return undefined;
-	}
-	const { tokenUrl, clientId, ...rest } = raw as Record<string, unknown>;
-	if (Object.keys(rest).length > 0) {
-		return undefined;
-	}
-	if (
-		(tokenUrl !== undefined && typeof tokenUrl !== "string") ||
-		(clientId !== undefined && typeof clientId !== "string")
-	) {
-		return undefined;
-	}
-	return {
-		...(tokenUrl === undefined ? {} : { tokenUrl: canonicalUrl(tokenUrl) ?? tokenUrl }),
-		...(clientId === undefined ? {} : { clientId }),
-	};
+	return parseOAuthDestination(raw);
 }
 
 /**

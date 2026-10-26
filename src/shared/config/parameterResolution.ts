@@ -9,7 +9,13 @@
  */
 
 import type { ModelRecordMap } from "./modelMatcher";
-import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
+import type {
+	ParsedRecord,
+	RecordChainResolution,
+	RecordDiagnostic,
+	RecordLayer,
+	ResolvedChainField,
+} from "./recordResolution";
 import {
 	canonicalFieldKey,
 	FIM_TEMPLATE_DIRECTIVE,
@@ -213,43 +219,45 @@ export interface ResolvedModelParameters {
 	readonly diagnostics: readonly ParameterDiagnostic[];
 }
 
-export function resolveModelParameters(input: ResolveModelParametersInput): ResolvedModelParameters {
-	const { rawModelId, globalParameters, entryParameters } = input;
-	const global = resolveParameterLayer(rawModelId, globalParameters);
-	const entry = resolveParameterLayer(rawModelId, entryParameters ?? {});
+function layerAttribution(
+	layer: ParameterConfigLayer,
+	resolution: RecordChainResolution,
+	name: string
+): { source: ResolvedSourceRef; inheritedBy?: string } {
+	const field = resolution.fields.get(name);
+	const sourceKey = field?.sourceKey ?? resolution.winnerKey ?? "";
 
-	const params: Record<string, unknown> = {};
-	const forcedParams: Record<string, unknown> = {};
-	const sources = new Map<string, ResolvedParameterSource>();
-
-	const attribution = (
-		layer: ParameterConfigLayer,
-		resolution: RecordChainResolution,
-		name: string
-	): { source: ResolvedSourceRef; inheritedBy?: string } => {
-		const field = resolution.fields.get(name);
-		const sourceKey = field?.sourceKey ?? resolution.winnerKey ?? "";
-		return {
-			source: { layer, key: sourceKey },
-			...(field !== undefined && resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
-				? { inheritedBy: resolution.winnerKey }
-				: {}),
-		};
+	return {
+		source: { layer, key: sourceKey },
+		...(field !== undefined && resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
+			? { inheritedBy: resolution.winnerKey }
+			: {}),
 	};
+}
+
+function forcedMark(field: ResolvedChainField): { forced: true } | Record<string, never> {
+	return field.forced ? { forced: true } : {};
+}
+
+/**
+ * Each layer's resolved chain view merged entry over global key by key, with every merged key's attribution. A key
+ * only the global layer forces keeps the global attribution: its forced value beats the unforced entry value on the
+ * wire.
+ */
+function mergeParameterLayers(
+	global: RecordChainResolution,
+	entry: RecordChainResolution
+): { params: Record<string, unknown>; sources: Map<string, ResolvedParameterSource> } {
+	const params: Record<string, unknown> = {};
+	const sources = new Map<string, ResolvedParameterSource>();
 
 	for (const [name, field] of global.fields) {
 		params[name] = field.value;
-		sources.set(name, {
-			...attribution("global", global, name),
-			shadowed: [],
-			...(field.forced ? { forced: true as const } : {}),
-		});
+		sources.set(name, { ...layerAttribution("global", global, name), shadowed: [], ...forcedMark(field) });
 	}
 
 	for (const [name, field] of entry.fields) {
 		const globalField = global.fields.get(name);
-		// A key only the global layer forces keeps the global attribution: its forced value beats the unforced entry
-		// value on the wire.
 		if (globalField?.forced && !field.forced) {
 			const existing = sources.get(name);
 			if (existing !== undefined) {
@@ -262,24 +270,41 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 		}
 		params[name] = field.value;
 		sources.set(name, {
-			...attribution("entry", entry, name),
+			...layerAttribution("entry", entry, name),
 			shadowed:
 				globalField === undefined ? [] : [{ layer: "global", key: globalField.sourceKey, value: globalField.value }],
-			...(field.forced ? { forced: true as const } : {}),
+			...forcedMark(field),
 		});
 	}
 
-	// Forced fields can never be underscore keys: parseParameterRecord bars them.
+	return { params, sources };
+}
+
+/** The forced values, entry over global key by key. Forced fields can never be underscore keys: parseParameterRecord bars them. */
+function forcedParamsOf(global: RecordChainResolution, entry: RecordChainResolution): Record<string, unknown> {
+	const forced: Record<string, unknown> = {};
 	for (const [name, field] of global.fields) {
 		if (field.forced) {
-			forcedParams[name] = field.value;
+			forced[name] = field.value;
 		}
 	}
+
 	for (const [name, field] of entry.fields) {
 		if (field.forced) {
-			forcedParams[name] = field.value;
+			forced[name] = field.value;
 		}
 	}
+
+	return forced;
+}
+
+export function resolveModelParameters(input: ResolveModelParametersInput): ResolvedModelParameters {
+	const { rawModelId, globalParameters, entryParameters } = input;
+	const global = resolveParameterLayer(rawModelId, globalParameters);
+	const entry = resolveParameterLayer(rawModelId, entryParameters ?? {});
+
+	const { params, sources } = mergeParameterLayers(global, entry);
+	const forcedParams = forcedParamsOf(global, entry);
 	for (const [key, value] of Object.entries(forcedParams)) {
 		params[key] = value;
 	}

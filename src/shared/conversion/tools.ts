@@ -98,86 +98,111 @@ function pruneUnknownSchemaKeywords(
 
 const COMPOSITE_KEYWORDS = ["anyOf", "oneOf", "allOf"] as const;
 
+function sanitizeCompositeBranches(
+	schema: Record<string, unknown>,
+	allowed: ReadonlySet<string>,
+	propName: string | undefined
+): void {
+	for (const composite of COMPOSITE_KEYWORDS) {
+		const branch = schema[composite];
+		if (!Array.isArray(branch) || branch.length === 0) {
+			continue;
+		}
+		// Arrays pass this object guard deliberately: an array branch member falls through to sanitizeSchema's
+		// non-record default schema instead of being dropped, keeping the composite's branch count stable.
+		schema[composite] = branch
+			.filter((b) => typeof b === "object" && b !== null)
+			.map((b) => sanitizeSchema(b, allowed, propName));
+	}
+}
+
+function sanitizeDefinitions(schema: Record<string, unknown>, allowed: ReadonlySet<string>): void {
+	for (const defKey of ["definitions", "$defs"]) {
+		const defs = schema[defKey];
+		if (!isRecord(defs)) {
+			continue;
+		}
+		const sanitized: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(defs)) {
+			sanitized[k] = sanitizeSchema(v, allowed);
+		}
+		schema[defKey] = sanitized;
+	}
+}
+
+function hasCompositeBranches(schema: Record<string, unknown>): boolean {
+	return COMPOSITE_KEYWORDS.some((key) => {
+		const branch = schema[key];
+		return Array.isArray(branch) && branch.length > 0;
+	});
+}
+
+function settleSchemaType(schema: Record<string, unknown>, propName: string | undefined): string | undefined {
+	const rawType = schema.type;
+	let type = typeof rawType === "string" ? rawType : undefined;
+	if (rawType == null && !hasCompositeBranches(schema) && typeof schema.$ref !== "string" && !("const" in schema)) {
+		type = "object";
+		schema.type = type;
+	}
+
+	if (type === "number" && propName && isIntegerLikePropertyName(propName)) {
+		type = "integer";
+		schema.type = type;
+	}
+
+	return type;
+}
+
+function sanitizeObjectKeywords(schema: Record<string, unknown>, allowed: ReadonlySet<string>): void {
+	const props = schema.properties ?? {};
+	const newProps: Record<string, unknown> = {};
+	// Arrays pass this object guard deliberately: an array `properties` value sanitizes into an index-keyed
+	// property map rather than being emptied.
+	if (typeof props === "object" && props !== null) {
+		for (const [k, v] of Object.entries(props)) {
+			newProps[k] = sanitizeSchema(v, allowed, k);
+		}
+	}
+	schema.properties = newProps;
+
+	const req = schema.required;
+	if (Array.isArray(req)) {
+		schema.required = req.filter((r) => typeof r === "string");
+	} else if (req !== undefined) {
+		schema.required = [];
+	}
+
+	const ap = schema.additionalProperties;
+	if (ap !== undefined && typeof ap !== "boolean") {
+		delete schema.additionalProperties;
+	}
+}
+
+function sanitizeItems(schema: Record<string, unknown>, allowed: ReadonlySet<string>): void {
+	const items = schema.items;
+	if (Array.isArray(items) && items.length > 0) {
+		schema.items = sanitizeSchema(items[0], allowed);
+	} else if (typeof items === "object" && items !== null) {
+		schema.items = sanitizeSchema(items, allowed);
+	} else {
+		schema.items = { type: "string" };
+	}
+}
+
 function sanitizeSchema(input: unknown, allowed: ReadonlySet<string>, propName?: string): Record<string, unknown> {
 	if (!isRecord(input)) {
 		return { type: "object", properties: {} };
 	}
 
 	const schema = pruneUnknownSchemaKeywords(input, allowed);
+	sanitizeCompositeBranches(schema, allowed, propName);
+	sanitizeDefinitions(schema, allowed);
 
-	for (const composite of COMPOSITE_KEYWORDS) {
-		const branch = schema[composite];
-		if (Array.isArray(branch) && branch.length > 0) {
-			// Arrays pass this object guard deliberately: an array branch member falls through to sanitizeSchema's
-			// non-record default schema instead of being dropped, keeping the composite's branch count stable.
-			schema[composite] = branch
-				.filter((b) => typeof b === "object" && b !== null)
-				.map((b) => sanitizeSchema(b, allowed, propName));
-		}
-	}
-
-	for (const defKey of ["definitions", "$defs"]) {
-		const defs = schema[defKey];
-		if (isRecord(defs)) {
-			const sanitized: Record<string, unknown> = {};
-			for (const [k, v] of Object.entries(defs)) {
-				sanitized[k] = sanitizeSchema(v, allowed);
-			}
-			schema[defKey] = sanitized;
-		}
-	}
-
-	const hasComposite = COMPOSITE_KEYWORDS.some((key) => {
-		const branch = schema[key];
-		return Array.isArray(branch) && branch.length > 0;
-	});
-	const hasRef = typeof schema.$ref === "string";
-	const hasConst = "const" in schema;
-
-	const rawType = schema.type;
-	let t = typeof rawType === "string" ? rawType : undefined;
-	if (rawType == null && !hasComposite && !hasRef && !hasConst) {
-		t = "object";
-		schema.type = t;
-	}
-
-	if (t === "number" && propName && isIntegerLikePropertyName(propName)) {
-		schema.type = "integer";
-		t = "integer";
-	}
-
-	if (t === "object") {
-		const props = schema.properties ?? {};
-		const newProps: Record<string, unknown> = {};
-		// Arrays pass this object guard deliberately: an array `properties` value sanitizes into an index-keyed
-		// property map rather than being emptied.
-		if (typeof props === "object" && props !== null) {
-			for (const [k, v] of Object.entries(props)) {
-				newProps[k] = sanitizeSchema(v, allowed, k);
-			}
-		}
-		schema.properties = newProps;
-
-		const req = schema.required;
-		if (Array.isArray(req)) {
-			schema.required = req.filter((r) => typeof r === "string");
-		} else if (req !== undefined) {
-			schema.required = [];
-		}
-
-		const ap = schema.additionalProperties;
-		if (ap !== undefined && typeof ap !== "boolean") {
-			delete schema.additionalProperties;
-		}
-	} else if (t === "array") {
-		const items = schema.items;
-		if (Array.isArray(items) && items.length > 0) {
-			schema.items = sanitizeSchema(items[0], allowed);
-		} else if (typeof items === "object" && items !== null) {
-			schema.items = sanitizeSchema(items, allowed);
-		} else {
-			schema.items = { type: "string" };
-		}
+	const type = settleSchemaType(schema, propName);
+	if (type === "object") {
+		sanitizeObjectKeywords(schema, allowed);
+	} else if (type === "array") {
+		sanitizeItems(schema, allowed);
 	}
 
 	return schema;

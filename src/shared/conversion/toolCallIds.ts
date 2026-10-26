@@ -28,14 +28,8 @@ export function wireIdKey(messageIndex: number, partIndex: number): string {
 	return `${messageIndex}:${partIndex}`;
 }
 
-/**
- * Pairing is role-agnostic and in part order because conversion ships these parts wherever they sit.
- *
- *   an id reused after its earlier call was answered -> allowed; some backends mint the same id every turn
- *   an id shared by two calls of one message         -> duplicate; they ship in one tool_calls array, live even with a
- *                                                       result part between
- */
-export function pairToolCallIds(messages: readonly vscode.LanguageModelChatRequestMessage[]): ToolCallPairing {
+/** Every non-empty call id the history carries, so a minted id can never collide with one. */
+function rawCallIds(messages: readonly vscode.LanguageModelChatRequestMessage[]): Set<string> {
 	const rawIds = new Set<string>();
 	for (const message of messages) {
 		for (const part of message.content ?? []) {
@@ -44,70 +38,123 @@ export function pairToolCallIds(messages: readonly vscode.LanguageModelChatReque
 			}
 		}
 	}
-	let mintCounter = 0;
-	const mint = (): string => {
-		let candidate = `call_synth_${mintCounter++}`;
-		while (rawIds.has(candidate)) {
-			candidate = `call_synth_${mintCounter++}`;
+
+	return rawIds;
+}
+
+/**
+ * The calls of one pairing walk still awaiting a result (wire id to open count, insertion-ordered for the unpaired
+ * report), the minted ids among them in order so an empty-id result takes the oldest, and the strays and live repeats
+ * the walk found.
+ */
+class OpenCallLedger {
+	readonly strayResultIds: string[] = [];
+
+	readonly duplicateLiveCallIds: string[] = [];
+
+	private readonly rawIds: ReadonlySet<string>;
+
+	private readonly pending = new Map<string, number>();
+
+	private readonly pendingMinted: string[] = [];
+
+	private mintCounter = 0;
+
+	constructor(rawIds: ReadonlySet<string>) {
+		this.rawIds = rawIds;
+	}
+
+	/** The wire id of a call: its own when it has one (a repeat of a live id is recorded), a minted one otherwise. */
+	openCall(callId: string, messageCallIds: Set<string>): string {
+		let id: string;
+		if (callId) {
+			id = callId;
+			if ((this.pending.get(id) ?? 0) > 0 || messageCallIds.has(id)) {
+				this.duplicateLiveCallIds.push(id);
+			}
+			messageCallIds.add(id);
+		} else {
+			id = this.mint();
+			this.pendingMinted.push(id);
 		}
+
+		this.pending.set(id, (this.pending.get(id) ?? 0) + 1);
+
+		return id;
+	}
+
+	/** The wire id of a result: its own when it has one (a stray is recorded), else the oldest minted call's, else a minted stray. */
+	closeCall(callId: string): string {
+		if (callId) {
+			const open = this.pending.get(callId) ?? 0;
+			if (open > 0) {
+				this.pending.set(callId, open - 1);
+			} else {
+				this.strayResultIds.push(callId);
+			}
+			return callId;
+		}
+
+		const paired = this.pendingMinted.shift();
+		if (paired === undefined) {
+			const id = this.mint();
+			this.strayResultIds.push(id);
+			return id;
+		}
+
+		this.pending.set(paired, (this.pending.get(paired) ?? 0) - 1);
+
+		return paired;
+	}
+
+	/** Every call still open, one entry per open count, in first-appearance order. */
+	unpairedCallIds(): string[] {
+		const unpaired: string[] = [];
+		for (const [id, open] of this.pending) {
+			for (let i = 0; i < open; i++) {
+				unpaired.push(id);
+			}
+		}
+
+		return unpaired;
+	}
+
+	private mint(): string {
+		let candidate = `call_synth_${this.mintCounter++}`;
+		while (this.rawIds.has(candidate)) {
+			candidate = `call_synth_${this.mintCounter++}`;
+		}
+
 		return candidate;
-	};
+	}
+}
 
+/**
+ * Pairing is role-agnostic and in part order because conversion ships these parts wherever they sit.
+ *
+ *   an id reused after its earlier call was answered -> allowed; some backends mint the same id every turn
+ *   an id shared by two calls of one message         -> duplicate; they ship in one tool_calls array, live even with a
+ *                                                       result part between
+ */
+export function pairToolCallIds(messages: readonly vscode.LanguageModelChatRequestMessage[]): ToolCallPairing {
+	const ledger = new OpenCallLedger(rawCallIds(messages));
 	const wireIds = new Map<string, string>();
-	const strayResultIds: string[] = [];
-	const duplicateLiveCallIds: string[] = [];
-	/** Calls awaiting a result: wire id -> open count, insertion-ordered for the unpaired report. */
-	const pending = new Map<string, number>();
-	const pendingMinted: string[] = [];
-
 	messages.forEach((message, messageIndex) => {
 		/** Wire ids of this message's calls so far; a repeat shares its tool_calls array. */
 		const messageCallIds = new Set<string>();
 		(message.content ?? []).forEach((part, partIndex) => {
 			if (part instanceof vscode.LanguageModelToolCallPart) {
-				let id: string;
-				if (part.callId) {
-					id = part.callId;
-					if ((pending.get(id) ?? 0) > 0 || messageCallIds.has(id)) {
-						duplicateLiveCallIds.push(id);
-					}
-					messageCallIds.add(id);
-				} else {
-					id = mint();
-					pendingMinted.push(id);
-				}
-				pending.set(id, (pending.get(id) ?? 0) + 1);
-				wireIds.set(wireIdKey(messageIndex, partIndex), id);
+				wireIds.set(wireIdKey(messageIndex, partIndex), ledger.openCall(part.callId, messageCallIds));
 			} else if (isToolResultPart(part)) {
-				let id: string;
-				if (part.callId) {
-					id = part.callId;
-					const open = pending.get(id) ?? 0;
-					if (open > 0) {
-						pending.set(id, open - 1);
-					} else {
-						strayResultIds.push(id);
-					}
-				} else {
-					const paired = pendingMinted.shift();
-					if (paired === undefined) {
-						id = mint();
-						strayResultIds.push(id);
-					} else {
-						id = paired;
-						pending.set(id, (pending.get(id) ?? 0) - 1);
-					}
-				}
-				wireIds.set(wireIdKey(messageIndex, partIndex), id);
+				wireIds.set(wireIdKey(messageIndex, partIndex), ledger.closeCall(part.callId));
 			}
 		});
 	});
 
-	const unpairedCallIds: string[] = [];
-	for (const [id, open] of pending) {
-		for (let i = 0; i < open; i++) {
-			unpairedCallIds.push(id);
-		}
-	}
-	return { wireIds, unpairedCallIds, strayResultIds, duplicateLiveCallIds };
+	return {
+		wireIds,
+		unpairedCallIds: ledger.unpairedCallIds(),
+		strayResultIds: ledger.strayResultIds,
+		duplicateLiveCallIds: ledger.duplicateLiveCallIds,
+	};
 }

@@ -166,6 +166,19 @@ function slimEntry(entry: unknown): SlimOpenRouterModel | undefined {
 	};
 }
 
+/** Code-unit order, never locale order, so the artifact's bytes are the same on every machine. */
+function byId(a: SlimOpenRouterModel, b: SlimOpenRouterModel): number {
+	if (a.id < b.id) {
+		return -1;
+	}
+
+	if (a.id > b.id) {
+		return 1;
+	}
+
+	return 0;
+}
+
 /**
  * Slim a whole payload into the artifact shape: duplicate ids keep their first occurrence and entries sort by id, so
  * the artifact is byte-deterministic for a given payload and diffs cleanly between fetches. Idempotent: slimming a
@@ -179,7 +192,7 @@ export function slimCatalogPayload(payload: unknown): SlimCatalogFile {
 			slimmed.set(slim.id, slim);
 		}
 	}
-	const data = [...slimmed.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+	const data = [...slimmed.values()].sort(byId);
 	return { data };
 }
 

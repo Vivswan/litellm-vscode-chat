@@ -23,6 +23,39 @@ export interface DataPartWireGates {
 	audioInput: boolean;
 }
 
+function textOrNone(mime: string): DataPartWireForm {
+	return isTextMimeType(mime) ? { form: "text" } : { form: "none" };
+}
+
+function userWireForm(mime: string, gates: DataPartWireGates): DataPartWireForm {
+	if (gates.imageInput && isImageMimeType(mime)) {
+		return { form: "image" };
+	}
+
+	if (isPdfMimeType(mime)) {
+		return { form: "pdf" };
+	}
+
+	const format = audioInputFormatForMime(mime);
+	if (gates.audioInput && format !== undefined) {
+		return { form: "audio", format };
+	}
+
+	return textOrNone(mime);
+}
+
+function toolResultWireForm(mime: string, gates: DataPartWireGates): DataPartWireForm {
+	if (isTextMimeType(mime)) {
+		return { form: "text" };
+	}
+
+	if (gates.imageInput && isImageMimeType(mime)) {
+		return { form: "image" };
+	}
+
+	return { form: "none" };
+}
+
 /**
  * The single wire-form decision for a DataPart; conversion switches on it at every position and token estimation
  * prices that output. Each position mirrors one conversion path exactly, ORDER included, so a text-decodable image
@@ -40,29 +73,12 @@ export function dataPartWireForm(
 ): DataPartWireForm {
 	const mime = mimeType.toLowerCase();
 	switch (position) {
-		case "user": {
-			if (gates.imageInput && isImageMimeType(mime)) {
-				return { form: "image" };
-			}
-			if (isPdfMimeType(mime)) {
-				return { form: "pdf" };
-			}
-			const format = audioInputFormatForMime(mime);
-			if (gates.audioInput && format !== undefined) {
-				return { form: "audio", format };
-			}
-			return isTextMimeType(mime) ? { form: "text" } : { form: "none" };
-		}
+		case "user":
+			return userWireForm(mime, gates);
 		case "assistant":
-			return isTextMimeType(mime) ? { form: "text" } : { form: "none" };
+			return textOrNone(mime);
 		case "toolResult":
-			if (isTextMimeType(mime)) {
-				return { form: "text" };
-			}
-			if (gates.imageInput && isImageMimeType(mime)) {
-				return { form: "image" };
-			}
-			return { form: "none" };
+			return toolResultWireForm(mime, gates);
 		default:
 			return position satisfies never;
 	}

@@ -8,7 +8,24 @@
  *   a throwing tokenizer or detection trigger -> is contained
  */
 
+/** The plain estimate's rate for Latin text; the two-band estimate prices the non-CJK remainder by it too. */
 export const CHARS_PER_TOKEN = 4;
+
+/** The CJK code point bands and the tokens each prices a character at; cjkTokenPrice says why these prices. */
+const CJK_PRICE_BANDS: readonly (readonly [from: number, to: number, tokens: number])[] = [
+	[0x4e00, 0x9fff, 1], // CJK unified ideographs
+	[0x3000, 0x30ff, 1], // CJK punctuation, hiragana, katakana
+	[0xac00, 0xd7af, 1], // Hangul syllables
+	[0xff00, 0xffef, 2], // fullwidth and halfwidth forms
+	[0x1100, 0x11ff, 3], // Hangul jamo
+	[0x2e80, 0x2fff, 3], // CJK radicals, Kangxi radicals
+	[0x3100, 0x33ff, 3], // bopomofo, compatibility jamo, kanbun, enclosed, compatibility
+	[0x3400, 0x4dff, 3], // extension A, Yijing hexagrams
+	[0xa960, 0xa97f, 3], // Hangul jamo extended-A
+	[0xd7b0, 0xd7ff, 3], // Hangul jamo extended-B
+	[0xf900, 0xfaff, 3], // CJK compatibility ideographs
+	[0x20000, 0x3ffff, 4], // Han extensions B through H
+];
 
 export type TextTokenCounting =
 	| { readonly kind: "heuristic" }
@@ -33,31 +50,10 @@ export function plainTextTokenEstimate(text: string): number {
  *   rare CJK                                    -> the UTF-8 byte count; BPE merges only shorten, so no undercount
  */
 function cjkTokenPrice(codePoint: number): number {
-	if (
-		(codePoint >= 0x4e00 && codePoint <= 0x9fff) || // CJK unified ideographs
-		(codePoint >= 0x3000 && codePoint <= 0x30ff) || // CJK punctuation, hiragana, katakana
-		(codePoint >= 0xac00 && codePoint <= 0xd7af) // Hangul syllables
-	) {
-		return 1;
-	}
-	if (codePoint >= 0xff00 && codePoint <= 0xffef) {
-		// fullwidth and halfwidth forms
-		return 2;
-	}
-	if (
-		(codePoint >= 0x1100 && codePoint <= 0x11ff) || // Hangul jamo
-		(codePoint >= 0x2e80 && codePoint <= 0x2fff) || // CJK radicals, Kangxi radicals
-		(codePoint >= 0x3100 && codePoint <= 0x33ff) || // bopomofo, compatibility jamo, kanbun, enclosed, compatibility
-		(codePoint >= 0x3400 && codePoint <= 0x4dff) || // extension A, Yijing hexagrams
-		(codePoint >= 0xa960 && codePoint <= 0xa97f) || // Hangul jamo extended-A
-		(codePoint >= 0xd7b0 && codePoint <= 0xd7ff) || // Hangul jamo extended-B
-		(codePoint >= 0xf900 && codePoint <= 0xfaff) // CJK compatibility ideographs
-	) {
-		return 3;
-	}
-	if (codePoint >= 0x20000 && codePoint <= 0x3ffff) {
-		// Han extensions B through H
-		return 4;
+	for (const [from, to, tokens] of CJK_PRICE_BANDS) {
+		if (from <= codePoint && codePoint <= to) {
+			return tokens;
+		}
 	}
 	return 0;
 }
