@@ -2,17 +2,15 @@
  * Pure (no vscode, no React) so the semantics pin in the bun tree, and shared by the row renderers and the pills so
  * the two cannot disagree. Composition: dimensions compose AND, the pills of one dimension compose OR - except
  * capabilities, where each pill is its own dimension ("tools" and "vision" together mean a model that has both).
+ *
+ * The row at rest prints only the true capabilities, and a strikethrough means SUPERSEDED everywhere in this dashboard,
+ * so absence on the row carries "cannot" while the detail answers explicitly.
  */
 import * as l10n from "@vscode/l10n";
 import { trimHttpWhitespace } from "../shared/util/headers";
 import type { DashboardModel } from "./viewModels";
 
-/**
- * Every capability with its answer, paired with the wire key that names it, in the fixed order the row's detail prints
- * them; the single source the capability pills derive from. The row at rest prints only the true ones (a
- * strikethrough means SUPERSEDED everywhere in this dashboard), so absence carries "cannot" on the row and the detail
- * answers explicitly.
- */
+/** Each capability with its wire key and label, in the order the row's detail prints them; the pills derive from it. */
 export const CAPABILITY_FLAGS = [
 	// A key of its own, apart from the max-tools count suffix "tools": a chip label may translate differently from a
 	// suffix after a number.
@@ -146,6 +144,7 @@ export function filterModels(
 }
 
 interface ServerFilterOption {
+	/** The option's identity and what toggleServer keys on: labels can collide, scope keys cannot. */
 	readonly scopeKey: string;
 
 	/** The raw server label: what toggleServer stores, never the numbered form. */
@@ -155,10 +154,12 @@ interface ServerFilterOption {
 	readonly display: string;
 }
 
+/**
+ * One capability pill: `key` is the DashboardModel flag it tests, and `label` resolves per call, never at module load,
+ * because the l10n bundle configures after modules load.
+ */
 interface CapabilityFilterOption {
 	readonly key: CapabilityFilterKey;
-
-	/** Resolved per call, never at module load: the l10n bundle configures after modules load. */
 	readonly label: () => string;
 }
 

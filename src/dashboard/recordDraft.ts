@@ -29,8 +29,10 @@ export interface ParamRow {
 	/** UI-only draft identity (React keys, the focus hold); never part of the row's value. */
 	readonly id: string;
 
+	/** The field name as typed, raw; resolvedFieldName gives the resolver's reading of it. */
 	readonly key: string;
 
+	/** The value as typed: JSON text for most rows, a bare catalog ID for `_openrouter_model` (toCapabilityGroups). */
 	readonly valueText: string;
 }
 
@@ -100,12 +102,7 @@ export function toGroups(value: Readonly<Record<string, Readonly<Record<string, 
 	}));
 }
 
-/**
- * The sibling record types' directive names, straight from the registry: what each editor hints as belonging to the
- * other record type. The resolver later diagnoses the same names as wrong-record-type, from the same rows.
- */
 const PARAMETER_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDirectives("parameters"));
-
 const CAPABILITY_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDirectives("capabilities"));
 
 /**
@@ -123,7 +120,9 @@ export function resolvedFieldName(kind: "params" | "caps", key: string): string 
 /**
  * One reading of the sibling-directive sets, shared by the row hints here and the editors' "ignored" badges, so the
  * badge and the hint classify keys identically - callers pass the key through resolvedFieldName, so a padded
- * parameters key (a live verbatim field, not a directive) never wears the badge.
+ * parameters key (a live verbatim field, not a directive) never wears the badge. The sets come straight from the
+ * registry (wrongTypeDirectives): the other record type's directive names, which the resolver later diagnoses as
+ * wrong-record-type from the same rows.
  */
 export function wrongRecordTypeHint(kind: "params" | "caps", key: string): string | undefined {
 	if (kind === "params") {
@@ -191,18 +190,15 @@ export interface GroupHints {
  * Structural pairing: strict and lenient can never come from two parses.
  *
  *   ONE parse of a directive row's value -> carrying both readings its consumers take
- *   both readings -> the flag or raw list for the validating parse, plus the salvaged string entries
+ *   list.entries                         -> the raw entries, invalid members included (toggles preserve them)
+ *   list.strings                         -> the string members only: the lenient membership reading
  */
 type DirectiveValueReading =
 	| { readonly kind: "unreadable" }
 	| { readonly kind: "flag"; readonly value: boolean }
 	| {
 			readonly kind: "list";
-
-			/** The raw entries, invalid members included (toggles preserve them). */
 			readonly entries: readonly unknown[];
-
-			/** The string members only: the lenient membership reading. */
 			readonly strings: readonly string[];
 	  };
 
@@ -283,13 +279,14 @@ function judgeInheritFromRow(
 	return { value: parsed.value };
 }
 
+/**
+ * The parameters editor's parse: the assembled record, or the row-aligned problems that block it. `hints` ride both
+ * arms, row-aligned, and never block; an ok parse carries hints only.
+ */
 export type GroupsParse =
 	| {
 			readonly ok: true;
-
 			readonly value: Record<string, Record<string, unknown>>;
-
-			/** Hints only (nothing blocks on an ok parse); row-aligned like the blocked branch. */
 			readonly hints: readonly GroupHints[];
 	  }
 	| { readonly ok: false; readonly problems: readonly GroupProblems[]; readonly hints: readonly GroupHints[] };
@@ -591,13 +588,14 @@ export interface CapabilityGroupIssues {
 	readonly rows: readonly CapabilityRowIssue[];
 }
 
+/**
+ * The capabilities editor's parse: the assembled record, or the row-aligned issues that block it. `issues` ride both
+ * arms, row-aligned; on an ok parse they carry hints only, since nothing blocks.
+ */
 export type CapabilityGroupsParse =
 	| {
 			readonly ok: true;
-
 			readonly value: Record<string, Record<string, unknown>>;
-
-			/** Hints only (nothing blocks on an ok parse); row-aligned like the blocked branch. */
 			readonly issues: readonly CapabilityGroupIssues[];
 	  }
 	| { readonly ok: false; readonly issues: readonly CapabilityGroupIssues[] };

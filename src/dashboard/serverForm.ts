@@ -127,11 +127,7 @@ export const EMPTY_SERVER_FORM: ServerFormDraft = {
 
 export type ServerFormField = keyof ServerFormDraft;
 
-/**
- * The form's field catalog in render order, keyed by field so the typecheck holds it to exactly the draft's fields:
- * a draft field without an entry, or an entry for no draft field, fails to compile. Each entry names its field as a
- * thunk rather than a string, because a module-level string would freeze the English text before l10n.config runs.
- */
+/** The field catalog in render order; thunks, as a module-level string freezes the English before l10n.config runs. */
 const SERVER_FORM_FIELDS: Readonly<Record<ServerFormField, () => string>> = {
 	label: () => l10n.t("Label"),
 	baseUrl: () => l10n.t("Base URL"),
@@ -465,21 +461,19 @@ export function parseDeclaredModelsText(text: string): string[] {
 	];
 }
 
-/** The context a draft is parsed against: sibling labels for rename-collision checks, and the hint evidence. */
+/**
+ * The context a draft is parsed against: sibling labels for rename-collision checks, and the hint evidence. The
+ * `replace` identity lets the extension refuse a save or probe when the label's entry no longer matches what the form
+ * showed, and the unknown-key suppression is the host's advisory filter, run live.
+ */
 export interface ServerFormContext {
 	/** Labels of the other declared entries. */
 	readonly takenLabels?: readonly string[];
 
-	/**
-	 * The entry being edited, as the form displayed it; absent when adding. Rides the intents as `replace`, so the
-	 * extension can refuse a save or probe when the label's entry no longer matches what the form showed.
-	 */
+	/** The entry being edited, as the form displayed it; absent when adding. Rides the intents as `replace`. */
 	readonly original?: ReplacedEntryIdentity;
 
-	/**
-	 * The edited entry's observed /model/info key set, the evidence behind the capability rows' unknown-key hints: with
-	 * no set or an empty one, every such hint stays suppressed - the host's advisory filter, run live.
-	 */
+	/** The edited entry's observed /model/info keys; absent or empty keeps every unknown-key hint suppressed. */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
 }
 
@@ -490,42 +484,28 @@ export interface ServerFormIntent {
 	readonly replace?: ReplacedEntryIdentity | undefined;
 }
 
+/**
+ * A draft parsed into the saveServerSetting intent, or the problems that block it. The row-aligned fields come from
+ * the same parse passes that judged the draft, so they cannot disagree with the summary.
+ *
+ *   modelCapabilityIssues  -> both arms; advisory hints never block a save but must still render
+ *   modelParameterHints    -> both arms; directive semantics and wrong-type notes, never blocking
+ *   modelParameterProblems -> blocked arm; empty when the parameter rows are clean and another field blocks
+ *   headerProblems         -> blocked arm, like modelParameterProblems; problems.headers holds the summary
+ */
 export type ServerFormParse =
 	| {
 			readonly ok: true;
-
 			readonly intent: ServerFormIntent;
-
-			/**
-			 * Row-aligned capability issues from the same parseCapabilityGroups pass that assembled the intent.
-			 *
-			 *   advisory hints -> never block a save but must still render
-			 */
 			readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
-
-			/**
-			 *   Row-aligned model-parameter hints (directive semantics and wrong-type notes) -> non-blocking
-			 */
 			readonly modelParameterHints: readonly GroupHints[];
 	  }
 	| {
 			readonly ok: false;
-
 			readonly problems: ServerFormProblems;
-
-			/**
-			 * Row-aligned problems for the model-parameters rows, from the same parseGroups pass that judged the draft;
-			 * empty when those rows are clean and some other field blocks.
-			 */
 			readonly modelParameterProblems: readonly GroupProblems[];
-
-			/** Row-aligned capability issues; see the ok branch. */
 			readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
-
-			/** Row-aligned model-parameter hints; see the ok branch. */
 			readonly modelParameterHints: readonly GroupHints[];
-
-			/** Row-aligned custom-header problems, like modelParameterProblems; problems.headers holds the summary. */
 			readonly headerProblems: readonly (string | undefined)[];
 	  };
 
@@ -540,14 +520,7 @@ function secretDirectives(
 	};
 }
 
-/**
- * The fields whose edit invalidates a draft-connection test result: a stale PASS on edited credentials is worse than no
- * result, so the form clears the result when any of these change. Also the probe's blocking set: only these fields'
- * problems reach the connection arm of the analysis.
- *
- *   The label and the model-parameter rows -> keep it
- *   do not touch the connection            -> keep it
- */
+/** The connection's fields: an edit here clears the draft-test result, and only their problems block the probe. */
 export const CONNECTION_FIELDS: readonly ServerFormField[] = [
 	"baseUrl",
 	"apiVersion",
@@ -562,26 +535,27 @@ export const CONNECTION_FIELDS: readonly ServerFormField[] = [
 	"headers",
 ];
 
-/**
- * `modelCapabilities` is the parsed rows when they are clean and `{}` otherwise - the probe carries what it can, and
- * the capability rows are not connection fields.
- */
+/** The values the draft-connection probe sends; the save adds the save-only fields (ServerFormValues). */
 interface ServerConnectionValues {
 	/** The draft's trimmed label, possibly empty or reserved (only the save blocks on that). */
 	readonly label: string;
 
+	/** The canonical http(s) spelling under the identity rule (savedBaseUrl); the probe and the save both send it. */
 	readonly baseUrl: string;
 
 	/** The entry apiVersion the draft means: undefined for auto, "" for none, the trimmed text for custom. */
 	readonly apiVersion: string | undefined;
 
+	/** One directive per secret field, per the picked auth form; an inactive field keeps or clears, never sets. */
 	readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
 
 	/** The active auth form's non-empty text fields, ready to spread into the payload. */
 	readonly optionalText: Readonly<Partial<Record<NonSecretOptionalFieldId, string>>>;
 
+	/** The parsed custom headers; a connection field, so a clean connection implies clean header rows. */
 	readonly headers: Record<string, HeaderScalar>;
 
+	/** The parsed capability rows when clean, else `{}`: the probe carries what it can (not a connection field). */
 	readonly modelCapabilities: Record<string, Record<string, unknown>>;
 }
 
@@ -595,16 +569,15 @@ interface ServerFormValues extends ServerConnectionValues {
 /**
  * The one shared analysis behind both parsers, discriminated so each consumer reads its arm instead of re-deriving it:
  * a clean draft IS its assembled values, a blocked one carries the problems - with the connection slice discriminated
- * again inside it, because the probe blocks only on CONNECTION_FIELDS problems. The save and probe rules cannot drift
+ * again inside it, because the probe blocks only on CONNECTION_FIELDS problems (the fields whose edit also clears a
+ * draft-test result: a stale PASS on edited credentials is worse than none). The save and probe rules cannot drift
  * because both read this one result.
  */
 type ServerFormAnalysis = {
 	/** Row-aligned capability issues from the parse that judged the draft; hints render on both arms. */
 	readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
 
-	/**
-	 *   Row-aligned model-parameter hints (directive semantics and wrong-type notes) -> non-blocking
-	 */
+	/** Row-aligned model-parameter hints (directive semantics and wrong-type notes); never blocking. */
 	readonly modelParameterHints: readonly GroupHints[];
 } & (
 	| { readonly blocked: false; readonly values: ServerFormValues }

@@ -154,14 +154,13 @@ const ENTRY_API_VERSION_INACTIVE_TEXT = entryInactiveText(
 	"the per-entry API version override is not applied, requests use the auto rule"
 );
 
-/** The expected-failure-with-nothing-to-serve line; English by the same issue-report policy. */
 const EXPECTED_FAILURES_NOTHING_DECLARED_TEXT =
 	"discovery fails in an expected category and no models are declared; add IDs to the entry's discovery.declared list to serve models without discovery";
 
-/** The nothing-registered-and-modes-skipped line; English by the same issue-report policy. */
 const NON_CHAT_MODES_SKIPPED_TEXT =
 	"no models registered, and discovery skipped models by mode; add the modes to the entry's discovery.includeModes list to register them";
 
+/** One notice's diagnostics line. English by the issue-report policy: these lines land in public issue reports. */
 function noticeText(notice: DeclaredServerNotice): string {
 	switch (notice) {
 		case "entry-params-inactive":
@@ -198,17 +197,17 @@ export function servedModelsBreakdown(served: number, declared: number): ServedM
 
 /**
  * serverOutcomeText composes exactly these parts (the presenters suite pins the equality), so the pieces and the copied
- * line cannot drift apart in wording.
+ * line cannot drift apart in wording. A row in the "ok" state never carries `error`: a sync failure makes an error
+ * row (declaredOutcome).
  */
 export interface ServerOutcomeParts {
+	/** The English state word the line opens with; a misconfigured row reads "Misconfigured" whatever its state. */
 	readonly status: "OK" | "Error" | "Misconfigured" | "Not checked yet";
 
+	/** The served-count phrase in the status parenthetical: every "ok" state has one, an error only while it serves. */
 	readonly models?: string | undefined;
 
-	/**
-	 * The row's error: an "error" state's message, with the English "(expected)" annotation when the entry expects the
-	 * category. A sync failure is an error row (declaredOutcome), so an "ok" row never carries one.
-	 */
+	/** The "error" state's English message, with "(expected)" appended when the entry expects the category. */
 	readonly error?: string | undefined;
 
 	/** The row's warning notices, fixed classification text, one line each. */
@@ -302,8 +301,10 @@ const NUMBER_SETTING_UNITS = {
  * one NUMBER_UNIT_BEHAVIOR row.
  */
 export interface NumberUnitBehavior {
+	/** The draft's value under the unit's grammar; undefined when the text has no reading. */
 	readonly parseDraft: (text: string) => number | undefined;
 
+	/** The localized grammar error for a draft parseDraft refuses; a thunk so it localizes at call time. */
 	readonly parseProblem: () => string;
 
 	/** An exact human rendering of a value ("5 min"), or undefined to show the raw number. */
@@ -461,15 +462,16 @@ export function unitBehavior(id: NumberSettingId): NumberUnitBehavior {
 	return NUMBER_UNIT_BEHAVIOR[NUMBER_SETTING_UNITS[id]];
 }
 
+/**
+ * One number row's texts, localized at call time (numberSettingPresentation).
+ *
+ *   unit        -> display text only; the grammar keys off NUMBER_SETTING_UNITS, never off this
+ *   zeroMeaning -> what a configured 0 means, when 0 is legal and has a special reading (the cache TTL)
+ */
 export interface NumberSettingPresentation {
 	readonly label: string;
-
 	readonly description: string;
-
-	/** The input's unit suffix; display text only - the grammar keys off NUMBER_SETTING_UNITS, never off this. */
 	readonly unit: string;
-
-	/** What a configured 0 means, when 0 is legal and has a special reading (the cache TTL). */
 	readonly zeroMeaning?: string;
 }
 

@@ -6,6 +6,7 @@
  *
  *   English protocol terms -> never localized
  */
+
 export const USAGE_ENDPOINT_PATHS = {
 	keyInfo: "/key/info",
 	dailyActivity: "/user/daily/activity",
