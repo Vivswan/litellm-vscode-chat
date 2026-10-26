@@ -1,7 +1,10 @@
 /**
- * Central registry of every persistent storage key the extension uses. A key called retired below is a purge target
- * of the legacy-registry cleanup (legacyRegistryCleanup's LEGACY_STATE_KEYS): the cleanup deletes it, any secrets it
- * names first.
+ * Central registry of every persistent storage key the extension uses.
+ *
+ * A key called retired below is one the legacy-registry cleanup (legacyRegistryCleanup) deletes. The retired
+ * globalState keys are its LEGACY_STATE_KEYS. The retired SecretStorage entries (the per-server API keys those keys
+ * name, and the two pre-registry single-server secrets) are not in that list: the cleanup deletes them through
+ * SecretStorage.
  */
 
 /** globalState: the retired ServerConfig[] registry blob; deleted with the per-server secrets it names. */
@@ -10,7 +13,7 @@ export const SERVER_REGISTRY_KEY = "litellm.serverRegistry";
 /** globalState: set once the first-run welcome message has been shown. */
 export const HAS_SHOWN_WELCOME_KEY = "litellm.hasShownWelcome";
 
-/** globalState: the last ConnectionStatus as a { v, status } envelope (status.ts PERSISTED_STATUS_VERSION). */
+/** globalState: the last ConnectionStatus, a display cache the first provider report of each session rewrites. */
 export const LAST_CONNECTION_STATUS_KEY = "litellm.lastConnectionStatus";
 
 /** globalState: the retired provider-group migration's completion flag. */
@@ -37,19 +40,19 @@ export const MIGRATED_ENTRY_PARAMETER_COPIES_KEY = "litellm.migratedEntryParamet
 /** globalState: ids of registry servers the retired migration seeded, once the orphan cleanup's only evidence. */
 export const MIGRATED_SERVER_IDS_KEY = "litellm.migratedServerIds";
 
-/** globalState: the catalog's fetch metadata only; globalState can revert, so a lost timestamp costs one refresh. */
+/** globalState: the catalog's fetch time; the catalog is a globalStorage file, so a revert here costs one refresh. */
 export const OPENROUTER_CATALOG_METADATA_KEY = "litellm.openRouterCatalogMetadata";
 
 /** globalState: the removed global headers setting's last value, parked by older builds; retired, purged only. */
 export const PARKED_GLOBAL_HEADERS_KEY = "litellm.parkedGlobalHeaders";
 
-/** globalState: the last issue report's fingerprint (the snapshot's signature, never log text), for the repeat hint. */
+/** globalState: the last report's fingerprint (repeat hint): the snapshot's signature, never log or response text. */
 export const LAST_ISSUE_REPORT_KEY = "litellm.lastIssueReport";
 
-/** globalState: label -> MCP rotation count (no secret material), the definition's version; restarts fake none. */
+/** globalState: label -> MCP rotation count (mcp/versions.ts), persisted so a restart announces no false rotation. */
 export const MCP_ENTRY_VERSIONS_KEY = "litellm.mcpEntryVersions";
 
-/** workspaceState: this workspace's review threads, the schema v1 envelope of reviewComments/persistence.ts. */
+/** workspaceState: the review threads (reviewComments/persistence.ts); workspace-scoped as they anchor to its files. */
 export const REVIEW_COMMENT_THREADS_KEY = "litellm.reviewCommentThreads";
 
 /** SecretStorage: API key for one server of the retired legacy registry; a legacy-registry cleanup target. */
@@ -63,7 +66,7 @@ export const SERVER_SYNC_FINGERPRINTS_KEY = "litellm.serverSyncFingerprints";
 /** globalState: label -> base URL per declared entry, so a removal still knows a vanished label's host. */
 export const SYNCED_ENTRY_BASE_URLS_KEY = "litellm.syncedEntryBaseUrls";
 
-/** globalState: identities of user-removed groups, served empty and listed as hidden until restored. */
+/** globalState: removed group identities, served empty and hidden until the entry reappears or the user unhides one. */
 export const REMOVED_GROUP_TOMBSTONES_KEY = "litellm.removedGroupTombstones";
 
 /** globalState: identity -> which entry removal or rename orphaned the provider group. */

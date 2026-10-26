@@ -72,7 +72,7 @@ const GROUP_UPDATE_UNAVAILABLE_MESSAGE =
 const SECRETS_READ_FAILED_MESSAGE =
 	"Reading this entry's stored secrets failed, so it was not synced. Run Sync Models Now to retry.";
 
-/** A secret stamped for another destination (resolveOwnedSecrets); skipped: re-pairing is the user's deliberate act. */
+/** The host only adds groups: an entry whose secret is stamped for another destination is skipped, not synced bare. */
 const SECRET_OWNERSHIP_MISMATCH_MESSAGE =
 	"A stored secret for this entry was saved for a different server address, so the entry was not synced. Set the secret again (edit the server in the dashboard, or run LiteLLM: Set Server Secret), or remove the stored value.";
 

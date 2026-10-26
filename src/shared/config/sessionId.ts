@@ -28,15 +28,12 @@ const WINDOW_SESSION_PREFIX = "vscode-window-";
 const SESSION_HASH_LENGTH = 12;
 
 /**
- * The editor identity a session id is derived from. `windowSessionId` is vscode.env.sessionId: one per VS Code window,
- * a new one every time it opens; with telemetry disabled VS Code hands every window the same placeholder, so those
- * windows share one session.
+ * The editor identity a session id is derived from; both values are hashed, never sent as is. `windowSessionId` is
+ * vscode.env.sessionId: one per VS Code window, a new one every time it opens; with telemetry disabled VS Code hands
+ * every window the same placeholder, so those windows share one session.
  */
 export interface SessionIdContext {
-	/** Hashed like every other value, never sent as is. */
 	readonly windowSessionId: string;
-
-	/** The open folder's path; undefined when the window has no folder. */
 	readonly folderPath?: string | undefined;
 }
 

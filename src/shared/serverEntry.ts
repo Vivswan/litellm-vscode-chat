@@ -13,6 +13,11 @@
  * SECRET_FIELD_NESTED_PATHS is pinned position by position by a host test so that a nested secret the parser reads is
  * always a secret field the known-value collector receives from the parsed entry; the flat position is the field id
  * itself (SECRET_FIELD_IDS).
+ *
+ * SERVER_ENTRY_KEYS is the one list of an entry's top-level keys. The settings parser reads exactly these, so a key
+ * outside them is never read and reports nothing. The manifest schema's items.properties are gated to equal them
+ * (scripts/dev/manifest/serversEntrySchema.ts), and the settings import names any other key on an entry it keeps
+ * (settingsTransfer/importPlan.ts).
  */
 
 import type { ModelRecordMap } from "./config/modelMatcher";
@@ -343,7 +348,7 @@ export type EntryViewFieldId = keyof typeof ENTRY_VIEW_FIELD_SET;
 /** The field ids in ENTRY_VIEW_FIELD_SET order; the order is not load-bearing. */
 export const ENTRY_VIEW_FIELD_IDS = Object.keys(ENTRY_VIEW_FIELD_SET) as readonly EntryViewFieldId[];
 
-/** An entry's top-level keys: read exactly, the manifest schema gated to them, any other key named by the import. */
+/** An entry's top-level keys: the parser, the manifest schema, and the settings import follow this one list. */
 export const SERVER_ENTRY_KEYS: readonly string[] = [
 	"label",
 	"baseUrl",

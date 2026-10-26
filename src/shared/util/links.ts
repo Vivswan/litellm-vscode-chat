@@ -3,10 +3,10 @@
  * scripts/dev/bundle.mts defines it for both bundles from the manifest, and the two test runners set the same global
  * from the same field (src/test/util/buildDefines.ts) because they load the source unbundled.
  *
- * Every other value is a literal built on that constant or on the docs origin, and the module imports nothing but a
- * type, so the dashboard may read from here (feedbackLinks.ts, diagnostics.tsx, the setup-hint link in
- * serverEditPage.tsx) and still prove from a read of docsLinks.ts plus this file that no link target carries server
- * data.
+ * Every other value is a literal built on that constant or on the docs origin (DOCS_SITE_URL, the Pages URL as GitHub
+ * assigns it), and the module imports nothing but a type, so the dashboard may read from here (feedbackLinks.ts,
+ * diagnostics.tsx, the setup-hint link in serverEditPage.tsx) and still prove from a read of docsLinks.ts plus this
+ * file that no link target carries server data.
  *
  *   the GitHub repository, which issue links derive from, and the published docs site, which every docs deep-link
  *   derives from                                             -> neither family can drift apart
@@ -16,13 +16,10 @@
 
 import type { SetupHintKind } from "../errorClassification";
 
-/** Defined by scripts/dev/bundle.mts from package.json's repository.url; the test runners set the same global. */
 declare const __LITELLM_REPOSITORY_URL__: string;
 
-/** The repository every issue link derives from. */
 export const GITHUB_REPO_URL: string = __LITELLM_REPOSITORY_URL__;
 
-/** The value is the Pages URL as GitHub assigns it, a literal: nothing from a server ever interpolates here. */
 export const DOCS_SITE_URL = "https://vivswan.github.io/litellm-vscode-chat";
 
 /**

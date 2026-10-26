@@ -194,7 +194,8 @@ export interface ResolveModelParametersInput {
  * The resolved parameters of one model.
  *
  * `params` is each layer's resolved chain view merged entry over global key by key, then the forced winners on top (a
- * globally forced key beats an unforced entry value); underscore keys never appear.
+ * globally forced key beats an unforced entry value); underscore keys never appear. `sources` attributes every own key
+ * of `params`.
  *
  * `forcedParams` is always a subset of `params` (same values); buildRequestBody re-applies them ABOVE runtime options
  * and the picker configuration.
@@ -203,21 +204,14 @@ export interface ResolveModelParametersInput {
  * record only, never inherited (the capability side's `_openrouter_model` rule). It is the ONE parameters-record value
  * the /completions path reads; the chat path ignores it. The parse captures only usable templates, so it is valid by
  * construction.
+ *
+ * `diagnostics` are the matcher, directive, and `_force` problems in the matching records, attributed to their layer.
  */
 export interface ResolvedModelParameters {
-	/** The effective configured merge. */
 	readonly params: Record<string, unknown>;
-
-	/** The forced values, entry over global key by key. */
 	readonly forcedParams: Readonly<Record<string, unknown>>;
-
-	/** Attribution per merged key; every own key of `params` has an entry. */
 	readonly sources: ReadonlyMap<string, ResolvedParameterSource>;
-
-	/** The winning `_fim_template`, when a winning record spelled a usable one. */
 	readonly fimTemplate?: string | undefined;
-
-	/** Matcher, directive, and `_force` problems in the matching records, attributed to their layer. */
 	readonly diagnostics: readonly ParameterDiagnostic[];
 }
 

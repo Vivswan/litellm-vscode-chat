@@ -702,9 +702,9 @@ export function isUserSetLevel(level: CapabilityLevel): boolean {
 }
 
 /**
- * The request default under the resolved output limit: a user-written limit is the default whole; the server level's
- * is the baseline's, since the collapse decided it beside the value and the two minima can come from different
- * contributors; a guessed limit is capped.
+ * The request's max_tokens default under the resolved output limit. A server-level limit takes the baseline's own
+ * default rather than one derived here: the collapse decided that default beside the limit, and the two minima can
+ * come from different contributors.
  */
 function defaultMaxTokensFor(
 	maxOutputTokens: EffectiveCapabilityField<number>,

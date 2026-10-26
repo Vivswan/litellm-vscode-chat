@@ -349,7 +349,7 @@ function ownFieldsOf(key: string, parsed: ParsedRecord): Map<string, ResolvedCha
 	return own;
 }
 
-/** What one chain walk's steps share: the model, the record map, the parse cache, and the problem collector. */
+/** What one chain walk's steps share; `parsedFor` is the walk's parse cache (parseCache), one parse per record. */
 interface ChainWalk {
 	readonly id: string;
 	readonly records: ModelRecordMap;

@@ -361,7 +361,6 @@ class WireMessageOrder {
 	}
 }
 
-/** What every message of one conversion shares. */
 interface Conversion {
 	readonly gates: DataPartWireGates;
 	readonly pairing: ToolCallPairing;
@@ -523,11 +522,7 @@ function thinkingFieldsOf(folded: FoldedThinking, replayReasoningContent: boolea
 	return thinking;
 }
 
-/**
- * The turn's own content message, or none when it has nothing to say: a user turn with media ships a content array,
- * an assistant turn its text (a tool_calls turn's text already rode that message), and an assistant turn with a signed
- * thinking block but no text or tool calls an empty content, so the block still replays.
- */
+/** The turn's own content message, or none when it has nothing to say. */
 function ownMessageOf(parts: MessageParts, thinking: ThinkingFields): OpenAIChatMessage | undefined {
 	const { role, textParts, toolCalls, contentBlocks } = parts;
 	if (role === "user" && contentBlocks.length > 0) {
@@ -539,11 +534,13 @@ function ownMessageOf(parts: MessageParts, thinking: ThinkingFields): OpenAIChat
 	}
 
 	if (role === "assistant") {
+		// A tool_calls turn's text already rode its tool_calls message.
 		const text = toolCalls.length === 0 ? textParts.join("") : "";
 		if (text) {
 			return { role, content: text, ...thinking };
 		}
 
+		// A signed thinking block replays only on a message, so a turn with the block alone ships an empty content.
 		if (toolCalls.length === 0 && thinking.thinking_blocks !== undefined) {
 			return { role, content: "", ...thinking };
 		}

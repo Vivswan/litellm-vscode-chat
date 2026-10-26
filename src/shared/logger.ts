@@ -181,15 +181,16 @@ function logDataText(data: unknown): string {
 	}
 }
 
-// What replay restores after a logs.redactSecrets flip: the channel's own history, held raw. The line and character
-// bounds evict channel-only entries (advisory lines, stack prints), oldest first, so a run of stack prints cannot pin
-// hundreds of megabytes in the extension host; a single line past CHANNEL_LINE_CHARS is cut at write, with a marker,
-// since neither the channel nor the replay can use it whole. The raw cut never splits a value the door would replace
-// (safeCut), so the kept prefix masks the same in either mode; a report rendering is cut and charged the same way,
-// since the report masks it later. The masked rendering masks FIRST and cuts the masked text plainly, so a value
-// astride the bound is masked whole, never cut. REPORT_LOG_LINES is the issue report's share of the same history: the
-// entries that carry a report rendering, capped by their own count so channel-only traffic never evicts the errors a
-// report exists to carry.
+// What replay restores after a logs.redactSecrets flip: the channel's own history, held raw. Channel-only entries
+// (advisory lines, stack prints) go oldest first, so a run of stack prints cannot pin hundreds of megabytes in the
+// extension host.
+//
+//   CHANNEL_HISTORY_LINES, CHANNEL_HISTORY_CHARS -> the eviction bounds
+//   CHANNEL_LINE_CHARS                           -> a longer line is cut at write, with a marker: neither the channel
+//                                                   nor the replay can use it whole
+//   REPORT_LOG_LINES                             -> the issue report's share of the same history, capped on its own so
+//                                                   channel-only traffic never evicts the errors a report exists to
+//                                                   carry
 
 const CHANNEL_HISTORY_LINES = 200;
 const CHANNEL_HISTORY_CHARS = 1_048_576;
@@ -295,7 +296,10 @@ export class Logger {
 		return this.redactionEnabled() ? cutPlainly(Logger.redact(text)) : kept;
 	}
 
-	/** A text past CHANNEL_LINE_CHARS cut where no value is split, with a marker saying how much went. */
+	/**
+	 * A text past CHANNEL_LINE_CHARS cut where no value is split (safeCut), with a marker saying how much went, so the
+	 * kept prefix masks the same in either mode.
+	 */
 	private bounded(text: string): string {
 		if (text.length <= CHANNEL_LINE_CHARS) {
 			return text;
@@ -311,6 +315,7 @@ export class Logger {
 	 */
 	private write(level: keyof LogSink, text: string, reportText?: string): void {
 		const kept = this.bounded(text);
+		// Cut and charged like the channel text, since the report masks it later.
 		const report = reportText === undefined ? undefined : this.bounded(reportText);
 		this.history.push({ level, text: kept, report });
 		this.historyChars += kept.length + (report?.length ?? 0);

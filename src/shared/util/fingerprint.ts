@@ -1,7 +1,7 @@
 import { pbkdf2Sync } from "node:crypto";
 import { z } from "zod";
 
-/** A compile-time brand: raw secret material cannot land in a fingerprint-typed field; strings re-enter as before. */
+/** Compile-time only: raw secret material cannot land in a Fingerprint field, and a stored one reads back unbranded. */
 const fingerprintSchema = z.string().brand<"Fingerprint">();
 
 export type Fingerprint = z.infer<typeof fingerprintSchema>;
