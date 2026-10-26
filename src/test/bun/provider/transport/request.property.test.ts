@@ -1,6 +1,9 @@
 /**
  * The matcher and inheritance properties of the configured-parameters merge live with their owner
  * (src/test/shared/config/), and the projection-vs-body equivalence property pins the two sides together.
+ *
+ * A small shared key pool makes cross-source collisions common: three records drawing from the wide alphabet alone
+ * would essentially never share a key, and the precedence branch would go untested.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -19,8 +22,6 @@ const safeKey = fc.string({ unit: safeKeyChar, minLength: 1, maxLength: 12 });
 const OWNED_KEYS = ["model", "messages", "stream", "stream_options", "max_tokens", "tools", "tool_choice"] as const;
 const OWNED_KEY_SET: ReadonlySet<string> = new Set(OWNED_KEYS);
 
-// A small shared pool makes cross-source key collisions common: without it, three records drawing from the wide
-// alphabet essentially never share a key and the precedence branch would go untested.
 const SHARED_POOL_KEYS = ["temperature", "top_p", "presence_penalty", "reasoning_effort"] as const;
 
 const bodyKey = fc.oneof(

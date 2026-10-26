@@ -1,3 +1,7 @@
+/**
+ * The Features page's model pickers against a fixed model list. The host registered the inline-completions probe, so
+ * the model row's Test button derives from it.
+ */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
 import { featureDisplayName } from "../../../../dashboard/featureNames";
@@ -38,7 +42,6 @@ const MODELS = [
 
 const DECLARED = ["Prod", "Gateway"];
 
-/** The host registered the inline-completions probe; the model row's Test button derives from it. */
 const PROBES = ["inlineCompletions"] as const;
 
 const NO_FEATURE_MODELS = makeSettings().featureModels;

@@ -92,21 +92,10 @@ describe("provider/transport auth-overlay scope census", () => {
 	});
 });
 
-/**
- * The module that DECLARES TimeoutBudget; its `setting:` union member list would read as a mint to the sweep below, so
- * it is excluded and its own totality is guarded in-code (timeoutError's satisfies-never default).
- */
+/** The module that declares TimeoutBudget; its `setting:` union would read as a mint, so the sweep skips it. */
 const BUDGET_MODULE = "src/provider/transport/auth.ts";
 
-/**
- * Every shipped TimeoutBudget mint: which setting identity each caller states where it reads its timeout number. The
- * advice pipeline renders whatever the budget says, so THIS registry is where a wrong pairing is caught: a new mint, a
- * moved mint, or a changed setting fails here until the row says which clock really bounds that caller.
- *
- *   getRequestTimeout      -> "chat.timeout"
- *   getDiscoveryTimeout    -> "discovery.timeout"
- *   a fixed in-code bound  -> undefined
- */
+/** Every shipped TimeoutBudget mint: the setting identity each caller states where it reads its timeout number. */
 const BUDGET_MINTS: Record<string, { readonly [setting in "chat.timeout" | "discovery.timeout" | "fixed"]?: number }> =
 	{
 		// The one-shot chat features' whole-call bound is the chat request timeout.
@@ -124,6 +113,11 @@ const BUDGET_MINTS: Record<string, { readonly [setting in "chat.timeout" | "disc
 
 describe("provider/transport timeout budget mints", () => {
 	test("every shipped TimeoutBudget mint is registered with the setting its clock is really owned by", () => {
+		// The advice pipeline renders whatever the budget says, so the registry is where a wrong pairing is caught: a new
+		// mint, a moved mint, or a changed setting fails here until the row says which clock really bounds that caller.
+		// A getRequestTimeout caller states "chat.timeout", a getDiscoveryTimeout caller "discovery.timeout", and a fixed
+		// in-code bound states undefined. The declaring module's own totality is guarded in code, by timeoutError's
+		// satisfies-never default.
 		const observed = new Map<string, Record<string, number>>();
 		for (const file of shippedSourceFiles()) {
 			const relative = path.relative(REPO_ROOT, file).split(path.sep).join("/");

@@ -8,7 +8,10 @@ import { HANG_PHASES, type Hang, stalledBody } from "./hangingFetch";
 /** Per attempt, far below any real setting: the clocks under test are the attempt's and the budget's. */
 const ATTEMPT_TIMEOUT_MS = 50;
 
+/** The retry bound every fake server call runs under; the attempt counts below are checked against it. */
 const MAX_RETRIES = 2;
+
+/** A backoff that returns at once, so a retry costs no wall clock. */
 const noBackoff: BackoffSleep = () => Promise.resolve();
 
 function fakeServer(

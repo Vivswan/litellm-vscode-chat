@@ -33,6 +33,15 @@ initFingerprintSalt(FIXED_TEST_SALT);
  * of which Radix's focus trap reads directly. A hand-rolled trap that matched
  * `summary` as a CSS selector and filtered collapsed content itself never had
  * to ask, so these gaps only surface once the trap is the platform's.
+ *
+ * A <details>'s own <summary> is focusable in every browser, since it is the element that toggles the disclosure, but
+ * happy-dom reports tabIndex -1 for it, so the summary would silently drop out of the trap and Tab would appear to
+ * escape the dialog. happy-dom already overrides tabIndex on the button, input, select, textarea and anchor elements,
+ * so summary is the one gap.
+ *
+ * happy-dom implements Element.checkVisibility for CSS, but ships no UA stylesheet for <details>, so it reports a
+ * control inside a collapsed disclosure as visible where Chrome refuses to render or focus it. Only that gap is
+ * filled; the CSS answer stays happy-dom's.
  */
 
 /** A <details>'s disclosure trigger: only its FIRST summary child, as in a browser. */
@@ -43,13 +52,7 @@ function isDisclosureSummary(node: Element): boolean {
 	);
 }
 
-/**
- * A <details>'s own <summary> is focusable in every browser - it is the
- * element that toggles the disclosure - but happy-dom reports tabIndex -1 for
- * it, so the summary would silently drop out of the trap and Tab would appear
- * to escape the dialog. happy-dom already overrides tabIndex on the button,
- * input, select, textarea and anchor elements, so summary is the one gap.
- */
+/** happy-dom's own tabIndex accessor, wrapped below so a disclosure summary reads 0. */
 const tabIndexDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "tabIndex");
 
 if (tabIndexDescriptor?.get !== undefined) {
@@ -65,12 +68,7 @@ if (tabIndexDescriptor?.get !== undefined) {
 	});
 }
 
-/**
- * happy-dom implements Element.checkVisibility for CSS, but ships no UA
- * stylesheet for <details>, so it reports a control inside a collapsed
- * disclosure as visible where Chrome refuses to render or focus it. Only that
- * gap is filled; the CSS answer stays happy-dom's.
- */
+/** happy-dom's own checkVisibility, wrapped below so a collapsed disclosure's content reads hidden. */
 const domCheckVisibility = Element.prototype.checkVisibility;
 
 Element.prototype.checkVisibility = function checkVisibility(this: Element, options?: CheckVisibilityOptions): boolean {
@@ -86,13 +84,12 @@ Element.prototype.checkVisibility = function checkVisibility(this: Element, opti
 	return true;
 };
 
-// React reports real defects - duplicate keys, act() violations, controlled/
-// uncontrolled flips - only through console.error, so a discarded warning is a
-// defect the suite cannot see. The gate fails the test that emitted one; a test
-// that expects an error must stub console.error itself.
+/** The console.error calls the current test made; the afterEach below fails a test that made any. */
 const reportedErrors: string[] = [];
 
+/** The real console.error, still called so the message reaches the run's output. */
 const originalConsoleError = console.error.bind(console);
+
 console.error = (...args: unknown[]): void => {
 	reportedErrors.push(args.map(String).join(" "));
 	originalConsoleError(...args);
@@ -101,6 +98,9 @@ beforeEach(() => {
 	reportedErrors.length = 0;
 });
 afterEach(() => {
+	// React reports real defects (duplicate keys, act() violations, controlled/uncontrolled flips) only through
+	// console.error, so a discarded warning is a defect the suite cannot see. A test that expects an error must stub
+	// console.error itself.
 	if (reportedErrors.length > 0) {
 		const report = reportedErrors.splice(0).join("\n---\n");
 		throw new Error(`console.error during this test (fix the cause or stub console.error):\n${report}`);

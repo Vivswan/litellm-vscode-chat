@@ -14,11 +14,13 @@ import {
 } from "../../../../../extension/features/commitGen/commitMessage";
 import type { Change, Commit, Repository } from "../../../../../extension/features/gitApi";
 
+/** The model the fake reader resolves unless a case overrides it. */
 const REF: CommitModelRef = { server: "alpha", model: "gpt-test" };
 
-/** Upstream vscode.git Status values used by the fakes. */
+/** vscode.git's Status value for an untracked file, as the fakes report it. */
 const UNTRACKED = 7;
 
+/** vscode.git's Status value for a modified file, as the fakes report it. */
 const MODIFIED = 5;
 
 function reader(overrides: { modelRef?: CommitModelRef | undefined; prompt?: string } = {}) {

@@ -1,12 +1,15 @@
-/**
- * Each fixture's expected names are the exact set inferLazyL10nNames must mark lazy over its sources. `lazyElsewhere`
- * names helpers the sources call into without showing; the test declares each in a file of its own (a plain l10n.t
- * helper) and expects it alongside.
- */
+/** A fixture's expected names plus its lazyElsewhere helpers are the exact set inferLazyL10nNames must mark lazy. */
 export const LAZY_INFERENCE_FIXTURES: readonly {
+	/** Names the case in the test output. */
 	readonly name: string;
+
+	/** The files the inference reads, by path and contents. */
 	readonly sources: readonly { readonly file: string; readonly contents: string }[];
+
+	/** Helpers the sources call without showing; the test declares each in its own file and expects it alongside. */
 	readonly lazyElsewhere?: readonly string[];
+
+	/** The names the inference must mark lazy, beside the lazyElsewhere helpers. */
 	readonly expected: readonly string[];
 }[] = [
 	{

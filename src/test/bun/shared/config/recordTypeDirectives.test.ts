@@ -16,6 +16,11 @@
  *     -> localized copy cannot keep teaching a name the registry dropped
  *   The docs sweep -> holds every markdown file under docs/ (translations included) and the README files (the
  *                     Marketplace landing page) to the same token grammar
+ *
+ * Every module in src/shared/config is in scope because directive consumers are not only the parsers: the mint site
+ * (recordResolution.ts) carries the literals of directives handled through imported constants, and any config module
+ * may branch on a directive name. The prose token grammar's boundary class includes "_", so the inner slice of a
+ * dunder name never counts: "__proto__" would otherwise yield the phantom token "_proto__".
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -41,22 +46,22 @@ const PARSERS: Readonly<Record<RecordType, (record: Readonly<Record<string, unkn
 	capabilities: (record) => parseCapabilityRecord(record),
 };
 
+/** Every record type the registry declares; a type joins the sweep by its registration alone. */
 const RECORD_TYPES = Object.keys(RECORD_TYPE_DIRECTIVES) as readonly RecordType[];
+
+/** The directives both record types parse, outside any one type's row. */
 const SHARED_DIRECTIVES: ReadonlySet<string> = new Set([INHERITABLE_DIRECTIVE, INHERIT_FROM_DIRECTIVE]);
 
+/** Every directive some parser owns; an underscore name outside this set is a sweep finding. */
 const REGISTERED_DIRECTIVES: ReadonlySet<string> = new Set([
 	...RECORD_TYPES.flatMap((type) => [...RECORD_TYPE_DIRECTIVES[type]]),
 	...SHARED_DIRECTIVES,
 ]);
 
-/**
- * Every module in shared/config, found by directory listing rather than hand-listed, so a new one joins the sweep by
- * existing. The whole tree is in scope because directive consumers are not only the parsers: the mint site
- * (recordResolution.ts) carries the literals of directives handled through imported constants, and any config module
- * may branch on a directive name.
- */
+/** The config tree; every module in it joins the sweep by existing, found by listing rather than hand-listed. */
 const CONFIG_DIR = path.join(REPO_ROOT, "src", "shared", "config");
 
+/** The modules the sweep reads, in name order. */
 const SCANNED_SOURCES: readonly string[] = fs
 	.readdirSync(CONFIG_DIR)
 	.filter((name) => name.endsWith(".ts"))
@@ -116,13 +121,7 @@ function underscoreNames(fileName: string): ReadonlySet<string> {
 	return found;
 }
 
-/**
- * One token grammar for every prose sweep (localized copy and docs alike). Callers use String.match, which a global
- * regex's lastIndex cannot skew; test/exec would.
- *
- *   The boundary class includes "_"                                 -> the inner slice of a dunder name never counts
- *   "__proto__" would otherwise yield the phantom token "_proto__"  -> The boundary class includes "_"
- */
+/** One token grammar for every prose sweep, read with String.match: a global regex's lastIndex cannot skew that. */
 const DIRECTIVE_TOKEN_PATTERN = /(?<![A-Za-z0-9_])_[a-z][a-z0-9_]*/g;
 
 /** One parse per file, shared by the sweep and its positive control. */

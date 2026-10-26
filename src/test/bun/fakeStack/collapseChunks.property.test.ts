@@ -18,18 +18,24 @@ import { collapseChunks } from "../../scenarios";
  * stream:false requests with it and no docker suite exercises that path, so these properties keep it honest. Inputs
  * come from the same fuzz generators the stream suites use, so the collapse sees the exact chunk shapes the fake stack
  * streams.
+ *
+ * The nightly fuzz raises FUZZ_RUNS well past the local default, and the per-test budget scales with it. Kind
+ * frequencies mirror the docker fuzzer's weights, matching the stream property suites.
+ *
+ * deltaToolEventsArb builds streams only from kinds whose tool calls ride the delta channel with sequential numeric
+ * indices (text events are inert padding), so every flattened ExpectedToolCall maps 1:1 onto a collapsed tool_calls
+ * entry. Inline-channel kinds are excluded on purpose: collapseChunks does not parse control tokens out of content,
+ * so inline calls stay in the text.
  */
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 
-// The nightly fuzz raises FUZZ_RUNS by an order of magnitude; the per-test budget scales with it.
 const PROPERTY_TIMEOUT_MS = Math.max(120000, NUM_RUNS * 50);
 
 const SEED = resolveFuzzSeed();
 
 const seedArb = fc.integer({ min: 0, max: 0x7fffffff });
 
-// Kind frequencies mirror the docker fuzzer's weights, matching the stream property suites.
 const kindArb = fc.oneof(
 	{ withCrossShrink: true },
 	...PROPERTY_EVENT_KIND_WEIGHTS.map((entry) => ({ arbitrary: fc.constant(entry.kind), weight: entry.weight }))
@@ -49,12 +55,6 @@ const eventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 		return events;
 	});
 
-/**
- * Streams built only from kinds whose tool calls ride the delta channel with sequential numeric indices (text events
- * are inert padding), so every flattened ExpectedToolCall maps 1:1 onto a collapsed tool_calls entry. Inline-channel
- * kinds are excluded on purpose: collapseChunks does not parse control tokens out of content, so inline calls stay in
- * the text.
- */
 const deltaToolEventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 	.tuple(
 		fc.array(fc.tuple(fc.constantFrom("text" as const, "delta-tool" as const, "interleaved-tools" as const), seedArb), {

@@ -1,3 +1,7 @@
+/**
+ * The CLI against a canonical fixture manifest, never the shipped one: the negative controls prove --check fails on
+ * each drift shape and names the block, and that no mode writes on a refused argument.
+ */
 import { afterAll, describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fs from "node:fs";
@@ -8,10 +12,6 @@ import { serializeManifest } from "../../../../../scripts/dev/manifest/write";
 import { REPO_ROOT } from "../../../util/repoRoot";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
 
-/**
- * The CLI against a canonical fixture manifest, never the shipped one: the negative controls prove --check fails on
- * each drift shape and names the block, and that no mode writes on a refused argument.
- */
 const tempDirs: string[] = [];
 
 afterAll(() => {

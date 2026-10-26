@@ -1,13 +1,10 @@
 import type { LazyL10nNames } from "../../../../../scripts/l10n/lib";
 
-/**
- * What the tree-wide inference hands the guard, as the fixtures assume it: helpers and one thunk table declared in
- * files they do not show. railSections is lazy so the fixtures can show that an ordinary member call on a same-spelled
- * name stays quiet.
- */
+/** What the inference hands the guard: helpers and one thunk table declared in files the fixtures do not show. */
 export const GUARD_FIXTURE_LAZY_NAMES: LazyL10nNames = new Map([
 	["manageCommandTitle", "helper"],
 	["DashboardController", "helper"],
+	// Lazy so the fixtures can show that an ordinary member call on a same-spelled name stays quiet.
 	["railSections", "helper"],
 	["SURFACE_COPY", "table"],
 ]);

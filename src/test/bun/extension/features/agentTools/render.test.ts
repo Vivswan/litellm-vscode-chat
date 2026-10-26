@@ -28,8 +28,10 @@ import { REPO_ROOT } from "../../../../util/repoRoot";
 import { makeDeclaredServer, makeExternalServer, makeState } from "../../../webview/fixtures";
 import { agentToolsState } from "./fixture";
 
+/** The dashboard fixture the configuration and diagnostics renders read. */
 const state = agentToolsState();
 
+/** Secret locations for a server that stores no secret anywhere. */
 const NO_SECRETS = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const;
 
 // A marker, not a key shape: the leak scanner must not trip on the test fixture itself.

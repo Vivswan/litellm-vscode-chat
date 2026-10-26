@@ -1,3 +1,11 @@
+/**
+ * Segment-level properties of the text tool-call parser: a stream is built from text, call, and noise segments, and
+ * the parser's events are compared with the segments that produced them.
+ *
+ * Plain-text pieces never contain ">", so a text region cannot accidentally assemble a complete control token; the
+ * complete tokens the parser strips from visible text are generated as noise segments instead. Argument strings never
+ * contain "<|", or a control token inside the JSON could terminate the call early and break the segment-level oracle.
+ */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -31,8 +39,6 @@ type NormalizedEvent =
 const nameChar = fc.constantFrom(..."abgtXZ049_-.");
 const toolName = fc.string({ unit: nameChar, minLength: 1, maxLength: 8 });
 
-// Plain-text pieces never contain ">", so text regions cannot accidentally assemble a complete control token; complete
-// strippable tokens are generated as noise segments instead.
 const plainPiece = fc.string({ maxLength: 12 }).map((s) => s.replace(/>/g, ""));
 
 const tokenFragmentPiece = fc.constantFrom(
@@ -53,7 +59,6 @@ const textSegment: fc.Arbitrary<Segment> = fc
 	.array(fc.oneof(plainPiece, tokenFragmentPiece), { maxLength: 6 })
 	.map((pieces) => ({ kind: "text", text: pieces.join("") }));
 
-// Complete tokens the parser strips from visible text.
 const sectionChar = fc.constantFrom(..."abgtXZ049_-");
 
 const sectionName = fc.string({ unit: sectionChar, minLength: 1, maxLength: 8 });
@@ -67,8 +72,6 @@ const noiseSegment: fc.Arbitrary<Segment> = fc
 	)
 	.map((text) => ({ kind: "noise", text }));
 
-// Argument strings must not contain "<|", or a control token inside the JSON
-// could terminate the call early and break the segment-level oracle below.
 const jsonArgs = fc.jsonValue({ maxDepth: 2 }).map((value) => JSON.stringify(value).split("<|").join("< |"));
 
 const callSegment: fc.Arbitrary<Segment> = fc

@@ -8,6 +8,10 @@ import { REPO_ROOT } from "../../../util/repoRoot";
 /**
  * The first case builds the fixture project's TypeScript program, which took six seconds on the macOS CI runner (run
  * 37507915564) against bun's five-second default; bun charges a hook's time to the hook, so a warm-up would not help.
+ *
+ * The gate fails green, not red, when it goes blind: a trim it misses is a second trim rule with no signal anywhere, so
+ * the fixture's refused lines are the one place a missed shape shows. The fixtures are linted under their own paths, so
+ * the type checker resolves the lib declarations the way the repository's lint run does.
  */
 setDefaultTimeout(30_000);
 
@@ -40,9 +44,6 @@ function fixture(file: string): { filename: string; code: string } {
 	return { filename: join(REPO_ROOT, file), code: readFileSync(join(REPO_ROOT, file), "utf8") };
 }
 
-// The gate fails green, not red, when it goes blind: a trim it misses is a second trim rule with no signal anywhere, so
-// the fixture's refused lines are the one place a missed shape shows. The fixtures are linted under their own paths, so
-// the type checker resolves the lib declarations the way the repository's lint run does.
 const ruleTester = new RuleTester({
 	languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: REPO_ROOT } },
 });

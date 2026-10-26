@@ -2,6 +2,9 @@
  * The webview half of the cross-surface serving-vocabulary pin (the host suite covers the status bar, notifier, paste
  * line, and the state-builder mirror; src/test/statusVocabulary.ts is the shared table): for every window state, the
  * hero's word and tone and the server rows' pills - words AND dot tones - must say what the table says.
+ *
+ * The compile-time pin below lives here rather than beside the list because this project can reach the .tsx module
+ * and the host-importable table cannot.
  */
 import { afterEach, expect, test } from "bun:test";
 import { classifyOverall } from "../../../../dashboard/presenters";
@@ -11,11 +14,7 @@ import { ServersSection } from "../../../../webview/dashboard/servers";
 import { type ALL_PILL_WORDS, rowVerdict, WINDOW_STATE_ROWS } from "../../../statusVocabulary";
 import { cleanup, mount } from "../harness";
 
-/**
- * The table's word list against the webview vocabulary, compile-pinned both ways: a word added on either side fails
- * this assignment until the other side lists it. This project can reach the .tsx module; the host-importable table
- * cannot, which is why the pin lives here rather than beside the list.
- */
+/** Compile-time pin: a pill word added on either side fails this assignment until the other side lists it. */
 const _pillWordsMatchVocabulary: [
 	Exclude<ServerPillWord, (typeof ALL_PILL_WORDS)[number]>,
 	Exclude<(typeof ALL_PILL_WORDS)[number], ServerPillWord>,

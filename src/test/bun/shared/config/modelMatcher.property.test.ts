@@ -3,6 +3,9 @@
  * "*", "") against random model IDs. The oracle is the GENERATOR's construction intent, independent of the
  * implementation: every key carries its intended kind and expected match predicate, and the pairwise specificity rules
  * are restated from the spec over those intents.
+ *
+ * Generated IDs carry no "*" or "/", so a literal can never accidentally spell another key form; the parse-level slash
+ * edge cases are pinned in the unit suite.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -13,8 +16,6 @@ import { resolveFuzzSeed } from "../../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
 const SEED = resolveFuzzSeed();
 
-// No "*" or "/" so a generated literal can never accidentally spell another key form; the parse-level slash edge cases
-// are pinned in the unit suite.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789._-");
 
 const modelIdArb = fc.string({ unit: idChar, minLength: 1, maxLength: 12 });

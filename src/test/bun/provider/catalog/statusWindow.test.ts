@@ -4,6 +4,8 @@
  * below its ten-minute floor. Both directions are load-bearing: a suspended host must not lose the success anchor a
  * longer window promises to serve from, and a zero window must not evict mid-sweep entries the one-cycle grace keeps
  * visible.
+ *
+ * The window stores and returns models opaquely, so one branded stand-in model is enough.
  */
 import { describe, expect, test } from "bun:test";
 import type { GroupServer, PreAttachModelInfo } from "../../../../provider/catalog/groupModels";
@@ -23,7 +25,6 @@ const groupServer: GroupServer = {
 	entryOwned: true,
 };
 
-// The window stores and returns models opaquely; one branded stand-in is enough.
 const models = [{ id: "test-model" } as PreAttachModelInfo];
 
 const served = { discovered: models, declared: [] };

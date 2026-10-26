@@ -127,7 +127,10 @@ function familyDeclarations(rules: readonly Block[], family: RegExp): { selector
 	});
 }
 
+/** The self-alignment longhands and the place-self shorthand that sets them. */
 const ALIGNMENT_FAMILY = /^(?:place-self|align-self|justify-self):/;
+
+/** The position property alone; the offsets it enables are INSET_FAMILY's. */
 const POSITION_FAMILY = /^position:/;
 
 /** The vertical box offsets and every shorthand that can set them; inset-inline stays horizontal. */

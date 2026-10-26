@@ -7,13 +7,19 @@ import { RequestError } from "../../../../provider/transport/transportErrors";
 import { DISCOVERY_MAX_RETRIES } from "../../../../shared/config/settingSpec";
 import { HANG_PHASES, type Hang, stalledBody } from "./hangingFetch";
 
+/** The identity provider the fake token endpoint stands in for. */
 const TOKEN_URL = "http://idp.test/oauth2/token";
+
+/** A complete client-credentials configuration against TOKEN_URL. */
 const CONFIG: OAuthConfig = { tokenUrl: TOKEN_URL, clientId: "client-1", clientSecret: "secret-1" };
 
 /** Per attempt, far below any real setting: the clocks under test are the attempt's and the budget's. */
 const ATTEMPT_TIMEOUT_MS = 50;
 
+/** The attempt timeout as the budget the token source reads, labelled with the setting its timeout advice names. */
 const BUDGET: TimeoutBudget = { ms: ATTEMPT_TIMEOUT_MS, setting: "discovery.timeout" };
+
+/** A backoff that returns at once, so a retry costs no wall clock. */
 const noBackoff: BackoffSleep = () => Promise.resolve();
 
 /** The token endpoint hangs for its first `hangs` requests and issues a token after. */

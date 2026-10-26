@@ -20,29 +20,31 @@ import {
 	unwrapped,
 } from "./syntaxWalk";
 
+/** The tree the audit lists; a module outside it is read only as a bunfig preload or through a bun test's imports. */
 const BUN_TREE = path.join(REPO_ROOT, "src", "test", "bun");
+
+/** The module a deadline argument must be imported from; any other binding of the name is refused. */
 const DEADLINE_MODULE = path.join(BUN_TREE, "childProcessTimeout.ts");
+
+/** The deadline module as a failure message names it: repository-relative, forward slashes. */
 const DEADLINE_PATH = path.relative(REPO_ROOT, DEADLINE_MODULE).split(path.sep).join("/");
+
+/** The export a spawning registration passes as its deadline argument. */
 const DEADLINE_NAME = "CHILD_PROCESS_TIMEOUT_MS";
 
-/**
- * Registrations that reach a spawn and may run without any deadline argument, each with the reason (a wrong deadline
- * is never excused). An entry must match exactly one registration: none means a fixed member left its exception
- * behind, two means a new member is hiding under an old one.
- */
+/** Registrations that may reach a spawn with no deadline, each with its reason. A wrong deadline is never excused. */
 const EXCEPTIONS: readonly { readonly file: string; readonly subject: string; readonly reason: string }[] = [];
 
+/** Relative imports the walk parses as code with TypeScript's own scanner. */
 const PARSED_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"]);
 
 /** Relative imports that load data, not code; anything else the parser does not read (a .node addon) fails. */
 const INERT_ASSET_EXTENSIONS = new Set([".json", ".css"]);
 
-/**
- * Modules whose JSX the transpiler compiles against an injected import; those imports are classified like written
- * ones.
- */
+/** Modules whose JSX compiles against an injected runtime import; that import is classified like a written one. */
 const JSX_EXTENSIONS = new Set([".tsx", ".jsx"]);
 
+/** node:child_process and its bare alias are one module to the walk. */
 const CHILD_PROCESS_SPECIFIER = /^(?:node:)?child_process$/;
 
 /** Member names that spawn wherever they appear: Bun.spawn and node:child_process share this vocabulary. */
@@ -54,27 +56,23 @@ const CHILD_PROCESS_ONLY_MEMBERS = new Set(["exec"]);
 /** The Bun surface's process-starting members, as `Bun.<name>` and as named exports of "bun". */
 const BUN_SPAWN_EXPORTS = new Set(["spawn", "spawnSync", "$", "openInEditor", "WebView"]);
 
-/**
- * Globals a known-safe module installs whose implementation spawns: happy-dom's synchronous XMLHttpRequest runs the
- * request in a node child, and the asynchronous form shares the constructor, so any use counts.
- */
+/** Globals a safe module adds whose constructor may spawn: happy-dom's sync XMLHttpRequest runs in a node child. */
 const SPAWNING_GLOBALS = new Set(["XMLHttpRequest"]);
 
 /** The only members of `require` the walk follows; `require.call` or `.main.require` would hide a load. */
 const REQUIRE_MEMBERS = new Set(["cache", "resolve"]);
 
+/** bun:test's test registrations, the skipped spellings included: a skipped spawner keeps its deadline. */
 const TEST_NAMES = new Set(["test", "it", "xtest", "xit"]);
+
+/** bun:test's hooks; a hook's deadline is its second argument where a test's is its third. */
 const HOOK_NAMES = new Set(["beforeAll", "beforeEach", "afterAll", "afterEach", "onTestFinished"]);
 
+/** Whether a binding of `name` from `specifier` is a spawner: child_process wholesale, or Bun's spawning exports. */
 const spawnsFromExternal = (specifier: string, name: string): boolean =>
 	CHILD_PROCESS_SPECIFIER.test(specifier) || (specifier === "bun" && (name === "*" || BUN_SPAWN_EXPORTS.has(name)));
 
-/**
- * External modules the bun tree loads at runtime that start no process, by exact specifier (a subpath is its own
- * entry: typescript/lib/tsserver spawns while typescript does not), each with the reason. The walk cannot see into a
- * package, so an import from a specifier missing here is unclassified and fails until it is added here or recognized
- * as a spawner; an entry nothing imports any more, or one without a reason, fails.
- */
+/** External modules that start no process, by exact specifier (a subpath is its own entry), each with its reason. */
 const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["@happy-dom/global-registrator", "installs the DOM shim in-process"],
 	["@radix-ui/react-dialog", "React components"],
@@ -116,21 +114,26 @@ const KNOWN_SAFE_MODULES: ReadonlyMap<string, string> = new Map([
 	["zod", "schema validation"],
 ]);
 
-/** Modules, globals, and members that run source the parser never sees or load modules past the classifier. */
+/** Modules that run source the parser never sees. */
 const DYNAMIC_CODE_MODULES = new Set(["node:vm", "vm"]);
 
+/** Globals that run source the parser never sees or load a module past the classifier. */
 const DYNAMIC_CODE_IDENTIFIERS = new Set(["eval", "Function", "getBuiltinModule", "createRequire", "dlopen"]);
+
+/** Members of `process` that load a native or builtin module past the classifier. */
 const PROCESS_LOADER_MEMBERS = new Set(["binding", "_linkedBinding", "dlopen", "getBuiltinModule"]);
 
-/**
- * A computed member of one of these reaches a slot by a name the walk cannot read, whether written as `base[key]` or
- * destructured out with `const { [key]: x } = base`.
- */
+/** Bases whose computed member, `base[key]` or `{ [key]: x } = base`, reaches a slot by a name the walk cannot read. */
 const COMPUTED_MEMBER_BANNED_BASES = new Set(["Bun", "process", "globalThis", "require", "Reflect"]);
 
 type ExternalKind = "spawner" | "safe" | "dynamic-code" | "unclassified";
 
-/** What loading `name` from a non-relative `specifier` means to the walk; "bun" itself is the Bun global's surface. */
+/**
+ * What loading `name` from a non-relative `specifier` means to the walk; "bun" itself is the Bun global's surface. The
+ * walk cannot see into a package, so a specifier is matched exactly (typescript/lib/tsserver spawns while typescript
+ * does not), and one missing from every table is unclassified until it is added to KNOWN_SAFE_MODULES or recognized
+ * as a spawner.
+ */
 function classifyExternal(specifier: string, name: string): ExternalKind {
 	if (spawnsFromExternal(specifier, name)) {
 		return "spawner";
@@ -159,11 +162,13 @@ interface Scope {
 	/** Runs when the module loads (top-level code, a variable initializer) rather than when something calls it. */
 	readonly eager: boolean;
 
+	/** Identifiers the scope names; reach resolves each through the module's declarations, imports, and exports. */
 	readonly refs: Set<string>;
 
 	/** Modules a dynamic import, require, or Worker inside this scope loads: every declaration of each counts. */
 	readonly moduleRefs: string[];
 
+	/** The spawn sites in the scope itself, described for the failure message; the first opens the reach chain. */
 	readonly sites: string[];
 }
 
@@ -176,22 +181,18 @@ interface Registration extends Scope {
 	readonly deadline: ts.Expression | undefined;
 }
 
+/**
+ * One parsed file of the tree. `moduleScope` is its top-level code: every identifier and site outside any declaration
+ * or registration, which runs at load.
+ */
 interface Module {
 	readonly file: string;
-
 	readonly rel: string;
-
 	readonly imports: Map<string, Binding>;
-
 	readonly exports: Map<string, Binding | { readonly kind: "local"; readonly name: string }>;
-
 	readonly exportStars: string[];
-
 	readonly decls: Map<string, Scope[]>;
-
 	readonly registrations: Registration[];
-
-	/** Top-level code: every identifier and site outside any declaration or registration, which runs at load. */
 	readonly moduleScope: Scope;
 }
 
@@ -201,6 +202,7 @@ interface Context {
 	readonly jsxRuntimes: readonly string[];
 }
 
+/** A module's path as a failure message prints it: relative to the bun tree, forward slashes. */
 const rel = (file: string): string => path.relative(BUN_TREE, file).split(path.sep).join("/");
 
 /** `expression` is `process`, or a member chain ending in `.process` (globalThis.process), casts aside. */
@@ -332,15 +334,14 @@ function discoverModules(roots: readonly string[], problems: string[]): string[]
 	return [...seen].sort();
 }
 
+/** The two expression forms whose body runs only when called. */
 const isFunctionLike = (node: ts.Node): boolean => ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 
+/** Whether a declaration's initializer waits for a call, so its scope is not eager. */
 const isDeferred = (initializer: ts.Expression | undefined): boolean =>
 	initializer !== undefined && isFunctionLike(initializer);
 
-/**
- * The parts of a class that run when its definition is evaluated, not when an instance is made or a method called: a
- * static method's body is deferred like any other, so only a static property's initializer counts.
- */
+/** Class parts that run when the definition is evaluated; a static method's body is deferred like any other. */
 const runsAtDefinition = (member: ts.Node): boolean =>
 	ts.isHeritageClause(member) ||
 	ts.isDecorator(member) ||
@@ -1230,6 +1231,8 @@ function audit(): { readonly problems: string[]; readonly spawningRegistrations:
 			}
 		}
 	}
+	// An exception covers exactly one registration: none means a fixed member left its exception behind, two means a
+	// new member is hiding under an old one.
 	for (const [exception, matches] of exceptionMatches) {
 		if (matches.length === 0) {
 			problems.push(

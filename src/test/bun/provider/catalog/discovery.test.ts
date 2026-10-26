@@ -15,12 +15,16 @@ import { retryBudgetMs } from "../../../../provider/transport/retry";
 import { RequestError } from "../../../../provider/transport/transportErrors";
 import { DISCOVERY_MAX_RETRIES } from "../../../../shared/config/settingSpec";
 
+/** The server every discovery request in this file targets; nothing listens there, the fetches are fakes. */
 const BASE_URL = "http://litellm.test";
 
 /** Per attempt, far below any real setting: the clocks under test are the attempt's and the budget's, not the server's. */
 const ATTEMPT_TIMEOUT_MS = 50;
 
+/** A backoff that returns at once, so a retry costs no wall clock. */
 const noBackoff: BackoffSleep = () => Promise.resolve();
+
+/** The host's predicate is vscode.CancellationError, which this tree cannot load; this one never fires. */
 const neverCancelled = (_error: unknown): _error is Error => false;
 
 type Signal = AbortSignal | null | undefined;

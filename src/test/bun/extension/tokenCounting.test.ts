@@ -10,12 +10,10 @@ import { countTextTokens, plainTextTokenEstimate, setTextTokenCounting } from ".
  * shared/conversion/textTokens.test.ts.
  */
 
+/** Han text, where the chars/4 heuristic undercounts a real tokenizer three to four times. */
 const CHINESE = "请把这个函数重构成纯函数, 并为它补上完整的单元测试。";
 
-/**
- * A tokenizer with an unmistakable constant count, so installs are observable - but only when the install forwarded
- * allowedSpecial "all" (special-token text is ordinary user text and must count, not throw).
- */
+/** Counts an unmistakable 4242 only if allowedSpecial "all" was forwarded; special-token text counts, never throws. */
 const FAKE_TOKENIZER: LoadedTokenizer = {
 	countTokens: (_text, options) => (options?.allowedSpecial === "all" ? 4242 : -1),
 };

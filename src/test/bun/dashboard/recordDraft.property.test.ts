@@ -1,3 +1,22 @@
+/**
+ * Round-trip and hint-coupling properties for the record draft editors, over clean domains the parsers accept
+ * unchanged.
+ *
+ * A clean record key is trimmed, non-empty, and outside the reserved set: validation rejects reserved names and
+ * assembly trims keys. The clean capability domain is known fields with correctly typed values plus the two
+ * directives, the retired `_declare` riding along as reserved-underscore noise. Unknown keys are legal too (a hint,
+ * not a block) but stay out because their values are free JSON.
+ *
+ * A clean header value is a trim-stable string without line breaks: the request path drops values outside the shared
+ * header-value charset (no CR/LF or other control octets; empty is legal) and parseHeaderValue trims. A clean header
+ * record has an ordinary prototype, since parseHeaderRows always returns one and the round trip compares prototypes,
+ * and names unique case-insensitively (headerNameKey), the one spelling the host accepts per header.
+ *
+ * The advisory-hint domain mixes open fields with consumed fields carrying valid values and no directives, so
+ * unknown-key is the only hint either side can emit. The charsets carry no underscore, so an open key can never
+ * collide with a consumed or core name. The observed-key evidence is absent entirely, or a mix of open-shaped keys
+ * and consumed names: an observed key is real either way.
+ */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as l10n from "@vscode/l10n";
@@ -23,8 +42,6 @@ import { resolveFuzzSeed } from "../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
 
-// Reserved names are rejected by validation, and assembly trims keys, so the clean domain is trimmed non-empty keys
-// outside the reserved set.
 const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 const recordKeyChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-/");
@@ -35,8 +52,6 @@ const recordKey = fc
 const paramsRecord = fc.dictionary(recordKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 5 });
 const modelParametersRecord = fc.dictionary(recordKey, paramsRecord, { maxKeys: 5 });
 
-// The clean capability domain: known fields with correctly typed values, plus the two directives. Unknown keys are
-// legal too (hint, not block) but stay out because their values are free JSON.
 const capabilityFieldEntry: fc.Arbitrary<[string, unknown]> = fc.oneof(
 	fc.tuple(
 		fc.constantFrom("context_length", "max_input_tokens", "max_output_tokens"),
@@ -46,7 +61,6 @@ const capabilityFieldEntry: fc.Arbitrary<[string, unknown]> = fc.oneof(
 		fc.constantFrom("supports_function_calling", "supports_vision", "supports_reasoning", "supports_audio_input"),
 		fc.boolean()
 	),
-	// The retired _declare directive stays as reserved-underscore noise.
 	fc.tuple(fc.constant("_declare"), fc.boolean()),
 	fc.tuple(fc.constant("_openrouter_model"), recordKey)
 );
@@ -69,14 +83,10 @@ const headerName = fc
 
 const finiteNumber = fc.double({ noNaN: true, noDefaultInfinity: true }).map((n) => (Object.is(n, -0) ? 0 : n));
 
-// The request path drops values outside the shared header-value charset (no CR/LF or other control octets; empty is
-// legal) and parseHeaderValue trims, so the clean domain is trim-stable strings without line breaks.
 const headerValueString = fc.string({ maxLength: 20 }).map((s) => s.replace(/[\r\n]/g, " ").trim());
 
 const headerScalar: fc.Arbitrary<HeaderScalar> = fc.oneof(fc.boolean(), finiteNumber, headerValueString);
 
-// Ordinary prototype: parseHeaderRows always returns one, and the round trip compares prototypes. Names are unique
-// case-insensitively (headerNameKey), the one spelling the host accepts per header.
 const headersRecord = fc
 	.dictionary(headerName, headerScalar, { maxKeys: 6, noNullPrototype: true })
 	.filter((record) => new Set(Object.keys(record).map(headerNameKey)).size === Object.keys(record).length);
@@ -138,9 +148,6 @@ describe("dashboard/recordDraft round-trip properties", () => {
 	});
 });
 
-// The advisory-hint coupling domain: records mixing OPEN fields with consumed fields carrying VALID values and no
-// directives, so unknown-key is the only hint either side can emit. The charsets carry no underscore, so an open key
-// can never collide with a consumed or core name.
 const openFieldRecord = fc.dictionary(recordKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 3, noNullPrototype: true });
 
 const validConsumedEntry: fc.Arbitrary<[string, unknown]> = fc.oneof(
@@ -159,10 +166,6 @@ const mixedFieldsRecord: fc.Arbitrary<Record<string, unknown>> = fc
 	.map(([open, consumed]) => ({ ...open, ...Object.fromEntries(consumed) }));
 const advisoryRecordMap = fc.dictionary(recordKey, mixedFieldsRecord, { maxKeys: 3, noNullPrototype: true });
 
-/**
- * The evidence side: absent entirely, or a mix of open-shaped keys and consumed names (an observed key is real either
- * way).
- */
 const observedKeySet = fc.option(
 	fc.array(fc.oneof(recordKey, fc.constantFrom(...Object.keys(CONSUMED_CAPABILITY_FIELDS))), { maxLength: 6 }),
 	{ nil: undefined }

@@ -16,20 +16,17 @@ function change(fsPath: string): Change {
 	return { uri: { fsPath, toString: () => `file://${fsPath}` } as unknown as Change["uri"], status: 5 };
 }
 
+/**
+ * The parts of a fake repository. `patches` is per-path patch text; a path with no entry throws, standing in for a
+ * binary or vanished file.
+ */
 interface FakeRepoParts {
 	head?: Branch | undefined;
-
 	branchBase?: Branch | undefined;
-
 	mergeBase?: string | undefined;
-
 	commits?: Commit[];
-
 	changes?: Change[];
-
-	/** Per-path patch text; a path with no entry throws, standing in for a binary or vanished file. */
 	patches?: Record<string, string>;
-
 	calls?: {
 		log?: { range?: string | undefined };
 		patchPaths?: string[];

@@ -23,8 +23,6 @@ import { resolveFuzzSeed } from "../../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
 const SEED = resolveFuzzSeed();
 
-// No regex metacharacters, so the naive matcher below can treat the one generated regex form ("/<literal>.*/") with
-// plain startsWith semantics.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789-");
 
 const modelIdArb = fc.string({ unit: idChar, minLength: 1, maxLength: 8 });
@@ -34,24 +32,19 @@ const CAP_FIELD_POOL = ["context_length", "max_output_tokens", "supports_vision"
 
 type RawRecord = Record<string, unknown>;
 
+/**
+ * The directive placements of one generated record. `fields` are indexes into the active field pool, deduplicated at
+ * build time; `marking` is `_force` for parameters and `_fallback` for capabilities.
+ */
 interface RecordSpec {
-	/** Indexes into the active field pool; deduplicated at build time. */
 	readonly fields: readonly number[];
-
 	readonly inheritable: "absent" | "all" | "list";
-
 	readonly inheritableList: readonly number[];
-
-	readonly marking: "absent" | "all" | "list"; // _force (params) / _fallback (caps)
-
+	readonly marking: "absent" | "all" | "list";
 	readonly markingList: readonly number[];
-
 	readonly inheritFrom: "absent" | "all" | "none" | "list";
-
 	readonly inheritKeys: readonly number[];
-
 	readonly ghostKey: boolean;
-
 	readonly fim: "absent" | "valid" | "invalid";
 }
 
@@ -207,6 +200,10 @@ function naiveParse(key: string): NaiveMatcher | undefined {
 	return { kind: "exact", key };
 }
 
+/**
+ * Generated IDs hold no regex metacharacters (idChar), so the one regex form, a slash-wrapped literal followed by
+ * `.*`, is a plain startsWith.
+ */
 function naiveMatches(matcher: NaiveMatcher, id: string): boolean {
 	switch (matcher.kind) {
 		case "exact":
@@ -244,18 +241,15 @@ function naiveChain(id: string, records: Record<string, RawRecord>): string[] {
 		});
 }
 
+/** One field as the oracle resolves it; `marked` is `_force` for parameters and `_fallback` for capabilities. */
 interface NaiveField {
 	value: unknown;
-
 	sourceKey: string;
-
 	inheritable: boolean;
-
-	marked: boolean; // _force (params) / _fallback (caps)
+	marked: boolean;
 }
 
-// The engine's unforceable set: provider-owned keys except max_tokens, plus underscore keys. The field pools never
-// produce these, so this is spec restatement, not a live branch.
+/** Provider-owned keys the engine never forces; the pools never produce them, so the branch restates the spec. */
 const UNFORCEABLE = new Set(["model", "messages", "stream", "stream_options", "tools", "tool_choice"]);
 
 function naiveOwnFields(

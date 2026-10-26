@@ -4,20 +4,17 @@
  * which bans the meta-property (the same reason tailwindCliBin.ts anchors on Bun.main).
  */
 
-/** One brace block of a compiled sheet: what opened it, and what is inside. */
+/**
+ * One brace block of a compiled sheet: what opened it, and what is inside. `start` is where the prelude starts in the
+ * sheet, and source order settles equal-specificity arguments; `end` is just past the closing brace, so an offset
+ * between the two lies inside this block.
+ */
 export interface Block {
 	readonly prelude: string;
-
 	readonly body: string;
-
 	readonly text: string;
-
 	readonly context: readonly string[];
-
-	/** Where the block's prelude starts in the sheet; source order settles equal-specificity arguments. */
 	readonly start: number;
-
-	/** Just past the closing brace; an offset between `start` and `end` lies inside this block. */
 	readonly end: number;
 }
 

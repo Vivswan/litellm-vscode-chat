@@ -7,4 +7,5 @@
  *   spawning test without this deadline  -> fails
  *   non-spawning test carrying it        -> fails
  */
+
 export const CHILD_PROCESS_TIMEOUT_MS = 60_000;

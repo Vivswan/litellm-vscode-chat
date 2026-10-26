@@ -3,6 +3,11 @@
  * payloads and never throw - unusable shapes degrade to absence, an unrecognizable payload to the empty snapshot. The
  * slimmed artifact is pinned as faithful too: parsing what slimming wrote yields exactly the models parsing the raw
  * payload did, so the packaged file can never drift from the mapping that produced it.
+ *
+ * A small id pool with shared post-vendor suffixes keeps exact hits, suffix hits, and ambiguous suffixes all common,
+ * and raw jsonValue keeps the degenerate shapes alive. SLIM_WIRE_KEYS is the complete wire-key vocabulary a slimmed
+ * entry may carry: slimming rebuilds each entry from the mapped fields, so an unmapped source key (a legacy pricing
+ * block included) must never survive into the artifact.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -20,8 +25,6 @@ import { resolveFuzzSeed } from "../../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
-// A small id pool with shared post-vendor suffixes keeps exact hits, suffix hits, and ambiguous suffixes all common;
-// raw jsonValue keeps the degenerate shapes alive.
 const vendor = fc.constantFrom("openai", "anthropic", "meta-llama", "fireworks");
 
 const suffix = fc.constantFrom("gpt-4o", "llama-3-8b", "claude-3.5", "o1", "a/b");
@@ -66,10 +69,6 @@ const payloadArb = fc.oneof(
 	{ arbitrary: fc.jsonValue({ maxDepth: 3 }), weight: 1 }
 );
 
-/**
- * The complete wire-key vocabulary a slimmed entry may carry: slimming rebuilds each entry from the mapped fields, so
- * an unmapped source key (a legacy pricing block included) must never survive into the artifact.
- */
 const SLIM_WIRE_KEYS = new Set([
 	"id",
 	"name",

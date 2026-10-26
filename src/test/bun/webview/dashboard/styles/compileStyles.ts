@@ -40,13 +40,16 @@ export async function compileDashboard(): Promise<string> {
 	return (await Promise.all(stylesheets.map((output) => output.text()))).join("");
 }
 
+/**
+ * One `@media (forced-colors: active)` block of a compiled sheet. `context` decides what the block can beat and when
+ * it applies: a layered copy of a rule written to overrule a utility loses to that utility, and a block nested in a
+ * width query stops existing at every other width.
+ */
 export interface ForcedColorsBlock {
+	/** The text holds the whole block as printed, prelude and braces included. */
 	readonly text: string;
 
-	/**
-	 * The at-rule preludes wrapping this block, outermost first: a layered copy of a rule written to overrule a
-	 * utility loses to that utility, and a block nested in a width query stops existing at every other width.
-	 */
+	/** The at-rule preludes wrapping this block, outermost first. */
 	readonly context: readonly string[];
 
 	/** Outside every layer, which is what it takes to beat a utility. */
@@ -56,22 +59,27 @@ export interface ForcedColorsBlock {
 	readonly unconditional: boolean;
 }
 
+/**
+ * One rule found by its selector. Two rules for one selector at equal specificity are settled by `start` alone, since
+ * the dashboard sheet is one flat layer, so an order assertion needs the offset.
+ */
 export interface StyleRule {
 	/** The rule's whole selector list, as the printer wrote it. */
 	readonly selectorList: string;
 
+	/** The rule's declarations, braces excluded, as the printer wrote them. */
 	readonly declarations: string;
 
+	/** The at-rule preludes wrapping this rule, outermost first. */
 	readonly context: readonly string[];
 
+	/** Outside every layer, which is what it takes to beat a utility. */
 	readonly unlayered: boolean;
 
+	/** Inside no width, container, or feature query, so it applies everywhere. */
 	readonly unconditional: boolean;
 
-	/**
-	 * Where the rule's prelude starts in the compiled sheet. Two rules for one selector at equal specificity are
-	 * settled by this alone (the dashboard sheet is one flat layer), so an order assertion needs the offset.
-	 */
+	/** Where the rule's prelude starts in the compiled sheet. */
 	readonly start: number;
 }
 

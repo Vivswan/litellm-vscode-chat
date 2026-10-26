@@ -4,6 +4,10 @@
  * Their rulings are user-visible in the Diagnostics tab, so this suite holds the three consumers to identical answers:
  * the seed-pinned property feeds one directive value to all three parsers and demands the same marks and the same
  * grammar diagnoses; the tables pin each arm, plus `_force`'s one sanctioned divergence (the forceability predicate).
+ *
+ * The field-name pool holds names legal and equivalent under all three parsers: not consumed capability fields (a
+ * wrong-kind value would be diagnosed away there), not provider-owned (all forceable), and trim-stable (capability
+ * keys trim).
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -17,17 +21,14 @@ import { resolveFuzzSeed } from "../../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
 const SEED = resolveFuzzSeed();
 
-/**
- * Field names legal and equivalent under all three parsers: not consumed capability fields (a wrong-kind value would be
- * diagnosed away there), not provider-owned (all forceable), trim-stable (capability keys trim).
- */
 const NAME_POOL = ["temperature", "top_p", "seed", "stop", "penalty"] as const;
 
-/** One parser's answer, reduced to what the grammar owns. */
+/**
+ * One parser's answer, reduced to what the grammar owns: the names it marked, and its diagnoses in list order with the
+ * directive name erased so the three compare.
+ */
 interface DirectiveRuling {
 	readonly marked: readonly string[];
-
-	/** The grammar's diagnoses in list order, directive name erased so the three compare. */
 	readonly diagnosed: readonly string[];
 }
 

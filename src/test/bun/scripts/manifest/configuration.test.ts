@@ -1,3 +1,8 @@
+/**
+ * The renderer over an injected mini-spec: the key order the manifest carries, the omissions (window scope, absent
+ * restricted), the integer and nullable type spellings, and the nls key convention are facts of the manifest format
+ * that no type in the spec states.
+ */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import {
@@ -11,11 +16,6 @@ import {
 } from "../../../../../scripts/dev/manifest/serversEntrySchema";
 import { SETTING_PRESENTATION } from "../../../../shared/config/settingSpec";
 
-/**
- * The renderer over an injected mini-spec: the key order the manifest carries, the omissions (window scope, absent
- * restricted), the integer and nullable type spellings, and the nls key convention are facts of the manifest format
- * that no type in the spec states.
- */
 const MINI: ConfigurationInputs = {
 	sections: [
 		{ id: "alpha", settings: ["alpha.count", "alpha.enabled"] },

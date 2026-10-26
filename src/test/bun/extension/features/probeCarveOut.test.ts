@@ -36,6 +36,7 @@ interface LocaleShapes {
 	readonly carveOut: RegExp;
 }
 
+/** Each locale's nls file, with the claim and carve-out spellings it uses. */
 const LOCALES: readonly LocaleShapes[] = [
 	{
 		nlsFile: "package.nls.json",
@@ -57,11 +58,7 @@ const LOCALES: readonly LocaleShapes[] = [
 	},
 ];
 
-/**
- * The one probe-carrying feature whose enable copy makes no withholding claim: the quick-fix chat path costs nothing
- * until invoked, so its description never says "nothing is sent until enabled". Every other probe feature must claim,
- * in every locale and on both surfaces.
- */
+/** Probe features whose enable copy makes no withholding claim: the quick-fix chat path costs nothing until invoked. */
 const CLAIMLESS_FEATURES: ReadonlySet<string> = new Set(["quickFix"]);
 
 /**

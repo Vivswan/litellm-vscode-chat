@@ -1,6 +1,7 @@
 /**
  * Pinned under bun so an expected string is checked before a push. The LanguageModelError wrap at the provider boundary
- * needs the host, so its pin lives in src/test/provider/index.test.ts.
+ * needs the host, so its pin lives in src/test/provider/index.test.ts. The host's cancellation predicate is
+ * vscode.CancellationError, which this tree cannot load; these pins hand the mapper one that never fires.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -34,8 +35,6 @@ import { assertShows, assertStartsWith } from "../../../pureHelpers";
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 const commitCtx: MapErrorContext = { surface: "commitGeneration", baseUrl: "http://litellm.test", timeoutMs: 5000 };
-
-/** The host's predicate is vscode.CancellationError, which this tree cannot load; these pins hand the mapper one that never fires. */
 const neverCancelled = (_error: unknown): _error is never => false;
 
 /**

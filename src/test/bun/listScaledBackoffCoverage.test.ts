@@ -45,12 +45,10 @@ function resolveRelative(from: string, specifier: string): string | undefined {
 	return [base, `${base}.ts`, `${base}.tsx`, path.join(base, "index.ts"), path.join(base, "index.tsx")].find(isFile);
 }
 
+/** One runtime import binding; `imported` is the exported name, `default`, or `*` for a namespace import. */
 interface ValueImport {
 	readonly specifier: string;
-
 	readonly target: string | undefined;
-
-	/** The exported name, `default`, or `*` for a namespace import. */
 	readonly imported: string;
 }
 
@@ -330,15 +328,14 @@ interface Drive {
 	readonly drives: boolean;
 }
 
+/**
+ * What the walk found in one test file. `loops` counts loops inside tests, whether or not the body sleeps; `drives`
+ * counts loops whose body drives a sleeper, injected or not.
+ */
 interface Audit {
 	readonly problems: string[];
-
 	readonly testFiles: number;
-
-	/** Loops inside tests, whether or not the body sleeps. */
 	readonly loops: number;
-
-	/** Loops whose body drives a sleeper, injected or not. */
 	readonly drives: number;
 }
 
@@ -871,6 +868,7 @@ test("sweep", () => { for (const surface of TRANSPORT_ERROR_SURFACES) { type Sou
 	},
 ];
 
+/** The production sleepers every shape fixture is judged against. */
 const sleepers = productionSleepers();
 
 test.each(SHAPES)("the detector reads the shape: $shape", ({ source, problems, loops, drives, names }) => {

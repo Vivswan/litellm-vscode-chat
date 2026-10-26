@@ -108,17 +108,17 @@ function reversalBand(): { readonly low: number; readonly high: number } {
 /** `<` and `>=` at the same number partition; anything else is reported. */
 const LEGAL_CSS_QUERY = /^@container pane \(width (?:<|>=) (\d+)px\)$/;
 
+/** The Tailwind variant spelling of the same pane query: `@max-[Npx]/pane:` or `@min-[Npx]/pane:`. */
 const LEGAL_VARIANT = /^@(?:max|min)-\[(\d+)px\]\/pane:$/;
 
+/**
+ * One pane container query from either harvest. `side` says which harvest found it, so each can be floored against its
+ * own population; `text` is what was actually written, for a failure message that can be acted on.
+ */
 interface PaneQuery {
 	readonly value: number | undefined;
-
 	readonly source: string;
-
-	/** Which harvest found it, so each can be floored against its own population. */
 	readonly side: "stylesheet" | "component";
-
-	/** What was actually written, for a failure message that can be acted on. */
 	readonly text: string;
 }
 
@@ -259,10 +259,9 @@ function nestedSelectors(component: Extract<SelectorComponent, { type: "pseudo-c
 const strongest = (kinds: readonly SubjectKind[]): SubjectKind =>
 	kinds.includes("root") ? "root" : kinds.includes("parent") ? "parent" : "other";
 
+/** A rule open above the current one; `line` is the compiled line that opened it, for the report. */
 interface EnclosingRule {
 	readonly selectors: Selector[];
-
-	/** The compiled line that opened the rule, for the report. */
 	readonly line: string;
 }
 

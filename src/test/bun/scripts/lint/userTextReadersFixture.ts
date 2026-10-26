@@ -9,8 +9,11 @@
  *   // seen                      -> judged and accepted: a non-text operand, or a read inside the allowed function
  *   untagged                     -> not a lib trim, number read, or coercion at all
  */
+
+// a resolved string, for the reads the rule must refuse on a known text operand
 declare const text: string;
 
+// the nullable string operand, reached through optional chaining
 declare const maybeText: string | undefined;
 
 // biome-ignore lint/suspicious/noExplicitAny: the unresolved-receiver shape

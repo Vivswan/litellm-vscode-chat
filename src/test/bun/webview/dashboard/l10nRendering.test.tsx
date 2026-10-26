@@ -11,12 +11,11 @@ import { ModelsSection } from "../../../../webview/dashboard/models";
 import { makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
 import { buttonByText, cleanup, fireClick, mount, postedCalls, pushToWebview, resetPosted } from "../harness";
 
-// The exact composite keys the call sites mint (message + "/" + joined comment); a drifted spelling on either side
-// makes the marker not render. "{0} min ago" doubles as the Diagnostics tracer: its marker must show on screen and
-// never in the copied (English) block.
+/** The composite keys the call sites mint, message + "/" + comment; a drifted spelling leaves a marker unrendered. */
 const FAKE_BUNDLE: Record<string, string> = {
 	"{0} in/price per million input tokens; {0} is a currency amount": "IN[{0}]",
 	"{0} out/price per million output tokens; {0} is a currency amount": "OUT[{0}]",
+	// The Diagnostics tracer: its marker must show on screen and never in the copied (English) block.
 	"{0} min ago": "AGO[{0}]",
 	// The tracer for the configuration lines: the on-screen sentence IS translated, so a copy path reading the
 	// rendered text (or reusing recordProblemText) would paste MATCHER[...] into a public issue.

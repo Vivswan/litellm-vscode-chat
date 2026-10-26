@@ -1,3 +1,8 @@
+/**
+ * A service log past spawnSync's 1 MiB pipe buffer (bun stops the child there with ENOBUFS) still arrives whole in
+ * its file, because the capture streams into the descriptor. A DEBUG proxy log over a nightly leg is many times that
+ * size, and a truncated file would answer the timing question it exists for with a silence.
+ */
 import { afterAll, describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fs from "node:fs";
@@ -6,11 +11,6 @@ import * as path from "node:path";
 import { writeStackLogs } from "../../../../../scripts/stack/stackLogs";
 import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
 
-/**
- * A service log past spawnSync's 1 MiB pipe buffer (bun stops the child there with ENOBUFS) still arrives whole in
- * its file, because the capture streams into the descriptor. A DEBUG proxy log over a nightly leg is many times that
- * size, and a truncated file would answer the timing question it exists for with a silence.
- */
 const LOG_LINE = `${"x".repeat(1023)}\n`;
 
 const LONG_LINES = 3 * 1024;

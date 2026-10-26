@@ -10,11 +10,7 @@ import {
 	twoBandTextTokenEstimate,
 } from "../../../../shared/conversion/textTokens";
 
-/**
- * A realistic Chinese chat message: 54 Han characters plus ASCII punctuation and spaces (60 UTF-16 units). The plain
- * chars/4 heuristic prices it at 15 tokens while real tokenizers see 45 (o200k_base) and 58 (cl100k_base) - the 3-4x
- * undercount this module's modes exist to close.
- */
+/** A realistic Chinese chat message; the chars/4 heuristic undercounts a real tokenizer on it three to four times. */
 const CHINESE_FIXTURE =
 	"请把这个函数重构成纯函数, 并为它补上完整的单元测试。注意保持原有的错误处理逻辑不变, 同时把所有网络调用移动到调用方。";
 

@@ -2,6 +2,14 @@
  * Property coverage for the dashboard's trust boundary: panel.ts acts on nothing that has not passed
  * parseDashboardRequest, so a hole in that parse turns hostile webview JSON into settings writes, SecretStorage writes,
  * and command execution.
+ *
+ * Generated request ids stay inside the bound intentSchema.ts sets, and oversized mutants fall outside it. The secret
+ * directive schema admits an empty "set" value on purpose: refusing it is validateSaveServerSetting's job, one
+ * validation layer later.
+ *
+ * The junk values are invalid for every payload field but the array-valued ones: NaN fails even z.number(), an array
+ * fails records, strict objects, and strings, and the one-key object fails strict shapes, both record fields, and
+ * strings. All three also fail the parameterless methods' literal null.
  */
 
 import { describe, test } from "bun:test";
@@ -37,7 +45,6 @@ import { resolveFuzzSeed } from "../../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
 
-/** The request id bound in intentSchema.ts: generated ids stay inside it, oversized mutants fall outside it. */
 const REQUEST_ID_MAX_LENGTH = 128;
 
 const finiteNumber = fc.double({ noNaN: true, noDefaultInfinity: true });
@@ -46,8 +53,6 @@ const requestId = fc.string({ minLength: 1, maxLength: REQUEST_ID_MAX_LENGTH });
 
 const safeRecordKey = fc.string({ maxLength: 12 }).filter((key) => !isUnsafeRecordKey(key));
 
-// The schema admits an empty "set" value on purpose; refusing it is validateSaveServerSetting's job, one validation
-// layer later.
 const validSecretDirective: fc.Arbitrary<Record<string, unknown>> = fc.oneof(
 	fc.constant({ action: "keep" }),
 	fc.constant({ action: "clear" }),
@@ -92,8 +97,8 @@ const saveServerPayload = fc.record(
 			fc.constant(null)
 		),
 	},
-	// The always-sent fields are schema-required; only modelParameters and the non-secret text fields may be absent.
 	{
+		// The always-sent fields are schema-required; only modelParameters and the non-secret text fields may be absent.
 		requiredKeys: [
 			"label",
 			"baseUrl",
@@ -233,6 +238,7 @@ interface RawRequest {
 	readonly payload: unknown;
 }
 
+/** A well-formed request for any method; every mutant below is cut from one. */
 const validRequest: fc.Arbitrary<RawRequest> = fc.constantFrom(...METHODS).chain((method) =>
 	fc.record({
 		kind: fc.constant("request" as const),
@@ -242,11 +248,7 @@ const validRequest: fc.Arbitrary<RawRequest> = fc.constantFrom(...METHODS).chain
 	})
 );
 
-/**
- * Values invalid for every field the payload shapes declare: NaN fails even z.number(); an array fails records, strict
- * objects, and strings; the one-key object fails strict shapes, both record fields, and strings. All three also fail
- * the parameterless methods' literal null.
- */
+/** Values the payload shapes refuse, array-valued fields aside; the mutation swaps NaN in where an array is legal. */
 const junkValue: fc.Arbitrary<unknown> = fc.constantFrom(Number.NaN, [], { unexpected: [] });
 
 describe("extension/dashboard/state webview request schema properties", () => {

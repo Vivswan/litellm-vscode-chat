@@ -4,6 +4,9 @@
  * unproven entry, two external groups sharing one base URL under different labels (adoption and hiding must pick by
  * label), a hidden tombstone, and record settings whose `effective` view differs from the edit scope's own `value` (the
  * merge hazard planEditModelRecords must not fall into).
+ *
+ * The cred group is an external group whose stored URL carries a password; the agent may name it by CRED_DISPLAY_URL
+ * too.
  */
 import type { DashboardState } from "../../../../../dashboard/viewModels";
 import { makeSettings } from "../../../../dashboardSettingsFixture";
@@ -21,10 +24,7 @@ const OAUTH_TOKEN_URL = "http://token.test/oauth";
 export const COPILOT_BASE_URL = "http://copilot.example:4000";
 export const COPILOT_HANDLE = "handle-abc123";
 export const TWIN_HANDLE = "handle-twin456";
-
-/** An external group whose stored URL carries a password; the agent may name it by CRED_DISPLAY_URL too. */
 export const CRED_PASSWORD = "cred-pass-Q7-marker";
-
 export const CRED_BASE_URL = `http://alice:${CRED_PASSWORD}@cred.example:4000`;
 export const CRED_DISPLAY_URL = "http://cred.example:4000";
 export const CRED_HANDLE = "handle-cred789";

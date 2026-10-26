@@ -1,3 +1,13 @@
+/**
+ * Property coverage (seed-pinned, FUZZ_RUNS-scaled) for the status bar's whole rendering decision
+ * (docs/usage.md#the-status-bar): hidden exactly per the documented rules, severity and percentage derived from the
+ * worst FRESH server only (stale servers never contribute, past-100% ratios show literally), and the tooltip carrying
+ * exactly the expected line count. The oracle restates the documented rules on top of the real freshness module.
+ *
+ * boundaryServerArb lands a fresh server's spend fraction EXACTLY on a common threshold: its integer quotients are
+ * bit-identical to the doubles thresholdsArb generates, so the "reaching a threshold counts as crossing it" boundary
+ * (worst >= t) is really exercised, and a >=-to-> regression must fail the run.
+ */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -14,31 +24,21 @@ import { resolveFuzzSeed } from "../../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
-/**
- * Property coverage (seed-pinned, FUZZ_RUNS-scaled) for the status bar's whole rendering decision
- * (docs/usage.md#the-status-bar): hidden exactly per the documented rules, severity and percentage derived from the
- * worst FRESH server only (stale servers never contribute, past-100% ratios show literally), and the tooltip carrying
- * exactly the expected line count. The oracle restates the documented rules on top of the real freshness module.
- */
-
 const NOW = Date.UTC(2026, 7, 1, 12);
 
 const POLLING_OFF_WINDOW_MS = NUMBER_SETTING_SPECS["usage.pollingOffFreshnessWindow"].default;
 
+/**
+ * One generated server. `ageInWindows` is spendUpdatedAt as an age in freshness-window units; undefined means never
+ * updated.
+ */
 interface GeneratedServer {
 	readonly keyInfo: UsageEndpointState;
-
 	readonly hasKey: boolean;
-
-	/** spendUpdatedAt as an age in freshness-window units; undefined means never updated. */
 	readonly ageInWindows: number | undefined;
-
 	readonly spend: number | undefined;
-
 	readonly entryBudget: number | undefined;
-
 	readonly keyBudget: number | undefined;
-
 	readonly budgetResetAt: number | undefined;
 }
 
@@ -75,11 +75,6 @@ const serverArb: fc.Arbitrary<GeneratedServer> = fc.record({
 	budgetResetAt: fc.option(fc.constant(Date.UTC(2026, 7, 31)), { nil: undefined }),
 });
 
-/**
- * A fresh server whose spend fraction lands EXACTLY on a common threshold: these integer quotients are bit-identical to
- * the doubles thresholdsArb generates, so the "reaching a threshold counts as crossing it" boundary (worst >= t) is
- * really exercised - a >=-to-> regression must fail the run.
- */
 const boundaryServerArb: fc.Arbitrary<GeneratedServer> = fc
 	.tuple(
 		fc.constantFrom<[number, number]>([50, 100], [80, 100], [95, 100], [100, 100], [40, 50]),

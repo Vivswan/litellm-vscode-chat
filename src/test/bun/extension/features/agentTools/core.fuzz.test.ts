@@ -1,6 +1,12 @@
 /**
  * Seeded through the repo's fuzz seed so a failure replays; a shrunk counterexample becomes a pinned case in the
  * sibling suites.
+ *
+ * REACHABLE holds the methods a plan may name; the ones it excludes are the type-level fence the planner keeps.
+ *
+ * overBoundString is not fc.string at its length: that draws one character at a time, and 60k draws per run is most
+ * of the suite's wall clock at the nightly's run count. A repeated unit keeps backticks and URL shapes in reach of the
+ * fence and the URL scrub.
  */
 import { describe, expect, test } from "bun:test";
 import * as fc from "fast-check";
@@ -35,7 +41,6 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 const state = agentToolsState();
 
-/** The methods a plan may name; the excluded four are the type-level fence the planner keeps. */
 const REACHABLE = new Set(
 	Object.keys(DASHBOARD_ENDPOINTS).filter(
 		(method) => !["ready", "readInlineSecrets", "executeCommand", "revealSetting"].includes(method)
@@ -166,11 +171,6 @@ const shapedInput: Record<AgentToolId, fc.Arbitrary<unknown>> = {
 	),
 };
 
-/**
- * Not fc.string at this length: it draws one character at a time, and 60k draws per run is most of the suite's wall
- * clock at the nightly's run count. A repeated unit keeps backticks and URL shapes in reach of the fence and the URL
- * scrub.
- */
 const overBoundString = fc
 	.tuple(fc.string({ minLength: 1, maxLength: 20 }), fc.integer({ min: 60_001, max: 70_000 }))
 	.map(([unit, length]) => unit.repeat(Math.ceil(length / unit.length)).slice(0, length));

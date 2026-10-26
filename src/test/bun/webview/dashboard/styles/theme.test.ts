@@ -15,11 +15,7 @@ import {
 } from "./compileStyles";
 import { type Block, blocks } from "./cssBlocks";
 
-/**
- * Load-bearing utilities the ui components consume: each one must compile from the source scan, or the styled
- * primitives silently lose that piece of their look (Tailwind's @source scan fails silently). A missing name here means
- * the scan broke or the component stopped using the utility - update deliberately either way.
- */
+/** Utilities the ui components consume; each must compile from the source scan, which fails silently when it breaks. */
 const REQUIRED_UTILITIES = [
 	"inline-flex",
 	"cursor-pointer",
@@ -125,7 +121,8 @@ test(
 	async () => {
 		const output = await compileTheme();
 		// An empty utilities layer would mean the @source paths stopped resolving (they fail silently inside Tailwind),
-		// so check names, not just success.
+		// so check names, not just success. A missing name means the scan broke or the component stopped using the
+		// utility; update the list deliberately either way, since the styled primitives lose that piece of their look.
 		for (const utility of REQUIRED_UTILITIES) {
 			expect(output).toContain(escapedSelector(utility));
 		}
@@ -434,11 +431,7 @@ test("the problem-band tiers: one bar in color modes with hue and headline text,
 	}
 });
 
-/**
- * Tokens a forced palette deliberately leaves alone. The font trio is the reader's editor setting rather than a theme,
- * and the two contrast tokens are undefined in every ordinary theme - the chains that read them are written for exactly
- * that absence, and a forced theme is never high contrast.
- */
+/** Tokens a forced palette leaves alone: the fonts are the reader's editor setting, the contrast pair is never set. */
 const UNFORCED_HOST_TOKENS = new Set([
 	"--vscode-font-family",
 	"--vscode-font-size",
@@ -466,6 +459,8 @@ test("a forced theme redefines every host token the stylesheets read", () => {
 	// Forcing a theme means replacing the HOST's variables, because that is what every consumer reads: the semantic
 	// mapping, the dashboard stylesheet's direct reads, and the utilities alike. A token the palettes miss keeps its
 	// value from the editor's theme, which is how a forced dark dashboard ends up a light page with one black input.
+	// The two contrast tokens are undefined in every ordinary theme: the chains that read them are written for exactly
+	// that absence, and a forced theme is never high contrast.
 	const read = new Set<string>();
 	for (const entry of [themeEntry, dashboardEntry]) {
 		for (const match of readFileSync(entry, "utf8").matchAll(/var\((--vscode-[A-Za-z0-9-]+)/g)) {

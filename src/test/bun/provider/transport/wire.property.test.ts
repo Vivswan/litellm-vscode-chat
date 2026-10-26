@@ -1,3 +1,8 @@
+/**
+ * parseChunk over shaped and unshaped input. Every slot of the shaped records is drawn from fuzzValue:
+ * JSON-representable values plus fast-check's wider default value pool, still prototype-ordinary like JSON.parse
+ * output.
+ */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -190,10 +195,6 @@ function assertChunkInvariants(chunk: ChatCompletionChunk): void {
 	}
 }
 
-/**
- * JSON-representable values plus fast-check's wider default value pool (still prototype-ordinary, like JSON.parse
- * output).
- */
 const fuzzValue = fc.oneof(fc.jsonValue({ maxDepth: 2 }), fc.anything({ maxDepth: 2, maxKeys: 5 }));
 
 const toolCallShaped = fc.record(

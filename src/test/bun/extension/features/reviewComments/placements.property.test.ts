@@ -5,6 +5,10 @@
  * garbage, so nearly every run exercises real placements - counts, order, bodies, and clamped bounds - rather than
  * spending its runs deep inside noise that parses to nothing. The example-based leniency rules live in
  * placements.test.ts.
+ *
+ * Anchor digits are exact small numbers (signed: negatives clamp to line one) plus runs long enough to saturate
+ * parseInt. Every rendered finding shape must parse to exactly one placement. Known garbage carries `counted`, which
+ * says whether the parser must report it dropped; fences, blanks, and the sentinel are ignored silently.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -41,15 +45,11 @@ const grammarToken = fc.constantFrom(
 const answerArb = fc.oneof(fc.string({ maxLength: 200 }), fc.string({ unit: grammarToken, maxLength: 60 }));
 const lineCountArb = fc.oneof(fc.integer({ min: -100, max: 100_000 }), fc.double());
 
-/**
- * Anchor digits: exact small numbers (signed - negatives clamp to line one) plus runs long enough to saturate parseInt.
- */
 const anchorArb = fc.oneof(
 	fc.integer({ min: -1_000_000, max: 1_000_000 }).map(String),
 	fc.constantFrom("99999999999999999999", "9".repeat(400))
 );
 
-/** A rendered well-formed finding line; every shape here must parse to exactly one placement. */
 const findingArb = fc
 	.record({
 		prefix: fc.constantFrom("", "- ", "> ", "* ", "**"),
@@ -62,10 +62,6 @@ const findingArb = fc
 		body: `finding ${bodyId}`,
 	}));
 
-/**
- * Known garbage: `counted` says whether the parser must report it dropped (fences, blanks, and the sentinel are
- * ignored silently).
- */
 const noiseArb = fc.constantFrom(
 	{ line: "", counted: false },
 	{ line: "```", counted: false },

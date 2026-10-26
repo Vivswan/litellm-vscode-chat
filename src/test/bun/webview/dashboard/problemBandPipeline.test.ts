@@ -8,28 +8,31 @@
  *   problemBand.tsx is the only source that may mint the band root class or a paint tier, and the compiled sheet may
  *   only paint tiers through the pipeline's own compound selectors
  *     -> a fourth variant has to edit the pipeline, where the mapping is one table
+ *
+ * The source leg is a grep guard, so a determined concatenation ("row-" + "diagnostic") can evade it; the compiled-CSS
+ * leg still pins what such a class could paint, and honest code fails the source leg with the file to fix.
  */
 import { expect, test } from "bun:test";
 import { shippedSources } from "../../../sourceScan";
 import { compileDashboard, rulesFor } from "./styles/compileStyles";
 import { blocks } from "./styles/cssBlocks";
 
+/** The one source allowed to mint the band vocabulary. */
 const PIPELINE = "src/webview/dashboard/problemBand.tsx";
 
+/** The webview bundle is built from these source trees, so a stray mint can only land in them. */
 const WEBVIEW_BUNDLE_TREES = ["webview", "dashboard", "shared"] as const;
 
-// The band root class as its own token: the structural children (.row-diagnostic-headline and friends) stay mintable
-// where a surface seats its own content, but the CLASS that receives the tier paint may not be. A grep guard, so a
-// determined concatenation ("row-" + "diagnostic") can evade it - the compiled-CSS leg below still pins what such a
-// class could PAINT, and honest code fails here with the file to fix.
+/** The band root class as its own token; its structural children (.row-diagnostic-headline and kin) stay mintable. */
 const BAND_ROOT = /row-diagnostic(?![\w-])/;
 
+/** A paint tier class as the compiled sheet spells it. */
 const TIER_CLASS = /\btier-(?:error|warn|advisory)\b/;
 
-// What a SOURCE file writes to mint a tier: the literal class, or the pipeline's own template shape - an interpolated
-// `tier-${...}` elsewhere would evade the literal scan.
+/** What a source file writes to mint a tier: the literal class, or the pipeline's own `tier-${...}` template shape. */
 const TIER_MINT = /\btier-(?:error|warn|advisory)\b|tier-\$\{/;
 
+/** Class names of the retired band presentations, which must not creep back. */
 const RETIRED = /\bsev-(?:blocking|degraded|advisory)\b|spend-error/;
 
 test("only problemBand.tsx mints the band vocabulary", () => {

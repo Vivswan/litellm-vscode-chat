@@ -1,3 +1,8 @@
+/**
+ * mapSdkError under arbitrary input and across the 401 body shapes LiteLLM sends. The nested-body expectations lean on
+ * the openai SDK assigning the parsed body to APIError.error verbatim; if the SDK ever unwraps error.error, the nested
+ * cases' expected classifications invert.
+ */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -13,7 +18,10 @@ import {
 import { manageCommandTitle } from "../../../../shared/config/commandIds";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 
+/** Cases per property; CI sets FUZZ_RUNS above this local default. */
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
+
+/** The seed every property here shares, printed once so a failing run replays. */
 const SEED = resolveFuzzSeed();
 
 /** The host's predicate is vscode.CancellationError, which this tree cannot load; these pins hand the mapper one that never fires. */
@@ -62,8 +70,10 @@ interface Auth401Case {
 	expected: "proxy" | "upstream";
 }
 
+/** A secret-shaped marker standing in for response text; a mapped message must never carry it. */
 const markerArb = fc.nat().map((n) => `SECRET_MARKER_${n}`);
 
+/** The litellm exception spellings a proxied upstream failure puts at the head of its message. */
 const litellmMentionArb = fc.constantFrom(
 	"litellm.AuthenticationError: AnthropicException - ",
 	"litellm.exceptions.AuthenticationError: BedrockException - ",
@@ -71,8 +81,6 @@ const litellmMentionArb = fc.constantFrom(
 );
 
 /** Upstream-provider failures: a litellm exception name in the top-level message, no auth_error envelope. */
-// The nested-body expectations lean on the openai SDK assigning the parsed body to APIError.error verbatim; if the SDK
-// ever unwraps error.error, the nested cases' expected classifications invert.
 const upstreamCaseArb: fc.Arbitrary<Auth401Case> = fc
 	.record({
 		marker: markerArb,

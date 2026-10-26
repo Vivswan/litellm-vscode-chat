@@ -1,11 +1,11 @@
+/**
+ * The compiled shapes the bundle hands the gate are hand-written here; the fixture's own order is the case under test,
+ * never read back from theme.css. A layer declared below base loses to base whatever its specificity.
+ */
 import { expect, test } from "bun:test";
 import { assertLayersOrdered } from "../../../../../scripts/dev/cascadeLayers";
 
-/**
- * The compiled shapes the bundle hands the gate, hand-written: Tailwind prints the entry's order statement ahead of
- * the layer blocks it fills, and Bun's CSS bundler prints a plain sheet behind a file banner. The fixture's own order
- * is the case under test, never read back from theme.css.
- */
+/** Tailwind's output shape: the entry's order statement printed ahead of the layer blocks it fills. */
 const tailwindEntry = (order: string, lead = ""): { id: string; css: string } => ({
 	id: "theme.css",
 	css: [
@@ -18,6 +18,7 @@ const tailwindEntry = (order: string, lead = ""): { id: string; css: string } =>
 	].join("\n"),
 });
 
+/** Bun's CSS bundler's output shape: a plain sheet behind a file banner. */
 const plainSheet = ({ wrap = "components", inner = "", trailer = "" } = {}): { id: string; css: string } => ({
 	id: "dashboard.css",
 	css: `/* src/webview/dashboard/styles/dashboard.css */\n@layer ${wrap} {\n  button.help {\n    font-size: 10px;\n  }\n${inner}}\n${trailer}`,
@@ -27,17 +28,18 @@ test("the declared order passes: theme, base, components, utilities", () => {
 	expect(() => assertLayersOrdered([tailwindEntry("theme, base, components, utilities"), plainSheet()])).not.toThrow();
 });
 
-// Every rejected shape names the sheet at fault and the layers or rule behind the refusal, so the bundle failure
-// points at the statement to fix. The first row is the order that let `@layer base`'s `button { font-size: inherit }`
-// overwrite `button.help`'s own 10px with the gate green: a layer declared below base loses to base whatever its
-// specificity.
+/** The refused shapes; the first row let base's `button { font-size: inherit }` beat `button.help`'s own 10px. */
 const rejected: readonly {
+	/** Names the case in the test output. */
 	readonly name: string;
 
+	/** The order statement the Tailwind entry prints. */
 	readonly order: string;
 
+	/** The plain sheet handed in beside the entry. */
 	readonly sheet: { id: string; css: string };
 
+	/** What the refusal names, the sheet at fault and the layers or rule behind it, so the failure points at the fix. */
 	readonly named: readonly string[];
 
 	/** Printed ahead of the order statement, where a mention ranks before anything the statement says. */

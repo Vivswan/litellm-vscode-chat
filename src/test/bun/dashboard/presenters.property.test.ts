@@ -1,3 +1,7 @@
+/**
+ * Round-trip properties of the dashboard presenters' value formatting. parseHeaderValue trims its input, so only
+ * strings equal to their trim can round-trip.
+ */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -13,7 +17,6 @@ const whitespaceOnly = fc.string({ unit: fc.constantFrom(" ", "\t", "\n", "\r"),
 
 const finiteNumber = fc.double({ noNaN: true, noDefaultInfinity: true }).map((n) => (Object.is(n, -0) ? 0 : n));
 
-// parseHeaderValue trims its input, so only strings equal to their trim can round-trip.
 const trimmedString = fc.string({ maxLength: 20 }).map((s) => s.trim());
 
 const headerScalar: fc.Arbitrary<HeaderScalar> = fc.oneof(fc.boolean(), finiteNumber, trimmedString);

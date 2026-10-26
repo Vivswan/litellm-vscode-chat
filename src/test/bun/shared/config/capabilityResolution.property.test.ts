@@ -3,6 +3,17 @@
  * aligned.
  *
  *   The capability resolver's safety argument -> mirrored from the parameterResolution property suite
+ *
+ * Generated record keys are slash-free so a pre-migration URL key can never collide with a plain key, and
+ * underscore-free so a random field name can never spell a directive. Values land on kind-matched and kind-mismatched
+ * fields alike, so the valid path and the invalid-value fallthrough stay common, and structured JSON values keep the
+ * verbatim-extras path alive. Server baselines carry the consumed vocabulary too, so its server level stays exercised.
+ *
+ * The directive level is not user-set: both catalog paths stay guesses on the wire. The directive pool holds the two
+ * IDs the generated catalog can hold plus one it never does.
+ *
+ * A scenario keys records by glob or exact cuts of the raw ID (matches are the common case) and by a cut of an
+ * unrelated ID that keeps the no-match branch alive, with directives pointing into and past the generated catalog.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -61,18 +72,14 @@ const CONSUMED_EXTRA_NAMES = Object.keys(CONSUMED_CAPABILITY_FIELDS).filter(
 );
 const OVERRIDE_LEVELS: readonly CapabilityOverrideLevel[] = ["entry", "global", "directive"];
 
-// The directive level is NOT user-set: both catalog paths stay guesses on the wire.
 const USER_SET_LEVELS: readonly CapabilityLevel[] = ["entry", "global", "entry-fallback", "global-fallback"];
 
-// Slash-free so a pre-migration URL key can never collide with a plain key;
-// underscore-free so a random field name can never spell a directive.
 const noSlashChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
 
 const noSlashKey = fc.string({ unit: noSlashChar, minLength: 1, maxLength: 10 });
 
 const scopePool = ["http://a.test", "http://b.test:4000"] as const;
 
-// The two directive IDs the generated catalog can hold, plus one it never does.
 const DIRECTIVE_POOL = ["cat/one", "cat/two", "cat/none"] as const;
 
 const validNumber = fc.integer({ min: 1, max: 1_000_000 });
@@ -89,7 +96,6 @@ const validFieldsArb: fc.Arbitrary<Partial<CapabilityFieldValues>> = fc.record(
 	{ requiredKeys: [] }
 );
 
-/** Server baselines carry the consumed vocabulary too, so its server level stays exercised. */
 const serverValuesArb: fc.Arbitrary<Partial<ServerCapabilityValues>> = fc
 	.tuple(
 		validFieldsArb,
@@ -106,8 +112,6 @@ const serverValuesArb: fc.Arbitrary<Partial<ServerCapabilityValues>> = fc
 	)
 	.map(([core, consumed]) => ({ ...core, ...consumed }));
 
-// Values land on kind-matched and kind-mismatched fields alike, so both the valid path and the invalid-value
-// fallthrough stay common; structured JSON values keep the verbatim-extras path alive.
 const fieldValueArb = fc.oneof(
 	{ arbitrary: validNumber, weight: 3 },
 	{ arbitrary: fc.boolean(), weight: 3 },
@@ -119,8 +123,11 @@ const recordKeyArb = fc.oneof(
 	{ arbitrary: fc.constantFrom<string>(...FIELD_NAMES), weight: 5 },
 	{ arbitrary: fc.constantFrom<string>(...CONSUMED_EXTRA_NAMES), weight: 2 },
 	{ arbitrary: noSlashKey, weight: 1 },
-	// Prototype-named fields must behave like any other extra (the own-property guard's regression surface).
-	{ arbitrary: fc.constantFrom("toString", "valueOf", "constructor", "hasOwnProperty"), weight: 1 },
+	{
+		// Prototype-named fields must behave like any other extra (the own-property guard's regression surface).
+		arbitrary: fc.constantFrom("toString", "valueOf", "constructor", "hasOwnProperty"),
+		weight: 1,
+	},
 	{ arbitrary: noSlashKey.map((key) => `_${key}`), weight: 1 }
 );
 
@@ -133,8 +140,6 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 		fc.option(fc.oneof(fc.constantFrom<unknown>(...DIRECTIVE_POOL), fc.constantFrom<unknown>("", 7)), {
 			nil: undefined,
 		}),
-		// _fallback: all-fields, a list of names (valid and bogus alike), or an invalid shape - each of the parse
-		// branches stays a common case.
 		fc.option(
 			fc.oneof(
 				{ arbitrary: fc.boolean(), weight: 2 },
@@ -149,6 +154,8 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 		// _declare is retired; it stays as inert underscore-key noise that resolution must ignore everywhere.
 		...(declare === undefined ? {} : { _declare: declare }),
 		...(openrouterModel === undefined ? {} : { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel }),
+		// _fallback is drawn as all-fields, a list of names (valid and bogus alike), or an invalid shape, so each parse
+		// branch stays a common case.
 		...(fallback === undefined ? {} : { [FALLBACK_DIRECTIVE]: fallback }),
 	}));
 
@@ -186,11 +193,7 @@ interface Scenario {
 	readonly input: ResolveModelCapabilitiesInput;
 }
 
-/**
- * A raw ID plus capability records whose keys are glob or exact cuts of it (matches are the common case), a cut of an
- * unrelated ID keeping the no-match branch alive, the catch-all "*", inert pre-migration URL keys, directives pointing
- * into and past the generated catalog, and independent server and catalog layers.
- */
+/** One resolution input: records keyed by cuts of the ID and of a stranger, "*", URL keys, directives, both layers. */
 const scenario: fc.Arbitrary<Scenario> = fc
 	.record({
 		rawModelId: noSlashKey,

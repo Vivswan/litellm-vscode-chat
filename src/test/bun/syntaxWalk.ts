@@ -79,10 +79,7 @@ export function calleeRoot(
 	}
 }
 
-/**
- * An import whose every binding is a type loads nothing at runtime: the transpiler erases it whole, so it is not an
- * edge. `import defer` still loads.
- */
+/** An import whose every binding is a type loads nothing: the transpiler erases it whole. `import defer` loads. */
 export const isTypeOnlyImport = (clause: ts.ImportClause | undefined): boolean =>
 	clause !== undefined &&
 	(clause.phaseModifier === ts.SyntaxKind.TypeKeyword ||
@@ -92,12 +89,13 @@ export const isTypeOnlyImport = (clause: ts.ImportClause | undefined): boolean =
 			clause.namedBindings.elements.length > 0 &&
 			clause.namedBindings.elements.every((element) => element.isTypeOnly)));
 
+/**
+ * One import statement that loads at runtime. A binding's `imported` is the exported name, `default`, or `*` for a
+ * namespace; a side-effect import has no bindings.
+ */
 export interface ImportStatement {
 	readonly statement: ts.ImportDeclaration;
-
 	readonly specifier: string;
-
-	/** `imported` is the exported name, `default`, or `*` for a namespace; a side-effect import has no bindings. */
 	readonly bindings: readonly { readonly local: ts.Identifier; readonly imported: string }[];
 }
 

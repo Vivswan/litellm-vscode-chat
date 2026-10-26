@@ -18,18 +18,17 @@ import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 import type { FailureCause } from "../../../shared/failureCause";
 
-// Causes as the rows carry them (keys, never text); the pinned lines below are their English renderings.
-const CONNECTION: FailureCause = { kind: "transport", classification: { kind: "connection" } };
+/**
+ * The presenters' English renderings. These lines are what users copy out of the Diagnostics tab into issue reports,
+ * so the exact text is pinned once here instead of per surface. The failure causes are as the rows carry them (keys,
+ * never text), and the pinned lines are their English renderings.
+ */
 
+const CONNECTION: FailureCause = { kind: "transport", classification: { kind: "connection" } };
 const TIMEOUT: FailureCause = { kind: "transport", classification: { kind: "timeout" } };
 const HTTP_404: FailureCause = { kind: "transport", classification: { kind: "http", status: 404 } };
 const UPSERT_FAILED: FailureCause = { kind: "sync", failureClass: "upsertFailed" };
 const PROD = "http://prod.test";
-
-/**
- * These lines are what users copy out of the Diagnostics tab into issue reports, so the exact text is pinned once here
- * instead of per surface.
- */
 
 type DeclaredServer = Extract<DashboardServer, { origin: "declared" }>;
 

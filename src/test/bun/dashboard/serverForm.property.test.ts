@@ -1,3 +1,12 @@
+/**
+ * Properties of parseServerForm and changedServerFormFields over drafts with deliberate whitespace variety.
+ *
+ * Secret values are bare, padded, whitespace-only, or strings that collide with the prefill pool, so every parseSecret
+ * branch (trimmed-empty keep, prefill keep, set) is reachable from both sides. Whole drafts mix bare, padded, junk,
+ * and leftover values in the identity, auth, budget, declared-models, and MCP fields across every auth form: enough
+ * variety to reach each normalization (trim, active-gating, budget and declared-models parses) from both sides, while
+ * keeping both-sides-savable common enough for the precondition.
+ */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -11,8 +20,6 @@ import { resolveFuzzSeed } from "../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
 
-// Values with deliberate whitespace variety: bare, padded, whitespace-only, and strings that collide with the prefill
-// pool, so every parseSecret branch (trimmed-empty keep, prefill keep, set) is reachable from both sides.
 const secretValue = fc.oneof(
 	fc.constantFrom("", " ", "\t", "  "),
 	fc
@@ -76,11 +83,7 @@ const paddedFrom = (...cores: readonly string[]): fc.Arbitrary<string> =>
 		.tuple(fc.constantFrom(...cores), fc.constantFrom("", " ", "\t "), fc.constantFrom("", " "))
 		.map(([core, lead, trail]) => `${lead}${core}${trail}`);
 
-/**
- * Whole drafts whose non-secret fields mix bare, padded, junk, and leftover values across every auth form: enough
- * variety to reach each normalization (trim, active-gating, budget and declared-models parses) from both sides, while
- * keeping both-sides-savable common enough for the precondition.
- */
+/** A whole draft whose identity, auth, budget, declared-models, and MCP fields vary; the record fields stay empty. */
 const nonSecretDraft: fc.Arbitrary<ServerFormDraft> = fc
 	.record({
 		authForm: fc.constantFrom<AuthFormId>("none", "apiKey", "virtualKey", "oauth"),

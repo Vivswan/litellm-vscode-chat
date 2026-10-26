@@ -18,7 +18,10 @@ import { CHILD_PROCESS_TIMEOUT_MS } from "./childProcessTimeout";
 /** A deleted hook script leaves nothing to derive a requirement from, so the relied-on hooks are listed here. */
 const REQUIRED_HOOKS = ["pre-commit", "commit-msg"];
 
+/** Where husky keeps the hook scripts and, under _/, the shims git runs. */
 const HUSKY_DIR = path.join(REPO_ROOT, ".husky");
+
+/** The shim git runs for a hook, which must exist and be executable. */
 const shimOf = (hook: string): string => path.join(HUSKY_DIR, "_", hook);
 
 /**

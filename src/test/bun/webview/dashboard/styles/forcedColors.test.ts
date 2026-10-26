@@ -1,3 +1,17 @@
+/**
+ * Forced colours against the webview's transparent borders and separating fills. The borders are scanned from the
+ * source files and the fills from the compiled dashboard sheet; every named or twinned verdict is then checked against
+ * the compiled forced-colors rules.
+ *
+ * Forced colours repaint a border colour whether or not the author wrote it transparent, while a fully transparent
+ * BACKGROUND is left alone, so `transparent` as an OFF state inverts for borders only. A new transparent border fails
+ * this file until someone says which of the two things it is. The scan reads all four spellings that reach a border,
+ * since a guard that only knows the word `transparent` walks past the next `#0000`.
+ *
+ * Forced colours also repaint every author background to Canvas (keeping only its alpha) and force non-url()
+ * background images to none, so a component whose ONLY separation channel is a fill dissolves into the page. A
+ * `color-mix` into transparent is a partial alpha rather than an off state, so the token scan excludes it.
+ */
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -14,19 +28,16 @@ const webviewDir = path.join(REPO_ROOT, "src/webview");
  * named       -> a forced-colors rule states the colour the author meant by transparent
  * welcome     -> the repaint is an improvement
  * notABorder  -> the value never lands on a border, and a fully transparent BACKGROUND is left alone by this mode
+ *
+ * A named disposition carries the compiled `selector` of the rule that names the colour and its `declaration`, which
+ * has to be inside that same rule.
  */
 type Disposition =
 	| {
 			readonly kind: "named";
-
 			readonly sheet: "theme" | "dashboard";
-
-			/** The compiled selector of the rule that names the colour. */
 			readonly selector: string;
-
-			/** Its declaration, which has to be inside that same rule. */
 			readonly declaration: string;
-
 			readonly why: string;
 	  }
 	| { readonly kind: "welcome"; readonly why: string }
@@ -42,16 +53,11 @@ interface TransparentBorder {
 	/** How many times that exact text appears in that file. */
 	readonly count: number;
 
+	/** The verdict on this border; a named one is checked against the compiled sheet. */
 	readonly disposition: Disposition;
 }
 
-/**
- * Forced colours repaint a border colour whether or not the author wrote it transparent, while a fully transparent
- * BACKGROUND is left alone - so `transparent` as an OFF state inverts for borders only. A new transparent border
- * fails this test until someone says which of the two things it is.
- *
- *   Four spellings reach a border  -> the scan reads all four
- */
+/** Every transparent border in the webview source with its verdict; a new one fails the scan until it is listed. */
 const TRANSPARENT_BORDERS: readonly TransparentBorder[] = [
 	{
 		file: "dashboard/settingRows.tsx",
@@ -160,15 +166,13 @@ const TRANSPARENT_BORDERS: readonly TransparentBorder[] = [
 	},
 ];
 
-/**
- * A guard that only knows the word `transparent` walks past the next `#0000`. Underscores count as spaces, which is
- * how an arbitrary Tailwind value spells one.
- */
+/** A zero alpha channel, as a number or a percentage. */
 const ZERO_ALPHA = String.raw`0(?:\.0+)?%?`;
 
 /** A function's argument list, allowing one level of nested calls. */
 const NESTED_ARGS = String.raw`[^()]*(?:\([^()]*\)[^()]*)*`;
 
+/** Every spelling of fully transparent; underscores count as spaces, as an arbitrary Tailwind value spells them. */
 const TRANSPARENT_VALUE = [
 	String.raw`\btransparent\b`,
 	String.raw`#(?:[0-9a-f]{3}0|[0-9a-f]{6}00)\b`,
@@ -176,10 +180,7 @@ const TRANSPARENT_VALUE = [
 	String.raw`\b(?:rgba?|hsla?)\(${NESTED_ARGS},[\s_]*${ZERO_ALPHA}[\s_]*\)`,
 ].join("|");
 
-/**
- * Utility spellings of a transparent border: the named colour, every side, the arbitrary-value forms with or
- * without the `color:` hint, the arbitrary PROPERTY form, and a zero opacity modifier.
- */
+/** Utility spellings of a transparent border: named, per side, arbitrary value or property, zero opacity modifier. */
 const UTILITY_PATTERN = new RegExp(
 	[
 		String.raw`\bborder(?:-[a-z]{1,2})?-(?:transparent\b|\[[^\]]*(?:${TRANSPARENT_VALUE})[^\]]*\]|[a-z][a-z0-9-]*\/(?:${ZERO_ALPHA}\b|\[${ZERO_ALPHA}\]))`,
@@ -190,16 +191,10 @@ const UTILITY_PATTERN = new RegExp(
 	"gi"
 );
 
-/**
- * The lookbehind keeps the property name whole, so a custom property merely ending in "border" is read as the token
- * it is rather than a declaration it is not.
- */
+/** The lookbehind keeps the property whole: a custom property ending in "border" is a token, not a declaration. */
 const DECLARATION_PATTERN = new RegExp(`(?<![a-z-])border[a-z-]*:[^;{}]*(?:${TRANSPARENT_VALUE})[^;{}]*`, "gi");
 
-/**
- * Custom properties that can resolve fully transparent, which is a border wherever a `border-*` utility names
- * one. A `color-mix` into transparent is a partial alpha rather than an off state, so those are excluded below.
- */
+/** Custom properties that can resolve fully transparent: a border wherever a `border-*` utility names one. */
 const TOKEN_PATTERN = new RegExp(`--[a-z0-9-]+:[^;{}]*(?:${TRANSPARENT_VALUE})[^;{}]*`, "gi");
 
 function sourceFiles(dir: string): readonly string[] {
@@ -309,27 +304,22 @@ test(
  * twinned       -> a forced-colors rule restates the boundary in a channel the mode keeps
  * insideBorder  -> the fill only tints inside a border the component already draws, and borders survive
  * welcome       -> losing the fill costs nothing a reader needs
+ *
+ * A twinned disposition carries the compiled `selector` of the forced-colors rule that restates the boundary and its
+ * `declaration`, which has to be inside that same rule.
  */
 type FillDisposition =
 	| {
 			readonly kind: "twinned";
-
-			/** The compiled selector of the forced-colors rule that restates the boundary. */
 			readonly selector: string;
-
-			/** Its declaration, which has to be inside that same rule. */
 			readonly declaration: string;
-
 			readonly why: string;
 	  }
 	| { readonly kind: "insideBorder"; readonly why: string }
 	| { readonly kind: "welcome"; readonly why: string };
 
 interface SeparatingFill {
-	/**
-	 * The rule's compiled selector list, whitespace-collapsed, prefixed by any at-rule preludes wrapping it: a
-	 * fill that moves into a width query is a different claim.
-	 */
+	/** The compiled selectors with their at-rule preludes; a fill that moves into a width query is a different claim. */
 	readonly selector: string;
 
 	/** The compiled background declaration, whitespace-collapsed. */
@@ -338,13 +328,11 @@ interface SeparatingFill {
 	/** How many times that selector paints that exact fill. */
 	readonly count: number;
 
+	/** The verdict on this fill; a twinned one is checked against the compiled sheet. */
 	readonly disposition: FillDisposition;
 }
 
-/**
- * Forced colours repaint every author background to Canvas (keeping only its alpha), so a component whose ONLY
- * separation channel is a fill dissolves into the page. Utility-class fills are invisible here; see UTILITY_FILLS.
- */
+/** Every background fill the compiled sheet paints, each with its verdict; utility-class fills sit in UTILITY_FILLS. */
 const SEPARATING_FILLS: readonly SeparatingFill[] = [
 	{
 		selector: ".rail",
@@ -755,10 +743,7 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 	},
 ];
 
-/**
- * Background declarations that carry paint: the shorthand and the two longhands the mode acts on (it repaints
- * colours and forces non-url() background images to none). The positioning longhands paint nothing.
- */
+/** Background declarations that carry paint: the shorthand and the two longhands the mode acts on. */
 const FILL_DECLARATION = /^background(?:-color|-image)?:/;
 
 /**
@@ -839,6 +824,7 @@ interface UtilityFill {
 	/** Its declaration, inside that selector's forced-colors rule. */
 	readonly twinDeclaration: string;
 
+	/** What the fill separates, and the incident that put it on the list. */
 	readonly why: string;
 }
 

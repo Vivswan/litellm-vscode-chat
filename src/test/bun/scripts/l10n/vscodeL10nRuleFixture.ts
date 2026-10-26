@@ -1,16 +1,21 @@
 /** The one-API rule's known laundering forms, beside the sanctioned forms they imitate. */
 export const VSCODE_L10N_FIXTURES: readonly {
+	/** Names the case in the test output. */
 	readonly name: string;
 
+	/** The module text the rule lints. */
 	readonly source: string;
 
+	/** Whether the rule must report the source. */
 	readonly flagged: boolean;
 
+	/** Whether the case may read `vscode.l10n.bundle`, as the two bundle-feeding sites do. */
 	readonly allowBundleReads?: boolean;
 
+	/** Whether the case may use a vscode-module binding as a plain value, as the constructor-probe files do. */
 	readonly allowVscodeValueUse?: boolean;
 
-	/** Fixture file name; ".tsx" exercises the JSX branch of the walk. */
+	/** The fixture's file name, `fixture.ts` unless set; `.tsx` exercises the JSX branch of the walk. */
 	readonly fileName?: string;
 }[] = [
 	{

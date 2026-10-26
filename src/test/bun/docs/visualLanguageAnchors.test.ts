@@ -4,12 +4,10 @@ import path from "node:path";
 import ts from "typescript";
 import { REPO_ROOT } from "../../util/repoRoot";
 
-/**
- * Line-number citations are banned outright because they rot within days of landing. The citation grammar this
- * file implements is documented at the top of docs/dashboard-visual-language.md.
- */
+/** The charter whose citation grammar this file implements; it bans line-number citations, which rot within days. */
 const charterPath = path.join(REPO_ROOT, "docs/dashboard-visual-language.md");
 
+/** Where a cited component file is looked up when its token carries no src/ prefix. */
 const dashboardRoot = path.join(REPO_ROOT, "src/webview/dashboard");
 
 /** First-token file names this grammar recognizes; everything else in backticks is ordinary prose. */
