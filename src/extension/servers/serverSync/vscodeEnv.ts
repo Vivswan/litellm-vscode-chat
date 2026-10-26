@@ -255,15 +255,26 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[], show: Removal
 	}
 }
 
-export function createServerSyncEnv(
-	context: vscode.ExtensionContext,
-	logger: Logger,
-	fingerprintSalt: FingerprintSaltSession,
-	removals: GroupRemovalStore,
-	observedGroupBaseUrls: (label: string) => readonly string[],
-	observedSnapshots: () => readonly ServerModelsSnapshot[],
-	showRemovalNotice: RemovalNoticeDoor = showActionableMessage
-): ServerSyncEnv {
+interface ServerSyncEnvDeps {
+	context: vscode.ExtensionContext;
+	logger: Logger;
+	fingerprintSalt: FingerprintSaltSession;
+	removals: GroupRemovalStore;
+	observedGroupBaseUrls: (label: string) => readonly string[];
+	observedSnapshots: () => readonly ServerModelsSnapshot[];
+	showRemovalNotice?: RemovalNoticeDoor;
+}
+
+export function createServerSyncEnv(deps: ServerSyncEnvDeps): ServerSyncEnv {
+	const {
+		context,
+		logger,
+		fingerprintSalt,
+		removals,
+		observedGroupBaseUrls,
+		observedSnapshots,
+		showRemovalNotice = showActionableMessage,
+	} = deps;
 	if (fingerprintSalt.state() !== "durable") {
 		logger.log(
 			"Server sync will not persist fingerprints this session: the fingerprint salt is session-only, so no later session could recognize them"

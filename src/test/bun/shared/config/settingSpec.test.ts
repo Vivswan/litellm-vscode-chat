@@ -2,7 +2,7 @@ import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_MAX_TOKENS_CAP } from "../../../../provider/transport/request";
+import { DEFAULT_MAX_TOKENS_CAP } from "../../../../shared/config/parameterResolution";
 import {
 	AGENT_TOOLS_SETTING_KEYS,
 	ALL_SETTING_KEYS,

@@ -35,8 +35,8 @@ type ParamCellFields = Omit<ResolvedParamCell, "name" | "valueText">;
 type CapCellFields = Omit<ResolvedCapCell, "name" | "valueText">;
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
 
-true satisfies Exact<keyof ParamCellFields, keyof ParameterCellProvenance>;
-true satisfies Exact<keyof CapCellFields, keyof CapabilityCellProvenance>;
+void (true satisfies Exact<keyof ParamCellFields, keyof ParameterCellProvenance>);
+void (true satisfies Exact<keyof CapCellFields, keyof CapabilityCellProvenance>);
 
 function paramCellAsVocabularyInput(cell: ParamCellFields): ParameterCellProvenance {
 	return cell;

@@ -1895,15 +1895,15 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 		} as unknown as vscode.ExtensionContext;
 		const removals = new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession(salt));
 		return {
-			env: createServerSyncEnv(
+			env: createServerSyncEnv({
 				context,
 				logger,
-				fakeFingerprintSaltSession(salt),
+				fingerprintSalt: fakeFingerprintSaltSession(salt),
 				removals,
-				() => [],
-				snapshots,
-				showRemovalNotice
-			),
+				observedGroupBaseUrls: () => [],
+				observedSnapshots: snapshots,
+				showRemovalNotice,
+			}),
 			removals,
 			storage,
 			lines,
@@ -2132,17 +2132,17 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 			secrets: storage.secrets,
 		} as unknown as vscode.ExtensionContext;
 		const answers: ("durable" | "session-only")[] = ["durable", "session-only"];
-		const env = createServerSyncEnv(
+		const env = createServerSyncEnv({
 			context,
-			new Logger({ info: () => {}, error: () => {} }),
-			{
+			logger: new Logger({ info: () => {}, error: () => {} }),
+			fingerprintSalt: {
 				state: () => "durable",
 				confirmDurable: async () => answers.shift() ?? "session-only",
 			},
-			new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession()),
-			() => [],
-			() => []
-		);
+			removals: new GroupRemovalStore(storage.memento, fakeFingerprintSaltSession()),
+			observedGroupBaseUrls: () => [],
+			observedSnapshots: () => [],
+		});
 
 		await env.setFingerprints({ A: "first" });
 		assert.deepStrictEqual(storage.mementoStore.get(SERVER_SYNC_FINGERPRINTS_KEY), { A: "first" });

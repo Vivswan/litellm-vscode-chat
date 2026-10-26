@@ -33,6 +33,7 @@ renders/**
 .worktrees/**
 .bun-version
 biome.json
+biome.local.jsonc
 bun.lock
 bunfig.toml
 components.json

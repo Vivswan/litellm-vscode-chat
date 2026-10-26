@@ -139,19 +139,21 @@ suite("extension/dashboard: probe-save equivalence", () => {
 	test("Test Connection probes exactly the credentials the saved entry's group would be handed", async () => {
 		await fc.assert(
 			fc.asyncProperty(
-				fieldsArb,
-				secretsArb,
-				existingArb,
-				blobArb,
-				orphanArb,
-				// Independent of `existing` on purpose: an entry under the label with NO replace identity is the add
-				// form saving onto a taken label, the route whose secret resolution differs from an edit's.
-				fc.boolean(),
-				// The draft's label, independent of the replaced entry's: "Renamed" with a replace identity is a
-				// rename, whose keeps must resolve the source entry alone - never the orphan blob seeded under
-				// "Renamed".
-				fc.constantFrom("Prod", "Renamed"),
-				async (fields, secrets, existing, blob, orphan, declaresReplacement, label) => {
+				fc.record({
+					fields: fieldsArb,
+					secrets: secretsArb,
+					existing: existingArb,
+					blob: blobArb,
+					orphan: orphanArb,
+					// Independent of `existing` on purpose: an entry under the label with NO replace identity is the add
+					// form saving onto a taken label, the route whose secret resolution differs from an edit's.
+					declaresReplacement: fc.boolean(),
+					// The draft's label, independent of the replaced entry's: "Renamed" with a replace identity is a
+					// rename, whose keeps must resolve the source entry alone - never the orphan blob seeded under
+					// "Renamed".
+					label: fc.constantFrom("Prod", "Renamed"),
+				}),
+				async ({ fields, secrets, existing, blob, orphan, declaresReplacement, label }) => {
 					const setting = existing !== undefined ? [existing] : [];
 					const replace = existing !== undefined && declaresReplacement ? displayedIdentity(existing, blob) : undefined;
 					const payload = {

@@ -365,16 +365,18 @@ async function runModelSyncPass(
 	}
 }
 
-export function registerSyncModelsCommand(
-	context: vscode.ExtensionContext,
-	provider: GroupRefreshingProvider,
-	statusBar: StatusBarLike,
-	outputChannel: vscode.OutputChannel,
-	logger: Logger,
-	hasConfiguredServers: () => boolean,
-	/** Runs before the model refresh; the server sync engine reconciles provider groups here. */
-	beforeSync?: () => Promise<void>
-): void {
+interface SyncModelsCommandDeps {
+	provider: GroupRefreshingProvider;
+	statusBar: StatusBarLike;
+	outputChannel: vscode.OutputChannel;
+	logger: Logger;
+	hasConfiguredServers: () => boolean;
+	beforeSync?: () => Promise<void>;
+}
+
+/** `beforeSync` runs before the model refresh; the server sync engine reconciles provider groups there. */
+export function registerSyncModelsCommand(context: vscode.ExtensionContext, deps: SyncModelsCommandDeps): void {
+	const { provider, statusBar, outputChannel, logger, hasConfiguredServers, beforeSync } = deps;
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.syncModels, async () => {
 			await beforeSync?.();

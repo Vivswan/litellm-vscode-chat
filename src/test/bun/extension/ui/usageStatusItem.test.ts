@@ -75,15 +75,15 @@ function render(
 		currencySymbol: string;
 	}> = {}
 ) {
-	return renderUsageStatus(
+	return renderUsageStatus({
 		states,
-		overrides.nowMs ?? NOW,
-		overrides.pollIntervalMs ?? POLL_INTERVAL_MS,
-		POLLING_OFF_WINDOW_MS,
-		overrides.thresholds ?? DEFAULT_THRESHOLDS,
-		overrides.mode ?? "always",
-		overrides.currencySymbol ?? "$"
-	);
+		nowMs: overrides.nowMs ?? NOW,
+		pollIntervalMs: overrides.pollIntervalMs ?? POLL_INTERVAL_MS,
+		pollingOffWindowMs: POLLING_OFF_WINDOW_MS,
+		thresholds: overrides.thresholds ?? DEFAULT_THRESHOLDS,
+		mode: overrides.mode ?? "always",
+		currencySymbol: overrides.currencySymbol ?? "$",
+	});
 }
 
 function expectVisible(result: ReturnType<typeof render>) {

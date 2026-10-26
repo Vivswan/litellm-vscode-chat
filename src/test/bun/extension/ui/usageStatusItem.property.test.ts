@@ -189,7 +189,15 @@ describe("extension/ui renderUsageStatus properties", () => {
 	test("hidden exactly per the documented rules; otherwise the worst fresh ratio shows literally", () => {
 		fc.assert(
 			fc.property(scenarioArb, ({ states, thresholds, mode, pollIntervalMs, nowMs }) => {
-				const view = renderUsageStatus(states, nowMs, pollIntervalMs, POLLING_OFF_WINDOW_MS, thresholds, mode, "$");
+				const view = renderUsageStatus({
+					states,
+					nowMs,
+					pollIntervalMs,
+					pollingOffWindowMs: POLLING_OFF_WINDOW_MS,
+					thresholds,
+					mode,
+					currencySymbol: "$",
+				});
 				const { worst, severity } = oracle(states, nowMs, pollIntervalMs, thresholds);
 
 				const expectHidden = mode === "off" || worst === undefined || (mode === "alerts-only" && severity === "plain");
@@ -214,7 +222,15 @@ describe("extension/ui renderUsageStatus properties", () => {
 		let warnings = 0;
 		fc.assert(
 			fc.property(scenarioArb, ({ states, thresholds, pollIntervalMs, nowMs }) => {
-				const view = renderUsageStatus(states, nowMs, pollIntervalMs, POLLING_OFF_WINDOW_MS, thresholds, "always", "$");
+				const view = renderUsageStatus({
+					states,
+					nowMs,
+					pollIntervalMs,
+					pollingOffWindowMs: POLLING_OFF_WINDOW_MS,
+					thresholds,
+					mode: "always",
+					currencySymbol: "$",
+				});
 				const { worst, lowest, highest, severity } = oracle(states, nowMs, pollIntervalMs, thresholds);
 				if (view === "hidden" || worst === undefined) {
 					return;
@@ -290,16 +306,24 @@ describe("extension/ui renderUsageStatus properties", () => {
 						);
 						return state;
 					});
-					const before = renderUsageStatus(states, nowMs, pollIntervalMs, POLLING_OFF_WINDOW_MS, thresholds, mode, "$");
-					const after = renderUsageStatus(
-						[...states, ...nonContributing],
+					const before = renderUsageStatus({
+						states,
 						nowMs,
 						pollIntervalMs,
-						POLLING_OFF_WINDOW_MS,
+						pollingOffWindowMs: POLLING_OFF_WINDOW_MS,
 						thresholds,
 						mode,
-						"$"
-					);
+						currencySymbol: "$",
+					});
+					const after = renderUsageStatus({
+						states: [...states, ...nonContributing],
+						nowMs,
+						pollIntervalMs,
+						pollingOffWindowMs: POLLING_OFF_WINDOW_MS,
+						thresholds,
+						mode,
+						currencySymbol: "$",
+					});
 					if (before === "hidden") {
 						assert.strictEqual(after, "hidden", "servers outside the aggregation cannot summon the item");
 						return;
@@ -316,7 +340,15 @@ describe("extension/ui renderUsageStatus properties", () => {
 	test("the tooltip carries the expected line count for the server set", () => {
 		fc.assert(
 			fc.property(scenarioArb, ({ states, thresholds, mode, pollIntervalMs, nowMs }) => {
-				const view = renderUsageStatus(states, nowMs, pollIntervalMs, POLLING_OFF_WINDOW_MS, thresholds, mode, "$");
+				const view = renderUsageStatus({
+					states,
+					nowMs,
+					pollIntervalMs,
+					pollingOffWindowMs: POLLING_OFF_WINDOW_MS,
+					thresholds,
+					mode,
+					currencySymbol: "$",
+				});
 				if (view === "hidden") {
 					return;
 				}

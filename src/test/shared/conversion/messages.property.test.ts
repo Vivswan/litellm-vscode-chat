@@ -255,7 +255,7 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 				break;
 			}
 			default:
-				event.corruption satisfies never;
+				void (event.corruption satisfies never);
 		}
 	}
 	return messages;
