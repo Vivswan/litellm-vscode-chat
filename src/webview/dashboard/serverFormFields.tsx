@@ -57,9 +57,8 @@ export interface FieldRenderProps {
 
 /**
  * One section of the flat page - one scroll, no folds - so a section either belongs to the required path or reads as
- * an aside, which is the whole of what `quiet` says: it dims the heading and label column; fields stay at full
- * strength (a typed value is never quiet). The help glyph is named for its section: a page with a dozen of them would
- * otherwise announce a dozen identical "Help" buttons.
+ * an aside (`quiet`). The help glyph is named for its section: a page with a dozen of them would otherwise announce a
+ * dozen identical "Help" buttons.
  */
 export function FormSection({
 	title,
@@ -75,13 +74,13 @@ export function FormSection({
 	/** The heading's quiet trailing fact: "optional", plus a count where the section holds rows. */
 	aside?: string;
 
-	/** Required: a heading with nothing to explain it is a heading that explains nothing. */
+	/** The explanation behind the heading's help glyph. */
 	help: string;
 
 	/** The header's docs link, target and accessible name. */
 	docs?: { readonly href: DocsUrl; readonly label: string };
 
-	/** Dims the heading and the label column; the fields keep full strength. */
+	/** Marks an aside: dims the heading and the label column, never the fields, since a typed value is never quiet. */
 	quiet?: boolean;
 
 	/** The rows; each adopts the section's grid tracks through subgrid. */
@@ -89,7 +88,6 @@ export function FormSection({
 }) {
 	return (
 		<div className="form-section mt-6">
-			{/* Quiet dims the whole line through inheritance; the fields below stay at full strength. */}
 			<SectionHeader
 				level={4}
 				title={title}

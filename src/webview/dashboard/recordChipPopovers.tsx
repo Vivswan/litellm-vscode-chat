@@ -386,7 +386,6 @@ function ValueControl(props: ValueControlProps) {
 	);
 }
 
-/** One directive flag: its checkbox with the chip word as the label, and the help glyph beside it. */
 function FlagCheckbox({ ariaLabel, word, checked, disabled, help, onChange }: FlagCheckboxProps) {
 	return (
 		<>
@@ -513,10 +512,8 @@ function IssueStatus({ id, issue }: IssueStatusProps) {
  * " _fallback" stays the live field the probe judged).
  *
  * The group's directive rows are simulated with a probe row appended, so a literal true's expansion sees the new key;
- * the commit mints the real row.
- *
- * Only explicit flag choices touch the directive rows, and only when they change what the rows already say: an
- * untouched box over a literal `true` must never explode it into a list.
+ * the commit mints the real row. Only explicit flag choices touch the directive rows, and only when they change what
+ * the rows already say: an untouched box over a literal `true` must never explode it into a list.
  */
 function candidateField(input: CandidateInput): Candidate {
 	const { kind, groups, groupIndex, group, key, valueText, flagOverrides } = input;

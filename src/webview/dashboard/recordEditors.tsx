@@ -853,17 +853,11 @@ function OtherCapabilityScopes({ scopes, recognizedKeys }: OtherCapabilityScopes
 
 /**
  * Structured editor for litellm-vscode-chat.models.parameters, the object-of-objects the native Settings GUI cannot
- * edit. Edits apply to one scope; others render read-only.
+ * edit.
  *
  * The frame bounds the draft: the matcher rows (or the JSON side door), the failure note, and the action bar that
  * commits them are one region, so "what does Apply apply" has a visible answer. The row problems, the Apply gate, and
  * the assembled record are the same verdict, so a draft that renders clean can never assemble differently.
- *
- *   scoped   -> the record at every scope; only editScope's value is edited and written back whole, the others render
- *               read-only
- *   models   -> the discovered models, feeding the prefix input's suggestions
- *   hidden   -> the settings filter's verdict; hides the section without unmounting it, so a dirty draft survives
- *   external -> the inspectors' configure-jump; see ExternalRecordEdit
  */
 export function ModelParametersEditor({
 	scoped,
@@ -871,9 +865,16 @@ export function ModelParametersEditor({
 	hidden,
 	external,
 }: {
+	/** The record at every scope; only editScope's value is edited and written back whole, the rest render read-only. */
 	scoped: ScopedRecordSetting<RecordValue>;
+
+	/** The discovered models, feeding the prefix input's suggestions. */
 	models: readonly DashboardModel[];
+
+	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
 	hidden?: boolean;
+
+	/** The inspectors' configure-jump (ExternalRecordEdit). */
 	external?: ExternalRecordEdit | undefined;
 }) {
 	const intent = useIntentOutcome("setModelParameters");
@@ -972,14 +973,6 @@ export function ModelParametersEditor({
  * observed-key union is both the hints' evidence and the autocomplete's server half because the global records scope
  * over every server, so one union fits both; absent or empty it is no evidence, and the hints stay quiet while the
  * suggestions fall back to the static vocabulary.
- *
- *   scoped       -> the record at every scope; only editScope's value is edited and written back whole, the others
- *                   render read-only
- *   models       -> the discovered models, feeding the matcher input's suggestions
- *   observedKeys -> the cross-server union of observed /model/info keys: hint evidence and the server half of the key
- *                   autocomplete
- *   hidden       -> the settings filter's verdict; hides the section without unmounting it, so a dirty draft survives
- *   external     -> the inspectors' configure-jump; see ExternalRecordEdit
  */
 export function ModelCapabilitiesEditor({
 	scoped,
@@ -988,10 +981,19 @@ export function ModelCapabilitiesEditor({
 	hidden,
 	external,
 }: {
+	/** The record at every scope; only editScope's value is edited and written back whole, the rest render read-only. */
 	scoped: ScopedRecordSetting<RecordValue>;
+
+	/** The discovered models, feeding the matcher input's suggestions. */
 	models: readonly DashboardModel[];
+
+	/** The cross-server union of observed /model/info keys. */
 	observedKeys?: readonly string[] | undefined;
+
+	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
 	hidden?: boolean;
+
+	/** The inspectors' configure-jump (ExternalRecordEdit). */
 	external?: ExternalRecordEdit | undefined;
 }) {
 	const intent = useIntentOutcome("setModelCapabilities");

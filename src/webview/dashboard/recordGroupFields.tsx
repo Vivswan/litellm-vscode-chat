@@ -382,15 +382,14 @@ function ParamFlagCell({ row, param, wrongType }: ParamFlagCellProps) {
 }
 
 /**
- * One parameter row. The stacked tier's per-cell labels (dashboard.css .cell-label): once the rows stack there are no
- * tracks left for the column heads to label; aria-hidden, since the input already carries the word as its accessible
- * name and the help button stays exposed.
+ * One parameter row. The stacked tier's per-cell labels (dashboard.css .cell-label) exist because stacked rows leave
+ * no tracks for the column heads to label; they are aria-hidden, since the input already carries the word as its
+ * accessible name and the help button stays exposed.
  *
  * The Remove label names the field as the record stores it (verbatim); emptiness is the one judgment made trimmed,
- * matching the parse's own refusal of a whitespace-only name.
- *
- * The status slot is reserved whether or not it speaks (dashboard.css .row .row-status): the verdict lands per
- * keystroke, and a line mounted only when it speaks moves the rows below; worst first, a problem outranks a hint.
+ * matching the parse's own refusal of a whitespace-only name. The status slot is reserved whether or not it speaks
+ * (dashboard.css .row .row-status): the verdict lands per keystroke, and a line mounted only when it speaks moves the
+ * rows below; worst first, a problem outranks a hint.
  */
 function ParamRowFields({ row, param, paramIndex }: ParamRowProps) {
 	const { group, inert, disabled, problems, hints, patchGroup, onEnter, onKeyDown } = row;
@@ -460,12 +459,6 @@ function ParamRowFields({ row, param, paramIndex }: ParamRowProps) {
  * URL; entry keys are already scoped). Row keys read RAW throughout this editor: parseParameterRecord trims nothing,
  * so a padded " _inherit_from" is a live field, not the directive. The grid's column heads label rendered rows; an
  * empty group keeps just the add action instead of heads over nothing.
- *
- *   hints                                    -> row-aligned non-blocking notes from the same parse (the _force
- *                                               semantic warnings)
- *   prefixSuggestions, paramNameSuggestions  -> the prefix and parameter-name inputs' listboxes; absent, the inputs
- *                                               stay plain
- *   onEnter                                  -> Enter in a row input; the editors apply the draft when it parses clean
  */
 export function ParamGroupsFields({
 	group,
@@ -479,15 +472,34 @@ export function ParamGroupsFields({
 	onChange,
 	onEnter,
 }: {
+	/** The matcher group under edit. */
 	group: PrefixGroup;
+
+	/** The parse's blocking problems for this group, row-aligned. */
 	problems: GroupProblems | undefined;
+
+	/** Row-aligned non-blocking notes from the same parse (the _force semantic warnings). */
 	hints?: GroupHints | undefined;
+
+	/** True while the owner refuses edits (a save or apply in flight). */
 	disabled?: boolean | undefined;
+
+	/** The prefix input's placeholder, by surface. */
 	prefixPlaceholder: string;
+
+	/** The prefix input's help text, by surface. */
 	prefixHelp: string;
+
+	/** The prefix input's listbox; absent, the input stays plain. */
 	prefixSuggestions?: readonly string[] | undefined;
+
+	/** The parameter-name inputs' listbox; absent, they stay plain. */
 	paramNameSuggestions?: readonly string[] | undefined;
+
+	/** The group after an edit. */
 	onChange: (next: PrefixGroup) => void;
+
+	/** Enter in a row input; the editors apply the draft when it parses clean. */
 	onEnter?: (() => void) | undefined;
 }) {
 	const inert = disabled === true;
@@ -702,14 +714,6 @@ function SuggestionList({ listId, listRef, matches, highlighted, onPick }: Sugge
  * With nothing to suggest (the read-only scope grids, entry editors without model data) the input stays a plain text
  * field: combobox aria naming a listbox that can never exist would be a lie to assistive tech. A separate element, not
  * conditional attributes: the a11y lint checks role/aria pairs statically.
- *
- * Focus stays on the input (the aria-activedescendant pattern), so the browser never scrolls the highlight into the
- * popup's view on its own.
- *
- *   inputClass  -> the input's base class ("key"); invalid appends the shared error class
- *   ariaLabel   -> the input's accessible name where the visible label is a column head, not a wired <label>
- *   describedBy -> an aria-describedby target (the wrong-record-type sentence beside a directive key)
- *   onEnter     -> Enter with no highlighted suggestion; the editors apply the draft when it parses clean
  */
 export function SuggestInput({
 	value,
@@ -723,15 +727,34 @@ export function SuggestInput({
 	onValue,
 	onEnter,
 }: {
+	/** The text as typed. */
 	value: string;
+
+	/** The listbox's candidates; none keeps the input a plain text field. */
 	suggestions: readonly string[];
+
+	/** The input's base class ("key"). */
 	inputClass: string;
+
+	/** Sets aria-invalid; the input primitive paints it. */
 	invalid: boolean;
+
+	/** The input's placeholder. */
 	placeholder?: string | undefined;
+
+	/** The accessible name where the visible label is a column head, not a wired <label>. */
 	ariaLabel?: string | undefined;
+
+	/** An aria-describedby target (the wrong-record-type sentence beside a directive key). */
 	describedBy?: string | undefined;
+
+	/** True while the owner refuses edits. */
 	disabled?: boolean | undefined;
+
+	/** Every keystroke and every accepted suggestion. */
 	onValue: (next: string) => void;
+
+	/** Enter with no highlighted suggestion; the editors apply the draft when it parses clean. */
 	onEnter?: (() => void) | undefined;
 }) {
 	const [open, setOpen] = useState(false);
@@ -746,6 +769,8 @@ export function SuggestInput({
 	// Typing reshapes the match list under the cursor, so input resets it; the render-time clamp covers the same list
 	// shrinking for any other reason.
 	const highlighted = active >= 0 && active < matches.length ? active : -1;
+	// Focus stays on the input (the aria-activedescendant pattern), so the browser never scrolls the highlight into the
+	// popup's view on its own.
 	useEffect(() => {
 		if (highlighted >= 0) {
 			listRef.current?.querySelector(`[aria-selected="true"]`)?.scrollIntoView({ block: "nearest" });

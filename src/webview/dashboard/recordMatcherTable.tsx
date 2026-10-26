@@ -193,7 +193,6 @@ function chipMark(issue: RowIssueView | undefined): "none" | "hint" | "invalid" 
 	return issue?.hint === undefined ? "none" : "hint";
 }
 
-/** The chip's content: the key (or the catalog word), the value, and the flag words; every face wears the same body. */
 function ChipBody({ catalog, fieldKey, valueText, flags }: ChipBodyProps) {
 	return (
 		<>

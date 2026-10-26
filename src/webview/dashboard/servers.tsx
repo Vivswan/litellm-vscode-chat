@@ -252,10 +252,9 @@ function ServerLine({ server, open, drawerId, worst, now, spend, usageNumbers, o
 
 /**
  * The row's action cluster. A legacy leftover has no action: not in the setting (no Edit, no adopt), not the user's
- * own (no hide); the drawer's Origin fact names the deletion route.
- *
- * A misconfigured entry has no Edit: it cannot round-trip the form without rewriting what the user typed, and the
- * blocking line beneath the row already carries the fix action (reveal the setting).
+ * own (no hide); the drawer's Origin fact names the deletion route. A misconfigured entry has no Edit: it cannot
+ * round-trip the form without rewriting what the user typed, and the blocking line beneath the row already carries
+ * the fix action (reveal the setting).
  *
  * At the narrowest tier the armed pair covers ALL of the row, so the name the reader is checking against goes inside
  * the cover there, ellipsized; the stylesheet hides it above, where the row's own name still stands. The buttons carry
@@ -1097,18 +1096,6 @@ function ServerList(props: ServerListProps) {
  *
  * Usage is keyed by label (the usage store's documented join key), so only declared rows look it up; a URL spelling
  * difference must not break the join. Denied cards join too - they carry the row's usage-denied diagnostic.
- *
- *   servers        -> the servers as the host published them, every origin included; one row each
- *   hidden         -> host groups the dashboard hides, tombstoned or superseded, listed under it behind a "Show hidden
- *                     groups" disclosure
- *   usage          -> the usage snapshot: the per-server cards, the alert thresholds, and the refresh state the
- *                     header's button reads
- *   currencySymbol -> the configured spend prefix (usage.currencySymbol); display only, never a conversion
- *   now            -> the shared clock tick (one useNow in App), so a hidden panel does not run its own interval
- *   onShowModels   -> scope the models section to one server; absent, the drawers' model counts stay plain text
- *   onEditServer   -> a declared row's Edit, by the label the setting holds
- *   onAdoptServer  -> an external row's Edit, which adopts rather than edits; addressed by its opaque handle
- *   onAddServer    -> open the add form; the header's button and the empty state's first-server button share it
  */
 export function ServersSection({
 	servers,
@@ -1121,14 +1108,31 @@ export function ServersSection({
 	onAdoptServer,
 	onAddServer,
 }: {
+	/** The servers as the host published them, every origin included; one row each. */
 	servers: readonly DashboardServer[];
+
+	/** Host groups the dashboard hides, tombstoned or superseded, listed behind a "Show hidden groups" disclosure. */
 	hidden?: readonly HiddenGroup[];
+
+	/** The usage snapshot: the per-server cards, the alert thresholds, and the refresh state the header button reads. */
 	usage?: DashboardUsage | undefined;
+
+	/** The configured spend prefix (usage.currencySymbol); display only, never a conversion. */
 	currencySymbol: string;
+
+	/** The shared clock tick (one useNow in App), so a hidden panel does not run its own interval. */
 	now: number;
+
+	/** Scopes the models section to one server; absent, the drawers' model counts stay plain text. */
 	onShowModels?: ((label: string) => void) | undefined;
+
+	/** A declared row's Edit, by the label the setting holds. */
 	onEditServer: (label: string) => void;
+
+	/** An external row's Edit, which adopts rather than edits; addressed by its opaque handle. */
 	onAdoptServer: (handle: string) => void;
+
+	/** Opens the add form; the header's button and the empty state's first-server button share it. */
 	onAddServer: () => void;
 }) {
 	const intents: ListIntents = {

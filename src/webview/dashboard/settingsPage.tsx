@@ -1088,7 +1088,6 @@ function UsageGroupTail({ settings, tail }: GroupTailProps) {
 	);
 }
 
-/** The Appearance group's theme and accent rows. */
 function UiGroupTail({ settings, tail }: GroupTailProps) {
 	return (
 		<>
@@ -1190,15 +1189,6 @@ function ImportExportGroup({ settings, isVisible, visible }: ImportExportGroupPr
  * speak the same age - two Date.now() calls straddling a minute boundary would let a needle match "5 min ago" while
  * the row shows 6. A jump must land on a visible editor: a leftover filter that hides the target section would swallow
  * the focus, so the request clears it.
- *
- *   settings              -> the scalars with their configured scopes, the two scoped records, and the catalog
- *                            status, as the push carries them
- *   models                -> the discovered models; the record editors' matcher inputs suggest from them
- *   observedModelInfoKeys -> the cross-server observed /model/info key union (DashboardState.observedModelInfoKeys):
- *                            the capability hints' evidence
- *   now                   -> the shared clock tick; the catalog row's "updated N ago" reads it
- *   editRecordRequest     -> the inspectors' configure-jump into one of the record editors; see EditRecordRequest
- *   writeFailures         -> the standing scalar-write failures from App's store, for this page to place by owning row
  */
 export function SettingsSection({
 	settings,
@@ -1208,11 +1198,22 @@ export function SettingsSection({
 	editRecordRequest,
 	writeFailures,
 }: {
+	/** The scalars with their scopes, the two scoped records, and the catalog status, as the push carries them. */
 	settings: DashboardSettings;
+
+	/** The discovered models; the record editors' matcher inputs suggest from them. */
 	models: readonly DashboardModel[];
+
+	/** The cross-server observed /model/info key union (DashboardState.observedModelInfoKeys): the hints' evidence. */
 	observedModelInfoKeys?: readonly string[] | undefined;
+
+	/** The shared clock tick; the catalog row's "updated N ago" reads it. */
 	now?: number;
+
+	/** The inspectors' configure-jump into one of the record editors (EditRecordRequest). */
 	editRecordRequest?: EditRecordRequest | undefined;
+
+	/** The standing scalar-write failures from App's store, for this page to place by owning row. */
 	writeFailures?: Partial<Record<SettingWriteMethod, SettingWriteFailure>> | undefined;
 }) {
 	const [filter, setFilter] = useState("");

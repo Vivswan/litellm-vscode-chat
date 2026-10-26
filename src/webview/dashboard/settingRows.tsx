@@ -397,8 +397,8 @@ function useDetails(coverText: string | undefined, detailText: string | undefine
  * cap by 8px while the CONTENT stops exactly at it.
  *
  * The modified mark is the ACCENT, not the host's amber modifiedItemIndicator: "you set this" is selection semantics,
- * amber means "needs attention". The var-shorthand form reads the RUNTIME --accent-hue chain directly: a named utility
- * needs a @theme alias, and the last one was deleted as orphaned - the bar silently fell back to grey.
+ * amber means "needs attention". The var-shorthand form reads the RUNTIME --accent-hue chain directly, so the bar
+ * depends on no @theme alias a named utility would need.
  *
  * A compact control keeps the two-column line at every stacked width (dashboard.css .setting-row.setting-compact);
  * setting-companion is the structural mark of a multi-row setting's secondary row, and tests pin that exactly the
@@ -997,16 +997,6 @@ export function CommaListRow({
  * One heading with its rows, the middle subgrid layer between .settings-groups and the rows. The heading line only
  * SEATS the page's annotation; which mark it wears is the page's own decision, so this file mints no second badge or
  * pill vocabulary.
- *
- *   title       -> a zero-arg function, so the localized text resolves at render; the help glyph is named "Help: {title}"
- *   help        -> the group's explanation, behind a glyph rather than above the rows: read once, it must not cost
- *                  every later visit
- *   note        -> a standing annotation after the help glyph (the Features page's Coming soon badge)
- *   isVisible   -> the filter's verdict per row; a group whose rows are all hidden collapses whole (heading included)
- *   booleanMeta -> status content replacing specific boolean rows' descriptions (the catalog row's cluster)
- *   tail        -> rows appended after the scalar rows (the Usage group's enum and list rows)
- *   tailVisible -> whether anything beyond the scalar rows survives the filter (tail rows); keeps the heading alive
- *                  for it
  */
 export function SettingGroup({
 	title,
@@ -1020,15 +1010,34 @@ export function SettingGroup({
 	tail,
 	tailVisible,
 }: {
+	/** A zero-arg function, so the localized text resolves at render; the help glyph is named "Help: {title}". */
 	title: () => string;
+
+	/** The group's explanation, shown behind the help glyph. */
 	help?: (() => string) | undefined;
+
+	/** A standing annotation after the help glyph (the Features page's Coming soon badge). */
 	note?: (() => ReactNode) | undefined;
+
+	/** The group's number rows, in order. */
 	numbers: readonly NumberSettingId[];
+
+	/** The group's boolean rows, in order. */
 	booleans: readonly BooleanSettingId[];
+
+	/** The settings slice the rows read (SettingsSlice). */
 	settings: SettingsSlice;
+
+	/** The filter's verdict per row; a group whose rows are all hidden collapses whole, heading included. */
 	isVisible: (id: NumberSettingId | BooleanSettingId) => boolean;
+
+	/** Status content replacing specific boolean rows' descriptions (the catalog row's cluster). */
 	booleanMeta?: Partial<Record<BooleanSettingId, ReactNode>>;
+
+	/** Rows appended after the scalar rows (the Usage group's enum and list rows). */
 	tail?: ReactNode;
+
+	/** Whether any tail row survives the filter; keeps the heading alive for it. */
 	tailVisible?: boolean;
 }) {
 	const empty = numbers.every((id) => !isVisible(id)) && booleans.every((id) => !isVisible(id)) && tailVisible !== true;

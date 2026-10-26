@@ -1261,22 +1261,7 @@ function PricingSection({ ctx, pricingNames }: PricingSectionProps) {
 	);
 }
 
-/**
- * The model inspector: ONE read-only slide-over per model row, sectioned Parameters / Capabilities / Pricing.
- *
- *   model           -> the inspected row; its scopeKey and rawId address both feeds' requests
- *   currencySymbol  -> the configured cost prefix (usage.currencySymbol); every price on the panel renders through it
- *   stateSeq        -> bumped on every state push; the inspector re-requests both feeds so an open panel follows
- *                      configuration edits
- *   anchor          -> which section the panel scrolls to on open (the Diagnostics jump links); absent, it opens at
- *                      the top
- *   fallbackFocusId -> where focus lands on close when the opener is gone; the overlay's owner names a visible element
- *                      (the active tab)
- *   onClose         -> the close request; the panel is a SlideOver, so Esc, the scrim, and the X all post it
- *   onEditRecord    -> jump into a global record editor: focus record `key` of `kind`, or create an exact-ID draft when
- *                      `create`
- *   onEditEntry     -> jump into a server entry's edit form (the owner of entry-layer values)
- */
+/** The model inspector: ONE read-only slide-over per model row, sectioned Parameters / Capabilities / Pricing. */
 export function ModelInspector({
 	model,
 	stateSeq,
@@ -1287,13 +1272,28 @@ export function ModelInspector({
 	onEditRecord,
 	onEditEntry,
 }: {
+	/** The inspected row; its scopeKey and rawId address both feeds' requests. */
 	model: DashboardModel;
+
+	/** The configured cost prefix (usage.currencySymbol); every price on the panel renders through it. */
 	currencySymbol: string;
+
+	/** Bumped per state push; the inspector re-requests both feeds, so an open panel follows configuration edits. */
 	stateSeq: number;
+
+	/** Which section the panel scrolls to on open (the Diagnostics jump links); absent, it opens at the top. */
 	anchor?: InspectorSection | undefined;
+
+	/** Where focus lands on close when the opener is gone; the owner names a visible element (the active tab). */
 	fallbackFocusId?: string;
+
+	/** The close request; the panel is a SlideOver, so Esc, the scrim, and the X all post it. */
 	onClose: () => void;
+
+	/** The jump into a global record editor (RecordEditJump). */
 	onEditRecord?: RecordEditJump | undefined;
+
+	/** Jump into a server entry's edit form (the owner of entry-layer values). */
 	onEditEntry?: ((label: string) => void) | undefined;
 }) {
 	const feeds = useInspectorFeeds(model, stateSeq);

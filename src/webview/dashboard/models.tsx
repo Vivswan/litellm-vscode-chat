@@ -339,12 +339,6 @@ function FilterPill({
 /**
  * The structured filters, one wrapping row of pills in the columnar tier's column order, so they read as a legend for
  * the rows.
- *
- *   Which pills exist -> is the options' business (modelFilterOptions)
- *   the server group  -> follows the rows' own rule
- *
- * onChange takes an updater because two toggles in one React batch would otherwise both derive from the same stale
- * `active`, and the second would silently undo the first.
  */
 function FilterPills({
 	options,
@@ -366,7 +360,7 @@ function FilterPills({
 	/** Parent-decided: an emptied list renders its own "Clear filters", and two identical controls a line apart mislead. */
 	showClear: boolean;
 
-	/** An updater, never a computed state: two toggles in one batch would both derive from the same stale `active`. */
+	/** An updater, not a state: two toggles in one batch would read one stale `active` and the second undo the first. */
 	onChange: (update: (filter: ModelFilter) => ModelFilter) => void;
 
 	/** The section's clearFilters: pills and text together, with focus moved to the filter input the button leaves. */
@@ -737,8 +731,8 @@ function useModelListing(
  * could push the last rows of the viewport out of the rendered slice. Start clamps against the row count so a filter
  * that shrinks the list under a deep scroll position cannot leave the window past the end.
  *
- * The spacers stand in for the rows outside the window, and the delta rides with whichever one hides the open row;
- * when the open row is rendered, its detail is really there and neither spacer accounts for it.
+ * The spacers stand in for the rows outside the window, and the delta rides with whichever one hides the open row; a
+ * rendered open row's detail is really there, so neither spacer accounts for it.
  */
 function listWindow({ count, scrollTop, rowHeight, viewport, openIndex, delta }: WindowInput): ListWindow {
 	const windowed = count > WINDOW_THRESHOLD;
@@ -828,7 +822,6 @@ function ScopeChip({ scope }: ScopeChipProps) {
 	);
 }
 
-/** The two text lines of a row: the name with its meta, then limits, price, and capabilities. */
 function ModelRowLine({ model, showServer, currencySymbol }: ModelRowLineProps) {
 	const caps = capabilityList(model);
 	const priced = isPriced(model);
@@ -1080,13 +1073,6 @@ function ModelsToolbar({ filter, filterInputRef, onFilter, listing, onSort }: Mo
  * The Models page: every discovered model across the servers, filtered, sorted, and windowed. The id anchors a server
  * row's model-count link: it navigates here and App moves focus onto this section, so the keyboard position follows
  * the reader across the destination change. Section owns the id, the tabIndex and the scroll margin together.
- *
- *   serverCount    -> the configured servers; unscoped, a single one hides the Server column, pill group, and sort key
- *                     alike
- *   currencySymbol -> the configured cost prefix (usage.currencySymbol); display only, never a conversion
- *   scope          -> one object so a scope without a working clear cannot be expressed
- *   onInspect      -> App owns the inspector; the full identity travels because one snapshot can render under several
- *                     labels
  */
 export function ModelsSection({
 	models,
@@ -1095,10 +1081,19 @@ export function ModelsSection({
 	scope,
 	onInspect,
 }: {
+	/** Every discovered model, as the push carries them. */
 	models: readonly DashboardModel[];
+
+	/** The configured servers; unscoped, a single one hides the Server column, pill group, and sort key alike. */
 	serverCount: number;
+
+	/** The configured cost prefix (usage.currencySymbol); display only, never a conversion. */
 	currencySymbol: string;
+
+	/** The server scope narrowing the page (ModelScope). */
 	scope?: ModelScope | undefined;
+
+	/** Opens App's inspector on the row's full identity (InspectTarget). */
 	onInspect: (target: InspectTarget) => void;
 }) {
 	const [filter, setFilter] = useState("");

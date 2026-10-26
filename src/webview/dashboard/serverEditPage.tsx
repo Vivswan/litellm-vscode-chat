@@ -1036,11 +1036,22 @@ function ServerForm(props: ServerFormProps) {
 }
 
 interface ServerEditPageProps {
+	/** What the shell asked this page to be (ServerEditRequest). */
 	request: ServerEditRequest;
+
+	/** The live rows the request resolves against on every render. */
 	servers: readonly DashboardServer[];
+
+	/** The form's dirty report, forwarded to the shell's navigation guard. */
 	onDirtyChange: (dirty: boolean) => void;
+
+	/** The draft ceased to exist (its entry left the setting): its own channel, so a dirty report can never mean it. */
 	onTargetGone: () => void;
+
+	/** The way back from the form and from the stand-in cards, forwarded to the shell. */
 	onRequestClose: () => void;
+
+	/** The save committed; the shell leaves the page. */
 	onSaved: () => void;
 }
 
@@ -1289,9 +1300,6 @@ function PageFailureNotice({ failure, onDismiss }: PageFailureNoticeProps) {
  * The pre-first-pass fallback cannot prove where this entry's secrets live (an API key may sit in secret storage it
  * has not read), so no form opens on it: a form frozen over guessed locations would only earn a refusal on save. An
  * entry that went away took the draft: nothing left to save, nothing to ask about.
- *
- *   onTargetGone -> the draft ceased to exist (its entry left the setting): its own channel, so a dirty report can
- *                   never mean it
  */
 export function ServerEditPage({
 	request,

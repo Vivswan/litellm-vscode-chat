@@ -319,8 +319,8 @@ function docsAction(href: DocsUrl, subject: string): DiagnosticAction {
  * The subject joins identifiers by a slash, never a localized phrase: the pair is machine text a reader retypes, and
  * an invalid matcher key IS the record key, so naming it twice would read as a mistake.
  *
- * Five of the sentences stopped naming the record when cut to one clause; they get it back as a location chip, without
- * which two records failing on the same field render as identical rows.
+ * The record's name rides as a location chip where the one-clause headline does not carry it: without the chip, two
+ * records failing on the same field render as identical rows.
  */
 function recordProblem(diagnostic: Extract<PageConfigDiagnostic, { kind: "record" }>): ConfigProblem {
 	const setting: RevealableSettingId = diagnostic.entryLabel === undefined ? diagnostic.setting : "servers";

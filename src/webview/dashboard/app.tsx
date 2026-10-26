@@ -99,8 +99,8 @@ interface IntentFailure {
 
 /**
  * The latest fire-and-forget failures, keyed by method. Acked methods stay out by construction (their outcomes belong
- * to the posting editors' hooks), which is what lets a state push retire this store wholesale - here, the push IS the
- * success signal.
+ * to the posting editors' hooks, so a partially applied save's warning survives the sync push that follows it), which
+ * is what lets a state push retire this store wholesale - here, the push IS the success signal.
  */
 type FailuresByMethod = Readonly<Partial<Record<NotifyingMethod, IntentFailure>>>;
 
@@ -131,25 +131,27 @@ type AckMessage = Extract<ExtensionToWebviewMessage, { kind: "ack" }>;
 /** The standing scalar-write failures by method, as the Features and Settings pages and the away line read them. */
 type SettingWriteFailures = Partial<Record<SettingWriteMethod, SettingWriteFailure>>;
 
-/**
- * What the one-time message listener feeds the shell. A push retires the standing failures (all fire-and-forget; the
- * push is their success signal), and never the acked methods' - the editors' hooks own those, so a partially applied
- * save's warning survives the sync push that follows it.
- *
- *   stateSeq            -> bumped on every state push: the open inspectors and the resolved-models view re-request on
- *                          it so they follow configuration edits live
- *   pendingFocusSection -> a deep link's target, held until there is a page to apply it to: the guard it routes
- *                          through is assigned during a render that has not happened yet, and whether a commit lands
- *                          between the push and the focus request is the browser's business (panel.ts open()).
- *                          Recording and applying on the next commit takes the timing out entirely
- */
+/** What the one-time message listener feeds the shell. */
 interface HostLink {
+	/** The latest push, or nothing before the first one. */
 	readonly state: DashboardState | undefined;
+
+	/** Bumped on every state push; the open inspectors and the resolved-models view re-request on it to follow edits. */
 	readonly stateSeq: number;
+
+	/** The standing fire-and-forget failures (FailuresByMethod). */
 	readonly failures: FailuresByMethod;
+
+	/** The acks' transient toasts, oldest first. */
 	readonly toasts: readonly ToastItem[];
+
+	/** Drops one toast by id. */
 	readonly dismissToast: (id: number) => void;
+
+	/** A deep link's target, held until there is a page to apply it to (useDeepLink). */
 	readonly pendingFocusSection: SectionId | undefined;
+
+	/** Forgets the deep link once it is applied. */
 	readonly clearPendingFocus: () => void;
 }
 
@@ -166,7 +168,10 @@ interface HostSinks {
 	readonly setPendingFocusSection: Dispatch<SetStateAction<SectionId | undefined>>;
 }
 
-/** The open edit page: its request, and the key that remounts a clean draft per open. */
+/**
+ * The open edit page: its request, and the key that remounts a clean draft per open. The key is a never-reused counter,
+ * so a closed page's key cannot revive its state.
+ */
 interface EditingPage {
 	readonly request: ServerEditRequest;
 	readonly key: number;
@@ -194,26 +199,34 @@ interface GuardMemory {
 
 /**
  * The edit destination fills the pane beside the rail - a destination, not an overlay, because opening a door on top
- * of a door is what this shell exists to stop. The key is a never-reused counter, so a closed page's key cannot revive
- * its state.
- *
- *   noteEditDirty    -> the page's dirty report; stable, since the page lists it in an effect's deps
- *   onTargetGone     -> the page's explicit "the draft ceased to exist" channel, separate from the dirty report on
- *                       purpose: only a target that is GONE may dismiss a standing discard question - a draft merely
- *                       reading clean again must leave the question to the reader
- *   requestLeaveEdit -> a dirty draft gets the question as a modal, which owns its own answering: asking is
- *                       idempotent, never a toggle
- *   selectSection    -> a rail click, routed through the guard while the page is open
+ * of a door is what this shell exists to stop.
  */
 interface EditDestination {
+	/** The open page, or nothing. */
 	readonly editing: EditingPage | undefined;
+
+	/** Whether the discard question stands. */
 	readonly confirmingDiscard: boolean;
+
+	/** The page's dirty report; stable, since the page lists it in an effect's deps. */
 	readonly noteEditDirty: (dirty: boolean) => void;
+
+	/** The draft ceased to exist: the one event that may dismiss a standing question; a clean dirty report may not. */
 	readonly onTargetGone: () => void;
+
+	/** Opens the page on a request, remembering the opener for the focus on the way back. */
 	readonly openEdit: (request: ServerEditRequest) => void;
+
+	/** Closes the page; focus returns to the opener, or to the rail item a click picked. */
 	readonly leaveEdit: () => void;
+
+	/** Asks before leaving a dirty draft; asking is idempotent, never a toggle. */
 	readonly requestLeaveEdit: () => void;
+
+	/** Answers the question with staying. */
 	readonly keepEditing: () => void;
+
+	/** A rail click, routed through the guard while the page is open. */
 	readonly selectSection: (id: SectionId) => void;
 }
 
@@ -603,6 +616,10 @@ function useHostLink(): HostLink {
 /**
  * A recorded deep link, applied through the navigation guard once there is a page to apply it to. The guard is read
  * through a ref, as the effect must see the current editing state rather than the render closure's.
+ *
+ * Recording the target and applying it on the next commit takes the timing out entirely: when the message lands, the
+ * guard it routes through is assigned during a render that has not happened yet, and whether a commit lands between
+ * the push and the focus request is the browser's business (panel.ts open()).
  */
 function useDeepLink(link: HostLink, selectSection: (id: SectionId) => void): void {
 	const selectSectionRef = useRef<(id: SectionId) => void>(() => undefined);
@@ -728,13 +745,12 @@ function useEditDestination(section: SectionId, setSection: (id: SectionId) => v
  * A scope whose server left the list would filter the table down to nothing with no row left to explain why, so it
  * clears itself.
  *
- * A server's count link navigates and filters, and focus follows the navigation: without it, Tab would continue from
- * the count link on a panel no longer visible. The models panel is hidden until the render commits and a hidden
- * element cannot take focus, so a flag asks the section effect to focus it once it shows.
+ * A server's count link navigates and filters, and focus follows the navigation, or Tab would continue from the count
+ * link on a panel no longer visible. The models panel is hidden until the render commits and a hidden element cannot
+ * take focus, so a flag asks the section effect to focus it once it shows.
  *
- * Already on Models, setSection would be a no-op, so that effect would never run and the flag would latch, stealing
- * focus the next time the reader arrived by any route; the panel is visible, so focus moves now and leaves no flag
- * behind.
+ * Already on Models, setSection is a no-op and that effect never runs, so the flag would latch and steal focus on the
+ * next arrival by any route; there focus moves now and leaves no flag behind.
  */
 function useServerScope(
 	state: DashboardState | undefined,
@@ -850,10 +866,8 @@ function useShell(): ShellModel | undefined {
  *
  * The away-settings line renders only while the reader is NOT on the failure's own page: a rail click can be the very
  * blur that commits the failing write, the fail lands after the owning panel is hidden, and a hidden subtree neither
- * paints nor announces.
- *
- * All lines announce once per failure seq and then stand silently (PaneFailureLine): the away line re-mounts on every
- * navigation away from Settings while its failure stands unchanged.
+ * paints nor announces. It re-mounts on every navigation away from Settings while its failure stands, and announcing
+ * once per seq (PaneFailureLine) keeps each remount silent.
  */
 function PaneTopLines({ shell }: ShellPartProps) {
 	const { failures, writeFailures, activeSection } = shell;

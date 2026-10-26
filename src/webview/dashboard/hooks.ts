@@ -1,7 +1,5 @@
 /**
- * useRpc (reads): latest send wins, earlier answers are orphaned; two in-flight reads are two hook instances. A re-send
- * of the payload already asked is a refresh (every state push re-asks the open views) and keeps the held answer until
- * the new one lands; a different payload is a new question and drops it.
+ * useRpc (reads): latest send wins, earlier answers are orphaned; two in-flight reads are two hook instances.
  * useIntentOutcome (acked intents): holds the method's latest ack/fail, seq-tagged so repeats with equal text still
  * re-fire effects.
  */
@@ -24,10 +22,10 @@ export function asExtensionMessage(data: unknown): ExtensionToWebviewMessage | u
 }
 
 export interface RpcState<K extends ReadMethod> {
-	/** The newest request's answer; a different question clears it until the new answer lands, an identical one keeps it. */
+	/** The newest request's answer; a different question clears it until the new answer lands. */
 	readonly data: ResponseFor<K> | undefined;
 
-	/** Post the request; repeating the identical question keeps the current answer on screen until the new one lands. */
+	/** Post the request; an identical question is a refresh (pushes re-ask the open views) and keeps the held answer. */
 	readonly send: (payload: RequestPayload<K>) => void;
 
 	/** Drop the held answer and orphan any in-flight request (a closing form's value must leave webview memory). */
