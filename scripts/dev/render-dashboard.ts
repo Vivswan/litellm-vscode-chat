@@ -67,12 +67,6 @@ import {
  *
  * Narrow behaviour belongs to a fixture opened AT the narrow width: a chip popover picks its side by measuring its
  * anchor at open time, so narrowing afterwards leaves it on a side the component would never have chosen.
- *
- * The high-contrast themes layer the way an OS mode does: forced-colors adds forced-colors: active on top of HC dark,
- * overriding author colors. Classic scrollbars take space and paint bands the default render can never show.
- *
- * A below-floor fixture inverts the overflow assertion: the sideways scroll must be present, since it is the state such
- * a fixture exists to photograph, and the width must really be under the floor.
  */
 export interface RenderFixture {
 	/** Posted to the page in order before the steps run; each is an ExtensionToWebviewMessage. */
@@ -282,6 +276,7 @@ function hostThemeTokens(hostTheme: HostTheme, stylesheet: string): string {
 		light: lightCss,
 		"high-contrast": highContrastCss,
 		"high-contrast-light": highContrastLightCss,
+		// Layered the way an OS mode is: forced-colors: active (emulateHostTheme) on top of HC dark, over author colors.
 		"forced-colors": highContrastCss,
 	}[hostTheme]();
 	if (hostTheme === "dark" || hostTheme === "light") {
@@ -445,10 +440,11 @@ async function writePageDir(tmpRoot: string, files: PageFiles): Promise<string> 
 /**
  * Chrome's launch flags. --lang pins the locale-dependent date strings (TZ is pinned by the launcher);
  * CHROME_EXTRA_FLAGS carries environment-specific launch flags (a CI runner typically passes --no-sandbox, since its
- * image restricts the unprivileged user namespaces the Chrome sandbox needs). Scrollbars are hidden by default so
- * measurements and shots stay platform-independent; --show-scrollbars (or the fixture's showScrollbars) keeps the bars
- * for the states only a classic scrollbar can produce, e.g. the band under the rail when a sub-floor page scrolls
- * sideways.
+ * image restricts the unprivileged user namespaces the Chrome sandbox needs).
+ *
+ * Classic scrollbars take space, so they are hidden by default and measurements and shots stay platform-independent.
+ * --show-scrollbars (or the fixture's showScrollbars) keeps the bars for the states only a classic scrollbar paints and
+ * the default render can never show, e.g. the band under the rail when a sub-floor page scrolls sideways.
  */
 function launchFlagsFor(viewport: Viewport, showScrollbars: boolean): string[] {
 	const extraFlags = (process.env.CHROME_EXTRA_FLAGS ?? "").split(" ").filter((flag) => flag.length > 0);
