@@ -267,9 +267,9 @@ export function savePayloadFromRow(row: DeclaredRow): SaveServerPayload {
 	return {
 		label: row.label,
 		baseUrl: row.baseUrl,
-		...(config.apiVersion !== undefined ? { apiVersion: config.apiVersion } : {}),
+		...(config.apiVersion === undefined ? {} : { apiVersion: config.apiVersion }),
 		...pickNonSecretOptionalFields(config),
-		...(config.modelParameters !== undefined ? { modelParameters: config.modelParameters } : {}),
+		...(config.modelParameters === undefined ? {} : { modelParameters: config.modelParameters }),
 		modelCapabilities: config.modelCapabilities ?? {},
 		expectedFailures: config.expectedFailures ?? [],
 		headers: config.headers ?? {},
@@ -285,7 +285,7 @@ function replaceIdentityOf(row: EditableDashboardServer): ReplacedEntryIdentity 
 	return {
 		label: row.label,
 		baseUrl: row.baseUrl,
-		...(row.config.apiVersion !== undefined ? { apiVersion: row.config.apiVersion } : {}),
+		...(row.config.apiVersion === undefined ? {} : { apiVersion: row.config.apiVersion }),
 		...pickNonSecretOptionalFields(row.config),
 		secrets: row.config.secrets.locations,
 	};
@@ -415,7 +415,7 @@ interface ComposedServer {
  * absent.
  */
 function fieldOf(name: string, given: unknown, stored: unknown, empty?: unknown): Record<string, unknown> {
-	const value = given !== undefined ? given : stored !== undefined ? stored : empty;
+	const value = given === undefined ? (stored === undefined ? empty : stored) : given;
 	return value === undefined ? {} : { [name]: value };
 }
 
@@ -475,7 +475,7 @@ export function planSaveServer(
 	const server: ComposedServer = {
 		label: input.label,
 		baseUrl,
-		...(apiVersion !== undefined ? { apiVersion } : {}),
+		...(apiVersion === undefined ? {} : { apiVersion }),
 		...pickNonSecretOptionalFields({
 			oauthTokenUrl: editedOauthField(base?.oauthTokenUrl, input.oauthTokenUrl),
 			oauthClientId: editedOauthField(base?.oauthClientId, input.oauthClientId),
@@ -503,7 +503,7 @@ export function planSaveServer(
 		requests: [
 			{
 				method: "saveServerSetting",
-				payload: { server, secrets: secrets.directives, ...(replace !== undefined ? { replace } : {}) },
+				payload: { server, secrets: secrets.directives, ...(replace === undefined ? {} : { replace }) },
 			},
 		],
 		prompts: secrets.prompts,

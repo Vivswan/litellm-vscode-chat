@@ -130,7 +130,7 @@ export function shapeSubmission(request: AgentRequest, submission: DashboardSubm
 			return {
 				method: request.method,
 				ok: true,
-				...(reply?.message !== undefined ? { note: reply.message } : {}),
+				...(reply?.message === undefined ? {} : { note: reply.message }),
 			};
 		}
 		case "validation-error":
@@ -141,8 +141,8 @@ export function shapeSubmission(request: AgentRequest, submission: DashboardSubm
 				// The dashboard localizes refusals for the webview; the model reads English, so the mirror wins where the
 				// thrower supplied one.
 				message: submission.reply.englishMessage ?? submission.reply.message,
-				...(submission.reply.classification !== undefined ? { classification: submission.reply.classification } : {}),
-				...(submission.issues !== undefined ? { issues: submission.issues } : {}),
+				...(submission.reply.classification === undefined ? {} : { classification: submission.reply.classification }),
+				...(submission.issues === undefined ? {} : { issues: submission.issues }),
 			};
 		case "ignored-malformed":
 			return { method: request.method, ok: false, issues: submission.issues };
@@ -167,7 +167,7 @@ export function refusalText(reason: RefusalReason, detail: Readonly<Record<strin
 		case "server-not-declared":
 			return `"${detail.label}" is a provider group outside the servers setting; call litellm_remove_server with action "hide" and its baseUrl.`;
 		case "external-group-not-found":
-			return `No external provider group is at "${detail.baseUrl ?? ""}"${detail.label !== undefined ? ` labeled "${detail.label}"` : ""}.`;
+			return `No external provider group is at "${detail.baseUrl ?? ""}"${detail.label === undefined ? "" : ` labeled "${detail.label}"`}.`;
 		case "hidden-group-not-found":
 			return `No removed group is labeled "${detail.label}" at "${detail.baseUrl ?? ""}". Read the configuration tool's "hiddenGroups" section; only groups with reason "removed" can be unhidden.`;
 		case "secret-locations-unproven":
@@ -237,7 +237,7 @@ function valueLabels(): { readonly before: string; readonly after: string } {
 export function describeSettingChange(setting: string, before: unknown, after: unknown, scope: string | null): string {
 	const labels = valueLabels();
 	return fenced([
-		`litellm-vscode-chat.${setting}${scope !== null ? `  ${l10n.t("(configured in: {0})", scope)}` : ""}`,
+		`litellm-vscode-chat.${setting}${scope === null ? "" : `  ${l10n.t("(configured in: {0})", scope)}`}`,
 		`${labels.before}${shown(before)}`,
 		`${labels.after}${after === null ? l10n.t("(removed from its configured scope)") : shown(after)}`,
 	]);

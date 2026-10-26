@@ -71,7 +71,7 @@ function certifyContainer(
 			return typeof occupant === "string" || textless(occupant);
 		}
 		const into = walk[key];
-		return into !== undefined ? into(occupant) : textless(occupant);
+		return into === undefined ? textless(occupant) : into(occupant);
 	});
 }
 
@@ -176,10 +176,10 @@ export function materializeEntrySecrets(
 		const auth = entry.auth;
 		if (auth === undefined) {
 			entry.auth = { apiKey };
-		} else if (!isRecord(auth)) {
-			unmaterialized += 1;
-		} else {
+		} else if (isRecord(auth)) {
 			place(isRecord(auth.oauth) ? auth.oauth : auth, "apiKey", apiKey);
+		} else {
+			unmaterialized += 1;
 		}
 	}
 

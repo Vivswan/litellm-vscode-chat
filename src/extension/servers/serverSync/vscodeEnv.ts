@@ -61,7 +61,7 @@ async function manageLanguageModelsAction(search: string | undefined): Promise<M
 
 async function leftoverGroupActions(labels: readonly string[]): Promise<MessageAction[]> {
 	const manage = await manageLanguageModelsAction(labels.length === 1 ? labels[0] : undefined);
-	return manage !== undefined ? [manage, openGroupsFileAction()] : [openGroupsFileAction()];
+	return manage === undefined ? [openGroupsFileAction()] : [manage, openGroupsFileAction()];
 }
 
 const quoted = (labels: readonly string[]) => labels.map((label) => `"${label}"`).join(", ");
@@ -377,17 +377,17 @@ export function createServerSyncEnv(deps: ServerSyncEnvDeps): ServerSyncEnv {
 							origin: { kind: "rename-leftover", oldLabel: event.oldLabel, newLabel: event.newLabel },
 						});
 						noticeEvents.push(event);
-					} else if (event.baseUrl !== undefined) {
+					} else if (event.baseUrl === undefined) {
+						// The ledger predates this label, so no group identity can be resolved: no tombstone, no
+						// provenance, only the notice - never suppress on a guess.
+						noticeEvents.push({ ...event, outcome: undefined });
+					} else {
 						await removals.recordOrigin({
 							label: event.label,
 							baseUrl: event.baseUrl,
 							origin: { kind: "removed-entry-leftover", removedLabel: event.label },
 						});
 						removed.push({ ...event, baseUrl: event.baseUrl });
-					} else {
-						// The ledger predates this label, so no group identity can be resolved: no tombstone, no
-						// provenance, only the notice - never suppress on a guess.
-						noticeEvents.push({ ...event, outcome: undefined });
 					}
 				} catch (error) {
 					logger.error("Recording removed-group provenance failed", error);

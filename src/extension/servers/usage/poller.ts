@@ -107,13 +107,13 @@ export interface UsageRefreshOutcome {
 /** "unsupported" never reaches the toast (actionableFailureText filters it), so only "forbidden" has a word. */
 function describeEndpointFailure(failure: UsageEndpointFailure): string {
 	const how =
-		failure.status !== undefined
-			? String(failure.status)
-			: failure.classification === "timeout"
+		failure.status === undefined
+			? failure.classification === "timeout"
 				? l10n.t("timeout")
 				: failure.classification === "network"
 					? l10n.t("network error")
-					: l10n.t("failed");
+					: l10n.t("failed")
+			: String(failure.status);
 	const reason = failure.reason === "forbidden" ? ` ${l10n.t("forbidden")}` : "";
 	return `${USAGE_ENDPOINT_PATHS[failure.endpoint]} ${how}${reason}`;
 }
@@ -669,7 +669,7 @@ export class UsagePoller {
 			succeededAny,
 			...(secretsUnreadable ? { secretsUnreadable: true } : {}),
 			...(secretsMismatched ? { secretsMismatched: true } : {}),
-			...(credentialsRefused !== undefined ? { credentialsRefused } : {}),
+			...(credentialsRefused === undefined ? {} : { credentialsRefused }),
 		};
 	}
 
@@ -679,9 +679,9 @@ export class UsagePoller {
 		const classification = failureClassificationOf(error);
 		return {
 			endpoint,
-			...(classification !== undefined ? { classification } : {}),
-			...(status !== undefined ? { status } : {}),
-			...(reason !== undefined ? { reason } : {}),
+			...(classification === undefined ? {} : { classification }),
+			...(status === undefined ? {} : { status }),
+			...(reason === undefined ? {} : { reason }),
 		};
 	}
 
@@ -827,24 +827,24 @@ export class UsagePoller {
 					label,
 					endpoint,
 					reason,
-					...(status !== undefined ? { status } : {}),
+					...(status === undefined ? {} : { status }),
 				});
 			}
-			return { kind: "unavailable", reason, ...(status !== undefined ? { status } : {}) };
+			return { kind: "unavailable", reason, ...(status === undefined ? {} : { status }) };
 		}
 		if (previous.kind !== "error") {
 			this.env.log("Usage endpoint request failed; retrying on the next poll", {
 				label,
 				endpoint,
 				error: errorLabel(error),
-				...(status !== undefined ? { status } : {}),
+				...(status === undefined ? {} : { status }),
 			});
 		}
 		const classification = failureClassificationOf(error);
 		return {
 			kind: "error",
-			...(classification !== undefined ? { classification } : {}),
-			...(status !== undefined ? { status } : {}),
+			...(classification === undefined ? {} : { classification }),
+			...(status === undefined ? {} : { status }),
 		};
 	}
 }

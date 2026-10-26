@@ -459,12 +459,12 @@ export function serverSettingReports(raw: unknown): ServerEntryReport[] {
 	const reports: { index: number; label?: string; baseUrl?: string; problems: string[]; accepted: boolean }[] = raw.map(
 		(item, index) => {
 			const record = isRecord(item) ? item : undefined;
-			const label = record !== undefined ? usableHttpText(record.label) : undefined;
-			const baseUrl = record !== undefined ? usableHttpText(record.baseUrl) : undefined;
+			const label = record === undefined ? undefined : usableHttpText(record.label);
+			const baseUrl = record === undefined ? undefined : usableHttpText(record.baseUrl);
 			return {
 				index,
 				...(label !== undefined && !isUnsafeRecordKey(label) ? { label } : {}),
-				...(baseUrl !== undefined ? { baseUrl } : {}),
+				...(baseUrl === undefined ? {} : { baseUrl }),
 				problems: [],
 				accepted: false,
 			};
@@ -619,10 +619,10 @@ function acceptEntries(
 		// "" is a real value (append nothing to the base URL), so this cannot funnel through usableHttpText, which erases
 		// it. Like budget, a malformed value is a diagnostic and is ignored; the entry stays usable.
 		if (record.apiVersion !== undefined) {
-			if (typeof record.apiVersion !== "string") {
-				report("has an apiVersion that is not a string, ignored");
-			} else {
+			if (typeof record.apiVersion === "string") {
 				entry.apiVersion = trimHttpWhitespace(record.apiVersion);
+			} else {
+				report("has an apiVersion that is not a string, ignored");
 			}
 		}
 
@@ -768,7 +768,7 @@ export function respellEntryUrls(raw: Readonly<Record<string, unknown>>): {
 			changed = true;
 		}
 	}
-	return { record, changed, ...(oldBaseUrl !== undefined ? { oldBaseUrl } : {}) };
+	return { record, changed, ...(oldBaseUrl === undefined ? {} : { oldBaseUrl }) };
 }
 
 /**

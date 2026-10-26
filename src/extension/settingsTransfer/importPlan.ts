@@ -257,9 +257,9 @@ function remarkSubject(incoming: IncomingServer): string {
 	if (incoming.kept) {
 		return labelSubject(incoming.label);
 	}
-	return incoming.report.label !== undefined
-		? labelSubject(incoming.report.label)
-		: `entry ${incoming.report.index + 1}`;
+	return incoming.report.label === undefined
+		? `entry ${incoming.report.index + 1}`
+		: labelSubject(incoming.report.label);
 }
 
 /**
@@ -489,10 +489,10 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 		if (decision.action === "overwrite") {
 			const overwriteIndex = indexByLabel.get(label);
 			const landed = land(label, incoming);
-			if (overwriteIndex !== undefined) {
-				base[overwriteIndex] = landed;
-			} else {
+			if (overwriteIndex === undefined) {
 				appended.push(landed);
+			} else {
+				base[overwriteIndex] = landed;
 			}
 			overwritten += 1;
 			continue;

@@ -46,9 +46,9 @@ export function readRedesignSnapshot(setting: RedesignSettings): SettingsSnapsho
 			continue;
 		}
 		const layers: SettingLayers = {
-			...(inspected.globalValue !== undefined ? { globalValue: inspected.globalValue } : {}),
-			...(inspected.workspaceValue !== undefined ? { workspaceValue: inspected.workspaceValue } : {}),
-			...(inspected.workspaceFolderValue !== undefined ? { workspaceFolderValue: inspected.workspaceFolderValue } : {}),
+			...(inspected.globalValue === undefined ? {} : { globalValue: inspected.globalValue }),
+			...(inspected.workspaceValue === undefined ? {} : { workspaceValue: inspected.workspaceValue }),
+			...(inspected.workspaceFolderValue === undefined ? {} : { workspaceFolderValue: inspected.workspaceFolderValue }),
 		};
 		if (Object.keys(layers).length > 0) {
 			sections[id] = layers;

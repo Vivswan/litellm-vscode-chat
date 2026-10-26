@@ -155,7 +155,7 @@ function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 		}
 	} else {
 		droppedVirtualKeyValues =
-			(fields.virtualKeyHeader !== undefined ? 1 : 0) + (fields.virtualKeyValue !== undefined ? 1 : 0);
+			(fields.virtualKeyHeader === undefined ? 0 : 1) + (fields.virtualKeyValue === undefined ? 0 : 1);
 	}
 	const virtualKey = virtualKeyPairs.length > 0 ? Object.fromEntries(virtualKeyPairs) : undefined;
 
@@ -363,9 +363,11 @@ function mergeCollidingRecords(
 		const additionNames =
 			additionRaw === true
 				? marksUnderTrue(addition)
-				: additionListed !== undefined
-					? Object.keys(addition).filter((key) => !canonical(key).startsWith("_") && additionListed.has(canonical(key)))
-					: [];
+				: additionListed === undefined
+					? []
+					: Object.keys(addition).filter(
+							(key) => !canonical(key).startsWith("_") && additionListed.has(canonical(key))
+						);
 		const surviving = additionNames.filter((name) => arrivingNames.has(canonical(name)));
 		if (existingRaw !== undefined && existingRaw !== false && !Array.isArray(existingRaw)) {
 			if (existingRaw === true && arrivingNames.size > 0) {

@@ -99,11 +99,11 @@ export function usageConnectionFor(
 		connection: {
 			label: entry.label,
 			baseUrl: normalizeBaseUrl(entry.baseUrl),
-			...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
+			...(entry.apiVersion === undefined ? {} : { apiVersion: entry.apiVersion }),
 			apiKey: credentials.apiKey,
 			headers: entry.headers ?? {},
-			...(credentials.oauth !== undefined ? { oauth: credentials.oauth } : {}),
-			...(credentials.virtualKey !== undefined ? { virtualKey: credentials.virtualKey } : {}),
+			...(credentials.oauth === undefined ? {} : { oauth: credentials.oauth }),
+			...(credentials.virtualKey === undefined ? {} : { virtualKey: credentials.virtualKey }),
 		},
 	};
 }

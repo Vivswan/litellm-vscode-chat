@@ -44,7 +44,7 @@ function createFimSend(
 			{
 				model: modelRef.model,
 				prompt: wire.prompt,
-				...(wire.suffix !== undefined ? { suffix: wire.suffix } : {}),
+				...(wire.suffix === undefined ? {} : { suffix: wire.suffix }),
 				maxTokens: FIM_MAX_TOKENS,
 			},
 			// The FIM bound is fixed in code, so no setting rides the budget: timeout advice naming one would point at

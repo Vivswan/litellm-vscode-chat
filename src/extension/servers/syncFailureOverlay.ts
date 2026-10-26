@@ -57,13 +57,13 @@ function syncFailureStatus(
 	return {
 		serverId: identity.serverId,
 		label: identity.label,
-		...(identity.entryLabel !== undefined ? { entryLabel: identity.entryLabel } : {}),
+		...(identity.entryLabel === undefined ? {} : { entryLabel: identity.entryLabel }),
 		baseUrl: identity.baseUrl,
 		lastChecked: identity.lastChecked,
 		// The credential kinds ride with the presence: persisted and diagnostics data keep what the row shows.
-		...(identity.hasApiKey !== undefined ? { hasApiKey: identity.hasApiKey } : {}),
-		...(identity.hasOAuth !== undefined ? { hasOAuth: identity.hasOAuth } : {}),
-		...(identity.hasVirtualKey !== undefined ? { hasVirtualKey: identity.hasVirtualKey } : {}),
+		...(identity.hasApiKey === undefined ? {} : { hasApiKey: identity.hasApiKey }),
+		...(identity.hasOAuth === undefined ? {} : { hasOAuth: identity.hasOAuth }),
+		...(identity.hasVirtualKey === undefined ? {} : { hasVirtualKey: identity.hasVirtualKey }),
 		state: "error",
 		cause: { kind: "sync", failureClass: presentation.failure.class },
 		logSafeError: markLogSafe(`provider group sync failed (${presentation.failure.class})`),
@@ -100,9 +100,7 @@ function overlayDeclared(statuses: readonly ServerStatus[], declared: readonly D
 		if (presentation.kind !== "sync-failed") {
 			return;
 		}
-		if (live !== undefined) {
-			overlaid.set(live, syncFailureStatus(live, presentation));
-		} else {
+		if (live === undefined) {
 			unseen.push(
 				syncFailureStatus(
 					// "" is the established missing-value sentinel for both fields (restoreServerStatus writes the
@@ -112,6 +110,8 @@ function overlayDeclared(statuses: readonly ServerStatus[], declared: readonly D
 					presentation
 				)
 			);
+		} else {
+			overlaid.set(live, syncFailureStatus(live, presentation));
 		}
 	});
 	return { statuses: [...statuses.map((status) => overlaid.get(status) ?? status), ...unseen], unchecked };

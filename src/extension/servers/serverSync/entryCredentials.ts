@@ -50,8 +50,8 @@ export async function entryGroupCredentialsFor(
 		kind: "resolved",
 		credentials: {
 			apiKey: parsed.server.apiKey,
-			...(parsed.server.oauth !== undefined ? { oauth: parsed.server.oauth } : {}),
-			...(parsed.server.virtualKey !== undefined ? { virtualKey: parsed.server.virtualKey } : {}),
+			...(parsed.server.oauth === undefined ? {} : { oauth: parsed.server.oauth }),
+			...(parsed.server.virtualKey === undefined ? {} : { virtualKey: parsed.server.virtualKey }),
 		},
 	};
 }

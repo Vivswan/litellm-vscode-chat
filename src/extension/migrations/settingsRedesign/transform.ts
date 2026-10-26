@@ -243,7 +243,7 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 	const workspaceHits = LEGACY_SETTING_IDS.reduce((count, id) => {
 		const layers = snapshot[id];
 		return (
-			count + (layers?.workspaceValue !== undefined ? 1 : 0) + (layers?.workspaceFolderValue !== undefined ? 1 : 0)
+			count + (layers?.workspaceValue === undefined ? 0 : 1) + (layers?.workspaceFolderValue === undefined ? 0 : 1)
 		);
 	}, 0);
 	if (workspaceHits > 0) {

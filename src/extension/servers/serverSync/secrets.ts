@@ -342,7 +342,7 @@ export function secretLocations(
 	const inline = inlineSecretValues(entry);
 	const locations = {} as Record<SecretFieldId, SecretLocation>;
 	for (const field of SECRET_FIELD_IDS) {
-		locations[field] = inline[field] !== undefined ? "settings" : stored[field] !== undefined ? "secure" : "none";
+		locations[field] = inline[field] === undefined ? (stored[field] === undefined ? "none" : "secure") : "settings";
 	}
 	return locations;
 }

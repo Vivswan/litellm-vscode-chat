@@ -895,12 +895,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				//   a store mutation mid-pass -> must stop further adds
 				syncFailure = syncFailureOf("saltUnavailable");
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
-			} else if (!(await this.entryStillCurrent(entry.label, printed))) {
-				//   the setting was read once at pass start and the secrets just above
-				//     -> an edit landing in either window would pair a stale entry with fresh secrets (or the reverse)
-				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
-				this.env.log("Server entry changed mid-pass; group add skipped", { label: entry.label });
-			} else {
+			} else if (await this.entryStillCurrent(entry.label, printed)) {
 				try {
 					await this.env.addProviderGroup(args);
 					next[entry.label] = printed;
@@ -965,6 +960,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 						});
 					}
 				}
+			} else {
+				//   the setting was read once at pass start and the secrets just above
+				//     -> an edit landing in either window would pair a stale entry with fresh secrets (or the reverse)
+				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
+				this.env.log("Server entry changed mid-pass; group add skipped", { label: entry.label });
 			}
 			// The same narrowing the provider applies, collected rather than logged: the dashboard names the dropped
 			// credential beside the entry (configDiagnostics.ts), where the user can re-enter it. A failure the pass
@@ -1104,9 +1104,9 @@ export class ServerSyncEngine implements vscode.Disposable {
 		const newLabels: ReadonlyMap<string, string> = new Map(
 			entries
 				.filter((entry) =>
-					baseline !== undefined
-						? !baseline.has(entry.label)
-						: previous[entry.label] === undefined && sessionLedger[entry.label] === undefined
+					baseline === undefined
+						? previous[entry.label] === undefined && sessionLedger[entry.label] === undefined
+						: !baseline.has(entry.label)
 				)
 				.map((entry) => [entry.label, normalizeBaseUrl(entry.baseUrl)])
 		);
@@ -1157,15 +1157,15 @@ export class ServerSyncEngine implements vscode.Disposable {
 			);
 			const ownKeys = this.identityKeys(own, snapshots);
 			events.push(
-				renamedTo !== undefined
-					? { kind: "renamed", oldLabel: label, newLabel: renamedTo, baseUrl }
-					: {
+				renamedTo === undefined
+					? {
 							kind: "removed",
 							label,
 							baseUrl,
 							groupIds: ownKeys.filter((key) => !presentKeys.has(key)),
 							sharedGroupIds: ownKeys.filter((key) => presentKeys.has(key)),
 						}
+					: { kind: "renamed", oldLabel: label, newLabel: renamedTo, baseUrl }
 			);
 		}
 		// An unresolved removal - detected this pass or carried from an earlier one - keeps its fingerprint record (see
@@ -1196,7 +1196,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 					return [[entry.label, normalizeBaseUrl(entry.baseUrl)]];
 				}
 				const knownUrl = this.knownBaseUrl(entry.label, ledger);
-				return knownUrl !== undefined ? [[entry.label, knownUrl]] : [];
+				return knownUrl === undefined ? [] : [[entry.label, knownUrl]];
 			});
 			const nextLedger = Object.fromEntries([...ledgerEntries, ...Object.entries(carriedLedger)]);
 			// Session truth before the persist, like the fingerprint map: a failing (or later-reverted) storage write

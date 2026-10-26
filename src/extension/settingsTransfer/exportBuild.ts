@@ -67,13 +67,7 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 			// all refuse (fail closed) and unstamped ones ride as before.
 			const parsed = acceptedEntry([rawEntry], label)?.entry;
 			let usable: StoredServerSecrets;
-			if (parsed !== undefined) {
-				const owned = resolveOwnedSecrets(parsed, record);
-				usable = owned.values;
-				// The superset on purpose: an inert stale-stamped field (one the entry cannot send, so it does not
-				// refuse the pairing) still drops out of the file here, and the summary must say so.
-				mismatchedSecretCount += owned.mismatched.length;
-			} else {
+			if (parsed === undefined) {
 				const values: { -readonly [K in SecretFieldId]?: string } = {};
 				for (const field of SECRET_FIELD_IDS) {
 					const value = record.values[field];
@@ -87,6 +81,12 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 					}
 				}
 				usable = values;
+			} else {
+				const owned = resolveOwnedSecrets(parsed, record);
+				usable = owned.values;
+				// The superset on purpose: an inert stale-stamped field (one the entry cannot send, so it does not
+				// refuse the pairing) still drops out of the file here, and the summary must say so.
+				mismatchedSecretCount += owned.mismatched.length;
 			}
 			const materialized = materializeEntrySecrets(rawEntry, usable);
 			unmaterializedSecretCount += materialized.unmaterialized;

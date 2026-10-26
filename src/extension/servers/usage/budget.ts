@@ -51,7 +51,7 @@ export function resolveBudget(input: ResolveBudgetInput): BudgetStatus {
 	const keyBudget = usableBudget(input.keyBudget);
 	const spend = usableAmount(input.spend);
 	const effectiveBudget = entryBudget ?? keyBudget;
-	const budgetSource: BudgetSource = entryBudget !== undefined ? "entry" : keyBudget !== undefined ? "key" : "none";
+	const budgetSource: BudgetSource = entryBudget === undefined ? (keyBudget === undefined ? "none" : "key") : "entry";
 	const spentFraction =
 		spend !== undefined && effectiveBudget !== undefined && effectiveBudget > 0 ? spend / effectiveBudget : undefined;
 	return {
