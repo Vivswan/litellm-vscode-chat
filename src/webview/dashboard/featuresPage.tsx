@@ -637,14 +637,18 @@ export function FeaturesSection({
 	writeFailures,
 }: {
 	settings: DashboardSettings;
+
 	models: readonly DashboardModel[];
+
 	/**
 	 * The declared entries' labels (state.servers, origin "declared"): what the feature model pickers may offer, since
 	 * a ref addresses a servers-entry label and external groups have none. Absent offers nothing - fail-closed, never a
 	 * wrong pick.
 	 */
 	declaredServerLabels?: readonly string[] | undefined;
+
 	featureProbes?: readonly FeatureModelId[] | undefined;
+
 	writeFailures?: Partial<Record<SettingWriteMethod, SettingWriteFailure>> | undefined;
 }) {
 	const featureModelOptions = modelRefOptions(models, new Set(declaredServerLabels ?? []));

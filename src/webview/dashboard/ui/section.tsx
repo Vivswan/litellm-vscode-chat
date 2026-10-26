@@ -15,22 +15,30 @@ import { cn } from "./cn";
 export interface SectionHeaderProps {
 	/** The id of the heading element, for the section's aria-labelledby. */
 	titleId?: string;
+
 	title: string;
+
 	/**
 	 * Heading level; the replaced surfaces use h2-h4, and 5 is the server form's Companions sub-head, one step under
 	 * its h4 sections.
 	 */
 	level?: 2 | 3 | 4 | 5;
+
 	/** Help tip text; renders the "?" affordance when present. */
 	help?: string;
+
 	/** Place the tip below its trigger - for headers near the top, where above would clip. */
 	helpBelow?: boolean;
+
 	/** The docs link's target and accessible name. */
 	docs?: { readonly href: DocsUrl; readonly label: string };
+
 	/** A quiet fact belonging to the title, not to the body: counts, filter state. */
 	meta?: ReactNode;
+
 	/** Trailing actions, on the header line rather than a strip below it. */
 	actions?: ReactNode;
+
 	className?: string | undefined;
 }
 
@@ -80,8 +88,11 @@ export function Section({
 }: Omit<SectionHeaderProps, "titleId" | "className"> & {
 	/** Names the section: the element becomes `sectionId(id)` and its heading `${id}-title`. */
 	id: string;
+
 	children: ReactNode;
+
 	className?: string | undefined;
+
 	/** Reaches the header line, so a variant does not cost the caller the id contract. */
 	headerClassName?: string | undefined;
 }) {

@@ -11,6 +11,7 @@ export function FailureText({
 }: {
 	/** The failure message as the extension sent it; may or may not carry a detail part. */
 	message: string;
+
 	/** Wraps the headline into the caller's localized sentence; the detail never rides inside it. */
 	frame?: (headline: string) => string;
 }) {

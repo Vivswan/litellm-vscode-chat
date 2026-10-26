@@ -42,16 +42,23 @@ export function ProblemBand({
 	actions,
 }: {
 	readonly as?: "div" | "li";
+
 	readonly severity: DiagnosticSeverity;
+
 	readonly subject: SeveritySubject;
+
 	/**
 	 * The spend scale's one override: lifts a DEGRADED band's paint to the error tier (inert elsewhere, see bandTier).
 	 */
 	readonly tone?: "error" | undefined;
+
 	readonly headline: ReactNode;
+
 	/** Where the problem lives (the Diagnostics page's location badges), between headline and detail. */
 	readonly where?: ReactNode;
+
 	readonly details?: readonly string[] | undefined;
+
 	/** The caller's action cluster, rendered last; the band does not restyle it. */
 	readonly actions?: ReactNode;
 }) {

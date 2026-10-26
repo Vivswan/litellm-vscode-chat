@@ -25,7 +25,9 @@ export function asExtensionMessage(data: unknown): ExtensionToWebviewMessage | u
 
 export interface RpcState<K extends ReadMethod> {
 	readonly data: ResponseFor<K> | undefined;
+
 	readonly send: (payload: RequestPayload<K>) => void;
+
 	/** Drop the held answer and orphan any in-flight request (a closing form's value must leave webview memory). */
 	readonly reset: () => void;
 }
@@ -82,7 +84,9 @@ export type IntentOutcome =
 export interface IntentOutcomeState<K extends AckedMethod> {
 	/** The latest ack or fail envelope for this method, whichever request posted it. */
 	readonly outcome: IntentOutcome | undefined;
+
 	readonly send: (payload: RequestPayload<K>) => string;
+
 	/** Forget the held outcome (a dismissed notice must not resurface). */
 	readonly reset: () => void;
 }

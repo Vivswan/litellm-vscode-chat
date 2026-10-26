@@ -113,15 +113,20 @@ type PageConfigDiagnostic = Exclude<ConfigDiagnosticView, { kind: "hidden-groups
 interface ConfigProblem {
 	/** Derived from the diagnostic's own identity, so React keeps focus on an action button across pushes. */
 	readonly key: string;
+
 	readonly severity: DiagnosticSeverity;
+
 	/**
 	 * Leads with the consequence, keeps the cause: a reader who stops after the first clause should still know what is
 	 * not being applied.
 	 */
 	readonly headline: string;
+
 	readonly where: readonly string[];
+
 	/** The parser's structural report, when there is one. English by policy - it also rides the copyable block. */
 	readonly detail?: string | undefined;
+
 	readonly actions: readonly DiagnosticAction[];
 }
 
@@ -1136,13 +1141,20 @@ export function DiagnosticsSection({
 	onInspect,
 }: {
 	servers: readonly DashboardServer[];
+
 	/** The host's published verdict rows (DashboardState.verdictRows): the paste line's headline reads these. */
 	verdictRows: readonly VerdictRow[];
+
 	modelCount: number;
+
 	diagnostics: readonly ConfigDiagnosticView[];
+
 	active: boolean;
+
 	stateSeq: number;
+
 	currencySymbol: string;
+
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
 }) {
 	// The eight actions open the body as one vertical list (settled user direction; the header's actions slot stays

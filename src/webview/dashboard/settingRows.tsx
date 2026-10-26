@@ -42,8 +42,10 @@ import { sendRequest } from "./vscodeApi";
 export interface SettingWriteFailure {
 	/** Distinguishes repeated failures with the same text; keys the notice so role="alert" re-announces. */
 	readonly seq: number;
+
 	/** The owning settings row, absent for a failure whose payload never parsed. */
 	readonly row?: SettingRowId | undefined;
+
 	readonly message: string;
 }
 
@@ -278,32 +280,46 @@ export function SettingRow({
 	companion,
 }: {
 	settingId: SettingRowId;
+
 	title: string;
+
 	/** The id of the control the label points at; omitted where clicking the title must not write a setting. */
 	titleFor?: string | undefined;
+
 	description: ReactNode;
+
 	help?: string | undefined;
+
 	control: ReactNode;
+
 	error?: CoveredMessage | undefined;
+
 	errorId?: string;
+
 	/**
 	 * The lowest-precedence covered-slot tenant: a transient tone-styled status (a model probe's outcome) that rides
 	 * the same height-keeping overlay as the errors, so landing one moves nothing. Tones are the app-wide tone text
 	 * classes (state-ok / state-warn / error), one vocabulary with the server form's test result.
 	 */
 	notice?: { readonly text: string; readonly tone: "ok" | "warning" | "error" } | undefined;
+
 	/** The built-in default, named in the modified note (number rows only). */
 	defaultText?: string | undefined;
+
 	configuredScope: SettingScope | null;
+
 	hidden: boolean;
+
 	/** Extra placement on the description cell - the catalog row widens its status cluster's track with this. */
 	hintClassName?: string | undefined;
+
 	/**
 	 * A checkbox is compact enough to share the title's line at EVERY stacked width (the sub-560 one-column fallback
 	 * exists for the wide controls). tailwind-merge resolves these against the base template's own sub-560 classes
 	 * (same variant, later input wins).
 	 */
 	compactControl?: boolean;
+
 	/**
 	 * A secondary row of a setting that spans several rows (the language filter's mode row): the setting's primary row
 	 * carries the actions and the standing write failure, so a companion renders neither - a shared failure would
@@ -758,19 +774,32 @@ export function CommaListRow({
 	onCommit,
 }: {
 	settingId: SettingRowId;
+
 	title: string;
+
 	description: string;
+
 	help: string;
+
 	placeholder: string;
+
 	values: readonly string[];
+
 	/** Whether normalization dropped or rewrote raw entries the push cannot carry; forces the read-only fallback. */
 	lossy: boolean;
+
 	maxLength: number;
+
 	maxCount: number;
+
 	countProblem: (max: number) => string;
+
 	lengthProblem: (max: number) => string;
+
 	configuredScope: SettingScope | null;
+
 	hidden: boolean;
+
 	onCommit: (values: readonly string[]) => void;
 }) {
 	const externalText = values.join(", ");
@@ -864,22 +893,31 @@ export function SettingGroup({
 	tailVisible,
 }: {
 	title: () => string;
+
 	help?: (() => string) | undefined;
+
 	/**
 	 * A standing annotation seated on the heading line, after the help glyph (the Features page's Coming soon badge).
 	 * The frame only SEATS it; which mark the annotation wears is the page's own decision, so this file mints no second
 	 * badge or pill vocabulary.
 	 */
 	note?: (() => ReactNode) | undefined;
+
 	numbers: readonly NumberSettingId[];
+
 	booleans: readonly BooleanSettingId[];
+
 	settings: SettingsSlice;
+
 	/** The filter's verdict per row; a group whose rows are all hidden collapses whole (heading included). */
 	isVisible: (id: NumberSettingId | BooleanSettingId) => boolean;
+
 	/** Status content replacing specific boolean rows' descriptions (the catalog row's cluster). */
 	booleanMeta?: Partial<Record<BooleanSettingId, ReactNode>>;
+
 	/** Rows appended after the scalar rows (the Usage group's enum and list rows). */
 	tail?: ReactNode;
+
 	/** Whether anything beyond the scalar rows survives the filter (tail rows); keeps the heading alive for it. */
 	tailVisible?: boolean;
 }) {

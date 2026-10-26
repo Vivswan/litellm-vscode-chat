@@ -19,8 +19,10 @@ export function RecordChainFigure({
 	onEditEntry,
 }: {
 	chains: readonly RecordChainView[] | undefined;
+
 	/** Jump into the global record editor focused on the key; absent, keys render as plain text. */
 	onEditRecord?: ((key: string) => void) | undefined;
+
 	/** Jump into the server entry's edit form (the owner of entry-layer records). */
 	onEditEntry?: ((label: string) => void) | undefined;
 }) {

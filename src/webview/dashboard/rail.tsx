@@ -26,19 +26,24 @@ export interface Overall {
 
 export interface RailSection<Id extends string = string> {
 	readonly id: Id;
+
 	readonly label: string;
+
 	/** Required: an icon rail with a missing icon is a blank square with no way back to its name. */
 	readonly icon: ReactNode;
+
 	/**
 	 * The live number this destination is about - the rail's whole claim over a tab strip. Absent when there is nothing
 	 * to count: an absent number is a fact, a zero would be a different and usually wrong one.
 	 */
 	readonly count?: string | undefined;
+
 	/**
 	 * The count said in words, with its own unit ("4 models", "87% of budget"): a bare "4" announces as "Servers 4",
 	 * and the tabpanel inherits that name. The visible label stays inside the accessible name (Label in Name).
 	 */
 	readonly countLabel?: string | undefined;
+
 	/** Tints the count when it is something to act on rather than merely a total. */
 	readonly countTone?: "warn" | undefined;
 }
@@ -175,11 +180,16 @@ export function Rail<Id extends string>({
 	serverCount,
 }: {
 	sections: readonly RailSection<Id>[];
+
 	active: Id;
+
 	onSelect: (id: Id) => void;
+
 	/** Sync has nothing to ask with no servers configured. */
 	serverCount: number;
+
 	overall: Overall;
+
 	/** Already-relative "2 min ago"; absent when nothing has synced. */
 	synced: string | undefined;
 }) {

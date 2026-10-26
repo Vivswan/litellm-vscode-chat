@@ -386,12 +386,19 @@ function ThresholdBox({
 	onCommit,
 }: {
 	id: string;
+
 	label: string;
+
 	text: string;
+
 	invalid: boolean;
+
 	errorId: string;
+
 	placeholder: string;
+
 	onText: (next: string) => void;
+
 	/** Blur (with where focus went) or Enter; the row decides whether the pair commits. */
 	onCommit: (event?: FocusEvent) => void;
 }) {
@@ -724,16 +731,21 @@ export function SettingsSection({
 	writeFailures,
 }: {
 	settings: DashboardSettings;
+
 	models: readonly DashboardModel[];
+
 	/**
 	 * The cross-server observed /model/info key union (DashboardState.observedModelInfoKeys), the capability editor's
 	 * hint evidence.
 	 */
 	observedModelInfoKeys?: readonly string[] | undefined;
+
 	/** The shared clock tick; the catalog row's "updated N ago" reads it. */
 	now?: number;
+
 	/** The inspectors' configure-jump into one of the record editors; see EditRecordRequest. */
 	editRecordRequest?: EditRecordRequest | undefined;
+
 	/** The standing scalar-write failures from App's store, for this page to place by owning row. */
 	writeFailures?: Partial<Record<SettingWriteMethod, SettingWriteFailure>> | undefined;
 }) {

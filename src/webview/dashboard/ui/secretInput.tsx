@@ -5,7 +5,9 @@ import { Input } from "./input";
 interface SecretInputProps extends Omit<ComponentProps<typeof Input>, "value" | "defaultValue" | "onChange" | "ref"> {
 	/** The draft's current text; written to the node's value PROPERTY, never handed to React. */
 	readonly value: string;
+
 	readonly onValueChange: (next: string) => void;
+
 	/**
 	 * Omit alone dies under a non-fresh spread (no excess-property check); never keeps the mirror's key
 	 * unrepresentable.

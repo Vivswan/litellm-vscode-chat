@@ -16,8 +16,10 @@ export function AbsentDatum({
 }: {
 	/** The wrapper's register: the call site's muted class ("hint", "text-muted-foreground"). */
 	className: string;
+
 	/** Screen-reader-only reason text; "not reported" when omitted. Unused while children speak. */
 	reason?: string | undefined;
+
 	/**
 	 * A visible reason rendered in place of the hidden text; an element, so a conditional `false` cannot silence the
 	 * words.

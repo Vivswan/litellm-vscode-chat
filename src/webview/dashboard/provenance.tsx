@@ -42,7 +42,9 @@ const BADGE_CLIP_CH = 36;
 /** One directive mark: the record editors' chip word, with its rule one tip away. */
 export interface MarkView {
 	readonly word: string;
+
 	readonly detail?: string | undefined;
+
 	/** The word IS a directive key (`_openrouter_model`), so it keeps the monospace register. */
 	readonly mono?: boolean | undefined;
 }

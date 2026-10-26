@@ -309,11 +309,16 @@ export function ServerEditPage({
 	onSaved,
 }: {
 	request: ServerEditRequest;
+
 	servers: readonly DashboardServer[];
+
 	onDirtyChange: (dirty: boolean) => void;
+
 	/** The draft ceased to exist (its entry left the setting): its own channel, so a dirty report can never mean it. */
 	onTargetGone: () => void;
+
 	onRequestClose: () => void;
+
 	onSaved: () => void;
 }) {
 	// The page's own adopt round trip: the outcome decides the page's fate (ok leaves, a validation failure stays). The
@@ -553,16 +558,23 @@ function ServerForm({
 	onRequestClose,
 }: {
 	target: ServerFormTarget;
+
 	declaredLabels: readonly string[];
+
 	liveGroupLabels: readonly string[];
+
 	/** The edited entry's LIVE observed /model/info key set (liveRowForForm); the capability hints' evidence. */
 	observedModelInfoKeys?: readonly string[] | undefined;
+
 	/** The edited entry's LIVE per-mode skip counts (liveRowForForm); the include-modes checkboxes' evidence. */
 	skippedModeCounts?: SkippedModeCounts | undefined;
+
 	/** Reports that the draft has edits worth asking about; the shell's navigation guard reads it. */
 	onDirtyChange: (dirty: boolean) => void;
+
 	/** Hands the posted intent's requestId to the page, which owns the round trip. */
 	onSavePosted: (requestId: string) => void;
+
 	/** The reader asked to leave; the shell owns what that means. */
 	onRequestClose: () => void;
 }) {

@@ -263,8 +263,10 @@ function SortControl({
 	onChange,
 }: {
 	sort: Sort | undefined;
+
 	/** One server means no Server key to sort by; the same rule that hides it from the rows. */
 	showServer: boolean;
+
 	onChange: (sort: Sort | undefined) => void;
 }) {
 	const keys = showServer ? SORT_KEYS : SORT_KEYS.filter((key) => key !== "server");
@@ -350,19 +352,24 @@ function FilterPills({
 	onClearAll,
 }: {
 	options: ModelFilterOptions;
+
 	active: ModelFilter;
+
 	/** The rows' serverCount > 1 rule; the options' own two-server rule still applies under it. */
 	showServers: boolean;
+
 	/**
 	 * The parent decides: when the pressed pills empty the list, the empty state renders its own "Clear filters", and
 	 * two identical controls a line apart read as two different actions.
 	 */
 	showClear: boolean;
+
 	/**
 	 * Takes an updater, never a computed state: two toggles in one React batch would both derive from the same stale
 	 * `active` and the second would silently undo the first.
 	 */
 	onChange: (update: (filter: ModelFilter) => ModelFilter) => void;
+
 	onClearAll: () => void;
 }) {
 	const groups: { key: string; label: string; pills: readonly React.ReactNode[] }[] = [
@@ -446,9 +453,12 @@ function FilterPills({
  *   DEFAULT_ROW_HEIGHT -> is the fallback while nothing is measurable
  */
 const WINDOW_THRESHOLD = 50;
+
 /** Exported so the tests measure against the component's own number instead of a copy that can drift. */
 export const DEFAULT_ROW_HEIGHT = 46;
+
 const OVERSCAN = 10;
+
 /**
  * The scrollport's height before there is one to measure. Generous on purpose: too small leaves a blank strip under
  * the last row until the first scroll; too large only costs a few extra rows on one paint.
@@ -463,11 +473,15 @@ export function ModelsSection({
 	onInspect,
 }: {
 	models: readonly DashboardModel[];
+
 	serverCount: number;
+
 	/** The configured cost prefix (usage.currencySymbol); display only, never a conversion. */
 	currencySymbol: string;
+
 	/** One object so a scope without a working clear cannot be expressed. */
 	scope?: { readonly label: string; readonly onClear: () => void } | undefined;
+
 	/**
 	 * App owns the inspector, so this section only names the row; the full identity travels (one snapshot can render
 	 * under several labels).

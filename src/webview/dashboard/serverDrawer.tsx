@@ -320,14 +320,22 @@ export function ServerDrawer({
 	onShowModels,
 }: {
 	server: DashboardServer;
+
 	usage: UsageServerCardView | undefined;
+
 	notices: readonly DrawerNotice[];
+
 	/** The endpoint details the row's diagnostics already carry; the inventory prints only the remainder. */
 	carriedDetails: ReadonlySet<UsageEndpoint>;
+
 	pollingOff: boolean;
+
 	discoveryTimeoutMs: number;
+
 	now: number;
+
 	currencySymbol: string;
+
 	onShowModels: ((label: string) => void) | undefined;
 }) {
 	const numbers = usage?.kind === "usage" ? usage : undefined;

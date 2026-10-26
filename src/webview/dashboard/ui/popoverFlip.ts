@@ -7,12 +7,16 @@
 export interface FlipMeasurement {
 	/** The anchor box's viewport top edge (the box the CSS positions against). */
 	readonly hostTop: number;
+
 	/** The anchor box's viewport bottom edge. */
 	readonly hostBottom: number;
+
 	/** The popover's own rendered height. */
 	readonly popoverHeight: number;
+
 	/** The offset the stylesheet leaves between popover and anchor, either side. */
 	readonly gapPx: number;
+
 	readonly viewportHeight: number;
 }
 

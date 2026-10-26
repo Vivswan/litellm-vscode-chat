@@ -286,12 +286,15 @@ function ShadowedRow({
 	mark,
 }: {
 	value: string;
+
 	/**
 	 * Right-aligned by the SHADOW's own type, not the winner's: pass-through values are unvalidated, so a string can
 	 * lose to a number and should sit where its own kind sits.
 	 */
 	numeric?: boolean;
+
 	source: ProvenanceView;
+
 	mark?: MarkView | undefined;
 }) {
 	return (
@@ -416,11 +419,15 @@ function FieldRow({
 	onEditField,
 }: {
 	name: string;
+
 	field: EffectiveCapabilityField;
+
 	/** Names the entry an entry-level row belongs to, for the jump's accessible label. */
 	serverLabel: string;
+
 	/** The configured cost prefix (usage.currencySymbol); the cost rows' values read it. */
 	currencySymbol: string;
+
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
 	const { source, marks } = capabilityCellProvenance({
@@ -538,9 +545,12 @@ function ResolutionTable({
 	children,
 }: {
 	nameHead: string;
+
 	valueHead: string;
+
 	/** Every value in the column is a number (the pricing table), so its head follows them to the right. */
 	numericValues?: boolean;
+
 	children: ReactNode;
 }) {
 	return (
@@ -584,10 +594,13 @@ function SupportedParamsBlock({
 	onEditField,
 }: {
 	fields: EffectiveCapabilities["fields"];
+
 	/** Names the entry an entry-level value belongs to, for the jump's accessible label. */
 	serverLabel: string;
+
 	/** Threaded so every capability value renders through the one formatter. */
 	currencySymbol: string;
+
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
 	const field = capabilityField(fields, "supported_openai_params");
@@ -667,23 +680,27 @@ export function ModelInspector({
 	onEditEntry,
 }: {
 	model: DashboardModel;
+
 	/** The configured cost prefix (usage.currencySymbol); every price on the panel renders through it. */
 	currencySymbol: string;
-	/**
-	 * Bumped on every state push; the inspector re-requests both feeds so an open panel follows configuration
-	 * edits.
-	 */
+
+	/** Bumped on every state push; the inspector re-requests both feeds so an open panel follows configuration edits. */
 	stateSeq: number;
+
 	/** Which section the panel scrolls to on open (the Diagnostics jump links); absent, it opens at the top. */
 	anchor?: InspectorSection | undefined;
+
 	/**
 	 * Where focus lands on close when the opener is gone; the overlay's owner names a visible element (the active
 	 * tab).
 	 */
 	fallbackFocusId?: string;
+
 	onClose: () => void;
+
 	/** Jump into a global record editor: focus record `key` of `kind`, or create an exact-ID draft when `create`. */
 	onEditRecord?: ((kind: "parameters" | "capabilities", key: string, create: boolean) => void) | undefined;
+
 	/** Jump into a server entry's edit form (the owner of entry-layer values). */
 	onEditEntry?: ((label: string) => void) | undefined;
 }) {

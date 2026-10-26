@@ -32,13 +32,17 @@ function locationName(location: Exclude<SecretLocation, "none">): string {
 
 export interface FieldRenderProps {
 	readonly draft: ServerFormDraft;
+
 	/**
 	 * The problems the form shows right now, computed once per render in ServerForm; fields render these directly, so
 	 * field decorations and the save summary cannot disagree.
 	 */
 	readonly visibleProblems: ServerFormProblems;
+
 	readonly disabled: boolean;
+
 	readonly patch: (patch: Partial<ServerFormDraft>) => void;
+
 	readonly touch: (field: ServerFormField) => void;
 }
 
@@ -56,15 +60,20 @@ export function FormSection({
 	children,
 }: {
 	title: string;
+
 	/** The heading's quiet trailing fact: "optional", plus a count where the section holds rows. */
 	aside?: string;
+
 	/**
 	 * Required: a section with neither is a heading that explains nothing. The glyph is named for its section - a page
 	 * with a dozen of them announces a dozen identical "Help" buttons otherwise.
 	 */
 	help: string;
+
 	docs?: { readonly href: DocsUrl; readonly label: string };
+
 	quiet?: boolean;
+
 	children: ReactNode;
 }) {
 	return (
@@ -114,14 +123,22 @@ export function FormFieldRow({
 }: {
 	/** The control's id; absent for rows whose control is a group rather than one input. */
 	htmlFor?: string;
+
 	label: string;
+
 	help?: ReactNode;
+
 	hint?: ReactNode;
+
 	/** A hint that names a consequence rather than a fact (a secret about to land in plain text). */
 	hintTone?: "warn";
+
 	problem?: string | undefined;
+
 	errorId?: string;
+
 	wide?: boolean;
+
 	children: ReactNode;
 }) {
 	const showProblem = problem !== undefined;
@@ -295,12 +312,17 @@ export function TextField({
 		| "expectedFailures"
 		| "includeModes"
 	>;
+
 	placeholder?: string;
+
 	hint?: string;
+
 	/** Machine text (URLs, header names, scopes) reads in the mono face. */
 	mono?: boolean;
+
 	/** A field whose values are short (a budget): the input stops at its own measure. */
 	narrow?: boolean;
+
 	props: FieldRenderProps;
 }) {
 	const problem = props.visibleProblems[field];

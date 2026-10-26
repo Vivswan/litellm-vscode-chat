@@ -62,10 +62,14 @@ function InheritFromControl({
 	onChange,
 }: {
 	kind: RecordEditorKind;
+
 	group: PrefixGroup;
+
 	disabled: boolean;
+
 	/** The absorbed `_inherit_from` row's non-blocking note (an unknown record key), rendered beside the control. */
 	hint?: string | undefined;
+
 	onChange: (next: PrefixGroup) => void;
 }) {
 	const choice = inheritFromChoice(kind, group);
@@ -156,10 +160,14 @@ export function InheritableFlag({
 	onChange,
 }: {
 	kind: RecordEditorKind;
+
 	group: PrefixGroup;
+
 	/** The row's key in the resolver's reading (resolvedFieldName). */
 	fieldKey: string;
+
 	disabled: boolean;
+
 	onChange: (next: PrefixGroup) => void;
 }) {
 	const marked = directiveMarkedFields(kind, group, INHERITABLE_DIRECTIVE);
@@ -238,16 +246,25 @@ export function ParamGroupsFields({
 	onEnter,
 }: {
 	group: PrefixGroup;
+
 	problems: GroupProblems | undefined;
+
 	/** Row-aligned non-blocking notes from the same parse (the _force semantic warnings). */
 	hints?: GroupHints | undefined;
+
 	disabled?: boolean | undefined;
+
 	prefixPlaceholder: string;
+
 	prefixHelp: string;
+
 	/** Suggestions for the prefix and parameter-name inputs' listboxes; absent, the inputs stay plain. */
 	prefixSuggestions?: readonly string[] | undefined;
+
 	paramNameSuggestions?: readonly string[] | undefined;
+
 	onChange: (next: PrefixGroup) => void;
+
 	/** Enter in a row input; the editors apply the draft when it parses clean. */
 	onEnter?: (() => void) | undefined;
 }) {
@@ -512,17 +529,26 @@ export function SuggestInput({
 	onEnter,
 }: {
 	value: string;
+
 	suggestions: readonly string[];
+
 	/** The input's base class ("key"); invalid appends the shared error class. */
 	inputClass: string;
+
 	invalid: boolean;
+
 	placeholder?: string | undefined;
+
 	/** The input's accessible name where the visible label is a column head, not a wired <label>. */
 	ariaLabel?: string | undefined;
+
 	/** An aria-describedby target (the wrong-record-type sentence beside a directive key). */
 	describedBy?: string | undefined;
+
 	disabled?: boolean | undefined;
+
 	onValue: (next: string) => void;
+
 	/** Enter with no highlighted suggestion; the editors apply the draft when it parses clean. */
 	onEnter?: (() => void) | undefined;
 }) {
@@ -727,9 +753,13 @@ export function CatalogPicker({
 	debounceMs = CATALOG_SEARCH_DEBOUNCE_MS,
 }: {
 	value: string;
+
 	disabled: boolean;
+
 	invalid: boolean;
+
 	onValue: (next: string) => void;
+
 	/** The search debounce; a prop only so tests need not wait out the real value. */
 	debounceMs?: number;
 }) {
@@ -846,13 +876,19 @@ export function CapabilityGroupsFields({
 	onEnter,
 }: {
 	group: PrefixGroup;
+
 	issues: CapabilityGroupIssues | undefined;
+
 	disabled?: boolean | undefined;
+
 	/** Suggestions for the matcher input's listbox; absent, the input stays plain. */
 	prefixSuggestions?: readonly string[] | undefined;
+
 	/** The capability-name suggestions (capabilityKeySuggestions); absent, the no-evidence static list serves. */
 	keySuggestions?: readonly string[] | undefined;
+
 	onChange: (next: PrefixGroup) => void;
+
 	/** Enter in a row input; the editors apply the draft when it parses clean. */
 	onEnter?: (() => void) | undefined;
 }) {

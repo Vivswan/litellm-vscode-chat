@@ -208,9 +208,12 @@ function PopoverShell({
 	children,
 }: {
 	label: string;
+
 	/** Which chip edge the popover hangs from; "end" keeps it on-panel for chips near the right edge. */
 	align: "start" | "end";
+
 	onClose: () => void;
+
 	children: ReactNode;
 }) {
 	const ref = useRef<HTMLDivElement>(null);

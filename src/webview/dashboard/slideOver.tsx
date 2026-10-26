@@ -31,9 +31,12 @@ export function SlideOver({
 }: {
 	/** The id of the heading naming this dialog (the panel's own h3). */
 	labelledBy: string;
+
 	/** Where focus lands on close when the opener no longer exists (e.g. a matcher row the editor itself removed). */
 	fallbackFocusId: string;
+
 	onRequestClose: () => void;
+
 	children: ReactNode;
 }) {
 	const panelRef = useRef<HTMLDivElement>(null);

@@ -42,18 +42,28 @@ type RecordMatcherTableProps = {
 			 * the server drawer's entry records).
 			 */
 			readOnly: true;
+
 			disabled?: undefined;
+
 			keySuggestions?: undefined;
+
 			onChange?: undefined;
+
 			onOpenEditor?: undefined;
+
 			onOpenFieldChange?: undefined;
 	  }
 	| {
 			readOnly?: false | undefined;
+
 			disabled?: boolean | undefined;
+
 			keySuggestions?: readonly string[] | undefined;
+
 			onChange: (next: PrefixGroup[]) => void;
+
 			onOpenEditor?: ((groupIndex: number) => void) | undefined;
+
 			/**
 			 * Reports the open field popover as "groupIndex:rowIndex", so the card's verdict can skip the problem it
 			 * states.
@@ -368,23 +378,38 @@ export function RecordMatcherEditorOverlay({
 	onEnter,
 }: {
 	kind: RecordEditorKind;
+
 	group: PrefixGroup;
+
 	groupProblems?: GroupProblems | undefined;
+
 	groupHints?: GroupHints | undefined;
+
 	groupIssues?: CapabilityGroupIssues | undefined;
+
 	prefixPlaceholder?: string | undefined;
+
 	prefixHelp?: string | undefined;
+
 	prefixSuggestions?: readonly string[];
+
 	keySuggestions?: readonly string[];
+
 	disabled?: boolean;
+
 	/** Where focus lands on close when the opening pencil is gone (a removed matcher); the owner's stable control. */
 	fallbackFocusId: string;
+
 	/** One line naming where these edits land (the draft's Apply, the form's Save). */
 	note: string;
+
 	onChange: (next: PrefixGroup) => void;
+
 	/** Remove matcher inside the editor; the owner drops the group and closes. */
 	onRemove: () => void;
+
 	onClose: () => void;
+
 	/** Enter in a row input, where the owner supports Enter-to-apply. */
 	onEnter?: (() => void) | undefined;
 }) {
@@ -433,6 +458,7 @@ export function RecordMatcherEditorOverlay({
 interface MatcherEditing {
 	/** Identity exactly as stored - the grammar trims nothing, so neither does identity. */
 	readonly key: string;
+
 	readonly ordinal: number;
 }
 
@@ -463,10 +489,13 @@ function resolveMatcherEditing(
  */
 export function useMatcherEditing(groups: readonly PrefixGroup[]): {
 	editingIndex: number | undefined;
+
 	/** Open on a draft index; `key` overrides the capture when the group is appended in the same tick. */
 	openEditor: (index: number, key?: string) => void;
+
 	/** Follow the matcher key through the overlay's own edits, with the next rows and the group's index in them. */
 	trackRename: (next: PrefixGroup, nextGroups: readonly PrefixGroup[], index: number) => void;
+
 	closeEditing: () => void;
 } {
 	const [editing, setEditing] = useState<MatcherEditing | undefined>(undefined);

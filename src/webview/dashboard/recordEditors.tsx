@@ -93,14 +93,21 @@ function useDraftRows<T>(
 	outcome: IntentOutcome | undefined
 ): {
 	rows: T;
+
 	dirty: boolean;
+
 	phase: DraftPhase;
+
 	/** Whether a draft of any kind is live (dirty, in flight, or acked awaiting the reflecting push). */
 	pinned: boolean;
+
 	/** The reported failure of THIS draft's own write; a leftover notice from a discarded draft never resurfaces. */
 	failure: IntentFailureOutcome | undefined;
+
 	update: (next: T) => void;
+
 	apply: (requestId: string) => void;
+
 	reset: () => void;
 } {
 	// Value identity, id-stripped: the caller re-derives `external` per render and each derivation mints fresh row
@@ -349,9 +356,12 @@ export function RecordStatusSlot({
 	refusal,
 }: {
 	groups: readonly PrefixGroup[];
+
 	issues: readonly GroupIssueView[];
+
 	/** The open field popover's "groupIndex:rowIndex"; the verdict skips the one problem stated there. */
 	openField?: string | undefined;
+
 	/** The owning draft's write-refusal channel; absent on surfaces with no write path (the read-only frames). */
 	refusal?: { readonly failure: IntentFailureOutcome | undefined; readonly dirty: boolean } | undefined;
 }) {
@@ -383,10 +393,13 @@ export function ModelParametersEditor({
 	external,
 }: {
 	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
+
 	/** The discovered models, feeding the prefix input's suggestions. */
 	models: readonly DashboardModel[];
+
 	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
 	hidden?: boolean;
+
 	/** The inspectors' configure-jump; see ExternalRecordEdit. */
 	external?: ExternalRecordEdit | undefined;
 }) {
@@ -666,16 +679,20 @@ export function ModelCapabilitiesEditor({
 	external,
 }: {
 	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
+
 	/** The discovered models, feeding the matcher input's suggestions. */
 	models: readonly DashboardModel[];
+
 	/**
 	 * The cross-server union of observed /model/info keys: the unknown-key hints' evidence AND the server half of the
 	 * key autocomplete (the global records scope over every server, so the union fits both). Absent or empty means no
 	 * evidence - hints suppressed, suggestions fall back to the static vocabulary.
 	 */
 	observedKeys?: readonly string[] | undefined;
+
 	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
 	hidden?: boolean;
+
 	/** The inspectors' configure-jump; see ExternalRecordEdit. */
 	external?: ExternalRecordEdit | undefined;
 }) {

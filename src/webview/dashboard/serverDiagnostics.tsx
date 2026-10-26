@@ -66,18 +66,25 @@ const INACTIVE_NOTICES = Object.keys(INACTIVE_NOTICE_PRESENTATION) as readonly I
 type DiagnosticAction =
 	| {
 			readonly kind: "button";
+
 			/**
 			 * Stable across renders and independent of the label: keying by text rebuilds the node the instant its
 			 * wording changes, throwing away the reader's focus.
 			 */
 			readonly id: string;
+
 			readonly label: string;
+
 			readonly ariaLabel: string;
+
 			/** In flight: the control states that it is working and refuses a second click. */
 			readonly disabled?: boolean | undefined;
+
 			readonly busy?: boolean | undefined;
+
 			/** The accent rank, for the one action of an armed pair that commits; everything else stays secondary. */
 			readonly emphasized?: boolean | undefined;
+
 			readonly onClick: () => void;
 	  }
 	| {
@@ -91,11 +98,15 @@ type DiagnosticAction =
 interface DiagnosticBase {
 	/** Stable within a row, so React keeps focus on an action button across pushes. */
 	readonly key: string;
+
 	readonly severity: DiagnosticSeverity;
+
 	/** Names the server and leads with the consequence, not the mechanism. */
 	readonly headline: string;
+
 	/** One paragraph per line. English by policy - these land in issue reports. */
 	readonly details?: readonly string[] | undefined;
+
 	readonly actions: readonly DiagnosticAction[];
 }
 
@@ -142,11 +153,12 @@ export function detailLines(...lines: readonly (string | undefined)[]): readonly
 
 export interface SpendContext {
 	readonly thresholds: readonly number[];
+
 	readonly currencySymbol: string;
-	/**
-	 * Background polling is off (usage.pollInterval 0); retry copy names Refresh now instead of the automatic retry.
-	 */
+
+	/** Background polling is off (usage.pollInterval 0); retry copy names Refresh now instead of the automatic retry. */
 	readonly pollingOff: boolean;
+
 	/** The effective discovery.timeout; the timeout detail line prints it. */
 	readonly discoveryTimeoutMs: number;
 }
@@ -157,6 +169,7 @@ export type UsageEndpoint = Extract<UsageEndpointId, "keyInfo" | "dailyActivity"
 interface RowDiagnostics {
 	/** Every problem the server has, worst first. */
 	readonly lines: readonly RowDiagnostic[];
+
 	/** The drawer's inventory prints only the endpoint details NOT in this set, so a line never doubles or drops. */
 	readonly usageDetailsCarried: ReadonlySet<UsageEndpoint>;
 }
@@ -167,22 +180,32 @@ export function serverDiagnostics(
 	spend: SpendContext,
 	actions: {
 		readonly onEdit: () => void;
+
 		readonly onRetry: () => void;
+
 		/** This row is the one that asked for the sync, so it reports the state. */
 		readonly retrying?: boolean;
+
 		/** A sync is in flight somewhere, so no row may start a second one. */
 		readonly syncBusy?: boolean;
+
 		/** Post the declareExpectedFailure intent for this row; only a declared row wires it. */
 		readonly onDeclareExpected?: (category: ExpectedFailureCategory) => void;
+
 		/** The category whose confirm step is showing, armed by the declare button. */
 		readonly armedDeclare?: ExpectedFailureCategory | undefined;
+
 		readonly onArmDeclare?: (category: ExpectedFailureCategory | undefined) => void;
+
 		/** This row's declare intent is unanswered; its buttons state that and refuse a second post. */
 		readonly declaring?: boolean;
+
 		/** Post the refreshUsage intent; wired on rows whose usage problems offer Refresh now. */
 		readonly onRefreshUsage?: () => void;
+
 		/** A usage refresh is in flight; every Refresh now states it and refuses a second post. */
 		readonly refreshing?: boolean;
+
 		/** That pass was explicitly requested; only then does a Refresh now wear its busy label. */
 		readonly refreshingExplicitly?: boolean;
 	}

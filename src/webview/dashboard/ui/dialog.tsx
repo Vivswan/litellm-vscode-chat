@@ -31,17 +31,25 @@ export function ConfirmDialog({
 }: {
 	/** The one-line question naming the dialog; labels, not sentences. */
 	question: string;
+
 	/** An optional short fact under the question (1-2 sentences); part of the dialog's description. */
 	detail?: string | undefined;
+
 	/** The destructive verb; danger rank, reached only deliberately. */
 	confirmLabel: string;
+
 	alternateLabel?: string | undefined;
+
 	/** The safe verb; default focus, so Enter and Esc are the same answer. */
 	cancelLabel: string;
+
 	/** The id of the element the question is about; focus returns into it on cancel. */
 	surfaceId: string;
+
 	onConfirm: () => void;
+
 	onAlternate?: (() => void) | undefined;
+
 	onCancel: () => void;
 }) {
 	const questionId = useId();

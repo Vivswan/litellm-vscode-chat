@@ -157,29 +157,44 @@ function ServerRow({
 	refreshingExplicitly,
 }: {
 	server: DashboardServer;
+
 	/** The server's usage card, denied cards included; absent when the proxy serves no usage data. */
 	usage: UsageServerCardView | undefined;
+
 	spend: SpendContext;
+
 	now: number;
+
 	armed: boolean;
+
 	onEdit: () => void;
+
 	onArmRemove: (armed: boolean) => void;
+
 	/** Posts the hideExternalServer intent for this row; the section owns the requestId and the follow-up notice. */
 	onHideExternal: (server: ExternalDashboardServer) => void;
+
 	onShowModels: ((label: string) => void) | undefined;
+
 	/**
 	 *   A sync this row asked for -> is in flight
 	 */
 	retrying: boolean;
+
 	/** A sync is in flight for some row; the command is fleet-wide, so none may start another. */
 	syncBusy: boolean;
+
 	onRetry: () => void;
+
 	/** Posts the declareExpectedFailure intent for this declared row; the section owns the requestId. */
 	onDeclareExpected: (category: ExpectedFailureCategory) => void;
+
 	/** This row's declare intent is unanswered. */
 	declaring: boolean;
+
 	/** A usage refresh is in flight; every Refresh now states it and refuses a second post. */
 	refreshing: boolean;
+
 	/** That pass was explicitly requested; only then does a Refresh now wear its busy label. */
 	refreshingExplicitly: boolean;
 }) {
@@ -569,17 +584,25 @@ export function ServersSection({
 	onAddServer,
 }: {
 	servers: readonly DashboardServer[];
+
 	hidden?: readonly HiddenGroup[];
+
 	usage?: DashboardUsage | undefined;
+
 	/** The configured spend prefix (usage.currencySymbol); display only, never a conversion. */
 	currencySymbol: string;
+
 	/** The shared clock tick (one useNow in App), so a hidden panel does not run its own interval. */
 	now: number;
+
 	/** Scope the models section to one server; absent, the drawers' model counts stay plain text. */
 	onShowModels?: ((label: string) => void) | undefined;
+
 	onEditServer: (label: string) => void;
+
 	/** An external row's Edit, which adopts rather than edits; addressed by its opaque handle. */
 	onAdoptServer: (handle: string) => void;
+
 	onAddServer: () => void;
 }) {
 	// One outcome hook per acked method: the failure banners render each hook's latest fail (a later ok retires it),

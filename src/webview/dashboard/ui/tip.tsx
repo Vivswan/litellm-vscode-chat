@@ -26,11 +26,16 @@ export type TipPlacement = "above" | "below" | "beside";
 export interface TipHandle {
 	/** The bubble's element id; point aria-describedby here when the tip describes its trigger. */
 	readonly id: string;
+
 	readonly open: boolean;
+
 	readonly placement: TipPlacement;
+
 	readonly style: CSSProperties | undefined;
+
 	/** Attached by TipBubble, so the clamp can measure the box it is placing. */
 	readonly bubbleRef: RefObject<HTMLElement | null>;
+
 	/** Spread onto the element whose hover and focus own the tip; the bubble renders inside it. */
 	readonly triggerProps: {
 		readonly onMouseEnter: (event: MouseEvent<HTMLElement>) => void;

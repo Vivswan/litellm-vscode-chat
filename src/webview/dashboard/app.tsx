@@ -82,9 +82,12 @@ function sectionIcon(section: SectionId): ReactElement {
  */
 interface IntentFailure {
 	readonly seq: number;
+
 	readonly message: string;
+
 	/** Whether the intent's durable write committed before the failure; see the fail envelope's failureKind. */
 	readonly kind: "validation" | "operation";
+
 	/** The refused scalar write's owning settings row; absent on every other method's failure. */
 	readonly row?: SettingRowId | undefined;
 }

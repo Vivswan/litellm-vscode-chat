@@ -39,7 +39,9 @@ function ignoredWord(): string {
 interface ChipFlag {
 	/** Locale-independent identity; translated words could collide as list keys. */
 	readonly id: "force" | "fallback" | "inheritable" | "ignored";
+
 	readonly word: string;
+
 	/** The wrong-record-type sentence; its presence is also what selects the warn tier. */
 	readonly note?: string | undefined;
 }
