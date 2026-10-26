@@ -45,9 +45,12 @@ export interface OneShotChatRequest {
  */
 export interface FimCompletionRequest {
 	readonly model: string;
+
 	readonly prompt: string;
+
 	/** Absent exactly when the template owns the whole prompt. */
 	readonly suffix?: string | undefined;
+
 	readonly maxTokens: number;
 }
 
@@ -57,18 +60,24 @@ export interface FimCompletionRequest {
  */
 export interface OneShotConnection {
 	readonly baseUrl: string;
+
 	/** Forwarded to apiRootOf; undefined means the auto rule. */
 	readonly apiVersion?: string | undefined;
+
 	/** Empty string for keyless servers, matching the transport convention. */
 	readonly apiKey: HeaderValue | "";
+
 	/** Auth headers win conflicts. */
 	readonly headers: Readonly<Record<string, HeaderValue>>;
+
 	readonly oauth?: OAuthConfig | undefined;
+
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 }
 
 export interface OneShotClientOptions {
 	readonly userAgent: HeaderValue;
+
 	/** The HTTP transport; tests inject a fake here. */
 	readonly fetch?: TransportFetch | undefined;
 }
@@ -83,6 +92,7 @@ export interface OneShotCallOptions {
 	 * number, so timeout advice names the setting that really governs this call's clock or none.
 	 */
 	readonly timeout: TimeoutBudget;
+
 	readonly token: vscode.CancellationToken;
 }
 
@@ -116,6 +126,7 @@ function oneShotContentOf(payload: string): string {
  */
 export class OneShotClient {
 	private readonly oauthTokens = new OAuthTokenSource();
+
 	private readonly fetch: TransportFetch;
 
 	constructor(private readonly options: OneShotClientOptions) {

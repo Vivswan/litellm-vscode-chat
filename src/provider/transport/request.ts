@@ -5,15 +5,22 @@ import type { ModelConfigurationRequestParams } from "../catalog/modelConfigurat
 
 export interface RequestBodyParams {
 	rawModelId: string;
+
 	openaiMessages: OpenAIChatMessage[];
+
 	maxTokens: number;
+
 	modelParams: Record<string, unknown>;
+
 	/** The `_force`d configured parameters; applied above every other pass-through source. */
 	forcedParams?: Readonly<Record<string, unknown>> | undefined;
+
 	/** Tools and tool_choice as one unit (see ToolConfig); absent means the request carries neither. */
 	toolConfig: ToolConfig | undefined;
+
 	/** Wire params resolved from the host's modelConfiguration, i.e. the user's model-picker choices. */
 	modelConfiguration?: ModelConfigurationRequestParams | undefined;
+
 	modelOptions?: Record<string, unknown> | undefined;
 }
 

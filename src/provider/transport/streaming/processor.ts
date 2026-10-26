@@ -50,22 +50,34 @@ export interface ResponsePartSink {
 
 interface RequestState {
 	toolCalls: ToolCallSlots;
+
 	hasEmittedAssistantText: boolean;
+
 	emittedBeginToolCallsHint: boolean;
+
 	textParser: TextToolCallParser;
+
 	ledger: ToolCallLedger;
+
 	loggedRefusal: boolean;
+
 	/** One log per request, so a burst of bad entries cannot flood the issue-report buffer. */
 	loggedImageSkip: boolean;
+
 	citations: Map<string, string>;
+
 	usage: Record<string, unknown> | undefined;
+
 	audioBuffer: AudioBuffer | undefined;
+
 	/**
 	 * Parts the model produced. The trailers emitTrailers adds are not counted, so they cannot stand in for a
 	 * response.
 	 */
 	contentParts: number;
+
 	droppedReasoning: DroppedReasoning;
+
 	lastFinishReason: string | undefined;
 }
 
@@ -89,11 +101,17 @@ function freshRequestState(): RequestState {
 
 export class StreamProcessor {
 	private _req: RequestState;
+
 	private readonly _progress: ResponsePartSink;
+
 	private _toolCallIds: ToolCallIdSource;
+
 	private _log: (message: string, data?: unknown) => void;
+
 	private _thinkingPartCtor: ThinkingPartCtor | undefined;
+
 	private _dataPartCtor: DataPartCtor | undefined;
+
 	private _audioMime: string;
 
 	constructor(

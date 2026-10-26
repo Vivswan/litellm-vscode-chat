@@ -9,12 +9,16 @@ export type ToolCallChannel = "delta" | "inline";
 export class ToolCallLedger {
 	/** Inline calls already decided (emitted or deduped) while provisional, so their completion is not re-emitted. */
 	private readonly _handledTextCallSeqs = new Set<number>();
+
 	/** name:index pairs from inline headers, deduping re-sent inline calls that carry an explicit index. */
 	private readonly _inlineEmittedIndexIds = new Set<string>();
+
 	/** name:args keys of emitted inline calls, deduping re-sent inline calls without an explicit index. */
 	private readonly _inlineEmittedContentKeys = new Set<string>();
+
 	/** Per-channel counts of emitted name:args keys; see the max(N, M) rule on the class. */
 	private readonly _deltaEmittedCounts = new Map<string, number>();
+
 	private readonly _inlineEmittedCounts = new Map<string, number>();
 
 	alreadyHandled(seq: number): boolean {

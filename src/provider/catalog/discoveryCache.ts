@@ -4,6 +4,7 @@
  */
 export class DiscoveryCache<T> {
 	private readonly entries = new Map<string, { value: T; storedAt: number }>();
+
 	/**
 	 * `superseded` is set by clear(): the load still resolves for its callers but never stores, so an explicit "sync
 	 * now" is not answered with pre-sync data for the rest of the TTL.

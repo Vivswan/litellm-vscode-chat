@@ -38,14 +38,19 @@ import { oauthCredentialFingerprint } from "../transport/auth";
 
 export interface GroupServer {
 	baseUrl: NormalizedBaseUrl;
+
 	/** Empty string for keyless groups. */
 	apiKey: HeaderValue | "";
+
 	/** Non-secret. Part of the group's identity (see groupIdentity and groupClientId). */
 	label?: string;
+
 	/** Client-credentials authentication; present only when the configuration names a token URL and client ID. */
 	oauth?: OAuthConfig;
+
 	/** Gateway virtual key; present only when the configuration names both a header and a value. */
 	virtualKey?: VirtualKeyConfig;
+
 	/**
 	 * Set by overlayEntryCredentials when a declared entry at this label and URL owns the group. Owned, the group's
 	 * identity is the rotation-stable label plus URL (the setting is truth); unowned, it stays the client ID, since no
@@ -61,22 +66,27 @@ interface LiteLLMModelMetadataBase {
 	 * and `foo:groq` carry their routed ID here.
 	 */
 	readonly rawModelId: string;
+
 	readonly supportsPromptCaching: boolean;
+
 	/**
 	 * The request's max_tokens when nothing configures one, decided where the limit was derived (registration, or the
 	 * capability walk on a rebuild); the chat path reads it and applies no cap of its own.
 	 */
 	readonly defaultMaxTokens: number;
+
 	/**
 	 * Gates the input_audio message conversion. Optional because model objects round-trip through the host and older
 	 * metadata lacks it (absent reads as false).
 	 */
 	readonly supportsAudioInput?: boolean;
+
 	/**
 	 * Gates the reasoning_content replay on assistant history (the resolved replay_reasoning_content capability).
 	 * Optional for the same round-trip reason as supportsAudioInput; absent reads as false.
 	 */
 	readonly replayReasoningContent?: boolean;
+
 	/** True for a declared model (an entry's discovery.declared; discovery does not list it). */
 	readonly declared?: boolean;
 }
@@ -93,6 +103,7 @@ export interface PreAttachModelInfo extends LanguageModelChatInformation {
 		 * patched values.
 		 */
 		readonly serverDeclared: ServerDeclaredCapabilities;
+
 		readonly group?: never;
 	};
 }
@@ -612,19 +623,27 @@ export interface ParsedModelMetadata {
 	 * provider never serves, which the request path fails loudly on.
 	 */
 	readonly group: string | undefined;
+
 	/**
 	 * A model object whose round trip lost the stamp falls back to its exposed ID, which group registrations mint raw
 	 * anyway.
 	 */
 	readonly rawModelId: string;
+
 	/** The host's token limits as the model object carries them; the request path reads them from here only. */
 	readonly maxInputTokens: number;
+
 	readonly maxOutputTokens: number;
+
 	readonly supportsPromptCaching: boolean;
+
 	readonly supportsAudioInput: boolean;
+
 	readonly replayReasoningContent: boolean;
+
 	/** The registered imageInput capability, re-narrowed like the litellm fields; gates image message conversion. */
 	readonly imageInput: boolean;
+
 	/** See LiteLLMModelMetadataBase.defaultMaxTokens. */
 	readonly defaultMaxTokens: number;
 }

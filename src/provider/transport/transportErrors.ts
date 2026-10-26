@@ -38,13 +38,17 @@ export type RequestErrorKind = TransportErrorKind;
  */
 export class RequestError extends MirroredError {
 	readonly kind: RequestErrorKind;
+
 	readonly status?: number | undefined;
+
 	readonly setupHint?: SetupHintKind;
+
 	/**
 	 * Discovery's endpoint-unsupported marker, assigned only at the discovery construction site that proved it in one
 	 * pass; see TransportErrorClassification.unsupportedEndpoint.
 	 */
 	readonly unsupportedEndpoint?: "modelListing";
+
 	/**
 	 * Set at the OAuth token-endpoint construction sites (auth.ts and the shared socket-failure classifier's oauthToken
 	 * context): the failure happened during the token exchange, BEFORE the target endpoint was called, so consumers
@@ -119,7 +123,9 @@ export interface MapErrorContext {
 	 *     boundary -> it joins chat-style too
 	 */
 	surface: TransportErrorSurface;
+
 	baseUrl: string;
+
 	timeoutMs: number;
 }
 
@@ -238,8 +244,11 @@ function meaningfulString(value: unknown): string | undefined {
 
 interface ErrorEnvelope {
 	message: string | undefined;
+
 	type: string | undefined;
+
 	code: string | undefined;
+
 	/** The type and code as the server sent them, for classifyEnvelope alone: the rendered fields above are capped. */
 	marks: string;
 }
@@ -368,8 +377,10 @@ export interface LocalizedText {
 interface NotFoundCopy {
 	/** `url` is the base URL as configured; non-discovery headlines ignore it. */
 	readonly headline: (url: string) => LocalizedText;
+
 	/** Only where the advice is certain (discovery's check-the-base-URL); a hint that can be wrong stays unset. */
 	readonly setupHint?: SetupHintKind;
+
 	readonly detail: (err: APIError, envelope: ErrorEnvelope | undefined) => string;
 }
 
@@ -390,12 +401,18 @@ interface SurfaceCopy {
 	 * dashboard and tooltips split on.
 	 */
 	readonly join: "detailsLeadIn" | "newline";
+
 	readonly httpVocabulary: "request" | "modelList";
+
 	readonly timeout: (timeoutMs: number) => LocalizedText;
+
 	readonly notFound: NotFoundCopy;
+
 	/** The context_window_exceeded headline - the one HTTP class whose advice must name what to shrink per surface. */
 	readonly contextWindow: () => LocalizedText;
+
 	readonly dropped: DroppedCopy;
+
 	/** The prose naming this surface in the anonymous-tail detail line; logClassification keeps the camelCase id. */
 	readonly phrase: string;
 }
@@ -1045,8 +1062,10 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 /** kind and cause-detail extraction are one rule for the chat, discovery, and OAuth token-endpoint callers. */
 interface SocketFailureContext {
 	endpoint: TransportErrorSurface | "oauthToken";
+
 	/** The surface whose two-part join renders the message; the token exchange fails toward its caller's surface. */
 	surface: MapErrorContext["surface"];
+
 	/** The URL the advice names: the server base URL, or the OAuth token endpoint. */
 	url: string;
 }

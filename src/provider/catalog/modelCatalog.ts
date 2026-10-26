@@ -132,19 +132,25 @@ export function replaysReasoningContent(providers: readonly LiteLLMProvider[]): 
 export interface DiscoveredBaselineInput {
 	/** The provider entries backing this registered entry; empty for bare /v1/models entries. */
 	readonly providers: readonly LiteLLMProvider[];
+
 	/** The limits this entry advertises, as registration derived them for its shape. */
 	readonly limits: TokenConstraints;
+
 	/** The input modalities exactly when the server supplied the array; undefined means unreported. */
 	readonly modalities: readonly string[] | undefined;
+
 	/** The toolCalling capability this entry advertises (registration's answer for its shape). */
 	readonly toolCalling: boolean;
+
 	/** Whether this entry advertises the reasoning-effort control (registration's answer for its shape). */
 	readonly reasoning: boolean;
+
 	/**
 	 * The proxy's own Thinking Effort menu for the group (LiteLLMModelItem.reasoningEfforts): when present it outranks
 	 * what the providers' flags resolved to, null reading as unreported.
 	 */
 	readonly reasoningEfforts?: readonly string[] | null | undefined;
+
 	/**
 	 * The per-token costs this entry's registration would have priced: present ONLY for the shapes whose route pins the
 	 * serving deployment's cost. The untooled base entry and the cheapest/fastest aggregates pass none - registration

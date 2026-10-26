@@ -2,6 +2,7 @@ const BEGIN = "<|tool_call_begin|>";
 const ARG_BEGIN = "<|tool_call_argument_begin|>";
 const ARG_END = "<|tool_call_argument_end|>";
 const END = "<|tool_call_end|>";
+
 /**
  * The most header text (the tool name and its optional ":index") held behind a begin sigil while its argument-begin or
  * end token is still to come. The OpenAI API caps function names at 64 characters, so four times that clears longer
@@ -13,8 +14,11 @@ export const MAX_TOOL_CALL_HEADER_LENGTH = 256;
 export interface TextToolCall {
 	/** Monotonic identity within one parser lifetime; lets callers pair a provisional call with its completion. */
 	seq: number;
+
 	name?: string | undefined;
+
 	index?: number | undefined;
+
 	args: string;
 }
 
@@ -22,6 +26,7 @@ export type TextParseEvent = { type: "text"; text: string } | { type: "call"; ca
 
 export interface TextParseResult {
 	events: TextParseEvent[];
+
 	/** Call whose argument section is still open; args reflect what has arrived so far. */
 	provisionalCall?: TextToolCall | undefined;
 }
@@ -101,9 +106,13 @@ function controlTokenHold(data: string): number {
 
 interface ActiveCall {
 	seq: number;
+
 	name?: string | undefined;
+
 	index?: number | undefined;
+
 	argBuffer: string;
+
 	/** Set when an argument-end token closed the args; anything before the end token is then discarded. */
 	argsClosed: boolean;
 }
@@ -115,7 +124,9 @@ interface ActiveCall {
  */
 export class TextToolCallParser {
 	private _buffer = "";
+
 	private _active: ActiveCall | undefined;
+
 	private _seqCounter = 0;
 
 	push(chunk: string): TextParseResult {

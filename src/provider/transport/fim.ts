@@ -19,8 +19,10 @@ export const FIM_TIMEOUT_MS = 15000;
 export interface FimPromptInput {
 	/** Document text before the cursor; only the last FIM_PREFIX_BUDGET units are used. */
 	readonly prefix: string;
+
 	/** Document text after the cursor; only the first FIM_SUFFIX_BUDGET units are used. */
 	readonly suffix: string;
+
 	/**
 	 * The resolved parameter record's `_fim_template` directive value (ResolvedModelParameters.fimTemplate), untyped
 	 * for totality: only a string with both placeholders applies, and a malformed value degrades to the native path.
@@ -30,6 +32,7 @@ export interface FimPromptInput {
 
 export interface FimPrompt {
 	readonly prompt: string;
+
 	/** The wire `suffix` field; absent exactly when a template owns the whole prompt. */
 	readonly suffix?: string;
 }

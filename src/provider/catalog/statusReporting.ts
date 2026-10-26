@@ -10,29 +10,39 @@ import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./sta
 export type GroupServeOutcome =
 	| {
 			state: "ok";
+
 			/** See ServerStatusCommon: the models this serve handed the host. */
 			servedModelCount: number;
+
 			/** See ServerStatusOk: zero models because the user hid the group, never a server outcome. */
 			hiddenByRemoval?: boolean;
+
 			/** See ServerStatusOk: the serve fell back to /models past an unserved-looking model-info probe. */
 			modelInfoUnsupported?: UnservedEndpointEvidence;
 	  }
 	| {
 			state: "error";
+
 			/** See ServerStatusError: the cause the surfaces render, never text. */
 			cause: FailureCause;
+
 			logSafeError: LogSafeErrorText;
+
 			/** See ServerStatusError: the truthful error stays; presentation derives the downgrade. */
 			expected?: boolean;
+
 			/** See ServerStatusCommon: what the failure still serves (stale-window plus declared models). */
 			servedModelCount: number;
+
 			/** See ServerStatusError: the declared subset of servedModelCount. */
 			declaredModelCount?: number;
 	  };
 
 export class GroupStatusReporter {
 	private readonly _window: StatusWindow;
+
 	private _callback?: (status: AggregatedStatus) => void;
+
 	private _groupReportCount = 0;
 
 	/** The window is facade-owned; the facade reads cycles and snapshots from it directly. */
@@ -71,6 +81,7 @@ export class GroupStatusReporter {
 		served: ServedModelSets,
 		observations?: DiscoveryObservations
 	): void;
+
 	reportGroupStatus(
 		server: ServerWithKey,
 		groupServer: GroupServer,
@@ -78,6 +89,7 @@ export class GroupStatusReporter {
 		outcome: Extract<GroupServeOutcome, { state: "error" }>,
 		served: ServedModelSets
 	): void;
+
 	reportGroupStatus(
 		server: ServerWithKey,
 		groupServer: GroupServer,

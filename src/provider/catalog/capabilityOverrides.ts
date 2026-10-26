@@ -31,18 +31,24 @@ import type { DeclaredPerTokenCosts } from "./schemas";
 export interface CapabilityOverrideOptions {
 	/** The modelCapabilities setting as normalizeModelCapabilities returns it. */
 	readonly globalCapabilities: ModelCapabilitiesRecord;
+
 	/** The matched declared entry's own capability records, when the served server has one. */
 	readonly entryCapabilities?: ModelCapabilitiesRecord | undefined;
+
 	/**
 	 * The matched declared entry's discovery.declared model IDs: exact IDs to register when discovery does not list
 	 * them, inert when it does.
 	 */
 	readonly entryDeclaredModels?: readonly string[] | undefined;
+
 	readonly catalog: CapabilityCatalogLookup;
+
 	/** The provider-shared flat resolution table; every resolve here goes through it. */
 	readonly resolution: ModelResolutionTable;
+
 	/** Classification-only logging (record keys and field names are user configuration, never response text). */
 	readonly log: (message: string, data?: unknown) => void;
+
 	/**
 	 * The advisory sink for informational notes (output channel only, never the issue-report buffer). Applying an open
 	 * field as-is is a feature and recurs on every serve pass, so it must not consume the issue reporter's small

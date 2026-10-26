@@ -51,17 +51,24 @@ import { bodylessResponseError, timeoutRequestError } from "./transportErrors";
 export interface ChatRequestContext {
 	/** The provider's one parse of the model object; nothing here re-narrows the host round trip. */
 	metadata: ParsedModelMetadata;
+
 	/** The group's live connection, resolved by the provider from the model's group identity. */
 	server: GroupServer;
+
 	messages: readonly LanguageModelChatRequestMessage[];
+
 	options: ProvideLanguageModelChatResponseOptions;
+
 	progress: vscode.Progress<vscode.LanguageModelResponsePart>;
+
 	token: vscode.CancellationToken;
 }
 
 export interface ServerConnection extends ServerWithKey {
 	oauth?: OAuthConfig;
+
 	virtualKey?: VirtualKeyConfig;
+
 	/**
 	 * The label naming the declared entry candidate for per-entry headers: a group's CONFIGURED label, never the
 	 * URL-host display fallback an unlabeled group renders under, which could collide with a real entry label. Distinct
@@ -72,7 +79,9 @@ export interface ServerConnection extends ServerWithKey {
 
 export interface ChatClientOptions {
 	userAgent: HeaderValue;
+
 	logger?: Logger | undefined;
+
 	/**
 	 * Resolves a declared server entry's per-entry modelParameters at request time, from the entry's label and the
 	 * group's base URL, and only when both identify the same declared entry. Defaults to none: models served by an
@@ -81,18 +90,22 @@ export interface ChatClientOptions {
 	getEntryModelParameters?:
 		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
 		| undefined;
+
 	/**
 	 * The provider-owned flat resolution table; requests read their configured parameters through it so the request
 	 * path, registration, and the dashboard share one cache. Defaults to a private table for callers constructed
 	 * without a provider.
 	 */
 	resolution?: ModelResolutionTable | undefined;
+
 	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, HeaderValue>> | undefined) | undefined;
+
 	/**
 	 * "" is a real value (append nothing), distinct from undefined (auto). Defaults to none: servers no declared entry
 	 * matches get the auto rule.
 	 */
 	getEntryApiVersion?: ((label: string, baseUrl: string) => string | undefined) | undefined;
+
 	/** The HTTP transport under the SDK client; tests inject a fake here. Defaults to nodeHttpFetch. */
 	fetch?: TransportFetch | undefined;
 }
@@ -100,20 +113,29 @@ export interface ChatClientOptions {
 /** Owns the HTTP-facing side of the provider. */
 export class ChatClient {
 	private readonly userAgent: HeaderValue;
+
 	private readonly logger?: Logger | undefined;
+
 	private readonly getEntryModelParameters: (
 		label: string,
 		baseUrl: string
 	) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
+
 	private readonly getEntryHeaders: (
 		label: string,
 		baseUrl: string
 	) => Readonly<Record<string, HeaderValue>> | undefined;
+
 	private readonly getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
+
 	private readonly clients: ServerClientCache;
+
 	private readonly oauthTokens = new OAuthTokenSource();
+
 	private readonly resolution: ModelResolutionTable;
+
 	private _toolCallIdCounter = 0;
+
 	// The single owner of tool-call ID generation; see ToolCallIdSource for the synchronous-advance requirement.
 	private readonly toolCallIds: ToolCallIdSource = { next: () => ++this._toolCallIdCounter };
 

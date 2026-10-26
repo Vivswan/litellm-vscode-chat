@@ -81,50 +81,72 @@ export interface StreamedToolCall {
 /** Providers surface reasoning under several different keys. */
 export interface ChunkDelta {
 	role?: string | undefined;
+
 	content?: string | ChunkContentBlock[] | null | undefined;
+
 	tool_calls?: StreamedToolCall[] | undefined;
+
 	thinking?: string | ThinkingBlock | undefined;
+
 	thinking_blocks?: ThinkingBlockDelta[] | undefined;
+
 	reasoning_content?: string | undefined;
+
 	reasoning?: string | undefined;
+
 	refusal?: string | undefined;
+
 	annotations?: ChunkAnnotation[] | undefined;
+
 	/**
 	 * Narrowed from the delta's provider_specific_fields.search_results, LiteLLM's escape hatch for provider fields
 	 * with no OpenAI slot.
 	 */
 	search_results?: ChunkSearchResult[] | undefined;
+
 	images?: ChunkImage[] | undefined;
+
 	audio?: ChunkAudio | undefined;
 }
 
 /** Some providers put thinking on the choice instead of the delta. */
 export interface ChunkChoice {
 	index?: number | undefined;
+
 	delta?: ChunkDelta | undefined;
+
 	thinking?: string | ThinkingBlock | undefined;
+
 	/** A wire null (OpenAI sends it on every non-final chunk) parses to undefined; see narrowChoice. */
 	finish_reason?: FinishReason | undefined;
 }
 
 export interface ChatCompletionChunk {
 	id?: string | undefined;
+
 	object?: string | undefined;
+
 	created?: number | undefined;
+
 	model?: string | undefined;
+
 	choices?: ChunkChoice[] | undefined;
+
 	/**
 	 * Chunk-root citation URLs, Perplexity's legacy sources shape forwarded by LiteLLM's streaming pass-through;
 	 * typically repeated on every chunk.
 	 */
 	citations?: string[] | undefined;
+
 	/** Chunk-root search results, the richer successor to `citations`. */
 	search_results?: ChunkSearchResult[] | undefined;
+
 	/**
 	 * The parser proves only that it is a record; the stream processor reads the known numeric counts out of it and
 	 * ignores the rest, so arbitrary server keys stay out of logs and the emitted payload.
 	 */
 	usage?: Record<string, unknown> | undefined;
+
 	/**
 	 * In-band error envelope: a streamed `data: {"error": {...}}` payload, which LiteLLM emits when an upstream fails
 	 * after the 200 went out. Only a record narrows.

@@ -19,13 +19,16 @@ export type TransportFetch = (url: string | URL, init?: RequestInit) => Promise<
 const MAX_REDIRECTS = 20;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const NULL_BODY_STATUSES = new Set([204, 205, 304]);
+
 /**
  * The only request headers carried across an origin change: every other one may be a credential the entry configured
  * under any name, and the new origin was never meant to see it.
  */
 const CROSS_ORIGIN_HEADERS = new Set(["content-type", "accept", "accept-encoding", "user-agent", "content-length"]);
+
 /** Dropped when a redirect turns the request into a bodiless GET, as the fetch spec lists them. */
 const BODY_HEADERS = ["content-type", "content-length", "content-encoding", "content-language", "content-location"];
+
 /**
  * The content codings fetch decodes transparently; anything else passes through as fetch also does. A Map, so a
  * header naming an inherited Object property ("constructor") is an unknown coding, not a function.

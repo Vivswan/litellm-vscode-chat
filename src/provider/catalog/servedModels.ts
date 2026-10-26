@@ -19,15 +19,20 @@ export interface EntryIdentity {
 export interface ServedModelDecoratorOptions {
 	/** Per-entry modelCapabilities resolver, matched by label and normalized base URL. */
 	getEntryModelCapabilities: (label: string, baseUrl: string) => ModelCapabilitiesRecord | undefined;
+
 	/** Per-entry discovery.declared model IDs, matched like getEntryModelCapabilities. */
 	getEntryDeclaredModels: (label: string, baseUrl: string) => readonly string[] | undefined;
+
 	/** The OpenRouter catalog lookup, read at serve time so a refreshed snapshot reaches the next attach. */
 	getCatalogLookup: () => CapabilityCatalogLookup;
+
 	/** The shared flat resolution table; the same cache requests and the dashboard read. */
 	resolution: ModelResolutionTable;
+
 	// Facade-bound: this module never touches a logger directly, since the provider facade is the single logging
 	// boundary.
 	log: (message: string, data?: unknown) => void;
+
 	logAdvisory: (message: string, data?: unknown) => void;
 }
 

@@ -30,7 +30,9 @@ function normalizeToolCallIndex(index: number | string): number {
  */
 export class ToolCallSlots {
 	private readonly buffers = new Map<ToolCallSlot, ToolCallBuffer>();
+
 	private readonly retired = new Set<ToolCallSlot>();
+
 	private openIdSlot: string | undefined;
 
 	/** Folds the delta into its slot and returns the slot, or undefined once that slot's call has left the stream. */

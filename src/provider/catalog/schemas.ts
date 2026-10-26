@@ -49,29 +49,42 @@ export type DeclaredPerTokenCosts = { [K in keyof PerTokenCosts]: number };
  */
 export interface LiteLLMProvider extends PerTokenCosts {
 	provider: string;
+
 	status: string;
+
 	/** Wire pass-throughs may carry null; supportsTools treats only an explicit false as a veto. */
 	supports_tools?: boolean | null | undefined;
+
 	/**
 	 * The four token-limit fields are narrowed at the discovery mapping sites (normalizePositiveNumber: numeric strings
 	 * parse, null and junk degrade to undefined), so every constructed provider carries positive numbers or undefined
 	 * and downstream reads take them as-is.
 	 */
 	context_length?: number | undefined;
+
 	max_tokens?: number | undefined;
+
 	max_input_tokens?: number | undefined;
+
 	max_output_tokens?: number | undefined;
+
 	supports_prompt_caching?: boolean | null | undefined;
+
 	supports_response_schema?: boolean | null | undefined;
+
 	supports_reasoning?: boolean | null | undefined;
+
 	supports_pdf_input?: boolean | null | undefined;
+
 	/**
 	 * Authored by discovery from litellm_provider, never passed through raw: true for a deepseek deployment, whose
 	 * thinking mode refuses a tool-carrying request unless every replayed assistant message carries reasoning_content;
 	 * null is "unknown".
 	 */
 	replay_reasoning_content?: boolean | null | undefined;
+
 	supported_openai_params?: string[] | null | undefined;
+
 	/**
 	 * Authored by discovery, never passed through raw: modelConfiguration's mirror of LiteLLM's resolver over this
 	 * entry's own flags; null is "unknown". The proxy's own group resolution rides LiteLLMModelItem.reasoningEfforts
@@ -88,21 +101,28 @@ export interface LiteLLMArchitecture {
 /** Which limits some contributor reported; the capability baseline stores a limit only when its flag is on. */
 interface ReportedLimits {
 	readonly context: boolean;
+
 	readonly input: boolean;
+
 	readonly output: boolean;
+
 	/** Any of the three: the input limit is server-grounded whenever anything numeric was reported. */
 	readonly any: boolean;
 }
 
 export interface TokenConstraints {
 	readonly maxOutputTokens: number;
+
 	/**
 	 * The request's max_tokens when nothing configures one. A declared limit is sent whole; a floor fill is a guess, so
 	 * requests stay under DEFAULT_MAX_TOKENS_CAP while the advertised limit keeps the floor.
 	 */
 	readonly defaultMaxTokens: number;
+
 	readonly contextLength: number;
+
 	readonly maxInputTokens: number;
+
 	readonly reported: ReportedLimits;
 }
 
@@ -117,8 +137,11 @@ export type ModelShape =
 
 export interface LiteLLMModelItem {
 	id: string;
+
 	shape: ModelShape;
+
 	architecture?: LiteLLMArchitecture | undefined;
+
 	/**
 	 * LiteLLM's own resolution of the Thinking Effort menu for this model group (/model_group/info's
 	 * supported_reasoning_efforts), carried on the item so every shape, the bare one included, keeps it: a list is the
@@ -169,8 +192,10 @@ const lenient = <T extends z.ZodType>(schema: T) => schema.optional().catch(unde
 
 /** Capability flags arrive as booleans, or an explicit null meaning unknown. */
 const lenientFlag = lenient(z.boolean().nullable());
+
 /** Token limits arrive as numbers or numeric strings; normalizePositiveNumber narrows them at mapping. */
 const lenientLimit = lenient(z.union([z.number(), z.string()]).nullable());
+
 /**
  * Per-token costs are JSON numbers; normalizeCostPerToken re-narrows sign and finiteness at mapping. Long-context tiers
  * are read dynamically from the loose pass-through, so they carry no declarations here.

@@ -13,11 +13,13 @@ export type BackoffSleep = (ms: number, signal: AbortSignal) => Promise<void>;
 
 export interface RetryOptions {
 	readonly maxRetries: number;
+
 	/**
 	 * The caller's whole-call bound, a retryBudgetMs deadline or a lifetime cancellation: it ends a sleep and the loop
 	 * at once, so backoff never outlives it.
 	 */
 	readonly signal: AbortSignal;
+
 	/** The real timer unless a test passes a zero sleep, so a retrying case pays no wall time. */
 	readonly sleep?: BackoffSleep;
 }
@@ -106,9 +108,12 @@ export interface FetchAnswer {
 export interface RetryFetchOptions {
 	/** Each attempt's own clock over the headers and the body together. */
 	readonly attemptTimeoutMs: number;
+
 	readonly maxRetries: number;
+
 	/** The caller's lifetime bound: its abort ends the call at once and is rethrown as-is, never read as a timeout. */
 	readonly signal?: AbortSignal | undefined;
+
 	readonly sleep?: BackoffSleep;
 }
 

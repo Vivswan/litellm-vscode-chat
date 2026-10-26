@@ -141,6 +141,7 @@ const OPT_OUT_EFFORT_FLAGS = {
 	minimal: "supports_minimal_reasoning_effort",
 	low: "supports_low_reasoning_effort",
 } as const;
+
 const OPT_IN_EFFORT_FLAGS = { xhigh: "supports_xhigh_reasoning_effort", max: "supports_max_reasoning_effort" } as const;
 const NONE_EFFORT_FLAG = "supports_none_reasoning_effort";
 const EFFORT_FLAGS: readonly string[] = [

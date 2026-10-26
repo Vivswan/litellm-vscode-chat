@@ -47,29 +47,38 @@ const EVICTION_TTL_FLOOR_MS = 10 * 60 * 1000;
  */
 export interface ServerModelsSnapshot {
 	readonly status: ServerStatus;
+
 	/** The full set the latest serve handed out: discovered infos plus declared ones (flagged `litellm.declared`). */
 	readonly models: readonly PreAttachModelInfo[];
+
 	/**
 	 * The model_info keys the last successful listing reported, carried forward across failure reports so a mid-outage
 	 * refresh cannot blank the set.
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
+
 	/** The per-mode skip counts of the last successful listing, carried forward like observedModelInfoKeys. */
 	readonly skippedModeCounts?: SkippedModeCounts | undefined;
+
 	/** The dashboard's supersession rule keys on this, never on the display label. */
 	readonly entryLabel?: string | undefined;
 }
 
 type StatusWindowEntry = {
 	cycle: number;
+
 	at: number;
+
 	/**
 	 * Holds the DISCOVERED set only: declared models are config-rebuilt on every serve, so staling one would resurrect
 	 * a removed declaration and collide with the fresh synthesis.
 	 */
 	lastSuccess: { at: number; models: readonly PreAttachModelInfo[] } | undefined;
+
 	status: ServerStatus;
+
 	models: readonly PreAttachModelInfo[];
+
 	/**
 	 * The raw model IDs discovery last returned, carried forward across failure reports like lastSuccess:
 	 * staleServableModels hands them out beside the stale bundle, where declared-ID inertness is judged against this
@@ -77,8 +86,11 @@ type StatusWindowEntry = {
 	 * `foo`.
 	 */
 	discoveredRawIds: readonly string[];
+
 	observedModelInfoKeys: readonly string[] | undefined;
+
 	skippedModeCounts: SkippedModeCounts | undefined;
+
 	/** The group's resolved connection; every entry is a VS Code provider group. */
 	groupServer: GroupServer;
 };
@@ -90,6 +102,7 @@ type StatusWindowEntry = {
 export interface ServedModelSets {
 	/** Discovered infos with capability overrides applied; the stale-serve source set. */
 	readonly discovered: readonly PreAttachModelInfo[];
+
 	/**
 	 * Disjoint from `discovered` by construction (a declared ID discovery listed is inert, a colliding exposed ID is
 	 * suppressed) and never staled: the config rebuilds them on every serve, so a removed declaration dies mid-outage
@@ -105,8 +118,10 @@ export interface ServedModelSets {
 export interface DiscoveryObservations {
 	/** The raw IDs discovery returned; see StatusWindowEntry.discoveredRawIds. */
 	readonly discoveredRawIds?: readonly string[] | undefined;
+
 	/** The observed model_info keys, when the listing reported them; see ServerModelsSnapshot.observedModelInfoKeys. */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
+
 	/** The per-mode skip counts, when the listing reported them; see ServerModelsSnapshot.skippedModeCounts. */
 	readonly skippedModeCounts?: SkippedModeCounts | undefined;
 }
@@ -131,6 +146,7 @@ function sameStatusExceptTime(recorded: ServerStatus, status: ServerStatus): boo
  */
 export class StatusWindow {
 	private cycle = 0;
+
 	/**
 	 * Whether the current cycle was started by the group-agnostic call. Such a host makes one of those calls per sweep.
 	 *   inside a marked cycle a group reporting under an already-seen identity -> restarting the cycle on it would
@@ -138,7 +154,9 @@ export class StatusWindow {
 	 *                                                                            re-reached
 	 */
 	private cycleMarked = false;
+
 	private readonly entries = new Map<string, StatusWindowEntry>();
+
 	/**
 	 * One entry per client ID: the ID names a connection, so a second entry under another identity is the same host
 	 * group across an ownership change (declared after serving as external, hidden after its entry's removal) and goes
@@ -227,11 +245,13 @@ export class StatusWindow {
 		groupServer: GroupServer,
 		observations?: DiscoveryObservations
 	): RecordedStatusChange;
+
 	record(
 		status: Extract<ServerStatus, { state: "error" }>,
 		served: ServedModelSets,
 		groupServer: GroupServer
 	): RecordedStatusChange;
+
 	record(
 		status: ServerStatus,
 		served: ServedModelSets,

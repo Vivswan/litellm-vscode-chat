@@ -82,32 +82,39 @@ export function toLanguageModelError(err: unknown): unknown {
 
 export interface LiteLLMChatModelProviderOptions {
 	userAgent: HeaderValue;
+
 	logger?: Logger | undefined;
+
 	/** Request-time resolver for a declared entry's per-entry modelParameters; see ChatClientOptions. */
 	getEntryModelParameters?:
 		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
 		| undefined;
+
 	/**
 	 * Registration-time resolver for a declared entry's per-entry modelCapabilities, matched by label and normalized
 	 * base URL exactly like getEntryModelParameters.
 	 */
 	getEntryModelCapabilities?: ((label: string, baseUrl: string) => ModelCapabilitiesRecord | undefined) | undefined;
+
 	/**
 	 * Request- and discovery-time resolver for a declared entry's custom headers, matched like
 	 * getEntryModelCapabilities. Headers live on the entry - there is no global headers setting.
 	 */
 	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, HeaderValue>> | undefined) | undefined;
+
 	/**
 	 * Request- and discovery-time resolver for a declared entry's apiVersion override (what apiRootOf appends to the
 	 * base URL), matched like getEntryHeaders. "" is a real value (append nothing), distinct from undefined
 	 * (auto-detect: keep a version segment already in the URL, else /v1).
 	 */
 	getEntryApiVersion?: ((label: string, baseUrl: string) => string | undefined) | undefined;
+
 	/**
 	 * Registration-time resolver for a declared entry's discovery.declared model IDs, matched like
 	 * getEntryModelCapabilities.
 	 */
 	getEntryDeclaredModels?: ((label: string, baseUrl: string) => readonly string[] | undefined) | undefined;
+
 	/**
 	 * Discovery-time resolver for a declared entry's expectedFailures categories, matched like
 	 * getEntryModelCapabilities. A listed category's endpoint gets a single discovery attempt and its failure is
@@ -116,25 +123,30 @@ export interface LiteLLMChatModelProviderOptions {
 	getExpectedFailures?:
 		| ((label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined)
 		| undefined;
+
 	/**
 	 * Discovery-time resolver for a declared entry's includeModes, matched like getExpectedFailures: the non-chat modes
 	 * whose /model/info entries register anyway. Part of the discovery cache key, so an edit refetches.
 	 */
 	getEntryIncludeModes?: ((label: string, baseUrl: string) => readonly NonChatMode[] | undefined) | undefined;
+
 	/**
 	 * The host bakes credentials into a group at creation and its group commands are add-only, so the entry's CURRENT
 	 * credentials (matched like getEntryHeaders) overlay the baked ones; see GroupCredentialsResolution for the three
 	 * answers and which one keeps the baked set.
 	 */
 	resolveEntryCredentials?: EntryCredentialsResolver | undefined;
+
 	/** The HTTP transport under the chat client; tests inject a fake here. Defaults to nodeHttpFetch. */
 	fetch?: TransportFetch | undefined;
+
 	/**
 	 * The OpenRouter capability catalog as in-memory lookup data (the catalog store owns files, network, and the
 	 * opt-out; this layer only resolves). Read at serve time so a refreshed snapshot reaches the next attach without a
 	 * rebuild.
 	 */
 	getCatalogLookup?: (() => CapabilityCatalogLookup) | undefined;
+
 	/**
 	 * A suppressed group answers empty and skips the network, while its group-side status still reports, so
 	 * the status window and the dashboard stay coherent.
@@ -145,8 +157,10 @@ export interface LiteLLMChatModelProviderOptions {
 	 *                 `entryLabel`, so a URL-host display label never reads as an entry's
 	 */
 	isGroupSuppressed?: ((group: SuppressedGroupKey) => boolean) | undefined;
+
 	/** Cache seam for tests (fake TTL clock); the provider owns a real one by default. */
 	discoveryCache?: DiscoveryCache<DiscoveredGroupModels> | undefined;
+
 	/** The status window's only clock seam; tests inject a fake. The default reads Date.now at call time. */
 	now?: (() => number) | undefined;
 }
@@ -163,28 +177,42 @@ export interface GroupRefreshOutcome {
  */
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteLLMModelInfo> {
 	private readonly _client: ChatClient;
+
 	// The host re-resolves groups in bursts, so cached sweeps must not hit the network; refreshGroups clears it, so
 	// an explicit refresh reaches the network anyway. The group identity is stamped onto the stored infos on every
 	// read, never cached.
 	private readonly _discoveryCache: DiscoveryCache<DiscoveredGroupModels>;
+
 	private readonly logger?: Logger | undefined;
+
 	private readonly _statusWindow: StatusWindow;
+
 	private readonly _reporter: GroupStatusReporter;
+
 	private readonly _decorator: ServedModelDecorator;
+
 	private readonly _discovery: GroupDiscovery;
+
 	private readonly _resolveEntryCredentials?: EntryCredentialsResolver | undefined;
+
 	private readonly _groupServesInFlight = new Set<Promise<unknown>>();
+
 	private _refreshPass: Promise<GroupRefreshOutcome> | undefined;
+
 	private readonly _onDidChangeEmitter = new EventEmitter<void>();
+
 	private readonly _onDidObserveGroupEmitter = new EventEmitter<void>();
+
 	/**
 	 * The precomputed flat resolution table: one instance shared by the chat request path, registration, and the
 	 * dashboard's inspectors, so every consumer reads the same cache. Input-fingerprinted, so settings, entry, and
 	 * discovery changes reach the next lookup without event plumbing.
 	 */
 	private readonly _resolution = new ModelResolutionTable();
+
 	/** Fired to make the host re-resolve the group-agnostic call and every group through this provider. */
 	readonly onDidChangeLanguageModelChatInformation: Event<void> = this._onDidChangeEmitter.event;
+
 	/**
 	 * Fires when a provider group enters the status window under a new identity (see StatusWindow's onGroupEntered):
 	 * the sync engine's ownership evidence changed, so the servers wiring re-runs a sync pass.

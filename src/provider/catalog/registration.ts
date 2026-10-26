@@ -31,6 +31,7 @@ function familyFromProvider(provider: LiteLLMProvider): string {
 
 /** VS Code's pricing unit is cost per million tokens; LiteLLM reports cost per token. */
 const TOKENS_PER_MILLION = 1_000_000;
+
 /** Per-token costs are tiny binary fractions, so the bare multiplication yields noise. */
 const COST_DECIMALS = 1_000_000;
 
@@ -164,7 +165,9 @@ export const COMMON_MODEL_FIELDS = {
 
 export interface ServerDisplayContext {
 	readonly detail: string;
+
 	readonly namePrefix: string;
+
 	/** The base tooltip (deployment and bare entries); group-shape entries compose their own. */
 	readonly tooltip: string;
 }

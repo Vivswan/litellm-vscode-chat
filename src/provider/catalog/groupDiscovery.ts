@@ -49,16 +49,21 @@ type AttachedServe = {
  */
 interface ServeRecord {
 	readonly generation: number;
+
 	readonly server: ServerConnection;
+
 	readonly groupServer: GroupServer;
+
 	/** statusWindow.ts groupIdentity: the window's key and the identity a served model carries. */
 	readonly identity: string;
+
 	/**
 	 * groupClientId of the group as the host handed it over, before the overlay. A hidden serve records under it while
 	 * a visible serve of the same host group records under the owned identity, so supersession between the two keys
 	 * on it as well; see _recordedGenerations.
 	 */
 	readonly hostClientId: string;
+
 	readonly silent: boolean;
 }
 
@@ -77,11 +82,15 @@ type RecordAndServe = {
  */
 export interface DiscoveredGroupModels {
 	readonly infos: readonly PreAttachModelInfo[];
+
 	readonly discoveredRawIds: readonly string[];
+
 	/** See FetchModelsResult.observedModelInfoKeys; rides the cache so cached serves re-report it. */
 	readonly observedModelInfoKeys?: readonly string[];
+
 	/** See FetchModelsResult.skippedModeCounts; rides the cache so cached serves re-report it. */
 	readonly skippedModeCounts?: SkippedModeCounts;
+
 	/**
 	 * See FetchModelsResult.modelInfoUnsupported; rides the cache so cached serves re-report it. The serve gates it
 	 * against the entry's CURRENT expectedFailures, so declaring the failure retires the hint immediately instead of
@@ -102,9 +111,12 @@ function discoveryCacheKey(groupClientId: string, apiRoot: string, includeModes:
 
 export interface SuppressedGroupKey {
 	readonly groupId: string;
+
 	/** The status label: the configuration stamp, else the URL host. */
 	readonly label: string;
+
 	readonly entryLabel: string | undefined;
+
 	readonly baseUrl: string;
 }
 
@@ -114,7 +126,9 @@ export interface SuppressedGroupKey {
  */
 export interface PendingServeClaim {
 	readonly generation: number;
+
 	readonly ready: Promise<unknown>;
+
 	/** This claim over its own completed overlay; throws before `ready` resolved. */
 	settle(): ServeClaim;
 }
@@ -122,6 +136,7 @@ export interface PendingServeClaim {
 /** Nominal through its private member, so neither a literal nor a spread stands in for one; claimServe is the minter. */
 class SettledServeClaim {
 	declare private readonly minter: "claimServe";
+
 	constructor(
 		readonly generation: number,
 		readonly server: GroupServer,
@@ -148,28 +163,39 @@ export class HiddenServeClaim {
 export interface GroupDiscoveryOptions {
 	/** The transport's model listing; its errors arrive unlogged and are logged once here at the boundary. */
 	client: Pick<ChatClient, "fetchModels">;
+
 	cache: DiscoveryCache<DiscoveredGroupModels>;
+
 	reporter: GroupStatusReporter;
+
 	/** The facade-owned live window; read for the error path's stale-servable fallback. */
 	window: Pick<StatusWindow, "staleServableModels">;
+
 	decorator: ServedModelDecorator;
+
 	/**
 	 * The same apiVersion resolver ChatClient consumes, kept here so the discovery cache key can compose the effective
 	 * API root a serve would fetch from: a serve resolving to a different root lands on a different key and misses by
 	 * construction.
 	 */
 	getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
+
 	/** Per-entry expectedFailures resolver, matched by label and normalized base URL. */
 	getExpectedFailures: (label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined;
+
 	/** Per-entry includeModes resolver, matched like getExpectedFailures; it also keys the discovery cache. */
 	getEntryIncludeModes: (label: string, baseUrl: string) => readonly NonChatMode[] | undefined;
+
 	/** The extension layer's tombstone predicate; see LiteLLMChatModelProviderOptions.isGroupSuppressed. */
 	isGroupSuppressed: (group: SuppressedGroupKey) => boolean;
+
 	/** See LiteLLMChatModelProviderOptions.resolveEntryCredentials. */
 	resolveEntryCredentials: EntryCredentialsResolver | undefined;
+
 	// Facade-bound log callbacks: this module logs only through them, so the provider facade stays the single logging
 	// boundary.
 	log: (message: string, data?: unknown) => void;
+
 	/**
 	 * The error-level line for an unexpected failure: `data` is what the channel shows, `error` what the report
 	 * records.
@@ -179,7 +205,9 @@ export interface GroupDiscoveryOptions {
 
 export class GroupDiscovery {
 	private readonly _options: GroupDiscoveryOptions;
+
 	private readonly _serveGenerations = new Map<string, number>();
+
 	/**
 	 * The newest generation that has RECORDED, keyed by the group's IDENTITY (statusWindow.ts groupIdentity) and by
 	 * the host client ID it was served under. Two unowned twins sharing a claim key never yield to each other: they are
@@ -284,7 +312,9 @@ export class GroupDiscovery {
 		outcome: OkServeShape,
 		observations?: DiscoveryObservations
 	): AttachedServe;
+
 	private recordServe(record: ServeRecord, served: ServedModelSets, outcome: FailureServeShape): AttachedServe;
+
 	private recordServe(
 		record: ServeRecord,
 		served: ServedModelSets,

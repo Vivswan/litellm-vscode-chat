@@ -16,7 +16,9 @@ export interface AuthOverlayCredentials {
 export interface AuthOverlayContext {
 	/** The caller's token cache, so exchanges and 401 invalidation stay per-client. */
 	readonly tokens: OAuthTokenSource;
+
 	readonly surface: OAuthErrorSurface;
+
 	/**
 	 * The clock of each exchange attempt when this call starts the exchange (the token wait runs to its retry budget
 	 * either way) plus the identity of the setting that owns it (timeout advice renders from that identity): the chat
@@ -24,6 +26,7 @@ export interface AuthOverlayContext {
 	 * whole-call budget.
 	 */
 	readonly timeout: TimeoutBudget;
+
 	/**
 	 * Ends this call's token wait when the triggering call is aborted or times out; the exchange itself runs on
 	 * for any other waiter.

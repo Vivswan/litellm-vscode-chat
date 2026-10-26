@@ -16,9 +16,12 @@ import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartT
 /** Client-credentials grant configuration; present as a whole or not at all. */
 export interface OAuthConfig {
 	tokenUrl: string;
+
 	clientId: string;
+
 	/** Empty string when the identity provider issues public clients without a secret. */
 	clientSecret: string;
+
 	/** Space-separated scope list, omitted from the token request when absent. */
 	scopes?: string;
 }
@@ -84,6 +87,7 @@ interface SharedExchange {
 
 export class OAuthTokenSource {
 	private readonly tokens = new Map<string, CachedToken>();
+
 	private readonly exchanges = new Map<string, SharedExchange>();
 
 	constructor(private readonly sleep: BackoffSleep = sleepUnlessAborted) {}

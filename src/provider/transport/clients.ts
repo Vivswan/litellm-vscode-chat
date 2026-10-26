@@ -6,16 +6,21 @@ import type { TransportFetch } from "./nodeHttpFetch";
 
 export interface ServerClientConfig {
 	serverId: string;
+
 	baseUrl: string;
+
 	/**
 	 *   undefined -> auto (keep a version segment already in the URL, else append /v1)
 	 *   ""        -> the base URL is the API root as-is
 	 * See apiRootOf.
 	 */
 	apiVersion?: string | undefined;
+
 	/** Empty string for keyless servers. */
 	apiKey: HeaderValue | "";
+
 	userAgent: HeaderValue;
+
 	customHeaders: Record<string, HeaderValue>;
 }
 
@@ -32,9 +37,12 @@ const KEYLESS_PLACEHOLDER = "keyless";
  * root for a client built on an overridden one.
  */
 export const MODEL_INFO_PATH = "/model/info";
+
 export const MODELS_PATH = "/models";
+
 /** LiteLLM serves this one at the server root only, with no /v1 twin. */
 export const MODEL_GROUP_INFO_PATH = "/model_group/info";
+
 export const CHAT_COMPLETIONS_PATH = "/chat/completions";
 const COMPLETIONS_PATH = "/completions";
 
