@@ -128,6 +128,19 @@ interface ActiveCall {
 	argsClosed: boolean;
 }
 
+/** Appends text to the event list, merging it into a trailing text event. */
+function appendText(events: TextParseEvent[], text: string): void {
+	if (!text) {
+		return;
+	}
+	const last = events[events.length - 1];
+	if (last?.type === "text") {
+		last.text += text;
+	} else {
+		events.push({ type: "text", text });
+	}
+}
+
 /**
  * Incremental scanner for `<|tool_call_begin|>name<|tool_call_argument_begin|>{...}<|tool_call_end|>`
  * sequences embedded in streamed text. Pure state machine: emission, dedup,
@@ -143,108 +156,112 @@ export class TextToolCallParser {
 
 	private _seqCounter = 0;
 
+	/**
+	 * Behind a begin sigil: a complete header opens the call (or emits a header-only one), a short incomplete header
+	 * waits for more, and anything longer was prose. Returns what is left to scan, or undefined once the remainder is
+	 * buffered for the next chunk.
+	 */
+	private openCall(data: string, events: TextParseEvent[]): string | undefined {
+		const argAt = data.indexOf(ARG_BEGIN);
+		const endAt = data.indexOf(END);
+		const opensArgs = argAt !== -1 && (endAt === -1 || argAt < endAt);
+		const headerEnd = opensArgs ? argAt : endAt;
+		if (headerEnd !== -1 && headerEnd <= MAX_TOOL_CALL_HEADER_LENGTH) {
+			const header = parseToolHeader(data.slice(0, headerEnd));
+			if (opensArgs) {
+				this._active = {
+					seq: ++this._seqCounter,
+					name: header.name,
+					index: header.index,
+					argBuffer: "",
+					argsClosed: false,
+				};
+				return data.slice(argAt + ARG_BEGIN.length);
+			}
+			events.push({
+				type: "call",
+				call: { seq: ++this._seqCounter, name: header.name, index: header.index, args: "{}" },
+			});
+			return data.slice(endAt + END.length);
+		}
+		// The header candidate: everything up to the terminator, or, with none in sight, everything but a tail
+		// that may still grow into one.
+		const candidate = headerEnd === -1 ? data.length - controlTokenHold(data) : headerEnd;
+		if (headerEnd === -1 && candidate <= MAX_TOOL_CALL_HEADER_LENGTH) {
+			this._buffer = BEGIN + data;
+			return undefined;
+		}
+		// Longer than any header: the sigil was prose. The text streams up to the next sigil, which the rescan
+		// judges on its own, so a real call behind the prose still parses.
+		const nextBegin = data.indexOf(BEGIN);
+		const release = nextBegin !== -1 && nextBegin < candidate ? nextBegin : candidate;
+		appendText(events, stripControlTokens(data.slice(0, release)));
+		return data.slice(release);
+	}
+
+	/**
+	 * Outside a call: the prose up to the next begin sigil streams, and the call behind the sigil opens. Returns what
+	 * is left to scan, or undefined once the remainder is buffered for the next chunk.
+	 */
+	private consumeProse(data: string, events: TextParseEvent[]): string | undefined {
+		const beginAt = data.indexOf(BEGIN);
+		if (beginAt === -1) {
+			const hold = controlTokenHold(data);
+			appendText(events, stripControlTokens(data.slice(0, data.length - hold)));
+			this._buffer = data.slice(data.length - hold);
+			return undefined;
+		}
+		appendText(events, stripControlTokens(data.slice(0, beginAt)));
+		return this.openCall(data.slice(beginAt + BEGIN.length), events);
+	}
+
+	/**
+	 * Inside a call: argument text accumulates until the end token closes the call, an explicit argument-end token
+	 * closing the arguments first. Returns what is left to scan, or undefined once the remainder is buffered for the
+	 * next chunk.
+	 */
+	private consumeArguments(data: string, events: TextParseEvent[], active: ActiveCall): string | undefined {
+		const endAt = data.indexOf(END);
+		if (!active.argsClosed) {
+			const argEndAt = data.indexOf(ARG_END);
+			if (argEndAt !== -1 && (endAt === -1 || argEndAt < endAt)) {
+				// Some providers close arguments explicitly; the token must not contaminate the JSON or the whole
+				// call fails to parse.
+				active.argBuffer += data.slice(0, argEndAt);
+				active.argsClosed = true;
+				return data.slice(argEndAt + ARG_END.length);
+			}
+			if (endAt === -1) {
+				const hold = Math.max(longestPartialSuffixHold(data, END), longestPartialSuffixHold(data, ARG_END));
+				active.argBuffer += data.slice(0, data.length - hold);
+				this._buffer = data.slice(data.length - hold);
+				return undefined;
+			}
+			active.argBuffer += data.slice(0, endAt);
+		} else if (endAt === -1) {
+			const hold = longestPartialSuffixHold(data, END);
+			this._buffer = data.slice(data.length - hold);
+			return undefined;
+		}
+		events.push({
+			type: "call",
+			call: { seq: active.seq, name: active.name, index: active.index, args: active.argBuffer },
+		});
+		this._active = undefined;
+		return data.slice(endAt + END.length);
+	}
+
 	push(chunk: string): TextParseResult {
 		let data = this._buffer + chunk;
 		this._buffer = "";
 		const events: TextParseEvent[] = [];
-		const pushText = (text: string) => {
-			if (!text) {
-				return;
-			}
-			const last = events[events.length - 1];
-			if (last?.type === "text") {
-				last.text += text;
-			} else {
-				events.push({ type: "text", text });
-			}
-		};
 
 		while (data.length > 0) {
-			if (!this._active) {
-				const beginAt = data.indexOf(BEGIN);
-				if (beginAt === -1) {
-					const hold = controlTokenHold(data);
-					pushText(stripControlTokens(data.slice(0, data.length - hold)));
-					this._buffer = data.slice(data.length - hold);
-					break;
-				}
-				pushText(stripControlTokens(data.slice(0, beginAt)));
-				data = data.slice(beginAt + BEGIN.length);
-
-				const argAt = data.indexOf(ARG_BEGIN);
-				const endAt = data.indexOf(END);
-				const opensArgs = argAt !== -1 && (endAt === -1 || argAt < endAt);
-				const headerEnd = opensArgs ? argAt : endAt;
-				if (headerEnd !== -1 && headerEnd <= MAX_TOOL_CALL_HEADER_LENGTH) {
-					const header = parseToolHeader(data.slice(0, headerEnd));
-					if (opensArgs) {
-						this._active = {
-							seq: ++this._seqCounter,
-							name: header.name,
-							index: header.index,
-							argBuffer: "",
-							argsClosed: false,
-						};
-						data = data.slice(argAt + ARG_BEGIN.length);
-					} else {
-						events.push({
-							type: "call",
-							call: { seq: ++this._seqCounter, name: header.name, index: header.index, args: "{}" },
-						});
-						data = data.slice(endAt + END.length);
-					}
-					continue;
-				}
-				// The header candidate: everything up to the terminator, or, with none in sight, everything but a tail
-				// that may still grow into one.
-				const candidate = headerEnd === -1 ? data.length - controlTokenHold(data) : headerEnd;
-				if (headerEnd === -1 && candidate <= MAX_TOOL_CALL_HEADER_LENGTH) {
-					this._buffer = BEGIN + data;
-					break;
-				}
-				// Longer than any header: the sigil was prose. The text streams up to the next sigil, which the rescan
-				// judges on its own, so a real call behind the prose still parses.
-				const nextBegin = data.indexOf(BEGIN);
-				const release = nextBegin !== -1 && nextBegin < candidate ? nextBegin : candidate;
-				pushText(stripControlTokens(data.slice(0, release)));
-				data = data.slice(release);
-				continue;
-			}
-
-			const endAt = data.indexOf(END);
-			if (!this._active.argsClosed) {
-				const argEndAt = data.indexOf(ARG_END);
-				if (argEndAt !== -1 && (endAt === -1 || argEndAt < endAt)) {
-					// Some providers close arguments explicitly; the token must not contaminate the JSON or the whole
-					// call fails to parse.
-					this._active.argBuffer += data.slice(0, argEndAt);
-					this._active.argsClosed = true;
-					data = data.slice(argEndAt + ARG_END.length);
-					continue;
-				}
-				if (endAt === -1) {
-					const hold = Math.max(longestPartialSuffixHold(data, END), longestPartialSuffixHold(data, ARG_END));
-					this._active.argBuffer += data.slice(0, data.length - hold);
-					this._buffer = data.slice(data.length - hold);
-					break;
-				}
-				this._active.argBuffer += data.slice(0, endAt);
-			} else if (endAt === -1) {
-				const hold = longestPartialSuffixHold(data, END);
-				this._buffer = data.slice(data.length - hold);
+			const rest = this._active ? this.consumeArguments(data, events, this._active) : this.consumeProse(data, events);
+			if (rest === undefined) {
 				break;
 			}
-			data = data.slice(endAt + END.length);
-			events.push({
-				type: "call",
-				call: {
-					seq: this._active.seq,
-					name: this._active.name,
-					index: this._active.index,
-					args: this._active.argBuffer,
-				},
-			});
-			this._active = undefined;
+			data = rest;
 		}
 
 		return { events, provisionalCall: this.snapshotActive() };

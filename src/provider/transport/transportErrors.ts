@@ -163,6 +163,40 @@ interface ChainLink {
 	code?: string | undefined;
 }
 
+/** One error as a chain link, every text masked as it is read; a hostile getter yields a bare "Error" link. */
+function linkOf(error: Error): ChainLink {
+	try {
+		const rawCode = (error as Error & { code?: unknown }).code;
+		return {
+			name: typeof error.name === "string" ? error.name : "Error",
+			message: typeof error.message === "string" ? Logger.redact(error.message) : "",
+			code: typeof rawCode === "string" ? Logger.redact(rawCode) : undefined,
+		};
+	} catch {
+		return { name: "Error", message: "" };
+	}
+}
+
+/**
+ * The next error down the chain: the cause, else the first attempt of an aggregate (undici aggregates parallel
+ * connect attempts (IPv4 + IPv6) into an AggregateError whose own message is empty; the first attempt carries the
+ * actionable socket text), else nothing. A hostile getter ends the chain.
+ */
+function nextLink(error: Error): Error | undefined {
+	try {
+		const next: unknown = error.cause;
+		if (next instanceof Error) {
+			return next;
+		}
+		if (error instanceof AggregateError && error.errors[0] instanceof Error) {
+			return error.errors[0];
+		}
+		return undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /**
  * The cause chain's texts enter the extension here (Node, undici, and the SDK quote URLs, hosts, and bodies in them),
  * so each is masked as it is read, before anything downstream strips, collapses, or caps it.
@@ -171,32 +205,8 @@ export function causeChain(err: unknown): ChainLink[] {
 	const chain: ChainLink[] = [];
 	let current: unknown = err;
 	while (current instanceof Error && chain.length < 10) {
-		let link: ChainLink;
-		try {
-			const rawCode = (current as Error & { code?: unknown }).code;
-			link = {
-				name: typeof current.name === "string" ? current.name : "Error",
-				message: typeof current.message === "string" ? Logger.redact(current.message) : "",
-				code: typeof rawCode === "string" ? Logger.redact(rawCode) : undefined,
-			};
-		} catch {
-			link = { name: "Error", message: "" };
-		}
-		chain.push(link);
-		try {
-			const next: unknown = current.cause;
-			if (next instanceof Error) {
-				current = next;
-			} else if (current instanceof AggregateError && current.errors[0] instanceof Error) {
-				// Undici aggregates parallel connect attempts (IPv4 + IPv6) into an AggregateError whose own message is
-				// empty; the first attempt carries the actionable socket text.
-				current = current.errors[0];
-			} else {
-				break;
-			}
-		} catch {
-			break;
-		}
+		chain.push(linkOf(current));
+		current = nextLink(current);
 	}
 	return chain;
 }
@@ -303,6 +313,77 @@ type HttpErrorClass =
 	| "unavailable"
 	| "unexpected";
 
+/** What the envelope alone proves, read once so the status path and the frame path cannot drift. */
+interface EnvelopeSignals {
+	readonly budget: boolean;
+	readonly contextWindow: boolean;
+	readonly contextWindowProven: boolean;
+	readonly rateLimitMark: boolean;
+}
+
+function envelopeSignals(envelope: ErrorEnvelope | undefined): EnvelopeSignals {
+	const marks = envelope?.marks ?? "";
+	const message = envelope?.message ?? "";
+	const contextWindowMarks = marks.includes("context_window_exceeded") || marks.includes("context_length_exceeded");
+	const contextWindowMention = /context (window|length)/i.test(message);
+	// The signature is exceed/too-long/too-large or OpenAI's exact "maximum context length is N" shape; a bare
+	// "maximum" proves nothing.
+	const contextWindowProven =
+		contextWindowMarks ||
+		(contextWindowMention && /exceed|too (long|large)|maximum context length is \d/i.test(message));
+	return {
+		budget: marks.includes("budget_exceeded") || /budget has been exceeded/i.test(message),
+		contextWindow: contextWindowMarks || contextWindowMention,
+		contextWindowProven,
+		rateLimitMark: marks.includes("rate_limit"),
+	};
+}
+
+/** A frame has no status, so only the classes the envelope itself proves may be claimed. */
+function frameErrorClass(signals: EnvelopeSignals): HttpErrorClass | undefined {
+	if (signals.budget) {
+		return "budget_exceeded";
+	}
+
+	if (signals.contextWindowProven) {
+		return "context_window_exceeded";
+	}
+
+	if (signals.rateLimitMark) {
+		return "rate_limited";
+	}
+
+	return undefined;
+}
+
+/** With a status the status arbitrates; the envelope only picks the flavor at 429, 400, and 403. */
+function statusErrorClass(status: number, signals: EnvelopeSignals, envelopePresent: boolean): HttpErrorClass {
+	switch (status) {
+		case 429:
+			return signals.budget ? "budget_exceeded" : "rate_limited";
+		case 400:
+			if (signals.budget) {
+				return "budget_exceeded";
+			}
+			return signals.contextWindow ? "context_window_exceeded" : "invalid_request";
+		case 403:
+			return envelopePresent ? "model_access" : "forbidden";
+		case 402:
+			return "billing";
+		case 408:
+			return "request_timeout";
+		case 500:
+			return "server_error";
+		case 502:
+		case 504:
+			return "bad_gateway";
+		case 503:
+			return "unavailable";
+		default:
+			return "unexpected";
+	}
+}
+
 /**
  * The one classifier for both delivery paths of the same LiteLLM envelope: an HTTP error response (status known) and
  * an in-band stream error frame (the response was already 200, so there is no status).
@@ -321,53 +402,11 @@ type HttpErrorClass =
 export function classifyEnvelope(envelope: ErrorEnvelope | undefined, status: number): HttpErrorClass;
 export function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number): HttpErrorClass | undefined;
 export function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number): HttpErrorClass | undefined {
-	const marks = envelope?.marks ?? "";
-	const message = envelope?.message ?? "";
-	const budget = marks.includes("budget_exceeded") || /budget has been exceeded/i.test(message);
-	const contextWindowMarks = marks.includes("context_window_exceeded") || marks.includes("context_length_exceeded");
-	const contextWindowMention = /context (window|length)/i.test(message);
+	const signals = envelopeSignals(envelope);
 	if (status === undefined) {
-		// The signature is exceed/too-long/too-large or OpenAI's exact "maximum context length is N" shape; a bare
-		// "maximum" proves nothing.
-		const contextWindowProven =
-			contextWindowMarks ||
-			(contextWindowMention && /exceed|too (long|large)|maximum context length is \d/i.test(message));
-		return budget
-			? "budget_exceeded"
-			: contextWindowProven
-				? "context_window_exceeded"
-				: marks.includes("rate_limit")
-					? "rate_limited"
-					: undefined;
+		return frameErrorClass(signals);
 	}
-	if ((status === 429 || status === 400) && budget) {
-		return "budget_exceeded";
-	}
-	if (status === 429) {
-		return "rate_limited";
-	}
-	if (status === 400) {
-		return contextWindowMarks || contextWindowMention ? "context_window_exceeded" : "invalid_request";
-	}
-	if (status === 403) {
-		return envelope === undefined ? "forbidden" : "model_access";
-	}
-	if (status === 402) {
-		return "billing";
-	}
-	if (status === 408) {
-		return "request_timeout";
-	}
-	if (status === 500) {
-		return "server_error";
-	}
-	if (status === 502 || status === 504) {
-		return "bad_gateway";
-	}
-	if (status === 503) {
-		return "unavailable";
-	}
-	return "unexpected";
+	return statusErrorClass(status, signals, envelope !== undefined);
 }
 
 export interface LocalizedText {
@@ -420,18 +459,30 @@ interface SurfaceCopy {
 	readonly phrase: string;
 }
 
+/** The envelope's non-numeric code as the " kind" suffix of a detail line, or nothing. */
+function nonNumericCodeSuffix(envelope: ErrorEnvelope | undefined): string {
+	if (envelope?.code === undefined || /^\d+$/.test(envelope.code)) {
+		return "";
+	}
+	return ` ${envelope.code}`;
+}
+
+/** The envelope's type as the " kind" suffix of a detail line, else its non-numeric code, else nothing. */
+function envelopeKindSuffix(envelope: ErrorEnvelope | undefined): string {
+	if (envelope?.type !== undefined) {
+		return ` ${envelope.type}`;
+	}
+	return nonNumericCodeSuffix(envelope);
+}
+
 /**
  * The standard 404 detail:
  *   a non-envelope body recovers the SDK's raw text -> the nginx/wrong-server signature of a mispointed base URL stays
  *     visible
  */
 function standardNotFoundDetail(err: APIError, envelope: ErrorEnvelope | undefined): string {
-	const kind =
-		envelope?.code !== undefined && !/^\d+$/.test(envelope.code)
-			? ` ${envelope.code}`
-			: envelope?.type === undefined
-				? ""
-				: ` ${envelope.type}`;
+	const typeSuffix = envelope?.type === undefined ? "" : ` ${envelope.type}`;
+	const kind = nonNumericCodeSuffix(envelope) || typeSuffix;
 	const text = envelope?.message === undefined ? recoveredSdkText(404, err, 200) : compactText(envelope.message, 300);
 	return text === "" ? `LiteLLM 404${kind}` : `LiteLLM 404${kind}: ${text}`;
 }
@@ -983,12 +1034,7 @@ export function httpHeadline(surface: TransportErrorSurface, cls: HttpErrorClass
 
 /** Response-derived, so it rides only in message/englishMessage, never the logClassification. */
 export function chatHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope | undefined): string {
-	const kind =
-		envelope?.type === undefined
-			? envelope?.code !== undefined && !/^\d+$/.test(envelope.code)
-				? ` ${envelope.code}`
-				: ""
-			: ` ${envelope.type}`;
+	const kind = envelopeKindSuffix(envelope);
 	const text =
 		envelope?.message === undefined ? recoveredSdkText(status, err, 300) : compactText(envelope.message, 300);
 	return text === "" ? `LiteLLM ${status}${kind}` : `LiteLLM ${status}${kind}: ${text}`;
@@ -1000,12 +1046,7 @@ export function chatHttpDetail(status: number, err: APIError, envelope: ErrorEnv
  */
 export function discoveryHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope | undefined): string {
 	if (envelope?.message !== undefined) {
-		const kind =
-			envelope.type === undefined
-				? envelope.code !== undefined && !/^\d+$/.test(envelope.code)
-					? ` ${envelope.code}`
-					: ""
-				: ` ${envelope.type}`;
+		const kind = envelopeKindSuffix(envelope);
 		return `LiteLLM ${status}${kind}: ${compactText(envelope.message, 300)}`;
 	}
 	const recovered = recoveredSdkText(status, err, 200);
@@ -1204,10 +1245,104 @@ function unreachableHeadline(ctx: SocketFailureContext): LocalizedText {
 			};
 }
 
+/** What the socket classifier reads of one failure: the chain, its joined texts, and what the error should carry. */
+interface SocketFailure {
+	readonly chain: ChainLink[];
+	readonly haystack: string;
+	readonly cause: unknown;
+	readonly ctx: SocketFailureContext;
+}
+
+/** The marker a token-endpoint error carries, so consumers judging the target endpoint ignore it. */
+function oauthMarkOf(ctx: SocketFailureContext): { oauthTokenEndpoint?: true } {
+	return ctx.endpoint === "oauthToken" ? { oauthTokenEndpoint: true as const } : {};
+}
+
+/** The headline already states the socket-level diagnosis, so it carries no detail line - at any endpoint. */
+function expiredCertificateError({ cause, ctx }: SocketFailure): RequestError {
+	const headline = expiredCertificateHeadline(ctx);
+	return new RequestError(headline.display, "certificate", {
+		cause,
+		englishMessage: headline.english,
+		...oauthMarkOf(ctx),
+	});
+}
+
+/**
+ * The deepest chain link naming the certificate carries the socket-level diagnosis; the joined haystack is never
+ * rendered (it splices unrelated wrapper messages together). Node's hostname-mismatch text embeds the server-supplied
+ * SAN list, so the public surfaces get the classification.
+ */
+function unverifiedCertificateError({ chain, cause, ctx }: SocketFailure): RequestError {
+	const certLink =
+		[...chain].reverse().find((link) => link.message.includes("certificate") || (link.code ?? "").includes("CERT")) ??
+		chain.at(-1);
+	const certMessage = compactText(certLink?.message ?? "", 300);
+	const certCode = certLink?.code === undefined ? "" : compactText(certLink.code, 80);
+	const certText = certMessage === "" ? certCode : `${certMessage}${certCode === "" ? "" : ` (${certCode})`}`;
+	const detail = `SSL certificate error for ${ctx.url}${certText === "" ? "" : `: ${certText}`}`;
+	const texts = twoPartTexts(ctx.surface, unverifiedCertificateHeadline(ctx), detail);
+	return new RequestError(texts.message, "certificate", {
+		cause,
+		logClassification: "RequestError(certificate, unverified)",
+		englishMessage: texts.englishMessage,
+		...oauthMarkOf(ctx),
+	});
+}
+
+/**
+ * The setup advice a connection failure carries. At the token endpoint the stopped process would be the identity
+ * provider, not the proxy, and a plain-host ENOTFOUND is just DNS (the process may run fine behind a mistyped
+ * hostname) - so no hint there.
+ *   A *.localhost host that failed to RESOLVE -> the corrected URL is the certain advice there
+ *   ECONNREFUSED                              -> it keeps "is the proxy running?" even for the family
+ */
+function connectionSetupHint(
+	ctx: SocketFailureContext,
+	haystack: string,
+	suggestedUrl: string | undefined
+): SetupHintKind | undefined {
+	if (suggestedUrl !== undefined) {
+		return "use-bare-localhost";
+	}
+
+	if (ctx.endpoint !== "oauthToken" && haystack.includes("ECONNREFUSED")) {
+		return "proxy-not-running";
+	}
+
+	return undefined;
+}
+
+/** ENOTFOUND or ECONNREFUSED: the server was never reached, with the advice the endpoint allows. */
+function connectionError({ chain, haystack, cause, ctx }: SocketFailure): RequestError {
+	const detail = chainDetail(chain, "");
+	const suggestedUrl =
+		ctx.endpoint !== "oauthToken" && haystack.includes("ENOTFOUND") ? bareLocalhostUrl(ctx.url) : undefined;
+	const texts = twoPartTexts(ctx.surface, connectionHeadline(ctx, suggestedUrl), detail);
+	const setupHint = connectionSetupHint(ctx, haystack, suggestedUrl);
+	return new RequestError(texts.message, "connection", {
+		cause,
+		englishMessage: texts.englishMessage,
+		...(setupHint === undefined ? {} : { setupHint }),
+		...oauthMarkOf(ctx),
+	});
+}
+
+/** Any other socket failure: unreachable, with the cause chain as the detail line. */
+function unreachableError({ chain, cause, ctx }: SocketFailure): RequestError {
+	const detail = chainDetail(chain, "");
+	const texts = twoPartTexts(ctx.surface, unreachableHeadline(ctx), detail);
+	return new RequestError(texts.message, "network", {
+		cause,
+		englishMessage: texts.englishMessage,
+		...oauthMarkOf(ctx),
+	});
+}
+
 /**
  * The chat and discovery transports (via mapSdkError) and the OAuth token exchange (auth.ts) all classify the same
  * raw socket failures here, so an expired certificate or an ECONNREFUSED gets the same kind and the same cause-detail
- * extraction whichever endpoint tripped it.
+ * extraction whichever endpoint tripped it. An empty cause chain gets no detail line rather than a trailing blank.
  *
  * A TimeoutError link defers to `onTimeout`: timeout messages stay endpoint-owned because each endpoint has its own
  * budget.
@@ -1226,63 +1361,15 @@ export function socketFailureRequestError(
 	if (chain.some((link) => link.name === "TimeoutError")) {
 		return onTimeout();
 	}
-	const oauthMark = ctx.endpoint === "oauthToken" ? { oauthTokenEndpoint: true as const } : {};
+	const failure: SocketFailure = { chain, haystack, cause, ctx };
 	if (haystack.includes("certificate has expired") || haystack.includes("CERT_HAS_EXPIRED")) {
-		// The headline already states the socket-level diagnosis, so it carries no detail line - at any endpoint.
-		const headline = expiredCertificateHeadline(ctx);
-		return new RequestError(headline.display, "certificate", {
-			cause,
-			englishMessage: headline.english,
-			...oauthMark,
-		});
+		return expiredCertificateError(failure);
 	}
 	if (haystack.includes("certificate")) {
-		// The deepest chain link naming the certificate carries the socket-level diagnosis; the joined haystack is
-		// never rendered (it splices unrelated wrapper messages together). Node's hostname-mismatch text embeds the
-		// server-supplied SAN list, so the public surfaces get the classification.
-		const certLink =
-			[...chain].reverse().find((link) => link.message.includes("certificate") || (link.code ?? "").includes("CERT")) ??
-			chain.at(-1);
-		const certMessage = compactText(certLink?.message ?? "", 300);
-		const certCode = certLink?.code === undefined ? "" : compactText(certLink.code, 80);
-		const certText = certMessage === "" ? certCode : `${certMessage}${certCode === "" ? "" : ` (${certCode})`}`;
-		const detail = `SSL certificate error for ${ctx.url}${certText === "" ? "" : `: ${certText}`}`;
-		const texts = twoPartTexts(ctx.surface, unverifiedCertificateHeadline(ctx), detail);
-		return new RequestError(texts.message, "certificate", {
-			cause,
-			logClassification: "RequestError(certificate, unverified)",
-			englishMessage: texts.englishMessage,
-			...oauthMark,
-		});
+		return unverifiedCertificateError(failure);
 	}
-	// An empty cause chain gets no detail line rather than a trailing blank.
-	const detail = chainDetail(chain, "");
 	if (haystack.includes("ENOTFOUND") || haystack.includes("ECONNREFUSED")) {
-		// At the token endpoint the stopped process would be the identity provider, not the proxy, and a plain-host
-		// ENOTFOUND is just DNS (the process may run fine behind a mistyped hostname) - so no hint.
-		//
-		//   A *.localhost host that failed to RESOLVE -> the corrected URL is the certain advice there
-		//   ECONNREFUSED                              -> it keeps "is the proxy running?" even for the family
-		const suggestedUrl =
-			ctx.endpoint !== "oauthToken" && haystack.includes("ENOTFOUND") ? bareLocalhostUrl(ctx.url) : undefined;
-		const texts = twoPartTexts(ctx.surface, connectionHeadline(ctx, suggestedUrl), detail);
-		const setupHint =
-			suggestedUrl === undefined
-				? ctx.endpoint !== "oauthToken" && haystack.includes("ECONNREFUSED")
-					? ("proxy-not-running" as const)
-					: undefined
-				: ("use-bare-localhost" as const);
-		return new RequestError(texts.message, "connection", {
-			cause,
-			englishMessage: texts.englishMessage,
-			...(setupHint === undefined ? {} : { setupHint }),
-			...oauthMark,
-		});
+		return connectionError(failure);
 	}
-	const texts = twoPartTexts(ctx.surface, unreachableHeadline(ctx), detail);
-	return new RequestError(texts.message, "network", {
-		cause,
-		englishMessage: texts.englishMessage,
-		...oauthMark,
-	});
+	return unreachableError(failure);
 }

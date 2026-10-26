@@ -275,6 +275,19 @@ function oauthErrorDetail(payload: string): string {
 	return "";
 }
 
+/** expires_in as a number: a JSON number as-is, a non-blank string parsed, anything else NaN. */
+function expiresInCandidate(value: unknown): number {
+	if (typeof value === "number") {
+		return value;
+	}
+
+	if (typeof value === "string" && value.trim() !== "") {
+		return Number(value);
+	}
+
+	return Number.NaN;
+}
+
 /**
  * The token lifetime in seconds: the advertised expires_in, a conservative default when the field is absent, and zero
  * (already due for refresh, so never served from cache) when it is present but zero, negative, or unparseable.
@@ -283,9 +296,7 @@ function tokenLifetimeSeconds(parsed: Record<string, unknown>): number {
 	if (!("expires_in" in parsed)) {
 		return DEFAULT_EXPIRES_IN_SECONDS;
 	}
-	const value = parsed.expires_in;
-	const candidate =
-		typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+	const candidate = expiresInCandidate(parsed.expires_in);
 	return Number.isFinite(candidate) && candidate > 0 ? candidate : 0;
 }
 
@@ -351,96 +362,45 @@ class TransientTokenEndpointError extends APIError<number, undefined, undefined>
 	}
 }
 
+/** What one exchange runs under; `budget` is the starter's, `signal` the shared exchange's own abandonment. */
+interface ExchangeOptions {
+	readonly budget: TimeoutBudget;
+	readonly signal: AbortSignal;
+	readonly sleep: BackoffSleep;
+}
+
+/** A non-OK token-endpoint answer: the status, the endpoint, and the IdP's own error text when it sent one. */
+interface TokenEndpointAnswer {
+	readonly status: number;
+	readonly tokenUrl: string;
+	readonly idpDetail: string;
+}
+
 /**
- * Retries like the discovery GETs, because the grant is idempotent: each attempt on its own clock, the whole exchange
- * inside the retry budget of it. `budget` is the starter's: every attempt ran on its clock, so a timeout renders with
- * it for every waiter. `signal` is the shared exchange's own abandonment, never a caller's, so every failure leaves
- * surface-free for each waiter to render as its own.
+ * The detail line of a token-endpoint failure. `idpDetail` quotes the IdP's error/error_description
+ * (response-derived; it can carry correlation IDs and tenant text), so it rides only the message and its English
+ * mirror; the classification is what public surfaces record.
  */
-async function exchangeClientCredentials(
-	config: OAuthConfig,
-	options: { readonly budget: TimeoutBudget; readonly signal: AbortSignal; readonly sleep: BackoffSleep }
-): Promise<{ accessToken: HeaderValue; expiresInSeconds: number }> {
-	const form = new URLSearchParams({
-		grant_type: "client_credentials",
-		client_id: config.clientId,
-		// RFC 6749 2.3.1: public clients authenticate with the client ID alone.
-		...(config.clientSecret.length > 0 ? { client_secret: config.clientSecret } : {}),
-		...(config.scopes === undefined ? {} : { scope: config.scopes }),
-	});
-	// The verdict over one answer: the parsed token, a retryable 5xx, or a settled refusal in its own rendering.
-	const judge = ({ response, text: payload }: FetchAnswer): { accessToken: HeaderValue; expiresInSeconds: number } => {
-		if (response.ok) {
-			return parseTokenResponse(payload, config.tokenUrl);
-		}
-		const { status } = response;
-		const idpDetail = oauthErrorDetail(payload);
-		if (status >= 500) {
-			// `idpDetail` quotes the IdP's error/error_description (response-derived), so it rides only the message and
-			// its English mirror; the classification is what public surfaces record.
-			const detailLine = collapseWhitespace(
-				`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
-			);
-			throw new TransientTokenEndpointError(
-				status,
-				new OAuthExchangeFailure((surface) => {
-					const texts = twoPartTexts(
-						surface,
-						{
-							display: l10n.t(
-								"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator."
-							),
-							english:
-								"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator.",
-						},
-						detailLine
-					);
-					return new RequestError(texts.message, "http", {
-						status,
-						logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
-						englishMessage: texts.englishMessage,
-						oauthTokenEndpoint: true,
-					});
-				})
-			);
-		}
-		if (status === 400 || status === 401 || status === 403) {
-			// Same: the IdP detail can carry correlation IDs and tenant text.
-			const detailLine = collapseWhitespace(
-				`OAuth ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
-			);
-			throw new OAuthExchangeFailure((surface) => {
-				const texts = twoPartTexts(
-					surface,
-					{
-						display: l10n.t(
-							"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry."
-						),
-						english:
-							"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry.",
-					},
-					detailLine
-				);
-				return new RequestError(texts.message, "auth", {
-					status,
-					logClassification: `RequestError(auth, status ${status}, oauth token endpoint)`,
-					englishMessage: texts.englishMessage,
-					oauthTokenEndpoint: true,
-				});
-			});
-		}
-		const detailLine = collapseWhitespace(
-			`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
-		);
-		throw new OAuthExchangeFailure((surface) => {
+function tokenEndpointDetail(lead: string, answer: TokenEndpointAnswer): string {
+	const idpSuffix = answer.idpDetail === "" ? "" : `: ${answer.idpDetail}`;
+	return collapseWhitespace(`${lead} ${answer.status} at ${answer.tokenUrl}${idpSuffix}`);
+}
+
+/** A 5xx from the token endpoint: retried, and rendered as the IdP's own server problem once the retries run out. */
+function transientTokenEndpointFailure(answer: TokenEndpointAnswer): TransientTokenEndpointError {
+	const { status } = answer;
+	const detailLine = tokenEndpointDetail("OAuth token endpoint", answer);
+	return new TransientTokenEndpointError(
+		status,
+		new OAuthExchangeFailure((surface) => {
 			const texts = twoPartTexts(
 				surface,
 				{
 					display: l10n.t(
-						"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings."
+						"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator."
 					),
 					english:
-						"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings.",
+						"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator.",
 				},
 				detailLine
 			);
@@ -450,8 +410,128 @@ async function exchangeClientCredentials(
 				englishMessage: texts.englishMessage,
 				oauthTokenEndpoint: true,
 			});
+		})
+	);
+}
+
+/** A 400, 401, or 403: the IdP refused the client, so the advice points at the entry's OAuth fields. */
+function refusedTokenFailure(answer: TokenEndpointAnswer): OAuthExchangeFailure {
+	const { status } = answer;
+	const detailLine = tokenEndpointDetail("OAuth", answer);
+	return new OAuthExchangeFailure((surface) => {
+		const texts = twoPartTexts(
+			surface,
+			{
+				display: l10n.t(
+					"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry."
+				),
+				english:
+					"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry.",
+			},
+			detailLine
+		);
+		return new RequestError(texts.message, "auth", {
+			status,
+			logClassification: `RequestError(auth, status ${status}, oauth token endpoint)`,
+			englishMessage: texts.englishMessage,
+			oauthTokenEndpoint: true,
 		});
-	};
+	});
+}
+
+/** Any other non-OK status: the endpoint does not answer like a token endpoint, so the advice points at the URL. */
+function unexpectedTokenFailure(answer: TokenEndpointAnswer): OAuthExchangeFailure {
+	const { status } = answer;
+	const detailLine = tokenEndpointDetail("OAuth token endpoint", answer);
+	return new OAuthExchangeFailure((surface) => {
+		const texts = twoPartTexts(
+			surface,
+			{
+				display: l10n.t(
+					"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings."
+				),
+				english:
+					"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings.",
+			},
+			detailLine
+		);
+		return new RequestError(texts.message, "http", {
+			status,
+			logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
+			englishMessage: texts.englishMessage,
+			oauthTokenEndpoint: true,
+		});
+	});
+}
+
+/** The verdict over one answer: the parsed token, a retryable 5xx, or a settled refusal in its own rendering. */
+function judgeTokenAnswer(
+	config: OAuthConfig,
+	{ response, text: payload }: FetchAnswer
+): { accessToken: HeaderValue; expiresInSeconds: number } {
+	if (response.ok) {
+		return parseTokenResponse(payload, config.tokenUrl);
+	}
+
+	const { status } = response;
+	const answer: TokenEndpointAnswer = { status, tokenUrl: config.tokenUrl, idpDetail: oauthErrorDetail(payload) };
+	if (status >= 500) {
+		throw transientTokenEndpointFailure(answer);
+	}
+
+	if (status === 400 || status === 401 || status === 403) {
+		throw refusedTokenFailure(answer);
+	}
+
+	throw unexpectedTokenFailure(answer);
+}
+
+/**
+ * What a failed exchange throws to its waiters: the exchange's own abandonment and a settled refusal pass through
+ * as they are, the retry loop's transport failures render as token-endpoint failures.
+ */
+function exchangeFailureOf(error: unknown, config: OAuthConfig, options: ExchangeOptions): unknown {
+	if (options.signal.aborted) {
+		return error;
+	}
+
+	if (error instanceof TransientTokenEndpointError) {
+		return error.failure;
+	}
+
+	if (error instanceof APIConnectionTimeoutError) {
+		return new OAuthExchangeFailure(() => timeoutError(config.tokenUrl, options.budget, error));
+	}
+
+	if (error instanceof APIConnectionError) {
+		const failure: unknown = error.cause;
+		return new OAuthExchangeFailure((surface) =>
+			socketFailureRequestError(failure, failure, { endpoint: "oauthToken", surface, url: config.tokenUrl }, () =>
+				timeoutError(config.tokenUrl, options.budget, failure)
+			)
+		);
+	}
+
+	return error;
+}
+
+/**
+ * Retries like the discovery GETs, because the grant is idempotent: each attempt on its own clock, the whole exchange
+ * inside the retry budget of it. `budget` is the starter's: every attempt ran on its clock, so a timeout renders with
+ * it for every waiter. `signal` is the shared exchange's own abandonment, never a caller's, so every failure leaves
+ * surface-free for each waiter to render as its own.
+ */
+async function exchangeClientCredentials(
+	config: OAuthConfig,
+	options: ExchangeOptions
+): Promise<{ accessToken: HeaderValue; expiresInSeconds: number }> {
+	const form = new URLSearchParams({
+		grant_type: "client_credentials",
+		client_id: config.clientId,
+		// RFC 6749 2.3.1: public clients authenticate with the client ID alone.
+		...(config.clientSecret.length > 0 ? { client_secret: config.clientSecret } : {}),
+		...(config.scopes === undefined ? {} : { scope: config.scopes }),
+	});
 	try {
 		return await retryFetch(
 			(signal) =>
@@ -461,7 +541,7 @@ async function exchangeClientCredentials(
 					body: form.toString(),
 					signal,
 				}),
-			judge,
+			(answer) => judgeTokenAnswer(config, answer),
 			{
 				attemptTimeoutMs: options.budget.ms,
 				maxRetries: DISCOVERY_MAX_RETRIES,
@@ -470,23 +550,6 @@ async function exchangeClientCredentials(
 			}
 		);
 	} catch (error) {
-		if (options.signal.aborted) {
-			throw error;
-		}
-		if (error instanceof TransientTokenEndpointError) {
-			throw error.failure;
-		}
-		if (error instanceof APIConnectionTimeoutError) {
-			throw new OAuthExchangeFailure(() => timeoutError(config.tokenUrl, options.budget, error));
-		}
-		if (error instanceof APIConnectionError) {
-			const failure: unknown = error.cause;
-			throw new OAuthExchangeFailure((surface) =>
-				socketFailureRequestError(failure, failure, { endpoint: "oauthToken", surface, url: config.tokenUrl }, () =>
-					timeoutError(config.tokenUrl, options.budget, failure)
-				)
-			);
-		}
-		throw error;
+		throw exchangeFailureOf(error, config, options);
 	}
 }

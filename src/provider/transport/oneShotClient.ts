@@ -1,7 +1,7 @@
 import { APIConnectionError, APIError } from "openai";
 import * as vscode from "vscode";
 import { fixedHeaderValue, type HeaderValue } from "../../shared/util/headers";
-import { isRecord } from "../../shared/util/json";
+import { isRecord, tryParseJSONObject } from "../../shared/util/json";
 import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "./auth";
 import { OAuthTokenSource } from "./auth";
 import type { AuthOverlayScope } from "./authOverlay";
@@ -235,6 +235,41 @@ export class OneShotClient {
 	}
 
 	/**
+	 * One POST through the transport. The transport rejects with a bare TypeError on socket failures; the SDK wrapper
+	 * is what routes it into mapSdkError's socket classifier, so an ECONNREFUSED here reads exactly like one on the
+	 * chat stream. An abort passes through for the caller to attribute: cancellation first, then timeout.
+	 */
+	private async postOnce(
+		url: string,
+		headers: Record<string, HeaderValue>,
+		body: string,
+		signal: AbortSignal
+	): Promise<Response> {
+		try {
+			return await this.fetch(url, { method: "POST", headers, body, signal });
+		} catch (fetchError) {
+			if (signal.aborted) {
+				throw fetchError;
+			}
+			throw new APIConnectionError({ cause: fetchError instanceof Error ? fetchError : undefined });
+		}
+	}
+
+	/**
+	 * A non-OK answer as the SDK's own error (its factory extracts the body's `error` envelope itself), so the caller's
+	 * catch classifies this plain-fetch failure through the exact mapSdkError pipeline the streaming chat path uses -
+	 * one classifier, one message shape. A body that is not a JSON object (unparseable, a bare string, an array) rides
+	 * as recovered text instead, like the SDK keeps raw bodies in its message.
+	 */
+	private async httpFailureOf(response: Response, signal: AbortSignal): Promise<APIError> {
+		const payload = await this.readBodyText(response, signal);
+		const parsed = tryParseJSONObject(payload);
+		const envelope = parsed.ok ? parsed.value : undefined;
+		const recoveredText = envelope === undefined && payload !== "" ? payload : undefined;
+		return APIError.generate(response.status, envelope, recoveredText, response.headers);
+	}
+
+	/**
 	 * The shared HTTP core of every one-shot call, one error pipeline (mapSdkError via the SDK's own error factory)
 	 * for the fetch and the body read alike; each caller owns its lenient parse of the returned body text.
 	 */
@@ -268,34 +303,9 @@ export class OneShotClient {
 				timeout: opts.timeout,
 				signal: requestSignal,
 			});
-			let response: Response;
-			try {
-				response = await this.fetch(url, { method: "POST", headers, body, signal: requestSignal });
-			} catch (fetchError) {
-				if (requestSignal.aborted) {
-					// Attributed by the outer catch: cancellation first, then timeout.
-					throw fetchError;
-				}
-				// The transport rejects with a bare TypeError on socket failures; the SDK wrapper is what routes it
-				// into mapSdkError's socket classifier, so an ECONNREFUSED here reads exactly like one on the chat
-				// stream.
-				throw new APIConnectionError({ cause: fetchError instanceof Error ? fetchError : undefined });
-			}
+			const response = await this.postOnce(url, headers, body, requestSignal);
 			if (!response.ok) {
-				// The SDK's own error factory (it extracts the body's `error` envelope itself), so the catch below
-				// classifies this plain-fetch failure through the exact mapSdkError pipeline the streaming chat path
-				// uses - one classifier, one message shape. A body that is not a JSON object (unparseable, a bare
-				// string, an array) rides as recovered text instead, like the SDK keeps raw bodies in its message.
-				const payload = await this.readBodyText(response, requestSignal);
-				let parsed: unknown;
-				try {
-					parsed = JSON.parse(payload);
-				} catch {
-					parsed = undefined;
-				}
-				const envelope = isRecord(parsed) ? parsed : undefined;
-				const recoveredText = envelope === undefined && payload !== "" ? payload : undefined;
-				throw APIError.generate(response.status, envelope, recoveredText, response.headers);
+				throw await this.httpFailureOf(response, requestSignal);
 			}
 			return await this.readBodyText(response, requestSignal);
 		} catch (err) {

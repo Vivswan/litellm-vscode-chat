@@ -236,65 +236,107 @@ function toResponse(exchange: Exchange, method: string): Response {
 	return new Response(exchange.body, init);
 }
 
+/** One request as the redirect loop carries it; a redirect may turn the method and body into a GET's. */
+interface Hop {
+	url: URL;
+	method: string;
+	body: Buffer | undefined;
+	headers: Headers;
+}
+
+/** Rejects a URL the transport cannot carry, as fetch does. */
+function requireHttpUrl(url: URL): void {
+	if (url.protocol !== "http:" && url.protocol !== "https:") {
+		throw fetchFailed(new TypeError(`unsupported protocol ${url.protocol}`));
+	}
+}
+
+/** The Location of a redirect the caller lets the transport follow, or undefined when the answer is final. */
+function followedLocation(
+	status: number,
+	location: string | undefined,
+	redirect: RequestInit["redirect"]
+): string | undefined {
+	if (!REDIRECT_STATUSES.has(status) || location === undefined || redirect === "manual") {
+		return undefined;
+	}
+	return location;
+}
+
+/** Keeps only the headers a new origin may see. */
+function dropCredentialHeaders(headers: Headers): void {
+	for (const name of [...headers.keys()]) {
+		if (!CROSS_ORIGIN_HEADERS.has(headerNameKey(name))) {
+			headers.delete(name);
+		}
+	}
+}
+
+/** Refuses a redirect the caller forbade, or one past the cap. */
+function requireRedirectAllowed(redirect: RequestInit["redirect"], count: number): void {
+	if (redirect === "error") {
+		throw fetchFailed(new TypeError("unexpected redirect"));
+	}
+
+	if (count >= MAX_REDIRECTS) {
+		throw fetchFailed(new TypeError("redirect count exceeded"));
+	}
+}
+
+/** The hop a redirect leads to, with the method switch and the header drops the fetch spec lists applied. */
+function redirectedHop(hop: Hop, status: number, location: string): Hop {
+	let next: URL;
+	try {
+		next = new URL(location, hop.url);
+	} catch (err) {
+		throw fetchFailed(err);
+	}
+	const { headers } = hop;
+	let { method, body } = hop;
+	const becomesGet = status === 303 || ((status === 301 || status === 302) && method === "POST");
+	if (becomesGet) {
+		method = "GET";
+		body = undefined;
+		for (const name of BODY_HEADERS) {
+			headers.delete(name);
+		}
+	}
+	if (next.origin !== hop.url.origin) {
+		dropCredentialHeaders(headers);
+	}
+	return { url: next, method, body, headers };
+}
+
 export async function nodeHttpFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
 	const signal = init.signal ?? undefined;
 	if (signal?.aborted) {
 		throw signal.reason;
 	}
-	let url: URL;
-	let body: Buffer | undefined;
 	const headers = new Headers(init.headers);
+	const method = (init.method ?? "GET").toUpperCase();
+	let hop: Hop;
 	try {
-		url = new URL(input);
-		body = encodeBody(init.body, headers);
+		hop = { url: new URL(input), method, body: encodeBody(init.body, headers), headers };
 	} catch (err) {
 		throw fetchFailed(err);
 	}
-	let method = (init.method ?? "GET").toUpperCase();
-	for (let hop = 0; ; hop++) {
+	for (let count = 0; ; count++) {
 		if (signal?.aborted) {
 			throw signal.reason;
 		}
-		if (url.protocol !== "http:" && url.protocol !== "https:") {
-			throw fetchFailed(new TypeError(`unsupported protocol ${url.protocol}`));
+		requireHttpUrl(hop.url);
+		if (hop.body !== undefined) {
+			hop.headers.set("content-length", String(hop.body.byteLength));
 		}
-		if (body !== undefined) {
-			headers.set("content-length", String(body.byteLength));
-		}
-		const exchange = await requestOnce(url, method, headers, body, signal);
+		const exchange = await requestOnce(hop.url, hop.method, hop.headers, hop.body, signal);
 		const status = exchange.res.statusCode ?? 0;
-		const location = exchange.res.headers.location;
-		if (!REDIRECT_STATUSES.has(status) || location === undefined || init.redirect === "manual") {
-			return toResponse(exchange, method);
+		const location = followedLocation(status, exchange.res.headers.location, init.redirect);
+		if (location === undefined) {
+			return toResponse(exchange, hop.method);
 		}
 		// A discarded response is cancelled, not drained: draining an unbounded body would outlive the caller's signal.
 		discard(exchange);
-		if (init.redirect === "error") {
-			throw fetchFailed(new TypeError("unexpected redirect"));
-		}
-		if (hop >= MAX_REDIRECTS) {
-			throw fetchFailed(new TypeError("redirect count exceeded"));
-		}
-		let next: URL;
-		try {
-			next = new URL(location, url);
-		} catch (err) {
-			throw fetchFailed(err);
-		}
-		if (status === 303 || ((status === 301 || status === 302) && method === "POST")) {
-			method = "GET";
-			body = undefined;
-			for (const name of BODY_HEADERS) {
-				headers.delete(name);
-			}
-		}
-		if (next.origin !== url.origin) {
-			for (const name of [...headers.keys()]) {
-				if (!CROSS_ORIGIN_HEADERS.has(headerNameKey(name))) {
-					headers.delete(name);
-				}
-			}
-		}
-		url = next;
+		requireRedirectAllowed(init.redirect, count);
+		hop = redirectedHop(hop, status, location);
 	}
 }

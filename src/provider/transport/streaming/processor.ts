@@ -251,132 +251,6 @@ export class StreamProcessor {
 		}
 	}
 
-	processDelta(chunk: ChatCompletionChunk): boolean {
-		let emitted = false;
-
-		if (chunk.usage) {
-			// Retained for the end-of-stream usage DataPart and log line; runs before the empty-choices early return
-			// below, so the standard trailer chunk (choices: []) is captured. The last trailer wins.
-			this._req.usage = chunk.usage;
-		}
-
-		// Chunk-root sources (Perplexity via LiteLLM repeats them on every chunk, including choice-less ones) collect
-		// before the choice gate so none are lost.
-		this.collectSources(chunk.citations, chunk.search_results);
-
-		const choice = chunk.choices?.[0];
-		if (!choice) {
-			return false;
-		}
-		const delta = choice.delta;
-		this.collectSources(undefined, delta?.search_results);
-
-		// Thinking parts pass through as-is: the host merges adjacent thinking parts itself and mints an id when a part
-		// has none, so minting ids here would only risk colliding with wire ids or the host's thinking-title cache.
-		const thinkingContents = extractThinking(choice, delta);
-		if (this._thinkingPartCtor) {
-			for (const thinking of thinkingContents) {
-				let part: vscode.LanguageModelResponsePart | undefined;
-				try {
-					part = new this._thinkingPartCtor(thinking.text, thinking.id, thinking.metadata);
-				} catch (e) {
-					this._log("Failed to construct thinking part", { error: String(e) });
-				}
-				if (part) {
-					this.emit(part);
-					emitted = true;
-				} else {
-					this.recordDroppedReasoning(thinking);
-				}
-			}
-		} else if (thinkingContents.length > 0) {
-			logMissingThinkingPartSupportOnce(this._log);
-			for (const thinking of thinkingContents) {
-				this.recordDroppedReasoning(thinking);
-			}
-		}
-
-		if (delta?.refusal) {
-			if (!this._req.loggedRefusal) {
-				this._req.loggedRefusal = true;
-				// No content: refusal text can echo user data into issue reports.
-				this._log("Model refused the request");
-			}
-			// Delta text streams as received: a chunk can split a value, so no mask here. The processor masks only the
-			// Sources trailer it builds whole (emitTrailers).
-			this.emit(new vscode.LanguageModelTextPart(delta.refusal));
-			this._req.hasEmittedAssistantText = true;
-			emitted = true;
-		}
-
-		if (delta?.annotations) {
-			for (const annotation of delta.annotations) {
-				this.recordSource(annotation.url_citation?.url, annotation.url_citation?.title);
-			}
-		}
-
-		if (delta?.content !== undefined && delta.content !== null) {
-			const texts =
-				typeof delta.content === "string"
-					? [delta.content]
-					: delta.content.flatMap((block) =>
-							block.type === "text" && typeof block.text === "string" ? [block.text] : []
-						);
-			for (const text of texts) {
-				const res = this.processTextContent(text);
-				if (res.emittedText) {
-					this._req.hasEmittedAssistantText = true;
-				}
-				if (res.emittedAny) {
-					emitted = true;
-				}
-			}
-		}
-
-		if (delta?.images && delta.images.length > 0) {
-			if (this.processImagesDelta(delta.images)) {
-				emitted = true;
-			}
-		}
-
-		if (delta?.audio) {
-			// The transcript is the model's textual output (a gpt-4o-audio turn has no delta.content), so it streams as
-			// ordinary text, independently of DataPart support, which only gates the binary clip.
-			if (delta.audio.transcript) {
-				const res = this.processTextContent(delta.audio.transcript);
-				if (res.emittedText) {
-					this._req.hasEmittedAssistantText = true;
-				}
-				if (res.emittedAny) {
-					emitted = true;
-				}
-			}
-			if (this.processAudioDelta(delta.audio)) {
-				emitted = true;
-			}
-		}
-
-		if (delta?.tool_calls) {
-			if (!this._req.emittedBeginToolCallsHint && this._req.hasEmittedAssistantText && delta.tool_calls.length > 0) {
-				this.emit(new vscode.LanguageModelTextPart(" "));
-				this._req.emittedBeginToolCallsHint = true;
-			}
-
-			for (const tc of delta.tool_calls) {
-				const slot = this._req.toolCalls.accept(tc);
-				if (slot !== undefined) {
-					this.tryEmitBufferedToolCall(slot);
-				}
-			}
-		}
-
-		if (choice.finish_reason !== undefined) {
-			this._req.lastFinishReason = choice.finish_reason;
-		}
-
-		return emitted;
-	}
-
 	private processImagesDelta(images: NonNullable<ChunkDelta["images"]>): boolean {
 		if (!this._dataPartCtor) {
 			logMissingDataPartSupportOnce(this._log);
@@ -461,50 +335,6 @@ export class StreamProcessor {
 		}
 	}
 
-	processTextContent(input: string): { emittedText: boolean; emittedAny: boolean } {
-		const result: TextParseResult = this._req.textParser.push(input);
-		let emittedText = false;
-		let emittedAny = false;
-
-		for (const event of result.events) {
-			if (event.type === "text") {
-				this.emit(new vscode.LanguageModelTextPart(event.text));
-				emittedText = true;
-				emittedAny = true;
-				continue;
-			}
-			const call = event.call;
-			if (this._req.ledger.alreadyHandled(call.seq)) {
-				continue;
-			}
-			// A COMPLETE call's end token arrived, so its argument section is final: an explicit-but-empty section
-			// reads as the no-argument call (the parser only synthesizes "{}" when the argument-begin token itself is
-			// absent).
-			const parsed = tryParseJSONObject(StreamProcessor.flushArgsText(call.args));
-			if (!parsed.ok) {
-				// Classification only: the name and arguments are response text.
-				this._log("Dropping inline tool call with invalid JSON arguments", { argsLength: call.args.length });
-				continue;
-			}
-			if (this.emitInlineToolCall(call, parsed.value)) {
-				emittedAny = true;
-			}
-		}
-
-		const provisional = result.provisionalCall;
-		if (provisional && !this._req.ledger.alreadyHandled(provisional.seq)) {
-			const parsed = tryParseJSONObject(provisional.args);
-			if (parsed.ok) {
-				this._req.ledger.markHandled(provisional.seq);
-				if (this.emitInlineToolCall(provisional, parsed.value)) {
-					emittedAny = true;
-				}
-			}
-		}
-
-		return { emittedText, emittedAny };
-	}
-
 	private emitInlineToolCall(call: TextToolCall, parsedArgs: Record<string, unknown>): boolean {
 		const name = call.name ?? "unknown_tool";
 		const contentKey = `${name}:${JSON.stringify(parsedArgs)}`;
@@ -566,16 +396,218 @@ export class StreamProcessor {
 	}
 
 	/**
-	 * finishedNormally is false only when the request was cancelled: unparseable leftovers then downgrade to logged
-	 * drops and accumulated media is discarded. flushArgsText's empty-argument reading applies only to a complete,
-	 * uncut stream: a call cut off before any argument bytes (cancelled, or finish_reason "length") classifies instead
-	 * of running with arguments the model never sent.
+	 * A call still open at the end of this chunk is emitted early once its arguments already parse, and the ledger
+	 * remembers it so its completion is not re-emitted. Returns whether it was emitted.
 	 */
-	private finishStream(finishedNormally: boolean): void {
-		const emptyArgsAreNoArgs = finishedNormally && this._req.lastFinishReason !== "length";
-		const finalArgsText = (args: string) => (emptyArgsAreNoArgs ? StreamProcessor.flushArgsText(args) : args);
-		let invalidCount = 0;
+	private emitProvisionalCall(provisional: TextToolCall | undefined): boolean {
+		if (!provisional || this._req.ledger.alreadyHandled(provisional.seq)) {
+			return false;
+		}
 
+		const parsed = tryParseJSONObject(provisional.args);
+		if (!parsed.ok) {
+			return false;
+		}
+
+		this._req.ledger.markHandled(provisional.seq);
+		return this.emitInlineToolCall(provisional, parsed.value);
+	}
+
+	processTextContent(input: string): { emittedText: boolean; emittedAny: boolean } {
+		const result: TextParseResult = this._req.textParser.push(input);
+		let emittedText = false;
+		let emittedAny = false;
+
+		for (const event of result.events) {
+			if (event.type === "text") {
+				this.emit(new vscode.LanguageModelTextPart(event.text));
+				emittedText = true;
+				emittedAny = true;
+				continue;
+			}
+			const call = event.call;
+			if (this._req.ledger.alreadyHandled(call.seq)) {
+				continue;
+			}
+			// A COMPLETE call's end token arrived, so its argument section is final: an explicit-but-empty section
+			// reads as the no-argument call (the parser only synthesizes "{}" when the argument-begin token itself is
+			// absent).
+			const parsed = tryParseJSONObject(StreamProcessor.flushArgsText(call.args));
+			if (!parsed.ok) {
+				// Classification only: the name and arguments are response text.
+				this._log("Dropping inline tool call with invalid JSON arguments", { argsLength: call.args.length });
+				continue;
+			}
+			if (this.emitInlineToolCall(call, parsed.value)) {
+				emittedAny = true;
+			}
+		}
+
+		if (this.emitProvisionalCall(result.provisionalCall)) {
+			emittedAny = true;
+		}
+
+		return { emittedText, emittedAny };
+	}
+
+	/** Without the host's thinking part every item is dropped, and the missing support is logged once. */
+	private dropThinking(thinkingContents: readonly ThinkingContent[]): void {
+		if (thinkingContents.length === 0) {
+			return;
+		}
+		logMissingThinkingPartSupportOnce(this._log);
+		for (const thinking of thinkingContents) {
+			this.recordDroppedReasoning(thinking);
+		}
+	}
+
+	/**
+	 * Thinking parts pass through as-is: the host merges adjacent thinking parts itself and mints an id when a part
+	 * has none, so minting ids here would only risk colliding with wire ids or the host's thinking-title cache. Returns
+	 * whether a part was emitted.
+	 */
+	private emitThinking(thinkingContents: readonly ThinkingContent[]): boolean {
+		const partCtor = this._thinkingPartCtor;
+		if (!partCtor) {
+			this.dropThinking(thinkingContents);
+			return false;
+		}
+		let emitted = false;
+		for (const thinking of thinkingContents) {
+			let part: vscode.LanguageModelResponsePart | undefined;
+			try {
+				part = new partCtor(thinking.text, thinking.id, thinking.metadata);
+			} catch (e) {
+				this._log("Failed to construct thinking part", { error: String(e) });
+			}
+			if (part) {
+				this.emit(part);
+				emitted = true;
+			} else {
+				this.recordDroppedReasoning(thinking);
+			}
+		}
+		return emitted;
+	}
+
+	/** A refusal streams as text; the one log per request carries no content, since refusal text can echo user data. */
+	private emitRefusal(refusal: string): void {
+		if (!this._req.loggedRefusal) {
+			this._req.loggedRefusal = true;
+			// No content: refusal text can echo user data into issue reports.
+			this._log("Model refused the request");
+		}
+		// Delta text streams as received: a chunk can split a value, so no mask here. The processor masks only the
+		// Sources trailer it builds whole (emitTrailers).
+		this.emit(new vscode.LanguageModelTextPart(refusal));
+		this._req.hasEmittedAssistantText = true;
+	}
+
+	/** Streams one text through the inline tool-call parser; returns whether anything was emitted. */
+	private emitText(text: string): boolean {
+		const res = this.processTextContent(text);
+		if (res.emittedText) {
+			this._req.hasEmittedAssistantText = true;
+		}
+		return res.emittedAny;
+	}
+
+	/** The delta's content: a string, or the text blocks of a block array. Returns whether anything was emitted. */
+	private emitContent(content: NonNullable<ChunkDelta["content"]>): boolean {
+		const texts =
+			typeof content === "string"
+				? [content]
+				: content.flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : []));
+		let emitted = false;
+		for (const text of texts) {
+			emitted = this.emitText(text) || emitted;
+		}
+		return emitted;
+	}
+
+	/**
+	 * The transcript is the model's textual output (a gpt-4o-audio turn has no delta.content), so it streams as
+	 * ordinary text, independently of DataPart support, which only gates the binary clip. Returns whether anything was
+	 * emitted.
+	 */
+	private emitAudio(audio: ChunkAudio): boolean {
+		let emitted = false;
+		if (audio.transcript) {
+			emitted = this.emitText(audio.transcript);
+		}
+		return this.processAudioDelta(audio) || emitted;
+	}
+
+	/** Buffers the structured tool-call deltas and emits each call once its arguments parse. */
+	private acceptToolCalls(toolCalls: NonNullable<ChunkDelta["tool_calls"]>): void {
+		if (!this._req.emittedBeginToolCallsHint && this._req.hasEmittedAssistantText && toolCalls.length > 0) {
+			this.emit(new vscode.LanguageModelTextPart(" "));
+			this._req.emittedBeginToolCallsHint = true;
+		}
+
+		for (const tc of toolCalls) {
+			const slot = this._req.toolCalls.accept(tc);
+			if (slot !== undefined) {
+				this.tryEmitBufferedToolCall(slot);
+			}
+		}
+	}
+
+	processDelta(chunk: ChatCompletionChunk): boolean {
+		if (chunk.usage) {
+			// Retained for the end-of-stream usage DataPart and log line; runs before the empty-choices early return
+			// below, so the standard trailer chunk (choices: []) is captured. The last trailer wins.
+			this._req.usage = chunk.usage;
+		}
+
+		// Chunk-root sources (Perplexity via LiteLLM repeats them on every chunk, including choice-less ones) collect
+		// before the choice gate so none are lost.
+		this.collectSources(chunk.citations, chunk.search_results);
+
+		const choice = chunk.choices?.[0];
+		if (!choice) {
+			return false;
+		}
+		const delta = choice.delta;
+		this.collectSources(undefined, delta?.search_results);
+
+		let emitted = this.emitThinking(extractThinking(choice, delta));
+
+		if (delta?.refusal) {
+			this.emitRefusal(delta.refusal);
+			emitted = true;
+		}
+
+		for (const annotation of delta?.annotations ?? []) {
+			this.recordSource(annotation.url_citation?.url, annotation.url_citation?.title);
+		}
+
+		if (delta?.content !== undefined && delta.content !== null) {
+			emitted = this.emitContent(delta.content) || emitted;
+		}
+
+		if (delta?.images && delta.images.length > 0) {
+			emitted = this.processImagesDelta(delta.images) || emitted;
+		}
+
+		if (delta?.audio) {
+			emitted = this.emitAudio(delta.audio) || emitted;
+		}
+
+		if (delta?.tool_calls) {
+			this.acceptToolCalls(delta.tool_calls);
+		}
+
+		if (choice.finish_reason !== undefined) {
+			this._req.lastFinishReason = choice.finish_reason;
+		}
+
+		return emitted;
+	}
+
+	/** Emits every buffered structured tool call whose arguments parse; returns how many did not. */
+	private flushBufferedToolCalls(finalArgsText: (args: string) => string): number {
+		let invalidCount = 0;
 		for (const [slot, buf] of this._req.toolCalls.entries()) {
 			const parsed = tryParseJSONObject(finalArgsText(buf.args));
 			if (!parsed.ok) {
@@ -589,8 +621,35 @@ export class StreamProcessor {
 			}
 			this.emitToolCall({ id: buf.id, name: buf.name ?? "unknown_tool", parsedArgs: parsed.value }, slot);
 		}
+		return invalidCount;
+	}
 
+	/** The text left after the last sigil streams, unless it is the cut control token the parser held back. */
+	private emitTrailingText(events: TextParseResult["events"]): void {
+		const trailingText = events
+			.filter((e): e is { type: "text"; text: string } => e.type === "text")
+			.map((e) => e.text)
+			.join("");
+		if (!trailingText) {
+			return;
+		}
+		if (isTruncatedToolCallText(trailingText)) {
+			// Classification only: the held-back text is response content.
+			this._log("Dropping trailing partial control token text at end of stream", {
+				length: trailingText.length,
+			});
+			return;
+		}
+		this.emit(new vscode.LanguageModelTextPart(trailingText));
+	}
+
+	/**
+	 * Flushes the inline parser: an unterminated call whose arguments parse is emitted, then the trailing text streams.
+	 * Returns how many calls did not parse (zero or one).
+	 */
+	private flushInlineParser(finalArgsText: (args: string) => string): number {
 		const rest = this._req.textParser.flush();
+		let invalidCount = 0;
 		const call = rest.provisionalCall;
 		if (call && !this._req.ledger.alreadyHandled(call.seq)) {
 			const parsed = tryParseJSONObject(finalArgsText(call.args));
@@ -605,20 +664,57 @@ export class StreamProcessor {
 				invalidCount++;
 			}
 		}
-		const trailingText = rest.events
-			.filter((e): e is { type: "text"; text: string } => e.type === "text")
-			.map((e) => e.text)
-			.join("");
-		if (trailingText) {
-			if (isTruncatedToolCallText(trailingText)) {
-				// Classification only: the held-back text is response content.
-				this._log("Dropping trailing partial control token text at end of stream", {
-					length: trailingText.length,
-				});
-			} else {
-				this.emit(new vscode.LanguageModelTextPart(trailingText));
-			}
+		this.emitTrailingText(rest.events);
+		return invalidCount;
+	}
+
+	/**
+	 * The end-of-stream failure for tool calls whose arguments never parsed. The English mirror is what the output
+	 * channel and issue-report buffer record: count only - tool names and argument snippets are response text and must
+	 * never join it.
+	 */
+	private invalidToolCallsError(invalidCount: number): Error {
+		if (this._req.lastFinishReason === "length") {
+			//   The output limit cut the call mid-arguments -> the advice points at the limit instead
+			const lengthDetail =
+				invalidCount === 1
+					? l10n.t("the output limit cut 1 tool call off mid-arguments")
+					: l10n.t("the output limit cut {0} tool calls off mid-arguments", invalidCount);
+			return localizedError(
+				chatErrorMessage(
+					l10n.t(
+						"The response hit the model's output limit in the middle of a tool call. Raise the model's max output tokens (a models.capabilities override, or max_tokens in models.parameters), or trim the request."
+					),
+					lengthDetail
+				),
+				`Tool call flush failed at end of stream: output limit cut ${invalidCount} tool call(s) mid-arguments`
+			);
 		}
+		const detail =
+			invalidCount === 1
+				? l10n.t("1 tool call arrived with arguments that were not valid JSON")
+				: l10n.t("{0} tool calls arrived with arguments that were not valid JSON", invalidCount);
+		return localizedError(
+			chatErrorMessage(
+				l10n.t(
+					"The model sent a broken tool call, so this response could not be completed. Trying again usually fixes it."
+				),
+				detail
+			),
+			`Tool call flush failed at end of stream: ${invalidCount} tool call(s) with invalid JSON arguments`
+		);
+	}
+
+	/**
+	 * finishedNormally is false only when the request was cancelled: unparseable leftovers then downgrade to logged
+	 * drops and accumulated media is discarded. flushArgsText's empty-argument reading applies only to a complete,
+	 * uncut stream: a call cut off before any argument bytes (cancelled, or finish_reason "length") classifies instead
+	 * of running with arguments the model never sent.
+	 */
+	private finishStream(finishedNormally: boolean): void {
+		const emptyArgsAreNoArgs = finishedNormally && this._req.lastFinishReason !== "length";
+		const finalArgsText = (args: string) => (emptyArgsAreNoArgs ? StreamProcessor.flushArgsText(args) : args);
+		const invalidCount = this.flushBufferedToolCalls(finalArgsText) + this.flushInlineParser(finalArgsText);
 
 		if (!finishedNormally) {
 			this._req.audioBuffer = undefined;
@@ -627,37 +723,7 @@ export class StreamProcessor {
 		this.flushAudioBuffer();
 
 		if (invalidCount > 0) {
-			// The English mirror is what the output channel and issue-report buffer record: count only - tool names and
-			// argument snippets are response text and must never join it.
-			if (this._req.lastFinishReason === "length") {
-				//   The output limit cut the call mid-arguments -> the advice points at the limit instead
-				const lengthDetail =
-					invalidCount === 1
-						? l10n.t("the output limit cut 1 tool call off mid-arguments")
-						: l10n.t("the output limit cut {0} tool calls off mid-arguments", invalidCount);
-				throw localizedError(
-					chatErrorMessage(
-						l10n.t(
-							"The response hit the model's output limit in the middle of a tool call. Raise the model's max output tokens (a models.capabilities override, or max_tokens in models.parameters), or trim the request."
-						),
-						lengthDetail
-					),
-					`Tool call flush failed at end of stream: output limit cut ${invalidCount} tool call(s) mid-arguments`
-				);
-			}
-			const detail =
-				invalidCount === 1
-					? l10n.t("1 tool call arrived with arguments that were not valid JSON")
-					: l10n.t("{0} tool calls arrived with arguments that were not valid JSON", invalidCount);
-			throw localizedError(
-				chatErrorMessage(
-					l10n.t(
-						"The model sent a broken tool call, so this response could not be completed. Trying again usually fixes it."
-					),
-					detail
-				),
-				`Tool call flush failed at end of stream: ${invalidCount} tool call(s) with invalid JSON arguments`
-			);
+			throw this.invalidToolCallsError(invalidCount);
 		}
 
 		// A stream that produced nothing the host can show, but did drop reasoning, fails loudly instead of resolving
@@ -676,8 +742,16 @@ export class StreamProcessor {
 			const escapeTitle = (title: string) => title.replace(/[\r\n]+/g, " ").replace(/[[\]\\]/g, "\\$&");
 			// encodeURIComponent leaves "(" and ")" alone, and those break markdown link targets; everything else needs
 			// UTF-8-safe encoding.
-			const escapeUrl = (url: string) =>
-				url.replace(/[\s()]/g, (c) => (c === "(" ? "%28" : c === ")" ? "%29" : encodeURIComponent(c)));
+			const escapeUrlChar = (c: string): string => {
+				if (c === "(") {
+					return "%28";
+				}
+				if (c === ")") {
+					return "%29";
+				}
+				return encodeURIComponent(c);
+			};
+			const escapeUrl = (url: string) => url.replace(/[\s()]/g, escapeUrlChar);
 			const lines = Array.from(this._req.citations.entries()).map(
 				// Masked before escaping: an escaped spelling of a value would no longer match the registered one.
 				([url, title]) => `- [${escapeTitle(Logger.redact(title))}](${escapeUrl(Logger.redact(url))})`

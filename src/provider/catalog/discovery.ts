@@ -666,179 +666,242 @@ const OBSERVED_MODEL_INFO_KEYS_MAX = 512;
 /** An oversized key is dropped, never clipped, so truncation cannot alias two keys. */
 const OBSERVED_MODEL_INFO_KEY_MAX_LENGTH = 128;
 
+/** A /model/info entry's place in listing order: the deployments sharing one id, or one listing-shaped model. */
+type ModelInfoSlot =
+	| { kind: "deployments"; group: [MappedModelInfo, ...MappedModelInfo[]] }
+	| { kind: "model"; model: LiteLLMModelItem };
+
 /**
- * Narrow a /v1/model/info payload element-wise: unrecognized entries are skipped with a log line instead of aborting
+ * Narrows a /v1/model/info payload element-wise: unrecognized entries are skipped with a log line instead of aborting
  * the whole registration.
  *   Blocked (paused) deployments     -> are dropped
  *   deployments sharing one model id -> merge in first-seen order
  */
-function narrowModelInfoData(
-	data: unknown[],
-	log: DiscoveryLog,
-	includeModes: readonly NonChatMode[] = []
-): NarrowedModelInfoData {
-	let usableEntryCount = 0;
-	const observedKeys = new Set<string>();
-	const skippedModeCounts: { -readonly [M in NonChatMode]?: number } = {};
-	// One mode verdict for both entry shapes: a listing-shaped entry may carry model_info too, and a verdict read off
-	// the rich shape alone let such entries register uncounted, includeModes or not.
-	const dropsByMode = (mode: unknown): boolean => {
+class ModelInfoCollector {
+	private usableEntryCount = 0;
+
+	private readonly observedKeys = new Set<string>();
+
+	private readonly skippedModeCounts: { -readonly [M in NonChatMode]?: number } = {};
+
+	private readonly slots: ModelInfoSlot[] = [];
+
+	private readonly deploymentsById = new Map<string, [MappedModelInfo, ...MappedModelInfo[]]>();
+
+	constructor(
+		private readonly log: DiscoveryLog,
+		private readonly includeModes: readonly NonChatMode[]
+	) {}
+
+	/**
+	 * Raw keys, before any parsing: the union covers every entry that carries a model_info object on the wire,
+	 * malformed and listing-shaped entries included, because the keys were observed either way.
+	 */
+	private observeKeys(entry: unknown): void {
+		if (!(isRecord(entry) && isRecord(entry.model_info))) {
+			return;
+		}
+		for (const key of Object.keys(entry.model_info)) {
+			if (key.length <= OBSERVED_MODEL_INFO_KEY_MAX_LENGTH) {
+				this.observedKeys.add(key);
+			}
+		}
+	}
+
+	/**
+	 * One mode verdict for both entry shapes: a listing-shaped entry may carry model_info too, and a verdict read off
+	 * the rich shape alone let such entries register uncounted, includeModes or not.
+	 */
+	private dropsByMode(mode: unknown): boolean {
 		if (!isNonChatMode(mode)) {
 			return false;
 		}
 		// Classification only: the logged mode is always one of the NON_CHAT_MODES constants; the server-provided model
 		// id stays out of the issue-report buffer.
-		if (includeModes.includes(mode)) {
-			log("Registering included non-chat model/info entry", { mode });
+		if (this.includeModes.includes(mode)) {
+			this.log("Registering included non-chat model/info entry", { mode });
 			return false;
 		}
-		skippedModeCounts[mode] = (skippedModeCounts[mode] ?? 0) + 1;
-		log("Skipping non-chat model/info entry", { mode });
+		this.skippedModeCounts[mode] = (this.skippedModeCounts[mode] ?? 0) + 1;
+		this.log("Skipping non-chat model/info entry", { mode });
 		return true;
-	};
-	type Slot =
-		| { kind: "deployments"; group: [MappedModelInfo, ...MappedModelInfo[]] }
-		| { kind: "model"; model: LiteLLMModelItem };
-	const slots: Slot[] = [];
-	const deploymentsById = new Map<string, [MappedModelInfo, ...MappedModelInfo[]]>();
-	for (const [index, entry] of data.entries()) {
-		// Raw keys, before any parsing: the union covers every entry that carries a model_info object on the wire,
-		// malformed and listing-shaped entries included, because the keys were observed either way.
-		if (isRecord(entry) && isRecord(entry.model_info)) {
-			for (const key of Object.keys(entry.model_info)) {
-				if (key.length <= OBSERVED_MODEL_INFO_KEY_MAX_LENGTH) {
-					observedKeys.add(key);
-				}
-			}
+	}
+
+	/**
+	 * Whether a usable entry registers: the same two judgments for both shapes, in the same order, so a paused
+	 * deployment is blocked, never a skipped mode and never admitted.
+	 */
+	private admits(modelInfo: { blocked?: unknown; mode?: unknown } | undefined, index: number): boolean {
+		if (modelInfo?.blocked === true) {
+			this.log("Skipping blocked model/info entry", { index });
+			return false;
 		}
+		return !this.dropsByMode(modelInfo?.mode);
+	}
+
+	/** A rich entry joins the deployments sharing its id, or opens a new group in listing order. */
+	private admitDeployment(parsed: LiteLLMModelInfoItem): void {
+		const mapped = mapModelInfoEntry(parsed);
+		const group = this.deploymentsById.get(mapped.id);
+		if (group) {
+			group.push(mapped);
+			return;
+		}
+		const newGroup: [MappedModelInfo, ...MappedModelInfo[]] = [mapped];
+		this.deploymentsById.set(mapped.id, newGroup);
+		this.slots.push({ kind: "deployments", group: newGroup });
+	}
+
+	/** Judges one payload element: a rich entry, a listing-shaped entry, or a malformed one, logged and skipped. */
+	add(index: number, entry: unknown): void {
+		this.observeKeys(entry);
+
 		const info = parseWire(rawModelInfoItemSchema, entry);
 		if (info.success) {
-			const parsed = info.data;
-			usableEntryCount += 1;
-			if (parsed.model_info?.blocked === true) {
-				log("Skipping blocked model/info entry", { index });
-				continue;
+			this.usableEntryCount += 1;
+			if (this.admits(info.data.model_info, index)) {
+				this.admitDeployment(info.data);
 			}
-			if (dropsByMode(parsed.model_info?.mode)) {
-				continue;
-			}
-			const mapped = mapModelInfoEntry(parsed);
-			const group = deploymentsById.get(mapped.id);
-			if (group) {
-				group.push(mapped);
-			} else {
-				const newGroup: [MappedModelInfo, ...MappedModelInfo[]] = [mapped];
-				deploymentsById.set(mapped.id, newGroup);
-				slots.push({ kind: "deployments", group: newGroup });
-			}
-			continue;
+			return;
 		}
+
 		const listing = parseWire(rawModelItemSchema, entry);
 		if (listing.success) {
-			usableEntryCount += 1;
-			// The same two judgments as the rich shape, in the same order: a paused deployment is blocked, never a
-			// skipped mode and never admitted.
+			this.usableEntryCount += 1;
 			const modelInfo = isRecord(listing.data.model_info) ? listing.data.model_info : undefined;
-			if (modelInfo?.blocked === true) {
-				log("Skipping blocked model/info entry", { index });
-				continue;
+			if (this.admits(modelInfo, index)) {
+				this.slots.push({ kind: "model", model: normalizeModelItem(listing.data, this.log) });
 			}
-			if (dropsByMode(modelInfo?.mode)) {
-				continue;
-			}
-			slots.push({ kind: "model", model: normalizeModelItem(listing.data, log) });
-			continue;
+			return;
 		}
-		log("Skipping malformed model/info entry", {
+
+		this.log("Skipping malformed model/info entry", {
 			index,
 			modelInfo: info.rejection,
 			listing: listing.rejection,
 		});
 	}
-	const models = slots.map((slot) =>
-		slot.kind === "deployments" ? toModelItem(mergeModelDeployments(slot.group)) : slot.model
-	);
-	// Sort-then-slice keeps truncation deterministic but drops the alphabetic TAIL: an over-cap payload can make a
-	// really-reported key read as unobserved, letting a spurious unknown-key hint through downstream. The set never
-	// gains keys the server did not send.
-	const observedModelInfoKeys = [...observedKeys].sort().slice(0, OBSERVED_MODEL_INFO_KEYS_MAX);
-	return { models, usableEntryCount, observedModelInfoKeys, skippedModeCounts };
+
+	/** The narrowed listing, the deployment groups merged, and the observations capped. */
+	result(): NarrowedModelInfoData {
+		const models = this.slots.map((slot) =>
+			slot.kind === "deployments" ? toModelItem(mergeModelDeployments(slot.group)) : slot.model
+		);
+		// Sort-then-slice keeps truncation deterministic but drops the alphabetic TAIL: an over-cap payload can make a
+		// really-reported key read as unobserved, letting a spurious unknown-key hint through downstream. The set never
+		// gains keys the server did not send.
+		const observedModelInfoKeys = [...this.observedKeys].sort().slice(0, OBSERVED_MODEL_INFO_KEYS_MAX);
+		return {
+			models,
+			usableEntryCount: this.usableEntryCount,
+			observedModelInfoKeys,
+			skippedModeCounts: this.skippedModeCounts,
+		};
+	}
 }
 
-export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
-	const { client, baseUrl, apiVersion, discoveryTimeout, expected, includeModes, entryLabel, headers } = request;
-	const sleep = request.sleep ?? sleepUnlessAborted;
-	const log = discoveryLineWriter(request.log);
+function narrowModelInfoData(
+	data: unknown[],
+	log: DiscoveryLog,
+	includeModes: readonly NonChatMode[] = []
+): NarrowedModelInfoData {
+	const collector = new ModelInfoCollector(log, includeModes);
+	for (const [index, entry] of data.entries()) {
+		collector.add(index, entry);
+	}
+	return collector.result();
+}
 
-	log("Fetching models", { endpoint: MODEL_INFO_PATH });
+/** What every leg of one fetch shares. */
+interface DiscoveryLeg {
+	readonly request: FetchModelsRequest;
+	readonly log: DiscoveryLog;
+	readonly sleep: BackoffSleep;
+	readonly errorContext: MapErrorContext;
+}
 
-	// What the model-info probe did, for the same-pass verdicts: the /models success return and the /models failure
-	// refinement both read it.
-	const modelInfo: ModelInfoProbeOutcome = { answered: false, body: false, evidence: undefined };
-	// The group endpoint is LiteLLM-only and lives at the server root, so it is probed only once /model/info has
-	// answered with a body: an OpenAI-compatible server (Ollama hangs on unknown routes until the timeout) never pays
-	// for it, and its 404 costs that server nothing.
-	const withGroupMenus = async (result: FetchModelsResult): Promise<FetchModelsResult> => {
-		if (!modelInfo.body) {
-			return result;
-		}
-		const efforts = await fetchModelGroupReasoningEfforts(request, log, sleep);
-		return efforts === undefined
-			? result
-			: { ...result, models: result.models.map((model) => withServerReasoningEfforts(model, efforts)) };
-	};
-	const errorContext: MapErrorContext = { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout };
+/** What the /model/info probe left for the /models leg: its outcome, and the listing it served when it was usable. */
+interface ModelInfoProbe {
+	readonly outcome: ModelInfoProbeOutcome;
+	readonly served: FetchModelsResult | undefined;
+}
+
+/**
+ * The group endpoint is LiteLLM-only and lives at the server root, so it is probed only once /model/info has
+ * answered with a body: an OpenAI-compatible server (Ollama hangs on unknown routes until the timeout) never pays
+ * for it, and its 404 costs that server nothing.
+ */
+async function withGroupMenus(
+	leg: DiscoveryLeg,
+	probeAnsweredWithBody: boolean,
+	result: FetchModelsResult
+): Promise<FetchModelsResult> {
+	if (!probeAnsweredWithBody) {
+		return result;
+	}
+	const efforts = await fetchModelGroupReasoningEfforts(leg.request, leg.log, leg.sleep);
+	return efforts === undefined
+		? result
+		: { ...result, models: result.models.map((model) => withServerReasoningEfforts(model, efforts)) };
+}
+
+/**
+ * The /model/info probe: a usable listing is served (group menus included), anything else falls back to /models
+ * with a log line that classifies why. An unparseable body throws and proves nothing about endpoint support; a parsed
+ * one marks the probe answered, with a body or without. Retries stay off for an endpoint whose failure the entry
+ * declares expected.
+ */
+async function probeModelInfo(leg: DiscoveryLeg): Promise<ModelInfoProbe> {
+	const { request, log, sleep, errorContext } = leg;
+	const { client, baseUrl, apiVersion, expected, includeModes, headers } = request;
+	const outcome: ModelInfoProbeOutcome = { answered: false, body: false, evidence: undefined };
 	try {
-		// Retries stay off for an endpoint whose failure the entry declares expected.
 		const infoBody = await getJson(client, MODEL_INFO_PATH, modelInfoUrl(baseUrl, apiVersion), {
 			context: errorContext,
 			maxRetries: expected?.modelInfo === true ? 0 : DISCOVERY_MAX_RETRIES,
 			headers,
 			sleep,
 		});
-		// An unparseable body throws above and proves nothing about endpoint support.
-		modelInfo.answered = true;
-		modelInfo.body = !infoBody.empty;
+		outcome.answered = true;
+		outcome.body = !infoBody.empty;
 		const infoEnvelope = parseWire(dataEnvelopeSchema, bodyValue(infoBody));
-		if (infoEnvelope.success) {
-			const data: unknown[] = infoEnvelope.data.data;
-			log("Parsed model/info response", { modelCount: data.length });
-
-			const { models, usableEntryCount, observedModelInfoKeys, skippedModeCounts } = narrowModelInfoData(
-				data,
-				log,
-				includeModes
-			);
-			if (data.length > 0 && usableEntryCount === 0) {
-				log("model/info returned data but no usable models; falling back", { dataLength: data.length });
-			} else {
-				log("Successfully fetched models", { modelCount: models.length });
-				return await withGroupMenus({ models, observedModelInfoKeys, skippedModeCounts });
-			}
-		} else {
+		if (!infoEnvelope.success) {
 			log("model/info response has no data array; falling back", { rejection: infoEnvelope.rejection });
+			return { outcome, served: undefined };
 		}
+		const data: unknown[] = infoEnvelope.data.data;
+		log("Parsed model/info response", { modelCount: data.length });
+
+		const { models, usableEntryCount, observedModelInfoKeys, skippedModeCounts } = narrowModelInfoData(
+			data,
+			log,
+			includeModes
+		);
+		if (data.length > 0 && usableEntryCount === 0) {
+			log("model/info returned data but no usable models; falling back", { dataLength: data.length });
+			return { outcome, served: undefined };
+		}
+		log("Successfully fetched models", { modelCount: models.length });
+		const served = await withGroupMenus(leg, outcome.body, { models, observedModelInfoKeys, skippedModeCounts });
+		return { outcome, served };
 	} catch (error) {
 		// Response-derived text can echo credentials into the issue-report buffer, so the log carries only the
 		// classification. This is discovery's one expected-failure log seam, because a /model/info failure is nonfatal
 		// and never reaches the provider boundary.
 		const mapped = mapSdkError(error, errorContext, request.isCancellation);
-		modelInfo.evidence = unservedEvidenceOf(mapped);
+		outcome.evidence = unservedEvidenceOf(mapped);
 		log("model/info failed; falling back to the models listing", {
 			expected: expected?.modelInfo === true,
 			...failureKindOf(mapped),
 		});
+		return { outcome, served: undefined };
 	}
+}
 
-	log("Fetching models", { endpoint: MODELS_PATH });
-	const failureContext: ModelsFailureContext = {
-		modelInfo,
-		expected,
-		entryLabel,
-		baseUrl,
-		apiVersion,
-		timeoutMs: discoveryTimeout,
-	};
+/** The /models listing, the fallback every server answers; its failure is the one that aborts discovery. */
+async function listModels(leg: DiscoveryLeg, failureContext: ModelsFailureContext): Promise<LiteLLMModelItem[]> {
+	const { request, log, sleep, errorContext } = leg;
+	const { client, baseUrl, apiVersion, expected, headers } = request;
 	let listingBody: DiscoveryBody;
 	try {
 		listingBody = await getJson(client, MODELS_PATH, modelsUrl(baseUrl, apiVersion), {
@@ -866,13 +929,44 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			log("Skipping malformed models entry", { index, rejection: item.rejection });
 		}
 	}
+	return models;
+}
+
+export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
+	const { baseUrl, apiVersion, discoveryTimeout, expected, entryLabel } = request;
+	const leg: DiscoveryLeg = {
+		request,
+		log: discoveryLineWriter(request.log),
+		sleep: request.sleep ?? sleepUnlessAborted,
+		errorContext: { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout },
+	};
+	const { log } = leg;
+
+	log("Fetching models", { endpoint: MODEL_INFO_PATH });
+	// What the model-info probe did, for the same-pass verdicts: the /models success return and the /models failure
+	// refinement both read it.
+	const probe = await probeModelInfo(leg);
+	if (probe.served !== undefined) {
+		return probe.served;
+	}
+
+	log("Fetching models", { endpoint: MODELS_PATH });
+	const failureContext: ModelsFailureContext = {
+		modelInfo: probe.outcome,
+		expected,
+		entryLabel,
+		baseUrl,
+		apiVersion,
+		timeoutMs: discoveryTimeout,
+	};
+	const models = await listModels(leg, failureContext);
 	log("Successfully fetched models", { modelCount: models.length });
-	return await withGroupMenus({
+	return await withGroupMenus(leg, probe.outcome.body, {
 		models,
 		// See FetchModelsResult.modelInfoUnsupported: a declared-expected probe failure is already handled and gets no
 		// hint.
-		...(modelInfo.evidence !== undefined && expected?.modelInfo !== true
-			? { modelInfoUnsupported: modelInfo.evidence.kind }
+		...(probe.outcome.evidence !== undefined && expected?.modelInfo !== true
+			? { modelInfoUnsupported: probe.outcome.evidence.kind }
 			: {}),
 	});
 }

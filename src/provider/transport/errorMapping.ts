@@ -73,6 +73,169 @@ function isUpstreamAuthFailure(error: unknown): boolean {
 	return typeof message === "string" && /litellm\.[\w.]*AuthenticationError/i.test(message);
 }
 
+type Envelope = ReturnType<typeof errorEnvelopeOf>;
+
+/** The 401 answer: the proxy's own gate, or an upstream provider refusing the proxy's credentials. */
+function authRequestError(err: APIError): RequestError {
+	if (isUpstreamAuthFailure(err.error)) {
+		return new RequestError(upstreamAuthMessage(), "auth", {
+			status: 401,
+			cause: err,
+			englishMessage: UPSTREAM_AUTH_MESSAGE_ENGLISH,
+		});
+	}
+	return new RequestError(authMessage(), "auth", {
+		status: 401,
+		cause: err,
+		englishMessage: AUTH_MESSAGE_ENGLISH,
+		// The upstream variant above gets none (updating the extension's key cannot fix the proxy's provider
+		// credentials).
+		setupHint: "configure-api-key",
+	});
+}
+
+/** The 404 answer in the surface's own copy, with its setup hint where the surface is certain of the advice. */
+function notFoundRequestError(err: APIError, envelope: Envelope, ctx: MapErrorContext): RequestError {
+	const copy = surfaceCopy(ctx.surface).notFound;
+	const texts = twoPartTexts(ctx.surface, copy.headline(ctx.baseUrl), copy.detail(err, envelope));
+	return new RequestError(texts.message, "http", {
+		status: 404,
+		cause: err,
+		logClassification: `RequestError(http, status 404, ${ctx.surface})`,
+		englishMessage: texts.englishMessage,
+		...(copy.setupHint === undefined ? {} : { setupHint: copy.setupHint }),
+	});
+}
+
+/** Any other HTTP error status, classified from the envelope and rendered in the surface's vocabulary. */
+function httpRequestError(err: APIError, status: number, envelope: Envelope, ctx: MapErrorContext): RequestError {
+	const cls = classifyEnvelope(envelope, status);
+	const headline = httpHeadline(ctx.surface, cls);
+	const detail =
+		surfaceCopy(ctx.surface).httpVocabulary === "modelList"
+			? discoveryHttpDetail(status, err, envelope)
+			: chatHttpDetail(status, err, envelope);
+	// The classifier's own closed-set token may ride the classification (classify FROM the body, never quote it);
+	// the response text itself rides only in message/englishMessage.
+	const token = cls === "budget_exceeded" || cls === "context_window_exceeded" ? `, ${cls}` : "";
+	const texts = twoPartTexts(ctx.surface, headline, detail);
+	return new RequestError(texts.message, "http", {
+		status,
+		cause: err,
+		logClassification: `RequestError(http, status ${status}${token})`,
+		englishMessage: texts.englishMessage,
+	});
+}
+
+/** An SDK error carrying an HTTP status: 401 and 404 have their own copy, the rest classify from the envelope. */
+function apiErrorRequestError(err: APIError, status: number, ctx: MapErrorContext): RequestError {
+	if (status === 401) {
+		return authRequestError(err);
+	}
+	const envelope = errorEnvelopeOf(err.error);
+	if (status === 404) {
+		return notFoundRequestError(err, envelope, ctx);
+	}
+	return httpRequestError(err, status, envelope, ctx);
+}
+
+/**
+ * The SDK files any failure whose text matches /timed? ?out/ as a timeout (a TCP ETIMEDOUT, undici's connect or
+ * headers clocks), none of which is this call's budget. Only an abort proves the budget fired: the SDK's own timer
+ * (armed with the same ms) aborts without a reason, so its cause is an AbortError.
+ */
+function timeoutClassRequestError(err: APIConnectionTimeoutError, ctx: MapErrorContext): RequestError {
+	const chain = causeChain(err.cause);
+	const abortDriven =
+		chain.length === 0 || chain.some((link) => link.name === "AbortError" || link.name === "TimeoutError");
+	if (abortDriven) {
+		return timeoutRequestError(ctx, err);
+	}
+	return socketFailureRequestError(
+		err.cause,
+		err,
+		{ endpoint: ctx.surface, surface: ctx.surface, url: ctx.baseUrl },
+		() => timeoutRequestError(ctx, err)
+	);
+}
+
+/**
+ * Errors shaped elsewhere but carrying the English mirror duck-typed already carry their display/English pair;
+ * re-headlining them would double-wrap, and a socket term quoted in their text must not reclassify them, so this
+ * pass-through sits before the socket branch. The property read is guarded: a hostile getter must not escape
+ * mapSdkError.
+ */
+function carriesEnglishMirror(err: Error): boolean {
+	try {
+		return typeof (err as { englishMessage?: unknown }).englishMessage === "string";
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * A socket that dies AFTER headers surfaces from the body reader, not from the SDK transport: the SDK already
+ * returned the Response, so undici's bare TypeError arrives here wrapped in no SDK error class, and the user would
+ * otherwise see the raw "terminated". The match requires a socket-level signature (or undici's exact top-level
+ * TypeError): a mere "terminated" inside some other error's message must not reclassify it, and such an error gets
+ * undefined.
+ */
+function droppedConnectionError(err: Error, ctx: MapErrorContext): RequestError | undefined {
+	const chain = causeChain(err);
+	const haystack = chain.map((link) => `${link.name} ${link.message} ${link.code ?? ""}`).join(" ");
+	const socketSignature = /other side closed|ECONNRESET|UND_ERR_SOCKET/.test(haystack);
+	// The top link is causeChain's guarded read of err.message: arbitrary errors reach this branch from the body
+	// reader, so err.message is never read directly here (a hostile getter must not escape).
+	const topMessage = chain[0]?.message ?? "";
+	const undiciTermination = err instanceof TypeError && topMessage === "terminated";
+	if (!socketSignature && !undiciTermination) {
+		return undefined;
+	}
+	const chainText = chainDetail(chain, topMessage);
+	const copy = surfaceCopy(ctx.surface).dropped;
+	const url = ctx.baseUrl;
+	const texts = twoPartTexts(ctx.surface, copy.headline(url), copy.detail(url, chainText));
+	return new RequestError(texts.message, "network", {
+		cause: err,
+		englishMessage: texts.englishMessage,
+	});
+}
+
+/** The thrown value's name for the anonymous tail: a plain Error name, "Error" for a strange one, or the typeof. */
+function thrownName(err: unknown): string {
+	if (!(err instanceof Error)) {
+		return typeof err;
+	}
+	try {
+		return typeof err.name === "string" && /^[\w$.]{1,64}$/.test(err.name) ? err.name : "Error";
+	} catch {
+		return "Error";
+	}
+}
+
+/** The anonymous tail: whatever nothing else recognised, under a generic headline with its name and compacted text. */
+function unexpectedFailureError(err: unknown, ctx: MapErrorContext): MirroredError {
+	const name = thrownName(err);
+	const rawText = errorMessageText(err);
+	const text = compactText(typeof rawText === "string" ? rawText : "", 300);
+	const detail = `Unexpected ${name} during the ${surfaceCopy(ctx.surface).phrase} request to ${ctx.baseUrl}${text === "" ? "" : `: ${text}`}`;
+	const tailHeadline: LocalizedText = {
+		display: l10n.t(
+			"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it."
+		),
+		english: "The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.",
+	};
+	const texts = twoPartTexts(ctx.surface, tailHeadline, detail);
+	return new MirroredError(texts.message, {
+		cause: err,
+		englishMessage: texts.englishMessage,
+		logClassification:
+			err instanceof Error
+				? `unhandled Error in transport (${name}, ${ctx.surface})`
+				: `non-Error throw in transport (${name}, ${ctx.surface})`,
+	});
+}
+
 /**
  * The SDK adds a wrapper level over the socket/TLS error that carries the actionable string. An error `isCancellation`
  * recognises passes through untouched: cancellation is never wrapped, so the provider boundary can keep it unlogged.
@@ -83,68 +246,11 @@ export function mapSdkError(
 	isCancellation: (error: unknown) => error is Error
 ): Error {
 	if (err instanceof APIError && typeof err.status === "number") {
-		if (err.status === 401) {
-			return isUpstreamAuthFailure(err.error)
-				? new RequestError(upstreamAuthMessage(), "auth", {
-						status: 401,
-						cause: err,
-						englishMessage: UPSTREAM_AUTH_MESSAGE_ENGLISH,
-					})
-				: new RequestError(authMessage(), "auth", {
-						status: 401,
-						cause: err,
-						englishMessage: AUTH_MESSAGE_ENGLISH,
-						// The upstream variant above gets none (updating the extension's key cannot fix the proxy's
-						// provider credentials).
-						setupHint: "configure-api-key",
-					});
-		}
-		const envelope = errorEnvelopeOf(err.error);
-		if (err.status === 404) {
-			const copy = surfaceCopy(ctx.surface).notFound;
-			const texts = twoPartTexts(ctx.surface, copy.headline(ctx.baseUrl), copy.detail(err, envelope));
-			return new RequestError(texts.message, "http", {
-				status: 404,
-				cause: err,
-				logClassification: `RequestError(http, status 404, ${ctx.surface})`,
-				englishMessage: texts.englishMessage,
-				...(copy.setupHint === undefined ? {} : { setupHint: copy.setupHint }),
-			});
-		}
-		const cls = classifyEnvelope(envelope, err.status);
-		const headline = httpHeadline(ctx.surface, cls);
-		const detail =
-			surfaceCopy(ctx.surface).httpVocabulary === "modelList"
-				? discoveryHttpDetail(err.status, err, envelope)
-				: chatHttpDetail(err.status, err, envelope);
-		// The classifier's own closed-set token may ride the classification (classify FROM the body, never quote it);
-		// the response text itself rides only in message/englishMessage.
-		const token = cls === "budget_exceeded" || cls === "context_window_exceeded" ? `, ${cls}` : "";
-		const texts = twoPartTexts(ctx.surface, headline, detail);
-		return new RequestError(texts.message, "http", {
-			status: err.status,
-			cause: err,
-			logClassification: `RequestError(http, status ${err.status}${token})`,
-			englishMessage: texts.englishMessage,
-		});
+		return apiErrorRequestError(err, err.status, ctx);
 	}
 
 	if (err instanceof APIConnectionTimeoutError) {
-		// The SDK also files any failure whose text matches /timed? ?out/ here (a TCP ETIMEDOUT, undici's connect
-		// or headers clocks), none of which is this call's budget. Only an abort proves the budget fired: the
-		// SDK's own timer (armed with the same ms) aborts without a reason, so its cause is an AbortError.
-		const chain = causeChain(err.cause);
-		const abortDriven =
-			chain.length === 0 || chain.some((link) => link.name === "AbortError" || link.name === "TimeoutError");
-		if (abortDriven) {
-			return timeoutRequestError(ctx, err);
-		}
-		return socketFailureRequestError(
-			err.cause,
-			err,
-			{ endpoint: ctx.surface, surface: ctx.surface, url: ctx.baseUrl },
-			() => timeoutRequestError(ctx, err)
-		);
+		return timeoutClassRequestError(err, ctx);
 	}
 
 	if (err instanceof APIUserAbortError) {
@@ -166,72 +272,15 @@ export function mapSdkError(
 	if (err instanceof RequestError || err instanceof MirroredError || isCancellation(err)) {
 		return err;
 	}
-	// Errors shaped elsewhere but carrying the English mirror duck-typed already carry their display/English pair;
-	// re-headlining them would double-wrap, and a socket term quoted in their text must not reclassify them, so this
-	// pass-through sits before the socket branch. The property read is guarded: a hostile getter must not escape
-	// mapSdkError.
-	if (err instanceof Error) {
-		let mirrored = false;
-		try {
-			mirrored = typeof (err as { englishMessage?: unknown }).englishMessage === "string";
-		} catch {
-			mirrored = false;
-		}
-		if (mirrored) {
-			return err;
-		}
+
+	if (err instanceof Error && carriesEnglishMirror(err)) {
+		return err;
 	}
 
-	// A socket that dies AFTER headers surfaces from the body reader, not from the SDK transport: the SDK already
-	// returned the Response, so undici's bare TypeError arrives here wrapped in no SDK error class, and the user would
-	// otherwise see the raw "terminated". The match requires a socket-level signature (or undici's exact top-level
-	// TypeError): a mere "terminated" inside some other error's message must not reclassify it.
-	if (err instanceof Error) {
-		const chain = causeChain(err);
-		const haystack = chain.map((link) => `${link.name} ${link.message} ${link.code ?? ""}`).join(" ");
-		const socketSignature = /other side closed|ECONNRESET|UND_ERR_SOCKET/.test(haystack);
-		// The top link is causeChain's guarded read of err.message: arbitrary errors reach this branch from the body
-		// reader, so err.message is never read directly here (a hostile getter must not escape).
-		const topMessage = chain[0]?.message ?? "";
-		const undiciTermination = err instanceof TypeError && topMessage === "terminated";
-		if (socketSignature || undiciTermination) {
-			const chainText = chainDetail(chain, topMessage);
-			const copy = surfaceCopy(ctx.surface).dropped;
-			const url = ctx.baseUrl;
-			const texts = twoPartTexts(ctx.surface, copy.headline(url), copy.detail(url, chainText));
-			return new RequestError(texts.message, "network", {
-				cause: err,
-				englishMessage: texts.englishMessage,
-			});
-		}
+	const dropped = err instanceof Error ? droppedConnectionError(err, ctx) : undefined;
+	if (dropped !== undefined) {
+		return dropped;
 	}
 
-	let name: string;
-	if (err instanceof Error) {
-		try {
-			name = typeof err.name === "string" && /^[\w$.]{1,64}$/.test(err.name) ? err.name : "Error";
-		} catch {
-			name = "Error";
-		}
-	} else {
-		name = typeof err;
-	}
-	const rawText = errorMessageText(err);
-	const text = compactText(typeof rawText === "string" ? rawText : "", 300);
-	const detail = `Unexpected ${name} during the ${surfaceCopy(ctx.surface).phrase} request to ${ctx.baseUrl}${text === "" ? "" : `: ${text}`}`;
-	const tailHeadline: LocalizedText = {
-		display: l10n.t(
-			"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it."
-		),
-		english: "The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.",
-	};
-	const texts = twoPartTexts(ctx.surface, tailHeadline, detail);
-	return new MirroredError(texts.message, {
-		cause: err,
-		englishMessage: texts.englishMessage,
-		logClassification:
-			err instanceof Error
-				? `unhandled Error in transport (${name}, ${ctx.surface})`
-				: `non-Error throw in transport (${name}, ${ctx.surface})`,
-	});
+	return unexpectedFailureError(err, ctx);
 }

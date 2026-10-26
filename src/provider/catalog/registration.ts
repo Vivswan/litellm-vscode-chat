@@ -182,6 +182,275 @@ export function serverDisplayContext(server: Pick<ServerWithKey, "label">, serve
 	};
 }
 
+/** What every entry of one build shares: the server, its display fields, and the fields common to every model. */
+interface BuildContext {
+	readonly server: ServerWithKey;
+	readonly serverCount: number;
+	readonly common: Readonly<{ detail: string } & typeof COMMON_MODEL_FIELDS>;
+	readonly namePrefix: string;
+	readonly tooltip: string;
+	readonly currencySymbol: string;
+}
+
+/**
+ * What every entry of one listed model is built from. The server reported modalities only when the array is present,
+ * which is what the baseline keys its vision/audio presence on; the gates read the empty stand-in, so an unreported
+ * modality is exactly a missing one and both flags stay strictly boolean. `audioInput` is LiteLLM capability data
+ * only: VS Code has no audio capability flag, so it rides the litellm metadata and gates message conversion.
+ */
+interface ModelEntryContext extends BuildContext {
+	readonly model: LiteLLMModelItem;
+	readonly modalities: readonly string[] | undefined;
+	readonly vision: boolean;
+	readonly audioInput: boolean;
+}
+
+/** The providers of a group shape, or the tool-capable ones among them: never empty. */
+type ProviderSet = readonly [LiteLLMProvider, ...LiteLLMProvider[]];
+
+function modelEntryContext(model: LiteLLMModelItem, build: BuildContext): ModelEntryContext {
+	const rawModalities = model.architecture?.input_modalities;
+	const modalities = Array.isArray(rawModalities) ? rawModalities : undefined;
+	const reportedModalities = modalities ?? [];
+	return {
+		...build,
+		model,
+		modalities,
+		vision: reportedModalities.includes("image"),
+		audioInput: reportedModalities.includes("audio"),
+	};
+}
+
+/**
+ * Costs join the baseline only at the shapes this registration prices: the walk's server level must never offer a
+ * price the picker refused to advertise.
+ */
+function baselineFor(
+	ctx: ModelEntryContext,
+	input: Omit<Parameters<typeof discoveredCapabilityBaseline>[0], "modalities" | "reasoningEfforts">
+): ReturnType<typeof discoveredCapabilityBaseline> {
+	return discoveredCapabilityBaseline({
+		...input,
+		modalities: ctx.modalities,
+		reasoningEfforts: ctx.model.reasoningEfforts,
+	});
+}
+
+/** A single deployment: the proxy's one route for this model id, priced from its own costs. */
+function deploymentEntry(
+	ctx: ModelEntryContext,
+	provider: LiteLLMProvider,
+	constraints: TokenConstraints
+): PreAttachModelInfo {
+	const { model: m, server, serverCount, common, namePrefix, tooltip, currencySymbol, vision, audioInput } = ctx;
+	return {
+		...common,
+		id: buildExposedModelId(m.id, server.id, serverCount),
+		name: `${namePrefix}${m.id}`,
+		tooltip,
+		family: familyFromProvider(provider),
+		maxInputTokens: constraints.maxInputTokens,
+		maxOutputTokens: constraints.maxOutputTokens,
+		capabilities: {
+			toolCalling: supportsTools(provider),
+			imageInput: vision,
+		},
+		...pricingFromCosts(provider, currencySymbol),
+		...configurationSchemaFor([provider], m.reasoningEfforts),
+		litellm: {
+			rawModelId: m.id,
+			supportsPromptCaching: provider.supports_prompt_caching === true,
+			defaultMaxTokens: constraints.defaultMaxTokens,
+			supportsAudioInput: audioInput,
+			replayReasoningContent: replaysReasoningContent([provider]),
+			serverDeclared: baselineFor(ctx, {
+				providers: [provider],
+				limits: constraints,
+				toolCalling: supportsTools(provider),
+				reasoning: supportsReasoningEffort(provider),
+				costs: provider,
+			}),
+		},
+	} satisfies PreAttachModelInfo;
+}
+
+/** A bare /v1/models entry: no provider data, so tool calling is assumed and nothing is priced. */
+function bareEntry(ctx: ModelEntryContext): PreAttachModelInfo {
+	const { model: m, server, serverCount, common, namePrefix, tooltip, vision, audioInput } = ctx;
+	const constraints = deriveTokenConstraints(undefined);
+	return {
+		...common,
+		id: buildExposedModelId(m.id, server.id, serverCount),
+		name: `${namePrefix}${m.id}`,
+		tooltip,
+		family: "litellm",
+		maxInputTokens: constraints.maxInputTokens,
+		maxOutputTokens: constraints.maxOutputTokens,
+		capabilities: {
+			toolCalling: true,
+			imageInput: vision,
+		},
+		litellm: {
+			rawModelId: m.id,
+			supportsPromptCaching: false,
+			defaultMaxTokens: constraints.defaultMaxTokens,
+			supportsAudioInput: audioInput,
+			replayReasoningContent: false,
+			serverDeclared: baselineFor(ctx, { providers: [], limits: constraints, toolCalling: true, reasoning: false }),
+		},
+	} satisfies PreAttachModelInfo;
+}
+
+/**
+ * The cheapest and fastest aggregates stand for whichever tool-capable provider the proxy routes to, so they
+ * advertise the conservative collapse (the same rule deployment merging applies): never more than the strictest
+ * provider's standalone constraints.
+ */
+function aggregateEntries(ctx: ModelEntryContext, toolProviders: ProviderSet): PreAttachModelInfo[] {
+	const { model: m, server, serverCount, common, namePrefix, vision, audioInput } = ctx;
+	const [firstTool, ...restTools] = toolProviders;
+	const constraints = collapseTokenLimits([
+		deriveTokenConstraints(firstTool),
+		...restTools.map(deriveTokenConstraints),
+	]);
+	const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
+	const aggregateMetadata = {
+		supportsPromptCaching: aggregatePromptCaching,
+		defaultMaxTokens: constraints.defaultMaxTokens,
+		supportsAudioInput: audioInput,
+		replayReasoningContent: replaysReasoningContent(toolProviders),
+		serverDeclared: baselineFor(ctx, {
+			providers: toolProviders,
+			limits: constraints,
+			toolCalling: true,
+			reasoning: toolProviders.every(supportsReasoningEffort),
+		}),
+	};
+	const aggregateConfigurationSchema = configurationSchemaFor(toolProviders, m.reasoningEfforts);
+	const aggregateCapabilities = {
+		toolCalling: true,
+		imageInput: vision,
+	};
+	const onServer = serverCount > 1 ? ` on ${server.label}` : "";
+	const aggregate = (variant: "cheapest" | "fastest"): PreAttachModelInfo => {
+		const rawId = `${m.id}:${variant}`;
+		return {
+			...common,
+			id: buildExposedModelId(rawId, server.id, serverCount),
+			name: `${namePrefix}${m.id} (${variant})`,
+			tooltip: `LiteLLM via the ${variant} provider${onServer}`,
+			family: "litellm",
+			maxInputTokens: constraints.maxInputTokens,
+			maxOutputTokens: constraints.maxOutputTokens,
+			capabilities: aggregateCapabilities,
+			...aggregateConfigurationSchema,
+			litellm: { rawModelId: rawId, ...aggregateMetadata },
+		} satisfies PreAttachModelInfo;
+	};
+	return [aggregate("cheapest"), aggregate("fastest")];
+}
+
+/** One tool-capable provider of a group, routed to by name and priced from its own costs. */
+function providerEntry(ctx: ModelEntryContext, p: LiteLLMProvider): PreAttachModelInfo {
+	const { model: m, server, serverCount, common, namePrefix, currencySymbol, vision, audioInput } = ctx;
+	const constraints = deriveTokenConstraints(p);
+	const rawId = `${m.id}:${p.provider}`;
+	return {
+		...common,
+		id: buildExposedModelId(rawId, server.id, serverCount),
+		name: `${namePrefix}${m.id} via ${p.provider}`,
+		tooltip: `LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`,
+		family: familyFromProvider(p),
+		maxInputTokens: constraints.maxInputTokens,
+		maxOutputTokens: constraints.maxOutputTokens,
+		capabilities: {
+			toolCalling: true,
+			imageInput: vision,
+		},
+		...pricingFromCosts(p, currencySymbol),
+		...configurationSchemaFor([p], m.reasoningEfforts),
+		litellm: {
+			rawModelId: rawId,
+			supportsPromptCaching: p.supports_prompt_caching === true,
+			defaultMaxTokens: constraints.defaultMaxTokens,
+			supportsAudioInput: audioInput,
+			replayReasoningContent: replaysReasoningContent([p]),
+			serverDeclared: baselineFor(ctx, {
+				providers: [p],
+				limits: constraints,
+				toolCalling: true,
+				reasoning: supportsReasoningEffort(p),
+				costs: p,
+			}),
+		},
+	} satisfies PreAttachModelInfo;
+}
+
+/**
+ * The untooled base entry stands for the whole provider group (the proxy routes it to any of them), so its
+ * constraints collapse across every provider, and prompt caching and reasoning support need every provider.
+ */
+function untooledBaseEntry(ctx: ModelEntryContext, providers: ProviderSet): PreAttachModelInfo {
+	const { model: m, server, serverCount, common, namePrefix, tooltip, vision, audioInput } = ctx;
+	const [firstProvider, ...restProviders] = providers;
+	const constraints = collapseTokenLimits([
+		deriveTokenConstraints(firstProvider),
+		...restProviders.map(deriveTokenConstraints),
+	]);
+	return {
+		...common,
+		id: buildExposedModelId(m.id, server.id, serverCount),
+		name: `${namePrefix}${m.id}`,
+		tooltip,
+		family: familyFromProvider(firstProvider),
+		maxInputTokens: constraints.maxInputTokens,
+		maxOutputTokens: constraints.maxOutputTokens,
+		capabilities: {
+			toolCalling: false,
+			imageInput: vision,
+		},
+		...configurationSchemaFor(providers, m.reasoningEfforts),
+		litellm: {
+			rawModelId: m.id,
+			supportsPromptCaching: providers.every((p) => p.supports_prompt_caching === true),
+			defaultMaxTokens: constraints.defaultMaxTokens,
+			supportsAudioInput: audioInput,
+			replayReasoningContent: replaysReasoningContent(providers),
+			serverDeclared: baselineFor(ctx, {
+				providers,
+				limits: constraints,
+				toolCalling: false,
+				reasoning: providers.every(supportsReasoningEffort),
+			}),
+		},
+	} satisfies PreAttachModelInfo;
+}
+
+/**
+ * A group model fans out: with tool-capable providers the cheapest and fastest aggregates then one entry per such
+ * provider, without any the one untooled base entry.
+ */
+function groupEntries(ctx: ModelEntryContext, providers: ProviderSet): PreAttachModelInfo[] {
+	const [firstTool, ...restTools] = providers.filter(supportsTools);
+	if (firstTool === undefined) {
+		return [untooledBaseEntry(ctx, providers)];
+	}
+	const toolProviders: ProviderSet = [firstTool, ...restTools];
+	return [...aggregateEntries(ctx, toolProviders), ...toolProviders.map((p) => providerEntry(ctx, p))];
+}
+
+function entriesForModel(ctx: ModelEntryContext): PreAttachModelInfo[] {
+	const shape = ctx.model.shape;
+	switch (shape.kind) {
+		case "deployment":
+			return [deploymentEntry(ctx, shape.provider, shape.limits)];
+		case "bare":
+			return [bareEntry(ctx)];
+		case "group":
+			return groupEntries(ctx, shape.providers);
+	}
+}
+
 export function buildModelInfos(
 	models: LiteLLMModelItem[],
 	server: ServerWithKey,
@@ -192,243 +461,21 @@ export function buildModelInfos(
 	// Read once per build, not per model: every pricing label in one pass carries the same symbol. A change between
 	// passes heals at attach time.
 	const currencySymbol = getCurrencySymbol();
-	const common = {
-		detail,
-		...COMMON_MODEL_FIELDS,
-	} as const;
-
-	function entriesForModel(m: LiteLLMModelItem): PreAttachModelInfo[] {
-		const shape = m.shape;
-		const rawModalities = m.architecture?.input_modalities;
-		// The server reported modalities only when the array is present, which is what the baseline keys its
-		// vision/audio presence on; the gates below read the empty stand-in, so an unreported modality is exactly a
-		// missing one and both flags stay strictly boolean.
-		const modalities = Array.isArray(rawModalities) ? rawModalities : undefined;
-		const reportedModalities = modalities ?? [];
-		const vision = reportedModalities.includes("image");
-		// LiteLLM capability data only; VS Code has no audio capability flag, so this rides the litellm metadata and
-		// gates message conversion.
-		const audioInput = reportedModalities.includes("audio");
-		// Costs join the baseline only at the shapes this registration prices: the walk's server level must never offer
-		// a price the picker refused to advertise.
-		const baselineFor = (
-			providers: readonly LiteLLMProvider[],
-			limits: TokenConstraints,
-			toolCalling: boolean,
-			reasoning: boolean,
-			costs?: Readonly<PerTokenCosts>
-		) =>
-			discoveredCapabilityBaseline({
-				providers,
-				limits,
-				modalities,
-				toolCalling,
-				reasoning,
-				costs,
-				reasoningEfforts: m.reasoningEfforts,
-			});
-
-		switch (shape.kind) {
-			case "deployment": {
-				const provider = shape.provider;
-				const constraints = shape.limits;
-				const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-				return [
-					{
-						...common,
-						id: exposedId,
-						name: `${namePrefix}${m.id}`,
-						tooltip,
-						family: familyFromProvider(provider),
-						maxInputTokens: constraints.maxInputTokens,
-						maxOutputTokens: constraints.maxOutputTokens,
-						capabilities: {
-							toolCalling: supportsTools(provider),
-							imageInput: vision,
-						},
-						...pricingFromCosts(provider, currencySymbol),
-						...configurationSchemaFor([provider], m.reasoningEfforts),
-						litellm: {
-							rawModelId: m.id,
-							supportsPromptCaching: provider.supports_prompt_caching === true,
-							defaultMaxTokens: constraints.defaultMaxTokens,
-							supportsAudioInput: audioInput,
-							replayReasoningContent: replaysReasoningContent([provider]),
-							serverDeclared: baselineFor(
-								[provider],
-								constraints,
-								supportsTools(provider),
-								supportsReasoningEffort(provider),
-								provider
-							),
-						},
-					} satisfies PreAttachModelInfo,
-				];
-			}
-
-			case "bare": {
-				const constraints = deriveTokenConstraints(undefined);
-				const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-				return [
-					{
-						...common,
-						id: exposedId,
-						name: `${namePrefix}${m.id}`,
-						tooltip,
-						family: "litellm",
-						maxInputTokens: constraints.maxInputTokens,
-						maxOutputTokens: constraints.maxOutputTokens,
-						capabilities: {
-							toolCalling: true,
-							imageInput: vision,
-						},
-						litellm: {
-							rawModelId: m.id,
-							supportsPromptCaching: false,
-							defaultMaxTokens: constraints.defaultMaxTokens,
-							supportsAudioInput: audioInput,
-							replayReasoningContent: false,
-							serverDeclared: baselineFor([], constraints, true, false),
-						},
-					} satisfies PreAttachModelInfo,
-				];
-			}
-
-			case "group": {
-				const providers = shape.providers;
-				const [firstTool, ...restTools] = providers.filter(supportsTools);
-				const toolProviders = firstTool === undefined ? [] : [firstTool, ...restTools];
-				const entries: PreAttachModelInfo[] = [];
-
-				if (firstTool !== undefined) {
-					// The aggregates stand for whichever tool-capable provider the proxy routes to, so they advertise
-					// the conservative collapse (the same rule deployment merging applies): never more than the
-					// strictest provider's standalone constraints.
-					const constraints = collapseTokenLimits([
-						deriveTokenConstraints(firstTool),
-						...restTools.map(deriveTokenConstraints),
-					]);
-					const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
-					const aggregateMetadata = {
-						supportsPromptCaching: aggregatePromptCaching,
-						defaultMaxTokens: constraints.defaultMaxTokens,
-						supportsAudioInput: audioInput,
-						replayReasoningContent: replaysReasoningContent(toolProviders),
-						serverDeclared: baselineFor(toolProviders, constraints, true, toolProviders.every(supportsReasoningEffort)),
-					};
-					const aggregateConfigurationSchema = configurationSchemaFor(toolProviders, m.reasoningEfforts);
-					const aggregateCapabilities = {
-						toolCalling: true,
-						imageInput: vision,
-					};
-
-					const cheapestRaw = `${m.id}:cheapest`;
-					const fastestRaw = `${m.id}:fastest`;
-					const cheapestId = buildExposedModelId(cheapestRaw, server.id, serverCount);
-					const fastestId = buildExposedModelId(fastestRaw, server.id, serverCount);
-
-					entries.push({
-						...common,
-						id: cheapestId,
-						name: `${namePrefix}${m.id} (cheapest)`,
-						tooltip: `LiteLLM via the cheapest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
-						family: "litellm",
-						maxInputTokens: constraints.maxInputTokens,
-						maxOutputTokens: constraints.maxOutputTokens,
-						capabilities: aggregateCapabilities,
-						...aggregateConfigurationSchema,
-						litellm: { rawModelId: cheapestRaw, ...aggregateMetadata },
-					} satisfies PreAttachModelInfo);
-
-					entries.push({
-						...common,
-						id: fastestId,
-						name: `${namePrefix}${m.id} (fastest)`,
-						tooltip: `LiteLLM via the fastest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
-						family: "litellm",
-						maxInputTokens: constraints.maxInputTokens,
-						maxOutputTokens: constraints.maxOutputTokens,
-						capabilities: aggregateCapabilities,
-						...aggregateConfigurationSchema,
-						litellm: { rawModelId: fastestRaw, ...aggregateMetadata },
-					} satisfies PreAttachModelInfo);
-				}
-
-				for (const p of toolProviders) {
-					const constraints = deriveTokenConstraints(p);
-					const rawId = `${m.id}:${p.provider}`;
-					const exposedId = buildExposedModelId(rawId, server.id, serverCount);
-					entries.push({
-						...common,
-						id: exposedId,
-						name: `${namePrefix}${m.id} via ${p.provider}`,
-						tooltip: `LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`,
-						family: familyFromProvider(p),
-						maxInputTokens: constraints.maxInputTokens,
-						maxOutputTokens: constraints.maxOutputTokens,
-						capabilities: {
-							toolCalling: true,
-							imageInput: vision,
-						},
-						...pricingFromCosts(p, currencySymbol),
-						...configurationSchemaFor([p], m.reasoningEfforts),
-						litellm: {
-							rawModelId: rawId,
-							supportsPromptCaching: p.supports_prompt_caching === true,
-							defaultMaxTokens: constraints.defaultMaxTokens,
-							supportsAudioInput: audioInput,
-							replayReasoningContent: replaysReasoningContent([p]),
-							serverDeclared: baselineFor([p], constraints, true, supportsReasoningEffort(p), p),
-						},
-					} satisfies PreAttachModelInfo);
-				}
-
-				if (firstTool === undefined) {
-					const base = providers[0];
-					// The untooled base entry stands for the whole provider group (the proxy routes it to any of them),
-					// so its constraints collapse across every provider, prompt caching and reasoning support need
-					// every provider.
-					const [firstProvider, ...restProviders] = providers;
-					const constraints = collapseTokenLimits([
-						deriveTokenConstraints(firstProvider),
-						...restProviders.map(deriveTokenConstraints),
-					]);
-					const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-					entries.push({
-						...common,
-						id: exposedId,
-						name: `${namePrefix}${m.id}`,
-						tooltip,
-						family: familyFromProvider(base),
-						maxInputTokens: constraints.maxInputTokens,
-						maxOutputTokens: constraints.maxOutputTokens,
-						capabilities: {
-							toolCalling: false,
-							imageInput: vision,
-						},
-						...configurationSchemaFor(providers, m.reasoningEfforts),
-						litellm: {
-							rawModelId: m.id,
-							supportsPromptCaching: providers.every((p) => p.supports_prompt_caching === true),
-							defaultMaxTokens: constraints.defaultMaxTokens,
-							supportsAudioInput: audioInput,
-							replayReasoningContent: replaysReasoningContent(providers),
-							serverDeclared: baselineFor(providers, constraints, false, providers.every(supportsReasoningEffort)),
-						},
-					} satisfies PreAttachModelInfo);
-				}
-
-				return entries;
-			}
-		}
-	}
+	const build: BuildContext = {
+		server,
+		serverCount,
+		common: { detail, ...COMMON_MODEL_FIELDS },
+		namePrefix,
+		tooltip,
+		currencySymbol,
+	};
 
 	// One line per build, with the shape split: a group model with tool-capable providers fans out into cheapest,
 	// fastest, and per-provider entries, which is what a user counting picker entries against the listing needs explained.
 	const shapeCounts: Record<LiteLLMModelItem["shape"]["kind"], number> = { deployment: 0, bare: 0, group: 0 };
 	const infos: PreAttachModelInfo[] = models.flatMap((m) => {
 		shapeCounts[m.shape.kind] += 1;
-		return entriesForModel(m);
+		return entriesForModel(modelEntryContext(m, build));
 	});
 	log("Registered models", {
 		modelCount: models.length,

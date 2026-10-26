@@ -15,7 +15,8 @@ import {
 import { convertMessages } from "../../shared/conversion/messages";
 import { applyPromptCacheBreakpoints } from "../../shared/conversion/promptCache";
 import { estimateToolTokens, estimateWireMessagesTokens } from "../../shared/conversion/tokenEstimation";
-import { convertTools } from "../../shared/conversion/tools";
+import { convertTools, type ToolConfig } from "../../shared/conversion/tools";
+import type { OpenAIChatMessage } from "../../shared/conversion/wire";
 import type { Logger } from "../../shared/logger";
 import { chatErrorMessage, englishChatErrorMessage, localizedError } from "../../shared/mirroredError";
 import type { NonChatMode } from "../../shared/serverEntry";
@@ -109,6 +110,13 @@ export interface ChatClientOptions {
 
 	/** The HTTP transport under the SDK client; tests inject a fake here. Defaults to nodeHttpFetch. */
 	fetch?: TransportFetch | undefined;
+}
+
+/** The host's request in wire form; `cachedTools` carry the cache_control markers when prompt caching applies. */
+interface WireRequest {
+	readonly openaiMessages: OpenAIChatMessage[];
+	readonly toolConfig: ToolConfig | undefined;
+	readonly cachedTools: ToolConfig["tools"] | undefined;
 }
 
 /**
@@ -235,23 +243,8 @@ export class ChatClient {
 		return { headers: Object.keys(headers).length > 0 ? headers : undefined, auth };
 	}
 
-	async send(ctx: ChatRequestContext): Promise<void> {
-		const { metadata, server, messages, options, progress, token } = ctx;
-		const serverId = groupClientId(server);
-
-		const promptCachingEnabled = isPromptCachingEnabled();
-		const customHeaders = this.customHeadersFor(server.label, server.baseUrl);
-		const apiVersion = this.apiVersionFor(server.label, server.baseUrl);
-		const requestTimeout = getRequestTimeout(this.log);
-		validateRequest(messages);
-		const wireGates = {
-			imageInput: metadata.imageInput,
-			audioInput: metadata.supportsAudioInput,
-			replayReasoningContent: metadata.replayReasoningContent,
-		};
-		const converted = convertMessages(messages, { log: this.log, ...wireGates });
-		const toolConfig = convertTools(options, getAdditionalToolSchemaKeywords(this.log));
-
+	/** The chat tool cap is checked before anything is sent, so the user sees the count, not a server refusal. */
+	private requireToolCount(options: ProvideLanguageModelChatResponseOptions): void {
 		const maxTools = getMaxToolsPerRequest(this.log);
 		if (options.tools && options.tools.length > maxTools) {
 			throw localizedError(
@@ -267,17 +260,44 @@ export class ChatClient {
 				)
 			);
 		}
+	}
+
+	/**
+	 * The host's messages and tools in wire form, with the prompt-cache breakpoints applied where the setting and the
+	 * model allow them.
+	 */
+	private wireRequestFor(
+		metadata: ParsedModelMetadata,
+		messages: readonly LanguageModelChatRequestMessage[],
+		options: ProvideLanguageModelChatResponseOptions,
+		promptCachingEnabled: boolean
+	): WireRequest {
+		validateRequest(messages);
+		const wireGates = {
+			imageInput: metadata.imageInput,
+			audioInput: metadata.supportsAudioInput,
+			replayReasoningContent: metadata.replayReasoningContent,
+		};
+		const converted = convertMessages(messages, { log: this.log, ...wireGates });
+		const toolConfig = convertTools(options, getAdditionalToolSchemaKeywords(this.log));
+		this.requireToolCount(options);
 
 		const { messages: openaiMessages, tools: cachedTools } =
 			promptCachingEnabled && metadata.supportsPromptCaching
 				? applyPromptCacheBreakpoints({ messages: converted, tools: toolConfig?.tools })
 				: { messages: converted, tools: toolConfig?.tools };
+		return { openaiMessages, toolConfig, cachedTools };
+	}
 
-		// Price the very message array the request sends, never a second conversion of the same input; cache_control
-		// markers are token-neutral. Tools price unmarked: a marker would be JSON.stringified as content.
-		const inputTokenCount = estimateWireMessagesTokens(openaiMessages);
-		const toolTokenCount = estimateToolTokens(toolConfig?.tools);
-		const tokenLimit = Math.max(1, metadata.maxInputTokens);
+	/**
+	 * The local token estimate must stay under the model's input limit, or the request is refused before send. It
+	 * prices the very message array the request sends, never a second conversion of the same input; cache_control
+	 * markers are token-neutral. Tools price unmarked: a marker would be JSON.stringified as content.
+	 */
+	private requireWithinInputLimit(wire: WireRequest, maxInputTokens: number): void {
+		const inputTokenCount = estimateWireMessagesTokens(wire.openaiMessages);
+		const toolTokenCount = estimateToolTokens(wire.toolConfig?.tools);
+		const tokenLimit = Math.max(1, maxInputTokens);
 		if (inputTokenCount + toolTokenCount > tokenLimit) {
 			// The numbers must survive in the detail: docs/troubleshooting.md teaches comparing the limit against the
 			// model's real one (the models.capabilities fix).
@@ -298,11 +318,18 @@ export class ChatClient {
 				)
 			);
 		}
+	}
 
-		// The match is label plus URL, deliberately not credentials: any group carrying the entry's label at the
-		// entry's URL resolves, a hand-labeled native group included. What the URL check excludes is a same-label group
-		// at another URL, stale from a label reuse or a baseUrl edit.
-		//   two entries may share a base URL -> the label tells them apart
+	/**
+	 * The body the request sends: the configured parameters under the user's precedence chain, and max_tokens from
+	 * its one fallback chain (resolveMaxTokens, shared with the dashboard's inspector). The entry match is label plus
+	 * URL, deliberately not credentials: any group carrying the entry's label at the entry's URL resolves, a
+	 * hand-labeled native group included. What the URL check excludes is a same-label group at another URL, stale from
+	 * a label reuse or a baseUrl edit.
+	 *   two entries may share a base URL -> the label tells them apart
+	 */
+	private requestBodyFor(ctx: ChatRequestContext, serverId: string, wire: WireRequest): Record<string, unknown> {
+		const { metadata, server, options } = ctx;
 		const entryModelParameters =
 			server.label === undefined ? undefined : this.getEntryModelParameters(server.label, server.baseUrl);
 		const { params: modelParams, forcedParams } = this.resolution.resolveParameters(serverId, metadata.rawModelId, {
@@ -310,7 +337,6 @@ export class ChatClient {
 			entryParameters: entryModelParameters,
 		});
 
-		// The one home of the fallback chain is resolveMaxTokens (shared with the dashboard's inspector).
 		const { value: maxTokens } = resolveMaxTokens({
 			forcedMaxTokens: forcedParams.max_tokens,
 			runtimeMaxTokens: options.modelOptions?.max_tokens,
@@ -319,7 +345,8 @@ export class ChatClient {
 			defaultMaxTokens: metadata.defaultMaxTokens,
 		});
 
-		const requestBody = buildRequestBody({
+		const { openaiMessages, toolConfig, cachedTools } = wire;
+		return buildRequestBody({
 			rawModelId: metadata.rawModelId,
 			openaiMessages,
 			maxTokens,
@@ -329,6 +356,82 @@ export class ChatClient {
 			modelConfiguration: requestParamsFromModelConfiguration(options.modelConfiguration),
 			modelOptions: options.modelOptions as Record<string, unknown> | undefined,
 		});
+	}
+
+	/**
+	 * The per-request headers: the overlay's auth headers plus the session id. The session id rides the per-request
+	 * headers, never the client's own: the client cache keys on the custom headers, so a per-chat value among them
+	 * would rebuild the OpenAI client on every new chat. It yields to any header already spelling its name: a
+	 * credential's, which owns its name, or a custom header the user set.
+	 */
+	private perRequestHeaders(
+		authHeaders: Record<string, HeaderValue> | undefined,
+		customHeaders: Record<string, HeaderValue>,
+		messages: readonly LanguageModelChatRequestMessage[]
+	): Record<string, HeaderValue> {
+		const headers: Record<string, HeaderValue> = authHeaders === undefined ? {} : { ...authHeaders };
+		const sessionIdTaken =
+			hasHeader(headers, SESSION_ID_HEADER_NAME) || hasHeader(customHeaders, SESSION_ID_HEADER_NAME);
+		const sessionIdHeader = sessionIdTaken ? undefined : chatSessionIdHeader(messages);
+		if (sessionIdHeader !== undefined) {
+			headers[SESSION_ID_HEADER_NAME] = sessionIdHeader;
+		}
+		return headers;
+	}
+
+	/**
+	 * Streams the response body through the processor. Every 200 arrives with a body stream, so a server that sent
+	 * nothing shows only as a stream that ends without a byte; that is the same "nothing came back" as a null body and
+	 * gets the same error.
+	 */
+	private async streamResponse(
+		response: Response,
+		ctx: ChatRequestContext,
+		requestBody: Record<string, unknown>
+	): Promise<void> {
+		const { server, progress, token } = ctx;
+		if (!response.body) {
+			throw bodylessResponseError("chat", response.status, server.baseUrl);
+		}
+
+		// The user-set audio.format parameter (when a modality-audio request declares one) is the only statement of
+		// the clip encoding.
+		const audio = requestBody.audio;
+		const requestAudioFormat = isRecord(audio) && typeof audio.format === "string" ? audio.format : undefined;
+		const streamProcessor = new StreamProcessor(
+			this.toolCallIds,
+			this.log,
+			progress,
+			undefined,
+			undefined,
+			requestAudioFormat
+		);
+		let bodyBytes = 0;
+		const counted = response.body.pipeThrough(
+			new TransformStream<Uint8Array, Uint8Array>({
+				transform(chunk, controller) {
+					bodyBytes += chunk.byteLength;
+					controller.enqueue(chunk);
+				},
+			})
+		);
+		await streamProcessor.processStreamingResponse(counted, token);
+		if (bodyBytes === 0) {
+			throw bodylessResponseError("chat", response.status, server.baseUrl);
+		}
+	}
+
+	async send(ctx: ChatRequestContext): Promise<void> {
+		const { metadata, server, messages, token } = ctx;
+		const serverId = groupClientId(server);
+
+		const promptCachingEnabled = isPromptCachingEnabled();
+		const customHeaders = this.customHeadersFor(server.label, server.baseUrl);
+		const apiVersion = this.apiVersionFor(server.label, server.baseUrl);
+		const requestTimeout = getRequestTimeout(this.log);
+		const wire = this.wireRequestFor(metadata, messages, ctx.options, promptCachingEnabled);
+		this.requireWithinInputLimit(wire, metadata.maxInputTokens);
+		const requestBody = this.requestBodyFor(ctx, serverId, wire);
 
 		const client = this.clients.get({
 			serverId,
@@ -365,17 +468,7 @@ export class ChatClient {
 				requestSignal
 			);
 			auth = resolvedAuth.auth;
-			// The session id rides the per-request headers, never the client's own: the client cache keys on the custom
-			// headers, so a per-chat value among them would rebuild the OpenAI client on every new chat. It yields to
-			// any header already spelling its name: a credential's, which owns its name, or a custom header the user set.
-			const headers: Record<string, HeaderValue> =
-				resolvedAuth.headers === undefined ? {} : { ...resolvedAuth.headers };
-			const sessionIdTaken =
-				hasHeader(headers, SESSION_ID_HEADER_NAME) || hasHeader(customHeaders, SESSION_ID_HEADER_NAME);
-			const sessionIdHeader = sessionIdTaken ? undefined : chatSessionIdHeader(messages);
-			if (sessionIdHeader !== undefined) {
-				headers[SESSION_ID_HEADER_NAME] = sessionIdHeader;
-			}
+			const headers = this.perRequestHeaders(resolvedAuth.headers, customHeaders, messages);
 			const response = await client
 				.post(CHAT_COMPLETIONS_PATH, {
 					body: requestBody,
@@ -384,38 +477,7 @@ export class ChatClient {
 					...(Object.keys(headers).length > 0 ? { headers } : {}),
 				})
 				.asResponse();
-
-			if (!response.body) {
-				throw bodylessResponseError("chat", response.status, server.baseUrl);
-			}
-
-			// The user-set audio.format parameter (when a modality-audio request declares one) is the only statement of
-			// the clip encoding.
-			const audio = requestBody.audio;
-			const requestAudioFormat = isRecord(audio) && typeof audio.format === "string" ? audio.format : undefined;
-			const streamProcessor = new StreamProcessor(
-				this.toolCallIds,
-				this.log,
-				progress,
-				undefined,
-				undefined,
-				requestAudioFormat
-			);
-			// Every 200 arrives with a body stream, so a server that sent nothing shows only as a stream that ends
-			// without a byte; that is the same "nothing came back" as a null body and gets the same error.
-			let bodyBytes = 0;
-			const counted = response.body.pipeThrough(
-				new TransformStream<Uint8Array, Uint8Array>({
-					transform(chunk, controller) {
-						bodyBytes += chunk.byteLength;
-						controller.enqueue(chunk);
-					},
-				})
-			);
-			await streamProcessor.processStreamingResponse(counted, token);
-			if (bodyBytes === 0) {
-				throw bodylessResponseError("chat", response.status, server.baseUrl);
-			}
+			await this.streamResponse(response, ctx, requestBody);
 		} catch (err) {
 			if (token.isCancellationRequested) {
 				throw new vscode.CancellationError();

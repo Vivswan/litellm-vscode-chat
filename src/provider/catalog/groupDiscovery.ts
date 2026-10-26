@@ -30,7 +30,7 @@ import type { GroupServeOutcome, GroupStatusReporter } from "./statusReporting";
 import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./statusWindow";
 import { groupIdentity, logicalGroupId } from "./statusWindow";
 
-/** GroupServeOutcome minus the served-set counts, which recordAndServe derives from the served pair. */
+/** GroupServeOutcome minus the served-set counts, which recordServe derives from the served pair. */
 type OkServeShape = Omit<Extract<GroupServeOutcome, { state: "ok" }>, "servedModelCount">;
 type FailureServeShape = Omit<
 	Extract<GroupServeOutcome, { state: "error" }>,
@@ -67,11 +67,13 @@ interface ServeRecord {
 
 const NOTHING_SERVED: ServedModelSets = { discovered: [], declared: [] };
 
-/** recordServe bound to one serve's record; the overload pair is the same. */
-type RecordAndServe = {
-	(served: ServedModelSets, outcome: OkServeShape, observations?: DiscoveryObservations): AttachedServe;
-	(served: ServedModelSets, outcome: FailureServeShape): AttachedServe;
-};
+/** What one serve resolves before anything is served, cached or fresh. */
+interface ServeContext {
+	readonly record: ServeRecord;
+	readonly cacheKey: string;
+	readonly expectedFailures: ExpectedDiscoveryFailures;
+	readonly includeModes: readonly NonChatMode[];
+}
 
 /**
  * Configuration-free, so overrides and declared models are applied where models are served, never stored.
@@ -411,147 +413,185 @@ export class GroupDiscovery {
 	}
 
 	/**
+	 * Resolved before the cache read: the ok-path hint and the failure path gate on the entry's CURRENT declarations,
+	 * cached serve or fresh; the cache key composes the group with the live apiVersion and includeModes, so an edit
+	 * lands on a fresh key.
+	 */
+	private serveContextOf(record: ServeRecord): ServeContext {
+		const { server, groupServer } = record;
+		return {
+			record,
+			cacheKey: this.cacheKeyFor(groupServer),
+			expectedFailures: this.expectedDiscoveryFailures(groupServer.label, server.baseUrl),
+			includeModes: this.includeModesFor(groupServer.label, server.baseUrl),
+		};
+	}
+
+	/** The unserved-probe hint one ok serve carries; see DiscoveredGroupModels.modelInfoUnsupported. */
+	private static probeHint(
+		expectedFailures: ExpectedDiscoveryFailures,
+		discovered: Pick<DiscoveredGroupModels, "modelInfoUnsupported">
+	): { modelInfoUnsupported?: UnservedEndpointEvidence } {
+		return discovered.modelInfoUnsupported !== undefined && !expectedFailures.modelInfo
+			? { modelInfoUnsupported: discovered.modelInfoUnsupported }
+			: {};
+	}
+
+	/**
+	 * The boundary's one log for a failed serve, through the closed discovery line table: an http error's English
+	 * mirror quotes the response body, so the line carries the transport kind and status, never a rendering of the
+	 * error. An expected failure is information; an unexpected one is the boundary's error and the issue report's
+	 * latest.
+	 */
+	private logServeFailure(error: unknown, expected: boolean, silent: boolean): void {
+		const log = discoveryLineWriter(
+			expected
+				? (message, line) => this._options.log(message, line)
+				: (message, line) => this._options.logFailure(message, line, error)
+		);
+		log("Model discovery failed for provider group", { expected, silent, ...failureKindOf(error) });
+	}
+
+	/**
+	 * The one failure outcome, for a fetch that threw and for a preflight failure alike. `expected` is the entry's
+	 * modelListing declaration for a listing failure only: that declaration speaks about the endpoint, so a credential
+	 * failure stays unexpected and the declared set it serves cannot read as connected.
+	 */
+	private serveFailure(serve: ServeContext, error: unknown, expected: boolean): LiteLLMModelInfo[] {
+		const { record } = serve;
+		const { server, groupServer, silent } = record;
+		this.logServeFailure(error, expected, silent);
+		const cause = failureCauseOf(error);
+		const outcome: FailureServeShape = {
+			state: "error",
+			cause,
+			logSafeError: statusLogSafeError(error),
+			...(expected ? { expected: true } : {}),
+		};
+		const decorateFailure = (discovered: Pick<DiscoveredGroupModels, "infos" | "discoveredRawIds">): ServedModelSets =>
+			this._options.decorator.decorate(discovered, server, groupServer.label);
+		// The window is this session's live state, never the extension layer's persisted status.
+		const stale = this._options.window.staleServableModels(server.id, groupServer);
+		// Declared models register through a credential failure too: chatClient.ts re-resolves the entry's
+		// credentials before it sends anything, so a registered model never rides a baked key. The non-silent serve
+		// synthesizes them against the EMPTY discovered set, or a pre-outage discovery could inert-suppress a declared
+		// ID out of the only set it hands back; the record is then exactly that set, not the stale set it withholds.
+		const declaredOnly = silent ? undefined : decorateFailure({ infos: [], discoveredRawIds: [] });
+		if (declaredOnly !== undefined && declaredOnly.declared.length > 0) {
+			return this.recordServe(record, declaredOnly, outcome).declared;
+		}
+		// A throwing serve still records the stale set every silent pass keeps serving.
+		const failureServe = this.recordServe(
+			record,
+			stale === undefined
+				? (declaredOnly ?? decorateFailure({ infos: [], discoveredRawIds: [] }))
+				: decorateFailure({ infos: stale.models, discoveredRawIds: stale.discoveredRawIds }),
+			outcome
+		);
+		if (silent) {
+			// An empty literal, not the attached set, so a decorator surprise cannot serve unmarked models.
+			const staleServed =
+				stale === undefined ? [] : markStale(failureServe.discovered, new Date(stale.lastSuccessAt).toLocaleString());
+			return [...staleServed, ...failureServe.declared];
+		}
+		// A non-Error throw is rebuilt from the cause's rendering, with the status's log-safe rendering as its mirror.
+		if (error instanceof Error) {
+			throw error;
+		}
+		const texts = failureTexts(cause, server.baseUrl);
+		throw new MirroredError(texts.display, { englishMessage: outcome.logSafeError });
+	}
+
+	/** A cached serve, when the cache holds a fresh enough result; undefined sends the caller to the network. */
+	private serveFromCache(serve: ServeContext): LiteLLMModelInfo[] | undefined {
+		const { record, cacheKey, expectedFailures } = serve;
+		const { server, groupServer } = record;
+		const ttl = getDiscoveryCacheTtl((msg, data) => this._options.log(msg, data));
+		const cached = this._options.cache.lookup(cacheKey, ttl);
+		if (cached === undefined) {
+			return undefined;
+		}
+		const cachedServe = this._options.decorator.decorate(cached, server, groupServer.label);
+		this._options.log("Serving provider group models from the discovery cache", {
+			baseUrl: server.baseUrl,
+			count: cachedServe.discovered.length + cachedServe.declared.length,
+		});
+		return this.recordServe(
+			record,
+			cachedServe,
+			{ state: "ok", ...GroupDiscovery.probeHint(expectedFailures, cached) },
+			{
+				discoveredRawIds: cached.discoveredRawIds,
+				observedModelInfoKeys: cached.observedModelInfoKeys,
+				skippedModeCounts: cached.skippedModeCounts,
+			}
+		).served;
+	}
+
+	/** The one network load behind the cache: the listing, registered configuration-free. */
+	private async loadDiscovered(serve: ServeContext): Promise<DiscoveredGroupModels> {
+		const { server } = serve.record;
+		const { models, observedModelInfoKeys, skippedModeCounts, modelInfoUnsupported } =
+			await this._options.client.fetchModels(server, serve.expectedFailures, serve.includeModes);
+		return {
+			infos: buildModelInfos(
+				models,
+				server,
+				1,
+				discoveryLineWriter((message, line) => this._options.log(message, line))
+			).infos,
+			discoveredRawIds: models.map((model) => model.id),
+			...(observedModelInfoKeys === undefined ? {} : { observedModelInfoKeys }),
+			...(skippedModeCounts === undefined ? {} : { skippedModeCounts }),
+			...(modelInfoUnsupported === undefined ? {} : { modelInfoUnsupported }),
+		};
+	}
+
+	/**
+	 * A fresh serve through the cache. Overrides and declared models are applied to what is SERVED: the discovery
+	 * cache stays configuration-free, so an edit reaches the very next serve. The status window records both served
+	 * sets, keeping declared models out of its stale-serve anchor; they are config-rebuilt every serve.
+	 */
+	private async serveFresh(serve: ServeContext): Promise<LiteLLMModelInfo[]> {
+		const { record, cacheKey, expectedFailures } = serve;
+		const { server, groupServer } = record;
+		const discovered = await this._options.cache.fetch(cacheKey, () => this.loadDiscovered(serve));
+		const freshServe = this._options.decorator.decorate(discovered, server, groupServer.label);
+		this._options.log(`Provider group at ${server.baseUrl} returned ${discovered.infos.length} models`);
+		return this.recordServe(
+			record,
+			freshServe,
+			{ state: "ok", ...GroupDiscovery.probeHint(expectedFailures, discovered) },
+			{
+				discoveredRawIds: discovered.discoveredRawIds,
+				observedModelInfoKeys: discovered.observedModelInfoKeys,
+				skippedModeCounts: discovered.skippedModeCounts,
+			}
+		).served;
+	}
+
+	/**
 	 * A fresh cached result still reports its remembered outcome, so the merged status and the group-aging
 	 * cycle bookkeeping stay live across cached sweeps. Every read stamps the group's identity onto a fresh outer
 	 * object (nested metadata stays shared); the credential fingerprint of the CURRENT connection keys the cache.
 	 */
 	async fetchGroupModels(claim: ServeClaim, silent: boolean): Promise<LiteLLMModelInfo[]> {
-		const groupServer = claim.server;
-		const record = this.serveRecordOf(claim.generation, groupServer, claim.hostClientId, silent);
-		const { server } = record;
-		// The cache key composes the group with the live apiVersion and includeModes, so an edit lands on a fresh key.
-		const cacheKey = this.cacheKeyFor(groupServer);
-		const recordAndServe: RecordAndServe = (
-			served: ServedModelSets,
-			outcome: OkServeShape | FailureServeShape,
-			observations?: DiscoveryObservations
-		): AttachedServe =>
-			outcome.state === "ok"
-				? this.recordServe(record, served, outcome, observations)
-				: this.recordServe(record, served, outcome);
-
-		// Resolved before the cache read: the ok-path hint below gates on the entry's CURRENT declarations, cached
-		// serve or fresh.
-		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
-		const includeModes = this.includeModesFor(groupServer.label, server.baseUrl);
-		// The one failure outcome, for a fetch that threw and for a preflight failure alike. `expected` is the entry's
-		// modelListing declaration for a listing failure only: that declaration speaks about the endpoint, so a
-		// credential failure stays unexpected and the declared set it serves cannot read as connected.
-		const serveFailure = (error: unknown, expected: boolean): LiteLLMModelInfo[] => {
-			// The boundary's one log for the failure, through the closed discovery line table: an http error's English
-			// mirror quotes the response body, so the line carries the transport kind and status, never a rendering of
-			// the error. An expected failure is information; an unexpected one is the boundary's error and the issue
-			// report's latest.
-			const log = discoveryLineWriter(
-				expected
-					? (message, line) => this._options.log(message, line)
-					: (message, line) => this._options.logFailure(message, line, error)
-			);
-			log("Model discovery failed for provider group", { expected, silent, ...failureKindOf(error) });
-			const cause = failureCauseOf(error);
-			const outcome: FailureServeShape = {
-				state: "error",
-				cause,
-				logSafeError: statusLogSafeError(error),
-				...(expected ? { expected: true } : {}),
-			};
-			const decorateFailure = (
-				discovered: Pick<DiscoveredGroupModels, "infos" | "discoveredRawIds">
-			): ServedModelSets => this._options.decorator.decorate(discovered, server, groupServer.label);
-			// The window is this session's live state, never the extension layer's persisted status.
-			const stale = this._options.window.staleServableModels(server.id, groupServer);
-			// Declared models register through a credential failure too: chatClient.ts re-resolves the entry's
-			// credentials before it sends anything, so a registered model never rides a baked key. The non-silent serve
-			// synthesizes them against the EMPTY discovered set, or a pre-outage discovery could inert-suppress a declared
-			// ID out of the only set it hands back; the record is then exactly that set, not the stale set it withholds.
-			const declaredOnly = silent ? undefined : decorateFailure({ infos: [], discoveredRawIds: [] });
-			if (declaredOnly !== undefined && declaredOnly.declared.length > 0) {
-				return recordAndServe(declaredOnly, outcome).declared;
-			}
-			// A throwing serve still records the stale set every silent pass keeps serving.
-			const failureServe = recordAndServe(
-				stale === undefined
-					? (declaredOnly ?? decorateFailure({ infos: [], discoveredRawIds: [] }))
-					: decorateFailure({ infos: stale.models, discoveredRawIds: stale.discoveredRawIds }),
-				outcome
-			);
-			if (silent) {
-				// An empty literal, not the attached set, so a decorator surprise cannot serve unmarked models.
-				const staleServed =
-					stale === undefined ? [] : markStale(failureServe.discovered, new Date(stale.lastSuccessAt).toLocaleString());
-				return [...staleServed, ...failureServe.declared];
-			}
-			// A non-Error throw is rebuilt from the cause's rendering, with the status's log-safe rendering as its mirror.
-			if (error instanceof Error) {
-				throw error;
-			}
-			const texts = failureTexts(cause, server.baseUrl);
-			throw new MirroredError(texts.display, { englishMessage: outcome.logSafeError });
-		};
+		const record = this.serveRecordOf(claim.generation, claim.server, claim.hostClientId, silent);
+		const serve = this.serveContextOf(record);
 		if (claim.failure !== undefined) {
-			return serveFailure(claim.failure, false);
-		}
-		// The unserved-probe hint one ok serve carries; see DiscoveredGroupModels.modelInfoUnsupported.
-		const probeHint = (
-			discovered: Pick<DiscoveredGroupModels, "modelInfoUnsupported">
-		): { modelInfoUnsupported?: UnservedEndpointEvidence } =>
-			discovered.modelInfoUnsupported !== undefined && !expectedFailures.modelInfo
-				? { modelInfoUnsupported: discovered.modelInfoUnsupported }
-				: {};
-		const ttl = getDiscoveryCacheTtl((msg, data) => this._options.log(msg, data));
-		const cached = this._options.cache.lookup(cacheKey, ttl);
-		if (cached !== undefined) {
-			const cachedServe = this._options.decorator.decorate(cached, server, groupServer.label);
-			this._options.log("Serving provider group models from the discovery cache", {
-				baseUrl: server.baseUrl,
-				count: cachedServe.discovered.length + cachedServe.declared.length,
-			});
-			return recordAndServe(
-				cachedServe,
-				{ state: "ok", ...probeHint(cached) },
-				{
-					discoveredRawIds: cached.discoveredRawIds,
-					observedModelInfoKeys: cached.observedModelInfoKeys,
-					skippedModeCounts: cached.skippedModeCounts,
-				}
-			).served;
+			return this.serveFailure(serve, claim.failure, false);
 		}
 
-		this._options.log("Fetching models for provider group", { baseUrl: server.baseUrl, silent });
+		const cached = this.serveFromCache(serve);
+		if (cached !== undefined) {
+			return cached;
+		}
+
+		this._options.log("Fetching models for provider group", { baseUrl: record.server.baseUrl, silent });
 		try {
-			const load = async (): Promise<DiscoveredGroupModels> => {
-				const { models, observedModelInfoKeys, skippedModeCounts, modelInfoUnsupported } =
-					await this._options.client.fetchModels(server, expectedFailures, includeModes);
-				return {
-					infos: buildModelInfos(
-						models,
-						server,
-						1,
-						discoveryLineWriter((message, line) => this._options.log(message, line))
-					).infos,
-					discoveredRawIds: models.map((model) => model.id),
-					...(observedModelInfoKeys === undefined ? {} : { observedModelInfoKeys }),
-					...(skippedModeCounts === undefined ? {} : { skippedModeCounts }),
-					...(modelInfoUnsupported === undefined ? {} : { modelInfoUnsupported }),
-				};
-			};
-			const discovered = await this._options.cache.fetch(cacheKey, load);
-			// Overrides and declared models are applied to what is SERVED: the discovery cache stays
-			// configuration-free, so an edit reaches the very next serve. The status window records both served sets,
-			// keeping declared models out of its stale-serve anchor; they are config-rebuilt every serve.
-			const freshServe = this._options.decorator.decorate(discovered, server, groupServer.label);
-			this._options.log(`Provider group at ${server.baseUrl} returned ${discovered.infos.length} models`);
-			return recordAndServe(
-				freshServe,
-				{ state: "ok", ...probeHint(discovered) },
-				{
-					discoveredRawIds: discovered.discoveredRawIds,
-					observedModelInfoKeys: discovered.observedModelInfoKeys,
-					skippedModeCounts: discovered.skippedModeCounts,
-				}
-			).served;
+			return await this.serveFresh(serve);
 		} catch (error) {
-			return serveFailure(error, expectedFailures.modelListing);
+			return this.serveFailure(serve, error, serve.expectedFailures.modelListing);
 		}
 	}
 }

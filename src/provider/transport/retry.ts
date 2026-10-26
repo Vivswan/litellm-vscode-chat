@@ -47,20 +47,22 @@ export function isRetryableFailure(error: unknown): boolean {
 	return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
+/** A `retry-after` value in milliseconds: seconds when numeric, else an HTTP date relative to now; NaN when absent. */
+function retryAfterMs(after: string | null | undefined): number {
+	if (!after) {
+		return Number.NaN;
+	}
+	const seconds = Number(after);
+	return Number.isNaN(seconds) ? Date.parse(after) - Date.now() : seconds * 1000;
+}
+
 /** The server's `retry-after-ms` or `retry-after` (seconds or an HTTP date), when it names a wait the SDK honors. */
 function serverRetryDelayMs(error: unknown): number | undefined {
 	if (!(error instanceof APIError)) {
 		return undefined;
 	}
 	const ms = Number(error.headers?.get("retry-after-ms") || Number.NaN);
-	const after = error.headers?.get("retry-after");
-	const delay = Number.isFinite(ms)
-		? ms
-		: after
-			? Number.isNaN(Number(after))
-				? Date.parse(after) - Date.now()
-				: Number(after) * 1000
-			: Number.NaN;
+	const delay = Number.isFinite(ms) ? ms : retryAfterMs(error.headers?.get("retry-after"));
 	return Number.isFinite(delay) && delay >= 0 && delay <= MAX_SERVER_RETRY_DELAY_MS ? delay : undefined;
 }
 

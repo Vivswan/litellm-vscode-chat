@@ -158,6 +158,25 @@ export interface DiscoveredBaselineInput {
 }
 
 /**
+ * The reasoning levels the baseline stores: the proxy's own menu when the item carries one (null reading as
+ * unreported), else what the providers' flags resolved to.
+ */
+function serverReasoningLevels(
+	providers: readonly LiteLLMProvider[],
+	reasoningEfforts: readonly string[] | null | undefined
+): readonly string[] | undefined {
+	if (reasoningEfforts === undefined) {
+		return reportedReasoningLevels(providers);
+	}
+
+	if (reasoningEfforts === null) {
+		return undefined;
+	}
+
+	return [...reasoningEfforts];
+}
+
+/**
  * VALUES are registration's aggregates exactly as advertised, so a lower-precedence catalog guess never
  * displaces a server minimum, while a field no contributor reported stays absent for the catalog to fill.
  * max_input_tokens counts as reported whenever ANY limit was, since re-deriving it from the collapse can overstate it.
@@ -173,12 +192,7 @@ export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): Se
 	const responseSchemaReported = providers.some((p) => typeof p.supports_response_schema === "boolean");
 	const reasoningReplayReported = providers.some((p) => typeof p.replay_reasoning_content === "boolean");
 	const supportedParams = intersectReportedParams(providers);
-	const reasoningLevels =
-		input.reasoningEfforts === undefined
-			? reportedReasoningLevels(providers)
-			: input.reasoningEfforts === null
-				? undefined
-				: [...input.reasoningEfforts];
+	const reasoningLevels = serverReasoningLevels(providers, input.reasoningEfforts);
 	const values: Partial<ServerCapabilityValues> = {
 		...(reported.context ? { context_length: limits.contextLength } : {}),
 		...(reported.any ? { max_input_tokens: limits.maxInputTokens } : {}),
