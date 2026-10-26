@@ -80,13 +80,13 @@ export function sortedGroupOrder(groups: readonly PrefixGroup[]): readonly numbe
 			if (a.matcher === undefined || b.matcher === undefined) {
 				const rankA = a.matcher === undefined ? 1 : 0;
 				const rankB = b.matcher === undefined ? 1 : 0;
-				return rankA !== rankB ? rankA - rankB : a.index - b.index;
+				return rankA === rankB ? a.index - b.index : rankA - rankB;
 			}
 			const specificity = compareSpecificity(
 				{ matcher: a.matcher, position: a.index },
 				{ matcher: b.matcher, position: b.index }
 			);
-			return specificity !== 0 ? specificity : a.index - b.index;
+			return specificity === 0 ? a.index - b.index : specificity;
 		})
 		.map((entry) => entry.index);
 }
@@ -334,11 +334,11 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 					const unforceable = parsed.value.find((name) => !isForceableParameter(name));
 					const unset = parsed.value.find((name) => !groupKeys.has(name));
 					paramHints[index] =
-						unforceable !== undefined
-							? l10n.t('"{0}" cannot be forced: provider-owned fields and _ keys stay extension-owned', unforceable)
-							: unset !== undefined
-								? l10n.t('"{0}" is not a parameter this record sets; its force mark is ignored', unset)
-								: undefined;
+						unforceable === undefined
+							? unset === undefined
+								? undefined
+								: l10n.t('"{0}" is not a parameter this record sets; its force mark is ignored', unset)
+							: l10n.t('"{0}" cannot be forced: provider-owned fields and _ keys stay extension-owned', unforceable);
 				}
 				return undefined;
 			}
@@ -703,7 +703,7 @@ export function parseCapabilityGroups(
 					return;
 				}
 				rowEntries[index] = [key, judged.value];
-				rowIssues[index] = judged.hint !== undefined ? { hint: judged.hint } : {};
+				rowIssues[index] = judged.hint === undefined ? {} : { hint: judged.hint };
 				return;
 			}
 			if (isCapabilityFieldName(key)) {
@@ -755,7 +755,7 @@ export function parseCapabilityGroups(
 			// counts as set); it hints as a possible typo only against real evidence - a known, non-empty observed
 			// /model/info key set that does not name it.
 			if (key.startsWith("_")) {
-				rowIssues[index] = wrongTypeHint !== undefined ? { hint: wrongTypeHint } : {};
+				rowIssues[index] = wrongTypeHint === undefined ? {} : { hint: wrongTypeHint };
 				return;
 			}
 			setFieldKeys.add(key);
@@ -803,7 +803,7 @@ export function parseCapabilityGroups(
 				continue;
 			}
 			rowEntries[index] = [key, judged.value];
-			rowIssues[index] = judged.hint !== undefined ? { hint: judged.hint } : {};
+			rowIssues[index] = judged.hint === undefined ? {} : { hint: judged.hint };
 		}
 		const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
 		for (const entry of rowEntries) {

@@ -411,7 +411,7 @@ function parseMcpDraft(draft: McpDraft): McpParse {
 		return { ok: true, value: true };
 	}
 	const canonical = usableHttpUrl(url);
-	return canonical !== undefined ? { ok: true, value: { url: canonical } } : { ok: false, text: url };
+	return canonical === undefined ? { ok: false, text: url } : { ok: true, value: { url: canonical } };
 }
 
 function sameMcp(a: McpParse, b: McpParse): boolean {
@@ -844,7 +844,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 	const server: SaveServerPayload = {
 		label: values.label,
 		baseUrl: values.baseUrl,
-		...(values.apiVersion !== undefined ? { apiVersion: values.apiVersion } : {}),
+		...(values.apiVersion === undefined ? {} : { apiVersion: values.apiVersion }),
 		...values.optionalText,
 		...(Object.keys(values.modelParameters).length > 0 ? { modelParameters: values.modelParameters } : {}),
 		modelCapabilities: values.modelCapabilities,
@@ -860,7 +860,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		intent: {
 			server,
 			secrets: values.secrets,
-			...(context.original !== undefined ? { replace: context.original } : {}),
+			...(context.original === undefined ? {} : { replace: context.original }),
 		},
 		modelCapabilityIssues: analysis.modelCapabilityIssues,
 		modelParameterHints: analysis.modelParameterHints,
@@ -916,7 +916,7 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
 	const server: SaveServerPayload = {
 		label: values.label,
 		baseUrl: values.baseUrl,
-		...(values.apiVersion !== undefined ? { apiVersion: values.apiVersion } : {}),
+		...(values.apiVersion === undefined ? {} : { apiVersion: values.apiVersion }),
 		...values.optionalText,
 		modelCapabilities: values.modelCapabilities,
 		expectedFailures: draft.expectedFailures,
@@ -931,7 +931,7 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
 		intent: {
 			server,
 			secrets: values.secrets,
-			...(context.original !== undefined ? { replace: context.original } : {}),
+			...(context.original === undefined ? {} : { replace: context.original }),
 		},
 	};
 }
