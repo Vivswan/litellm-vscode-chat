@@ -13,24 +13,22 @@ export interface AuthOverlayCredentials {
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 }
 
+/**
+ * What one call hands the overlay. `timeout` is the clock of each exchange attempt when this call starts the exchange
+ * (the token wait runs to its retry budget either way): the chat and discovery callers pass the discovery timeout
+ * (auth plumbing with its own budget), the one-shot callers their whole-call budget.
+ */
 export interface AuthOverlayContext {
 	/** The caller's token cache, so exchanges and 401 invalidation stay per-client. */
 	readonly tokens: OAuthTokenSource;
 
+	/** Whose error copy a token-exchange failure renders under. */
 	readonly surface: OAuthErrorSurface;
 
-	/**
-	 * The clock of each exchange attempt when this call starts the exchange (the token wait runs to its retry budget
-	 * either way) plus the identity of the setting that owns it (timeout advice renders from that identity): the chat
-	 * and discovery callers pass the discovery timeout (auth plumbing with its own budget), the one-shot callers their
-	 * whole-call budget.
-	 */
+	/** The exchange attempt's clock plus the identity of the setting that owns it, which timeout advice names. */
 	readonly timeout: TimeoutBudget;
 
-	/**
-	 * Ends this call's token wait when the triggering call is aborted or times out; the exchange itself runs on
-	 * for any other waiter.
-	 */
+	/** Ends this call's token wait on the caller's abort or timeout; the exchange runs on for any other waiter. */
 	readonly signal?: AbortSignal | undefined;
 }
 
@@ -39,13 +37,11 @@ export interface AuthOverlayContext {
  * whether one was sent at all, and whether the error is a token rejection are all decided in here, so no call site
  * can invalidate the wrong token or forget which one it sent. A fail-closed census (authOverlayScope.test.ts) pins
  * every shipped call site to its routing.
+ *   the rejected call itself                                                            -> is never retried
+ *   any error when the virtual key owned the Authorization header, so no token was sent -> is a no-op
  */
 export interface AuthOverlayScope {
-	/**
-	 * Safe to call with anything a catch block holds.
-	 *   the rejected call itself                                                            -> is never retried
-	 *   any error when the virtual key owned the Authorization header, so no token was sent -> is a no-op
-	 */
+	/** Safe to call with anything a catch block holds. */
 	readonly fail: (error: unknown) => void;
 }
 

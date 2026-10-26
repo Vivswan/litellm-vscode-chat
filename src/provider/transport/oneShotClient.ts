@@ -48,7 +48,6 @@ export interface FimCompletionRequest {
 
 	readonly prompt: string;
 
-	/** Absent exactly when the template owns the whole prompt. */
 	readonly suffix?: string | undefined;
 
 	readonly maxTokens: number;
@@ -56,18 +55,17 @@ export interface FimCompletionRequest {
 
 /**
  * Structurally satisfied by the usage subsystem's UsageConnection, so extension-side features resolve their
- * connection once and hand it to both.
+ * connection once and hand it to both. `apiVersion` forwards to apiRootOf (undefined is the auto rule), `apiKey` is
+ * the empty string for keyless servers, matching the transport convention, and auth headers win conflicts with
+ * `headers`.
  */
 export interface OneShotConnection {
 	readonly baseUrl: string;
 
-	/** Forwarded to apiRootOf; undefined means the auto rule. */
 	readonly apiVersion?: string | undefined;
 
-	/** Empty string for keyless servers, matching the transport convention. */
 	readonly apiKey: HeaderValue | "";
 
-	/** Auth headers win conflicts. */
 	readonly headers: Readonly<Record<string, HeaderValue>>;
 
 	readonly oauth?: OAuthConfig | undefined;
@@ -75,22 +73,22 @@ export interface OneShotConnection {
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 }
 
+/** The client's fixed inputs; `fetch` is the HTTP transport, where tests inject a fake. */
 export interface OneShotClientOptions {
 	readonly userAgent: HeaderValue;
 
-	/** The HTTP transport; tests inject a fake here. */
 	readonly fetch?: TransportFetch | undefined;
 }
 
 const JSON_CONTENT_TYPE = fixedHeaderValue("application/json");
 
+/**
+ * Per-call bounds. `timeout` is a one-shot request's hard whole-call bound, its OAuth token wait and the body read
+ * included; for authHeaders, which sends no request, the clock of each exchange attempt instead. It carries the
+ * identity of the setting that owns it (undefined for fixed bounds like the inline-completion timeout), minted where
+ * the caller reads its number, so timeout advice names the setting that really governs this call's clock or none.
+ */
 export interface OneShotCallOptions {
-	/**
-	 * A one-shot request's hard whole-call bound, its OAuth token wait and the body read included; for authHeaders,
-	 * which sends no request, the clock of each exchange attempt instead. Carries the identity of the setting that
-	 * owns it (undefined for fixed bounds like the inline-completion timeout). Minted where the caller reads its
-	 * number, so timeout advice names the setting that really governs this call's clock or none.
-	 */
 	readonly timeout: TimeoutBudget;
 
 	readonly token: vscode.CancellationToken;

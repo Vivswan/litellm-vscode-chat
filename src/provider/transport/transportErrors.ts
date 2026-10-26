@@ -35,6 +35,12 @@ export type RequestErrorKind = TransportErrorKind;
  *   a site that knows the advice is right                                            -> sets one
  *   sites where the same kind/status can mean something else (OAuth endpoints in
  *   auth.ts, upstream-auth 401s, chat 404s)                                           -> must NOT
+ *
+ * `unsupportedEndpoint` is discovery's endpoint-unsupported marker, assigned only at the discovery construction site
+ * that proved it in one pass (see TransportErrorClassification.unsupportedEndpoint). `oauthTokenEndpoint` is set at
+ * the OAuth token-endpoint construction sites (auth.ts and the shared socket-failure classifier's oauthToken context):
+ * the failure happened during the token exchange, BEFORE the target endpoint was called, so consumers judging the
+ * target endpoint from this error must treat it as proving nothing about that endpoint.
  */
 export class RequestError extends MirroredError {
 	readonly kind: RequestErrorKind;
@@ -43,17 +49,8 @@ export class RequestError extends MirroredError {
 
 	readonly setupHint?: SetupHintKind;
 
-	/**
-	 * Discovery's endpoint-unsupported marker, assigned only at the discovery construction site that proved it in one
-	 * pass; see TransportErrorClassification.unsupportedEndpoint.
-	 */
 	readonly unsupportedEndpoint?: "modelListing";
 
-	/**
-	 * Set at the OAuth token-endpoint construction sites (auth.ts and the shared socket-failure classifier's oauthToken
-	 * context): the failure happened during the token exchange, BEFORE the target endpoint was called, so consumers
-	 * judging the target endpoint from this error must treat it as proving nothing about that endpoint.
-	 */
 	readonly oauthTokenEndpoint?: true;
 
 	constructor(
@@ -93,12 +90,10 @@ export type TransportErrorSurface =
 	| "quickFix"
 	| "reviewComments";
 
-/**
- * Five features share their surface's name; inlineCompletions is the /completions FIM path, so it maps to
- * "completion". The features' shared send helper derives its surface from this table, so a feature cannot send under
- * another feature's error copy.
- */
+/** The features' shared send helper derives its surface here, so a feature cannot send under another's error copy. */
 export const FEATURE_ERROR_SURFACE: Record<FeatureModelId, TransportErrorSurface> = {
+	// inlineCompletions is the /completions FIM path, so it maps to "completion"; every other feature shares its
+	// surface's name.
 	inlineCompletions: "completion",
 	commitGeneration: "commitGeneration",
 	prGeneration: "prGeneration",
@@ -107,21 +102,24 @@ export const FEATURE_ERROR_SURFACE: Record<FeatureModelId, TransportErrorSurface
 	reviewComments: "reviewComments",
 };
 
+/**
+ * What every mapping function reads about the failed call. The surface picks the copy and the two-part join
+ * (SurfaceCopy); the feature surfaces, one per feature, are:
+ *   "completion"       -> the inline-completions /completions call: its errors degrade silently in the editor, so the
+ *                         texts serve the log surfaces and the dashboard's test probe, and they join discovery-style
+ *                         (the "\n" the dashboard splits on)
+ *   "commitGeneration" -> the commit-message /chat/completions call, surfaced as a VS Code notification by its
+ *                         command boundary; notifications flatten newlines, so it joins chat-style with the
+ *                         "Details:" lead-in
+ *   "consultTool"      -> the consult tool's /chat/completions call, thrown back into the chat view that invoked the
+ *                         tool, so it joins chat-style too
+ *   "prGeneration"     -> the PR title-and-description call, surfaced like commit generation
+ *   "quickFix"         -> the quick-fix fallback's /chat/completions call, a notification from its command boundary,
+ *                         so it joins chat-style as well
+ *   "reviewComments"   -> the review commands' /chat/completions call, a notification from its command boundary, so
+ *                         it joins chat-style too
+ */
 export interface MapErrorContext {
-	/**
-	 * "completion" is the inline-completions /completions call: its errors degrade silently in the editor, so the texts
-	 * serve the log surfaces and the dashboard's test probe, and they join discovery-style (the "\n" the dashboard
-	 * splits on). "commitGeneration" is the commit-message /chat/completions call, surfaced as a VS Code notification
-	 * by its command boundary - notifications flatten newlines, so it joins chat-style with the "Details:" lead-in.
-	 *
-	 *   "consultTool" is the consult tool's /chat/completions call: its failure is thrown back into the chat view that
-	 *     invoked the tool -> it joins chat-style too
-	 *   "prGeneration" is the PR title-and-description call -> surfaced like commit generation
-	 *   "quickFix" is the quick-fix fallback's /chat/completions call, surfaced as a notification by its command
-	 *     boundary -> it joins chat-style as well
-	 *   "reviewComments" is the review commands' /chat/completions call, surfaced as a notification by its command
-	 *     boundary -> it joins chat-style too
-	 */
 	surface: TransportErrorSurface;
 
 	baseUrl: string;
@@ -242,6 +240,10 @@ function meaningfulString(value: unknown): string | undefined {
 	return compact !== "" && compact !== "None" ? compact : undefined;
 }
 
+/**
+ * The server's error envelope as read. `marks` keeps the type and code as the server sent them, for classifyEnvelope
+ * alone: the rendered fields are capped.
+ */
 interface ErrorEnvelope {
 	message: string | undefined;
 
@@ -249,7 +251,6 @@ interface ErrorEnvelope {
 
 	code: string | undefined;
 
-	/** The type and code as the server sent them, for classifyEnvelope alone: the rendered fields above are capped. */
 	marks: string;
 }
 
@@ -374,11 +375,13 @@ export interface LocalizedText {
 	english: string;
 }
 
+/**
+ * A surface's 404 copy. `url` is the base URL as configured; non-discovery headlines ignore it. `setupHint` is set only
+ * where the advice is certain (discovery's check-the-base-URL); a hint that can be wrong stays unset.
+ */
 interface NotFoundCopy {
-	/** `url` is the base URL as configured; non-discovery headlines ignore it. */
 	readonly headline: (url: string) => LocalizedText;
 
-	/** Only where the advice is certain (discovery's check-the-base-URL); a hint that can be wrong stays unset. */
 	readonly setupHint?: SetupHintKind;
 
 	readonly detail: (err: APIError, envelope: ErrorEnvelope | undefined) => string;
@@ -393,13 +396,15 @@ interface DroppedCopy {
 /**
  * The Record fails closed - a new TransportErrorSurface member does not compile until its row exists. Copy only:
  * classification (kind, status, the envelope classifier) is surface-invariant and stays in the mapping functions.
+ *   join          -> how twoPartTexts joins headline and detail: "detailsLeadIn" is the blank line plus "Details:" for
+ *                    newline-flattening hosts (Copilot Chat's error block, VS Code notifications); "newline" is the
+ *                    single "\n" the dashboard and tooltips split on
+ *   contextWindow -> the context_window_exceeded headline, the one HTTP class whose advice must name what to shrink
+ *                    per surface
+ *   phrase        -> the prose naming this surface in the anonymous-tail detail line; logClassification keeps the
+ *                    camelCase id
  */
 interface SurfaceCopy {
-	/**
-	 * How twoPartTexts joins headline and detail: "detailsLeadIn" is the blank line plus "Details:" for
-	 * newline-flattening hosts (Copilot Chat's error block, VS Code notifications); "newline" is the single "\n" the
-	 * dashboard and tooltips split on.
-	 */
 	readonly join: "detailsLeadIn" | "newline";
 
 	readonly httpVocabulary: "request" | "modelList";
@@ -408,12 +413,10 @@ interface SurfaceCopy {
 
 	readonly notFound: NotFoundCopy;
 
-	/** The context_window_exceeded headline - the one HTTP class whose advice must name what to shrink per surface. */
 	readonly contextWindow: () => LocalizedText;
 
 	readonly dropped: DroppedCopy;
 
-	/** The prose naming this surface in the anonymous-tail detail line; logClassification keeps the camelCase id. */
 	readonly phrase: string;
 }
 
@@ -1061,6 +1064,7 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 
 /** kind and cause-detail extraction are one rule for the chat, discovery, and OAuth token-endpoint callers. */
 interface SocketFailureContext {
+	/** What was being called; "oauthToken" is the token exchange, which proves nothing about the target endpoint. */
 	endpoint: TransportErrorSurface | "oauthToken";
 
 	/** The surface whose two-part join renders the message; the token exchange fails toward its caller's surface. */

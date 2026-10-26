@@ -1,14 +1,13 @@
 /**
  *   Freshness is decided at read time -> a lowered TTL takes effect immediately
  *   failed loads                      -> are never stored
+ *   clear() during a load             -> the load still resolves for its callers but never stores (its `superseded`
+ *                                        flag), so an explicit "sync now" is not answered with pre-sync data for the
+ *                                        rest of the TTL
  */
 export class DiscoveryCache<T> {
 	private readonly entries = new Map<string, { value: T; storedAt: number }>();
 
-	/**
-	 * `superseded` is set by clear(): the load still resolves for its callers but never stores, so an explicit "sync
-	 * now" is not answered with pre-sync data for the rest of the TTL.
-	 */
 	private readonly inFlight = new Map<string, { promise: Promise<T>; load: { superseded: boolean } }>();
 
 	/** The only clock seam; tests inject a fake. */

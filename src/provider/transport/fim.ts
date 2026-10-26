@@ -16,6 +16,10 @@ export const FIM_MAX_TOKENS = 256;
 /** Hard whole-call bound of every FIM request; deliberately not a setting, so timeout wording can stay truthful. */
 export const FIM_TIMEOUT_MS = 15000;
 
+/**
+ * What buildFimPrompt composes. `fimTemplate` is untyped for totality: only a string with both placeholders applies,
+ * and a malformed value degrades to the native path.
+ */
 export interface FimPromptInput {
 	/** Document text before the cursor; only the last FIM_PREFIX_BUDGET units are used. */
 	readonly prefix: string;
@@ -23,17 +27,14 @@ export interface FimPromptInput {
 	/** Document text after the cursor; only the first FIM_SUFFIX_BUDGET units are used. */
 	readonly suffix: string;
 
-	/**
-	 * The resolved parameter record's `_fim_template` directive value (ResolvedModelParameters.fimTemplate), untyped
-	 * for totality: only a string with both placeholders applies, and a malformed value degrades to the native path.
-	 */
+	/** The resolved parameter record's `_fim_template` directive value (ResolvedModelParameters.fimTemplate). */
 	readonly fimTemplate?: unknown;
 }
 
+/** The prompt to send; `suffix` is the wire field, absent exactly when a template owns the whole prompt. */
 export interface FimPrompt {
 	readonly prompt: string;
 
-	/** The wire `suffix` field; absent exactly when a template owns the whole prompt. */
 	readonly suffix?: string;
 }
 

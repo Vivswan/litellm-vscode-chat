@@ -151,24 +151,25 @@ export function pricingFromCosts(costs: Readonly<PerTokenCosts>, currencySymbol:
 	return fields;
 }
 
-/**
- * isBYOK marks the model as served with user-supplied credentials; the explicit flag pins the value against a future
- * host default change. Shared with capabilityOverrides.ts, whose synthesized declared models must carry the same
- * registration-wide fields.
- *   isUserSelectable -> must be an explicit true
- */
+/** Shared with capabilityOverrides.ts: its synthesized declared models carry the same registration-wide fields. */
 export const COMMON_MODEL_FIELDS = {
 	version: "1.0.0",
+	// Served with user-supplied credentials; the explicit flag pins the value against a future host default change.
 	isBYOK: true,
+	// Must be an explicit true.
 	isUserSelectable: true,
 } as const;
 
+/**
+ * The display fields every model of one server shares. With several servers the label prefixes the name and fills
+ * the detail and the tooltip; with one server the prefix is empty and the other two read "LiteLLM". `tooltip` is the
+ * base one (deployment and bare entries); group-shape entries compose their own.
+ */
 export interface ServerDisplayContext {
 	readonly detail: string;
 
 	readonly namePrefix: string;
 
-	/** The base tooltip (deployment and bare entries); group-shape entries compose their own. */
 	readonly tooltip: string;
 }
 

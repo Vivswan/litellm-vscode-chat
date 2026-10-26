@@ -129,6 +129,11 @@ export function replaysReasoningContent(providers: readonly LiteLLMProvider[]): 
 	return providers.length > 0 && providers.every((p) => p.replay_reasoning_content === true);
 }
 
+/**
+ * What registration hands the baseline builder for one entry. `costs` are absent for the untooled base entry and the
+ * cheapest/fastest aggregates: registration deliberately never priced them, and the walk's server level must not
+ * offer what the picker refused to advertise.
+ */
 export interface DiscoveredBaselineInput {
 	/** The provider entries backing this registered entry; empty for bare /v1/models entries. */
 	readonly providers: readonly LiteLLMProvider[];
@@ -145,17 +150,10 @@ export interface DiscoveredBaselineInput {
 	/** Whether this entry advertises the reasoning-effort control (registration's answer for its shape). */
 	readonly reasoning: boolean;
 
-	/**
-	 * The proxy's own Thinking Effort menu for the group (LiteLLMModelItem.reasoningEfforts): when present it outranks
-	 * what the providers' flags resolved to, null reading as unreported.
-	 */
+	/** LiteLLMModelItem.reasoningEfforts: when present it outranks the providers' flags; null reads as unreported. */
 	readonly reasoningEfforts?: readonly string[] | null | undefined;
 
-	/**
-	 * The per-token costs this entry's registration would have priced: present ONLY for the shapes whose route pins the
-	 * serving deployment's cost. The untooled base entry and the cheapest/fastest aggregates pass none - registration
-	 * deliberately never priced them, and the walk's server level must not offer what the picker refused to advertise.
-	 */
+	/** The per-token costs this entry's registration priced; present ONLY for shapes whose route pins the deployment. */
 	readonly costs?: Readonly<PerTokenCosts> | undefined;
 }
 

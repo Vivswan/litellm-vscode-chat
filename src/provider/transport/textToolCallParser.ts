@@ -1,18 +1,23 @@
+/** Opens a text-form tool call; the header (the tool name and its optional ":index") follows. */
 const BEGIN = "<|tool_call_begin|>";
+
+/** Closes the header and opens the argument text. */
 const ARG_BEGIN = "<|tool_call_argument_begin|>";
+
+/** Closes the argument text; anything between it and END is discarded. */
 const ARG_END = "<|tool_call_argument_end|>";
+
+/** Closes the call; reached before ARG_BEGIN it closes a header-only call whose args read "{}". */
 const END = "<|tool_call_end|>";
 
-/**
- * The most header text (the tool name and its optional ":index") held behind a begin sigil while its argument-begin or
- * end token is still to come. The OpenAI API caps function names at 64 characters, so four times that clears longer
- * MCP-prefixed names, while a sigil a model merely wrote about holds at most this much of the reply instead of all of
- * it until the end-of-stream flush drops it.
- */
+/** The most header text held behind a begin sigil while its argument-begin or end token is still to come. */
 export const MAX_TOOL_CALL_HEADER_LENGTH = 256;
 
+/**
+ * A parsed text-form call. `seq` is a monotonic identity within one parser lifetime, letting callers pair a
+ * provisional call with its completion.
+ */
 export interface TextToolCall {
-	/** Monotonic identity within one parser lifetime; lets callers pair a provisional call with its completion. */
 	seq: number;
 
 	name?: string | undefined;
@@ -24,10 +29,13 @@ export interface TextToolCall {
 
 export type TextParseEvent = { type: "text"; text: string } | { type: "call"; call: TextToolCall };
 
+/**
+ * The events of one push; `provisionalCall` is the call whose argument section is still open, its args what has
+ * arrived so far.
+ */
 export interface TextParseResult {
 	events: TextParseEvent[];
 
-	/** Call whose argument section is still open; args reflect what has arrived so far. */
 	provisionalCall?: TextToolCall | undefined;
 }
 
@@ -104,6 +112,10 @@ function controlTokenHold(data: string): number {
 	return isPartialControlToken(tail) ? tail.length : 0;
 }
 
+/**
+ * The call being parsed; `argsClosed` is set when an argument-end token closed the args, and anything before the end
+ * token is then discarded.
+ */
 interface ActiveCall {
 	seq: number;
 
@@ -113,14 +125,16 @@ interface ActiveCall {
 
 	argBuffer: string;
 
-	/** Set when an argument-end token closed the args; anything before the end token is then discarded. */
 	argsClosed: boolean;
 }
 
 /**
  * Incremental scanner for `<|tool_call_begin|>name<|tool_call_argument_begin|>{...}<|tool_call_end|>`
  * sequences embedded in streamed text. Pure state machine: emission, dedup,
- * and call IDs are the caller's concern.
+ * and call IDs are the caller's concern. A header longer than MAX_TOOL_CALL_HEADER_LENGTH means the sigil was prose:
+ * the OpenAI API caps function names at 64 characters, so four times that clears longer MCP-prefixed names, while a
+ * sigil a model merely wrote about holds at most this much of the reply instead of all of it until the end-of-stream
+ * flush drops it.
  */
 export class TextToolCallParser {
 	private _buffer = "";

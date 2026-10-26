@@ -19,6 +19,7 @@ export class ToolCallLedger {
 	/** Per-channel counts of emitted name:args keys; see the max(N, M) rule on the class. */
 	private readonly _deltaEmittedCounts = new Map<string, number>();
 
+	/** The inline channel's counts, paired with _deltaEmittedCounts in the max(N, M) rule. */
 	private readonly _inlineEmittedCounts = new Map<string, number>();
 
 	alreadyHandled(seq: number): boolean {

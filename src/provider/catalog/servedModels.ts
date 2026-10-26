@@ -29,10 +29,10 @@ export interface ServedModelDecoratorOptions {
 	/** The shared flat resolution table; the same cache requests and the dashboard read. */
 	resolution: ModelResolutionTable;
 
-	// Facade-bound: this module never touches a logger directly, since the provider facade is the single logging
-	// boundary.
+	/** Facade-bound: this module never touches a logger, so the provider facade stays the single logging boundary. */
 	log: (message: string, data?: unknown) => void;
 
+	/** Facade-bound like `log`; the advisory channel for notes that must not consume the issue-report buffer. */
 	logAdvisory: (message: string, data?: unknown) => void;
 }
 

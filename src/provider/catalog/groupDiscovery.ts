@@ -46,6 +46,10 @@ type AttachedServe = {
 /**
  * What one serve records under, fixed once its claim settled: the hidden serve and the fetched serve record through
  * the same pipeline (recordServe), so the yield rule and the report shape cannot drift between them.
+ *   identity     -> statusWindow.ts groupIdentity: the window's key and the identity a served model carries
+ *   hostClientId -> groupClientId of the group as the host handed it over, before the overlay; a hidden serve records
+ *                   under it while a visible serve of the same host group records under the owned identity, so
+ *                   supersession between the two keys on it as well (see _recordedGenerations)
  */
 interface ServeRecord {
 	readonly generation: number;
@@ -54,14 +58,8 @@ interface ServeRecord {
 
 	readonly groupServer: GroupServer;
 
-	/** statusWindow.ts groupIdentity: the window's key and the identity a served model carries. */
 	readonly identity: string;
 
-	/**
-	 * groupClientId of the group as the host handed it over, before the overlay. A hidden serve records under it while
-	 * a visible serve of the same host group records under the owned identity, so supersession between the two keys
-	 * on it as well; see _recordedGenerations.
-	 */
 	readonly hostClientId: string;
 
 	readonly silent: boolean;
@@ -77,25 +75,22 @@ type RecordAndServe = {
 
 /**
  * Configuration-free, so overrides and declared models are applied where models are served, never stored.
- * The raw-ID set rides along because the infos alone may hold only synthetic variants (`foo:cheapest`) of a
- * discovered `foo`, and a declared `foo` must stay inert on a cache hit.
+ * `observedModelInfoKeys`, `skippedModeCounts`, and `modelInfoUnsupported` are FetchModelsResult's, riding the cache
+ * so a cached serve re-reports them.
+ *   discoveredRawIds     -> the infos alone may hold only synthetic variants (`foo:cheapest`) of a discovered `foo`,
+ *                           and a declared `foo` must stay inert on a cache hit
+ *   modelInfoUnsupported -> the serve gates it against the entry's CURRENT expectedFailures, so declaring the failure
+ *                           retires the hint immediately instead of waiting out the cache TTL
  */
 export interface DiscoveredGroupModels {
 	readonly infos: readonly PreAttachModelInfo[];
 
 	readonly discoveredRawIds: readonly string[];
 
-	/** See FetchModelsResult.observedModelInfoKeys; rides the cache so cached serves re-report it. */
 	readonly observedModelInfoKeys?: readonly string[];
 
-	/** See FetchModelsResult.skippedModeCounts; rides the cache so cached serves re-report it. */
 	readonly skippedModeCounts?: SkippedModeCounts;
 
-	/**
-	 * See FetchModelsResult.modelInfoUnsupported; rides the cache so cached serves re-report it. The serve gates it
-	 * against the entry's CURRENT expectedFailures, so declaring the failure retires the hint immediately instead of
-	 * waiting out the cache TTL.
-	 */
 	readonly modelInfoUnsupported?: UnservedEndpointEvidence;
 }
 
@@ -109,10 +104,13 @@ function discoveryCacheKey(groupClientId: string, apiRoot: string, includeModes:
 	return JSON.stringify([groupClientId, apiRoot, [...includeModes].sort()]);
 }
 
+/**
+ * What the tombstone predicate (LiteLLMChatModelProviderOptions.isGroupSuppressed) judges a group by. `label` is the
+ * status label: the configuration stamp, else the URL host.
+ */
 export interface SuppressedGroupKey {
 	readonly groupId: string;
 
-	/** The status label: the configuration stamp, else the URL host. */
 	readonly label: string;
 
 	readonly entryLabel: string | undefined;
@@ -164,20 +162,19 @@ export interface GroupDiscoveryOptions {
 	/** The transport's model listing; its errors arrive unlogged and are logged once here at the boundary. */
 	client: Pick<ChatClient, "fetchModels">;
 
+	/** Keyed through discoveryCacheKey, so a changed API root or mode list misses by construction. */
 	cache: DiscoveryCache<DiscoveredGroupModels>;
 
+	/** Records each serve's outcome into the status window and fires the aggregated status callback. */
 	reporter: GroupStatusReporter;
 
 	/** The facade-owned live window; read for the error path's stale-servable fallback. */
 	window: Pick<StatusWindow, "staleServableModels">;
 
+	/** Applies capability overrides and declared models at serve time, outside the cache. */
 	decorator: ServedModelDecorator;
 
-	/**
-	 * The same apiVersion resolver ChatClient consumes, kept here so the discovery cache key can compose the effective
-	 * API root a serve would fetch from: a serve resolving to a different root lands on a different key and misses by
-	 * construction.
-	 */
+	/** The same apiVersion resolver ChatClient consumes; the discovery cache key composes the effective API root. */
 	getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
 
 	/** Per-entry expectedFailures resolver, matched by label and normalized base URL. */
@@ -192,31 +189,30 @@ export interface GroupDiscoveryOptions {
 	/** See LiteLLMChatModelProviderOptions.resolveEntryCredentials. */
 	resolveEntryCredentials: EntryCredentialsResolver | undefined;
 
-	// Facade-bound log callbacks: this module logs only through them, so the provider facade stays the single logging
-	// boundary.
+	/** Facade-bound, like logFailure: the module logs only through these, so the facade stays the logging boundary. */
 	log: (message: string, data?: unknown) => void;
 
-	/**
-	 * The error-level line for an unexpected failure: `data` is what the channel shows, `error` what the report
-	 * records.
-	 */
+	/** The error-level line of an unexpected failure: `data` for the channel, `error` for the report's recorder. */
 	logFailure: (message: string, data: unknown, error: unknown) => void;
 }
 
+/**
+ * Serves a group's models through the discovery cache and records the outcome. `_serveGenerations` holds the newest
+ * generation CLAIMED per claim key; `_recordedGenerations` the newest that has RECORDED, keyed by the group's IDENTITY
+ * (statusWindow.ts groupIdentity) and by the host client ID it was served under.
+ *   two unowned twins sharing a claim key -> never yield to each other: distinct host groups, so neither key is shared
+ *   a hidden serve                        -> records under the host client ID, while a visible serve of the same host
+ *                                            group records under the owned identity; the host client ID key is what
+ *                                            lets the hidden record supersede an older visible serve still in flight
+ *   a newer claim                         -> is never yielded to, only a newer record: until the newer serve lands,
+ *                                            the older record is the only thing that makes its served models
+ *                                            routable, and the newer record replaces it the moment it lands
+ */
 export class GroupDiscovery {
 	private readonly _options: GroupDiscoveryOptions;
 
 	private readonly _serveGenerations = new Map<string, number>();
 
-	/**
-	 * The newest generation that has RECORDED, keyed by the group's IDENTITY (statusWindow.ts groupIdentity) and by
-	 * the host client ID it was served under. Two unowned twins sharing a claim key never yield to each other: they are
-	 * distinct host groups, so neither key is shared. A hidden serve records under the host client ID while a visible
-	 * serve of the same host group records under the owned identity, and the host client ID key is what lets the
-	 * hidden record supersede an older visible serve still in flight. A serve yields to a newer record, never to a
-	 * newer claim: until the newer serve lands, the older one's record is the only thing that makes its served models
-	 * routable, and the newer record replaces it the moment it lands.
-	 */
 	private readonly _recordedGenerations = new Map<string, number>();
 
 	constructor(options: GroupDiscoveryOptions) {

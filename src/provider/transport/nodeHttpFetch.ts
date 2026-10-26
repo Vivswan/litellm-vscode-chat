@@ -16,23 +16,22 @@ import { headerNameKey } from "../../shared/util/headers";
  */
 export type TransportFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
+/** The fetch spec's redirect cap; the hop past it fails as a network error. */
 const MAX_REDIRECTS = 20;
+
+/** The statuses followed; 303, and 301 or 302 on a POST, turn the request into a bodiless GET. */
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/** Statuses whose Response must be built with a null body, as the Response constructor demands. */
 const NULL_BODY_STATUSES = new Set([204, 205, 304]);
 
-/**
- * The only request headers carried across an origin change: every other one may be a credential the entry configured
- * under any name, and the new origin was never meant to see it.
- */
+/** The only request headers that cross an origin change; any other may be a credential the new origin must not see. */
 const CROSS_ORIGIN_HEADERS = new Set(["content-type", "accept", "accept-encoding", "user-agent", "content-length"]);
 
 /** Dropped when a redirect turns the request into a bodiless GET, as the fetch spec lists them. */
 const BODY_HEADERS = ["content-type", "content-length", "content-encoding", "content-language", "content-location"];
 
-/**
- * The content codings fetch decodes transparently; anything else passes through as fetch also does. A Map, so a
- * header naming an inherited Object property ("constructor") is an unknown coding, not a function.
- */
+/** The codings decoded transparently, as fetch does (others pass through); a Map, so "constructor" is unknown. */
 const DECODERS = new Map<string, () => Duplex>([
 	["gzip", () => zlib.createGunzip()],
 	["x-gzip", () => zlib.createGunzip()],

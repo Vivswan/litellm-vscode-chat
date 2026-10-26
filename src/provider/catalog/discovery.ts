@@ -48,10 +48,7 @@ import {
 	supportsTools,
 } from "./schemas";
 
-/**
- * Whether LiteLLM's catalog described a deployment is provenance the wire does not carry, so every entry resolves as
- * unmapped: a flagless one reads as unknown (the built-in menu) rather than as a model that takes no level.
- */
+/** The wire never says whether LiteLLM's catalog described a deployment, so every entry resolves as unmapped. */
 const UNMAPPED_DEPLOYMENT = { deploymentIsMapped: false } as const;
 
 /** A models-listing item. */
@@ -172,12 +169,15 @@ export function normalizeModelItem(raw: RawModelItem, log: DiscoveryLog): LiteLL
 	};
 }
 
+/**
+ * A /model/info entry as mapModelInfoEntry maps it. `limits` are derived once at ingest, and the merge min-collapses
+ * them, so a merged record never re-derives from itself.
+ */
 export interface MappedModelInfo {
 	id: string;
 
 	provider: LiteLLMProvider;
 
-	/** Derived once at ingest; the merge min-collapses these, so a merged record never re-derives from itself. */
 	limits: TokenConstraints;
 
 	inputModalities: readonly string[];
@@ -297,26 +297,27 @@ export function mergeModelDeployments(deployments: ModelDeployments): MappedMode
 	};
 }
 
+/**
+ * What one discovery pass yields. `observedModelInfoKeys` and `skippedModeCounts` are present ONLY when the
+ * /model/info listing succeeded (absent on the /models fallback and on failure), so downstream advisory hints can tell
+ * "the server reports these fields" from "nothing was observed".
+ *   observedModelInfoKeys -> collected from the RAW entries, before parsing and the blocked/non-chat filters, sorted,
+ *                            then capped at OBSERVED_MODEL_INFO_KEYS_MAX
+ *   skippedModeCounts     -> excludes blocked deployments (judged first) and the modes the entry already includes; the
+ *                            dashboard offers includeModes on this evidence, and an all-dropped server explains its
+ *                            empty picker with it
+ */
 export interface FetchModelsResult {
+	/** The listing's models, from /model/info or the /models fallback. */
 	models: LiteLLMModelItem[];
 
-	/**
-	 * The sorted union of model_info keys observed across the /model/info items, present ONLY when that listing
-	 * succeeded (absent on the /models fallback and on failure): downstream advisory hints must be able to tell "the
-	 * server reports these fields" from "nothing was observed". Collected from the RAW entries, before parsing and the
-	 * blocked/non-chat filters, and capped at OBSERVED_MODEL_INFO_KEYS_MAX after the sort.
-	 */
+	/** The sorted union of model_info keys observed across the /model/info items. */
 	observedModelInfoKeys?: readonly string[];
 
-	/**
-	 * How many usable /model/info entries were dropped per non-chat mode, present ONLY when that listing succeeded,
-	 * like observedModelInfoKeys: the dashboard offers includeModes on this evidence, and an all-dropped server
-	 * explains its empty picker with it. Counts exclude blocked deployments (judged first) and the modes the entry
-	 * already includes.
-	 */
+	/** How many usable /model/info entries were dropped per non-chat mode. */
 	skippedModeCounts?: SkippedModeCounts;
 
-	/** Advisory only - the pass succeeded and the models serve either way. */
+	/** Advisory only: the pass succeeded and the models serve either way. */
 	modelInfoUnsupported?: UnservedEndpointEvidence;
 }
 
@@ -329,33 +330,31 @@ export interface ExpectedDiscoveryFailures {
 	readonly modelListing: boolean;
 }
 
+/**
+ * One listing fetch. `apiVersion` is required, not optional, so a caller cannot build the client on an overridden root
+ * and silently report the auto one: the endpoint URLs in discovery errors must match the client's real API root.
+ *   entryLabel "" -> "no nameable entry", like undefined; never used for matching here
+ */
 export interface FetchModelsRequest {
 	/** Transport for this server, from clients.ts; static auth and headers live there. */
 	client: OpenAI;
 
+	/** The server's base URL as configured; error texts and the endpoint URLs name it. */
 	baseUrl: string;
 
-	/**
-	 * The entry's apiVersion override the client was built with, so the endpoint URLs in discovery errors match the
-	 * client's real API root; "" and undefined follow apiRootOf's rules. Required so a caller cannot build the client
-	 * on an overridden root and silently report the auto one.
-	 */
+	/** The entry's apiVersion override the client was built with; "" and undefined follow apiRootOf's rules. */
 	apiVersion: string | undefined;
 
 	/** Pre-validated by settings.getDiscoveryTimeout(); used as-is. */
 	discoveryTimeout: number;
 
+	/** The endpoints the entry declares as expected failures; absent means none. */
 	expected?: ExpectedDiscoveryFailures;
 
 	/** The non-chat modes the entry's discovery.includeModes admits to the chat catalog; see NON_CHAT_MODES. */
 	includeModes?: readonly NonChatMode[];
 
-	/**
-	 * The declared entry's label, when the server has one, so the endpoint-unserved hints can name the entry the
-	 * declaration belongs on.
-	 *   Empty -> "no nameable entry" like undefined does
-	 * Never used for matching here.
-	 */
+	/** The declared entry's label, when the server has one, so endpoint-unserved hints can name the entry. */
 	entryLabel?: string | undefined;
 
 	/** Per-request headers resolved by the caller, e.g. a freshly exchanged OAuth bearer token. */
@@ -411,6 +410,8 @@ function parseJsonBody(text: string, endpointUrl: string): unknown {
  * null, because "answered with a body" is the evidence that marks a LiteLLM proxy for the group probe.
  */
 type DiscoveryBody = { readonly empty: true } | { readonly empty: false; readonly value: unknown };
+
+/** What a 204 or a bare 200 answers with. */
 const EMPTY_BODY: DiscoveryBody = { empty: true };
 
 /** An empty body reads as an empty listing downstream, exactly like a body that parsed to null. */
@@ -527,6 +528,7 @@ interface ModelInfoProbeOutcome {
 	/** The response carried a JSON body (an empty 200 or 204 answers without one), which is what marks a LiteLLM proxy. */
 	body: boolean;
 
+	/** The unserved-looking failure the probe's error mapped to, or undefined when it answered or failed otherwise. */
 	evidence: EndpointFailureEvidence | undefined;
 }
 
@@ -640,14 +642,15 @@ function refineModelsListingFailure(mapped: Error, ctx: ModelsFailureContext): E
 	return mapped;
 }
 
+/**
+ * The /v1/models fallback keys on `usableEntryCount`, never on `models.length`: a payload whose recognized entries
+ * were all blocked must yield an empty list, not a fallback that re-lists the blocked models.
+ */
 interface NarrowedModelInfoData {
+	/** The entries that survived parsing and the blocked and non-chat filters; deployments sharing an id are merged. */
 	models: LiteLLMModelItem[];
 
-	/**
-	 * Entries recognized as either payload shape, counted before the blocked filter. The /v1/models fallback keys on
-	 * this instead of `models.length`: a payload whose recognized entries were all blocked must yield an empty list,
-	 * not a fallback that re-lists the blocked models.
-	 */
+	/** Entries recognized as either payload shape, counted before the blocked filter. */
 	usableEntryCount: number;
 
 	/** See FetchModelsResult.observedModelInfoKeys; sorted and capped here. */
@@ -657,9 +660,10 @@ interface NarrowedModelInfoData {
 	skippedModeCounts: SkippedModeCounts;
 }
 
-/** Sorted before truncation, and an oversized key is dropped, never clipped, so truncation cannot alias two keys. */
+/** The list is sorted before this cap, so the kept keys do not depend on the server's order. */
 const OBSERVED_MODEL_INFO_KEYS_MAX = 512;
 
+/** An oversized key is dropped, never clipped, so truncation cannot alias two keys. */
 const OBSERVED_MODEL_INFO_KEY_MAX_LENGTH = 128;
 
 /**

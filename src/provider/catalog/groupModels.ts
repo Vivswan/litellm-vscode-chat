@@ -37,6 +37,7 @@ import { oauthCredentialFingerprint } from "../transport/auth";
  */
 
 export interface GroupServer {
+	/** With `label`, the identity of an entry-owned group (see entryOwned); unowned, the client ID is the identity. */
 	baseUrl: NormalizedBaseUrl;
 
 	/** Empty string for keyless groups. */
@@ -51,40 +52,31 @@ export interface GroupServer {
 	/** Gateway virtual key; present only when the configuration names both a header and a value. */
 	virtualKey?: VirtualKeyConfig;
 
-	/**
-	 * Set by overlayEntryCredentials when a declared entry at this label and URL owns the group. Owned, the group's
-	 * identity is the rotation-stable label plus URL (the setting is truth); unowned, it stays the client ID, since no
-	 * declarative source exists that would make one labeled external twin stand in for another.
-	 */
+	/** Set by overlayEntryCredentials when a declared entry at this label and URL owns the group; see groupIdentity. */
 	entryOwned?: true;
 }
 
+/**
+ * The LiteLLM facts a registered model object carries. `supportsAudioInput` and `replayReasoningContent` are optional
+ * because model objects round-trip through the host and older metadata lacks them; absent reads as false.
+ *   rawModelId       -> stamped by the mints (registration and declared-model synthesis), the only places that know
+ *                       it: synthetic variants like `foo:cheapest` and `foo:groq` carry their routed ID here
+ *   defaultMaxTokens -> decided where the limit was derived (registration, or the capability walk on a rebuild)
+ */
 interface LiteLLMModelMetadataBase {
-	/**
-	 * The raw LiteLLM model ID this entry routes to (the request's `model` field), stamped by the mints (registration
-	 * and declared-model synthesis), which are the only places that know it: synthetic variants like `foo:cheapest`
-	 * and `foo:groq` carry their routed ID here.
-	 */
+	/** The raw LiteLLM model ID this entry routes to (the request's `model` field). */
 	readonly rawModelId: string;
 
+	/** Gates the prompt-cache breakpoints (cache_control markers) the chat path applies. */
 	readonly supportsPromptCaching: boolean;
 
-	/**
-	 * The request's max_tokens when nothing configures one, decided where the limit was derived (registration, or the
-	 * capability walk on a rebuild); the chat path reads it and applies no cap of its own.
-	 */
+	/** The request's max_tokens when nothing configures one; the chat path applies no cap of its own. */
 	readonly defaultMaxTokens: number;
 
-	/**
-	 * Gates the input_audio message conversion. Optional because model objects round-trip through the host and older
-	 * metadata lacks it (absent reads as false).
-	 */
+	/** Gates the input_audio message conversion. */
 	readonly supportsAudioInput?: boolean;
 
-	/**
-	 * Gates the reasoning_content replay on assistant history (the resolved replay_reasoning_content capability).
-	 * Optional for the same round-trip reason as supportsAudioInput; absent reads as false.
-	 */
+	/** The resolved replay_reasoning_content capability; gates the reasoning_content replay on assistant history. */
 	readonly replayReasoningContent?: boolean;
 
 	/** True for a declared model (an entry's discovery.declared; discovery does not list it). */
@@ -94,14 +86,11 @@ interface LiteLLMModelMetadataBase {
 /**
  * The `never` pins the serve boundary: a served copy, stamped with one group's identity and possibly stale-decorated
  * (markStale), does not compile into the discovery cache (groupDiscovery.ts), StatusWindow.record (statusWindow.ts),
- * or a dashboard snapshot, which hold the configuration-free form.
+ * or a dashboard snapshot, which hold the configuration-free form. `serverDeclared` is required, so an entry without a
+ * baseline is unrepresentable; attach drops it, since the chat path reads patched values.
  */
 export interface PreAttachModelInfo extends LanguageModelChatInformation {
 	readonly litellm: LiteLLMModelMetadataBase & {
-		/**
-		 * Required, so an entry without a baseline is unrepresentable; attach drops it, since the chat path reads
-		 * patched values.
-		 */
 		readonly serverDeclared: ServerDeclaredCapabilities;
 
 		readonly group?: never;
@@ -447,7 +436,8 @@ function narrowVirtualKey(raw: RawOptionalFields, report?: CredentialRejectionRe
  * How one secret field rides a GroupServer: the credential slot it fills, the non-secret fields that ride along
  * without deciding the unit's presence (the ones that decide it are its SECRET_FIELD_CARRIERS), and the narrowing
  * from the raw fields to the slot's value, undefined leaving the slot absent. Discriminated on the slot, so a unit's
- * narrowing must produce its own slot's type.
+ * narrowing must produce its own slot's type. CREDENTIAL_UNITS is total over SecretFieldId: a secret field without a
+ * unit does not compile, so buildGroupArgs (serverSync/engine.ts) cannot send one the parser drops.
  */
 type CredentialUnit = {
 	[S in keyof GroupCredentials]-?: {
@@ -457,11 +447,7 @@ type CredentialUnit = {
 	};
 }[keyof GroupCredentials];
 
-/**
- * The parser's reading of the secret-field vocabulary, total over SecretFieldId: a secret field without a unit here
- * does not compile, so buildGroupArgs (serverSync/engine.ts) cannot send one the parser drops. narrowGroupCredentials
- * reads this table, never the field names.
- */
+/** The parser's secret-field vocabulary; narrowGroupCredentials reads this table, never the field names. */
 const CREDENTIAL_UNITS = {
 	apiKey: { slot: "apiKey", passengers: [], narrow: narrowApiKey },
 	oauthClientSecret: { slot: "oauth", passengers: ["oauthScopes"], narrow: narrowOAuth },
@@ -616,29 +602,30 @@ export function markStale(infos: readonly AttachedModelInfo[], lastSyncedDisplay
 /**
  * Model objects come back across the host boundary, so only their shape is trustworthy, not their type. This is the
  * chat path's one parse of `model.litellm`.
+ *   group      -> undefined is a state the provider never serves, which the request path fails loudly on
+ *   rawModelId -> an object whose round trip lost the stamp falls back to its exposed ID, which group registrations
+ *                 mint raw anyway
  */
 export interface ParsedModelMetadata {
-	/**
-	 * The identity of the group that served the model, or undefined when the model object carries none - a state the
-	 * provider never serves, which the request path fails loudly on.
-	 */
+	/** The identity of the group that served the model, or undefined when the model object carries none. */
 	readonly group: string | undefined;
 
-	/**
-	 * A model object whose round trip lost the stamp falls back to its exposed ID, which group registrations mint raw
-	 * anyway.
-	 */
+	/** The routed LiteLLM model ID (the request's `model` field). */
 	readonly rawModelId: string;
 
-	/** The host's token limits as the model object carries them; the request path reads them from here only. */
+	/** The host's input limit as the model object carries it; the request path reads it from here only. */
 	readonly maxInputTokens: number;
 
+	/** The host's output limit, read like maxInputTokens. */
 	readonly maxOutputTokens: number;
 
+	/** LiteLLMModelMetadataBase.supportsPromptCaching, re-narrowed. */
 	readonly supportsPromptCaching: boolean;
 
+	/** LiteLLMModelMetadataBase.supportsAudioInput, re-narrowed; absent on the object reads as false. */
 	readonly supportsAudioInput: boolean;
 
+	/** LiteLLMModelMetadataBase.replayReasoningContent, re-narrowed; absent on the object reads as false. */
 	readonly replayReasoningContent: boolean;
 
 	/** The registered imageInput capability, re-narrowed like the litellm fields; gates image message conversion. */

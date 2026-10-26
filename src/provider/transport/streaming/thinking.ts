@@ -54,11 +54,7 @@ export function extractThinking(choice: ChunkChoice, delta: ChunkDelta | undefin
 	return reasoning ? [{ text: reasoning }] : [];
 }
 
-/**
- * A thrown error rather than a fallback text part: text parts round-trip into replayed chat history, and an error
- * surfaces in the chat UI and flows through the provider boundary's single-point logging. Static string only; nothing
- * response-derived.
- */
+/** Thrown, never emitted as a text part (text parts round-trip into replayed chat history); a static string only. */
 export const REASONING_ONLY_RESPONSE_MESSAGE =
 	"The model produced only reasoning output, which this version of VS Code could not display: the LanguageModelThinkingPart API is missing or failed. Update VS Code to a version that supports thinking parts, or use a model that returns final text.";
 

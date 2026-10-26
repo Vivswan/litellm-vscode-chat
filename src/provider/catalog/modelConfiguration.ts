@@ -11,25 +11,25 @@ import type { LiteLLMProvider } from "./schemas";
  * `options.modelConfiguration` on every chat request. Registration decides which models carry the schema (a capability
  * question), and the request path maps the resolved values onto wire parameters (a parameter question), so both sides
  * live in this one module.
+ *
+ * The built-in levels (DEFAULT_REASONING_EFFORT_LEVELS, in menu order) are the walk's backstop when neither a
+ * `reasoning_effort_levels` capability record nor the server's `supports_<level>_reasoning_effort` flags name a
+ * per-model list. They are a minimum, not a ceiling, and the "default" sentinel (PROVIDER_DEFAULT) never reaches the
+ * wire.
+ *   a record naming a level this extension has never heard of -> the menu offers it verbatim
+ *   a level a given model rejects                              -> the server's own invalid-parameter error surfaces
+ *                                                                 through the chat error path
+ *   "none"                                                     -> a real wire value (thinking off, where supported)
+ *   "default"                                                  -> the host can only unset a stored choice by selecting
+ *                                                                 the schema default, so without it a picked level
+ *                                                                 could never be undone from the menu; the host folds
+ *                                                                 it into every request's modelConfiguration, and
+ *                                                                 requestParamsFromModelConfiguration drops it, which
+ *                                                                 keeps the pass-through invariant intact
  */
 
-/**
- * The built-in reasoning effort levels, in menu order: the walk's backstop when neither a `reasoning_effort_levels`
- * capability record nor the server's `supports_<level>_reasoning_effort` flags name a per-model list. "none" is a real
- * wire value (thinking off, where supported), distinct from the sentinel below, which sends nothing.
- *   A floor, not a ceiling: the level vocabulary is open -> a record can list levels this extension has never heard of
- *                                                            and the menu offers them verbatim
- *   A level a given model rejects                        -> surfaces the server's own invalid-parameter error through
- *                                                            the chat error path
- */
 export const DEFAULT_REASONING_EFFORT_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
-/**
- * The host can only unset a stored choice by selecting the schema default, so without this entry a picked level could
- * never be undone from the menu. The sentinel never reaches the wire: requestParamsFromModelConfiguration drops it,
- * which keeps the pass-through invariant intact even though the host folds this schema default into every request's
- * modelConfiguration.
- */
 const PROVIDER_DEFAULT = "default";
 
 /**
@@ -136,14 +136,19 @@ export function orderedReasoningLevels(levels: Iterable<string>): string[] {
 	return [...known, ...unknown];
 }
 
-/** The flags LiteLLM reads, by polarity; medium and high have no flag and are always on for a reasoning model. */
+/** Offered unless the flag is explicitly false; medium and high have no flag and stay on for a reasoning model. */
 const OPT_OUT_EFFORT_FLAGS = {
 	minimal: "supports_minimal_reasoning_effort",
 	low: "supports_low_reasoning_effort",
 } as const;
 
+/** Levels LiteLLM offers only when the flag is explicitly true. */
 const OPT_IN_EFFORT_FLAGS = { xhigh: "supports_xhigh_reasoning_effort", max: "supports_max_reasoning_effort" } as const;
+
+/** Opt-out like the first table, except where supportsNoneReasoningEffort says LiteLLM refuses the level. */
 const NONE_EFFORT_FLAG = "supports_none_reasoning_effort";
+
+/** Any of these set (non-null) marks the entry as reasoning-flagged, even without supports_reasoning. */
 const EFFORT_FLAGS: readonly string[] = [
 	NONE_EFFORT_FLAG,
 	...Object.values(OPT_OUT_EFFORT_FLAGS),

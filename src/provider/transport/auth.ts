@@ -13,16 +13,18 @@ import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartT
 
 /** Error ownership follows the transport-module convention: construct and throw without logging. */
 
-/** Client-credentials grant configuration; present as a whole or not at all. */
+/**
+ * Client-credentials grant configuration; present as a whole or not at all. `clientSecret` is the empty string when
+ * the identity provider issues public clients without a secret, and `scopes` is a space-separated list, omitted from
+ * the token request when absent.
+ */
 export interface OAuthConfig {
 	tokenUrl: string;
 
 	clientId: string;
 
-	/** Empty string when the identity provider issues public clients without a secret. */
 	clientSecret: string;
 
-	/** Space-separated scope list, omitted from the token request when absent. */
 	scopes?: string;
 }
 

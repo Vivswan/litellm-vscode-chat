@@ -11,16 +11,16 @@ const MAX_SERVER_RETRY_DELAY_MS = 60_000;
 /** Resolves after `ms` or as soon as `signal` aborts, whichever is first; every retry loop reads the signal after it. */
 export type BackoffSleep = (ms: number, signal: AbortSignal) => Promise<void>;
 
+/**
+ * What retryIdempotent runs under. `signal` is the caller's whole-call bound, a retryBudgetMs deadline or a lifetime
+ * cancellation: it ends a sleep and the loop at once, so backoff never outlives it. `sleep` is the real timer unless a
+ * test passes a zero sleep, so a retrying case pays no wall time.
+ */
 export interface RetryOptions {
 	readonly maxRetries: number;
 
-	/**
-	 * The caller's whole-call bound, a retryBudgetMs deadline or a lifetime cancellation: it ends a sleep and the loop
-	 * at once, so backoff never outlives it.
-	 */
 	readonly signal: AbortSignal;
 
-	/** The real timer unless a test passes a zero sleep, so a retrying case pays no wall time. */
 	readonly sleep?: BackoffSleep;
 }
 
@@ -105,13 +105,19 @@ export interface FetchAnswer {
 	readonly text: string;
 }
 
+/**
+ * What retryFetch runs under.
+ *   attemptTimeoutMs -> each attempt's own clock over the headers and the body together; retryBudgetMs derives the
+ *                       whole-call budget from it and maxRetries
+ *   signal           -> the caller's lifetime bound: its abort ends the call at once and is rethrown as-is, never
+ *                       read as a timeout
+ *   sleep            -> the real timer unless a test passes a zero sleep
+ */
 export interface RetryFetchOptions {
-	/** Each attempt's own clock over the headers and the body together. */
 	readonly attemptTimeoutMs: number;
 
 	readonly maxRetries: number;
 
-	/** The caller's lifetime bound: its abort ends the call at once and is rethrown as-is, never read as a timeout. */
 	readonly signal?: AbortSignal | undefined;
 
 	readonly sleep?: BackoffSleep;

@@ -48,11 +48,14 @@ import type { ToolCallIdSource } from "./streaming/processor";
 import { StreamProcessor } from "./streaming/processor";
 import { bodylessResponseError, timeoutRequestError } from "./transportErrors";
 
+/**
+ * One chat request as the host hands it over. `metadata` is the provider's one parse of the model object (nothing here
+ * re-narrows the host round trip), and `server` the group's live connection, resolved by the provider from the model's
+ * group identity.
+ */
 export interface ChatRequestContext {
-	/** The provider's one parse of the model object; nothing here re-narrows the host round trip. */
 	metadata: ParsedModelMetadata;
 
-	/** The group's live connection, resolved by the provider from the model's group identity. */
 	server: GroupServer;
 
 	messages: readonly LanguageModelChatRequestMessage[];
@@ -64,53 +67,54 @@ export interface ChatRequestContext {
 	token: vscode.CancellationToken;
 }
 
+/**
+ * A server with its credentials and the entry it may match. `entryLabel` names the declared entry candidate for
+ * per-entry headers: a group's CONFIGURED label, never the URL-host display fallback an unlabeled group renders under,
+ * which could collide with a real entry label. Distinct from `label`, which is display text.
+ */
 export interface ServerConnection extends ServerWithKey {
 	oauth?: OAuthConfig;
 
 	virtualKey?: VirtualKeyConfig;
 
-	/**
-	 * The label naming the declared entry candidate for per-entry headers: a group's CONFIGURED label, never the
-	 * URL-host display fallback an unlabeled group renders under, which could collide with a real entry label. Distinct
-	 * from `label`, which is display text.
-	 */
 	entryLabel?: string | undefined;
 }
 
+/**
+ * The per-entry resolvers take the entry's label and the group's base URL and answer only when both identify the
+ * same declared entry; each defaults to none, so models served by an unlabeled (external) group get only the global
+ * modelParameters, and servers no declared entry matches get the auto apiVersion rule. `resolution` defaults to a
+ * private table for callers constructed without a provider.
+ */
 export interface ChatClientOptions {
+	/** The User-Agent header on the SDK clients' requests; the OAuth token exchange does not carry it. */
 	userAgent: HeaderValue;
 
+	/** The log and advisory sink; absent, the client logs nothing. */
 	logger?: Logger | undefined;
 
-	/**
-	 * Resolves a declared server entry's per-entry modelParameters at request time, from the entry's label and the
-	 * group's base URL, and only when both identify the same declared entry. Defaults to none: models served by an
-	 * unlabeled group (external groups) get only the global modelParameters.
-	 */
+	/** Request-time resolver for a declared entry's per-entry modelParameters. */
 	getEntryModelParameters?:
 		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
 		| undefined;
 
-	/**
-	 * The provider-owned flat resolution table; requests read their configured parameters through it so the request
-	 * path, registration, and the dashboard share one cache. Defaults to a private table for callers constructed
-	 * without a provider.
-	 */
+	/** The provider-owned flat resolution table, so the request path, registration, and the dashboard share one cache. */
 	resolution?: ModelResolutionTable | undefined;
 
+	/** Request- and discovery-time resolver for a declared entry's custom headers. */
 	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, HeaderValue>> | undefined) | undefined;
 
-	/**
-	 * "" is a real value (append nothing), distinct from undefined (auto). Defaults to none: servers no declared entry
-	 * matches get the auto rule.
-	 */
+	/** Resolver for an entry's apiVersion override: "" is a real value (append nothing), undefined the auto rule. */
 	getEntryApiVersion?: ((label: string, baseUrl: string) => string | undefined) | undefined;
 
 	/** The HTTP transport under the SDK client; tests inject a fake here. Defaults to nodeHttpFetch. */
 	fetch?: TransportFetch | undefined;
 }
 
-/** Owns the HTTP-facing side of the provider. */
+/**
+ * Owns the HTTP-facing side of the provider, and tool-call ID generation: see ToolCallIdSource for the
+ * synchronous-advance requirement `toolCallIds` meets.
+ */
 export class ChatClient {
 	private readonly userAgent: HeaderValue;
 
@@ -136,7 +140,6 @@ export class ChatClient {
 
 	private _toolCallIdCounter = 0;
 
-	// The single owner of tool-call ID generation; see ToolCallIdSource for the synchronous-advance requirement.
 	private readonly toolCallIds: ToolCallIdSource = { next: () => ++this._toolCallIdCounter };
 
 	private readonly log = (message: string, data?: unknown): void => {

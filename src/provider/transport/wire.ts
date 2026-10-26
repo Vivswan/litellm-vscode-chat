@@ -78,7 +78,10 @@ export interface StreamedToolCall {
 	function?: { name?: string | undefined; arguments?: string | undefined } | undefined;
 }
 
-/** Providers surface reasoning under several different keys. */
+/**
+ * Providers surface reasoning under several different keys. `search_results` is narrowed from the delta's
+ * provider_specific_fields.search_results, LiteLLM's escape hatch for provider fields with no OpenAI slot.
+ */
 export interface ChunkDelta {
 	role?: string | undefined;
 
@@ -98,10 +101,6 @@ export interface ChunkDelta {
 
 	annotations?: ChunkAnnotation[] | undefined;
 
-	/**
-	 * Narrowed from the delta's provider_specific_fields.search_results, LiteLLM's escape hatch for provider fields
-	 * with no OpenAI slot.
-	 */
 	search_results?: ChunkSearchResult[] | undefined;
 
 	images?: ChunkImage[] | undefined;
@@ -109,7 +108,10 @@ export interface ChunkDelta {
 	audio?: ChunkAudio | undefined;
 }
 
-/** Some providers put thinking on the choice instead of the delta. */
+/**
+ * Some providers put thinking on the choice instead of the delta. A wire null `finish_reason` (OpenAI sends it on
+ * every non-final chunk) parses to undefined; see narrowChoice.
+ */
 export interface ChunkChoice {
 	index?: number | undefined;
 
@@ -117,10 +119,19 @@ export interface ChunkChoice {
 
 	thinking?: string | ThinkingBlock | undefined;
 
-	/** A wire null (OpenAI sends it on every non-final chunk) parses to undefined; see narrowChoice. */
 	finish_reason?: FinishReason | undefined;
 }
 
+/**
+ * One SSE chunk after narrowing.
+ *   citations      -> chunk-root citation URLs, Perplexity's legacy sources shape forwarded by LiteLLM's streaming
+ *                     pass-through; typically repeated on every chunk
+ *   search_results -> chunk-root search results, the richer successor to `citations`
+ *   usage          -> the parser proves only that it is a record; the stream processor reads the known numeric counts
+ *                     out of it and ignores the rest, so arbitrary server keys stay out of logs and the emitted payload
+ *   error          -> an in-band error envelope, the streamed `data: {"error": {...}}` payload LiteLLM emits when an
+ *                     upstream fails after the 200 went out; only a record narrows
+ */
 export interface ChatCompletionChunk {
 	id?: string | undefined;
 
@@ -132,25 +143,12 @@ export interface ChatCompletionChunk {
 
 	choices?: ChunkChoice[] | undefined;
 
-	/**
-	 * Chunk-root citation URLs, Perplexity's legacy sources shape forwarded by LiteLLM's streaming pass-through;
-	 * typically repeated on every chunk.
-	 */
 	citations?: string[] | undefined;
 
-	/** Chunk-root search results, the richer successor to `citations`. */
 	search_results?: ChunkSearchResult[] | undefined;
 
-	/**
-	 * The parser proves only that it is a record; the stream processor reads the known numeric counts out of it and
-	 * ignores the rest, so arbitrary server keys stay out of logs and the emitted payload.
-	 */
 	usage?: Record<string, unknown> | undefined;
 
-	/**
-	 * In-band error envelope: a streamed `data: {"error": {...}}` payload, which LiteLLM emits when an upstream fails
-	 * after the 200 went out. Only a record narrows.
-	 */
 	error?: Record<string, unknown> | undefined;
 }
 

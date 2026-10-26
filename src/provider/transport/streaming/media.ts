@@ -41,10 +41,7 @@ export interface AudioBuffer {
 	base64: string;
 }
 
-/**
- * The request's audio.format values mapped to the mime stamped on the emitted DataPart: the wire delta carries no
- * format field, so the request parameter is the only place the encoding is stated.
- */
+/** audio.format value -> DataPart mime; the delta has no format field, so the request parameter names the encoding. */
 const AUDIO_FORMAT_MIMES: Readonly<Record<string, string>> = {
 	wav: "audio/wav",
 	mp3: "audio/mpeg",

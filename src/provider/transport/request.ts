@@ -4,12 +4,16 @@ import type { OpenAIChatMessage } from "../../shared/conversion/wire";
 import type { ModelConfigurationRequestParams } from "../catalog/modelConfiguration";
 
 export interface RequestBodyParams {
+	/** The wire `model` field: the routed LiteLLM model ID. */
 	rawModelId: string;
 
+	/** The wire `messages`, with the cache_control breakpoints already applied where prompt caching is on. */
 	openaiMessages: OpenAIChatMessage[];
 
+	/** The resolved `max_tokens`, a provider-owned field no pass-through source may override. */
 	maxTokens: number;
 
+	/** The configured modelParameters record for this model; the lowest-precedence user-set source. */
 	modelParams: Record<string, unknown>;
 
 	/** The `_force`d configured parameters; applied above every other pass-through source. */
@@ -21,6 +25,7 @@ export interface RequestBodyParams {
 	/** Wire params resolved from the host's modelConfiguration, i.e. the user's model-picker choices. */
 	modelConfiguration?: ModelConfigurationRequestParams | undefined;
 
+	/** The host's runtime options for this request; above the picker choices, below the `_force`d fields. */
 	modelOptions?: Record<string, unknown> | undefined;
 }
 

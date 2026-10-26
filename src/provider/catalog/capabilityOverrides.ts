@@ -28,6 +28,10 @@ import type { ModelPricing } from "./registration";
 import { COMMON_MODEL_FIELDS, pricingFromCosts, serverDisplayContext } from "./registration";
 import type { DeclaredPerTokenCosts } from "./schemas";
 
+/**
+ * Applying an open field as-is is a feature and recurs on every serve pass, so such notes go through `logAdvisory`
+ * and never consume the issue reporter's small ring-buffer budget; real record problems go through `log`.
+ */
 export interface CapabilityOverrideOptions {
 	/** The modelCapabilities setting as normalizeModelCapabilities returns it. */
 	readonly globalCapabilities: ModelCapabilitiesRecord;
@@ -35,12 +39,10 @@ export interface CapabilityOverrideOptions {
 	/** The matched declared entry's own capability records, when the served server has one. */
 	readonly entryCapabilities?: ModelCapabilitiesRecord | undefined;
 
-	/**
-	 * The matched declared entry's discovery.declared model IDs: exact IDs to register when discovery does not list
-	 * them, inert when it does.
-	 */
+	/** The matched entry's discovery.declared IDs: registered when discovery omits them, inert when it lists them. */
 	readonly entryDeclaredModels?: readonly string[] | undefined;
 
+	/** The OpenRouter catalog as in-memory lookup data; the walk fills capabilities from it, never pricing. */
 	readonly catalog: CapabilityCatalogLookup;
 
 	/** The provider-shared flat resolution table; every resolve here goes through it. */
@@ -49,11 +51,7 @@ export interface CapabilityOverrideOptions {
 	/** Classification-only logging (record keys and field names are user configuration, never response text). */
 	readonly log: (message: string, data?: unknown) => void;
 
-	/**
-	 * The advisory sink for informational notes (output channel only, never the issue-report buffer). Applying an open
-	 * field as-is is a feature and recurs on every serve pass, so it must not consume the issue reporter's small
-	 * ring-buffer budget; real record problems go through `log`.
-	 */
+	/** The sink for informational notes: the output channel only, never the issue-report buffer. */
 	readonly logAdvisory: (message: string, data?: unknown) => void;
 }
 

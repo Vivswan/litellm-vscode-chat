@@ -9,6 +9,7 @@ import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./sta
 
 export type GroupServeOutcome =
 	| {
+			/** The serve handed the host its models, possibly zero of them. */
 			state: "ok";
 
 			/** See ServerStatusCommon: the models this serve handed the host. */
@@ -21,11 +22,13 @@ export type GroupServeOutcome =
 			modelInfoUnsupported?: UnservedEndpointEvidence;
 	  }
 	| {
+			/** The serve failed; what it still serves is counted below. */
 			state: "error";
 
 			/** See ServerStatusError: the cause the surfaces render, never text. */
 			cause: FailureCause;
 
+			/** See ServerStatusError: the log rendering, a classification or an English mirror, never the thrown message. */
 			logSafeError: LogSafeErrorText;
 
 			/** See ServerStatusError: the truthful error stays; presentation derives the downgrade. */
@@ -38,6 +41,12 @@ export type GroupServeOutcome =
 			declaredModelCount?: number;
 	  };
 
+/**
+ * Records each group serve's outcome into the facade-owned status window and fires the aggregated status callback.
+ * `groupReportCount` is how many group reports have landed in the window, ever: a refresh pass (index.ts
+ * refreshGroups) reads the difference across its run, so what it counts is what recorded, whichever serve's record
+ * stood.
+ */
 export class GroupStatusReporter {
 	private readonly _window: StatusWindow;
 
@@ -54,10 +63,6 @@ export class GroupStatusReporter {
 		this._callback = callback;
 	}
 
-	/**
-	 * How many group reports have landed in the window, ever; a refresh pass (index.ts refreshGroups) reads the
-	 * difference across its run, so what it counts is what recorded, whichever serve's record stood.
-	 */
 	get groupReportCount(): number {
 		return this._groupReportCount;
 	}

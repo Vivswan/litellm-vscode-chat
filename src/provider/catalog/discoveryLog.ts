@@ -118,11 +118,6 @@ const ACCEPTS: { readonly [K in ValueKind]: (value: unknown) => boolean } = {
 
 const FAILURE_SHAPE = { kind: "failureKind", status: "number", classification: "classification" } as const;
 
-/**
- * The writer admits only these keys, each only through its kind's closed vocabulary, so a value the type system was
- * talked past (a narrowed alias, a defined-in property, a string behind a branded type) never reaches the sink; a
- * present value it refuses leaves the fixed [rejected] marker, so the mistake shows without its value.
- */
 const LINE_SHAPES: {
 	readonly [M in DiscoveryLogMessage]: { readonly [K in keyof DiscoveryLogLines[M]]-?: ValueKind };
 } = {
@@ -170,7 +165,12 @@ const LINE_SHAPES: {
 	"Quick fix fallback failed": FAILURE_SHAPE,
 };
 
-/** The one path from a discovery line to the host's logger. */
+/**
+ * The one path from a discovery line to the host's logger. It admits only LINE_SHAPES' keys, each only through its
+ * kind's closed vocabulary (ACCEPTS), so a value the type system was talked past (a narrowed alias, a defined-in
+ * property, a string behind a branded type) never reaches the sink; a present value it refuses leaves the fixed
+ * [rejected] marker, so the mistake shows without its value.
+ */
 export function discoveryLineWriter(sink: (message: string, data: unknown) => void): DiscoveryLog {
 	return (message, data) => {
 		const line: Record<string, number | boolean | string> = {};

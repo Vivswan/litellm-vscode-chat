@@ -34,80 +34,71 @@ export function groupIdentity(
 	return groupServer.entryOwned === true ? (logicalGroupId(groupServer) ?? clientId) : clientId;
 }
 
-/**
- * The configured stale-serve window only GROWS eviction beyond this floor, never shrinks it: eviction anchors to the
- * last report of any kind, and a short window would evict mid-sweep entries the one-cycle grace exists to keep visible.
- */
+/** The configured stale-serve window only GROWS eviction beyond this floor, never shrinks it; see evictionTtlMs. */
 const EVICTION_TTL_FLOOR_MS = 10 * 60 * 1000;
 
 /**
  * One server's slice of the status window, for read-only consumers (the dashboard). `models` are registration's infos
  * before the serve stamps a group identity - PreAttachModelInfo by type, so a served copy, which may carry the stale
- * decoration, does not compile into a snapshot.
+ * decoration, does not compile into a snapshot. `observedModelInfoKeys` and `skippedModeCounts` are carried forward
+ * across failure reports, so a mid-outage refresh cannot blank them.
  */
 export interface ServerModelsSnapshot {
+	/** The latest report's status, ok or error, as the surfaces render it. */
 	readonly status: ServerStatus;
 
 	/** The full set the latest serve handed out: discovered infos plus declared ones (flagged `litellm.declared`). */
 	readonly models: readonly PreAttachModelInfo[];
 
-	/**
-	 * The model_info keys the last successful listing reported, carried forward across failure reports so a mid-outage
-	 * refresh cannot blank the set.
-	 */
+	/** The model_info keys the last successful listing reported. */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
 
-	/** The per-mode skip counts of the last successful listing, carried forward like observedModelInfoKeys. */
+	/** The per-mode skip counts of the last successful listing. */
 	readonly skippedModeCounts?: SkippedModeCounts | undefined;
 
 	/** The dashboard's supersession rule keys on this, never on the display label. */
 	readonly entryLabel?: string | undefined;
 }
 
+/**
+ * One group's slot in the window; every entry's `groupServer` is a VS Code provider group.
+ *   lastSuccess      -> holds the DISCOVERED set only: declared models are config-rebuilt on every serve, so staling
+ *                       one would resurrect a removed declaration and collide with the fresh synthesis
+ *   discoveredRawIds -> the raw model IDs discovery last returned, carried forward across failure reports like
+ *                       lastSuccess; staleServableModels hands them out beside the stale bundle, where declared-ID
+ *                       inertness is judged against this set, never against `models` (registration may emit only
+ *                       synthetic variants (`foo:cheapest`) for a discovered `foo`)
+ */
 type StatusWindowEntry = {
 	cycle: number;
 
 	at: number;
 
-	/**
-	 * Holds the DISCOVERED set only: declared models are config-rebuilt on every serve, so staling one would resurrect
-	 * a removed declaration and collide with the fresh synthesis.
-	 */
 	lastSuccess: { at: number; models: readonly PreAttachModelInfo[] } | undefined;
 
 	status: ServerStatus;
 
 	models: readonly PreAttachModelInfo[];
 
-	/**
-	 * The raw model IDs discovery last returned, carried forward across failure reports like lastSuccess:
-	 * staleServableModels hands them out beside the stale bundle, where declared-ID inertness is judged against this
-	 * set, never against `models` - registration may emit only synthetic variants (`foo:cheapest`) for a discovered
-	 * `foo`.
-	 */
 	discoveredRawIds: readonly string[];
 
 	observedModelInfoKeys: readonly string[] | undefined;
 
 	skippedModeCounts: SkippedModeCounts | undefined;
 
-	/** The group's resolved connection; every entry is a VS Code provider group. */
 	groupServer: GroupServer;
 };
 
 /**
  * A named bundle because both members are info arrays: transposing positional parameters would type-check. The window
- * serves snapshots from the union but anchors stale serving to `discovered` alone.
+ * serves snapshots from the union but anchors stale serving to `discovered` alone. The two are disjoint by
+ * construction: a declared ID discovery listed is inert, and a colliding exposed ID is suppressed.
  */
 export interface ServedModelSets {
 	/** Discovered infos with capability overrides applied; the stale-serve source set. */
 	readonly discovered: readonly PreAttachModelInfo[];
 
-	/**
-	 * Disjoint from `discovered` by construction (a declared ID discovery listed is inert, a colliding exposed ID is
-	 * suppressed) and never staled: the config rebuilds them on every serve, so a removed declaration dies mid-outage
-	 * too.
-	 */
+	/** Never staled: the config rebuilds them on every serve, so a removed declaration dies mid-outage too. */
 	readonly declared: readonly PreAttachModelInfo[];
 }
 
@@ -143,26 +134,23 @@ function sameStatusExceptTime(recorded: ServerStatus, status: ServerStatus): boo
  * Two fallbacks cover hosts that skip the group-agnostic call: beginCycleOnReSight, and eviction of entries
  * untouched for evictionTtlMs().
  *   the group-agnostic call (normally the first of a refresh cycle) -> advances the cycle counter
+ *
+ * `cycleMarked` is whether the current cycle was started by the group-agnostic call. Such a host makes one of those
+ * calls per sweep, so inside a marked cycle a group reporting under an already-seen identity must not restart the
+ * cycle: that would evict entries the sweep has not re-reached.
+ *
+ * `identityByClientId` holds one entry per client ID: the ID names a connection, so a second entry under another
+ * identity is the same host group across an ownership change (declared after serving as external, hidden after its
+ * entry's removal) and goes when the new record lands, or a removed entry's models stay counted and routable for a
+ * cycle. getGroupServer relies on the uniqueness too.
  */
 export class StatusWindow {
 	private cycle = 0;
 
-	/**
-	 * Whether the current cycle was started by the group-agnostic call. Such a host makes one of those calls per sweep.
-	 *   inside a marked cycle a group reporting under an already-seen identity -> restarting the cycle on it would
-	 *                                                                            evict entries the sweep has not
-	 *                                                                            re-reached
-	 */
 	private cycleMarked = false;
 
 	private readonly entries = new Map<string, StatusWindowEntry>();
 
-	/**
-	 * One entry per client ID: the ID names a connection, so a second entry under another identity is the same host
-	 * group across an ownership change (declared after serving as external, hidden after its entry's removal) and goes
-	 * when the new record lands, or a removed entry's models stay counted and routable for a cycle. getGroupServer
-	 * relies on the uniqueness too.
-	 */
 	private readonly identityByClientId = new Map<string, string>();
 
 	constructor(
@@ -186,7 +174,9 @@ export class StatusWindow {
 
 	/**
 	 * The window must reach eviction because the stale-serve anchor lives on the entry - a host idle longer than the
-	 * floor (a suspended laptop) would otherwise lose the anchor a longer configured window promises to serve from.
+	 * floor (a suspended laptop) would otherwise lose the anchor a longer configured window promises to serve from. It
+	 * is a minimum because eviction anchors to the last report of any kind, and a short window would evict mid-sweep
+	 * entries the one-cycle grace exists to keep visible.
 	 */
 	private evictionTtlMs(): number {
 		return Math.max(this.staleServeWindowMs(), EVICTION_TTL_FLOOR_MS);

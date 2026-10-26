@@ -4,19 +4,18 @@ import { fingerprint } from "../../shared/util/fingerprint";
 import { type HeaderValue, headerNameKey } from "../../shared/util/headers";
 import type { TransportFetch } from "./nodeHttpFetch";
 
+/**
+ * What one SDK client is built from; `apiKey` is the empty string for keyless servers.
+ *   apiVersion undefined -> auto (keep a version segment already in the URL, else append /v1)
+ *   apiVersion ""        -> the base URL is the API root as-is (see apiRootOf)
+ */
 export interface ServerClientConfig {
 	serverId: string;
 
 	baseUrl: string;
 
-	/**
-	 *   undefined -> auto (keep a version segment already in the URL, else append /v1)
-	 *   ""        -> the base URL is the API root as-is
-	 * See apiRootOf.
-	 */
 	apiVersion?: string | undefined;
 
-	/** Empty string for keyless servers. */
 	apiKey: HeaderValue | "";
 
 	userAgent: HeaderValue;
@@ -24,28 +23,29 @@ export interface ServerClientConfig {
 	customHeaders: Record<string, HeaderValue>;
 }
 
-/**
- * Never sent: the SDK omits auth entirely when Authorization is nulled out, and a configured custom Authorization
- * header wins the default-headers merge. It only satisfies the SDK's constructor-time credential check for keyless
- * servers.
- */
+/** Never sent: it only satisfies the SDK's constructor-time credential check for keyless servers. */
 const KEYLESS_PLACEHOLDER = "keyless";
+
+/** LiteLLM's model-info listing, under the API root. */
+export const MODEL_INFO_PATH = "/model/info";
+
+/** The OpenAI-shaped models listing, under the API root; discovery's fallback when model-info fails. */
+export const MODELS_PATH = "/models";
+
+/** LiteLLM serves this one at the server root only, with no /v1 twin. */
+export const MODEL_GROUP_INFO_PATH = "/model_group/info";
+
+/** The streaming chat path, under the API root. */
+export const CHAT_COMPLETIONS_PATH = "/chat/completions";
+
+/** The FIM path, under the API root; the one-shot client alone sends there. */
+const COMPLETIONS_PATH = "/completions";
 
 /**
  * The *Url helpers state exactly what the transport calls - those log lines feed public issue reports and must not
  * drift from the real requests - so their apiVersion parameter is required: a caller cannot silently log the auto
  * root for a client built on an overridden one.
  */
-export const MODEL_INFO_PATH = "/model/info";
-
-export const MODELS_PATH = "/models";
-
-/** LiteLLM serves this one at the server root only, with no /v1 twin. */
-export const MODEL_GROUP_INFO_PATH = "/model_group/info";
-
-export const CHAT_COMPLETIONS_PATH = "/chat/completions";
-const COMPLETIONS_PATH = "/completions";
-
 export function modelInfoUrl(baseUrl: string, apiVersion: string | undefined): string {
 	return `${apiRootOf(baseUrl, apiVersion)}${MODEL_INFO_PATH}`;
 }
@@ -112,6 +112,8 @@ export function buildDefaultHeaders(
 export function createServerClient(config: ServerClientConfig, fetchImpl: TransportFetch): OpenAI {
 	return new OpenAI({
 		baseURL: apiRootOf(config.baseUrl, config.apiVersion),
+		// The placeholder is never sent: the SDK omits auth entirely when Authorization is nulled out, and a configured
+		// custom Authorization header wins the default-headers merge.
 		apiKey: config.apiKey || KEYLESS_PLACEHOLDER,
 		// The SDK default of 2 would re-send chat prompts on 5xx. Discovery opts back in per request.
 		maxRetries: 0,

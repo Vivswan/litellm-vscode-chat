@@ -48,6 +48,11 @@ export interface ResponsePartSink {
 	report(part: vscode.LanguageModelResponsePart): void;
 }
 
+/**
+ * One request's streaming state. `loggedImageSkip` holds the image-skip log to one per request, so a burst of bad
+ * entries cannot flood the issue-report buffer. `contentParts` counts parts the model produced; the trailers
+ * emitTrailers adds are not counted, so they cannot stand in for a response.
+ */
 interface RequestState {
 	toolCalls: ToolCallSlots;
 
@@ -61,7 +66,6 @@ interface RequestState {
 
 	loggedRefusal: boolean;
 
-	/** One log per request, so a burst of bad entries cannot flood the issue-report buffer. */
 	loggedImageSkip: boolean;
 
 	citations: Map<string, string>;
@@ -70,10 +74,6 @@ interface RequestState {
 
 	audioBuffer: AudioBuffer | undefined;
 
-	/**
-	 * Parts the model produced. The trailers emitTrailers adds are not counted, so they cannot stand in for a
-	 * response.
-	 */
 	contentParts: number;
 
 	droppedReasoning: DroppedReasoning;
@@ -661,7 +661,8 @@ export class StreamProcessor {
 		}
 
 		// A stream that produced nothing the host can show, but did drop reasoning, fails loudly instead of resolving
-		// empty.
+		// empty: an error surfaces in the chat UI and flows through the provider boundary's single-point logging, and
+		// the message is static, nothing response-derived.
 		if (this._req.contentParts === 0 && this._req.droppedReasoning.parts > 0) {
 			throw localizedError(reasoningOnlyResponseMessage(), REASONING_ONLY_RESPONSE_MESSAGE);
 		}

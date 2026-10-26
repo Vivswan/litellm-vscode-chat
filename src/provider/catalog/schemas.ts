@@ -8,12 +8,12 @@ import { recordFromKeys } from "../../shared/util/json";
  *   model-info entries -> parse per declared field
  *   provider entries   -> validate only their name
  *   unknown keys       -> pass through everywhere
+ *   long-context tiers -> LiteLLM reports them as `<wire field>_above_<N>k_tokens` keys, never under the tier's own
+ *                         name; discovery reads them off the pass-through and authors the LONG_CONTEXT_COST_PREFIX
+ *                         field
  */
 
-/**
- * A cost field under this prefix is discovery's long-context tier of the wire cost field it prefixes: LiteLLM
- * reports tiers as `<wire field>_above_<N>k_tokens` keys, never under the tier's own name.
- */
+/** Prefixes discovery's long-context tier of the wire cost field that follows it; never a key LiteLLM reports. */
 export const LONG_CONTEXT_COST_PREFIX = "long_context_";
 
 export type LongContextCostField = Extract<CostCapabilityField, `${typeof LONG_CONTEXT_COST_PREFIX}${string}`>;
@@ -42,24 +42,24 @@ export type DeclaredPerTokenCosts = { [K in keyof PerTokenCosts]: number };
 
 /**
  * A single underlying provider (e.g. together, groq) for a model: capability metadata read from the LiteLLM API - what
- * the model CAN do, not what we ask it to do. Only `provider` is validated on the wire; discovery authors
- * reasoning_effort_levels and narrows the four token-limit fields (positive numbers or undefined, by construction) and
- * the cost fields (under the zero-pair no-pricing rule; the long-context tiers never pass through raw), and the
- * remaining fields are typed reads of the passed-through entry.
+ * the model CAN do, not what we ask it to do. Only `provider` is validated on the wire; the rest are typed reads of
+ * the passed-through entry, except the fields discovery narrows or authors (null is the one "unknown" it writes):
+ *   the four token limits    -> normalizePositiveNumber at the mapping sites (numeric strings parse, null and junk
+ *                               degrade to undefined), so downstream reads take positive numbers or undefined as-is
+ *   the cost fields          -> the zero-pair no-pricing rule; the long-context tiers never pass through raw
+ *   replay_reasoning_content -> authored from litellm_provider: true for a deepseek deployment, whose thinking mode
+ *                               refuses a tool-carrying request unless every replayed assistant message carries
+ *                               reasoning_content
+ *   reasoning_effort_levels  -> authored: modelConfiguration's mirror of LiteLLM's resolver over this entry's own
+ *                               flags; LiteLLMModelItem.reasoningEfforts (the proxy's own group resolution) outranks it
  */
 export interface LiteLLMProvider extends PerTokenCosts {
 	provider: string;
 
 	status: string;
 
-	/** Wire pass-throughs may carry null; supportsTools treats only an explicit false as a veto. */
 	supports_tools?: boolean | null | undefined;
 
-	/**
-	 * The four token-limit fields are narrowed at the discovery mapping sites (normalizePositiveNumber: numeric strings
-	 * parse, null and junk degrade to undefined), so every constructed provider carries positive numbers or undefined
-	 * and downstream reads take them as-is.
-	 */
 	context_length?: number | undefined;
 
 	max_tokens?: number | undefined;
@@ -76,20 +76,10 @@ export interface LiteLLMProvider extends PerTokenCosts {
 
 	supports_pdf_input?: boolean | null | undefined;
 
-	/**
-	 * Authored by discovery from litellm_provider, never passed through raw: true for a deepseek deployment, whose
-	 * thinking mode refuses a tool-carrying request unless every replayed assistant message carries reasoning_content;
-	 * null is "unknown".
-	 */
 	replay_reasoning_content?: boolean | null | undefined;
 
 	supported_openai_params?: string[] | null | undefined;
 
-	/**
-	 * Authored by discovery, never passed through raw: modelConfiguration's mirror of LiteLLM's resolver over this
-	 * entry's own flags; null is "unknown". The proxy's own group resolution rides LiteLLMModelItem.reasoningEfforts
-	 * instead and outranks this.
-	 */
 	reasoning_effort_levels?: string[] | null | undefined;
 }
 
@@ -98,7 +88,10 @@ export interface LiteLLMArchitecture {
 	output_modalities?: string[];
 }
 
-/** Which limits some contributor reported; the capability baseline stores a limit only when its flag is on. */
+/**
+ * Which limits some contributor reported; the capability baseline stores a limit only when its flag is on. `any` is
+ * any of the three: the input limit is server-grounded whenever anything numeric was reported.
+ */
 interface ReportedLimits {
 	readonly context: boolean;
 
@@ -106,17 +99,17 @@ interface ReportedLimits {
 
 	readonly output: boolean;
 
-	/** Any of the three: the input limit is server-grounded whenever anything numeric was reported. */
 	readonly any: boolean;
 }
 
+/**
+ * The limits a registered entry advertises. `defaultMaxTokens` is the request's max_tokens when nothing configures
+ * one: a declared limit is sent whole, while a floor fill is a guess, so requests stay under DEFAULT_MAX_TOKENS_CAP
+ * and the advertised limit keeps the floor.
+ */
 export interface TokenConstraints {
 	readonly maxOutputTokens: number;
 
-	/**
-	 * The request's max_tokens when nothing configures one. A declared limit is sent whole; a floor fill is a guess, so
-	 * requests stay under DEFAULT_MAX_TOKENS_CAP while the advertised limit keeps the floor.
-	 */
 	readonly defaultMaxTokens: number;
 
 	readonly contextLength: number;
@@ -135,6 +128,12 @@ export type ModelShape =
 	| { readonly kind: "bare" }
 	| { readonly kind: "group"; readonly providers: readonly [LiteLLMProvider, ...LiteLLMProvider[]] };
 
+/**
+ * One listed model after narrowing. `reasoningEfforts` is LiteLLM's own resolution of the Thinking Effort menu for
+ * the model group (/model_group/info's supported_reasoning_efforts), carried on the item so every shape, the bare one
+ * included, keeps it: a list is the menu, null is the proxy saying unknown, absent is a proxy that never served the
+ * field (the per-provider reasoning_effort_levels then decide).
+ */
 export interface LiteLLMModelItem {
 	id: string;
 
@@ -142,12 +141,6 @@ export interface LiteLLMModelItem {
 
 	architecture?: LiteLLMArchitecture | undefined;
 
-	/**
-	 * LiteLLM's own resolution of the Thinking Effort menu for this model group (/model_group/info's
-	 * supported_reasoning_efforts), carried on the item so every shape, the bare one included, keeps it: a list is the
-	 * menu, null is the proxy saying unknown, absent is a proxy that never served the field (the per-provider
-	 * reasoning_effort_levels then decide).
-	 */
 	reasoningEfforts?: readonly string[] | null | undefined;
 }
 
@@ -162,10 +155,7 @@ export function supportsTools(provider: LiteLLMProvider): boolean {
 /** The envelope both listing endpoints answer with; element contents are narrowed per entry below. */
 export const dataEnvelopeSchema = z.looseObject({ data: z.array(z.unknown()) });
 
-/**
- * Element contents stay unvalidated here; provider entries are narrowed individually so one malformed entry drops
- * alone.
- */
+/** Element contents stay unvalidated; provider entries are narrowed one by one, so a malformed entry drops alone. */
 export const rawModelItemSchema = z.looseObject({
 	id: z.string(),
 	providers: z.array(z.unknown()).optional(),
@@ -196,12 +186,10 @@ const lenientFlag = lenient(z.boolean().nullable());
 /** Token limits arrive as numbers or numeric strings; normalizePositiveNumber narrows them at mapping. */
 const lenientLimit = lenient(z.union([z.number(), z.string()]).nullable());
 
-/**
- * Per-token costs are JSON numbers; normalizeCostPerToken re-narrows sign and finiteness at mapping. Long-context tiers
- * are read dynamically from the loose pass-through, so they carry no declarations here.
- */
+/** Per-token costs are JSON numbers; normalizeCostPerToken re-narrows sign and finiteness at mapping. */
 const lenientCost = lenient(z.number().nullable());
 
+/** The model_info fields discovery declares; unknown keys pass through, which is where the long-context tiers ride. */
 const modelInfoFieldsSchema = z.looseObject({
 	id: lenient(z.string()),
 	key: lenient(z.string()),
@@ -258,13 +246,12 @@ export const rawModelInfoItemSchema = z
 
 export type LiteLLMModelInfoItem = z.infer<typeof rawModelInfoItemSchema>;
 
-/**
- * One /model_group/info entry, narrowed to the two keys discovery reads. supported_reasoning_efforts is LiteLLM's own
- * resolution for the group: a list is the menu, null is the proxy saying it does not know, and an absent key is a
- * proxy from before the field existed (it degrades to undefined like a malformed value, so the deployment flags decide).
- */
+/** One /model_group/info entry, narrowed to the two keys discovery reads. */
 export const modelGroupInfoItemSchema = z.looseObject({
 	model_group: z.string(),
+	// LiteLLM's own resolution for the group: a list is the menu, null is the proxy saying it does not know, and an
+	// absent key is a proxy from before the field existed (it degrades to undefined like a malformed value, so the
+	// deployment flags decide).
 	supported_reasoning_efforts: lenient(
 		z
 			.array(z.unknown())
