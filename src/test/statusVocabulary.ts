@@ -100,8 +100,8 @@ export function declaredViews(row: WindowStateRow): DeclaredServerView[] {
 				baseUrl: server.baseUrl,
 				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const,
 				expectedClientId: row.window.find((status) => status.label === server.label)?.serverId,
-				...(connectionId !== undefined ? { expectedConnectionId: connectionId } : {}),
-				syncFailure: failure !== undefined ? { class: failure.failureClass } : undefined,
+				...(connectionId === undefined ? {} : { expectedConnectionId: connectionId }),
+				syncFailure: failure === undefined ? undefined : { class: failure.failureClass },
 			};
 		});
 }
@@ -144,7 +144,7 @@ function okStatus(overrides: { serverId?: string; servedModelCount: number; hidd
 		baseUrl: `http://${overrides.serverId ?? "srv1"}.test`,
 		state: "ok",
 		servedModelCount: overrides.servedModelCount,
-		...(overrides.hiddenByRemoval !== undefined ? { hiddenByRemoval: overrides.hiddenByRemoval } : {}),
+		...(overrides.hiddenByRemoval === undefined ? {} : { hiddenByRemoval: overrides.hiddenByRemoval }),
 		lastChecked: CHECKED_AT,
 	};
 }
@@ -165,8 +165,8 @@ function errorStatus(overrides: {
 		cause: overrides.cause ?? { kind: "transport", classification: { kind: "connection" } },
 		logSafeError: markLogSafe("RequestError(connection)"),
 		servedModelCount: overrides.servedModelCount,
-		...(overrides.declaredModelCount !== undefined ? { declaredModelCount: overrides.declaredModelCount } : {}),
-		...(overrides.expected !== undefined ? { expected: overrides.expected } : {}),
+		...(overrides.declaredModelCount === undefined ? {} : { declaredModelCount: overrides.declaredModelCount }),
+		...(overrides.expected === undefined ? {} : { expected: overrides.expected }),
 		lastChecked: CHECKED_AT,
 	};
 }
@@ -204,7 +204,7 @@ function declaredRow(status: ServerStatus, notices?: readonly DeclaredServerNoti
 				state: "error",
 				cause: status.cause,
 				...(status.expected === true ? { expected: true } : {}),
-				...(status.declaredModelCount !== undefined ? { declaredModelCount: status.declaredModelCount } : {}),
+				...(status.declaredModelCount === undefined ? {} : { declaredModelCount: status.declaredModelCount }),
 			};
 }
 
@@ -253,7 +253,7 @@ function syncFailedRow(name: string, failureClass: SyncErrorClass, live?: Server
 		credentials: "absent",
 		hasOAuth: false,
 		hasVirtualKey: false,
-		...(live !== undefined ? { lastChecked: new Date(live.lastChecked).getTime() } : {}),
+		...(live === undefined ? {} : { lastChecked: new Date(live.lastChecked).getTime() }),
 		state: "error",
 		cause: { kind: "sync", failureClass },
 		config: { secrets: NO_SECRETS },

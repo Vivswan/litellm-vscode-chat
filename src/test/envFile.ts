@@ -65,6 +65,6 @@ export function composeSetting(
 	envFile: Record<string, string>,
 	env: Record<string, string | undefined> = process.env
 ): string {
-	const raw = env[name] !== undefined ? env[name] : envFile[name];
+	const raw = env[name] === undefined ? envFile[name] : env[name];
 	return raw ? raw : fallback;
 }

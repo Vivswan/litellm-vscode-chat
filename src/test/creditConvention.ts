@@ -53,10 +53,10 @@ function withoutCodeFences(markdown: string): string {
 	for (const line of markdown.split(/\r?\n/)) {
 		const fence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
 		if (openFence === undefined) {
-			if (fence !== null) {
-				openFence = fence[1] as string;
-			} else {
+			if (fence === null) {
 				kept.push(line);
+			} else {
+				openFence = fence[1] as string;
 			}
 		} else if (
 			fence !== null &&

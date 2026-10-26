@@ -818,7 +818,7 @@ suite("provider/catalog/discovery", () => {
 				const logged: { message: string; data?: unknown }[] = [];
 				const result = await fetchModels({
 					...request((message, data) => logged.push({ message, data })),
-					...(includeModes !== undefined ? { includeModes } : {}),
+					...(includeModes === undefined ? {} : { includeModes }),
 				});
 				assert.deepStrictEqual(
 					result.models.map((m) => m.id),

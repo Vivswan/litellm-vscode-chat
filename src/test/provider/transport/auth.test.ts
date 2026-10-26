@@ -49,7 +49,7 @@ function tokenEndpoint(options: TokenEndpointOptions = {}): { requests: Array<Re
 			return HttpResponse.json({
 				access_token: options.accessToken ?? `tok-${requests.length}`,
 				token_type: "Bearer",
-				...(options.expiresIn !== undefined ? { expires_in: options.expiresIn } : {}),
+				...(options.expiresIn === undefined ? {} : { expires_in: options.expiresIn }),
 			});
 		})
 	);

@@ -179,14 +179,14 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 	.map(([pairs, proto, openrouterModel, fallback, inheritable, inheritFrom, force]) =>
 		recordFromEntries([
 			...pairs,
-			...(proto !== undefined
-				? Object.entries(JSON.parse(`{"__proto__": ${JSON.stringify(proto)}}`) as Record<string, unknown>)
-				: []),
-			...(openrouterModel !== undefined ? [[OPENROUTER_MODEL_DIRECTIVE, openrouterModel] as const] : []),
-			...(fallback !== undefined ? [[FALLBACK_DIRECTIVE, fallback] as const] : []),
-			...(inheritable !== undefined ? [["_inheritable", inheritable] as const] : []),
-			...(inheritFrom !== undefined ? [["_inherit_from", inheritFrom] as const] : []),
-			...(force !== undefined ? [["_force", force] as const] : []),
+			...(proto === undefined
+				? []
+				: Object.entries(JSON.parse(`{"__proto__": ${JSON.stringify(proto)}}`) as Record<string, unknown>)),
+			...(openrouterModel === undefined ? [] : [[OPENROUTER_MODEL_DIRECTIVE, openrouterModel] as const]),
+			...(fallback === undefined ? [] : [[FALLBACK_DIRECTIVE, fallback] as const]),
+			...(inheritable === undefined ? [] : [["_inheritable", inheritable] as const]),
+			...(inheritFrom === undefined ? [] : [["_inherit_from", inheritFrom] as const]),
+			...(force === undefined ? [] : [["_force", force] as const]),
 		])
 	);
 
@@ -225,7 +225,7 @@ function keyOf(spec: KeySpec, rawId: string, otherId: string): string {
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
 	const byExactId = (id: string): CatalogLookupResult => {
 		const fields = entries[id];
-		return fields !== undefined ? { kind: "found", id, fields } : { kind: "not-found" };
+		return fields === undefined ? { kind: "not-found" } : { kind: "found", id, fields };
 	};
 	return {
 		byExactId,
@@ -395,9 +395,9 @@ function layerMaps(specs: LayerSpecs): {
 		};
 	}
 	const catalog = makeCatalog({
-		...(specs.catalogOne !== undefined ? { "cat/one": specs.catalogOne } : {}),
-		...(specs.catalogTwo !== undefined ? { "cat/two": specs.catalogTwo } : {}),
-		...(specs.implicitFields !== undefined ? { [`imp/${specs.rawModelId}`]: specs.implicitFields } : {}),
+		...(specs.catalogOne === undefined ? {} : { "cat/one": specs.catalogOne }),
+		...(specs.catalogTwo === undefined ? {} : { "cat/two": specs.catalogTwo }),
+		...(specs.implicitFields === undefined ? {} : { [`imp/${specs.rawModelId}`]: specs.implicitFields }),
 		...(specs.implicitFields !== undefined && specs.implicitAmbiguous
 			? { [`imp2/${specs.rawModelId}`]: specs.implicitFields }
 			: {}),
@@ -593,7 +593,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 				const directiveId =
 					(entry.winner as ParsedCapabilityRecord | undefined)?.openrouterModel ??
 					(global.winner as ParsedCapabilityRecord | undefined)?.openrouterModel;
-				const directiveLookup = directiveId !== undefined ? input.catalog.byExactId(directiveId) : undefined;
+				const directiveLookup = directiveId === undefined ? undefined : input.catalog.byExactId(directiveId);
 				const directiveFields: Readonly<Partial<CapabilityFieldValues>> =
 					directiveLookup?.kind === "found" ? directiveLookup.fields : {};
 				const serverValues: Readonly<Record<string, CapabilityJsonValue | undefined>> =
@@ -667,12 +667,12 @@ suite("provider/catalog capability cross-layer properties", () => {
 					return {
 						value: winner.value,
 						level: winner.level,
-						...(winner.key !== undefined ? { key: winner.key } : {}),
-						...(winner.inheritedBy !== undefined ? { inheritedBy: winner.inheritedBy } : {}),
+						...(winner.key === undefined ? {} : { key: winner.key }),
+						...(winner.inheritedBy === undefined ? {} : { inheritedBy: winner.inheritedBy }),
 						shadowed: shadowed.map((candidate) => ({
 							level: candidate.level,
-							...(candidate.key !== undefined ? { key: candidate.key } : {}),
-							...(candidate.inheritedBy !== undefined ? { inheritedBy: candidate.inheritedBy } : {}),
+							...(candidate.key === undefined ? {} : { key: candidate.key }),
+							...(candidate.inheritedBy === undefined ? {} : { inheritedBy: candidate.inheritedBy }),
 							value: candidate.value,
 						})),
 					};
@@ -691,7 +691,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 				const naiveFields: Record<string, EffectiveCapabilityField> = {
 					context_length: contextLength,
 					max_output_tokens: maxOutputTokens,
-					...(maxInputTokens !== undefined ? { max_input_tokens: maxInputTokens } : {}),
+					...(maxInputTokens === undefined ? {} : { max_input_tokens: maxInputTokens }),
 				};
 				for (const name of BOOLEAN_FIELD_NAMES) {
 					const field = settle(name, { level: "floor", value: CAPABILITY_FLOOR[name] });
@@ -783,7 +783,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 				recordFromEntries([
 					...pairs,
 					...Object.entries(consumed),
-					...(fallback !== undefined ? [[FALLBACK_DIRECTIVE, fallback] as const] : []),
+					...(fallback === undefined ? [] : [[FALLBACK_DIRECTIVE, fallback] as const]),
 				])
 			);
 		fc.assert(
@@ -954,7 +954,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 						const user = userCosts[name];
 						// The parse canonicalizes a user-written -0 to +0 ("free" never rides a negative sign); mirror
 						// that rule here.
-						const fromUser = user !== undefined ? (user === 0 ? 0 : user) : undefined;
+						const fromUser = user === undefined ? undefined : user === 0 ? 0 : user;
 						const fromServer =
 							baseline.kind === "discovered"
 								? (capabilityField(baseline.values, name) as number | undefined)

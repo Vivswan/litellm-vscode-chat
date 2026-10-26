@@ -85,7 +85,7 @@ suite("provider/request full-pipeline pass-through properties", () => {
 								toolMode: vscode.LanguageModelChatToolMode.Auto,
 								modelOptions,
 								...(tools.length > 0 ? { tools } : {}),
-								...(picker !== undefined ? { modelConfiguration: { reasoningEffort: picker } } : {}),
+								...(picker === undefined ? {} : { modelConfiguration: { reasoningEffort: picker } }),
 							},
 							{ messages }
 						)
@@ -127,14 +127,14 @@ suite("provider/request full-pipeline pass-through properties", () => {
 					mswServer.resetHandlers();
 					const base = makeModelInfo();
 					const body = await withConfig(
-						{ "models.parameters": { "test-model": paramsMax !== undefined ? { max_tokens: paramsMax } : {} } },
+						{ "models.parameters": { "test-model": paramsMax === undefined ? {} : { max_tokens: paramsMax } } },
 						() =>
 							captureRequestBody(
 								createConfiguredProvider(),
 								makeModelInfo({ litellm: { ...base.litellm, defaultMaxTokens: modelDefault } }),
 								{
 									toolMode: vscode.LanguageModelChatToolMode.Auto,
-									...(optionsMax !== undefined ? { modelOptions: { max_tokens: optionsMax } } : {}),
+									...(optionsMax === undefined ? {} : { modelOptions: { max_tokens: optionsMax } }),
 								}
 							)
 					);

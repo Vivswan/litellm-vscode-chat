@@ -666,11 +666,7 @@ function prGenerationSuite(): void {
 	});
 }
 
-if (!BASE_URL) {
-	suite("Docker LiteLLM transport failures", () => {
-		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
-	});
-} else {
+if (BASE_URL) {
 	restoreServersSettingAfterRun();
 	transportSuite("Docker transport failures (proxy)", false);
 	transportSuite("Docker transport failures (direct)", true);
@@ -680,4 +676,8 @@ if (!BASE_URL) {
 	fimCompletionSuite();
 	prGenerationSuite();
 	bufferSecrecySuite();
+} else {
+	suite("Docker LiteLLM transport failures", () => {
+		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
+	});
 }

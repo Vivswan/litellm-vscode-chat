@@ -114,9 +114,9 @@ export function makeProvider(
 		provider.provideLanguageModelChatInformation = (options, token) => {
 			const opts = options as { silent: boolean; configuration?: unknown };
 			const withConfiguration =
-				opts.configuration !== undefined
-					? options
-					: ({ ...opts, configuration: { baseUrl, apiKey, label: "Default" } } as typeof options);
+				opts.configuration === undefined
+					? ({ ...opts, configuration: { baseUrl, apiKey, label: "Default" } } as typeof options)
+					: options;
 			return original(withConfiguration, token);
 		};
 	}
@@ -203,9 +203,9 @@ export async function captureRequest(
 		: undefined;
 	const sent =
 		discovered ??
-		(model.litellm?.group !== undefined
-			? model
-			: attachGroup(model as PreAttachModelInfo, groupIdentity(group, groupClientId(group))));
+		(model.litellm?.group === undefined
+			? attachGroup(model as PreAttachModelInfo, groupIdentity(group, groupClientId(group)))
+			: model);
 	await provider.provideLanguageModelChatResponse(
 		sent,
 		overrides.messages ?? [userMessage("test")],
@@ -255,12 +255,12 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 	const common = {
 		serverId: overrides.serverId ?? "srv1",
 		label: overrides.label ?? "Prod",
-		...(overrides.entryLabel !== undefined ? { entryLabel: overrides.entryLabel } : {}),
+		...(overrides.entryLabel === undefined ? {} : { entryLabel: overrides.entryLabel }),
 		baseUrl: overrides.baseUrl ?? "http://prod.test",
 		lastChecked: overrides.lastChecked ?? "2026-07-26T00:00:00.000Z",
-		...(overrides.hasApiKey !== undefined ? { hasApiKey: overrides.hasApiKey } : {}),
-		...(overrides.hasOAuth !== undefined ? { hasOAuth: overrides.hasOAuth } : {}),
-		...(overrides.hasVirtualKey !== undefined ? { hasVirtualKey: overrides.hasVirtualKey } : {}),
+		...(overrides.hasApiKey === undefined ? {} : { hasApiKey: overrides.hasApiKey }),
+		...(overrides.hasOAuth === undefined ? {} : { hasOAuth: overrides.hasOAuth }),
+		...(overrides.hasVirtualKey === undefined ? {} : { hasVirtualKey: overrides.hasVirtualKey }),
 	};
 	return overrides.state === "error"
 		? {
@@ -269,27 +269,27 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 				// A classification given alone is a transport cause; nothing given is an unclassified failure.
 				cause:
 					overrides.cause ??
-					(overrides.classification !== undefined
-						? { kind: "transport", classification: overrides.classification }
-						: { kind: "unclassified" }),
+					(overrides.classification === undefined
+						? { kind: "unclassified" }
+						: { kind: "transport", classification: overrides.classification }),
 				// An error still serves its declared models unless the test says otherwise.
 				servedModelCount: overrides.servedModelCount ?? overrides.declaredModelCount ?? 0,
 				// Tests hand plain strings; the helper is the one place that brands them.
 				logSafeError:
-					overrides.logSafeError !== undefined
-						? markLogSafe(overrides.logSafeError)
-						: publicErrorText(overrides.error ?? "unclassified failure"),
-				...(overrides.expected !== undefined ? { expected: overrides.expected } : {}),
-				...(overrides.declaredModelCount !== undefined ? { declaredModelCount: overrides.declaredModelCount } : {}),
+					overrides.logSafeError === undefined
+						? publicErrorText(overrides.error ?? "unclassified failure")
+						: markLogSafe(overrides.logSafeError),
+				...(overrides.expected === undefined ? {} : { expected: overrides.expected }),
+				...(overrides.declaredModelCount === undefined ? {} : { declaredModelCount: overrides.declaredModelCount }),
 			}
 		: {
 				...common,
 				state: "ok",
 				servedModelCount: overrides.servedModelCount ?? 4,
-				...(overrides.hiddenByRemoval !== undefined ? { hiddenByRemoval: overrides.hiddenByRemoval } : {}),
-				...(overrides.modelInfoUnsupported !== undefined
-					? { modelInfoUnsupported: overrides.modelInfoUnsupported }
-					: {}),
+				...(overrides.hiddenByRemoval === undefined ? {} : { hiddenByRemoval: overrides.hiddenByRemoval }),
+				...(overrides.modelInfoUnsupported === undefined
+					? {}
+					: { modelInfoUnsupported: overrides.modelInfoUnsupported }),
 			};
 }
 

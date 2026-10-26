@@ -195,7 +195,7 @@ async function waitForDeclared(
 		}
 		if (Date.now() >= deadline) {
 			const seen = views
-				.map((view) => `${view.label}${view.syncFailure !== undefined ? ` (${view.syncFailure.class})` : ""}`)
+				.map((view) => `${view.label}${view.syncFailure === undefined ? "" : ` (${view.syncFailure.class})`}`)
 				.join(", ");
 			throw new Error(`Timeout (${timeoutMs}ms) waiting for ${description}. Declared: ${seen || "(none)"}`);
 		}

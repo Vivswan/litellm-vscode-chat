@@ -257,11 +257,7 @@ function fuzzSuite(target: FuzzTarget): void {
 	});
 }
 
-if (!BASE_URL) {
-	suite("Docker LiteLLM stream fuzzer", () => {
-		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
-	});
-} else {
+if (BASE_URL) {
 	restoreServersSettingAfterRun();
 	/** The declared fuzz target's model: created only by its entry's declared list, never listed by discovery. */
 	const DECLARED_FUZZ_MODEL = "fake-declared-fuzz";
@@ -299,5 +295,9 @@ if (!BASE_URL) {
 		},
 		modelId: DECLARED_FUZZ_MODEL,
 		seedSalt: 0x85ebca6b,
+	});
+} else {
+	suite("Docker LiteLLM stream fuzzer", () => {
+		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
 	});
 }

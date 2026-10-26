@@ -50,7 +50,7 @@ const forceDirective = (record: Record<string, unknown>) =>
 					fc.subarray(Object.keys(record)),
 					fc.option(fc.constantFrom<unknown>("absent-key", 42), { nil: undefined })
 				)
-				.map(([names, noise]) => [...names, ...(noise !== undefined ? [noise] : [])]),
+				.map(([names, noise]) => [...names, ...(noise === undefined ? [] : [noise])]),
 			weight: 2,
 		},
 		{ arbitrary: fc.constantFrom<unknown>("yes", 1, null), weight: 1 }
@@ -75,9 +75,9 @@ const recordWithDirectives = (recordKeys: () => readonly string[]) =>
 			})
 			.map(({ force, inheritable, inheritFrom }) => ({
 				...record,
-				...(force !== undefined ? { [FORCE_DIRECTIVE]: force } : {}),
-				...(inheritable !== undefined ? { _inheritable: inheritable } : {}),
-				...(inheritFrom !== undefined ? { _inherit_from: inheritFrom } : {}),
+				...(force === undefined ? {} : { [FORCE_DIRECTIVE]: force }),
+				...(inheritable === undefined ? {} : { _inheritable: inheritable }),
+				...(inheritFrom === undefined ? {} : { _inherit_from: inheritFrom }),
 			}))
 	);
 

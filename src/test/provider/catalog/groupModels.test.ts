@@ -459,7 +459,7 @@ suite("provider/catalog/groupModels", () => {
 							tokenUrl,
 							clientId,
 							clientSecret,
-							...(scopes !== undefined ? { scopes } : {}),
+							...(scopes === undefined ? {} : { scopes }),
 						})
 					),
 				{ nil: undefined }
@@ -474,9 +474,9 @@ suite("provider/catalog/groupModels", () => {
 				([baseUrl, label, apiKey, oauth, virtualKey]): GroupServer => ({
 					baseUrl,
 					apiKey,
-					...(label !== undefined ? { label } : {}),
-					...(oauth !== undefined ? { oauth } : {}),
-					...(virtualKey !== undefined ? { virtualKey } : {}),
+					...(label === undefined ? {} : { label }),
+					...(oauth === undefined ? {} : { oauth }),
+					...(virtualKey === undefined ? {} : { virtualKey }),
 				})
 			);
 			// OAuth compares by its credential fingerprint, production's own unit of OAuth identity (scopes "" and

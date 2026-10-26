@@ -895,6 +895,6 @@ export function collapseChunks(chunks: unknown[]): Record<string, unknown> {
 		id: "chatcmpl-capture",
 		object: "chat.completion",
 		choices: [{ index: 0, message, finish_reason: finishReason }],
-		...(usage !== undefined ? { usage } : {}),
+		...(usage === undefined ? {} : { usage }),
 	};
 }

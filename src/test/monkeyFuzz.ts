@@ -405,7 +405,7 @@ export function generateWalk(random: () => number, stepCount: number): MonkeyAct
 				live.push(label);
 			}
 			const extras = generateDeclareExtras(random, serial);
-			actions.push({ kind: "declare-server", label, credential, ...(extras !== undefined ? { extras } : {}) });
+			actions.push({ kind: "declare-server", label, credential, ...(extras === undefined ? {} : { extras }) });
 		} else if (roll < 0.22 && live.length > 0) {
 			actions.push({ kind: "redeclare-server", label: expectDefined(randomLive()) });
 		} else if (roll < 0.29 && live.length > 0) {
@@ -801,7 +801,7 @@ export class MonkeySession {
 		const declaredId = extras?.declared ? `monkey-declared-${this.env.seed}-${serial}` : undefined;
 		if (declaredId !== undefined || extras?.expectedFailures) {
 			entry.discovery = {
-				...(declaredId !== undefined ? { declared: [declaredId] } : {}),
+				...(declaredId === undefined ? {} : { declared: [declaredId] }),
 				...(extras?.expectedFailures ? { expectedFailures: ["modelListing", "modelInfo"] } : {}),
 			};
 		}
@@ -828,7 +828,7 @@ export class MonkeySession {
 			provenHealthy: false,
 			hidden: false,
 			syncedBaseUrl: String(entry.baseUrl),
-			...(declaredId !== undefined ? { declaredId } : {}),
+			...(declaredId === undefined ? {} : { declaredId }),
 		};
 		this.declared.set(label, oracle);
 		if (health === "proxy") {
@@ -994,9 +994,9 @@ export class MonkeySession {
 				// observed leaving against this.
 				const anchorId = MonkeySession.anchorOf(oracle);
 				const before =
-					anchorId !== undefined
-						? this.countModels(await vscode.lm.selectChatModels({ vendor: VENDOR_ID }), anchorId)
-						: 0;
+					anchorId === undefined
+						? 0
+						: this.countModels(await vscode.lm.selectChatModels({ vendor: VENDOR_ID }), anchorId);
 				await this.writeServersSetting(
 					this.readServersSetting().map((entry) => (entry.label === real ? mutated : entry))
 				);
@@ -1038,9 +1038,9 @@ export class MonkeySession {
 				// labels whose copies are still on the floors (not already hidden by a redeclare) have models to lose.
 				const anchorId = MonkeySession.anchorOf(oracle);
 				const before =
-					anchorId !== undefined
-						? this.countModels(await vscode.lm.selectChatModels({ vendor: VENDOR_ID }), anchorId)
-						: 0;
+					anchorId === undefined
+						? 0
+						: this.countModels(await vscode.lm.selectChatModels({ vendor: VENDOR_ID }), anchorId);
 				await this.writeServersSetting(this.readServersSetting().filter((entry) => entry.label !== real));
 				this.hideRemovedLabel(real);
 				await this.syncNow();

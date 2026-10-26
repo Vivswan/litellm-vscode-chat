@@ -170,15 +170,15 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 		...base,
 		// The retired _declare directive stays as inert underscore-key noise;
 		// _fallback: true demotes every kept field below the server level.
-		...(declare !== undefined ? { _declare: declare } : {}),
-		...(fallback !== undefined ? { _fallback: fallback } : {}),
-		...(openrouterModel !== undefined ? { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel } : {}),
+		...(declare === undefined ? {} : { _declare: declare }),
+		...(fallback === undefined ? {} : { _fallback: fallback }),
+		...(openrouterModel === undefined ? {} : { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel }),
 	}));
 
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
 	const byExactId = (id: string): CatalogLookupResult => {
 		const fields = entries[id];
-		return fields !== undefined ? { kind: "found", id, fields } : { kind: "not-found" };
+		return fields === undefined ? { kind: "not-found" } : { kind: "found", id, fields };
 	};
 	return {
 		byExactId,
@@ -255,8 +255,8 @@ const scenario: fc.Arbitrary<Scenario> = fc
 						spec.entrySpecs.map((entry) => [prefixOf(entry.cut, entry.foreign, entry.glob), entry.record])
 					);
 		const catalog = makeCatalog({
-			...(spec.catalogOne !== undefined ? { "cat/one": spec.catalogOne } : {}),
-			...(spec.implicitFields !== undefined ? { [`imp/${spec.rawModelId}`]: spec.implicitFields } : {}),
+			...(spec.catalogOne === undefined ? {} : { "cat/one": spec.catalogOne }),
+			...(spec.implicitFields === undefined ? {} : { [`imp/${spec.rawModelId}`]: spec.implicitFields }),
 		});
 		const entryDeclaredModels = [
 			...(spec.declareRaw ? [spec.rawModelId] : []),
