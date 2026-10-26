@@ -276,6 +276,53 @@ class WireMessageOrder {
 
 	private readonly deferred: DeferredMessage[] = [];
 
+	private flushToolImages(): void {
+		if (this.pendingToolImages.length === 0) {
+			return;
+		}
+
+		this.out.push({ role: "user", content: [{ type: "text", text: TOOL_IMAGES_LEAD_IN }, ...this.pendingToolImages] });
+		this.pendingToolImages = [];
+	}
+
+	private trackOpenCalls(message: OpenAIChatMessage): void {
+		if (message.role === "assistant") {
+			for (const call of message.tool_calls ?? []) {
+				this.openCalls.set(call.id, (this.openCalls.get(call.id) ?? 0) + 1);
+				this.openTotal++;
+			}
+			return;
+		}
+
+		if (message.role !== "tool") {
+			return;
+		}
+
+		const count = this.openCalls.get(message.tool_call_id) ?? 0;
+		if (count > 0) {
+			this.openCalls.set(message.tool_call_id, count - 1);
+			this.openTotal--;
+		}
+	}
+
+	private mustDefer(message: OpenAIChatMessage): boolean {
+		return this.openTotal > 0 && !(message.role === "tool" && (this.openCalls.get(message.tool_call_id) ?? 0) > 0);
+	}
+
+	private emit(message: OpenAIChatMessage, toolImages: OpenAIChatImageUrlContentBlock[] | undefined): void {
+		if (message.role !== "tool") {
+			this.flushToolImages();
+		}
+
+		this.trackOpenCalls(message);
+		this.out.push(message);
+		if (toolImages) {
+			// Attached only now, so a deferred tool message's images cannot flush ahead of the tool message they came
+			// from.
+			this.pendingToolImages.push(...toolImages);
+		}
+	}
+
 	/**
 	 * Drains by first-emittable, not head-only: emitting a deferred tool_calls message reopens a turn, and its answers
 	 * may sit behind other deferrals. Terminates because every iteration removes one entry.
@@ -311,53 +358,6 @@ class WireMessageOrder {
 		this.flushToolImages();
 
 		return this.out;
-	}
-
-	private mustDefer(message: OpenAIChatMessage): boolean {
-		return this.openTotal > 0 && !(message.role === "tool" && (this.openCalls.get(message.tool_call_id) ?? 0) > 0);
-	}
-
-	private emit(message: OpenAIChatMessage, toolImages: OpenAIChatImageUrlContentBlock[] | undefined): void {
-		if (message.role !== "tool") {
-			this.flushToolImages();
-		}
-
-		this.trackOpenCalls(message);
-		this.out.push(message);
-		if (toolImages) {
-			// Attached only now, so a deferred tool message's images cannot flush ahead of the tool message they came
-			// from.
-			this.pendingToolImages.push(...toolImages);
-		}
-	}
-
-	private trackOpenCalls(message: OpenAIChatMessage): void {
-		if (message.role === "assistant") {
-			for (const call of message.tool_calls ?? []) {
-				this.openCalls.set(call.id, (this.openCalls.get(call.id) ?? 0) + 1);
-				this.openTotal++;
-			}
-			return;
-		}
-
-		if (message.role !== "tool") {
-			return;
-		}
-
-		const count = this.openCalls.get(message.tool_call_id) ?? 0;
-		if (count > 0) {
-			this.openCalls.set(message.tool_call_id, count - 1);
-			this.openTotal--;
-		}
-	}
-
-	private flushToolImages(): void {
-		if (this.pendingToolImages.length === 0) {
-			return;
-		}
-
-		this.out.push({ role: "user", content: [{ type: "text", text: TOOL_IMAGES_LEAD_IN }, ...this.pendingToolImages] });
-		this.pendingToolImages = [];
 	}
 }
 

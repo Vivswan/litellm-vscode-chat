@@ -9,13 +9,7 @@
  */
 
 import type { ModelRecordMap } from "./modelMatcher";
-import type {
-	ParsedRecord,
-	RecordChainResolution,
-	RecordDiagnostic,
-	RecordLayer,
-	ResolvedChainField,
-} from "./recordResolution";
+import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
 import {
 	canonicalFieldKey,
 	FIM_TEMPLATE_DIRECTIVE,
@@ -219,7 +213,7 @@ function layerAttribution(
 	layer: ParameterConfigLayer,
 	resolution: RecordChainResolution,
 	name: string
-): { source: ResolvedSourceRef; inheritedBy?: string } {
+): { source: ResolvedSourceRef; inheritedBy?: string; forced?: true } {
 	const field = resolution.fields.get(name);
 	const sourceKey = field?.sourceKey ?? resolution.winnerKey ?? "";
 
@@ -228,11 +222,8 @@ function layerAttribution(
 		...(field !== undefined && resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
 			? { inheritedBy: resolution.winnerKey }
 			: {}),
+		...(field?.forced ? { forced: true as const } : {}),
 	};
-}
-
-function forcedMark(field: ResolvedChainField): { forced: true } | Record<string, never> {
-	return field.forced ? { forced: true } : {};
 }
 
 /**
@@ -249,7 +240,7 @@ function mergeParameterLayers(
 
 	for (const [name, field] of global.fields) {
 		params[name] = field.value;
-		sources.set(name, { ...layerAttribution("global", global, name), shadowed: [], ...forcedMark(field) });
+		sources.set(name, { ...layerAttribution("global", global, name), shadowed: [] });
 	}
 
 	for (const [name, field] of entry.fields) {
@@ -269,7 +260,6 @@ function mergeParameterLayers(
 			...layerAttribution("entry", entry, name),
 			shadowed:
 				globalField === undefined ? [] : [{ layer: "global", key: globalField.sourceKey, value: globalField.value }],
-			...forcedMark(field),
 		});
 	}
 

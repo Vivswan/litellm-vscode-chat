@@ -98,12 +98,15 @@ function isHexDigit(ch: string): boolean {
 
 /** Whether `spelling[i]` is a hex digit of a complete percent escape ("%HH") in `spelling`. */
 function inEscape(spelling: string, i: number): boolean {
-	const percent = [i - 1, i - 2].find((at) => spelling.charAt(at) === "%");
-	if (percent === undefined) {
-		return false;
+	if (spelling.charAt(i - 1) === "%") {
+		return isHexDigit(spelling.charAt(i)) && isHexDigit(spelling.charAt(i + 1));
 	}
 
-	return isHexDigit(spelling.charAt(percent + 1)) && isHexDigit(spelling.charAt(percent + 2));
+	if (spelling.charAt(i - 2) === "%") {
+		return isHexDigit(spelling.charAt(i - 1)) && isHexDigit(spelling.charAt(i));
+	}
+
+	return false;
 }
 
 /** Whether `spelling` sits at `at` in `text`; the two hex digits of a complete percent escape match in either case. */

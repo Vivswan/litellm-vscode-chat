@@ -174,12 +174,18 @@ function scanText(text: string): TextScan {
 	return { atRunStarts, atRunEnds, delimiters };
 }
 
+/** The "@" at `at` inside its run and its quote-delimited segment; `runStart` is never below `segmentStart`. */
+interface AtRun {
+	readonly at: number;
+	readonly runStart: number;
+	readonly segmentStart: number;
+}
+
 /**
- * Where a URL around the "@" at `at` may start, nearest first: each "//" inside the "@"-run (nearest the "@" first),
- * the run's start, then every run start to its left (down to `segmentStart`) whose run holds a ":" or opens with
- * "//".
+ * Where a URL around the "@" may start, nearest first: each "//" inside the "@"-run (nearest the "@" first), the run's
+ * start, then every run start to its left (down to the segment start) whose run holds a ":" or opens with "//".
  */
-function candidateStarts(text: string, at: number, runStart: number, segmentStart: number): number[] {
+function candidateStarts(text: string, { at, runStart, segmentStart }: AtRun): number[] {
 	const starts: number[] = [];
 	for (let i = at - 1; i > runStart; i--) {
 		if (text[i] === "/" && text[i - 1] === "/") {
@@ -305,7 +311,7 @@ function cutAround(text: string, at: number, floor: number, scan: TextScan): Cut
 	const segmentEnd = delimiterIndex < delimiters.length ? (delimiters[delimiterIndex] as number) : text.length;
 	const runStart = Math.max(atRunStarts[lowerBound(atRunEnds, at + 1)] as number, segmentStart);
 
-	for (const start of candidateStarts(text, at, runStart, segmentStart)) {
+	for (const start of candidateStarts(text, { at, runStart, segmentStart })) {
 		for (const candidateStart of OPENERS.has(text[start] as string) ? [start, start + 1] : [start]) {
 			const settled = settleFrom(text, candidateStart, segmentEnd, atRunEnds);
 			if (settled !== undefined) {

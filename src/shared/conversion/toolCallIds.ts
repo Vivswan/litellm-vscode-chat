@@ -67,6 +67,15 @@ class OpenCallLedger {
 		this.rawIds = rawIds;
 	}
 
+	private mint(): string {
+		let candidate = `call_synth_${this.mintCounter++}`;
+		while (this.rawIds.has(candidate)) {
+			candidate = `call_synth_${this.mintCounter++}`;
+		}
+
+		return candidate;
+	}
+
 	/** The wire id of a call: its own when it has one (a repeat of a live id is recorded), a minted one otherwise. */
 	openCall(callId: string, messageCallIds: Set<string>): string {
 		let id: string;
@@ -120,15 +129,6 @@ class OpenCallLedger {
 		}
 
 		return unpaired;
-	}
-
-	private mint(): string {
-		let candidate = `call_synth_${this.mintCounter++}`;
-		while (this.rawIds.has(candidate)) {
-			candidate = `call_synth_${this.mintCounter++}`;
-		}
-
-		return candidate;
 	}
 }
 

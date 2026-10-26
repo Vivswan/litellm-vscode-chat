@@ -11,7 +11,7 @@
  */
 
 import { trimHttpWhitespace } from "../util/headers";
-import type { ModelRecordMap } from "./modelMatcher";
+import type { ModelRecordMap, ParsedMatcher } from "./modelMatcher";
 import { compareSpecificity, matchChain, matcherMatches, parseMatcherKey } from "./modelMatcher";
 
 /** Giver-side: marks the fields that flow to more specific matches. */
@@ -357,31 +357,18 @@ interface ChainWalk {
 	readonly diagnostics: DiagnosticSet;
 }
 
-/** A record an `_inherit_from` list names, with its position in the record map for the specificity tie-break. */
+/** A record an `_inherit_from` list names, with its matcher and record-map position for the specificity order. */
 interface NamedSource {
 	readonly key: string;
 	readonly parsed: ParsedRecord;
+	readonly matcher: ParsedMatcher;
 	readonly position: number;
 }
 
-/** Broadest first, so the most specific named record wins per field: specificity order, not list order. */
-function bySpecificity(a: NamedSource, b: NamedSource): number {
-	const aParse = parseMatcherKey(a.key);
-	const bParse = parseMatcherKey(b.key);
-	if (!aParse.ok || !bParse.ok) {
-		return 0; // Unreachable: non-matching keys were filtered above.
-	}
-
-	return compareSpecificity(
-		{ matcher: aParse.matcher, position: a.position },
-		{ matcher: bParse.matcher, position: b.position }
-	);
-}
-
 /**
- * The records an `_inherit_from` list names that match this model, in specificity order. An unknown key is diagnosed;
- * a named record that does not match this model contributes nothing, and an invalid key already carries its own
- * diagnostic.
+ * The records an `_inherit_from` list names that match this model, broadest first so the most specific named record
+ * wins per field (specificity order, not list order). An unknown key is diagnosed; a named record that does not match
+ * this model contributes nothing, and an invalid key already carries its own diagnostic.
  */
 function namedSources(walk: ChainWalk, recordKey: string, keys: readonly string[]): NamedSource[] {
 	const named: NamedSource[] = [];
@@ -401,11 +388,16 @@ function namedSources(walk: ChainWalk, recordKey: string, keys: readonly string[
 		}
 		const namedParsed = walk.parsedFor(nameKey);
 		if (namedParsed !== undefined) {
-			named.push({ key: nameKey, parsed: namedParsed, position: Object.keys(walk.records).indexOf(nameKey) });
+			named.push({
+				key: nameKey,
+				parsed: namedParsed,
+				matcher: namedParse.matcher,
+				position: Object.keys(walk.records).indexOf(nameKey),
+			});
 		}
 	}
 
-	return named.sort(bySpecificity);
+	return named.sort(compareSpecificity);
 }
 
 /** What a record accepts from the chain above, by its `_inherit_from`; named sources give their LITERAL fields only. */
