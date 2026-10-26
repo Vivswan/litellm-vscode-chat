@@ -125,7 +125,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
 		fs.writeFileSync(storageDir, "a file where the storage directory should be");
 	}
 	const { memento, mementoStore } = makeExtensionStorage(
-		options.metadata !== undefined ? { [OPENROUTER_CATALOG_METADATA_KEY]: options.metadata } : {}
+		options.metadata === undefined ? {} : { [OPENROUTER_CATALOG_METADATA_KEY]: options.metadata }
 	);
 	const { timer, scheduled } = makeTimer();
 	const clock: Clock = { now: () => options.now ?? 1_000_000_000_000 };
@@ -497,7 +497,7 @@ suite("extension openRouterCatalog store", () => {
 			await withFetch(
 				async () => {
 					fetchCalls += 1;
-					return new Response(body, { status, ...(headers !== undefined ? { headers } : {}) });
+					return new Response(body, { status, ...(headers === undefined ? {} : { headers }) });
 				},
 				() => harness.store.refreshNow()
 			);

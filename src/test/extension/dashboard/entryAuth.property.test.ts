@@ -91,7 +91,7 @@ suite("extension/dashboard/entryAuth: assemble -> parse round trip", () => {
 				const entry = {
 					label: "round-trip",
 					baseUrl: "http://round-trip.test",
-					...(assembled.auth !== undefined ? { auth: assembled.auth } : {}),
+					...(assembled.auth === undefined ? {} : { auth: assembled.auth }),
 				};
 				const { entries, problems } = parseServersSetting([entry]);
 				assert.deepStrictEqual(problems, [], "an assembled entry must never parse misconfigured");
@@ -117,7 +117,7 @@ suite("extension/dashboard/entryAuth: assemble -> parse round trip", () => {
 				const entry = {
 					label: "strip",
 					baseUrl: "http://strip.test",
-					...(assembled.auth !== undefined ? { auth: assembled.auth } : {}),
+					...(assembled.auth === undefined ? {} : { auth: assembled.auth }),
 				};
 				const stripped = stripEntrySecrets(entry);
 				assert.strictEqual(stripped.unsanitizable, false, "assembled entries are always certifiable");

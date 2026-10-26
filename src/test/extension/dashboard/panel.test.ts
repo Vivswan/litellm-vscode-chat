@@ -1568,13 +1568,13 @@ suite("extension/dashboard/panel", () => {
 				const issues = "issues" in submission ? submission.issues : undefined;
 				assert.strictEqual(submission.outcome, c.outcome, `${c.name}: outcome`);
 				assert.strictEqual(reply?.kind, c.replyKind, `${c.name}: reply kind`);
-				if (c.issuePaths !== undefined) {
+				if (c.issuePaths === undefined) {
+					assert.strictEqual(issues, undefined, `${c.name}: a parsed request carries no issues`);
+				} else {
 					const paths = (issues ?? []).map((issue) => issue.path);
 					for (const path of c.issuePaths) {
 						assert.ok(paths.includes(path), `${c.name}: issues name ${path}, got ${paths.join(", ")}`);
 					}
-				} else {
-					assert.strictEqual(issues, undefined, `${c.name}: a parsed request carries no issues`);
 				}
 			}
 			assert.deepStrictEqual(harness.updates.at(0), ["ui.maskSecretInputs", false], "the landed write");

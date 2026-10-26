@@ -493,7 +493,7 @@ suite("extension/dashboard/state: capabilities", () => {
 				{
 					status: makeServerStatus({ serverId: "g1", baseUrl: "http://x.test" }),
 					models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
-					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
+					...(observedModelInfoKeys === undefined ? {} : { observedModelInfoKeys }),
 				},
 			];
 			const resolve = (observed: readonly string[] | undefined) =>
@@ -564,12 +564,12 @@ suite("extension/dashboard/state: capabilities", () => {
 					{
 						status: makeServerStatus({ serverId: "gB", label: "B", baseUrl: "http://b.test" }),
 						models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
-						...(servingSet !== undefined ? { observedModelInfoKeys: servingSet } : {}),
+						...(servingSet === undefined ? {} : { observedModelInfoKeys: servingSet }),
 					},
 					{
 						status: makeServerStatus({ serverId: "gA", label: "A", baseUrl: "http://a.test" }),
 						models: [],
-						...(otherSet !== undefined ? { observedModelInfoKeys: otherSet } : {}),
+						...(otherSet === undefined ? {} : { observedModelInfoKeys: otherSet }),
 					},
 				];
 				const resolveOnB = (

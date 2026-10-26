@@ -44,8 +44,8 @@ export function buildState(
 	return buildDashboardState({
 		snapshots,
 		reader,
-		...(declared !== undefined ? { declared: { source: "engine", views: declared } } : {}),
-		...(removedGroups !== undefined ? { removedGroups } : {}),
+		...(declared === undefined ? {} : { declared: { source: "engine", views: declared } }),
+		...(removedGroups === undefined ? {} : { removedGroups }),
 		...observation,
 	});
 }

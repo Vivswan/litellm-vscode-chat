@@ -7,7 +7,7 @@ import { parseServersSetting, serverSettingReports } from "../../../extension/se
  */
 
 function entry(mcp: unknown): unknown {
-	return { label: "Prod", baseUrl: "http://localhost:4000", ...(mcp !== undefined ? { mcp } : {}) };
+	return { label: "Prod", baseUrl: "http://localhost:4000", ...(mcp === undefined ? {} : { mcp }) };
 }
 
 function parseOne(mcp: unknown): { mcp?: unknown; problems: readonly string[] } {

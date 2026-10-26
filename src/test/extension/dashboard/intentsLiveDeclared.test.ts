@@ -74,7 +74,7 @@ function makeHost() {
 				}),
 				// One model per group, so a hide's effect on the models list is observable.
 				models: [makeModelInfo({ id: `${args.name}-model`, name: `${args.name}-model` })],
-				...(args.label !== undefined ? { entryLabel: args.label } : {}),
+				...(args.label === undefined ? {} : { entryLabel: args.label }),
 			});
 			await gate;
 		},

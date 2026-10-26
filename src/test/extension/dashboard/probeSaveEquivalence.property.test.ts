@@ -119,7 +119,7 @@ function displayedIdentity(
 	return {
 		label: "Prod",
 		baseUrl: parsed.entry.baseUrl,
-		...(parsed.entry.apiVersion !== undefined ? { apiVersion: parsed.entry.apiVersion } : {}),
+		...(parsed.entry.apiVersion === undefined ? {} : { apiVersion: parsed.entry.apiVersion }),
 		...pickNonSecretOptionalFields(parsed.entry),
 		secrets: secretLocations(parsed.entry, blob),
 	};
@@ -154,12 +154,12 @@ suite("extension/dashboard: probe-save equivalence", () => {
 					label: fc.constantFrom("Prod", "Renamed"),
 				}),
 				async ({ fields, secrets, existing, blob, orphan, declaresReplacement, label }) => {
-					const setting = existing !== undefined ? [existing] : [];
+					const setting = existing === undefined ? [] : [existing];
 					const replace = existing !== undefined && declaresReplacement ? displayedIdentity(existing, blob) : undefined;
 					const payload = {
 						server: serverPayload({ label, baseUrl: "http://prod.test", ...compact(fields) }),
 						secrets,
-						...(replace !== undefined ? { replace } : {}),
+						...(replace === undefined ? {} : { replace }),
 					} satisfies RequestPayload<"saveServerSetting">;
 					const seeded = (): RecordedEnv => {
 						const env = makeEnv(setting);
@@ -209,8 +209,8 @@ suite("extension/dashboard: probe-save equivalence", () => {
 					};
 					const probeEffective = {
 						apiKey: connection.apiKey,
-						oauth: connection.oauth !== undefined ? compact({ ...connection.oauth }) : undefined,
-						virtualKey: connection.virtualKey !== undefined ? { ...connection.virtualKey } : undefined,
+						oauth: connection.oauth === undefined ? undefined : compact({ ...connection.oauth }),
+						virtualKey: connection.virtualKey === undefined ? undefined : { ...connection.virtualKey },
 					};
 					assert.deepStrictEqual(compact(probeEffective), compact(savedEffective));
 				}
@@ -235,7 +235,7 @@ suite("extension/dashboard: probe-save equivalence", () => {
 				// as shown.
 				fc.constantFrom("Prod", "Renamed"),
 				async (removals, existing, blob, orphan, declaresReplacement, label) => {
-					const setting = existing !== undefined ? [existing] : [];
+					const setting = existing === undefined ? [] : [existing];
 					const env = makeEnv(setting);
 					if (Object.keys(blob).length > 0) {
 						env.storedSecrets.set("Prod", { ...blob } as Record<string, string>);
@@ -256,15 +256,15 @@ suite("extension/dashboard: probe-save equivalence", () => {
 					// What that form showed per field. The edit form is prefilled from the pushed entry locations
 					// (serverSync's secretLocations rule: inline wins over the blob); the add form is
 					// EMPTY_SERVER_FORM, every field "none".
-					const inline = sources.accepted !== undefined ? inlineSecretValues(sources.accepted.entry) : {};
+					const inline = sources.accepted === undefined ? {} : inlineSecretValues(sources.accepted.entry);
 					const shown = (field: SecretFieldId): SecretLocation =>
-						!editing
-							? "none"
-							: inline[field] !== undefined
-								? "settings"
-								: blob[field] !== undefined
-									? "secure"
-									: "none";
+						editing
+							? inline[field] === undefined
+								? blob[field] === undefined
+									? "none"
+									: "secure"
+								: "settings"
+							: "none";
 					// Auth stays on "none", where all three fields are inactive and each one's still-attached problem
 					// appears exactly when the form's own resolution says the field resolves - the webview signal this
 					// pins against the host's plans.

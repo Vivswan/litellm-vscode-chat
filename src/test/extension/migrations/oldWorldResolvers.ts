@@ -165,11 +165,11 @@ export function resolveOldModelParameters(input: {
 	const { rawModelId, globalParameters, serverScopes, entryParameters } = input;
 	const scoped = findScopedMatch(rawModelId, serverScopes, globalParameters);
 	const unscoped = findLongestPrefixEntry(rawModelId, globalParameters);
-	const globalWinner = scoped?.value !== undefined ? { key: scoped.key, value: scoped.value } : unscoped;
+	const globalWinner = scoped?.value === undefined ? unscoped : { key: scoped.key, value: scoped.value };
 	const entry = findLongestPrefixEntry(rawModelId, entryParameters ?? {});
 
-	const parsedGlobal = globalWinner !== undefined ? parseOldParameterRecord(globalWinner.value) : undefined;
-	const parsedEntry = entry !== undefined ? parseOldParameterRecord(entry.value) : undefined;
+	const parsedGlobal = globalWinner === undefined ? undefined : parseOldParameterRecord(globalWinner.value);
+	const parsedEntry = entry === undefined ? undefined : parseOldParameterRecord(entry.value);
 
 	const params: Record<string, unknown> = { ...parsedGlobal?.fields, ...parsedEntry?.fields };
 	const forcedParams: Record<string, unknown> = {};
@@ -189,7 +189,7 @@ export function resolveOldModelParameters(input: {
 
 	const replacedUnscoped =
 		scoped?.value !== undefined && unscoped !== undefined ? { key: unscoped.key, record: unscoped.value } : undefined;
-	return { params, forcedParams, ...(replacedUnscoped !== undefined ? { replacedUnscoped } : {}) };
+	return { params, forcedParams, ...(replacedUnscoped === undefined ? {} : { replacedUnscoped }) };
 }
 
 const DECLARE_DIRECTIVE = "_declare";
@@ -318,13 +318,13 @@ export function resolveOldCapabilityOverrides(input: {
 	const { rawModelId, globalCapabilities, serverScopes, entryCapabilities } = input;
 	const scoped = findScopedMatch(rawModelId, serverScopes, globalCapabilities);
 	const unscoped = findLongestPrefixEntry(rawModelId, globalCapabilities);
-	const globalWinner = scoped?.value !== undefined ? { key: scoped.key, value: scoped.value } : unscoped;
+	const globalWinner = scoped?.value === undefined ? unscoped : { key: scoped.key, value: scoped.value };
 	const entryWinner = findLongestPrefixEntry(rawModelId, entryCapabilities ?? {});
 
 	const parsedGlobal =
-		globalWinner !== undefined ? parseOldCapabilityRecord(globalWinner.value, { allowDeclare: true }) : undefined;
+		globalWinner === undefined ? undefined : parseOldCapabilityRecord(globalWinner.value, { allowDeclare: true });
 	const parsedEntry =
-		entryWinner !== undefined ? parseOldCapabilityRecord(entryWinner.value, { allowDeclare: true }) : undefined;
+		entryWinner === undefined ? undefined : parseOldCapabilityRecord(entryWinner.value, { allowDeclare: true });
 
 	const entryBanned =
 		input.liftDeclareFallbackBan !== true &&
@@ -362,7 +362,7 @@ export function resolveOldCapabilityOverrides(input: {
 
 	const replacedUnscoped =
 		scoped?.value !== undefined && unscoped !== undefined ? { key: unscoped.key, record: unscoped.value } : undefined;
-	return { overrides, fallbacks, ...(replacedUnscoped !== undefined ? { replacedUnscoped } : {}) };
+	return { overrides, fallbacks, ...(replacedUnscoped === undefined ? {} : { replacedUnscoped }) };
 }
 
 export interface OldCapabilityTokenDefaults {

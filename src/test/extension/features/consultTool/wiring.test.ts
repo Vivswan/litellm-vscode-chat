@@ -57,7 +57,7 @@ function invokeRecorded(
 	const options = {
 		toolInvocationToken: undefined,
 		input,
-		...(tokenizationOptions !== undefined ? { tokenizationOptions } : {}),
+		...(tokenizationOptions === undefined ? {} : { tokenizationOptions }),
 	} as vscode.LanguageModelToolInvocationOptions<unknown>;
 	return Promise.resolve(tool.invoke(options, new vscode.CancellationTokenSource().token)).then((result) => {
 		assert.ok(result != null, "the tool answered with a result");

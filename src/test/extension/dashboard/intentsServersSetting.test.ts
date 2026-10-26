@@ -98,8 +98,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 					label: view.label,
 					baseUrl: view.baseUrl,
 					...pickNonSecretOptionalFields(view),
-					...(view.apiVersion !== undefined ? { apiVersion: view.apiVersion } : {}),
-					...(view.modelParameters !== undefined ? { modelParameters: view.modelParameters } : {}),
+					...(view.apiVersion === undefined ? {} : { apiVersion: view.apiVersion }),
+					...(view.modelParameters === undefined ? {} : { modelParameters: view.modelParameters }),
 					modelCapabilities: view.modelCapabilities ?? {},
 					expectedFailures: view.expectedFailures ?? [],
 					headers: view.headers ?? {},
@@ -478,11 +478,11 @@ suite("extension/dashboard/intents: the servers setting", () => {
 					server: serverPayload({
 						label: "Prod",
 						baseUrl: "http://prod.test",
-						...(payloadValue !== undefined ? { apiVersion: payloadValue } : {}),
+						...(payloadValue === undefined ? {} : { apiVersion: payloadValue }),
 					}),
 				});
 				assert.deepStrictEqual(recorded.serverWrites, [
-					[{ label: "Prod", baseUrl: "http://prod.test", ...(written !== undefined ? { apiVersion: written } : {}) }],
+					[{ label: "Prod", baseUrl: "http://prod.test", ...(written === undefined ? {} : { apiVersion: written }) }],
 				]);
 			}
 		});
@@ -520,8 +520,8 @@ suite("extension/dashboard/intents: the servers setting", () => {
 						server: serverPayload({
 							label: "Prod",
 							baseUrl: "http://prod.test",
-							...(headers !== undefined ? { headers } : {}),
-							...(budget !== undefined ? { budget } : {}),
+							...(headers === undefined ? {} : { headers }),
+							...(budget === undefined ? {} : { budget }),
 						}),
 					}),
 					expected

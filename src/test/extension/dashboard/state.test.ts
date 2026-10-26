@@ -271,7 +271,7 @@ suite("extension/dashboard/state", () => {
 			const group = (serverId: string, label: string, baseUrl: string, entryLabel?: string) => ({
 				status: makeServerStatus({ serverId, label, baseUrl, servedModelCount: 1 }),
 				models: [makeModelInfo({ id: `m-${serverId}`, name: `m-${serverId}` })],
-				...(entryLabel !== undefined ? { entryLabel } : {}),
+				...(entryLabel === undefined ? {} : { entryLabel }),
 			});
 			const prodAtX = makeDeclared({
 				label: "Prod",

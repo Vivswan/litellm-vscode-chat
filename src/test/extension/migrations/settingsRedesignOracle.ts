@@ -339,9 +339,9 @@ function starOrderingDiverges(
 function oldTokenDefaults(snapshot: Snapshot): OldCapabilityTokenDefaults {
 	const explicit = (id: string): { value: number; explicitlyConfigured: boolean } => {
 		const configured = normalizePositiveNumber(snapshot[id]?.globalValue);
-		return configured !== undefined
-			? { value: configured, explicitlyConfigured: true }
-			: { value: 0, explicitlyConfigured: false };
+		return configured === undefined
+			? { value: 0, explicitlyConfigured: false }
+			: { value: configured, explicitlyConfigured: true };
 	};
 	return {
 		contextLength: explicit("defaultContextLength"),
@@ -354,7 +354,7 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 	const scopes = [normalizeBaseUrl(server.baseUrl)];
 	const entry = acceptedEntryRecord(snapshot.servers?.globalValue, server);
 	const globalParameters = normalizeModelParameters(snapshot.modelParameters?.globalValue);
-	const entryParameters = entry !== undefined ? normalizeModelParameters(entry.modelParameters) : undefined;
+	const entryParameters = entry === undefined ? undefined : normalizeModelParameters(entry.modelParameters);
 	const hasEntryParameters = entryParameters !== undefined && Object.keys(entryParameters).length > 0;
 	const params = resolveOldModelParameters({
 		rawModelId: modelId,
@@ -364,7 +364,7 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 	});
 
 	const globalCapabilities = normalizeModelCapabilities(snapshot.modelCapabilities?.globalValue);
-	const entryCapabilities = entry !== undefined ? normalizeModelCapabilities(entry.modelCapabilities) : undefined;
+	const entryCapabilities = entry === undefined ? undefined : normalizeModelCapabilities(entry.modelCapabilities);
 	const hasEntryCapabilities = entryCapabilities !== undefined && Object.keys(entryCapabilities).length > 0;
 	const capsInput = {
 		rawModelId: modelId,
@@ -404,7 +404,7 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 	const configuredTrioFields = [
 		...(tokenDefaults.contextLength.explicitlyConfigured ? (["context_length"] as const) : []),
 		...(tokenDefaults.maxOutputTokens.explicitlyConfigured ? (["max_output_tokens"] as const) : []),
-		...(tokenDefaults.maxInputTokens !== undefined ? (["max_input_tokens"] as const) : []),
+		...(tokenDefaults.maxInputTokens === undefined ? [] : (["max_input_tokens"] as const)),
 	];
 	const oldPrefixMatches = (key: string): boolean => key === "*" || modelId === key || modelId.startsWith(key);
 	// A BLOCKED trio merge is a documented lossy state, not an equivalence target: an unmergeable "*" record keeps the
@@ -496,7 +496,7 @@ export const resolveNewWorldReference: NewWorldResolve = (snapshot, server, mode
 	const entryModels = entry !== undefined && isRecord(entry.models) ? entry.models : undefined;
 
 	const globalParameters = newWorldRecord(snapshot["models.parameters"]?.globalValue);
-	const entryParameters = entryModels !== undefined ? newWorldRecord(entryModels.parameters) : undefined;
+	const entryParameters = entryModels === undefined ? undefined : newWorldRecord(entryModels.parameters);
 	const hasEntryParameters = entryParameters !== undefined && Object.keys(entryParameters).length > 0;
 	const params = resolveModelParameters({
 		rawModelId: modelId,
@@ -506,7 +506,7 @@ export const resolveNewWorldReference: NewWorldResolve = (snapshot, server, mode
 
 	const globalCapabilities = normalizeModelCapabilities(snapshot["models.capabilities"]?.globalValue);
 	const entryCapabilities =
-		entryModels !== undefined ? normalizeModelCapabilities(entryModels.capabilities) : undefined;
+		entryModels === undefined ? undefined : normalizeModelCapabilities(entryModels.capabilities);
 	const hasEntryCapabilities = entryCapabilities !== undefined && Object.keys(entryCapabilities).length > 0;
 	const capsInput = {
 		rawModelId: modelId,

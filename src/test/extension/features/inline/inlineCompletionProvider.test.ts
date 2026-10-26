@@ -51,7 +51,7 @@ function makeHarness(send?: InlineCompletionSend): Harness {
 			body: JSON.stringify({
 				model: request.modelRef.model,
 				prompt: wire.prompt,
-				...(wire.suffix !== undefined ? { suffix: wire.suffix } : {}),
+				...(wire.suffix === undefined ? {} : { suffix: wire.suffix }),
 				stream: false,
 			}),
 		});

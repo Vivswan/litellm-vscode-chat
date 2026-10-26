@@ -485,7 +485,7 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 					const baseLabels = new Set(
 						base.flatMap((item) => {
 							const label = rawLabelOf(item);
-							return label !== undefined ? [label] : [];
+							return label === undefined ? [] : [label];
 						})
 					);
 
@@ -493,7 +493,7 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 					const taken = new Set<string>([
 						...baseLabels,
 						...plan.collisions.map((collision) => collision.label),
-						...plan.incomingServers.flatMap((entry) => (entry.report.label !== undefined ? [entry.report.label] : [])),
+						...plan.incomingServers.flatMap((entry) => (entry.report.label === undefined ? [] : [entry.report.label])),
 					]);
 					const decisions: Record<string, CollisionDecision> = {};
 					plan.collisions.forEach((collision, index) => {

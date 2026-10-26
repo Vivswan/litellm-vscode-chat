@@ -153,16 +153,16 @@ function makeHarness(
 		readSecrets: options.readSecrets ?? (() => Promise.resolve({ values: {}, owners: {} })),
 		client,
 		pollIntervalMs: () => intervalMs,
-		...(options.initialRefreshDelayMs !== undefined
-			? { initialRefreshDelayMs: () => options.initialRefreshDelayMs as number }
-			: {}),
-		...(options.serversChangeRefreshDelayMs !== undefined
-			? { serversChangeRefreshDelayMs: () => options.serversChangeRefreshDelayMs as number }
-			: {}),
+		...(options.initialRefreshDelayMs === undefined
+			? {}
+			: { initialRefreshDelayMs: () => options.initialRefreshDelayMs as number }),
+		...(options.serversChangeRefreshDelayMs === undefined
+			? {}
+			: { serversChangeRefreshDelayMs: () => options.serversChangeRefreshDelayMs as number }),
 		alertThresholds: () => thresholds,
 		log: (message, data) => {
 			logs.push(message);
-			logEntries.push(data !== undefined ? { message, data } : { message });
+			logEntries.push(data === undefined ? { message } : { message, data });
 		},
 		timer,
 		clock,
@@ -919,7 +919,7 @@ suite("extension/servers/usage poller", () => {
 			{ name: "oauth 403", servers: [OAUTH_SERVER], status: 403 },
 		];
 		for (const { name, servers, status } of cases) {
-			const h = makeHarness({ intervalMs: 300_000, ...(servers !== undefined ? { servers } : {}) });
+			const h = makeHarness({ intervalMs: 300_000, ...(servers === undefined ? {} : { servers }) });
 			h.client.keyInfoResult = unavailableError(status);
 			h.poller.start();
 			await tick(h, 0);

@@ -399,7 +399,7 @@ suite("extension/servers/usage usageUnavailabilityOf properties", () => {
 				(status, kind, oauthTokenEndpoint) => {
 					const error = new RequestError("rejected", kind, {
 						englishMessage: "rejected",
-						...(status !== undefined ? { status } : {}),
+						...(status === undefined ? {} : { status }),
 						...(oauthTokenEndpoint ? { oauthTokenEndpoint: true } : {}),
 					});
 					const expected =

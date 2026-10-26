@@ -219,21 +219,21 @@ const storedArb: fc.Arbitrary<StoredServerSecrets> = fc.dictionary(
  */
 function serializeEntry(entry: DeclaredServer): Record<string, unknown> {
 	const virtualKey =
-		entry.virtualKeyHeader !== undefined
-			? {
+		entry.virtualKeyHeader === undefined
+			? undefined
+			: {
 					header: entry.virtualKeyHeader,
-					...(entry.virtualKeyValue !== undefined ? { value: entry.virtualKeyValue } : {}),
-				}
-			: undefined;
+					...(entry.virtualKeyValue === undefined ? {} : { value: entry.virtualKeyValue }),
+				};
 	const auth: Record<string, unknown> = {};
 	if (entry.oauthTokenUrl !== undefined && entry.oauthClientId !== undefined) {
 		auth.oauth = {
 			tokenUrl: entry.oauthTokenUrl,
 			clientId: entry.oauthClientId,
-			...(entry.oauthClientSecret !== undefined ? { clientSecret: entry.oauthClientSecret } : {}),
-			...(entry.oauthScopes !== undefined ? { scopes: entry.oauthScopes } : {}),
-			...(entry.apiKey !== undefined ? { apiKey: entry.apiKey } : {}),
-			...(virtualKey !== undefined ? { virtualKey } : {}),
+			...(entry.oauthClientSecret === undefined ? {} : { clientSecret: entry.oauthClientSecret }),
+			...(entry.oauthScopes === undefined ? {} : { scopes: entry.oauthScopes }),
+			...(entry.apiKey === undefined ? {} : { apiKey: entry.apiKey }),
+			...(virtualKey === undefined ? {} : { virtualKey }),
 		};
 	} else {
 		if (entry.apiKey !== undefined) {
@@ -244,22 +244,22 @@ function serializeEntry(entry: DeclaredServer): Record<string, unknown> {
 		}
 	}
 	const models: Record<string, unknown> = {
-		...(entry.modelParameters !== undefined ? { parameters: entry.modelParameters } : {}),
-		...(entry.modelCapabilities !== undefined ? { capabilities: entry.modelCapabilities } : {}),
+		...(entry.modelParameters === undefined ? {} : { parameters: entry.modelParameters }),
+		...(entry.modelCapabilities === undefined ? {} : { capabilities: entry.modelCapabilities }),
 	};
 	const discovery: Record<string, unknown> = {
-		...(entry.expectedFailures !== undefined ? { expectedFailures: entry.expectedFailures } : {}),
-		...(entry.declaredModels !== undefined ? { declared: entry.declaredModels } : {}),
-		...(entry.includeModes !== undefined ? { includeModes: entry.includeModes } : {}),
+		...(entry.expectedFailures === undefined ? {} : { expectedFailures: entry.expectedFailures }),
+		...(entry.declaredModels === undefined ? {} : { declared: entry.declaredModels }),
+		...(entry.includeModes === undefined ? {} : { includeModes: entry.includeModes }),
 	};
 	return {
 		label: entry.label,
 		baseUrl: entry.baseUrl,
 		...(Object.keys(auth).length > 0 ? { auth } : {}),
-		...(entry.headers !== undefined ? { headers: entry.headers } : {}),
+		...(entry.headers === undefined ? {} : { headers: entry.headers }),
 		...(Object.keys(models).length > 0 ? { models } : {}),
 		...(Object.keys(discovery).length > 0 ? { discovery } : {}),
-		...(entry.budget !== undefined ? { budget: entry.budget } : {}),
+		...(entry.budget === undefined ? {} : { budget: entry.budget }),
 	};
 }
 

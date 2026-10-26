@@ -445,7 +445,7 @@ suite("extension/servers/serverSync", () => {
 			// since the host is add-only, could lose it).
 			const base = { label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-1" } as const;
 			const rendered = [undefined, true as const, { url: "https://gateway.internal/tools/mcp" }, { url: "" }].map(
-				(mcp) => JSON.stringify(buildGroupArgs({ ...base, ...(mcp !== undefined ? { mcp } : {}) }, {}))
+				(mcp) => JSON.stringify(buildGroupArgs({ ...base, ...(mcp === undefined ? {} : { mcp }) }, {}))
 			);
 
 			assert.deepStrictEqual(new Set(rendered).size, 1, "every mcp shape renders the same group args");

@@ -121,8 +121,8 @@ const capRecordArb = fc
 			)
 			.map(([fallback, declare]) => ({
 				...fields,
-				...(fallback !== undefined ? { _fallback: fallback } : {}),
-				...(declare !== undefined ? { _declare: declare } : {}),
+				...(fallback === undefined ? {} : { _fallback: fallback }),
+				...(declare === undefined ? {} : { _declare: declare }),
 			}))
 	);
 
@@ -354,11 +354,11 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 				fc.record({ context: trioValueArb, input: trioValueArb, output: trioValueArb, catchAll: catchAllArb }),
 				({ context, input, output, catchAll }) => {
 					const snapshot: SettingsSnapshot = {
-						...(context !== undefined ? { defaultContextLength: { globalValue: context } } : {}),
-						...(input !== undefined ? { defaultMaxInputTokens: { globalValue: input } } : {}),
-						...(output !== undefined ? { defaultMaxOutputTokens: { globalValue: output } } : {}),
+						...(context === undefined ? {} : { defaultContextLength: { globalValue: context } }),
+						...(input === undefined ? {} : { defaultMaxInputTokens: { globalValue: input } }),
+						...(output === undefined ? {} : { defaultMaxOutputTokens: { globalValue: output } }),
 					};
-					const capabilities = catchAll !== undefined ? { "*": catchAll } : undefined;
+					const capabilities = catchAll === undefined ? undefined : { "*": catchAll };
 					const merge = mergeTokenDefaults(capabilities, snapshot);
 					const configured = [context, input, output].filter((value) => value !== undefined).length;
 

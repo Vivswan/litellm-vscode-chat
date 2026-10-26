@@ -60,7 +60,7 @@ suite("extension/ui/notifier", () => {
 			label: "Default",
 			baseUrl: "http://litellm.test",
 			state: "error",
-			cause: classification !== undefined ? { kind: "transport", classification } : { kind: "unclassified" },
+			cause: classification === undefined ? { kind: "unclassified" } : { kind: "transport", classification },
 			logSafeError: publicErrorText(error),
 			servedModelCount: 0,
 			lastChecked: new Date().toISOString(),
@@ -343,18 +343,18 @@ suite("extension/ui/notifier", () => {
 				try {
 					manager.handleAggregatedStatus(report);
 					await new Promise((resolve) => setImmediate(resolve));
-					if (judgment !== undefined) {
-						assert.strictEqual(toasts.length, 1, "the zero-model judgment must toast");
-						const texts = zeroModelTexts(judgment);
-						assert.strictEqual(expectDefined(toasts[0]).message, `LiteLLM: ${texts.display}`);
-						assert.ok(item.last.tooltip.includes(texts.display), item.last.tooltip);
-						assert.ok(item.last.tooltip.includes("No models available"), item.last.tooltip);
-					} else {
+					if (judgment === undefined) {
 						for (const surface of [item.last.tooltip, ...toasts.map((toast) => toast.message)]) {
 							assert.ok(!surface.includes("listed no models"), surface);
 							assert.ok(!surface.includes("is hidden and serves no models"), surface);
 						}
 						assert.ok(!item.last.tooltip.includes("No models available"), item.last.tooltip);
+					} else {
+						assert.strictEqual(toasts.length, 1, "the zero-model judgment must toast");
+						const texts = zeroModelTexts(judgment);
+						assert.strictEqual(expectDefined(toasts[0]).message, `LiteLLM: ${texts.display}`);
+						assert.ok(item.last.tooltip.includes(texts.display), item.last.tooltip);
+						assert.ok(item.last.tooltip.includes("No models available"), item.last.tooltip);
 					}
 				} finally {
 					for (const disposable of context.subscriptions) {

@@ -43,7 +43,7 @@ export function replaceIdentity(
 /** The non-secret identity fields an edit form of `entry` would display, ready to spread. */
 function displayedFields(entry: DeclaredServer): NonSecretOptionalFields & { readonly apiVersion?: string } {
 	return {
-		...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
+		...(entry.apiVersion === undefined ? {} : { apiVersion: entry.apiVersion }),
 		...pickNonSecretOptionalFields(entry),
 	};
 }
@@ -83,7 +83,7 @@ export function inlineOnlyIdentity(raw: unknown, label: string): ReplacedEntryId
 		label,
 		baseUrl: match.entry.baseUrl,
 		...displayedFields(match.entry),
-		secrets: recordFromKeys(SECRET_FIELD_IDS, (field) => (inline[field] !== undefined ? "settings" : "none")),
+		secrets: recordFromKeys(SECRET_FIELD_IDS, (field) => (inline[field] === undefined ? "none" : "settings")),
 	};
 }
 

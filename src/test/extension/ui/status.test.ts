@@ -736,7 +736,7 @@ suite("extension/ui/status", () => {
 			logSafeError: markLogSafe("RequestError(http, status 404)"),
 			expected: true,
 			servedModelCount: declaredModelCount ?? 0,
-			...(declaredModelCount !== undefined ? { declaredModelCount } : {}),
+			...(declaredModelCount === undefined ? {} : { declaredModelCount }),
 			lastChecked: new Date().toISOString(),
 		});
 		const okServer: ServerStatus = {
