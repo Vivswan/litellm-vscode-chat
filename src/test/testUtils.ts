@@ -233,37 +233,38 @@ export async function captureRequestBody(
 	return (await captureRequest(provider, model, opts, overrides)).body;
 }
 
-/**
- * makeServerStatus's inputs. In the error branch, `error` is the log rendering's source when no logSafeError is given,
- * never the display text.
- */
+/** The ok-branch inputs of makeServerStatus. */
+interface OkStatusOverrides {
+	state?: "ok";
+	servedModelCount?: number;
+	hiddenByRemoval?: boolean;
+	modelInfoUnsupported?: "timeout" | "status";
+}
+
+/** The error-branch inputs of makeServerStatus; `error` is the log rendering's source when no logSafeError is given. */
+interface ErrorStatusOverrides {
+	state: "error";
+	error?: string;
+	cause?: FailureCause;
+	logSafeError?: string;
+	classification?: TransportErrorClassification;
+	expected?: boolean;
+	servedModelCount?: number;
+	declaredModelCount?: number;
+}
+
+/** makeServerStatus's inputs: the shared identity fields plus one branch's fields; `error` is never display text. */
 type ServerStatusOverrides = Partial<
 	Pick<
 		ServerStatus,
 		"serverId" | "label" | "entryLabel" | "baseUrl" | "lastChecked" | "hasApiKey" | "hasOAuth" | "hasVirtualKey"
 	>
 > &
-	(
-		| {
-				state?: "ok";
-				servedModelCount?: number;
-				hiddenByRemoval?: boolean;
-				modelInfoUnsupported?: "timeout" | "status";
-		  }
-		| {
-				state: "error";
-				error?: string;
-				cause?: FailureCause;
-				logSafeError?: string;
-				classification?: TransportErrorClassification;
-				expected?: boolean;
-				servedModelCount?: number;
-				declaredModelCount?: number;
-		  }
-	);
+	(OkStatusOverrides | ErrorStatusOverrides);
 
-export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerStatus {
-	const common = {
+/** The fields both status states share, every absent override given its fixture default. */
+function commonStatusFields(overrides: ServerStatusOverrides) {
+	return {
 		serverId: overrides.serverId ?? "srv1",
 		label: overrides.label ?? "Prod",
 		...(overrides.entryLabel === undefined ? {} : { entryLabel: overrides.entryLabel }),
@@ -273,35 +274,44 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 		...(overrides.hasOAuth === undefined ? {} : { hasOAuth: overrides.hasOAuth }),
 		...(overrides.hasVirtualKey === undefined ? {} : { hasVirtualKey: overrides.hasVirtualKey }),
 	};
-	return overrides.state === "error"
-		? {
-				...common,
-				state: "error",
-				// A classification given alone is a transport cause; nothing given is an unclassified failure.
-				cause:
-					overrides.cause ??
-					(overrides.classification === undefined
-						? { kind: "unclassified" }
-						: { kind: "transport", classification: overrides.classification }),
-				// An error still serves its declared models unless the test says otherwise.
-				servedModelCount: overrides.servedModelCount ?? overrides.declaredModelCount ?? 0,
-				// Tests hand plain strings; the helper is the one place that brands them.
-				logSafeError:
-					overrides.logSafeError === undefined
-						? publicErrorText(overrides.error ?? "unclassified failure")
-						: markLogSafe(overrides.logSafeError),
-				...(overrides.expected === undefined ? {} : { expected: overrides.expected }),
-				...(overrides.declaredModelCount === undefined ? {} : { declaredModelCount: overrides.declaredModelCount }),
-			}
-		: {
-				...common,
-				state: "ok",
-				servedModelCount: overrides.servedModelCount ?? 4,
-				...(overrides.hiddenByRemoval === undefined ? {} : { hiddenByRemoval: overrides.hiddenByRemoval }),
-				...(overrides.modelInfoUnsupported === undefined
-					? {}
-					: { modelInfoUnsupported: overrides.modelInfoUnsupported }),
-			};
+}
+
+/** The error state's own fields: a classification given alone is a transport cause; nothing given is unclassified. */
+function errorStatusFields(overrides: ErrorStatusOverrides) {
+	const cause: FailureCause =
+		overrides.classification === undefined
+			? { kind: "unclassified" }
+			: { kind: "transport", classification: overrides.classification };
+	// Tests hand plain strings; the helper is the one place that brands them.
+	const logSafeError =
+		overrides.logSafeError === undefined
+			? publicErrorText(overrides.error ?? "unclassified failure")
+			: markLogSafe(overrides.logSafeError);
+	return {
+		cause: overrides.cause ?? cause,
+		// An error still serves its declared models unless the test says otherwise.
+		servedModelCount: overrides.servedModelCount ?? overrides.declaredModelCount ?? 0,
+		logSafeError,
+		...(overrides.expected === undefined ? {} : { expected: overrides.expected }),
+		...(overrides.declaredModelCount === undefined ? {} : { declaredModelCount: overrides.declaredModelCount }),
+	};
+}
+
+/** The ok state's own fields. */
+function okStatusFields(overrides: OkStatusOverrides) {
+	return {
+		servedModelCount: overrides.servedModelCount ?? 4,
+		...(overrides.hiddenByRemoval === undefined ? {} : { hiddenByRemoval: overrides.hiddenByRemoval }),
+		...(overrides.modelInfoUnsupported === undefined ? {} : { modelInfoUnsupported: overrides.modelInfoUnsupported }),
+	};
+}
+
+export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerStatus {
+	const common = commonStatusFields(overrides);
+	if (overrides.state === "error") {
+		return { ...common, state: "error", ...errorStatusFields(overrides) };
+	}
+	return { ...common, state: "ok", ...okStatusFields(overrides) };
 }
 
 export interface FakeExtensionStorage {

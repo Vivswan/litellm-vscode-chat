@@ -176,6 +176,61 @@ const MESSAGES: OpenAIChatMessage[] = [{ role: "user", content: "hi" }];
 /** The keys the body builder always writes; the oracle compares every other key of the body against the chain. */
 const BASE_KEYS: ReadonlySet<string> = new Set(["model", "messages", "stream", "stream_options", "max_tokens"]);
 
+/**
+ * The body keys the inspector projection predicts, restated independently of buildRequestBody: configured sent rows,
+ * then the picker, then runtime options, then the forced rows on top. max_tokens is the one forceable provider-owned
+ * key: its value rides the derivation (numeric) or nothing (junk), never the pass-through body, so it is also the one
+ * forced row that can render as not sent.
+ */
+function expectedBodyEntries(
+	projection: ReturnType<typeof projectEffectiveParameters>,
+	modelConfiguration: ModelConfigurationRequestParams | undefined,
+	modelOptions: Record<string, unknown> | undefined
+): Map<string, unknown> {
+	const expected = new Map<string, unknown>();
+	for (const row of projection.rows) {
+		if (row.sent && row.forced === undefined) {
+			expected.set(row.name, row.value);
+		}
+	}
+	if (modelConfiguration !== undefined) {
+		expected.set("reasoning_effort", modelConfiguration.reasoning_effort);
+	}
+	for (const [key, value] of Object.entries(modelOptions ?? {})) {
+		if (parameterSkipReason(key) === undefined) {
+			expected.set(key, value);
+		}
+	}
+	for (const row of projection.rows) {
+		if (row.forced !== true) {
+			continue;
+		}
+		if (row.name === "max_tokens") {
+			assert.ok(!row.sent, "a max_tokens row exists only when non-numeric, and never passes through");
+			continue;
+		}
+		assert.ok(row.sent, "a forced row is always sent");
+		expected.set(row.name, row.value);
+	}
+	return expected;
+}
+
+/** The body carries every chain entry at its value, and nothing beyond the base keys that the chain did not predict. */
+function assertBodyMatchesChain(
+	body: ReturnType<typeof buildRequestBody>,
+	expected: ReadonlyMap<string, unknown>
+): void {
+	for (const [key, value] of expected) {
+		assert.ok(Object.hasOwn(body, key), `expected key ${key} missing from the body`);
+		assert.deepStrictEqual(body[key], value, `body.${key} differs from the chain's value`);
+	}
+	for (const key of Object.keys(body)) {
+		if (!BASE_KEYS.has(key)) {
+			assert.ok(expected.has(key), `body key ${key} not accounted for by the chain`);
+		}
+	}
+}
+
 suite("shared/config parameterResolution equivalence properties", () => {
 	test("the inspector projection and buildRequestBody agree under the full chain, runtime and picker included", () => {
 		const pickerArb = fc.option(fc.constantFrom("none", "low", "medium", "high"), { nil: undefined });
@@ -206,46 +261,7 @@ suite("shared/config parameterResolution equivalence properties", () => {
 				});
 
 				const projection = projectEffectiveParameters(s);
-
-				// The chain, restated independently: configured sent rows, then the picker, then runtime options, then
-				// the forced rows on top.
-				const expected = new Map<string, unknown>();
-				for (const row of projection.rows) {
-					if (row.sent && row.forced === undefined) {
-						expected.set(row.name, row.value);
-					}
-				}
-				if (modelConfiguration !== undefined) {
-					expected.set("reasoning_effort", modelConfiguration.reasoning_effort);
-				}
-				for (const [key, value] of Object.entries(modelOptions ?? {})) {
-					if (parameterSkipReason(key) === undefined) {
-						expected.set(key, value);
-					}
-				}
-				for (const row of projection.rows) {
-					if (row.forced === true) {
-						// max_tokens is the one forceable provider-owned key: its value rides the derivation (numeric)
-						// or nothing (junk), never the pass-through body, so it is also the one forced row that can
-						// render as not sent.
-						if (row.name === "max_tokens") {
-							assert.ok(!row.sent, "a max_tokens row exists only when non-numeric, and never passes through");
-							continue;
-						}
-						assert.ok(row.sent, "a forced row is always sent");
-						expected.set(row.name, row.value);
-					}
-				}
-
-				for (const [key, value] of expected) {
-					assert.ok(Object.hasOwn(body, key), `expected key ${key} missing from the body`);
-					assert.deepStrictEqual(body[key], value, `body.${key} differs from the chain's value`);
-				}
-				for (const key of Object.keys(body)) {
-					if (!BASE_KEYS.has(key)) {
-						assert.ok(expected.has(key), `body key ${key} not accounted for by the chain`);
-					}
-				}
+				assertBodyMatchesChain(body, expectedBodyEntries(projection, modelConfiguration, modelOptions));
 
 				// The derivation line states the body's exact max_tokens whenever the one thing the projection cannot
 				// know (a runtime numeric option) is absent - and always when a forced value tops the chain, since

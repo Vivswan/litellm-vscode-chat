@@ -78,6 +78,17 @@ function singleProviderListing(provider: Record<string, string | number | boolea
 	};
 }
 
+/** The path root an entry's API version puts discovery under: /v1 by default, the bare origin for "". */
+function apiVersionRoot(version: string | undefined): string {
+	if (version === undefined) {
+		return "/v1";
+	}
+	if (version === "") {
+		return "";
+	}
+	return `/${version}`;
+}
+
 suite("provider/request contract", () => {
 	useMsw();
 
@@ -723,7 +734,7 @@ suite("provider/request contract", () => {
 						label === "Default" && versionBaseUrl === TEST_BASE_URL ? version : undefined,
 				});
 				// Discovery re-roots under the same version, so the serve that puts the group in the window answers there.
-				const root = version === undefined ? "/v1" : version === "" ? "" : `/${version}`;
+				const root = apiVersionRoot(version);
 				mswServer.use(
 					http.get(`${TEST_BASE_URL}${root}/model/info`, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)),
 					http.get(`${TEST_BASE_URL}${root}/models`, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)),

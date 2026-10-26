@@ -388,13 +388,24 @@ function seedFromInput(context: CommandContext): number {
 
 // ── Wire-part forensics (%messages, %cache, %attachments) ───────────────────
 
+/** Code-unit order, so the canonical form is the same in every locale. */
+function compareKeys(a: string, b: string): number {
+	if (a < b) {
+		return -1;
+	}
+	if (a > b) {
+		return 1;
+	}
+	return 0;
+}
+
 function canonicalJson(value: unknown): string {
 	if (Array.isArray(value)) {
 		return `[${value.map(canonicalJson).join(",")}]`;
 	}
 	if (typeof value === "object" && value !== null) {
 		const entries = Object.entries(value as Record<string, unknown>)
-			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+			.sort(([a], [b]) => compareKeys(a, b))
 			.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`);
 		return `{${entries.join(",")}}`;
 	}
@@ -430,34 +441,37 @@ interface WirePart {
 	bytes: Uint8Array;
 }
 
-function classifyPart(part: unknown): WirePart {
-	if (typeof part === "object" && part !== null) {
-		const record = part as Record<string, unknown>;
-		if (record.type === "text" && typeof record.text === "string") {
-			return { kind: "text", mime: "-", bytes: Buffer.from(record.text, "utf8") };
-		}
-		if (record.type === "image_url") {
-			const url = (record.image_url as { url?: unknown } | undefined)?.url;
-			if (typeof url === "string") {
-				const decoded = decodeDataUrl(url);
-				if (decoded) {
-					return { kind: "image_url", mime: decoded.mime, bytes: decoded.bytes };
-				}
-				return { kind: "image_url", mime: "-", bytes: Buffer.from(url, "utf8") };
-			}
-		}
-		if (record.type === "file") {
-			const fileData = (record.file as { file_data?: unknown } | undefined)?.file_data;
-			if (typeof fileData === "string") {
-				const decoded = decodeDataUrl(fileData);
-				if (decoded) {
-					return { kind: "file", mime: decoded.mime, bytes: decoded.bytes };
-				}
-				return { kind: "file", mime: "-", bytes: Buffer.from(fileData, "utf8") };
-			}
-		}
-	}
+/** The part a request carried nothing recognizable in: its canonical JSON, as bytes. */
+function unknownWirePart(part: unknown): WirePart {
 	return { kind: "unknown", mime: "-", bytes: Buffer.from(canonicalJson(part), "utf8") };
+}
+
+/** A part carrying a data URL: the decoded bytes and mime, or the raw string when it is not a data URL. */
+function dataUrlPart(kind: string, url: string): WirePart {
+	const decoded = decodeDataUrl(url);
+	if (decoded) {
+		return { kind, mime: decoded.mime, bytes: decoded.bytes };
+	}
+	return { kind, mime: "-", bytes: Buffer.from(url, "utf8") };
+}
+
+function classifyPart(part: unknown): WirePart {
+	if (typeof part !== "object" || part === null) {
+		return unknownWirePart(part);
+	}
+	const record = part as Record<string, unknown>;
+	if (record.type === "text" && typeof record.text === "string") {
+		return { kind: "text", mime: "-", bytes: Buffer.from(record.text, "utf8") };
+	}
+	const imageUrl = record.type === "image_url" ? (record.image_url as { url?: unknown } | undefined)?.url : undefined;
+	if (typeof imageUrl === "string") {
+		return dataUrlPart("image_url", imageUrl);
+	}
+	const fileData = record.type === "file" ? (record.file as { file_data?: unknown } | undefined)?.file_data : undefined;
+	if (typeof fileData === "string") {
+		return dataUrlPart("file", fileData);
+	}
+	return unknownWirePart(part);
 }
 
 function attachmentRecords(context: CommandContext): string[] {
@@ -496,6 +510,17 @@ function partShape(part: unknown): string {
 		}
 	}
 	return "unknown";
+}
+
+/** The %messages rendering of one message's content: its text length, its parts' shapes, or "empty". */
+function contentShape(content: unknown): string {
+	if (typeof content === "string") {
+		return `text(${content.length})`;
+	}
+	if (Array.isArray(content)) {
+		return content.map(partShape).join(", ");
+	}
+	return "empty";
 }
 
 function cacheMarkerRecords(context: CommandContext): string[] {
@@ -693,13 +718,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 		run: bare((context) => {
 			const records = requestMessages(context).map((message, index) => {
 				const role = typeof message.role === "string" ? message.role : "unknown";
-				const shape =
-					typeof message.content === "string"
-						? `text(${message.content.length})`
-						: Array.isArray(message.content)
-							? message.content.map(partShape).join(", ")
-							: "empty";
-				return `message[${index}] ${role}: ${shape}`;
+				return `message[${index}] ${role}: ${contentShape(message.content)}`;
 			});
 			return textResult(context, records.length > 0 ? recordBullets(records).join("\n") : "no messages received");
 		}),

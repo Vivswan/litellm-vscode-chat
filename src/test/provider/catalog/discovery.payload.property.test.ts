@@ -192,6 +192,30 @@ suite("provider/discovery /v1/models normalization properties", () => {
 	});
 });
 
+/**
+ * The ids a listing must register, in narrowModelInfoData's slot order: model-info entries dedupe into their first-seen
+ * deployment slot, blocked ones drop, models-listing entries pass through in place, junk is skipped.
+ */
+function expectedSurvivingIds(entries: readonly unknown[]): string[] {
+	const expectedIds: string[] = [];
+	const seenDeployments = new Set<string>();
+	for (const entry of entries) {
+		const parsed = parseModelInfoItem(entry);
+		if (parsed === undefined) {
+			if (isLiteLLMModelItem(entry)) {
+				expectedIds.push(entry.id);
+			}
+			continue;
+		}
+		if (parsed.model_info?.blocked === true || seenDeployments.has(parsed.modelId)) {
+			continue;
+		}
+		seenDeployments.add(parsed.modelId);
+		expectedIds.push(parsed.modelId);
+	}
+	return expectedIds;
+}
+
 suite("provider/discovery fetchModels payload properties", () => {
 	useMsw();
 
@@ -254,30 +278,9 @@ suite("provider/discovery fetchModels payload properties", () => {
 			fc.asyncProperty(payloadArb, async (entries) => {
 				servedEntries = entries;
 				const { models } = await fetchModels(makeRequest());
-
-				// The oracle mirrors narrowModelInfoData's slot order: model-info entries dedupe into their first-seen
-				// deployment slot, blocked ones drop, models-listing entries pass through in place, junk is skipped.
-				const expectedIds: string[] = [];
-				const seenDeployments = new Set<string>();
-				for (const entry of entries) {
-					const parsed = parseModelInfoItem(entry);
-					if (parsed !== undefined) {
-						if (parsed.model_info?.blocked === true) {
-							continue;
-						}
-						if (!seenDeployments.has(parsed.modelId)) {
-							seenDeployments.add(parsed.modelId);
-							expectedIds.push(parsed.modelId);
-						}
-						continue;
-					}
-					if (isLiteLLMModelItem(entry)) {
-						expectedIds.push(entry.id);
-					}
-				}
 				assert.deepStrictEqual(
 					models.map((model) => model.id),
-					expectedIds,
+					expectedSurvivingIds(entries),
 					"exactly the usable unblocked ids survive, in slot order"
 				);
 			}),

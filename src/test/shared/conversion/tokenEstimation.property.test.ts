@@ -147,6 +147,38 @@ const gatesArb = fc.record({
 	replayReasoningContent: fc.boolean(),
 });
 
+/** The text segments of a message's content: the string itself, or each text block of a content array. */
+function contentSegments(content: OpenAIChatMessage["content"]): string[] {
+	if (typeof content === "string") {
+		return [content];
+	}
+	if (!Array.isArray(content)) {
+		return [];
+	}
+	const segments: string[] = [];
+	for (const block of content) {
+		if (block.type === "text") {
+			segments.push(block.text);
+		}
+	}
+	return segments;
+}
+
+/** The segments an assistant message carries beyond its content: tool calls, thinking blocks, reasoning content. */
+function assistantSegments(message: Extract<OpenAIChatMessage, { role: "assistant" }>): string[] {
+	const segments: string[] = [];
+	for (const call of message.tool_calls ?? []) {
+		segments.push(call.function.name + call.function.arguments);
+	}
+	for (const block of message.thinking_blocks ?? []) {
+		segments.push(block.type === "thinking" ? block.thinking + block.signature : block.data);
+	}
+	if (message.reasoning_content !== undefined) {
+		segments.push(message.reasoning_content);
+	}
+	return segments;
+}
+
 /**
  * Token counting is non-linear (each priced string ceils on its own and BPE splits at boundaries), so the guard
  * compares segment sequences rather than summed characters, and a walk that joins or splits differently fails even
@@ -156,26 +188,9 @@ const gatesArb = fc.record({
 function shippedTextSegments(messages: OpenAIChatMessage[]): string[] {
 	const segments: string[] = [];
 	for (const message of messages) {
-		const content = message.content;
-		if (typeof content === "string") {
-			segments.push(content);
-		} else if (Array.isArray(content)) {
-			for (const block of content) {
-				if (block.type === "text") {
-					segments.push(block.text);
-				}
-			}
-		}
+		segments.push(...contentSegments(message.content));
 		if (message.role === "assistant") {
-			for (const call of message.tool_calls ?? []) {
-				segments.push(call.function.name + call.function.arguments);
-			}
-			for (const block of message.thinking_blocks ?? []) {
-				segments.push(block.type === "thinking" ? block.thinking + block.signature : block.data);
-			}
-			if (message.reasoning_content !== undefined) {
-				segments.push(message.reasoning_content);
-			}
+			segments.push(...assistantSegments(message));
 		}
 	}
 	return segments;

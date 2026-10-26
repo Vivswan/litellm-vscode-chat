@@ -832,67 +832,100 @@ export function isScenario(value: unknown): value is Scenario {
 	return false;
 }
 
+/** One tool call under assembly, by its index slot. */
+interface ToolCallBuffer {
+	id?: string;
+	name?: string;
+	args: string;
+}
+
+/** Everything collapseChunks accumulates across a stream's chunks. */
+interface CollapseState {
+	content: string;
+	refusal: string;
+	finishReason: string;
+	usage: unknown;
+	toolCalls: Map<number, ToolCallBuffer>;
+}
+
+/** Fold one tool_calls delta into its slot's buffer: a truthy id or name replaces the last; arguments concatenate. */
+function collapseToolCallDelta(rawCall: unknown, state: CollapseState): void {
+	if (typeof rawCall !== "object" || rawCall === null) {
+		return;
+	}
+	const call = rawCall as { index?: number; id?: string; function?: { name?: string; arguments?: string } };
+	const index = typeof call.index === "number" ? call.index : 0;
+	const buffer = state.toolCalls.get(index) ?? { args: "" };
+	if (call.id) {
+		buffer.id = call.id;
+	}
+	if (call.function?.name) {
+		buffer.name = call.function.name;
+	}
+	if (typeof call.function?.arguments === "string") {
+		buffer.args += call.function.arguments;
+	}
+	state.toolCalls.set(index, buffer);
+}
+
+/** Fold one choice into the state: its finish_reason, and its delta's content, refusal, and tool calls. */
+function collapseChoice(choice: unknown, state: CollapseState): void {
+	if (typeof choice !== "object" || choice === null) {
+		return;
+	}
+	const choiceRecord = choice as Record<string, unknown>;
+	if (typeof choiceRecord.finish_reason === "string") {
+		state.finishReason = choiceRecord.finish_reason;
+	}
+	const delta = choiceRecord.delta;
+	if (typeof delta !== "object" || delta === null) {
+		return;
+	}
+	const deltaRecord = delta as Record<string, unknown>;
+	if (typeof deltaRecord.content === "string") {
+		state.content += deltaRecord.content;
+	}
+	if (typeof deltaRecord.refusal === "string") {
+		state.refusal += deltaRecord.refusal;
+	}
+	const deltaToolCalls = Array.isArray(deltaRecord.tool_calls) ? deltaRecord.tool_calls : [];
+	for (const rawCall of deltaToolCalls) {
+		collapseToolCallDelta(rawCall, state);
+	}
+}
+
+/** Fold one chunk into the state: a usage trailer replaces the last, and every choice folds in turn. */
+function collapseChunk(chunk: unknown, state: CollapseState): void {
+	if (typeof chunk !== "object" || chunk === null) {
+		return;
+	}
+	const record = chunk as Record<string, unknown>;
+	if (record.usage !== undefined && record.usage !== null) {
+		state.usage = record.usage;
+	}
+	const choices = Array.isArray(record.choices) ? record.choices : [];
+	for (const choice of choices) {
+		collapseChoice(choice, state);
+	}
+}
+
 export function collapseChunks(chunks: unknown[]): Record<string, unknown> {
-	let content = "";
-	let refusal = "";
-	let finishReason = "stop";
-	let usage: unknown;
-	const toolCalls = new Map<number, { id?: string; name?: string; args: string }>();
+	const state: CollapseState = {
+		content: "",
+		refusal: "",
+		finishReason: "stop",
+		usage: undefined,
+		toolCalls: new Map(),
+	};
 	for (const chunk of chunks) {
-		if (typeof chunk !== "object" || chunk === null) {
-			continue;
-		}
-		const record = chunk as Record<string, unknown>;
-		if (record.usage !== undefined && record.usage !== null) {
-			usage = record.usage;
-		}
-		const choices = Array.isArray(record.choices) ? record.choices : [];
-		for (const choice of choices) {
-			if (typeof choice !== "object" || choice === null) {
-				continue;
-			}
-			const choiceRecord = choice as Record<string, unknown>;
-			if (typeof choiceRecord.finish_reason === "string") {
-				finishReason = choiceRecord.finish_reason;
-			}
-			const delta = choiceRecord.delta;
-			if (typeof delta !== "object" || delta === null) {
-				continue;
-			}
-			const deltaRecord = delta as Record<string, unknown>;
-			if (typeof deltaRecord.content === "string") {
-				content += deltaRecord.content;
-			}
-			if (typeof deltaRecord.refusal === "string") {
-				refusal += deltaRecord.refusal;
-			}
-			const deltaToolCalls = Array.isArray(deltaRecord.tool_calls) ? deltaRecord.tool_calls : [];
-			for (const rawCall of deltaToolCalls) {
-				if (typeof rawCall !== "object" || rawCall === null) {
-					continue;
-				}
-				const call = rawCall as { index?: number; id?: string; function?: { name?: string; arguments?: string } };
-				const index = typeof call.index === "number" ? call.index : 0;
-				const buffer = toolCalls.get(index) ?? { args: "" };
-				if (call.id) {
-					buffer.id = call.id;
-				}
-				if (call.function?.name) {
-					buffer.name = call.function.name;
-				}
-				if (typeof call.function?.arguments === "string") {
-					buffer.args += call.function.arguments;
-				}
-				toolCalls.set(index, buffer);
-			}
-		}
+		collapseChunk(chunk, state);
 	}
-	const message: Record<string, unknown> = { role: "assistant", content };
-	if (refusal) {
-		message.refusal = refusal;
+	const message: Record<string, unknown> = { role: "assistant", content: state.content };
+	if (state.refusal) {
+		message.refusal = state.refusal;
 	}
-	if (toolCalls.size > 0) {
-		message.tool_calls = Array.from(toolCalls.entries()).map(([index, buffer]) => ({
+	if (state.toolCalls.size > 0) {
+		message.tool_calls = Array.from(state.toolCalls.entries()).map(([index, buffer]) => ({
 			id: buffer.id ?? `call_collapsed_${index}`,
 			type: "function",
 			function: { name: buffer.name ?? "unknown_tool", arguments: buffer.args },
@@ -901,7 +934,7 @@ export function collapseChunks(chunks: unknown[]): Record<string, unknown> {
 	return {
 		id: "chatcmpl-capture",
 		object: "chat.completion",
-		choices: [{ index: 0, message, finish_reason: finishReason }],
-		...(usage === undefined ? {} : { usage }),
+		choices: [{ index: 0, message, finish_reason: state.finishReason }],
+		...(state.usage === undefined ? {} : { usage: state.usage }),
 	};
 }

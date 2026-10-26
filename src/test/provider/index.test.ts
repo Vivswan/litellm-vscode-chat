@@ -7,7 +7,7 @@ import { toLanguageModelError } from "../../provider";
 import { mapModelInfoEntry, parseModelInfoItem } from "../../provider/catalog/discovery";
 import { DiscoveryCache } from "../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../provider/catalog/groupDiscovery";
-import { attachGroup, groupClientId } from "../../provider/catalog/groupModels";
+import { attachGroup, groupClientId, type LiteLLMModelInfo } from "../../provider/catalog/groupModels";
 import { buildModelInfos } from "../../provider/catalog/registration";
 import { groupIdentity } from "../../provider/catalog/statusWindow";
 import { isHostCancellation } from "../../provider/transport/cancellation";
@@ -30,6 +30,39 @@ import { makeProvider, testGroupServer, userMessage, withConfig } from "../testU
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
+const KNOWN_PRICE_CATEGORIES = ["low", "medium", "high", "very_high"];
+
+/**
+ * The pricing shape one registered model must carry for its raw per-token costs: one of the four categories the host
+ * renders (any other string falls to a capitalized "<Foo> cost" fallback) whenever both base costs are present and
+ * nonzero, the genuinely-free label for a raw 0/0 pair, and neither for sub-unit dust or a missing side.
+ */
+function assertPriceCategoryShape(info: LiteLLMModelInfo, inputPerToken: number, outputPerToken: number): void {
+	if (info.priceCategory !== undefined) {
+		assert.ok(KNOWN_PRICE_CATEGORIES.includes(info.priceCategory), `unknown category ${info.priceCategory}`);
+	}
+	if (info.inputCost === undefined || info.outputCost === undefined) {
+		assert.ok(!("priceCategory" in info), "no category without both base costs");
+		return;
+	}
+	if (info.inputCost > 0 || info.outputCost > 0) {
+		assert.ok(info.priceCategory !== undefined, "a nonzero two-sided price always derives a category");
+		return;
+	}
+	if (inputPerToken === 0 && outputPerToken === 0) {
+		// The RAW zero pair at this layer can only be user-written "genuinely free": discovery's serverCostsOf maps the
+		// server's 0/0 no-pricing stamp to undefined before any shape reaches registration, so the zeroPair carve-out
+		// keeps the free label and badge on purpose. Nightly seed 124443 caught the previous oracle asserting the
+		// opposite here (#282).
+		assert.strictEqual(info.priceCategory, "low", "a raw 0/0 pair prices as genuinely free");
+		assert.ok(info.pricing !== undefined, "and carries the free display label");
+		return;
+	}
+	// Both sides rounded to 0: sub-unit dust that slipped the raw 0/0 undeclared check must not present the model as
+	// free.
+	assert.ok(!("priceCategory" in info), "a rounded-0/0 pair derives no category");
+	assert.ok(!("pricing" in info), "a rounded-0/0 pair derives no label");
+}
 
 suite("provider", () => {
 	test("provideLanguageModelChatInformation returns empty array with no configured servers", async () => {
@@ -1141,9 +1174,6 @@ suite("provider", () => {
 		});
 
 		test("priceCategory is always one of the four literals the host renders", () => {
-			// The host renders any other string through a capitalized "<Foo> cost" fallback, so the derivation may only
-			// ever emit the known four.
-			const KNOWN = ["low", "medium", "high", "very_high"];
 			const costArb = fc.double({ min: 0, max: 1, noNaN: true, noDefaultInfinity: true });
 			fc.assert(
 				fc.property(costArb, costArb, (inputPerToken, outputPerToken) => {
@@ -1163,30 +1193,7 @@ suite("provider", () => {
 						1,
 						() => {}
 					);
-					const info = expectDefined(infos[0]);
-					if (info.priceCategory !== undefined) {
-						assert.ok(KNOWN.includes(info.priceCategory), `unknown category ${info.priceCategory}`);
-					}
-					if (info.inputCost !== undefined && info.outputCost !== undefined) {
-						if (info.inputCost > 0 || info.outputCost > 0) {
-							assert.ok(info.priceCategory !== undefined, "a nonzero two-sided price always derives a category");
-						} else if (inputPerToken === 0 && outputPerToken === 0) {
-							// The RAW zero pair at this layer can only be user-written "genuinely free": discovery's
-							// serverCostsOf maps the server's 0/0 no-pricing stamp to undefined before any shape
-							// reaches registration, so the zeroPair carve-out keeps the free label and badge on
-							// purpose. Nightly seed 124443 caught the previous oracle asserting the opposite here
-							// (#282).
-							assert.strictEqual(info.priceCategory, "low", "a raw 0/0 pair prices as genuinely free");
-							assert.ok(info.pricing !== undefined, "and carries the free display label");
-						} else {
-							// Both sides rounded to 0: sub-unit dust that slipped the raw 0/0 undeclared check must not
-							// present the model as free.
-							assert.ok(!("priceCategory" in info), "a rounded-0/0 pair derives no category");
-							assert.ok(!("pricing" in info), "a rounded-0/0 pair derives no label");
-						}
-					} else {
-						assert.ok(!("priceCategory" in info), "no category without both base costs");
-					}
+					assertPriceCategoryShape(expectDefined(infos[0]), inputPerToken, outputPerToken);
 				}),
 				{ numRuns: NUM_RUNS, seed: SEED }
 			);

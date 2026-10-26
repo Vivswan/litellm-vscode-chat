@@ -331,19 +331,29 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 	// One parsed graph for both walks (the module says why).
 	const graph = new RuntimeImportGraph();
 
+	/** The first host package a file's own specifiers name, or undefined. */
+	function hostPackageOf(specs: readonly string[]): string | undefined {
+		return specs.find((spec) => spec === "vscode" || spec === "msw" || spec.startsWith("msw/"));
+	}
+
+	/** The import chain from the entry down to `file`, as repo-relative paths, read back through `parents`. */
+	function chainTo(file: string, parents: ReadonlyMap<string, string | undefined>): string[] {
+		const chain: string[] = [];
+		for (let at: string | undefined = file; at !== undefined; at = parents.get(at)) {
+			chain.unshift(relative(at));
+		}
+		return chain;
+	}
+
 	function hostMachineryChain(entryFile: string): string | undefined {
 		const parents = new Map<string, string | undefined>([[entryFile, undefined]]);
 		const queue = [entryFile];
 		for (let index = 0; index < queue.length; index++) {
 			const file = queue[index] as string;
 			const edges = graph.edgesOf(file);
-			const hostPackage = edges.specs.find((spec) => spec === "vscode" || spec === "msw" || spec.startsWith("msw/"));
+			const hostPackage = hostPackageOf(edges.specs);
 			if (hostPackage !== undefined) {
-				const chain = [`"${hostPackage}"`];
-				for (let at: string | undefined = file; at !== undefined; at = parents.get(at)) {
-					chain.unshift(relative(at));
-				}
-				return chain.join(" -> ");
+				return [...chainTo(file, parents), `"${hostPackage}"`].join(" -> ");
 			}
 			for (const next of edges.imports) {
 				if (!parents.has(next)) {

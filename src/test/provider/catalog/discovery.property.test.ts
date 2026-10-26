@@ -161,7 +161,10 @@ suite("provider/discovery expectedFailures retry properties", () => {
 				}
 				const budget = (isExpected: boolean) => (isExpected ? 1 : 3);
 				assert.strictEqual(attempts.info, infoFails ? budget(expected.modelInfo) : 1, "model/info attempt count");
-				const expectedModelsAttempts = infoFails ? (listingFails ? budget(expected.modelListing) : 1) : 0;
+				let expectedModelsAttempts = 0;
+				if (infoFails) {
+					expectedModelsAttempts = listingFails ? budget(expected.modelListing) : 1;
+				}
 				assert.strictEqual(attempts.models, expectedModelsAttempts, "models attempt count");
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }

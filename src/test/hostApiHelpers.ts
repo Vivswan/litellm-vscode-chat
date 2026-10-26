@@ -95,6 +95,17 @@ export async function catalogOff(): Promise<void> {
 		.update(OPENROUTER_CATALOG_SETTING_ID, false, vscode.ConfigurationTarget.Global);
 }
 
+/** The URL a fetch argument addresses, whichever of its three shapes the caller passed. */
+function requestUrl(input: string | URL | Request): string {
+	if (typeof input === "string") {
+		return input;
+	}
+	if (input instanceof URL) {
+		return input.toString();
+	}
+	return input.url;
+}
+
 /**
  * The catalog store arms a refresh 60 seconds after activation and the extension host shares the runner's fetch, so a
  * slow suite would otherwise race a live snapshot against its controlled catalog state.
@@ -102,8 +113,7 @@ export async function catalogOff(): Promise<void> {
 export function blockCatalogNetwork(): vscode.Disposable {
 	const realFetch = globalThis.fetch;
 	globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-		const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-		if (url === OPENROUTER_MODELS_URL) {
+		if (requestUrl(input) === OPENROUTER_MODELS_URL) {
 			return Promise.resolve(new Response("catalog network is blocked by the test suite", { status: 503 }));
 		}
 		return realFetch(input, init);

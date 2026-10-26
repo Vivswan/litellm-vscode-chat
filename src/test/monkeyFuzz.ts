@@ -379,6 +379,52 @@ function generateChat(random: () => number): Extract<MonkeyAction, { kind: "chat
 	return { kind: "chat", verb: "stream", a: 2 + Math.floor(random() * 7), b: 0, pick };
 }
 
+/** The label-mutating kind for a roll in the band that needs a live label to target. */
+function pickLabelActionKind(roll: number): "redeclare-server" | "remove-server" | "set-secret" | "clear-secret" {
+	if (roll < 0.22) {
+		return "redeclare-server";
+	}
+	if (roll < 0.29) {
+		return "remove-server";
+	}
+	if (roll < 0.37) {
+		return "set-secret";
+	}
+	return "clear-secret";
+}
+
+/**
+ * The action kind one roll selects. The label-mutating band needs a live label; with none it falls to sync-now, so the
+ * roll alone decides the kind and the walk stays replayable from its seed without spending an extra draw.
+ */
+function pickActionKind(roll: number, hasLive: boolean): MonkeyAction["kind"] {
+	if (roll < 0.15) {
+		return "declare-server";
+	}
+	if (roll < 0.42) {
+		return hasLive ? pickLabelActionKind(roll) : "sync-now";
+	}
+	if (roll < 0.47) {
+		return "sync-now";
+	}
+	if (roll < 0.62) {
+		return "dashboard-intent";
+	}
+	if (roll < 0.72) {
+		return "dashboard-junk";
+	}
+	if (roll < 0.87) {
+		return "chat";
+	}
+	if (roll < 0.92) {
+		return "chat-cancel";
+	}
+	if (roll < 0.97) {
+		return "set-model-parameters";
+	}
+	return "set-usage-thresholds";
+}
+
 /**
  * Generate one walk of `stepCount` actions. The generator keeps its own planned
  * view of which labels exist so mutating actions target real labels;
@@ -390,49 +436,72 @@ export function generateWalk(random: () => number, stepCount: number): MonkeyAct
 	const live: string[] = [];
 	let labelCounter = 0;
 	let serial = 0;
-	const randomLive = (): string | undefined => live[Math.floor(random() * live.length)];
+	const randomLive = (): string => expectDefined(live[Math.floor(random() * live.length)]);
+	const secretField = (): SecretFieldId => (random() < 0.7 ? "apiKey" : "oauthClientSecret");
+	const declare = (): MonkeyAction => {
+		// Labels are never recycled BY DESIGN: a removed label's fingerprint is pruned at end of pass, so
+		// re-declaring it would hit the add-only duplicate rejection while the oracle expects undefined.
+		const label = `s${++labelCounter}`;
+		const credential = expectDefined(CREDENTIAL_MODES[Math.floor(random() * CREDENTIAL_MODES.length)]);
+		// Ambiguous entries never parse, so mutating actions must not plan around them; the executor tracks them in
+		// its own misconfigured set.
+		if (credential !== "ambiguous") {
+			live.push(label);
+		}
+		const extras = generateDeclareExtras(random, serial);
+		return { kind: "declare-server", label, credential, ...(extras === undefined ? {} : { extras }) };
+	};
+	const remove = (): MonkeyAction => {
+		const label = randomLive();
+		live.splice(live.indexOf(label), 1);
+		return { kind: "remove-server", label };
+	};
 	for (let step = 0; step < stepCount; step++) {
 		serial++;
-		const roll = random();
-		if (roll < 0.15) {
-			// Labels are never recycled BY DESIGN: a removed label's fingerprint is pruned at end of pass, so
-			// re-declaring it would hit the add-only duplicate rejection while the oracle expects undefined.
-			const label = `s${++labelCounter}`;
-			const credential = expectDefined(CREDENTIAL_MODES[Math.floor(random() * CREDENTIAL_MODES.length)]);
-			// Ambiguous entries never parse, so mutating actions must not plan around them; the executor tracks them in
-			// its own misconfigured set.
-			if (credential !== "ambiguous") {
-				live.push(label);
+		const kind = pickActionKind(random(), live.length > 0);
+		switch (kind) {
+			case "declare-server":
+				actions.push(declare());
+				break;
+			case "redeclare-server":
+				actions.push({ kind, label: randomLive() });
+				break;
+			case "remove-server":
+				actions.push(remove());
+				break;
+			case "set-secret": {
+				const field = secretField();
+				actions.push({ kind, label: randomLive(), field, serial });
+				break;
 			}
-			const extras = generateDeclareExtras(random, serial);
-			actions.push({ kind: "declare-server", label, credential, ...(extras === undefined ? {} : { extras }) });
-		} else if (roll < 0.22 && live.length > 0) {
-			actions.push({ kind: "redeclare-server", label: expectDefined(randomLive()) });
-		} else if (roll < 0.29 && live.length > 0) {
-			const label = expectDefined(randomLive());
-			live.splice(live.indexOf(label), 1);
-			actions.push({ kind: "remove-server", label });
-		} else if (roll < 0.37 && live.length > 0) {
-			const field: SecretFieldId = random() < 0.7 ? "apiKey" : "oauthClientSecret";
-			actions.push({ kind: "set-secret", label: expectDefined(randomLive()), field, serial });
-		} else if (roll < 0.42 && live.length > 0) {
-			const field: SecretFieldId = random() < 0.7 ? "apiKey" : "oauthClientSecret";
-			actions.push({ kind: "clear-secret", label: expectDefined(randomLive()), field });
-		} else if (roll < 0.47) {
-			actions.push({ kind: "sync-now" });
-		} else if (roll < 0.62) {
-			actions.push(generateDashboardIntent(random, serial));
-		} else if (roll < 0.72) {
-			actions.push({ kind: "dashboard-junk", payload: generateJunkPayload(random, serial) });
-		} else if (roll < 0.87) {
-			actions.push(generateChat(random));
-		} else if (roll < 0.92) {
-			actions.push({ kind: "chat-cancel", chunkCount: 30, cancelAfter: 1 + Math.floor(random() * 5) });
-		} else if (roll < 0.97) {
-			const shape = expectDefined(PARAM_SHAPES[Math.floor(random() * PARAM_SHAPES.length)]);
-			actions.push({ kind: "set-model-parameters", valid: shape !== "invalid", serial, shape });
-		} else {
-			actions.push({ kind: "set-usage-thresholds", valid: random() < 0.6, serial });
+			case "clear-secret": {
+				const field = secretField();
+				actions.push({ kind, label: randomLive(), field });
+				break;
+			}
+			case "sync-now":
+				actions.push({ kind });
+				break;
+			case "dashboard-intent":
+				actions.push(generateDashboardIntent(random, serial));
+				break;
+			case "dashboard-junk":
+				actions.push({ kind, payload: generateJunkPayload(random, serial) });
+				break;
+			case "chat":
+				actions.push(generateChat(random));
+				break;
+			case "chat-cancel":
+				actions.push({ kind, chunkCount: 30, cancelAfter: 1 + Math.floor(random() * 5) });
+				break;
+			case "set-model-parameters": {
+				const shape = expectDefined(PARAM_SHAPES[Math.floor(random() * PARAM_SHAPES.length)]);
+				actions.push({ kind, valid: shape !== "invalid", serial, shape });
+				break;
+			}
+			case "set-usage-thresholds":
+				actions.push({ kind, valid: random() < 0.6, serial });
+				break;
 		}
 	}
 	return actions;
@@ -539,6 +608,31 @@ export interface MonkeyEnv {
 const PROBE_INTERVAL = 5;
 const RESPONSIVENESS_TIMEOUT_MS = 15000;
 const MODEL_WAIT_MS = 60000;
+
+/** Write the declare extras into the entry: a marker header and a budget; an invalid one is diagnostic-and-ignored. */
+function applyDeclareExtras(entry: Record<string, unknown>, extras: DeclareExtras | undefined, serial: number): void {
+	if (extras?.headers) {
+		entry.headers = { "x-monkey-env": `m${serial}` };
+	}
+	if (extras?.budget !== undefined) {
+		// An invalid budget is diagnostic-and-ignored; the entry stays usable.
+		entry.budget = extras.budget === "invalid" ? -0.5 : extras.budget;
+	}
+}
+
+/** The entry's discovery block: its declared list and expected-failure classes; undefined when it needs neither. */
+function discoveryBlock(
+	declaredId: string | undefined,
+	expectedFailures: boolean
+): Record<string, unknown> | undefined {
+	if (declaredId === undefined && !expectedFailures) {
+		return undefined;
+	}
+	return {
+		...(declaredId === undefined ? {} : { declared: [declaredId] }),
+		...(expectedFailures ? { expectedFailures: ["modelListing", "modelInfo"] } : {}),
+	};
+}
 
 /**
  * One monkey session per extension host: the oracle state spans walks because provider groups and settings do.
@@ -717,19 +811,19 @@ export class MonkeySession {
 	}
 
 	/**
-	 * Declare an entry, force a sync, and settle the oracle: a healthy configuration must raise its id's copy count
-	 * (the only host-visible proof THIS group's discovery succeeded); a dark one syncs and serves nothing; an ambiguous
-	 * one must never produce a declared view. A declared model ID must reach the host regardless of the entry's
-	 * discovery outcome.
+	 * Write the credential's auth shape into the entry (seeding the stored blob for "secure"), minting the values the
+	 * leak scan must watch, and return the health class the configuration establishes.
 	 */
-	private async declare(label: string, credential: CredentialMode, extras?: DeclareExtras): Promise<void> {
-		const serial = ++this.probeCounter;
-		const entry: Record<string, unknown> = { label, baseUrl: this.env.baseUrl };
-		let health: HealthKind = "proxy";
+	private async applyCredential(
+		entry: Record<string, unknown>,
+		label: string,
+		credential: CredentialMode,
+		serial: number
+	): Promise<HealthKind> {
 		switch (credential) {
 			case "inline":
 				entry.auth = { apiKey: this.env.apiKey };
-				break;
+				return "proxy";
 			case "secure": {
 				// The blob lands BEFORE the entry so the first sync pass resolves it;
 				// the entry carries no auth object (the stored slot activates the
@@ -737,18 +831,18 @@ export class MonkeySession {
 				// writes it unstamped and it resolves anywhere, like a pre-stamping blob.
 				await this.setStoredSecret(label, "apiKey", this.env.apiKey);
 				this.blobFor(label).values.apiKey = this.env.apiKey;
-				break;
+				return "proxy";
 			}
 			case "virtual-key":
 				entry.auth = { virtualKey: { header: "x-litellm-api-key", value: this.env.apiKey } };
-				break;
+				return "proxy";
 			case "inline-with-companion": {
 				// The bearer (and its X-API-Key copy) authenticates; the companion header is extra baggage the proxy
 				// ignores.
 				const companion = `sk-monkey-${this.env.seed}-${serial}-companion`;
 				this.minted.push(companion);
 				entry.auth = { apiKey: this.env.apiKey, virtualKey: { header: "x-monkey-companion", value: companion } };
-				break;
+				return "proxy";
 			}
 			case "oauth":
 				entry.baseUrl = `${this.env.fakeUrl}/authed`;
@@ -759,8 +853,7 @@ export class MonkeySession {
 						clientSecret: FAKE_OAUTH_CLIENT_SECRET,
 					},
 				};
-				health = "fake";
-				break;
+				return "fake";
 			case "oauth-with-companions": {
 				// The /authed mirror validates the bearer only, so the nested extra headers must change nothing about
 				// the group's health.
@@ -777,8 +870,7 @@ export class MonkeySession {
 						virtualKey: { header: "x-monkey-oauth-companion", value: companionValue },
 					},
 				};
-				health = "fake";
-				break;
+				return "fake";
 			}
 			case "ambiguous": {
 				// A second form beside oauth: the one shape the auth grammar forbids. The minted key still joins the
@@ -789,33 +881,54 @@ export class MonkeySession {
 					apiKey: mintedKey,
 					oauth: { tokenUrl: `${this.env.fakeUrl}/oauth/token`, clientId: FAKE_OAUTH_CLIENT_ID },
 				};
-				health = "dark";
-				break;
+				return "dark";
 			}
 			case "bad-key": {
 				const mintedKey = `sk-monkey-${this.env.seed}-${serial}`;
 				this.minted.push(mintedKey);
 				entry.auth = { apiKey: mintedKey };
-				health = "dark";
-				break;
+				return "dark";
 			}
 			case "none":
-				health = "dark";
-				break;
+				return "dark";
 		}
-		if (extras?.headers) {
-			entry.headers = { "x-monkey-env": `m${serial}` };
+	}
+
+	/**
+	 * Wait for the health class's anchor to gain one copy over the live floor, then count the group as healthy. The
+	 * count moves only after the wait: a timed-out wait must fail THIS declare without poisoning every later floor.
+	 */
+	private async awaitHealthyCopies(health: HealthKind, oracle: OracleEntry): Promise<void> {
+		if (health === "dark") {
+			return;
 		}
-		if (extras?.budget !== undefined) {
-			// An invalid budget is diagnostic-and-ignored; the entry stays usable.
-			entry.budget = extras.budget === "invalid" ? -0.5 : extras.budget;
-		}
+		const anchorId = health === "proxy" ? PLAYBACK_MODEL.alias : FAKE_ANCHOR_ID;
+		const groups = health === "proxy" ? "proxy" : "fake-backend";
+		const wanted = this.baselineCopies[health] + this.everSyncedHealthy[health] - this.hiddenHealthy[health] + 1;
+		await waitForHostModels(
+			MODEL_WAIT_MS,
+			(models) => this.countModels(models, anchorId) >= wanted,
+			`${wanted} cop(ies) of ${anchorId} (baseline + live healthy ${groups} groups)`
+		);
+		this.everSyncedHealthy[health] += 1;
+		oracle.provenHealthy = true;
+	}
+
+	/**
+	 * Declare an entry, force a sync, and settle the oracle: a healthy configuration must raise its id's copy count
+	 * (the only host-visible proof THIS group's discovery succeeded); a dark one syncs and serves nothing; an ambiguous
+	 * one must never produce a declared view. A declared model ID must reach the host regardless of the entry's
+	 * discovery outcome.
+	 */
+	private async declare(label: string, credential: CredentialMode, extras?: DeclareExtras): Promise<void> {
+		const serial = ++this.probeCounter;
+		const entry: Record<string, unknown> = { label, baseUrl: this.env.baseUrl };
+		const health = await this.applyCredential(entry, label, credential, serial);
+		applyDeclareExtras(entry, extras, serial);
 		const declaredId = extras?.declared ? `monkey-declared-${this.env.seed}-${serial}` : undefined;
-		if (declaredId !== undefined || extras?.expectedFailures) {
-			entry.discovery = {
-				...(declaredId === undefined ? {} : { declared: [declaredId] }),
-				...(extras?.expectedFailures ? { expectedFailures: ["modelListing", "modelInfo"] } : {}),
-			};
+		const discovery = discoveryBlock(declaredId, extras?.expectedFailures === true);
+		if (discovery !== undefined) {
+			entry.discovery = discovery;
 		}
 		await this.writeServersSetting([...this.readServersSetting(), entry]);
 		await this.syncNow();
@@ -843,27 +956,7 @@ export class MonkeySession {
 			...(declaredId === undefined ? {} : { declaredId }),
 		};
 		this.declared.set(label, oracle);
-		if (health === "proxy") {
-			// Increment only after the wait: a timed-out wait must fail THIS declare without poisoning every later
-			// model-count floor.
-			const wanted = this.baselineCopies.proxy + this.everSyncedHealthy.proxy - this.hiddenHealthy.proxy + 1;
-			await waitForHostModels(
-				MODEL_WAIT_MS,
-				(models) => this.countModels(models, PLAYBACK_MODEL.alias) >= wanted,
-				`${wanted} cop(ies) of ${PLAYBACK_MODEL.alias} (baseline + live healthy proxy groups)`
-			);
-			this.everSyncedHealthy.proxy += 1;
-			oracle.provenHealthy = true;
-		} else if (health === "fake") {
-			const wanted = this.baselineCopies.fake + this.everSyncedHealthy.fake - this.hiddenHealthy.fake + 1;
-			await waitForHostModels(
-				MODEL_WAIT_MS,
-				(models) => this.countModels(models, FAKE_ANCHOR_ID) >= wanted,
-				`${wanted} cop(ies) of ${FAKE_ANCHOR_ID} (baseline + live healthy fake-backend groups)`
-			);
-			this.everSyncedHealthy.fake += 1;
-			oracle.provenHealthy = true;
-		}
+		await this.awaitHealthyCopies(health, oracle);
 		if (declaredId !== undefined) {
 			// A declared ID registers whenever discovery does not list it: healthy discovery, expected failure, and
 			// dark 401s alike.
@@ -989,156 +1082,161 @@ export class MonkeySession {
 		return [...this.declared.values()].map((oracle) => oracle.entry);
 	}
 
+	/** Re-point a declared label's URL: the sync pass must refuse it, and the label's copies must leave the floors. */
+	private async runRedeclare(real: string): Promise<void> {
+		const oracle = this.declared.get(real);
+		if (oracle === undefined) {
+			return; // Shrinking removed the declare; nothing to mutate.
+		}
+		const mutated = { ...oracle.entry, baseUrl: `${oracle.entry.baseUrl}/changed` };
+		// Sampled BEFORE the write: the live group becomes a superseded leftover and its copies must be
+		// observed leaving against this.
+		const anchorId = MonkeySession.anchorOf(oracle);
+		const before =
+			anchorId === undefined ? 0 : this.countModels(await vscode.lm.selectChatModels({ vendor: VENDOR_ID }), anchorId);
+		await this.writeServersSetting(this.readServersSetting().map((entry) => (entry.label === real ? mutated : entry)));
+		oracle.entry = mutated;
+		await this.syncNow();
+		const view = await this.declaredView(real);
+		// Derived, never fixed: the mutated URL always diverges from the synced group, so the pass must
+		// refuse - with the ownership mismatch when a stored secret the entry would use was stamped for the old
+		// URL (set-secret stamps the destination at store time), and with the add-only error otherwise.
+		const expected = this.expectedSyncError(real);
+		assert.notStrictEqual(expected, undefined, "the oracle must expect a redeclare to be refused");
+		assert.strictEqual(view.syncFailure?.class, expected, "a redeclared label must surface the derived refusal");
+		// The live group still carries the label at the OLD URL, which the entry no longer declares: a
+		// superseded leftover. The provider serves nothing from it, so the label's copies leave the floors
+		// (observed, never assumed) and its declared model leaves the host list.
+		if (this.hideLabelCopies(oracle) !== undefined && anchorId !== undefined) {
+			await this.observeHiddenDrop(anchorId, before);
+		}
+		if (oracle.declaredId !== undefined) {
+			await this.observeDeclaredGone(oracle.declaredId);
+		}
+	}
+
+	/** Remove a label's entry: a misconfigured one is settings hygiene alone; a synced one tombstones its group. */
+	private async runRemove(real: string): Promise<void> {
+		if (this.misconfigured.has(real)) {
+			// A misconfigured entry never synced, so its removal is pure settings hygiene: the raw entry
+			// leaves, nothing else moves.
+			await this.writeServersSetting(this.readServersSetting().filter((entry) => entry.label !== real));
+			this.misconfigured.delete(real);
+			await this.syncNow();
+			return;
+		}
+		const oracle = this.declared.get(real);
+		if (oracle === undefined) {
+			return;
+		}
+		// Sampled BEFORE the removal pass so the post-removal drop is observable against it; only healthy
+		// labels whose copies are still on the floors (not already hidden by a redeclare) have models to lose.
+		const anchorId = MonkeySession.anchorOf(oracle);
+		const before =
+			anchorId === undefined ? 0 : this.countModels(await vscode.lm.selectChatModels({ vendor: VENDOR_ID }), anchorId);
+		await this.writeServersSetting(this.readServersSetting().filter((entry) => entry.label !== real));
+		this.hideRemovedLabel(real);
+		await this.syncNow();
+		const views = await this.getDeclaredViews();
+		assert.ok(
+			views.every((view) => view.label !== real),
+			"a removed entry must leave the declared views"
+		);
+		// The host group persists (no removal API), but the removal tombstones it, so the provider answers it
+		// with zero models; the floor subtraction is observed here rather than assumed.
+		if (anchorId !== undefined) {
+			await this.observeHiddenDrop(anchorId, before);
+		}
+		// The declared ID has one owner label, so the tombstone must take it out entirely - the strongest
+		// absence the raw-ID model list allows.
+		if (oracle.declaredId !== undefined) {
+			await this.observeDeclaredGone(oracle.declaredId);
+		}
+	}
+
+	/** Store a label's secret: the real value where the field is live on a non-dark entry, else minted garbage. */
+	private async runSetSecret(real: string, action: Extract<MonkeyAction, { kind: "set-secret" }>): Promise<void> {
+		const oracle = this.declared.get(real);
+		if (oracle === undefined) {
+			return;
+		}
+		// A stored secret is LIVE once nothing inline shadows it (the overlay serves it on the group's next
+		// sweep), and vscode.lm exposes no per-group identity to attribute a darkened shared alias, so a live
+		// field on a non-dark entry stores the stack's real value; everything else keeps minted garbage for the
+		// leak scan.
+		const parsed = this.parsedEntry(oracle.entry, real);
+		const live = entryUsesSecretField(parsed, action.field) && inlineSecretValues(parsed)[action.field] === undefined;
+		let value: string;
+		if (live && oracle.health !== "dark") {
+			value = action.field === "oauthClientSecret" ? FAKE_OAUTH_CLIENT_SECRET : this.env.apiKey;
+		} else {
+			value =
+				action.field === "oauthClientSecret"
+					? `monkey-oauth-secret-${action.serial}`
+					: `sk-monkey-${this.env.seed}-${action.serial}`;
+			this.minted.push(value);
+		}
+		await this.setStoredSecret(real, action.field, value);
+		const blob = this.blobFor(real);
+		blob.values[action.field] = value;
+		// The store command stamps like the palette: the label resolves to a declared entry, so the value is
+		// stored for that entry's CURRENT destination - a later redeclare diverges from this stamp.
+		blob.owners[action.field] = secretDestination(parsed, action.field);
+		await this.syncNow();
+		const view = await this.declaredView(real);
+		assert.strictEqual(view.secrets[action.field], this.expectedSecretLocation(real, action.field));
+		assert.strictEqual(view.syncFailure?.class, this.expectedSyncError(real), "set-secret sync outcome diverged");
+	}
+
+	/** Clear a label's stored secret, skipping the one case that would darken serving the invariants cannot attribute. */
+	private async runClearSecret(real: string, action: Extract<MonkeyAction, { kind: "clear-secret" }>): Promise<void> {
+		const oracle = this.declared.get(real);
+		if (oracle === undefined) {
+			return;
+		}
+		// Clearing a live field on a non-dark entry would darken serving that the shared-alias invariants
+		// cannot attribute per group (see set-secret); skipped like an undeclared label. The transition itself
+		// is pinned deterministically by docker-serversync scenario 12.
+		const parsed = this.parsedEntry(oracle.entry, real);
+		if (
+			oracle.health !== "dark" &&
+			entryUsesSecretField(parsed, action.field) &&
+			inlineSecretValues(parsed)[action.field] === undefined &&
+			this.stored.get(real)?.values[action.field] !== undefined
+		) {
+			return;
+		}
+		await this.setStoredSecret(real, action.field, undefined);
+		const blob = this.stored.get(real);
+		if (blob !== undefined) {
+			// updateServerSecret deletes the field's value AND its stamp.
+			delete blob.values[action.field];
+			delete blob.owners[action.field];
+		}
+		await this.syncNow();
+		const view = await this.declaredView(real);
+		assert.strictEqual(view.secrets[action.field], this.expectedSecretLocation(real, action.field));
+		assert.strictEqual(view.syncFailure?.class, this.expectedSyncError(real), "clear-secret sync outcome diverged");
+	}
+
 	private async runAction(action: MonkeyAction, namespace: string): Promise<void> {
 		const label = (token: string) => `monkey-${this.env.seed}-${namespace}-${token}`;
 		switch (action.kind) {
 			case "declare-server":
 				await this.declare(label(action.label), action.credential, action.extras);
 				return;
-			case "redeclare-server": {
-				const real = label(action.label);
-				const oracle = this.declared.get(real);
-				if (oracle === undefined) {
-					return; // Shrinking removed the declare; nothing to mutate.
-				}
-				const mutated = { ...oracle.entry, baseUrl: `${oracle.entry.baseUrl}/changed` };
-				// Sampled BEFORE the write: the live group becomes a superseded leftover and its copies must be
-				// observed leaving against this.
-				const anchorId = MonkeySession.anchorOf(oracle);
-				const before =
-					anchorId === undefined
-						? 0
-						: this.countModels(await vscode.lm.selectChatModels({ vendor: VENDOR_ID }), anchorId);
-				await this.writeServersSetting(
-					this.readServersSetting().map((entry) => (entry.label === real ? mutated : entry))
-				);
-				oracle.entry = mutated;
-				await this.syncNow();
-				const view = await this.declaredView(real);
-				// Derived, never fixed: the mutated URL always diverges from the synced group, so the pass must
-				// refuse - with the ownership mismatch when a stored secret the entry would use was stamped for the old
-				// URL (set-secret stamps the destination at store time), and with the add-only error otherwise.
-				const expected = this.expectedSyncError(real);
-				assert.notStrictEqual(expected, undefined, "the oracle must expect a redeclare to be refused");
-				assert.strictEqual(view.syncFailure?.class, expected, "a redeclared label must surface the derived refusal");
-				// The live group still carries the label at the OLD URL, which the entry no longer declares: a
-				// superseded leftover. The provider serves nothing from it, so the label's copies leave the floors
-				// (observed, never assumed) and its declared model leaves the host list.
-				if (this.hideLabelCopies(oracle) !== undefined && anchorId !== undefined) {
-					await this.observeHiddenDrop(anchorId, before);
-				}
-				if (oracle.declaredId !== undefined) {
-					await this.observeDeclaredGone(oracle.declaredId);
-				}
+			case "redeclare-server":
+				await this.runRedeclare(label(action.label));
 				return;
-			}
-			case "remove-server": {
-				const real = label(action.label);
-				if (this.misconfigured.has(real)) {
-					// A misconfigured entry never synced, so its removal is pure settings hygiene: the raw entry
-					// leaves, nothing else moves.
-					await this.writeServersSetting(this.readServersSetting().filter((entry) => entry.label !== real));
-					this.misconfigured.delete(real);
-					await this.syncNow();
-					return;
-				}
-				const oracle = this.declared.get(real);
-				if (oracle === undefined) {
-					return;
-				}
-				// Sampled BEFORE the removal pass so the post-removal drop is observable against it; only healthy
-				// labels whose copies are still on the floors (not already hidden by a redeclare) have models to lose.
-				const anchorId = MonkeySession.anchorOf(oracle);
-				const before =
-					anchorId === undefined
-						? 0
-						: this.countModels(await vscode.lm.selectChatModels({ vendor: VENDOR_ID }), anchorId);
-				await this.writeServersSetting(this.readServersSetting().filter((entry) => entry.label !== real));
-				this.hideRemovedLabel(real);
-				await this.syncNow();
-				const views = await this.getDeclaredViews();
-				assert.ok(
-					views.every((view) => view.label !== real),
-					"a removed entry must leave the declared views"
-				);
-				// The host group persists (no removal API), but the removal tombstones it, so the provider answers it
-				// with zero models; the floor subtraction is observed here rather than assumed.
-				if (anchorId !== undefined) {
-					await this.observeHiddenDrop(anchorId, before);
-				}
-				// The declared ID has one owner label, so the tombstone must take it out entirely - the strongest
-				// absence the raw-ID model list allows.
-				if (oracle.declaredId !== undefined) {
-					await this.observeDeclaredGone(oracle.declaredId);
-				}
+			case "remove-server":
+				await this.runRemove(label(action.label));
 				return;
-			}
-			case "set-secret": {
-				const real = label(action.label);
-				const oracle = this.declared.get(real);
-				if (oracle === undefined) {
-					return;
-				}
-				// A stored secret is LIVE once nothing inline shadows it (the overlay serves it on the group's next
-				// sweep), and vscode.lm exposes no per-group identity to attribute a darkened shared alias, so a live
-				// field on a non-dark entry stores the stack's real value; everything else keeps minted garbage for the
-				// leak scan.
-				const parsed = this.parsedEntry(oracle.entry, real);
-				const live =
-					entryUsesSecretField(parsed, action.field) && inlineSecretValues(parsed)[action.field] === undefined;
-				let value: string;
-				if (live && oracle.health !== "dark") {
-					value = action.field === "oauthClientSecret" ? FAKE_OAUTH_CLIENT_SECRET : this.env.apiKey;
-				} else {
-					value =
-						action.field === "oauthClientSecret"
-							? `monkey-oauth-secret-${action.serial}`
-							: `sk-monkey-${this.env.seed}-${action.serial}`;
-					this.minted.push(value);
-				}
-				await this.setStoredSecret(real, action.field, value);
-				const blob = this.blobFor(real);
-				blob.values[action.field] = value;
-				// The store command stamps like the palette: the label resolves to a declared entry, so the value is
-				// stored for that entry's CURRENT destination - a later redeclare diverges from this stamp.
-				blob.owners[action.field] = secretDestination(parsed, action.field);
-				await this.syncNow();
-				const view = await this.declaredView(real);
-				assert.strictEqual(view.secrets[action.field], this.expectedSecretLocation(real, action.field));
-				assert.strictEqual(view.syncFailure?.class, this.expectedSyncError(real), "set-secret sync outcome diverged");
+			case "set-secret":
+				await this.runSetSecret(label(action.label), action);
 				return;
-			}
-			case "clear-secret": {
-				const real = label(action.label);
-				const oracle = this.declared.get(real);
-				if (oracle === undefined) {
-					return;
-				}
-				// Clearing a live field on a non-dark entry would darken serving that the shared-alias invariants
-				// cannot attribute per group (see set-secret); skipped like an undeclared label. The transition itself
-				// is pinned deterministically by docker-serversync scenario 12.
-				const parsed = this.parsedEntry(oracle.entry, real);
-				if (
-					oracle.health !== "dark" &&
-					entryUsesSecretField(parsed, action.field) &&
-					inlineSecretValues(parsed)[action.field] === undefined &&
-					this.stored.get(real)?.values[action.field] !== undefined
-				) {
-					return;
-				}
-				await this.setStoredSecret(real, action.field, undefined);
-				const blob = this.stored.get(real);
-				if (blob !== undefined) {
-					// updateServerSecret deletes the field's value AND its stamp.
-					delete blob.values[action.field];
-					delete blob.owners[action.field];
-				}
-				await this.syncNow();
-				const view = await this.declaredView(real);
-				assert.strictEqual(view.secrets[action.field], this.expectedSecretLocation(real, action.field));
-				assert.strictEqual(view.syncFailure?.class, this.expectedSyncError(real), "clear-secret sync outcome diverged");
+			case "clear-secret":
+				await this.runClearSecret(label(action.label), action);
 				return;
-			}
 			case "sync-now":
 				await this.syncNow();
 				return;
@@ -1587,6 +1685,30 @@ export class MonkeySession {
 		}
 	}
 
+	/**
+	 * Hide every declared label under the namespace prefix, as an explicit removal does: the sync pass that follows
+	 * tombstones each group, so its copies leave the floors. Returns the drop count per anchor and the declared IDs
+	 * that must vanish, for the caller to observe.
+	 */
+	private hideNamespaceLabels(prefix: string): { drops: Map<string, number>; declaredGone: string[] } {
+		const drops = new Map<string, number>();
+		const declaredGone: string[] = [];
+		for (const label of [...this.declared.keys()]) {
+			if (!label.startsWith(prefix)) {
+				continue;
+			}
+			const declaredId = this.declared.get(label)?.declaredId;
+			if (declaredId !== undefined) {
+				declaredGone.push(declaredId);
+			}
+			const anchorId = this.hideRemovedLabel(label);
+			if (anchorId !== undefined) {
+				drops.set(anchorId, (drops.get(anchorId) ?? 0) + 1);
+			}
+		}
+		return { drops, declaredGone };
+	}
+
 	private async cleanupNamespace(namespace: string): Promise<void> {
 		const prefix = `monkey-${this.env.seed}-${namespace}-`;
 		// Pre-removal samples per anchor, so each hiding can be observed below.
@@ -1602,22 +1724,7 @@ export class MonkeySession {
 				this.misconfigured.delete(label);
 			}
 		}
-		const drops = new Map<string, number>();
-		const declaredGone: string[] = [];
-		for (const label of [...this.declared.keys()]) {
-			if (label.startsWith(prefix)) {
-				// Cleanup is an explicit removal like remove-server: the sync pass below tombstones each group, so its
-				// copies leave the floors too.
-				const declaredId = this.declared.get(label)?.declaredId;
-				if (declaredId !== undefined) {
-					declaredGone.push(declaredId);
-				}
-				const anchorId = this.hideRemovedLabel(label);
-				if (anchorId !== undefined) {
-					drops.set(anchorId, (drops.get(anchorId) ?? 0) + 1);
-				}
-			}
-		}
+		const { drops, declaredGone } = this.hideNamespaceLabels(prefix);
 		await this.syncNow();
 		// The next run's probes start from floors this cleanup lowered, so the lowering must have provably happened
 		// before this run hands over.

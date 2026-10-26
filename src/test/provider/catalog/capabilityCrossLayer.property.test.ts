@@ -359,41 +359,44 @@ const layerSpecsArb: fc.Arbitrary<LayerSpecs> = fc.record({
 	overlap: overlapArb,
 });
 
-function layerMaps(specs: LayerSpecs): {
-	globalCapabilities: ModelCapabilitiesRecord;
-	entryCapabilities: ModelCapabilitiesRecord | undefined;
-	catalog: CapabilityCatalogLookup;
-} {
+/** The global layer's records keyed as the chain reads them, scoped keys included. */
+function globalLayerOf(specs: LayerSpecs): Record<string, Record<string, unknown>> {
 	const globalCapabilities: Record<string, Record<string, unknown>> = {};
 	for (const spec of specs.globalSpecs) {
 		const key = keyOf(spec.key, specs.rawModelId, specs.otherId);
 		globalCapabilities[spec.scoped ? `${SCOPE}/${key}` : key] = spec.record;
 	}
-	let entryCapabilities =
-		specs.entrySpecs === undefined
-			? undefined
-			: Object.fromEntries(
-					specs.entrySpecs.map((spec) => [keyOf(spec.key, specs.rawModelId, specs.otherId), spec.record])
-				);
-	if (specs.overlap !== undefined) {
-		// The guaranteed collision rides both layers' exact records, so it always matches and always outranks the
-		// random chains within its layer.
-		const o = specs.overlap;
-		globalCapabilities[specs.rawModelId] = {
-			...(globalCapabilities[specs.rawModelId] ?? {}),
-			[o.name]: o.globalValue,
-			...(o.demote === "global" ? { [FALLBACK_DIRECTIVE]: [o.name] } : {}),
-		};
-		entryCapabilities = {
-			...(entryCapabilities ?? {}),
-			[specs.rawModelId]: {
-				...(entryCapabilities?.[specs.rawModelId] ?? {}),
-				[o.name]: o.entryValue,
-				...(o.demote === "entry" ? { [FALLBACK_DIRECTIVE]: [o.name] } : {}),
-			},
-		};
+	return globalCapabilities;
+}
+
+/** The entry layer's records, or undefined when the scenario declares no entry layer. */
+function entryLayerOf(specs: LayerSpecs): Record<string, Record<string, unknown>> | undefined {
+	if (specs.entrySpecs === undefined) {
+		return undefined;
 	}
-	const catalog = makeCatalog({
+	return Object.fromEntries(
+		specs.entrySpecs.map((spec) => [keyOf(spec.key, specs.rawModelId, specs.otherId), spec.record])
+	);
+}
+
+/** A layer's exact record for the model with the overlap field written in, `_fallback`-demoted when asked. */
+function overlapRecord(
+	layer: Record<string, Record<string, unknown>> | undefined,
+	rawModelId: string,
+	overlap: OverlapSpec,
+	value: unknown,
+	demote: boolean
+): Record<string, unknown> {
+	return {
+		...(layer?.[rawModelId] ?? {}),
+		[overlap.name]: value,
+		...(demote ? { [FALLBACK_DIRECTIVE]: [overlap.name] } : {}),
+	};
+}
+
+/** The catalog the scenario describes: two directive targets and an implicit entry, doubled when ambiguous. */
+function catalogOf(specs: LayerSpecs): CapabilityCatalogLookup {
+	return makeCatalog({
 		...(specs.catalogOne === undefined ? {} : { "cat/one": specs.catalogOne }),
 		...(specs.catalogTwo === undefined ? {} : { "cat/two": specs.catalogTwo }),
 		...(specs.implicitFields === undefined ? {} : { [`imp/${specs.rawModelId}`]: specs.implicitFields }),
@@ -401,7 +404,27 @@ function layerMaps(specs: LayerSpecs): {
 			? { [`imp2/${specs.rawModelId}`]: specs.implicitFields }
 			: {}),
 	});
-	return { globalCapabilities, entryCapabilities, catalog };
+}
+
+function layerMaps(specs: LayerSpecs): {
+	globalCapabilities: ModelCapabilitiesRecord;
+	entryCapabilities: ModelCapabilitiesRecord | undefined;
+	catalog: CapabilityCatalogLookup;
+} {
+	const globalCapabilities = globalLayerOf(specs);
+	let entryCapabilities = entryLayerOf(specs);
+	if (specs.overlap !== undefined) {
+		// The guaranteed collision rides both layers' exact records, so it always matches and always outranks the
+		// random chains within its layer.
+		const o = specs.overlap;
+		const id = specs.rawModelId;
+		globalCapabilities[id] = overlapRecord(globalCapabilities, id, o, o.globalValue, o.demote === "global");
+		entryCapabilities = {
+			...(entryCapabilities ?? {}),
+			[id]: overlapRecord(entryCapabilities, id, o, o.entryValue, o.demote === "entry"),
+		};
+	}
+	return { globalCapabilities, entryCapabilities, catalog: catalogOf(specs) };
 }
 
 const resolverScenario: fc.Arbitrary<{ input: ResolveModelCapabilitiesInput }> = fc
@@ -413,6 +436,181 @@ const resolverScenario: fc.Arbitrary<{ input: ResolveModelCapabilitiesInput }> =
 
 function coreProjection(fields: Readonly<Record<string, EffectiveCapabilityField | undefined>>) {
 	return Object.fromEntries(FIELD_NAMES.map((name) => [name, fields[name]]));
+}
+
+/** The resolved layers and lookups the naive full walk reads, computed once per scenario. */
+interface NaiveWalkContext {
+	readonly entry: RecordChainResolution;
+	readonly global: RecordChainResolution;
+	readonly directiveId: string | undefined;
+	readonly directiveFields: Readonly<Partial<CapabilityFieldValues>>;
+	readonly serverValues: Readonly<Record<string, CapabilityJsonValue | undefined>>;
+	readonly catalogMatch: CatalogLookupResult;
+}
+
+/** One candidate value for a field, with the level and key it came from. */
+interface Candidate {
+	readonly level: CapabilityLevel;
+	readonly key?: string;
+	readonly inheritedBy?: string;
+	readonly value: CapabilityJsonValue;
+}
+
+/** The naive walk's reading of the input: both layers resolved, the directive followed, the catalog matched. */
+function naiveWalkContext(input: ResolveModelCapabilitiesInput): NaiveWalkContext {
+	const entry = resolveCapabilityLayer(input.rawModelId, input.entryCapabilities ?? {});
+	const global = resolveCapabilityLayer(input.rawModelId, input.globalCapabilities);
+	const directiveId =
+		(entry.winner as ParsedCapabilityRecord | undefined)?.openrouterModel ??
+		(global.winner as ParsedCapabilityRecord | undefined)?.openrouterModel;
+	const directiveLookup = directiveId === undefined ? undefined : input.catalog.byExactId(directiveId);
+	return {
+		entry,
+		global,
+		directiveId,
+		directiveFields: directiveLookup?.kind === "found" ? directiveLookup.fields : {},
+		serverValues: input.serverDeclared.kind === "discovered" ? input.serverDeclared.values : {},
+		catalogMatch: input.catalog.byRawModelId(input.rawModelId),
+	};
+}
+
+/** A layer's value for `name` at the wanted fallback-ness, with its source key and the winner that inherited it. */
+function layerField(
+	resolution: RecordChainResolution,
+	name: string,
+	wantFallback: boolean
+): Omit<Candidate, "level"> | undefined {
+	const field = resolution.fields.get(name);
+	if (field === undefined || field.fallback !== wantFallback) {
+		return undefined;
+	}
+	return {
+		value: field.value as CapabilityJsonValue,
+		key: field.sourceKey,
+		...(resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
+			? { inheritedBy: resolution.winnerKey }
+			: {}),
+	};
+}
+
+/** Every candidate for `name`, highest level first, in the resolver's precedence order. */
+function candidatesFor(context: NaiveWalkContext, name: string): Candidate[] {
+	const { entry, global, directiveId, directiveFields, serverValues, catalogMatch } = context;
+	const layered: Candidate[] = [];
+	const entryOverride = layerField(entry, name, false);
+	if (entryOverride !== undefined) {
+		layered.push({ level: "entry", ...entryOverride });
+	}
+	const globalOverride = layerField(global, name, false);
+	if (globalOverride !== undefined) {
+		layered.push({ level: "global", ...globalOverride });
+	}
+	const derived = Object.hasOwn(CAPABILITY_FIELDS, name) ? directiveFields[name as CapabilityFieldName] : undefined;
+	if (derived !== undefined && directiveId !== undefined) {
+		layered.push({ level: "directive", key: directiveId, value: derived });
+	}
+	const server = capabilityField(serverValues, name);
+	if (server !== undefined) {
+		layered.push({ level: "server", value: server });
+	}
+	const entryFallback = layerField(entry, name, true);
+	if (entryFallback !== undefined) {
+		layered.push({ level: "entry-fallback", ...entryFallback });
+	}
+	const globalFallback = layerField(global, name, true);
+	if (globalFallback !== undefined) {
+		layered.push({ level: "global-fallback", ...globalFallback });
+	}
+	const catalogValue =
+		catalogMatch.kind === "found" && Object.hasOwn(CAPABILITY_FIELDS, name)
+			? catalogMatch.fields[name as CapabilityFieldName]
+			: undefined;
+	if (catalogValue !== undefined && catalogMatch.kind === "found") {
+		layered.push({ level: "catalog", key: catalogMatch.id, value: catalogValue });
+	}
+	return layered;
+}
+
+/** The field the candidates settle to, the rest shadowed under it; the backstop when no candidate exists. */
+function settle(
+	context: NaiveWalkContext,
+	name: string,
+	backstop?: { readonly level: "derived" | "floor"; readonly value: number | boolean }
+): EffectiveCapabilityField | undefined {
+	const [winner, ...shadowed] = candidatesFor(context, name);
+	if (winner === undefined) {
+		return backstop === undefined ? undefined : { value: backstop.value, level: backstop.level, shadowed: [] };
+	}
+	return {
+		value: winner.value,
+		level: winner.level,
+		...(winner.key === undefined ? {} : { key: winner.key }),
+		...(winner.inheritedBy === undefined ? {} : { inheritedBy: winner.inheritedBy }),
+		shadowed: shadowed.map((candidate) => ({
+			level: candidate.level,
+			...(candidate.key === undefined ? {} : { key: candidate.key }),
+			...(candidate.inheritedBy === undefined ? {} : { inheritedBy: candidate.inheritedBy }),
+			value: candidate.value,
+		})),
+	};
+}
+
+/** The open field names any layer or the server names: outside the core vocabulary, and no directive. */
+function openFieldNames(context: NaiveWalkContext): Set<string> {
+	return new Set(
+		[...context.entry.fields.keys(), ...context.global.fields.keys(), ...Object.keys(context.serverValues)].filter(
+			(name) => !Object.hasOwn(CAPABILITY_FIELDS, name) && !name.startsWith("_")
+		)
+	);
+}
+
+/** The naive full walk's view of every field: the core limits, the booleans, and the open fields. */
+function naiveFieldsOf(context: NaiveWalkContext): Record<string, EffectiveCapabilityField> {
+	const contextLength = settle(context, "context_length", { level: "floor", value: CAPABILITY_FLOOR.context_length });
+	const maxOutputTokens = settle(context, "max_output_tokens", {
+		level: "floor",
+		value: CAPABILITY_FLOOR.max_output_tokens,
+	});
+	assert.ok(contextLength !== undefined && maxOutputTokens !== undefined);
+	const maxInputTokens = settle(context, "max_input_tokens", {
+		level: "derived",
+		value: Math.max(1, (contextLength.value as number) - (maxOutputTokens.value as number)),
+	});
+	const naiveFields: Record<string, EffectiveCapabilityField> = {
+		context_length: contextLength,
+		max_output_tokens: maxOutputTokens,
+		...(maxInputTokens === undefined ? {} : { max_input_tokens: maxInputTokens }),
+	};
+	for (const name of BOOLEAN_FIELD_NAMES) {
+		const field = settle(context, name, { level: "floor", value: CAPABILITY_FLOOR[name] });
+		if (field !== undefined) {
+			naiveFields[name] = field;
+		}
+	}
+	for (const name of openFieldNames(context)) {
+		const field = settle(context, name);
+		if (field !== undefined) {
+			naiveFields[name] = field;
+		}
+	}
+	return naiveFields;
+}
+
+/**
+ * The default max_tokens the naive walk predicts: the user's value when a user level won the output limit, the server's
+ * declared default when the server won it, the clamped guess otherwise.
+ */
+function naiveDefaultMaxTokens(
+	outputLimit: EffectiveCapabilityField,
+	serverDeclared: ServerDeclaredCapabilities
+): unknown {
+	if (USER_SET_LEVELS.some((level) => level === outputLimit.level)) {
+		return outputLimit.value;
+	}
+	if (outputLimit.level === "server" && serverDeclared.kind === "discovered") {
+		return serverDeclared.defaultMaxTokens;
+	}
+	return Math.min(4096, outputLimit.value as number);
 }
 
 // --- Seam scenario: real discovery shapes through the real registration path. Post-ingest limits are positive numbers
@@ -470,6 +668,95 @@ const modelShapeArb = fc.oneof(
 		providers: providers as [LiteLLMProvider, ...LiteLLMProvider[]],
 	}))
 );
+
+/** A provider with every cost cleared: the post-ingest shape of "nothing declared" and of LiteLLM's 0/0 stamp. */
+function costFree(provider: LiteLLMProvider): LiteLLMProvider {
+	return {
+		...provider,
+		input_cost_per_token: undefined,
+		output_cost_per_token: undefined,
+		cache_read_input_token_cost: undefined,
+		cache_creation_input_token_cost: undefined,
+		long_context_input_cost_per_token: undefined,
+		long_context_output_cost_per_token: undefined,
+		long_context_cache_read_input_token_cost: undefined,
+		long_context_cache_creation_input_token_cost: undefined,
+	};
+}
+
+/** The item with every provider cost-free; a bare shape has no providers to clear. */
+function costFreeItem(item: LiteLLMModelItem): LiteLLMModelItem {
+	if (item.shape.kind === "deployment") {
+		return { ...item, shape: deploymentShape(costFree(item.shape.provider)) };
+	}
+	if (item.shape.kind === "group") {
+		const providers = item.shape.providers.map(costFree) as [LiteLLMProvider, ...LiteLLMProvider[]];
+		return { ...item, shape: { kind: "group", providers } };
+	}
+	return item;
+}
+
+/** The field-wise user-over-server cost merge the served pricing must derive from. */
+function mergedCosts(userCosts: DeclaredPerTokenCosts, baseline: ServerDeclaredCapabilities): DeclaredPerTokenCosts {
+	const merged: DeclaredPerTokenCosts = {};
+	for (const name of COST_FIELD_NAMES) {
+		const user = userCosts[name];
+		// The parse canonicalizes a user-written -0 to +0 ("free" never rides a negative sign); mirror that rule here.
+		const fromUser = user === 0 ? 0 : user;
+		const fromServer =
+			baseline.kind === "discovered" ? (capabilityField(baseline.values, name) as number | undefined) : undefined;
+		const value = fromUser ?? fromServer;
+		if (value !== undefined) {
+			merged[name] = value;
+		}
+	}
+	return merged;
+}
+
+/**
+ * One resolution-table step: which server asks, which shared-ID config (or the miss ID), which server declaration and
+ * catalog apply, and the cache operation taken first.
+ */
+interface TableStep {
+	readonly server: string;
+	readonly id: number;
+	readonly config: number;
+	readonly serverDeclared: number;
+	readonly catalog: number;
+	readonly op: "none" | "prune" | "clear";
+	readonly pruneTarget: string;
+}
+
+/** What a table sequence picks from: three configs built around one shared ID, and three server declarations. */
+interface TableWorld {
+	readonly sharedId: string;
+	readonly missId: string;
+	readonly configs: readonly ReturnType<typeof layerMaps>[];
+	readonly serverDeclareds: readonly ServerDeclaredCapabilities[];
+}
+
+/** Apply the step's cache op; the prune target is independent of the queried server, so both sides get exercised. */
+function applyTableOp(table: ModelResolutionTable, step: TableStep): void {
+	if (step.op === "prune") {
+		table.prune([step.pruneTarget]);
+	} else if (step.op === "clear") {
+		table.clear();
+	}
+}
+
+/** The model a step queries (id 3 is the miss) and the inputs it resolves under. */
+function tableStepQuery(step: TableStep, world: TableWorld) {
+	const config = world.configs[step.config] as (typeof world.configs)[number];
+	return {
+		rawModelId: step.id === 3 ? world.missId : world.sharedId,
+		inputs: {
+			globalCapabilities: config.globalCapabilities,
+			entryCapabilities: config.entryCapabilities,
+			serverDeclared: world.serverDeclareds[step.serverDeclared] as ServerDeclaredCapabilities,
+			catalog: step.catalog === 0 ? config.catalog : EMPTY_CATALOG_LOOKUP,
+		},
+	};
+}
 
 interface SeamScenario {
 	readonly items: LiteLLMModelItem[];
@@ -537,6 +824,73 @@ function withoutCostFields(records: ModelCapabilitiesRecord | undefined): ModelC
 	);
 }
 
+/** Every served model carries no pricing field at all; `reason` words the failure for one key. */
+function assertUnpriced(served: ReturnType<typeof applyCapabilityOverrides>, reason: (key: string) => string): void {
+	for (const info of served) {
+		for (const key of MODEL_PRICING_KEYS) {
+			assert.strictEqual(info[key], undefined, `${info.id}: ${reason(key)}`);
+		}
+	}
+}
+
+/** A user-written 0/0 pair prices as genuinely free: +0 costs, the $0 label, and the cheapest badge. */
+function assertUserZeroPairPricesFree(s: SeamScenario, zin: number, zout: number): void {
+	const opts: CapabilityOverrideOptions = {
+		globalCapabilities: withoutCostFields(s.globalCapabilities) ?? {},
+		entryCapabilities: { "*": { input_cost_per_token: zin, output_cost_per_token: zout } },
+		catalog: s.catalog,
+		resolution: new ModelResolutionTable(),
+		log: () => {},
+		logAdvisory: () => {},
+	};
+	const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {});
+	for (const info of applyCapabilityOverrides(infos, SERVER, opts)) {
+		assert.ok(Object.is(info.inputCost, 0), `${info.id}: a user 0/0 pair must price inputCost as +0`);
+		assert.ok(Object.is(info.outputCost, 0), `${info.id}: a user 0/0 pair must price outputCost as +0`);
+		assert.strictEqual(typeof info.pricing, "string", `${info.id}: the free pair carries the $0 label`);
+		assert.strictEqual(info.priceCategory, "low", `${info.id}: the free pair carries the cheapest badge`);
+	}
+}
+
+/**
+ * The server's 0/0 stamp on the WIRE (LiteLLM's undeclared-pricing shape) prices as nothing: the production ingest
+ * (normalizeModelItem) maps every cost field to undefined, so no pricing appears anywhere downstream.
+ */
+function assertServerZeroStampPricesNothing(s: SeamScenario, zin: number, zout: number): void {
+	const items = s.items.map((item) =>
+		normalizeModelItem(
+			{
+				id: item.id,
+				providers: [
+					{
+						provider: "openai",
+						status: "ok",
+						supports_tools: true,
+						input_cost_per_token: zin,
+						output_cost_per_token: zout,
+						cache_read_input_token_cost: 0.0000003,
+					},
+				],
+			},
+			() => {}
+		)
+	);
+	const opts: CapabilityOverrideOptions = {
+		globalCapabilities: withoutCostFields(s.globalCapabilities) ?? {},
+		entryCapabilities: withoutCostFields(s.entryCapabilities),
+		catalog: s.catalog,
+		resolution: new ModelResolutionTable(),
+		log: () => {},
+		logAdvisory: () => {},
+	};
+	const { infos } = buildModelInfos(items, SERVER, s.serverCount, () => {});
+	for (const info of applyCapabilityOverrides(infos, SERVER, opts)) {
+		for (const key of MODEL_PRICING_KEYS) {
+			assert.strictEqual(info[key], undefined, `${info.id}: the server 0/0 stamp must price ${key} as unset`);
+		}
+	}
+}
+
 suite("provider/catalog capability cross-layer properties", () => {
 	test("the core seven are independent of every non-core field: stripping them all changes no core outcome", () => {
 		// Stronger than extras-inertness (which only ADDS unknown keys): here every non-core field is REMOVED from both
@@ -586,145 +940,20 @@ suite("provider/catalog capability cross-layer properties", () => {
 	test("the effective view equals a naive full walk: every field, every level, exact provenance and shadows", () => {
 		fc.assert(
 			fc.property(resolverScenario, ({ input }) => {
-				const entry = resolveCapabilityLayer(input.rawModelId, input.entryCapabilities ?? {});
-				const global = resolveCapabilityLayer(input.rawModelId, input.globalCapabilities);
-				const directiveId =
-					(entry.winner as ParsedCapabilityRecord | undefined)?.openrouterModel ??
-					(global.winner as ParsedCapabilityRecord | undefined)?.openrouterModel;
-				const directiveLookup = directiveId === undefined ? undefined : input.catalog.byExactId(directiveId);
-				const directiveFields: Readonly<Partial<CapabilityFieldValues>> =
-					directiveLookup?.kind === "found" ? directiveLookup.fields : {};
-				const serverValues: Readonly<Record<string, CapabilityJsonValue | undefined>> =
-					input.serverDeclared.kind === "discovered" ? input.serverDeclared.values : {};
-				const catalogMatch = input.catalog.byRawModelId(input.rawModelId);
-
-				const layerField = (resolution: RecordChainResolution, name: string, wantFallback: boolean) => {
-					const field = resolution.fields.get(name);
-					if (field === undefined || field.fallback !== wantFallback) {
-						return undefined;
-					}
-					return {
-						value: field.value as CapabilityJsonValue,
-						key: field.sourceKey,
-						...(resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
-							? { inheritedBy: resolution.winnerKey }
-							: {}),
-					};
-				};
-				interface Candidate {
-					readonly level: CapabilityLevel;
-					readonly key?: string;
-					readonly inheritedBy?: string;
-					readonly value: CapabilityJsonValue;
-				}
-				const candidatesFor = (name: string): Candidate[] => {
-					const layered: Candidate[] = [];
-					const entryOverride = layerField(entry, name, false);
-					if (entryOverride !== undefined) {
-						layered.push({ level: "entry", ...entryOverride });
-					}
-					const globalOverride = layerField(global, name, false);
-					if (globalOverride !== undefined) {
-						layered.push({ level: "global", ...globalOverride });
-					}
-					const derived = Object.hasOwn(CAPABILITY_FIELDS, name)
-						? directiveFields[name as CapabilityFieldName]
-						: undefined;
-					if (derived !== undefined && directiveId !== undefined) {
-						layered.push({ level: "directive", key: directiveId, value: derived });
-					}
-					const server = capabilityField(serverValues, name);
-					if (server !== undefined) {
-						layered.push({ level: "server", value: server });
-					}
-					const entryFallback = layerField(entry, name, true);
-					if (entryFallback !== undefined) {
-						layered.push({ level: "entry-fallback", ...entryFallback });
-					}
-					const globalFallback = layerField(global, name, true);
-					if (globalFallback !== undefined) {
-						layered.push({ level: "global-fallback", ...globalFallback });
-					}
-					const catalogValue =
-						catalogMatch.kind === "found" && Object.hasOwn(CAPABILITY_FIELDS, name)
-							? catalogMatch.fields[name as CapabilityFieldName]
-							: undefined;
-					if (catalogValue !== undefined && catalogMatch.kind === "found") {
-						layered.push({ level: "catalog", key: catalogMatch.id, value: catalogValue });
-					}
-					return layered;
-				};
-				const settle = (
-					name: string,
-					backstop?: { readonly level: "derived" | "floor"; readonly value: number | boolean }
-				): EffectiveCapabilityField | undefined => {
-					const [winner, ...shadowed] = candidatesFor(name);
-					if (winner === undefined) {
-						return backstop === undefined ? undefined : { value: backstop.value, level: backstop.level, shadowed: [] };
-					}
-					return {
-						value: winner.value,
-						level: winner.level,
-						...(winner.key === undefined ? {} : { key: winner.key }),
-						...(winner.inheritedBy === undefined ? {} : { inheritedBy: winner.inheritedBy }),
-						shadowed: shadowed.map((candidate) => ({
-							level: candidate.level,
-							...(candidate.key === undefined ? {} : { key: candidate.key }),
-							...(candidate.inheritedBy === undefined ? {} : { inheritedBy: candidate.inheritedBy }),
-							value: candidate.value,
-						})),
-					};
-				};
-
-				const contextLength = settle("context_length", { level: "floor", value: CAPABILITY_FLOOR.context_length });
-				const maxOutputTokens = settle("max_output_tokens", {
-					level: "floor",
-					value: CAPABILITY_FLOOR.max_output_tokens,
-				});
-				assert.ok(contextLength !== undefined && maxOutputTokens !== undefined);
-				const maxInputTokens = settle("max_input_tokens", {
-					level: "derived",
-					value: Math.max(1, (contextLength.value as number) - (maxOutputTokens.value as number)),
-				});
-				const naiveFields: Record<string, EffectiveCapabilityField> = {
-					context_length: contextLength,
-					max_output_tokens: maxOutputTokens,
-					...(maxInputTokens === undefined ? {} : { max_input_tokens: maxInputTokens }),
-				};
-				for (const name of BOOLEAN_FIELD_NAMES) {
-					const field = settle(name, { level: "floor", value: CAPABILITY_FLOOR[name] });
-					if (field !== undefined) {
-						naiveFields[name] = field;
-					}
-				}
-				const openNames = new Set(
-					[...entry.fields.keys(), ...global.fields.keys(), ...Object.keys(serverValues)].filter(
-						(name) => !Object.hasOwn(CAPABILITY_FIELDS, name) && !name.startsWith("_")
-					)
-				);
-				for (const name of openNames) {
-					const field = settle(name);
-					if (field !== undefined) {
-						naiveFields[name] = field;
-					}
-				}
+				const context = naiveWalkContext(input);
+				const naiveFields = naiveFieldsOf(context);
 
 				const effective = resolveModelCapabilities(input);
 				// Compared WITHOUT copying, so deepStrictEqual's prototype check stays live: a lost "__proto__" skip
 				// would rewrite the result's prototype, and a spread here would launder that back to Object.prototype.
 				assert.strictEqual(Object.getPrototypeOf(effective.fields), Object.prototype);
 				assert.deepStrictEqual(effective.fields, naiveFields);
-				for (const name of [...entry.fields.keys(), ...global.fields.keys()]) {
+				for (const name of [...context.entry.fields.keys(), ...context.global.fields.keys()]) {
 					assert.ok(capabilityField(effective.fields, name) !== undefined, `${name} is user-set and must resolve`);
 				}
 				const outputLimit = naiveFields.max_output_tokens;
 				assert.ok(outputLimit !== undefined);
-				const expectedDefault = USER_SET_LEVELS.some((level) => level === outputLimit.level)
-					? outputLimit.value
-					: outputLimit.level === "server" && input.serverDeclared.kind === "discovered"
-						? input.serverDeclared.defaultMaxTokens
-						: Math.min(4096, outputLimit.value as number);
-				assert.strictEqual(effective.defaultMaxTokens, expectedDefault);
+				assert.strictEqual(effective.defaultMaxTokens, naiveDefaultMaxTokens(outputLimit, input.serverDeclared));
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
@@ -853,29 +1082,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 		// record is cost-stripped while the catalog stays rich: no served model may carry pricing.
 		fc.assert(
 			fc.property(seamScenario, fc.boolean(), (s, addDirective) => {
-				const costFree = (provider: LiteLLMProvider): LiteLLMProvider => ({
-					...provider,
-					input_cost_per_token: undefined,
-					output_cost_per_token: undefined,
-					cache_read_input_token_cost: undefined,
-					cache_creation_input_token_cost: undefined,
-					long_context_input_cost_per_token: undefined,
-					long_context_output_cost_per_token: undefined,
-					long_context_cache_read_input_token_cost: undefined,
-					long_context_cache_creation_input_token_cost: undefined,
-				});
-				const items = s.items.map((item) => ({
-					...item,
-					shape:
-						item.shape.kind === "deployment"
-							? deploymentShape(costFree(item.shape.provider))
-							: item.shape.kind === "group"
-								? {
-										kind: "group" as const,
-										providers: item.shape.providers.map(costFree) as [LiteLLMProvider, ...LiteLLMProvider[]],
-									}
-								: item.shape,
-				}));
+				const items = s.items.map(costFreeItem);
 				const globalCapabilities = {
 					...(withoutCostFields(s.globalCapabilities) ?? {}),
 					...(addDirective ? { "*": { [OPENROUTER_MODEL_DIRECTIVE]: "cat/one" } } : {}),
@@ -895,11 +1102,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 				};
 				const { infos } = buildModelInfos(items, SERVER, s.serverCount, () => {});
 				const served = applyCapabilityOverrides(infos, SERVER, opts);
-				for (const info of served) {
-					for (const key of MODEL_PRICING_KEYS) {
-						assert.strictEqual(info[key], undefined, `${info.id}: ${key} must stay unset without any cost source`);
-					}
-				}
+				assertUnpriced(served, (key) => `${key} must stay unset without any cost source`);
 				// The stale-copy path: forge pricing the walk does not derive, and the
 				// rebuild strips it.
 				const stale = served.map(
@@ -911,11 +1114,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 					})
 				);
 				const healed = applyCapabilityOverrides(stale, SERVER, opts);
-				for (const info of healed) {
-					for (const key of MODEL_PRICING_KEYS) {
-						assert.strictEqual(info[key], undefined, `${info.id}: unjustified ${key} must strip on re-serve`);
-					}
-				}
+				assertUnpriced(healed, (key) => `unjustified ${key} must strip on re-serve`);
 				assert.deepStrictEqual(
 					applyCapabilityOverrides(healed, SERVER, opts),
 					healed,
@@ -946,22 +1145,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 				const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {});
 				const served = applyCapabilityOverrides(infos, SERVER, opts);
 				for (const info of served) {
-					const baseline = info.litellm.serverDeclared;
-					const merged: DeclaredPerTokenCosts = {};
-					for (const name of COST_FIELD_NAMES) {
-						const user = userCosts[name];
-						// The parse canonicalizes a user-written -0 to +0 ("free" never rides a negative sign); mirror
-						// that rule here.
-						const fromUser = user === undefined ? undefined : user === 0 ? 0 : user;
-						const fromServer =
-							baseline.kind === "discovered"
-								? (capabilityField(baseline.values, name) as number | undefined)
-								: undefined;
-						const value = fromUser ?? fromServer;
-						if (value !== undefined) {
-							merged[name] = value;
-						}
-					}
+					const merged = mergedCosts(userCosts, info.litellm.serverDeclared);
 					// Production prices with the ambient usage.currencySymbol, so the expectation reads the same getter
 					// rather than assuming a default.
 					const expected = pricingFromCosts(merged, getCurrencySymbol());
@@ -984,57 +1168,9 @@ suite("provider/catalog capability cross-layer properties", () => {
 		fc.assert(
 			fc.property(seamScenario, zero, zero, fc.boolean(), (s, zin, zout, userPair) => {
 				if (userPair) {
-					const opts: CapabilityOverrideOptions = {
-						globalCapabilities: withoutCostFields(s.globalCapabilities) ?? {},
-						entryCapabilities: { "*": { input_cost_per_token: zin, output_cost_per_token: zout } },
-						catalog: s.catalog,
-						resolution: new ModelResolutionTable(),
-						log: () => {},
-						logAdvisory: () => {},
-					};
-					const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {});
-					for (const info of applyCapabilityOverrides(infos, SERVER, opts)) {
-						assert.ok(Object.is(info.inputCost, 0), `${info.id}: a user 0/0 pair must price inputCost as +0`);
-						assert.ok(Object.is(info.outputCost, 0), `${info.id}: a user 0/0 pair must price outputCost as +0`);
-						assert.strictEqual(typeof info.pricing, "string", `${info.id}: the free pair carries the $0 label`);
-						assert.strictEqual(info.priceCategory, "low", `${info.id}: the free pair carries the cheapest badge`);
-					}
+					assertUserZeroPairPricesFree(s, zin, zout);
 				} else {
-					// The server stamps the pair on the WIRE (LiteLLM's undeclared-pricing shape): the production
-					// ingest (normalizeModelItem) maps every cost field to undefined, so no pricing appears anywhere
-					// downstream.
-					const items = s.items.map((item) =>
-						normalizeModelItem(
-							{
-								id: item.id,
-								providers: [
-									{
-										provider: "openai",
-										status: "ok",
-										supports_tools: true,
-										input_cost_per_token: zin,
-										output_cost_per_token: zout,
-										cache_read_input_token_cost: 0.0000003,
-									},
-								],
-							},
-							() => {}
-						)
-					);
-					const opts: CapabilityOverrideOptions = {
-						globalCapabilities: withoutCostFields(s.globalCapabilities) ?? {},
-						entryCapabilities: withoutCostFields(s.entryCapabilities),
-						catalog: s.catalog,
-						resolution: new ModelResolutionTable(),
-						log: () => {},
-						logAdvisory: () => {},
-					};
-					const { infos } = buildModelInfos(items, SERVER, s.serverCount, () => {});
-					for (const info of applyCapabilityOverrides(infos, SERVER, opts)) {
-						for (const key of MODEL_PRICING_KEYS) {
-							assert.strictEqual(info[key], undefined, `${info.id}: the server 0/0 stamp must price ${key} as unset`);
-						}
-					}
+					assertServerZeroStampPricesNothing(s, zin, zout);
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
@@ -1067,37 +1203,16 @@ suite("provider/catalog capability cross-layer properties", () => {
 				const configs = specs.map((spec) => layerMaps({ ...spec, rawModelId: sharedId }));
 				// The miss leg must stay a distinct ID even when the generator collides the two.
 				const missId = extraId === sharedId ? `${sharedId}-x` : extraId;
+				const world: TableWorld = { sharedId, missId, configs, serverDeclareds };
 				const table = new ModelResolutionTable();
 				for (const step of steps) {
-					const rawModelId = step.id === 3 ? missId : sharedId;
-					const config = configs[step.config] as (typeof configs)[number];
-					const serverDeclared = serverDeclareds[step.serverDeclared] as ServerDeclaredCapabilities;
-					const catalog = step.catalog === 0 ? config.catalog : EMPTY_CATALOG_LOOKUP;
-					if (step.op === "prune") {
-						// The target is independent of the queried server, so both the evicted and the surviving side
-						// of a prune get exercised.
-						table.prune([step.pruneTarget]);
-					} else if (step.op === "clear") {
-						table.clear();
-					}
-					const inputs = {
-						globalCapabilities: config.globalCapabilities,
-						entryCapabilities: config.entryCapabilities,
-						serverDeclared,
-						catalog,
-					};
+					applyTableOp(table, step);
+					const { rawModelId, inputs } = tableStepQuery(step, world);
 					const tabled = table.resolveCapabilities(step.server, rawModelId, inputs);
 					// The memo itself: an immediate repeat with identical inputs must serve the cached object, not
 					// recompute an equal copy.
 					assert.strictEqual(table.resolveCapabilities(step.server, rawModelId, inputs), tabled);
-					const direct = resolveModelCapabilities({
-						rawModelId,
-						globalCapabilities: config.globalCapabilities,
-						entryCapabilities: config.entryCapabilities,
-						serverDeclared,
-						catalog,
-					});
-					assert.deepStrictEqual(tabled, direct);
+					assert.deepStrictEqual(tabled, resolveModelCapabilities({ rawModelId, ...inputs }));
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }

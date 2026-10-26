@@ -16,48 +16,72 @@ export interface RuntimeImports {
 	readonly opaque: boolean;
 }
 
+/** What one dynamic import() or require() call loads: its literal specifier, or `opaque` for a non-literal argument. */
+type DynamicLoad = { readonly spec: string } | { readonly opaque: true };
+
+/** The specifier a static import, re-export, or import-equals form loads at runtime; undefined for type-only forms. */
+function staticSpecifier(node: ts.Node): string | undefined {
+	if (ts.isImportDeclaration(node)) {
+		const loads = !importClauseIsTypeOnly(node.importClause) && ts.isStringLiteral(node.moduleSpecifier);
+		return loads ? node.moduleSpecifier.text : undefined;
+	}
+	if (ts.isExportDeclaration(node)) {
+		return reexportSpecifier(node);
+	}
+	if (ts.isImportEqualsDeclaration(node)) {
+		const reference = node.moduleReference;
+		const loads =
+			!node.isTypeOnly && ts.isExternalModuleReference(reference) && ts.isStringLiteral(reference.expression);
+		return loads ? reference.expression.text : undefined;
+	}
+	return undefined;
+}
+
+/** The specifier an `export ... from` loads; undefined when type-only in either spelling or without a source. */
+function reexportSpecifier(node: ts.ExportDeclaration): string | undefined {
+	const namedTypeOnly =
+		node.exportClause !== undefined &&
+		ts.isNamedExports(node.exportClause) &&
+		node.exportClause.elements.length > 0 &&
+		node.exportClause.elements.every((element) => element.isTypeOnly);
+	if (node.isTypeOnly || namedTypeOnly || node.moduleSpecifier === undefined) {
+		return undefined;
+	}
+	return ts.isStringLiteral(node.moduleSpecifier) ? node.moduleSpecifier.text : undefined;
+}
+
+/**
+ * What a call loads, or undefined for a call that is neither import() nor require(). The type-position import("...")
+ * form is an ImportTypeNode, never a CallExpression.
+ */
+function dynamicLoad(node: ts.CallExpression): DynamicLoad | undefined {
+	const callee = node.expression;
+	const isImportCall = callee.kind === ts.SyntaxKind.ImportKeyword;
+	const isRequireCall = ts.isIdentifier(callee) && callee.text === "require";
+	if (!isImportCall && !isRequireCall) {
+		return undefined;
+	}
+	const argument = node.arguments[0];
+	if (argument !== undefined && ts.isStringLiteralLike(argument)) {
+		return { spec: argument.text };
+	}
+	return { opaque: true };
+}
+
 export function runtimeImports(fileName: string, source: string): RuntimeImports {
 	const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
 	const specs: string[] = [];
 	let opaque = false;
 	const visit = (node: ts.Node): void => {
-		if (ts.isImportDeclaration(node)) {
-			if (!importClauseIsTypeOnly(node.importClause) && ts.isStringLiteral(node.moduleSpecifier)) {
-				specs.push(node.moduleSpecifier.text);
-			}
-		} else if (ts.isExportDeclaration(node)) {
-			const namedTypeOnly =
-				node.exportClause !== undefined &&
-				ts.isNamedExports(node.exportClause) &&
-				node.exportClause.elements.length > 0 &&
-				node.exportClause.elements.every((element) => element.isTypeOnly);
-			if (!node.isTypeOnly && !namedTypeOnly && node.moduleSpecifier !== undefined) {
-				if (ts.isStringLiteral(node.moduleSpecifier)) {
-					specs.push(node.moduleSpecifier.text);
-				}
-			}
-		} else if (ts.isImportEqualsDeclaration(node)) {
-			if (
-				!node.isTypeOnly &&
-				ts.isExternalModuleReference(node.moduleReference) &&
-				ts.isStringLiteral(node.moduleReference.expression)
-			) {
-				specs.push(node.moduleReference.expression.text);
-			}
-		} else if (ts.isCallExpression(node)) {
-			// Dynamic import()/require() in value position; the type-position import("...") form is an ImportTypeNode,
-			// never a CallExpression.
-			const callee = node.expression;
-			const isImportCall = callee.kind === ts.SyntaxKind.ImportKeyword;
-			const isRequireCall = ts.isIdentifier(callee) && callee.text === "require";
-			const argument = node.arguments[0];
-			if (isImportCall || isRequireCall) {
-				if (argument !== undefined && ts.isStringLiteralLike(argument)) {
-					specs.push(argument.text);
-				} else {
-					opaque = true;
-				}
-			}
+		const spec = staticSpecifier(node);
+		if (spec !== undefined) {
+			specs.push(spec);
+		}
+		const load = ts.isCallExpression(node) ? dynamicLoad(node) : undefined;
+		if (load !== undefined && "spec" in load) {
+			specs.push(load.spec);
+		} else if (load !== undefined) {
+			opaque = true;
 		}
 		ts.forEachChild(node, visit);
 	};

@@ -111,6 +111,25 @@ function cutAt(bytes: Uint8Array, offsets: number[]): Uint8Array[] {
 	return pieces;
 }
 
+/**
+ * The log buffer feeds public issue reports, so a malformed-line log may carry classifications only: a length and a
+ * bare error class name, never the line or a parser message that embeds an excerpt of it.
+ */
+function assertMalformedLogsCarryClassificationsOnly(payloads: readonly unknown[]): void {
+	for (const payload of payloads) {
+		const record = payload as Record<string, unknown>;
+		assert.ok(record !== null && typeof record === "object", "malformed-line logs carry a data record");
+		for (const [key, value] of Object.entries(record)) {
+			assert.ok(key === "length" || key === "errorClass", `unexpected malformed-log field: ${key}`);
+			if (key === "length") {
+				assert.strictEqual(typeof value, "number");
+			} else {
+				assert.match(String(value), /^[A-Za-z$_][A-Za-z0-9$_]*$/, "errorClass must be a bare class name");
+			}
+		}
+	}
+}
+
 /** Per-event seeds; each reseeds the PRNG, so an event depends on its (kind, seed) pair and the state before it. */
 const seedArb = fc.integer({ min: 0, max: 0x7fffffff });
 
@@ -235,20 +254,7 @@ suite("provider/streaming SSE framing properties", () => {
 					injectedDataLines,
 					"each injected bad data line must log exactly one skip"
 				);
-				// The log buffer feeds public issue reports: malformed-line logs must carry classifications only, never
-				// the line or a parser message that embeds an excerpt of it.
-				for (const payload of withJunk.malformedPayloads) {
-					const record = payload as Record<string, unknown>;
-					assert.ok(record !== null && typeof record === "object", "malformed-line logs carry a data record");
-					for (const [key, value] of Object.entries(record)) {
-						assert.ok(key === "length" || key === "errorClass", `unexpected malformed-log field: ${key}`);
-						if (key === "length") {
-							assert.strictEqual(typeof value, "number");
-						} else {
-							assert.match(String(value), /^[A-Za-z$_][A-Za-z0-9$_]*$/, "errorClass must be a bare class name");
-						}
-					}
-				}
+				assertMalformedLogsCarryClassificationsOnly(withJunk.malformedPayloads);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);

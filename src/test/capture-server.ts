@@ -79,21 +79,43 @@ export function createCaptureServer(options?: { modelId?: string }): CaptureServ
 	let activeScenario = "text-only";
 	const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
 
-	const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-		const url = new URL(req.url || "/", `http://${req.headers.host}`);
+	const setScenario = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+		const body = await readBody(req);
+		const name = body.trim();
+		if (!scenarios.has(name)) {
+			return sendJson(res, 404, { error: { message: `Unknown scenario: ${name}` } });
+		}
+		activeScenario = name;
+		return sendJson(res, 200, { scenario: name });
+	};
 
-		if (req.method === "GET" && url.pathname === "/_test/last-request") {
-			return sendJson(res, 200, lastRequest || {});
+	const playChatCompletion = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+		const raw = await readBody(req);
+		try {
+			lastRequest = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+		} catch {
+			lastRequest = { _parseError: true, _raw: raw };
+			return sendJson(res, 400, { error: { message: "Invalid JSON" } });
 		}
 
-		if (req.method === "PUT" && url.pathname === "/_test/scenario") {
-			const body = await readBody(req);
-			const name = body.trim();
-			if (!scenarios.has(name)) {
-				return sendJson(res, 404, { error: { message: `Unknown scenario: ${name}` } });
-			}
-			activeScenario = name;
-			return sendJson(res, 200, { scenario: name });
+		const scenario = scenarios.get(activeScenario);
+		if (!scenario) {
+			return sendJson(res, 500, { error: { message: `No scenario configured` } });
+		}
+
+		// Always the streaming rendition: this fixture's callers stream every request.
+		return playScenario(res, scenario, true);
+	};
+
+	const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+		const url = new URL(req.url || "/", `http://${req.headers.host}`);
+		const route = `${req.method} ${url.pathname}`;
+
+		switch (route) {
+			case "GET /_test/last-request":
+				return sendJson(res, 200, lastRequest || {});
+			case "PUT /_test/scenario":
+				return setScenario(req, res);
 		}
 
 		// Recorded for every request past the _test block above (unmatched paths included), so suites can prove which
@@ -102,37 +124,18 @@ export function createCaptureServer(options?: { modelId?: string }): CaptureServ
 			seenAuthorizations.add(req.headers.authorization);
 		}
 
-		if (req.method === "GET" && url.pathname === "/health") {
-			return sendJson(res, 200, { status: "ok" });
+		switch (route) {
+			case "GET /health":
+				return sendJson(res, 200, { status: "ok" });
+			case "GET /v1/model/info":
+				return sendJson(res, 200, modelInfo);
+			case "GET /v1/models":
+				return sendJson(res, 200, models);
+			case "POST /v1/chat/completions":
+				return playChatCompletion(req, res);
+			default:
+				sendJson(res, 404, { error: { message: "Not found" } });
 		}
-
-		if (req.method === "GET" && url.pathname === "/v1/model/info") {
-			return sendJson(res, 200, modelInfo);
-		}
-
-		if (req.method === "GET" && url.pathname === "/v1/models") {
-			return sendJson(res, 200, models);
-		}
-
-		if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
-			const raw = await readBody(req);
-			try {
-				lastRequest = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-			} catch {
-				lastRequest = { _parseError: true, _raw: raw };
-				return sendJson(res, 400, { error: { message: "Invalid JSON" } });
-			}
-
-			const scenario = scenarios.get(activeScenario);
-			if (!scenario) {
-				return sendJson(res, 500, { error: { message: `No scenario configured` } });
-			}
-
-			// Always the streaming rendition: this fixture's callers stream every request.
-			return playScenario(res, scenario, true);
-		}
-
-		sendJson(res, 404, { error: { message: "Not found" } });
 	};
 
 	const server = http.createServer((req, res) => {

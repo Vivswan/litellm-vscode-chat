@@ -821,15 +821,18 @@ suite("provider/streaming generated media", () => {
 			],
 		});
 
-		const kinds = parts.map((p) =>
-			p instanceof FakeThinkingPart
-				? "thinking"
-				: p instanceof FakeDataPart
-					? "data"
-					: p instanceof vscode.LanguageModelToolCallPart
-						? "tool"
-						: `text:${(p as vscode.LanguageModelTextPart).value}`
-		);
+		const kinds = parts.map((p) => {
+			if (p instanceof FakeThinkingPart) {
+				return "thinking";
+			}
+			if (p instanceof FakeDataPart) {
+				return "data";
+			}
+			if (p instanceof vscode.LanguageModelToolCallPart) {
+				return "tool";
+			}
+			return `text:${(p as vscode.LanguageModelTextPart).value}`;
+		});
 		assert.deepEqual(kinds, ["thinking", "text:answer ", "data", "text: ", "tool"]);
 	});
 
