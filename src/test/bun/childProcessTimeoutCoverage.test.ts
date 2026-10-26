@@ -468,11 +468,7 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 				const fromRunner =
 					found !== undefined &&
 					(testNamespaces.has(found.root.text) || testLocals.has(found.root.text) || hookLocals.has(found.root.text));
-				if (!ts.isIdentifier(node.name)) {
-					if (fromRunner) {
-						fail(node, "destructuring the test runner is not followed");
-					}
-				} else {
+				if (ts.isIdentifier(node.name)) {
 					const kind = registrationKind(node.initializer);
 					const bucket = kind === "test" ? testLocals : kind === "hook" ? hookLocals : undefined;
 					if (bucket !== undefined && !bucket.has(node.name.text)) {
@@ -481,6 +477,10 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 					} else if (fromRunner && kind === undefined && !testNamespaces.has(node.name.text)) {
 						testNamespaces.add(node.name.text);
 						grew = true;
+					}
+				} else {
+					if (fromRunner) {
+						fail(node, "destructuring the test runner is not followed");
 					}
 				}
 			}
@@ -588,13 +588,13 @@ function analyzeModule(sf: ts.SourceFile, context: Context): Module {
 			if (clause === undefined) {
 				if (specifier === undefined) {
 					fail(node, "export declaration without clause or specifier");
-				} else if (!specifier.startsWith(".")) {
-					fail(node, `export * from a non-relative module "${specifier}" cannot be followed`);
-				} else {
+				} else if (specifier.startsWith(".")) {
 					const target = resolveRelative(file, specifier, problems);
 					if (target !== undefined) {
 						module.exportStars.push(target);
 					}
+				} else {
+					fail(node, `export * from a non-relative module "${specifier}" cannot be followed`);
 				}
 				return;
 			}
@@ -1193,12 +1193,12 @@ function audit(): { readonly problems: string[]; readonly spawningRegistrations:
 							candidate.file === module.rel &&
 							candidate.subject === registration.subject
 					);
-					if (exception !== undefined) {
-						exceptionMatches.get(exception)?.push(where);
-					} else {
+					if (exception === undefined) {
 						problems.push(
 							`${where} reaches a child-process spawn (${chain.join(" -> ")}) but carries no load-proof deadline (${deadline.why}); pass ${DEADLINE_NAME} from ${DEADLINE_PATH} as the ${registration.kind === "test" ? "test's third" : "hook's second"} argument`
 						);
+					} else {
+						exceptionMatches.get(exception)?.push(where);
 					}
 				}
 			} else if (deadline.ok && deadline.constant) {

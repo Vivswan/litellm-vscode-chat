@@ -34,7 +34,7 @@ function mountParamsWithChains(
 	const root = mount(<ModelInspector currencySymbol="$" {...props} />);
 	respondTo(lastRequest("readModelParameters"), {
 		projection: EMPTY_PROJECTION,
-		...(chains !== undefined ? { chains } : {}),
+		...(chains === undefined ? {} : { chains }),
 	});
 	return root;
 }

@@ -397,9 +397,8 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 	};
 
 	const calledBodies = (declaration: Declaration, args: readonly ts.Expression[]): ts.Node[] =>
-		declaration.kind !== "function"
-			? []
-			: [
+		declaration.kind === "function"
+			? [
 					...declaration.node.parameters.flatMap((parameter, position) => {
 						const argument = args[position];
 						return parameter.initializer !== undefined && (argument === undefined || isUndefined(argument))
@@ -407,7 +406,8 @@ function analyzeTest(sf: ts.SourceFile, sleepers: Map<string, Sleeper[]>, exempl
 							: [];
 					}),
 					...(declaration.node.body === undefined ? [] : [declaration.node.body]),
-				];
+				]
+			: [];
 
 	const initializerOf = (declaration: Declaration): ts.Node[] =>
 		declaration.kind === "value" && declaration.node.initializer !== undefined ? [declaration.node.initializer] : [];

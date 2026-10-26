@@ -177,7 +177,7 @@ describe("fakeStack/collapseChunks properties", () => {
 						id: "chatcmpl-fuzz",
 						object: "chat.completion.chunk",
 						choices: [{ index: 0, delta: {}, finish_reason: finish }],
-						...(usage !== undefined ? { usage } : {}),
+						...(usage === undefined ? {} : { usage }),
 					}));
 					const collapsed = collapseChunks(chunks);
 					const choice = soleChoiceOf(collapsed);

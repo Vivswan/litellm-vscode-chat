@@ -52,8 +52,8 @@ function view(overrides: {
 		label: overrides.label,
 		baseUrl: `http://${overrides.label}.test`,
 		secrets: NO_SECRETS,
-		...(overrides.expectedClientId !== undefined ? { expectedClientId: overrides.expectedClientId } : {}),
-		...(overrides.syncFailure !== undefined ? { syncFailure: overrides.syncFailure } : {}),
+		...(overrides.expectedClientId === undefined ? {} : { expectedClientId: overrides.expectedClientId }),
+		...(overrides.syncFailure === undefined ? {} : { syncFailure: overrides.syncFailure }),
 	};
 }
 

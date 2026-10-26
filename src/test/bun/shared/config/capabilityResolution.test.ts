@@ -31,7 +31,7 @@ import { FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE } from "../../../../shar
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
 	const byExactId = (id: string): CatalogLookupResult => {
 		const fields = entries[id];
-		return fields !== undefined ? { kind: "found", id, fields } : { kind: "not-found" };
+		return fields === undefined ? { kind: "not-found" } : { kind: "found", id, fields };
 	};
 	return {
 		byExactId,

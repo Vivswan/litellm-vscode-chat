@@ -52,7 +52,7 @@ function identity(label: string, baseUrl = "http://localhost:4000"): ReplacedEnt
 }
 
 function intentOf(draft: ServerFormDraft, original?: ReplacedEntryIdentity): ServerFormIntent {
-	const parse = parseServerForm(draft, original !== undefined ? { original } : {});
+	const parse = parseServerForm(draft, original === undefined ? {} : { original });
 	if (!parse.ok) {
 		assert.fail(`expected a clean parse, got problems: ${JSON.stringify(parse.problems)}`);
 	}

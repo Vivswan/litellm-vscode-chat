@@ -405,8 +405,8 @@ describe("shared/config resolutionTable equivalence", () => {
 			.map(({ context_length, max_output_tokens, defaultMaxTokens }) => ({
 				kind: "discovered" as const,
 				values: {
-					...(context_length !== undefined ? { context_length } : {}),
-					...(max_output_tokens !== undefined ? { max_output_tokens } : {}),
+					...(context_length === undefined ? {} : { context_length }),
+					...(max_output_tokens === undefined ? {} : { max_output_tokens }),
 				},
 				defaultMaxTokens,
 			}))

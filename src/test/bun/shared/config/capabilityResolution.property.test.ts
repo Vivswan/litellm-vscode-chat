@@ -143,9 +143,9 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 	.map(([base, declare, openrouterModel, fallback]) => ({
 		...base,
 		// _declare is retired; it stays as inert underscore-key noise that resolution must ignore everywhere.
-		...(declare !== undefined ? { _declare: declare } : {}),
-		...(openrouterModel !== undefined ? { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel } : {}),
-		...(fallback !== undefined ? { [FALLBACK_DIRECTIVE]: fallback } : {}),
+		...(declare === undefined ? {} : { _declare: declare }),
+		...(openrouterModel === undefined ? {} : { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel }),
+		...(fallback === undefined ? {} : { [FALLBACK_DIRECTIVE]: fallback }),
 	}));
 
 const serverDeclaredArb: fc.Arbitrary<ServerDeclaredCapabilities> = fc.oneof(
@@ -160,7 +160,7 @@ const serverDeclaredArb: fc.Arbitrary<ServerDeclaredCapabilities> = fc.oneof(
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
 	const byExactId = (id: string): CatalogLookupResult => {
 		const fields = entries[id];
-		return fields !== undefined ? { kind: "found", id, fields } : { kind: "not-found" };
+		return fields === undefined ? { kind: "not-found" } : { kind: "found", id, fields };
 	};
 	return {
 		byExactId,
@@ -241,9 +241,9 @@ const scenario: fc.Arbitrary<Scenario> = fc
 						spec.entrySpecs.map((entry) => [keyOf(entry.cut, entry.foreign, entry.glob, entry.star), entry.record])
 					);
 		const catalog = makeCatalog({
-			...(spec.catalogOne !== undefined ? { "cat/one": spec.catalogOne } : {}),
-			...(spec.catalogTwo !== undefined ? { "cat/two": spec.catalogTwo } : {}),
-			...(spec.implicitFields !== undefined ? { [`imp/${spec.rawModelId}`]: spec.implicitFields } : {}),
+			...(spec.catalogOne === undefined ? {} : { "cat/one": spec.catalogOne }),
+			...(spec.catalogTwo === undefined ? {} : { "cat/two": spec.catalogTwo }),
+			...(spec.implicitFields === undefined ? {} : { [`imp/${spec.rawModelId}`]: spec.implicitFields }),
 			...(spec.implicitFields !== undefined && spec.implicitAmbiguous
 				? { [`imp2/${spec.rawModelId}`]: spec.implicitFields }
 				: {}),
@@ -358,7 +358,7 @@ function frozenParse(record: Readonly<Record<string, unknown>>): FrozenParsed {
 		fallback,
 		inheritFrom: shared.inheritFrom,
 		diagnostics: [],
-		...(openrouterModel !== undefined ? { openrouterModel } : {}),
+		...(openrouterModel === undefined ? {} : { openrouterModel }),
 	};
 }
 
@@ -384,7 +384,7 @@ function frozenResolve(input: ResolveModelCapabilitiesInput): {
 	const directiveId =
 		(entry.winner as FrozenParsed | undefined)?.openrouterModel ??
 		(global.winner as FrozenParsed | undefined)?.openrouterModel;
-	const directiveLookup = directiveId !== undefined ? input.catalog.byExactId(directiveId) : undefined;
+	const directiveLookup = directiveId === undefined ? undefined : input.catalog.byExactId(directiveId);
 	const directive =
 		directiveId === undefined
 			? undefined
@@ -457,12 +457,12 @@ function frozenResolve(input: ResolveModelCapabilitiesInput): {
 		return {
 			value: winner.value,
 			level: winner.level,
-			...(winner.key !== undefined ? { key: winner.key } : {}),
-			...(winner.inheritedBy !== undefined ? { inheritedBy: winner.inheritedBy } : {}),
+			...(winner.key === undefined ? {} : { key: winner.key }),
+			...(winner.inheritedBy === undefined ? {} : { inheritedBy: winner.inheritedBy }),
 			shadowed: shadowed.map((candidate) => ({
 				level: candidate.level,
-				...(candidate.key !== undefined ? { key: candidate.key } : {}),
-				...(candidate.inheritedBy !== undefined ? { inheritedBy: candidate.inheritedBy } : {}),
+				...(candidate.key === undefined ? {} : { key: candidate.key }),
+				...(candidate.inheritedBy === undefined ? {} : { inheritedBy: candidate.inheritedBy }),
 				value: candidate.value,
 			})),
 		};

@@ -24,8 +24,8 @@ function failure(serverId: string, overrides: { expected?: boolean; declaredMode
 		cause: { kind: "transport", classification: { kind: "connection" } },
 		logSafeError: markLogSafe("RequestError(connection)"),
 		servedModelCount: overrides.declaredModelCount ?? 0,
-		...(overrides.expected !== undefined ? { expected: overrides.expected } : {}),
-		...(overrides.declaredModelCount !== undefined ? { declaredModelCount: overrides.declaredModelCount } : {}),
+		...(overrides.expected === undefined ? {} : { expected: overrides.expected }),
+		...(overrides.declaredModelCount === undefined ? {} : { declaredModelCount: overrides.declaredModelCount }),
 		lastChecked: "2026-07-26T00:00:00.000Z",
 	};
 }

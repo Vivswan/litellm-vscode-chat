@@ -56,7 +56,7 @@ function usageState(label: string, options: UsageStateOptions = {}): ServerUsage
 			entryBudget: options.entryBudget,
 			keyBudget: options.keyBudget,
 			effectiveBudget,
-			budgetSource: options.entryBudget !== undefined ? "entry" : options.keyBudget !== undefined ? "key" : "none",
+			budgetSource: options.entryBudget === undefined ? (options.keyBudget === undefined ? "none" : "key") : "entry",
 			spend,
 			spentFraction: effectiveBudget !== undefined && effectiveBudget > 0 ? spend / effectiveBudget : undefined,
 			budgetResetAt: options.budgetResetAt,

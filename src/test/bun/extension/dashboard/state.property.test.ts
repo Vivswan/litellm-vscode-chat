@@ -322,7 +322,7 @@ describe("extension/dashboard/state webview request schema properties", () => {
 					} else {
 						// Every request carries the envelope id; the adopt and hide payloads carry a second bounded
 						// token.
-						const record = payload !== null ? (payload as Record<string, unknown>) : {};
+						const record = payload === null ? {} : (payload as Record<string, unknown>);
 						if (Object.hasOwn(record, "sourceHandle") && pick % 2 === 0) {
 							mutant.payload = { ...record, sourceHandle: "x".repeat(oversize) };
 						} else {
