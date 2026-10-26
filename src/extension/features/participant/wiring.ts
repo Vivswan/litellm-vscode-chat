@@ -36,7 +36,7 @@ export type { SnapshotSource } from "./snapshots";
  *   name package.json does not declare -> never invoked, the HOST decides what `/name` routes to us
  */
 export interface ChatParticipantWiring {
-	/** The table other features extend the participant through; the manifest's command list is generated from it. */
+	/** The table other features register their commands into at activation. */
 	readonly slashCommands: SlashCommandRegistry;
 
 	/** Whether the host accepted the registration; read per use, never cached. */

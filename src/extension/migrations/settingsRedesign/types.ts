@@ -33,7 +33,7 @@ export interface SettingWrite {
  * (keep the new, drop the old) completes the move.
  */
 export interface RedesignPlan {
-	/** Value writes first, then deletions; see above for why the order matters. */
+	/** The steps, in execution order. */
 	readonly writes: readonly SettingWrite[];
 
 	/** English, counts only: the log lines feed the public issue-report buffer. */
