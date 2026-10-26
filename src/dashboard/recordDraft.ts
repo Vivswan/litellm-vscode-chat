@@ -872,8 +872,8 @@ function judgeCapabilityGroup(group: PrefixGroup, draft: CapabilityDraftContext)
 	);
 	const settle = (index: number, key: string, verdict: SettledCapabilityRow): void => {
 		if (verdict.kind === "problem") {
-			rowIssues[index] =
-				verdict.hint === undefined ? { problem: verdict.problem } : { problem: verdict.problem, hint: verdict.hint };
+			const { kind, ...issue } = verdict;
+			rowIssues[index] = issue;
 			return;
 		}
 		rowEntries[index] = [key, verdict.value];

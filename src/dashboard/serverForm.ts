@@ -412,11 +412,6 @@ interface FormReading {
 	readonly text: Readonly<Record<NonSecretOptionalFieldId, string>>;
 }
 
-/** The token URL in its saved spelling where one exists, else the raw text. */
-function tokenUrlForCompare(text: string): string {
-	return usableHttpUrl(text) ?? text;
-}
-
 /** The base URL in its saved spelling where one exists, else the trimmed text. */
 function baseUrlForCompare(text: string): string {
 	const trimmed = trimHttpWhitespace(text);
@@ -444,7 +439,8 @@ const FIELD_CHANGED: Readonly<Record<ServerFormField, (now: FormReading, was: Fo
 	authForm: (now, was) => now.draft.authForm !== was.draft.authForm,
 	apiKey: (now, was) => !sameSecretDirective(now.secrets.apiKey.directive, was.secrets.apiKey.directive),
 	oauthTokenUrl: (now, was) =>
-		tokenUrlForCompare(now.text.oauthTokenUrl) !== tokenUrlForCompare(was.text.oauthTokenUrl),
+		(usableHttpUrl(now.text.oauthTokenUrl) ?? now.text.oauthTokenUrl) !==
+		(usableHttpUrl(was.text.oauthTokenUrl) ?? was.text.oauthTokenUrl),
 	oauthClientId: (now, was) => now.text.oauthClientId !== was.text.oauthClientId,
 	oauthClientSecret: (now, was) =>
 		!sameSecretDirective(now.secrets.oauthClientSecret.directive, was.secrets.oauthClientSecret.directive),
@@ -609,11 +605,8 @@ type ServerFormAnalysis = {
 	  }
 );
 
-/** A problems record under construction; a field is present only while it has a problem. */
-type ProblemsDraft = { -readonly [K in ServerFormField]?: string };
-
 /** The label's problem: empty, a reserved name, or a rename onto a sibling (two entries with one identity). */
-function labelProblems(label: string, context: ServerFormContext): ProblemsDraft {
+function labelProblems(label: string, context: ServerFormContext): ServerFormProblems {
 	if (label.length === 0) {
 		return { label: l10n.t("Enter a label") };
 	}
@@ -632,7 +625,7 @@ function labelProblems(label: string, context: ServerFormContext): ProblemsDraft
 }
 
 /** The base URL's problem: empty, or no usable http(s) spelling (`saved` is savedBaseUrl's reading of the text). */
-function baseUrlProblems(text: string, saved: string | undefined): ProblemsDraft {
+function baseUrlProblems(text: string, saved: string | undefined): ServerFormProblems {
 	if (text.length === 0) {
 		return { baseUrl: l10n.t("Enter the server URL") };
 	}
@@ -645,7 +638,7 @@ function baseUrlProblems(text: string, saved: string | undefined): ProblemsDraft
 /** The entry apiVersion a draft means (undefined: auto, "": none, trimmed text: custom), or its problem. */
 interface ApiVersionParse {
 	readonly value: string | undefined;
-	readonly problems: ProblemsDraft;
+	readonly problems: ServerFormProblems;
 }
 
 /**
@@ -680,7 +673,7 @@ interface CredentialReading {
  * OAuth is one unit: the request path drops partial configurations silently, so a partial one must not save as if it
  * worked. On any other form a KEPT stored client secret still blocks - the extension reads it as OAuth-shaped.
  */
-function oauthProblems({ active, secrets, text }: CredentialReading): ProblemsDraft {
+function oauthProblems({ active, secrets, text }: CredentialReading): ServerFormProblems {
 	if (!active.oauth) {
 		if (secrets.oauthClientSecret.resolves) {
 			return {
@@ -691,7 +684,7 @@ function oauthProblems({ active, secrets, text }: CredentialReading): ProblemsDr
 		}
 		return {};
 	}
-	const problems: ProblemsDraft = {};
+	const problems: ServerFormProblems = {};
 	const tokenUrl = text.oauthTokenUrl;
 	const clientId = text.oauthClientId;
 	const oauthExtras = secrets.oauthClientSecret.resolves || text.oauthScopes.length > 0;
@@ -713,7 +706,7 @@ function oauthProblems({ active, secrets, text }: CredentialReading): ProblemsDr
  * form says so beside the field (a kept stored key is not visible here; the Diagnostics tab reports that one). Edge
  * whitespace is tolerated (trimmed on the way out), an interior control character is not.
  */
-function apiKeyProblems({ active, secrets }: CredentialReading): ProblemsDraft {
+function apiKeyProblems({ active, secrets }: CredentialReading): ServerFormProblems {
 	if (!active.apiKey && secrets.apiKey.resolves) {
 		return {
 			apiKey: l10n.t("A stored API key is still attached; remove it with its checkbox, or pick a form that sends it"),
@@ -731,7 +724,7 @@ function apiKeyProblems({ active, secrets }: CredentialReading): ProblemsDraft {
  * reads the parsed visible value, so a cleared field's stale text cannot block; on "none" a kept stored value blocks
  * like the client secret.
  */
-function virtualKeyProblems({ active, secrets, text }: CredentialReading): ProblemsDraft {
+function virtualKeyProblems({ active, secrets, text }: CredentialReading): ServerFormProblems {
 	const virtualKey = secrets.virtualKeyValue;
 	if (!active.virtualKey) {
 		if (virtualKey.resolves) {
@@ -743,7 +736,7 @@ function virtualKeyProblems({ active, secrets, text }: CredentialReading): Probl
 		}
 		return {};
 	}
-	const problems: ProblemsDraft = {};
+	const problems: ServerFormProblems = {};
 	const header = text.virtualKeyHeader;
 	if (header.length > 0 && !isValidHeaderName(header)) {
 		problems.virtualKeyHeader = l10n.t("Not a valid HTTP header name");
@@ -772,8 +765,8 @@ interface ValueParses {
  * must be empty (none) or a finite number greater than zero, the rule the extension re-checks; the MCP URL, when on
  * and given, must be a usable http(s) URL.
  */
-function valueProblems(parses: ValueParses): ProblemsDraft {
-	const problems: ProblemsDraft = {};
+function valueProblems(parses: ValueParses): ServerFormProblems {
+	const problems: ServerFormProblems = {};
 	if (!parses.groups.ok) {
 		problems.modelParameters = l10n.t("Fix the model parameter rows");
 	}
@@ -819,8 +812,8 @@ interface ConnectionFacts {
 }
 
 /** The problems on CONNECTION_FIELDS alone: what blocks the draft-connection probe. */
-function connectionProblemsOf(problems: ProblemsDraft): ProblemsDraft {
-	const connectionProblems: ProblemsDraft = {};
+function connectionProblemsOf(problems: ServerFormProblems): ServerFormProblems {
+	const connectionProblems: ServerFormProblems = {};
 	for (const field of CONNECTION_FIELDS) {
 		const problem = problems[field];
 		if (problem !== undefined) {
@@ -834,7 +827,11 @@ function connectionProblemsOf(problems: ProblemsDraft): ProblemsDraft {
  * The blocked arm, its connection slice discriminated again. headers is a connection field, so a clean connection
  * implies clean header rows; the narrowing states the half the type system cannot see.
  */
-function blockedAnalysis(parses: ValueParses, problems: ProblemsDraft, facts: ConnectionFacts): ServerFormAnalysis {
+function blockedAnalysis(
+	parses: ValueParses,
+	problems: ServerFormProblems,
+	facts: ConnectionFacts
+): ServerFormAnalysis {
 	const connectionProblems = connectionProblemsOf(problems);
 	const connection =
 		parses.headers.ok &&
@@ -884,7 +881,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		mcp: parseMcpDraft(draft.mcp),
 	};
 
-	const problems: ProblemsDraft = {
+	const problems: ServerFormProblems = {
 		...labelProblems(label, context),
 		...baseUrlProblems(baseUrlText, baseUrl),
 		...apiVersion.problems,

@@ -707,8 +707,17 @@ const BOOLEAN_SETTING_PRESENTATIONS: Readonly<Record<BooleanSettingId, () => Boo
 	}),
 };
 
+/** The table as a Map, so an id that arrived over the webview wire reads own entries only, never a prototype's. */
+const BOOLEAN_SETTING_PRESENTATION_LOOKUP: ReadonlyMap<string, () => BooleanSettingPresentation> = new Map(
+	Object.entries(BOOLEAN_SETTING_PRESENTATIONS)
+);
+
 export function booleanSettingPresentation(id: BooleanSettingId): BooleanSettingPresentation {
-	return BOOLEAN_SETTING_PRESENTATIONS[id]();
+	const presentation = BOOLEAN_SETTING_PRESENTATION_LOOKUP.get(id);
+	if (presentation === undefined) {
+		throw new Error("Not a boolean setting id");
+	}
+	return presentation();
 }
 
 /**
