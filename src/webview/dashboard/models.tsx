@@ -65,15 +65,16 @@ function PriceParts({ model, currencySymbol }: { model: DashboardModel; currency
 					args: [formatCost(model.outputCost, currencySymbol)],
 					comment: ["price per million output tokens; {0} is a currency amount"],
 				});
+	// The output price steps down to secondary only beside an input price; alone, it is the whole figure.
+	let outNode: React.ReactNode = null;
+	if (outPart !== undefined) {
+		outNode = inPart === undefined ? outPart : <span className="price-secondary">{outPart}</span>;
+	}
 	return (
 		<>
 			{inPart}
 			{inPart !== undefined && outPart !== undefined ? <span className="price-sep"> / </span> : null}
-			{outPart === undefined ? null : inPart === undefined ? (
-				outPart
-			) : (
-				<span className="price-secondary">{outPart}</span>
-			)}
+			{outNode}
 		</>
 	);
 }
@@ -459,61 +460,135 @@ const OVERSCAN = 10;
 /** The scrollport's height before measurement: too small blanks a strip until a scroll, too large costs rows once. */
 const FALLBACK_VIEWPORT = 1000;
 
-export function ModelsSection({
-	models,
-	serverCount,
-	currencySymbol,
-	scope,
-	onInspect,
-}: {
-	/** Every discovered model across the servers; the section filters, sorts, and windows this list. */
-	models: readonly DashboardModel[];
+/** What the list's scrollport knows about itself: its element, scroll offset, one row's height, and its own height. */
+interface Scrollport {
+	readonly ref: React.RefObject<HTMLElement | null>;
+	readonly scrollTop: number;
+	readonly setScrollTop: (top: number) => void;
+	readonly rowHeight: number;
+	readonly viewport: number;
+}
 
-	/** The configured servers; unscoped, a single one hides the Server column, pill group, and sort key alike. */
-	serverCount: number;
+/** The open row's detail: its measured height and the ref callback that measures it. */
+interface DetailStrip {
+	readonly height: number;
+	readonly measure: (element: HTMLDivElement | null) => void;
+}
 
-	/** The configured cost prefix (usage.currencySymbol); display only, never a conversion. */
-	currencySymbol: string;
+interface CopyFlash {
+	readonly copied: string | undefined;
+	readonly copy: (model: DashboardModel, rowId: string) => void;
+}
 
-	/** One object so a scope without a working clear cannot be expressed. */
-	scope?: { readonly label: string; readonly onClear: () => void } | undefined;
+/** The list after scope, filter, and sort, with what the controls may show for it. */
+interface ModelListing {
+	readonly scoped: readonly DashboardModel[];
+	readonly sorted: readonly DashboardModel[];
+	readonly pillOptions: ModelFilterOptions;
+	readonly showServerColumn: boolean;
+	readonly effectiveSort: Sort | undefined;
+}
 
-	/** App owns the inspector; the full identity travels because one snapshot can render under several labels. */
-	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }) => void;
-}) {
-	const [filter, setFilter] = useState("");
-	const [pills, setPills] = useState<ModelFilter>(EMPTY_MODEL_FILTER);
-	const [sort, setSort] = useState<Sort | undefined>(undefined);
-	const [scrollTop, setScrollTop] = useState(0);
-	const [copied, setCopied] = useState<string | undefined>(undefined);
-	const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
-	/**
-	 * The one open row, held by row id rather than index: sorting and filtering renumber the list. When the open row
-	 * leaves the list there is simply nothing to match.
-	 */
-	const [openRow, setOpenRow] = useState<string | undefined>(undefined);
-	const [stripHeight, setStripHeight] = useState(0);
-	const scrollRef = useRef<HTMLElement>(null);
-	const copySeq = useRef(0);
+interface WindowInput {
+	readonly count: number;
+	readonly scrollTop: number;
+	readonly rowHeight: number;
+	readonly viewport: number;
+	readonly openIndex: number;
+	readonly delta: number;
+}
 
-	// Re-measure after every render: the guarded set makes this settle in one extra pass when the theme's font size
-	// changes the real row height. The row's first line, not the whole row: an open row is taller by its detail, and
-	// the uniform height the window arithmetic runs on is the line's.
-	useEffect(() => {
-		const line = scrollRef.current?.querySelector<HTMLElement>(".model-row-line");
-		const measured = line?.offsetHeight ?? 0;
-		if (measured > 0 && measured !== rowHeight) {
-			setRowHeight(measured);
-		}
-	});
+/** The rendered slice of the list and the spacers standing in for the rest. */
+interface ListWindow {
+	readonly windowed: boolean;
+	readonly start: number;
+	readonly end: number;
+	readonly leadingHeight: number;
+	readonly trailingHeight: number;
+}
 
-	// Document-relative, not viewport-relative: a viewport-relative top shrinks as the reader scrolls, raising the cap,
-	// lengthening the page, allowing more scroll - a feedback loop; document-relative names the same distance at every
-	// position, so the budget has a fixed point. Measured before paint and re-measured on box changes (first layout,
-	// breakpoints reflowing, panel shown - panels stay mounted, so this runs while hidden); a zero box is skipped
-	// rather than published as top 0.
+interface ModelRowProps {
+	readonly model: DashboardModel;
+	readonly position: number;
+	readonly open: boolean;
+	readonly setsize: number | undefined;
+	readonly showServer: boolean;
+	readonly currencySymbol: string;
+	readonly copied: boolean;
+	readonly onToggle: () => void;
+	readonly onCopy: () => void;
+	readonly onInspect: () => void;
+	readonly measureDetail: (element: HTMLDivElement | null) => void;
+}
+
+interface ModelRowLineProps {
+	readonly model: DashboardModel;
+	readonly showServer: boolean;
+	readonly currencySymbol: string;
+}
+
+interface ModelRowActionsProps {
+	readonly model: DashboardModel;
+	readonly copied: boolean;
+	readonly onCopy: () => void;
+	readonly onInspect: () => void;
+}
+
+interface ModelListProps {
+	readonly scrollport: Scrollport;
+	readonly window: ListWindow;
+	readonly rows: readonly DashboardModel[];
+	readonly openIndex: number;
+	readonly showServer: boolean;
+	readonly currencySymbol: string;
+	readonly copyFlash: CopyFlash;
+	readonly onToggle: (rowId: string, open: boolean) => void;
+	readonly onInspect: (target: InspectTarget) => void;
+	readonly measureDetail: (element: HTMLDivElement | null) => void;
+}
+
+/** The server scope narrowing the page, with the clear the chip offers; one object so a scope without a working clear cannot exist. */
+interface ModelScope {
+	readonly label: string;
+	readonly onClear: () => void;
+}
+
+/** The row's full identity, since one snapshot can render under several labels. */
+interface InspectTarget {
+	scopeKey: string;
+	rawId: string;
+	serverLabel: string;
+}
+
+interface ModelsToolbarProps {
+	readonly filter: string;
+	readonly filterInputRef: React.RefObject<HTMLInputElement | null>;
+	readonly onFilter: (next: string) => void;
+	readonly listing: ModelListing;
+	readonly onSort: (sort: Sort | undefined) => void;
+}
+
+interface ModelsBodyProps {
+	readonly scope: ModelScope | undefined;
+	readonly listing: ModelListing;
+	readonly pills: ModelFilter;
+	readonly onPills: (update: (filter: ModelFilter) => ModelFilter) => void;
+	readonly canClear: boolean;
+	readonly onClear: () => void;
+	readonly list: ModelListProps;
+}
+
+/**
+ * Publishes the scrollport's document-relative top as --models-scroll-top. Document-relative, not viewport-relative: a
+ * viewport-relative top shrinks as the reader scrolls, raising the cap, lengthening the page, allowing more scroll - a
+ * feedback loop; document-relative names the same distance at every position, so the budget has a fixed point.
+ *
+ * Measured before paint and re-measured on box changes (first layout, breakpoints reflowing, panel shown - panels stay
+ * mounted, so this runs while hidden); a zero box is skipped rather than published as top 0.
+ */
+function useScrollTopVariable(ref: React.RefObject<HTMLElement | null>): void {
 	useLayoutEffect(() => {
-		const element = scrollRef.current;
+		const element = ref.current;
 		if (element === null) {
 			return;
 		}
@@ -538,69 +613,72 @@ export function ModelsSection({
 			observer.disconnect();
 			window.removeEventListener("resize", publish);
 		};
-	}, []);
+	}, [ref]);
+}
 
-	// A ref callback rather than an effect: the ELEMENT comes and goes for a reason no dependency list names - the open
-	// row is itself windowed. Unmounting deliberately does NOT clear the height: a detail scrolled out of the window is
-	// still part of the list's height (its spacer carries it); the null arm stays although React 19 makes it
-	// unreachable, because leaving the height alone is correct on either path.
-	const measureDetail = useCallback((element: HTMLDivElement | null) => {
-		if (element === null) {
-			return;
+/**
+ * The scrollport's own state. The row height is re-measured after every render: the guarded set makes this settle in
+ * one extra pass when the theme's font size changes the real row height. The row's first line, not the whole row: an
+ * open row is taller by its detail, and the uniform height the window arithmetic runs on is the line's.
+ *
+ * A new scope means a new list, so the scrollport rewinds: a scroll position inherited from the previous server would
+ * drop the reader mid-list (the window clamp keeps it in range, but not at the top).
+ */
+function useScrollport(scopeLabel: string | undefined): Scrollport {
+	const ref = useRef<HTMLElement>(null);
+	const [scrollTop, setScrollTop] = useState(0);
+	const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
+	useEffect(() => {
+		const line = ref.current?.querySelector<HTMLElement>(".model-row-line");
+		const measured = line?.offsetHeight ?? 0;
+		if (measured > 0 && measured !== rowHeight) {
+			setRowHeight(measured);
 		}
-		const measure = () => {
-			const height = element.offsetHeight;
-			setStripHeight((current) => (height > 0 && height !== current ? height : current));
-		};
-		measure();
-		// The detail's own field grid rewraps with the panel width, which changes its height without remounting it.
-		const observer = new ResizeObserver(measure);
-		observer.observe(element);
-		return () => observer.disconnect();
-	}, []);
-
-	// A new scope means a new list, so the scrollport rewinds: a scroll position inherited from the previous server
-	// would drop the reader mid-list (the window clamp keeps it in range, but not at the top).
-	const scopeLabel = scope?.label;
+	});
+	useScrollTopVariable(ref);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scopeLabel is the deliberate rewind key (see above)
 	useEffect(() => {
-		if (scrollRef.current !== null) {
-			scrollRef.current.scrollTop = 0;
+		if (ref.current !== null) {
+			ref.current.scrollTop = 0;
 		}
 		setScrollTop(0);
 	}, [scopeLabel]);
+	const height = ref.current?.clientHeight ?? 0;
+	return { ref, scrollTop, setScrollTop, rowHeight, viewport: height > 0 ? height : FALLBACK_VIEWPORT };
+}
 
-	// Memoized for identity, not cost: pillOptions keys on this list, and every scroll event is a render.
-	const scoped = useMemo(
-		() => (scopeLabel === undefined ? models : models.filter((model) => model.serverLabel === scopeLabel)),
-		[models, scopeLabel]
-	);
-	// Keyed to the server count, not distinct labels: two groups can share a label and must stay attributable. Under
-	// the server chip the same question is asked of the scoped list itself; a one-group scope drops the suffix that
-	// would only repeat the chip.
-	const scopedServers = useMemo(() => new Set(scoped.map((model) => model.scopeKey)).size, [scoped]);
-	const showServerColumn = scopeLabel === undefined ? serverCount > 1 : scopedServers > 1;
-	// The Server sort key can leave the control while picked (a scope hides it; a push can drop the fleet to one
-	// group). The PICKED state stays, but while hidden the list must not follow an order the control cannot display,
-	// so it renders and reads unsorted.
-	const effectiveSort = sort?.key === "server" && !showServerColumn ? undefined : sort;
-	const filtered = filterModels(scoped, pills, filter);
-	const sorted = effectiveSort === undefined ? filtered : [...filtered].sort(compareBy(effectiveSort));
-	// Offered pills derive from the scoped list (other servers' families are dead toggles in a scope) - never from the
-	// pill-filtered list, or OR-within-a-dimension would be unreachable. Memoized: every scroll event re-renders, and
-	// the options walk the list.
-	const pillOptions = useMemo(() => modelFilterOptions(scoped, pills), [scoped, pills]);
-	const textActive = trimHttpWhitespace(filter).length > 0;
-	// Both clear actions unmount the button that was just pressed, so focus would fall to the body and take the
-	// keyboard user's place with it; the filter input is where the cleared filters live on.
-	const filterInputRef = useRef<HTMLInputElement>(null);
-	const clearFilters = () => {
-		setFilter("");
-		setPills(EMPTY_MODEL_FILTER);
-		filterInputRef.current?.focus();
-	};
+/**
+ * A ref callback rather than an effect: the ELEMENT comes and goes for a reason no dependency list names - the open
+ * row is itself windowed.
+ *
+ * Unmounting deliberately does NOT clear the height: a detail scrolled out of the window is still part of the list's
+ * height (its spacer carries it); the null arm stays although React 19 makes it unreachable, because leaving the
+ * height alone is correct on either path.
+ */
+function useDetailStrip(): DetailStrip {
+	const [height, setHeight] = useState(0);
+	const measure = useCallback((element: HTMLDivElement | null) => {
+		if (element === null) {
+			return;
+		}
+		const measureNow = () => {
+			const measured = element.offsetHeight;
+			setHeight((current) => (measured > 0 && measured !== current ? measured : current));
+		};
+		measureNow();
+		// The detail's own field grid rewraps with the panel width, which changes its height without remounting it.
+		const observer = new ResizeObserver(measureNow);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, []);
+	return { height, measure };
+}
 
-	const copyId = (model: DashboardModel, rowId: string) => {
+/** The copy button's check mark: shown on the row just copied, for a moment, and restarted by a second copy. */
+function useCopyFlash(): CopyFlash {
+	const [copied, setCopied] = useState<string | undefined>(undefined);
+	const copySeq = useRef(0);
+	const copy = (model: DashboardModel, rowId: string) => {
 		// Clipboard write is fire-and-forget; the check mark is the only feedback.
 		navigator.clipboard?.writeText(model.id).catch(() => {});
 		setCopied(rowId);
@@ -611,259 +689,498 @@ export function ModelsSection({
 			}
 		}, 1500);
 	};
+	return { copied, copy };
+}
 
-	// Absent means no row is open OR the open row has been sorted or filtered away; both are the same thing to
-	// everything below.
-	const openIndex = openRow === undefined ? -1 : sorted.findIndex((model) => rowIdOf(model) === openRow);
-	// One row can be taller than the others, and only one. That is the whole concession this list makes to variable
-	// heights: the delta is a single number the layout adds in one place, not a per-row height table.
-	const delta = openIndex >= 0 ? stripHeight : 0;
+/**
+ * The list under scope, filter, and sort. The Server sort key can leave the control while picked (a scope hides it; a
+ * push can drop the fleet to one group). The PICKED state stays, but while hidden the list must not follow an order
+ * the control cannot display, so it renders and reads unsorted.
+ */
+function useModelListing(
+	models: readonly DashboardModel[],
+	serverCount: number,
+	scopeLabel: string | undefined,
+	filter: string,
+	pills: ModelFilter,
+	sort: Sort | undefined
+): ModelListing {
+	// Memoized for identity, not cost: pillOptions keys on this list, and every scroll event is a render.
+	const scoped = useMemo(
+		() => (scopeLabel === undefined ? models : models.filter((model) => model.serverLabel === scopeLabel)),
+		[models, scopeLabel]
+	);
+	// Keyed to the server count, not distinct labels: two groups can share a label and must stay attributable. Under
+	// the server chip the same question is asked of the scoped list itself; a one-group scope drops the suffix that
+	// would only repeat the chip.
+	const scopedServers = useMemo(() => new Set(scoped.map((model) => model.scopeKey)).size, [scoped]);
+	const showServerColumn = scopeLabel === undefined ? serverCount > 1 : scopedServers > 1;
+	const effectiveSort = sort?.key === "server" && !showServerColumn ? undefined : sort;
+	const filtered = filterModels(scoped, pills, filter);
+	const sorted = effectiveSort === undefined ? filtered : [...filtered].sort(compareBy(effectiveSort));
+	// Offered pills derive from the scoped list (other servers' families are dead toggles in a scope) - never from the
+	// pill-filtered list, or OR-within-a-dimension would be unreachable. Memoized: every scroll event re-renders, and
+	// the options walk the list.
+	const pillOptions = useMemo(() => modelFilterOptions(scoped, pills), [scoped, pills]);
+	return { scoped, sorted, pillOptions, showServerColumn, effectiveSort };
+}
 
-	// Start clamps against the row count so a filter that shrinks the list under a deep scroll position cannot leave
-	// the window past the end.
-	const windowed = sorted.length > WINDOW_THRESHOLD;
-	const viewport = (() => {
-		const height = scrollRef.current?.clientHeight ?? 0;
-		return height > 0 ? height : FALLBACK_VIEWPORT;
-	})();
-	// Scroll position maps to a row index through the uniform row height, which the open row's detail breaks; taking
-	// the delta back out restores the uniform grid. Clamped so a position INSIDE the open row maps to it rather than
-	// past it.
+/**
+ * Scroll position maps to a row index through the uniform row height, which the open row's detail breaks; taking the
+ * delta back out restores the uniform grid, clamped so a position INSIDE the open row maps to it rather than past it.
+ *
+ * The detail eats into the window's coverage, so the window grows by what the detail costs; otherwise a tall detail
+ * could push the last rows of the viewport out of the rendered slice. Start clamps against the row count so a filter
+ * that shrinks the list under a deep scroll position cannot leave the window past the end.
+ *
+ * The spacers stand in for the rows outside the window, and the delta rides with whichever one hides the open row;
+ * when the open row is rendered, its detail is really there and neither spacer accounts for it.
+ */
+function listWindow({ count, scrollTop, rowHeight, viewport, openIndex, delta }: WindowInput): ListWindow {
+	const windowed = count > WINDOW_THRESHOLD;
 	const openTop = openIndex >= 0 ? openIndex * rowHeight : 0;
 	const gridScrollTop = openIndex >= 0 ? scrollTop - Math.min(delta, Math.max(0, scrollTop - openTop)) : scrollTop;
-	// The open row's detail eats into the window's coverage, so the window grows by what the detail costs; otherwise a
-	// tall detail could push the last rows of the viewport out of the rendered slice.
 	const windowSize = Math.ceil((viewport + delta) / rowHeight) + OVERSCAN * 2;
 	const start = windowed
-		? Math.max(0, Math.min(Math.floor(gridScrollTop / rowHeight) - OVERSCAN, sorted.length - windowSize))
+		? Math.max(0, Math.min(Math.floor(gridScrollTop / rowHeight) - OVERSCAN, count - windowSize))
 		: 0;
-	const end = windowed ? Math.min(sorted.length, start + windowSize) : sorted.length;
-	const visible = sorted.slice(start, end);
-	// The spacers stand in for the rows outside the window, and the delta rides with whichever one hides the open row.
-	// When the open row is rendered, its detail is really there and neither spacer accounts for it.
-	const leadingHeight = start * rowHeight + (openIndex >= 0 && openIndex < start ? delta : 0);
-	const trailingHeight = (sorted.length - end) * rowHeight + (openIndex >= end ? delta : 0);
+	const end = windowed ? Math.min(count, start + windowSize) : count;
+	return {
+		windowed,
+		start,
+		end,
+		leadingHeight: start * rowHeight + (openIndex >= 0 && openIndex < start ? delta : 0),
+		trailingHeight: (count - end) * rowHeight + (openIndex >= end ? delta : 0),
+	};
+}
+
+/**
+ * Two different nothings: with no servers, telling the reader to sync would send them to ask nobody - they need a
+ * server first. With servers, a sync is exactly right.
+ */
+function EmptyModels({ serverCount }: { serverCount: number }) {
+	return (
+		<div className="empty-block">
+			{serverCount === 0 ? (
+				<>
+					<p>{l10n.t("No models yet.")}</p>
+					<p className="hint">{l10n.t("Add a server under Servers.")}</p>
+				</>
+			) : (
+				<>
+					<p>{l10n.t("No models discovered yet.")}</p>
+					<p className="hint">{l10n.t("Run Sync models to ask your servers.")}</p>
+				</>
+			)}
+		</div>
+	);
+}
+
+/**
+ * The active scope as its own quiet line under the header: the filter input and the count moved onto the header
+ * line, but the chip is a STATE, not an action - it narrows what the whole page below it shows, so it stands where
+ * that narrowing starts.
+ */
+function ScopeChip({ scope }: { scope: ModelScope }) {
+	return (
+		<div className="filterbar">
+			<span className="chip">
+				<span className="chip-label" title={l10n.t("Server: {0}", scope.label)}>
+					{l10n.t("Server: {0}", scope.label)}
+				</span>
+				<Button
+					variant="secondary"
+					size="compact"
+					aria-label={l10n.t("Clear the server filter")}
+					onClick={scope.onClear}
+				>
+					<IconClose />
+				</Button>
+			</span>
+		</div>
+	);
+}
+
+/** The two text lines of a row: the name with its meta, then limits, price, and capabilities. */
+function ModelRowLine({ model, showServer, currencySymbol }: ModelRowLineProps) {
+	const caps = capabilityList(model);
+	const priced = isPriced(model);
+	return (
+		<>
+			<span className="model-line-1">
+				{/* The stylesheet's ellipsis cap for pathological names; the
+				    full name stays in the DOM, only its rendering trims. */}
+				<span className="model-name-text">{model.name}</span>
+				<span className="model-meta">{metaLine(model, showServer)}</span>
+			</span>
+			<span className="model-line-2">
+				<span className="model-limits">
+					{l10n.t(
+						"{0} context, {1} out",
+						compactTokenCount(model.maxInputTokens),
+						compactTokenCount(model.maxOutputTokens)
+					)}
+				</span>
+				{/* A real separator element, not a CSS ::after: it is text a
+				    screen reader should hear, and it has to disappear WITH the
+				    segment it follows when a narrow pane drops one, which an
+				    adjacent-sibling rule does and a dangling dash does not. */}
+				{/* An unpriced model prints NOTHING here: the whole segment
+				    stays out, separator included, rather than wording the
+				    absence. The unpriced pill still names the class in words. */}
+				{priced ? (
+					<>
+						<span className="model-sep"> - </span>
+						<span className="model-cost">
+							<span className="model-price">
+								<PriceParts model={model} currencySymbol={currencySymbol} />
+							</span>
+							<span className="price-per"> {l10n.t("per M")}</span>
+						</span>
+					</>
+				) : null}
+				{/* Only what the model CAN do. The negative answer is one click
+				    away in the detail rather than a second clause every row
+				    carries forever. */}
+				{caps.length > 0 ? (
+					<>
+						<span className="model-sep"> - </span>
+						<span className="model-caps">{caps.join(", ")}</span>
+					</>
+				) : null}
+			</span>
+		</>
+	);
+}
+
+/**
+ * The row's two actions. The server label keeps the copy button's accessible name unique when one raw ID is
+ * registered through several servers. Inspect is visible at rest rather than inside the detail: it is the inspector's
+ * only entry point on this row, and burying it one disclosure deep would cost every reader a click to reach the panel
+ * that explains where a value came from.
+ */
+function ModelRowActions({ model, copied, onCopy, onInspect }: ModelRowActionsProps) {
+	return (
+		<span className="model-row-actions">
+			<Reveal within="row">
+				<Button
+					variant="secondary"
+					size="compact"
+					aria-label={l10n.t("Copy model ID {0} from {1}", model.id, model.serverLabel)}
+					onClick={onCopy}
+				>
+					{copied ? <IconCheck /> : <IconCopy />}
+				</Button>
+			</Reveal>
+			<Button
+				variant="secondary"
+				size="compact"
+				className="params-action"
+				aria-label={l10n.t("Inspect {0} on {1}", model.name, model.serverLabel)}
+				onClick={onInspect}
+			>
+				{l10n.t("Inspect")}
+			</Button>
+		</span>
+	);
+}
+
+/**
+ * One row: the two lines are the disclosure; the row's other controls sit outside (a button cannot contain a button).
+ * border-control-outline like the server rows': transparent in ordinary themes, the contrast border in the bordered
+ * modes. `setsize` is the list's true length while windowed, since only a window of it is in the DOM.
+ */
+function ModelRow(props: ModelRowProps) {
+	const { model, position, open, setsize, showServer, currencySymbol, copied, onToggle, onCopy, onInspect } = props;
+	const detailId = `model-detail-${position}`;
+	return (
+		<li
+			className={open ? "model-row is-open group/row" : "model-row group/row"}
+			{...(setsize === undefined ? {} : { "aria-setsize": setsize, "aria-posinset": position + 1 })}
+		>
+			<div className="model-row-line">
+				<button
+					type="button"
+					className="model-disclosure rounded-sm border border-control-outline"
+					aria-expanded={open}
+					{...(open ? { "aria-controls": detailId } : {})}
+					onClick={onToggle}
+				>
+					{/* Without it a row that opens looks exactly like one that does
+					    not, and the only way to find out is to click. */}
+					<DisclosureChevron className="model-chevron" />
+					<ModelRowLine model={model} showServer={showServer} currencySymbol={currencySymbol} />
+				</button>
+				<ModelRowActions model={model} copied={copied} onCopy={onCopy} onInspect={onInspect} />
+			</div>
+			{open ? (
+				<ModelDetail id={detailId} model={model} currencySymbol={currencySymbol} ref={props.measureDetail} />
+			) : null}
+		</li>
+	);
+}
+
+/**
+ * When windowed, the scrollport is a focusable labelled region (keyboard scrolling) and each row declares its true
+ * position in a list only a window of which is in the DOM. Visiting every row by Tab is out of scope: off-window rows
+ * are reached by scrolling.
+ */
+function ModelList(props: ModelListProps) {
+	const {
+		scrollport,
+		window: slice,
+		rows,
+		openIndex,
+		showServer,
+		currencySymbol,
+		copyFlash,
+		onToggle,
+		onInspect,
+	} = props;
+	const visible = rows.slice(slice.start, slice.end);
+	return (
+		<section
+			className={slice.windowed ? "table-scroll windowed" : "table-scroll"}
+			ref={scrollport.ref}
+			aria-label={l10n.t("Models list")}
+			tabIndex={slice.windowed ? 0 : undefined}
+			onScroll={(event) => scrollport.setScrollTop(event.currentTarget.scrollTop)}
+		>
+			<ul className="model-list">
+				{slice.start > 0 ? (
+					<li className="spacer" role="presentation" style={{ height: `${slice.leadingHeight}px` }} />
+				) : null}
+				{visible.map((model, index) => {
+					const position = slice.start + index;
+					const rowId = rowIdOf(model);
+					const open = openIndex === position;
+					return (
+						<ModelRow
+							key={position}
+							model={model}
+							position={position}
+							open={open}
+							setsize={slice.windowed ? rows.length : undefined}
+							showServer={showServer}
+							currencySymbol={currencySymbol}
+							copied={copyFlash.copied === rowId}
+							onToggle={() => onToggle(rowId, open)}
+							onCopy={() => copyFlash.copy(model, rowId)}
+							onInspect={() =>
+								onInspect({ scopeKey: model.scopeKey, rawId: model.rawId, serverLabel: model.serverLabel })
+							}
+							measureDetail={props.measureDetail}
+						/>
+					);
+				})}
+				{slice.end < rows.length ? (
+					<li className="spacer" role="presentation" style={{ height: `${slice.trailingHeight}px` }} />
+				) : null}
+			</ul>
+		</section>
+	);
+}
+
+/** The "nothing matches" line; its Clear button only when this section's own filters caused the nothing. */
+function NoMatch({ canClear, onClear }: { canClear: boolean; onClear: () => void }) {
+	return (
+		<p className="empty">
+			{l10n.t("No models match the filter.")}
+			{/* Only when this section's own filters caused the nothing: an empty scope is the
+			    server chip's to clear, not this button's. */}
+			{canClear ? (
+				<>
+					{" "}
+					<Button variant="secondary" size="compact" onClick={onClear}>
+						{l10n.t("Clear filters")}
+					</Button>
+				</>
+			) : null}
+		</p>
+	);
+}
+
+/** The open row's index in the current order and the window around it. */
+interface ListLayout {
+	readonly openIndex: number;
+	readonly slice: ListWindow;
+}
+
+/** The filter box's ref and the clear both Clear buttons share. */
+interface FilterReset {
+	readonly inputRef: React.RefObject<HTMLInputElement | null>;
+	readonly clearFilters: () => void;
+}
+
+/**
+ * Where the open row sits and what the window renders. Absent (-1) means no row is open OR the open row has been sorted
+ * or filtered away; both are the same thing to everything below. One row can be taller than the others, and only one:
+ * the delta is a single number the layout adds in one place, not a per-row height table.
+ */
+function useListLayout(
+	sorted: readonly DashboardModel[],
+	openRow: string | undefined,
+	scrollport: Scrollport,
+	detail: DetailStrip
+): ListLayout {
+	const openIndex = openRow === undefined ? -1 : sorted.findIndex((model) => rowIdOf(model) === openRow);
+	const slice = listWindow({
+		count: sorted.length,
+		scrollTop: scrollport.scrollTop,
+		rowHeight: scrollport.rowHeight,
+		viewport: scrollport.viewport,
+		openIndex,
+		delta: openIndex >= 0 ? detail.height : 0,
+	});
+	return { openIndex, slice };
+}
+
+/**
+ * Both clear actions unmount the button that was just pressed, so focus would fall to the body and take the keyboard
+ * user's place with it; the filter input is where the cleared filters live on.
+ */
+function useFilterReset(onFilter: (next: string) => void, onPills: (next: ModelFilter) => void): FilterReset {
+	const inputRef = useRef<HTMLInputElement>(null);
+	return {
+		inputRef,
+		clearFilters: () => {
+			onFilter("");
+			onPills(EMPTY_MODEL_FILTER);
+			inputRef.current?.focus();
+		},
+	};
+}
+
+/**
+ * The count belongs to the title, and only while pills or text narrow: "showing 64 of 64" at rest is a tautology. The
+ * scope moves the denominator, so a scoped-but-unfiltered list stays quiet too.
+ */
+function showingMeta(listing: ModelListing): string | undefined {
+	const shown = listing.sorted.length;
+	const total = listing.scoped.length;
+	return shown === total ? undefined : l10n.t("showing {0} of {1}", shown, total);
+}
+
+/**
+ * The models toolbar on the header line. The filter's one home is the header line (the Settings filter's slot): it
+ * governs the whole page, and a box floating between header and rows read as belonging to nothing. The rows carry no
+ * header to sort by, so the sort control shares the line.
+ */
+function ModelsToolbar({ filter, filterInputRef, onFilter, listing, onSort }: ModelsToolbarProps) {
+	return (
+		<>
+			<Input
+				type="text"
+				ref={filterInputRef}
+				className="w-[16rem] min-w-0 max-w-full shrink"
+				placeholder={l10n.t("Filter by name, family, or server")}
+				aria-label={l10n.t("Filter models")}
+				value={filter}
+				onChange={(event) => onFilter(event.currentTarget.value)}
+			/>
+			<SortControl sort={listing.effectiveSort} showServer={listing.showServerColumn} onChange={onSort} />
+		</>
+	);
+}
+
+function ModelsBody({ scope, listing, pills, onPills, canClear, onClear, list }: ModelsBodyProps) {
+	return (
+		<>
+			{scope === undefined ? null : <ScopeChip scope={scope} />}
+			<FilterPills
+				options={listing.pillOptions}
+				active={pills}
+				showServers={listing.showServerColumn}
+				showClear={isFilterActive(pills) && listing.sorted.length > 0}
+				onChange={onPills}
+				onClearAll={onClear}
+			/>
+			<ModelList {...list} />
+			{listing.sorted.length === 0 ? <NoMatch canClear={canClear} onClear={onClear} /> : null}
+		</>
+	);
+}
+
+/**
+ * The Models page: every discovered model across the servers, filtered, sorted, and windowed. The id anchors a server
+ * row's model-count link: it navigates here and App moves focus onto this section, so the keyboard position follows
+ * the reader across the destination change. Section owns the id, the tabIndex and the scroll margin together.
+ *
+ *   serverCount    -> the configured servers; unscoped, a single one hides the Server column, pill group, and sort key
+ *                     alike
+ *   currencySymbol -> the configured cost prefix (usage.currencySymbol); display only, never a conversion
+ *   scope          -> one object so a scope without a working clear cannot be expressed
+ *   onInspect      -> App owns the inspector; the full identity travels because one snapshot can render under several
+ *                     labels
+ */
+export function ModelsSection({
+	models,
+	serverCount,
+	currencySymbol,
+	scope,
+	onInspect,
+}: {
+	models: readonly DashboardModel[];
+	serverCount: number;
+	currencySymbol: string;
+	scope?: ModelScope | undefined;
+	onInspect: (target: InspectTarget) => void;
+}) {
+	const [filter, setFilter] = useState("");
+	const [pills, setPills] = useState<ModelFilter>(EMPTY_MODEL_FILTER);
+	const [sort, setSort] = useState<Sort | undefined>(undefined);
+	// The one open row, held by row id rather than index: sorting and filtering renumber the list.
+	const [openRow, setOpenRow] = useState<string | undefined>(undefined);
+	const scrollport = useScrollport(scope?.label);
+	const detail = useDetailStrip();
+	const copyFlash = useCopyFlash();
+	const listing = useModelListing(models, serverCount, scope?.label, filter, pills, sort);
+	const reset = useFilterReset(setFilter, setPills);
+	const { openIndex, slice } = useListLayout(listing.sorted, openRow, scrollport, detail);
+	const list: ModelListProps = {
+		scrollport,
+		window: slice,
+		rows: listing.sorted,
+		openIndex,
+		showServer: listing.showServerColumn,
+		currencySymbol,
+		copyFlash,
+		onToggle: (rowId, open) => setOpenRow(open ? undefined : rowId),
+		onInspect,
+		measureDetail: detail.measure,
+	};
 
 	return (
-		// The id anchors a server row's model-count link: it navigates here and App moves focus onto this section, so
-		// the keyboard position follows the reader across the destination change. Section owns the id, the tabIndex
-		// and the scroll margin together.
 		<Section
 			id="models"
 			title={l10n.t("Models")}
 			help={helpModelsSection()}
 			docs={{ href: DOCS_LINK_MODELS, label: l10n.t("Open the models guide") }}
-			// The count belongs to the title, and only while pills or text narrow: "showing 64 of 64" at rest is a
-			// tautology. The scope moves the denominator, so a scoped-but-unfiltered list stays quiet too.
-			meta={sorted.length === scoped.length ? undefined : l10n.t("showing {0} of {1}", sorted.length, scoped.length)}
-			// The filter's one home is the header line (the Settings filter's slot): it governs the whole page, and a
-			// box floating between header and rows read as belonging to nothing. The rows carry no header to sort by,
-			// so the sort control shares the line.
+			meta={showingMeta(listing)}
 			actions={
 				models.length === 0 ? undefined : (
-					<>
-						<Input
-							type="text"
-							ref={filterInputRef}
-							className="w-[16rem] min-w-0 max-w-full shrink"
-							placeholder={l10n.t("Filter by name, family, or server")}
-							aria-label={l10n.t("Filter models")}
-							value={filter}
-							onChange={(event) => setFilter(event.currentTarget.value)}
-						/>
-						<SortControl sort={effectiveSort} showServer={showServerColumn} onChange={setSort} />
-					</>
+					<ModelsToolbar
+						filter={filter}
+						filterInputRef={reset.inputRef}
+						onFilter={setFilter}
+						listing={listing}
+						onSort={setSort}
+					/>
 				)
 			}
 		>
 			{models.length === 0 ? (
-				<div className="empty-block">
-					{/* Two different nothings: with no servers, telling the reader to sync would send them to ask
-					    nobody - they need a server first. With servers, a sync is exactly right. */}
-					{serverCount === 0 ? (
-						<>
-							<p>{l10n.t("No models yet.")}</p>
-							<p className="hint">{l10n.t("Add a server under Servers.")}</p>
-						</>
-					) : (
-						<>
-							<p>{l10n.t("No models discovered yet.")}</p>
-							<p className="hint">{l10n.t("Run Sync models to ask your servers.")}</p>
-						</>
-					)}
-				</div>
+				<EmptyModels serverCount={serverCount} />
 			) : (
-				<>
-					{/* The active scope as its own quiet line under the header: the filter input and the count moved
-					    onto the header line, but the chip is a STATE, not an action - it narrows what the whole page
-					    below it shows, so it stands where that narrowing starts. */}
-					{scope === undefined ? null : (
-						<div className="filterbar">
-							<span className="chip">
-								<span className="chip-label" title={l10n.t("Server: {0}", scope.label)}>
-									{l10n.t("Server: {0}", scope.label)}
-								</span>
-								<Button
-									variant="secondary"
-									size="compact"
-									aria-label={l10n.t("Clear the server filter")}
-									onClick={scope.onClear}
-								>
-									<IconClose />
-								</Button>
-							</span>
-						</div>
-					)}
-					<FilterPills
-						options={pillOptions}
-						active={pills}
-						showServers={showServerColumn}
-						showClear={isFilterActive(pills) && sorted.length > 0}
-						onChange={setPills}
-						onClearAll={clearFilters}
-					/>
-					{/* When windowed, the scrollport is a focusable labelled region (keyboard scrolling) and each row
-					    declares its true position in a list only a window of which is in the DOM. Visiting every row
-					    by Tab is out of scope: off-window rows are reached by scrolling. */}
-					<section
-						className={windowed ? "table-scroll windowed" : "table-scroll"}
-						ref={scrollRef}
-						aria-label={l10n.t("Models list")}
-						tabIndex={windowed ? 0 : undefined}
-						onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-					>
-						<ul className="model-list">
-							{start > 0 ? (
-								<li className="spacer" role="presentation" style={{ height: `${leadingHeight}px` }} />
-							) : null}
-							{visible.map((model, index) => {
-								const position = start + index;
-								const rowId = rowIdOf(model);
-								const isOpen = openIndex === position;
-								const detailId = `model-detail-${position}`;
-								const priced = isPriced(model);
-								const caps = capabilityList(model);
-								return (
-									<li
-										key={position}
-										className={isOpen ? "model-row is-open group/row" : "model-row group/row"}
-										{...(windowed ? { "aria-setsize": sorted.length, "aria-posinset": position + 1 } : {})}
-									>
-										<div className="model-row-line">
-											{/* The two lines are the disclosure; the row's other controls sit
-											    outside (a button cannot contain a button). border-control-outline
-											    like the server rows': transparent in ordinary themes, the contrast
-											    border in the bordered modes. */}
-											<button
-												type="button"
-												className="model-disclosure rounded-sm border border-control-outline"
-												aria-expanded={isOpen}
-												{...(isOpen ? { "aria-controls": detailId } : {})}
-												onClick={() => setOpenRow(isOpen ? undefined : rowId)}
-											>
-												{/* Without it a row that opens looks exactly like one that does
-												    not, and the only way to find out is to click. */}
-												<DisclosureChevron className="model-chevron" />
-												<span className="model-line-1">
-													{/* The stylesheet's ellipsis cap for pathological names; the
-													    full name stays in the DOM, only its rendering trims. */}
-													<span className="model-name-text">{model.name}</span>
-													<span className="model-meta">{metaLine(model, showServerColumn)}</span>
-												</span>
-												<span className="model-line-2">
-													<span className="model-limits">
-														{l10n.t(
-															"{0} context, {1} out",
-															compactTokenCount(model.maxInputTokens),
-															compactTokenCount(model.maxOutputTokens)
-														)}
-													</span>
-													{/* A real separator element, not a CSS ::after: it is text a
-													    screen reader should hear, and it has to disappear WITH the
-													    segment it follows when a narrow pane drops one, which an
-													    adjacent-sibling rule does and a dangling dash does not. */}
-													{/* An unpriced model prints NOTHING here: the whole segment
-													    stays out, separator included, rather than wording the
-													    absence. The unpriced pill still names the class in words. */}
-													{priced ? (
-														<>
-															<span className="model-sep"> - </span>
-															<span className="model-cost">
-																<span className="model-price">
-																	<PriceParts model={model} currencySymbol={currencySymbol} />
-																</span>
-																<span className="price-per"> {l10n.t("per M")}</span>
-															</span>
-														</>
-													) : null}
-													{/* Only what the model CAN do. The negative answer is one click
-													    away in the detail rather than a second clause every row
-													    carries forever. */}
-													{caps.length > 0 ? (
-														<>
-															<span className="model-sep"> - </span>
-															<span className="model-caps">{caps.join(", ")}</span>
-														</>
-													) : null}
-												</span>
-											</button>
-											<span className="model-row-actions">
-												{/* The server label keeps the accessible name unique when one raw ID is
-												    registered through several servers. */}
-												<Reveal within="row">
-													<Button
-														variant="secondary"
-														size="compact"
-														aria-label={l10n.t("Copy model ID {0} from {1}", model.id, model.serverLabel)}
-														onClick={() => copyId(model, rowId)}
-													>
-														{copied === rowId ? <IconCheck /> : <IconCopy />}
-													</Button>
-												</Reveal>
-												{/* Visible at rest rather than inside the detail: it is the
-												    inspector's only entry point on this row, and burying it one
-												    disclosure deep would cost every reader a click to reach the
-												    panel that explains where a value came from. */}
-												<Button
-													variant="secondary"
-													size="compact"
-													className="params-action"
-													aria-label={l10n.t("Inspect {0} on {1}", model.name, model.serverLabel)}
-													onClick={() =>
-														onInspect({ scopeKey: model.scopeKey, rawId: model.rawId, serverLabel: model.serverLabel })
-													}
-												>
-													{l10n.t("Inspect")}
-												</Button>
-											</span>
-										</div>
-										{isOpen ? (
-											<ModelDetail id={detailId} model={model} currencySymbol={currencySymbol} ref={measureDetail} />
-										) : null}
-									</li>
-								);
-							})}
-							{end < sorted.length ? (
-								<li className="spacer" role="presentation" style={{ height: `${trailingHeight}px` }} />
-							) : null}
-						</ul>
-					</section>
-					{sorted.length === 0 ? (
-						<p className="empty">
-							{l10n.t("No models match the filter.")}
-							{/* Only when this section's own filters caused the nothing: an empty scope is the
-							    server chip's to clear, not this button's. */}
-							{textActive || isFilterActive(pills) ? (
-								<>
-									{" "}
-									<Button variant="secondary" size="compact" onClick={clearFilters}>
-										{l10n.t("Clear filters")}
-									</Button>
-								</>
-							) : null}
-						</p>
-					) : null}
-				</>
+				<ModelsBody
+					scope={scope}
+					listing={listing}
+					pills={pills}
+					onPills={setPills}
+					canClear={trimHttpWhitespace(filter).length > 0 || isFilterActive(pills)}
+					onClear={reset.clearFilters}
+					list={list}
+				/>
 			)}
 		</Section>
 	);

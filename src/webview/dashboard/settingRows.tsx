@@ -248,6 +248,266 @@ function coveredDetail(message: CoveredMessage | undefined): string | undefined 
 	return typeof message === "string" ? message : message?.detail;
 }
 
+/** A transient tone-styled status in the covered slot (a probe's outcome). */
+interface RowNotice {
+	readonly text: string;
+	readonly tone: "ok" | "warning" | "error";
+}
+
+/**
+ * The covered slot's tenant this render, worst first: the live parse error, the standing write failure, a notice, or
+ * nothing (the resting description shows).
+ *
+ *   failure.seq  -> keys the line, so a repeat with the same text remounts and re-announces
+ *   failure.role -> "alert" on the render that announces it (useAlertOnce), undefined after
+ */
+type CoverTenant =
+	| { readonly kind: "resting" }
+	| { readonly kind: "error"; readonly line: string }
+	| { readonly kind: "failure"; readonly text: string; readonly seq: number; readonly role: "alert" | undefined }
+	| { readonly kind: "notice"; readonly text: string };
+
+/** The covered slot: its tenant, the two texts the Details disclosure reads, and the tenant's tone. */
+interface CoverState {
+	readonly tenant: CoverTenant;
+	readonly coverText: string | undefined;
+	readonly detailText: string | undefined;
+	readonly toneClass: string;
+}
+
+/** The Details disclosure: whether it is open, the block's id, and the button (nothing when the line needs none). */
+interface Details {
+	readonly open: boolean;
+	readonly id: string;
+	readonly button: ReactNode;
+}
+
+interface RowClassInput {
+	readonly configuredScope: SettingScope | null;
+	readonly compactControl: boolean | undefined;
+	readonly companion: boolean | undefined;
+}
+
+interface RestingFlowProps {
+	readonly description: ReactNode;
+	readonly configuredScope: SettingScope | null;
+	readonly defaultText: string | undefined;
+}
+
+interface CoverLineProps {
+	readonly cover: CoverState;
+	readonly errorId: string | undefined;
+	readonly detailsButton: ReactNode;
+	readonly restingFlow: ReactNode;
+}
+
+interface RowActionsProps {
+	readonly title: string;
+	readonly settingId: SettingRowId;
+	readonly configuredScope: SettingScope | null;
+	readonly companion: boolean | undefined;
+}
+
+/** The covered line's tone class: errors and write failures paint error; a notice paints its own tone. */
+function coverToneClass(hasError: boolean, notice: RowNotice | undefined): string {
+	if (hasError || notice?.tone === "error") {
+		return "error";
+	}
+	return notice?.tone === "warning" ? "state-warn" : "state-ok";
+}
+
+/** The tenant, worst first; the failure's text is its HEADLINE only (see useCoverState). */
+function coverTenant(
+	errorLine: string | undefined,
+	writeFailure: SettingWriteFailure | undefined,
+	role: "alert" | undefined,
+	notice: RowNotice | undefined
+): CoverTenant {
+	if (errorLine !== undefined) {
+		return { kind: "error", line: errorLine };
+	}
+	if (writeFailure !== undefined) {
+		const text = l10n.t("The last change did not apply: {0}", statusErrorHeadline(writeFailure.message));
+		return { kind: "failure", text, seq: writeFailure.seq, role };
+	}
+	if (notice !== undefined) {
+		return { kind: "notice", text: notice.text };
+	}
+	return { kind: "resting" };
+}
+
+/**
+ * What the covered slot shows. HEADLINE only for the write failure: the detail line is arbitrary-length and the
+ * covering contract keeps the cell's height. A live parse error outranks it (it describes the draft under the user's
+ * fingers); the failure resurfaces when the draft parses clean again.
+ *
+ * The failure is announced once per seq, and the seq reaches the hook only while its line actually renders: fed
+ * unconditionally, a failure landing behind a parse error was marked spoken with no visible line having spoken it, and
+ * surfaced silent later.
+ */
+function useCoverState(
+	settingId: SettingRowId,
+	companion: boolean | undefined,
+	error: CoveredMessage | undefined,
+	notice: RowNotice | undefined
+): CoverState {
+	const settingFailures = useContext(SettingFailuresContext);
+	const writeFailure = companion === true ? undefined : settingFailures[settingId];
+	const errorLine = coveredLine(error);
+	const writeFailureRole = useAlertOnce(errorLine === undefined ? writeFailure?.seq : undefined);
+	const tenant = coverTenant(errorLine, writeFailure, writeFailureRole, notice);
+	const tenantText = tenant.kind === "failure" || tenant.kind === "notice" ? tenant.text : undefined;
+	return {
+		tenant,
+		coverText: errorLine ?? tenantText,
+		detailText: coveredDetail(error) ?? tenantText,
+		toneClass: coverToneClass(tenant.kind === "error" || tenant.kind === "failure", notice),
+	};
+}
+
+/**
+ * The Details disclosure. A new tenant closes a stale disclosure: the detail block must never show yesterday's text
+ * under today's headline.
+ */
+function useDetails(coverText: string | undefined, detailText: string | undefined): Details {
+	const [open, setOpen] = useState(false);
+	const id = useId();
+	// biome-ignore lint/correctness/useExhaustiveDependencies: coverText IS the reset trigger.
+	useEffect(() => {
+		setOpen(false);
+	}, [coverText]);
+	const needed = detailText !== undefined && (detailText !== coverText || detailText.length > COVER_DETAILS_THRESHOLD);
+	const button = needed ? (
+		<Button
+			size="compact"
+			variant="secondary"
+			className="shrink-0"
+			aria-expanded={open}
+			aria-controls={id}
+			onClick={() => setOpen((current) => !current)}
+		>
+			{open ? l10n.t("Hide details") : l10n.t("Details")}
+		</Button>
+	) : null;
+	return { open, id, button };
+}
+
+/**
+ * The row's classes. The right edge mirrors the record rows' (-mx-2 with px-2): the hover tint overhangs the pane's
+ * cap by 8px while the CONTENT stops exactly at it.
+ *
+ * The modified mark is the ACCENT, not the host's amber modifiedItemIndicator: "you set this" is selection semantics,
+ * amber means "needs attention". The var-shorthand form reads the RUNTIME --accent-hue chain directly: a named utility
+ * needs a @theme alias, and the last one was deleted as orphaned - the bar silently fell back to grey.
+ *
+ * A compact control keeps the two-column line at every stacked width (dashboard.css .setting-row.setting-compact);
+ * setting-companion is the structural mark of a multi-row setting's secondary row, and tests pin that exactly the
+ * companions leave their actions slot empty.
+ */
+function rowClassName({ configuredScope, compactControl, companion }: RowClassInput): string {
+	return cn(
+		SETTING_ROW_GRID,
+		"group/setting -ml-3 relative items-baseline gap-y-1 rounded-xs border-l-2 py-2 pl-2.5 hover:bg-accent",
+		"-mr-2 pr-2",
+		configuredScope === null ? "border-l-transparent" : "modified border-l-(--accent-hue)",
+		compactControl === true && "setting-compact",
+		companion === true && "setting-companion"
+	);
+}
+
+/** The modified note that trails the description: at a global scope, or at the default when a default is named. */
+function trailingNote(configuredScope: SettingScope | null, defaultText: string | undefined): ReactNode {
+	if (configuredScope === "global" || (configuredScope === null && defaultText !== undefined)) {
+		return (
+			<>
+				{" "}
+				<ModifiedNote scope={configuredScope} defaultText={defaultText} />
+			</>
+		);
+	}
+	return null;
+}
+
+/**
+ * The description at rest with its modified note. While covered it renders once more inside the height twin -
+ * visibility-hidden AND aria-hidden, so its copies (notes, the catalog row's controls) are inert: out of the Tab order,
+ * hit-testing, and the accessibility tree.
+ */
+function RestingFlow({ description, configuredScope, defaultText }: RestingFlowProps) {
+	return (
+		<>
+			<span className="setting-desc">{description}</span>
+			{configuredScope !== null && configuredScope !== "global" ? (
+				<>
+					{" "}
+					<ModifiedNote scope={configuredScope} defaultText={defaultText} />
+				</>
+			) : null}
+		</>
+	);
+}
+
+/**
+ * The live line of the covered slot, worst tenant first. The .error span holds ONLY the message and keeps the id:
+ * aria-describedby reads the referenced subtree, and a glyph inside it would ride every announcement of the field's
+ * problem. The write-failure cover is keyed on the seq so a repeat re-mounts and announces afresh (useAlertOnce dedupes
+ * to one announcement per seq); the glyph is its sibling and outlives the remount.
+ */
+function CoverLine({ cover, errorId, detailsButton, restingFlow }: CoverLineProps) {
+	const { tenant } = cover;
+	if (tenant.kind === "resting") {
+		return <span className="setting-rest contents">{restingFlow}</span>;
+	}
+	if (tenant.kind === "error") {
+		return (
+			<span className="setting-cover flex min-w-0 flex-1 items-center gap-2">
+				<span className="error min-w-0 truncate" id={errorId}>
+					{tenant.line}
+				</span>
+				{detailsButton}
+			</span>
+		);
+	}
+	if (tenant.kind === "failure") {
+		return (
+			<span key={tenant.seq} className="setting-cover flex min-w-0 flex-1 items-center gap-2">
+				<span className="error min-w-0 truncate" role={tenant.role}>
+					{tenant.text}
+				</span>
+				{detailsButton}
+			</span>
+		);
+	}
+	return (
+		<span className="setting-cover flex min-w-0 flex-1 items-center gap-2">
+			<span className={cn("min-w-0 truncate", cover.toneClass)} role="status">
+				{tenant.text}
+			</span>
+			{detailsButton}
+		</span>
+	);
+}
+
+/**
+ * The row's one actions slot: Reset then the settings.json jump, always last (the anatomy's fourth track; placement per
+ * band in dashboard.css .setting-actions). gap-4.5 is ink-to-ink (compact buttons hand their padding back). A
+ * companion row keeps the empty track, so its grid lines up with its primary's.
+ */
+function RowActions({ title, settingId, configuredScope, companion }: RowActionsProps) {
+	return (
+		<div className="setting-actions flex items-center justify-end gap-4.5 self-start justify-self-end">
+			{companion === true ? null : (
+				<>
+					{configuredScope === null ? null : (
+						<ResetButton title={title} scope={configuredScope} settingId={settingId} />
+					)}
+					<RevealButton title={title} settingId={settingId} />
+				</>
+			)}
+		</div>
+	);
+}
+
 /**
  * One settings row: a configured row wears the modified accent in the gutter (the border is always there, transparent
  * when clean, so marking never shifts it) and offers the Reset for exactly that scope. The filter hides rows via the
@@ -300,7 +560,7 @@ export function SettingRow({
 	errorId?: string;
 
 	/** The lowest-precedence covered tenant: a transient tone-styled status (a probe's outcome) on the same overlay. */
-	notice?: { readonly text: string; readonly tone: "ok" | "warning" | "error" } | undefined;
+	notice?: RowNotice | undefined;
 
 	/** The built-in default, named in the modified note (number rows only). */
 	defaultText?: string | undefined;
@@ -320,99 +580,15 @@ export function SettingRow({
 	/** A secondary row of a multi-row setting (the language filter's mode row); see the actions rule above. */
 	companion?: boolean;
 }) {
-	// HEADLINE only: the detail line is arbitrary-length and the covering contract keeps the cell's height. A live
-	// parse error outranks it (it describes the draft under the user's fingers); the failure resurfaces when the draft
-	// parses clean again.
-	//
-	//   an inserted block used to move every row below -> The standing failure of this row's last write, rendered in
-	//                                                      the covered-description slot like the parse errors
-	const settingFailures = useContext(SettingFailuresContext);
-	const writeFailure = companion === true ? undefined : settingFailures[settingId];
-	const errorLine = coveredLine(error);
-	const errorDetail = coveredDetail(error);
-	// Announced once per failure seq. The seq reaches the hook only while this branch actually renders: fed
-	// unconditionally, a failure landing behind a parse error was marked spoken with no visible line having spoken it,
-	// and surfaced silent later.
-	const writeFailureRole = useAlertOnce(errorLine === undefined ? writeFailure?.seq : undefined);
-	const failureText =
-		writeFailure === undefined
-			? undefined
-			: l10n.t("The last change did not apply: {0}", statusErrorHeadline(writeFailure.message));
-	const covered = errorLine !== undefined || failureText !== undefined || notice !== undefined;
-	const coverText = errorLine ?? (failureText !== undefined && writeFailure !== undefined ? failureText : notice?.text);
-	const detailText =
-		errorDetail ?? (failureText !== undefined && writeFailure !== undefined ? failureText : notice?.text);
-	const coverToneClass =
-		errorLine !== undefined || failureText !== undefined
-			? "error"
-			: notice?.tone === "error"
-				? "error"
-				: notice?.tone === "warning"
-					? "state-warn"
-					: "state-ok";
-	const [detailsOpen, setDetailsOpen] = useState(false);
-	const detailId = useId();
-	// A new tenant closes a stale disclosure: the detail block must never show yesterday's text under today's headline.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: coverText IS the reset trigger.
-	useEffect(() => {
-		setDetailsOpen(false);
-	}, [coverText]);
-	const needsDetails =
-		detailText !== undefined && (detailText !== coverText || detailText.length > COVER_DETAILS_THRESHOLD);
-	const detailsButton = needsDetails ? (
-		<Button
-			size="compact"
-			variant="secondary"
-			className="shrink-0"
-			aria-expanded={detailsOpen}
-			aria-controls={detailId}
-			onClick={() => setDetailsOpen((open) => !open)}
-		>
-			{detailsOpen ? l10n.t("Hide details") : l10n.t("Details")}
-		</Button>
-	) : null;
-	// While covered it renders once more inside the height twin - visibility-hidden AND aria-hidden, so its copies
-	// (notes, the catalog row's controls) are inert: out of the Tab order, hit-testing, and the accessibility tree.
+	const cover = useCoverState(settingId, companion, error, notice);
+	const covered = cover.tenant.kind !== "resting";
+	const details = useDetails(cover.coverText, cover.detailText);
 	const restingFlow = (
-		<>
-			<span className="setting-desc">{description}</span>
-			{configuredScope !== null && configuredScope !== "global" ? (
-				<>
-					{" "}
-					<ModifiedNote scope={configuredScope} defaultText={defaultText} />
-				</>
-			) : null}
-		</>
+		<RestingFlow description={description} configuredScope={configuredScope} defaultText={defaultText} />
 	);
-	const trailingNote =
-		configuredScope === "global" || (configuredScope === null && defaultText !== undefined) ? (
-			<>
-				{" "}
-				<ModifiedNote scope={configuredScope} defaultText={defaultText} />
-			</>
-		) : null;
+	const note = trailingNote(configuredScope, defaultText);
 	return (
-		<div
-			className={cn(
-				SETTING_ROW_GRID,
-				"group/setting -ml-3 relative items-baseline gap-y-1 rounded-xs border-l-2 py-2 pl-2.5 hover:bg-accent",
-				// The right edge mirrors the record rows' (-mx-2 with px-2): the hover tint overhangs
-				// the pane's cap by 8px while the CONTENT stops exactly at it.
-				"-mr-2 pr-2",
-				// The modified mark is the ACCENT, not the host's amber modifiedItemIndicator: "you set
-				// this" is selection semantics, amber means "needs attention". The var-shorthand form
-				// reads the RUNTIME --accent-hue chain directly: a named utility needs a @theme alias,
-				// and the last one was deleted as orphaned - the bar silently fell back to grey.
-				configuredScope === null ? "border-l-transparent" : "modified border-l-(--accent-hue)",
-				// A compact control keeps the two-column line at every stacked width (dashboard.css
-				// .setting-row.setting-compact).
-				compactControl === true && "setting-compact",
-				// The structural mark of a multi-row setting's secondary row; tests pin that exactly the companions
-				// leave their actions slot empty.
-				companion === true && "setting-companion"
-			)}
-			hidden={hidden}
-		>
+		<div className={rowClassName({ configuredScope, compactControl, companion })} hidden={hidden}>
 			{titleFor === undefined ? (
 				<span className={SETTING_TITLE}>{title}</span>
 			) : (
@@ -428,11 +604,10 @@ export function SettingRow({
 			<div className="setting-control flex min-w-0 flex-wrap items-center gap-2">{control}</div>
 			{/* The error COVERS the description: while one stands, the live flow leaves the flow and overlays the
 			    resting text's invisible aria-hidden twin (dashboard.css .setting-hint), so the cell keeps its height
-			    and no row moves while you type. The covering text joins the SAME inline flow as the row's ONE help
-			    glyph, which trails whichever sentence is visible - the glyph element never remounts across the swap, so
-			    keyboard focus on it survives structurally.
-
-			      the 72ch cap -> is a READING cap inside the growing track, not a second edge */}
+			    and no row moves while you type. */}
+			{/* The covering text joins the SAME inline flow as the row's ONE help glyph, which trails whichever
+			    sentence is visible - the glyph element never remounts across the swap, so keyboard focus on it
+			    survives structurally. The 72ch cap is a READING cap inside the growing track, not a second edge. */}
 			<div
 				className={cn(
 					"setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground",
@@ -441,77 +616,34 @@ export function SettingRow({
 				)}
 			>
 				<span className={cn("setting-live", covered && "flex min-w-0 items-start gap-2")}>
-					{/* The .error span holds ONLY the message and keeps the id: aria-describedby reads the referenced
-					    subtree, and a glyph inside it would ride every announcement of the field's problem. The
-					    write-failure cover is keyed on the seq so a repeat re-mounts and announces afresh (useAlertOnce
-					    dedupes to one announcement per seq); the glyph is its sibling and outlives the remount. */}
-					{errorLine === undefined ? (
-						failureText !== undefined && writeFailure !== undefined ? (
-							<span key={writeFailure.seq} className="setting-cover flex min-w-0 flex-1 items-center gap-2">
-								<span className="error min-w-0 truncate" role={writeFailureRole}>
-									{failureText}
-								</span>
-								{detailsButton}
-							</span>
-						) : notice === undefined ? (
-							<span className="setting-rest contents">{restingFlow}</span>
-						) : (
-							<span className="setting-cover flex min-w-0 flex-1 items-center gap-2">
-								<span className={cn("min-w-0 truncate", coverToneClass)} role="status">
-									{notice.text}
-								</span>
-								{detailsButton}
-							</span>
-						)
-					) : (
-						<span className="setting-cover flex min-w-0 flex-1 items-center gap-2">
-							<span className="error min-w-0 truncate" id={errorId}>
-								{errorLine}
-							</span>
-							{detailsButton}
-						</span>
-					)}
+					<CoverLine cover={cover} errorId={errorId} detailsButton={details.button} restingFlow={restingFlow} />
 					{glyphTrail(title, help)}
-					{covered ? null : trailingNote}
+					{covered ? null : note}
 				</span>
 				{covered ? (
 					<span className="setting-twin" aria-hidden="true">
 						<span className="setting-rest contents">{restingFlow}</span>
 						{glyphTrail(title, help)}
-						{trailingNote}
+						{note}
 					</span>
 				) : null}
-				{covered && detailsOpen && detailText !== undefined ? (
+				{covered && details.open && cover.detailText !== undefined ? (
 					// The full selectable text, revealed on request: a deliberate user-initiated height change (never
 					// automatic), so no covered line has to carry an unreadable tail.
 					<div
-						id={detailId}
+						id={details.id}
 						// overflow-wrap:anywhere, not break-words: min-content sizing counts anywhere-breaks, so an
 						// unbroken URL cannot inflate the description track past a narrow pane.
 						className={cn(
 							"setting-detail mt-1 min-w-0 select-text whitespace-pre-wrap [overflow-wrap:anywhere]",
-							coverToneClass
+							cover.toneClass
 						)}
 					>
-						{detailText}
+						{cover.detailText}
 					</div>
 				) : null}
 			</div>
-			{/* The row's one actions slot: Reset then the settings.json jump, always last (the anatomy's fourth track;
-			    placement per band in dashboard.css .setting-actions). gap-4.5 is ink-to-ink (compact buttons hand their
-			    padding back).
-
-			      A companion row keeps the empty track -> its grid lines up with its primary's */}
-			<div className="setting-actions flex items-center justify-end gap-4.5 self-start justify-self-end">
-				{companion === true ? null : (
-					<>
-						{configuredScope === null ? null : (
-							<ResetButton title={title} scope={configuredScope} settingId={settingId} />
-						)}
-						<RevealButton title={title} settingId={settingId} />
-					</>
-				)}
-			</div>
+			<RowActions title={title} settingId={settingId} configuredScope={configuredScope} companion={companion} />
 		</div>
 	);
 }
@@ -799,12 +931,12 @@ export function CommaListRow({
 				.filter((entry) => entry.length > 0)
 		),
 	];
-	const error =
-		parsed.length > maxCount
-			? countProblem(maxCount)
-			: parsed.some((entry) => entry.length > maxLength)
-				? lengthProblem(maxLength)
-				: undefined;
+	let error: string | undefined;
+	if (parsed.length > maxCount) {
+		error = countProblem(maxCount);
+	} else if (parsed.some((entry) => entry.length > maxLength)) {
+		error = lengthProblem(maxLength);
+	}
 	const commit = () => {
 		if (error !== undefined) {
 			return;

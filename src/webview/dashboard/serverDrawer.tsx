@@ -304,6 +304,105 @@ function DeniedUsageFacts({ card, pollingOff }: { card: UsageForbiddenServerView
 }
 
 /**
+ * The credential KIND, never a value, and only beside a present credential; OAuth stays English by policy. "unknown"
+ * is the pre-proof window: denying a key nobody read would be a guess, so the fact goes absent with the reason instead.
+ */
+function authenticationFact(server: DashboardServer): ReactNode {
+	if (server.credentials === "present") {
+		if (server.hasOAuth) {
+			return "OAuth";
+		}
+		return server.hasVirtualKey ? l10n.t("Virtual key header") : l10n.t("API key");
+	}
+	if (server.credentials === "absent") {
+		return l10n.t("none");
+	}
+	return <Absent reason={l10n.t("not read yet - secret storage is checked on the first sync")} />;
+}
+
+/**
+ * The model count, as a link into the Models page where one is wired. The whole phrase is the link: a bare "models"
+ * fragment cannot be translated (measure words and word order move).
+ *
+ * It lives here, not on the row - the row is one disclosure button, and a button cannot contain a button. A zero stays
+ * plain text: an empty scoped list has nothing to show.
+ */
+function modelsFact(server: DashboardServer, onShowModels: ((label: string) => void) | undefined): ReactNode {
+	const count = server.servedModelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.servedModelCount);
+	if (onShowModels === undefined || server.servedModelCount === 0) {
+		return count;
+	}
+	return (
+		<Button
+			variant="secondary"
+			size="compact"
+			className="count-link [--btn-mx:-0.25rem] px-1 py-0"
+			aria-label={l10n.t("Show models from {0}", server.label)}
+			onClick={() => onShowModels(server.label)}
+		>
+			{count}
+		</Button>
+	);
+}
+
+/** The Origin fact an external or legacy group carries; a declared entry has none. */
+function originFact(server: DashboardServer): ReactNode {
+	if (server.origin === "external") {
+		return (
+			<Fact label={l10n.t("Origin")}>
+				{l10n.t("external")}
+				<Why text={externalTip(server)} />
+			</Fact>
+		);
+	}
+	if (server.origin === "legacy") {
+		return (
+			<Fact label={l10n.t("Origin")}>
+				{l10n.t("legacy")}
+				<Why
+					text={l10n.t(
+						'Left behind by the entry "{0}", whose configuration no longer matches it. Its models stay in the picker until its object is deleted from the models file or in Manage Language Models.',
+						server.entryLabel
+					)}
+				/>
+			</Fact>
+		);
+	}
+	return null;
+}
+
+/** The usage facts for a covered server, the denied facts for a forbidden key, nothing for a server the snapshot skips. */
+function usageFacts(
+	usage: UsageServerCardView | undefined,
+	pollingOff: boolean,
+	now: number,
+	currencySymbol: string
+): ReactNode {
+	if (usage?.kind === "usage") {
+		return <UsageFacts server={usage} pollingOff={pollingOff} now={now} currencySymbol={currencySymbol} />;
+	}
+	if (usage?.kind === "forbidden") {
+		return <DeniedUsageFacts card={usage} pollingOff={pollingOff} />;
+	}
+	return null;
+}
+
+/** The endpoint detail lines the row's diagnostics did not already print. */
+function remainingDetails(
+	numbers: UsageServerView | undefined,
+	carriedDetails: ReadonlySet<UsageEndpoint>,
+	discoveryTimeoutMs: number
+): readonly string[] {
+	if (numbers === undefined) {
+		return [];
+	}
+	return detailLines(
+		carriedDetails.has("keyInfo") ? undefined : keyInfoDetail(numbers, discoveryTimeoutMs),
+		carriedDetails.has("dailyActivity") ? undefined : activityDetail(numbers)
+	);
+}
+
+/**
  * Usage is per SERVER, never per model, and every field can be missing (a normal shape, not a failure), so absence is
  * designed and a missing number is never a zero; only a server the snapshot does not cover gets the entry facts alone
  * (seven identical dashes would be noise).
@@ -333,13 +432,7 @@ export function ServerDrawer({
 	onShowModels: ((label: string) => void) | undefined;
 }) {
 	const numbers = usage?.kind === "usage" ? usage : undefined;
-	const details =
-		numbers === undefined
-			? []
-			: detailLines(
-					carriedDetails.has("keyInfo") ? undefined : keyInfoDetail(numbers, discoveryTimeoutMs),
-					carriedDetails.has("dailyActivity") ? undefined : activityDetail(numbers)
-				);
+	const details = remainingDetails(numbers, carriedDetails, discoveryTimeoutMs);
 	return (
 		<>
 			{/* The drawer-placed diagnostics LEAD the inventory (user-ruled): the sentence is what the row's tinted
@@ -362,46 +455,8 @@ export function ServerDrawer({
 						<UrlBreaks text={server.baseUrl} />
 					</span>
 				</Fact>
-				<Fact label={l10n.t("Authentication")}>
-					{/* The credential KIND, never a value, and only beside a present credential; OAuth stays English by
-					    policy. "unknown" is the pre-proof window: denying a key nobody read would be a guess, so the
-					    fact goes absent with the reason instead. */}
-					{server.credentials === "present" ? (
-						server.hasOAuth ? (
-							"OAuth"
-						) : server.hasVirtualKey ? (
-							l10n.t("Virtual key header")
-						) : (
-							l10n.t("API key")
-						)
-					) : server.credentials === "absent" ? (
-						l10n.t("none")
-					) : (
-						<Absent reason={l10n.t("not read yet - secret storage is checked on the first sync")} />
-					)}
-				</Fact>
-				<Fact label={l10n.t("Models")}>
-					{/* The whole phrase is the link: a bare "models" fragment cannot be translated (measure words
-					    and word order move). It lives here, not on the row - the row is one disclosure button, and
-					    a button cannot contain a button.
-
-					      an empty scoped list has nothing to show -> A zero stays plain text */}
-					{onShowModels !== undefined && server.servedModelCount > 0 ? (
-						<Button
-							variant="secondary"
-							size="compact"
-							className="count-link [--btn-mx:-0.25rem] px-1 py-0"
-							aria-label={l10n.t("Show models from {0}", server.label)}
-							onClick={() => onShowModels(server.label)}
-						>
-							{server.servedModelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.servedModelCount)}
-						</Button>
-					) : server.servedModelCount === 1 ? (
-						l10n.t("1 model")
-					) : (
-						l10n.t("{0} models", server.servedModelCount)
-					)}
-				</Fact>
+				<Fact label={l10n.t("Authentication")}>{authenticationFact(server)}</Fact>
+				<Fact label={l10n.t("Models")}>{modelsFact(server, onShowModels)}</Fact>
 				<Fact label={l10n.t("Discovery last checked")}>
 					{server.lastChecked !== undefined && server.state !== "unchecked" ? (
 						relativeTime(server.lastChecked, now)
@@ -409,30 +464,8 @@ export function ServerDrawer({
 						<Absent reason={l10n.t("no discovery pass has seen it yet - run Sync models to check it now")} />
 					)}
 				</Fact>
-				{server.origin === "external" ? (
-					<Fact label={l10n.t("Origin")}>
-						{l10n.t("external")}
-						<Why text={externalTip(server)} />
-					</Fact>
-				) : null}
-				{server.origin === "legacy" ? (
-					<Fact label={l10n.t("Origin")}>
-						{l10n.t("legacy")}
-						<Why
-							text={l10n.t(
-								'Left behind by the entry "{0}", whose configuration no longer matches it. Its models stay in the picker until its object is deleted from the models file or in Manage Language Models.',
-								server.entryLabel
-							)}
-						/>
-					</Fact>
-				) : null}
-				{numbers === undefined ? (
-					usage?.kind === "forbidden" ? (
-						<DeniedUsageFacts card={usage} pollingOff={pollingOff} />
-					) : null
-				) : (
-					<UsageFacts server={numbers} pollingOff={pollingOff} now={now} currencySymbol={currencySymbol} />
-				)}
+				{originFact(server)}
+				{usageFacts(usage, pollingOff, now, currencySymbol)}
 			</dl>
 			{details.map((detail) => (
 				<p key={detail} className="usage-detail mt-2 mb-0 font-mono text-[0.85em] text-muted-foreground">

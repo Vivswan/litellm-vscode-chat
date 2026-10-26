@@ -5,12 +5,102 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { RecordChainView } from "../../dashboard/viewModels";
+import type { RecordChainLink, RecordChainView } from "../../dashboard/viewModels";
 import { entryScope, Provenance, settingsScope } from "./provenance";
 import { Button } from "./ui/button";
 
+/** The two editors a chain key can jump into; an absent one leaves its keys as plain text. */
+interface ChainEditors {
+	readonly onEditRecord?: ((key: string) => void) | undefined;
+	readonly onEditEntry?: ((label: string) => void) | undefined;
+}
+
+interface ChainLineProps {
+	readonly chain: RecordChainView;
+	readonly editors: ChainEditors;
+}
+
+interface ChainLinkProps {
+	readonly chain: RecordChainView;
+	readonly link: RecordChainLink;
+	readonly first: boolean;
+	readonly onJump: (() => void) | undefined;
+}
+
 function chainsWithStory(chains: readonly RecordChainView[] | undefined): readonly RecordChainView[] {
 	return (chains ?? []).filter((chain) => chain.links.length >= 2);
+}
+
+/**
+ * The jump a key offers, gated on the LAYER, never on which callback happens to exist: an entry key must open the
+ * entry's form or nothing - falling back to the global editor would contradict its own aria-label.
+ */
+function linkJump(
+	chain: RecordChainView,
+	key: string,
+	{ onEditRecord, onEditEntry }: ChainEditors
+): (() => void) | undefined {
+	if (chain.layer === "entry") {
+		const { entryLabel } = chain;
+		return onEditEntry === undefined ? undefined : () => onEditEntry(entryLabel);
+	}
+	return onEditRecord === undefined ? undefined : () => onEditRecord(key);
+}
+
+function jumpLabel(chain: RecordChainView, key: string): string {
+	return chain.layer === "entry"
+		? l10n.t('Edit in server entry "{0}"', chain.entryLabel)
+		: l10n.t('Edit record "{0}" in settings', key);
+}
+
+/**
+ * One nowrap unit per link - arrow, key, and markers - so a long chain wraps BETWEEN links, never mid-marker or with
+ * an arrow stranded at a line's end.
+ */
+function ChainLink({ chain, link, first, onJump }: ChainLinkProps) {
+	return (
+		<span className="record-chain-link">
+			{first ? null : <span className="record-chain-arrow"> {"->"} </span>}
+			{onJump === undefined ? (
+				<code>{link.key}</code>
+			) : (
+				<Button
+					variant="secondary"
+					size="compact"
+					className="chain-key [--btn-mx:-0.125rem] px-0.5 py-0"
+					aria-label={jumpLabel(chain, link.key)}
+					onClick={onJump}
+				>
+					<code>{link.key}</code>
+				</Button>
+			)}
+			{link.barrier ? <span className="tree-barrier"> [{l10n.t("inheritance stops here")}]</span> : null}
+			{!link.barrier && link.inheritFrom !== undefined ? (
+				<span> [{l10n.t("inherits from: {0}", link.inheritFrom)}]</span>
+			) : null}
+		</span>
+	);
+}
+
+function ChainLine({ chain, editors }: ChainLineProps) {
+	return (
+		<p className="record-chain">
+			<span className="record-chain-label">{l10n.t("Record path")}</span>{" "}
+			{/* The layer word alone: the badge's second slot is a RECORD KEY everywhere else, and an
+			    entry label sitting in it reads as a record named "prod". The entry is named in the
+			    jump's accessible label and the panel's header. */}
+			<Provenance source={{ scope: chain.layer === "entry" ? entryScope() : settingsScope() }} />{" "}
+			{chain.links.map((link, index) => (
+				<ChainLink
+					key={link.key}
+					chain={chain}
+					link={link}
+					first={index === 0}
+					onJump={linkJump(chain, link.key, editors)}
+				/>
+			))}
+		</p>
+	);
 }
 
 export function RecordChainFigure({
@@ -33,58 +123,9 @@ export function RecordChainFigure({
 	}
 	return (
 		<div className="record-chains">
-			{shown.map((chain) => {
-				// The jump is gated on the LAYER, never on which callback happens to exist: an entry key must open the
-				// entry's form or nothing - falling back to the global editor would contradict its own aria-label.
-				const jump =
-					chain.layer === "entry"
-						? onEditEntry === undefined
-							? undefined
-							: () => onEditEntry(chain.entryLabel)
-						: undefined;
-				const jumpFor = (key: string) =>
-					chain.layer === "entry" ? jump : onEditRecord === undefined ? undefined : () => onEditRecord(key);
-				return (
-					<p className="record-chain" key={chain.layer}>
-						<span className="record-chain-label">{l10n.t("Record path")}</span>{" "}
-						{/* The layer word alone: the badge's second slot is a RECORD KEY everywhere else, and an
-						    entry label sitting in it reads as a record named "prod". The entry is named in the
-						    jump's accessible label and the panel's header. */}
-						<Provenance source={{ scope: chain.layer === "entry" ? entryScope() : settingsScope() }} />{" "}
-						{chain.links.map((link, index) => {
-							const onJump = jumpFor(link.key);
-							return (
-								// One nowrap unit per link - arrow, key, and markers - so a long chain wraps BETWEEN
-								// links, never mid-marker or with an arrow stranded at a line's end.
-								<span className="record-chain-link" key={link.key}>
-									{index > 0 ? <span className="record-chain-arrow"> {"->"} </span> : null}
-									{onJump === undefined ? (
-										<code>{link.key}</code>
-									) : (
-										<Button
-											variant="secondary"
-											size="compact"
-											className="chain-key [--btn-mx:-0.125rem] px-0.5 py-0"
-											aria-label={
-												chain.layer === "entry"
-													? l10n.t('Edit in server entry "{0}"', chain.entryLabel)
-													: l10n.t('Edit record "{0}" in settings', link.key)
-											}
-											onClick={onJump}
-										>
-											<code>{link.key}</code>
-										</Button>
-									)}
-									{link.barrier ? <span className="tree-barrier"> [{l10n.t("inheritance stops here")}]</span> : null}
-									{!link.barrier && link.inheritFrom !== undefined ? (
-										<span> [{l10n.t("inherits from: {0}", link.inheritFrom)}]</span>
-									) : null}
-								</span>
-							);
-						})}
-					</p>
-				);
-			})}
+			{shown.map((chain) => (
+				<ChainLine key={chain.layer} chain={chain} editors={{ onEditRecord, onEditEntry }} />
+			))}
 		</div>
 	);
 }

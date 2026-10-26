@@ -37,9 +37,9 @@ import {
 	helpLanguageFilterMode,
 	settingRowHelp,
 } from "./helpText";
-import { useIntentOutcome } from "./hooks";
+import { type IntentOutcome, useIntentOutcome } from "./hooks";
 import { tupleKey } from "./keys";
-import type { SettingWriteFailure } from "./settingRows";
+import type { CoveredMessage, SettingWriteFailure } from "./settingRows";
 import {
 	CommaListRow,
 	commaListCustom,
@@ -166,6 +166,296 @@ function modelRefIdentity(ref: FeatureModelRef): string {
 /** The custom-entry sentinel: real option values are JSON tuples (starting with "[") or empty, so it cannot collide. */
 const CUSTOM_OPTION = "custom";
 
+/** The tone the covered slot paints a landed probe outcome with: a refusal is an error, otherwise the ack's own tone. */
+function probeTone(outcome: IntentOutcome): "ok" | "warning" | "error" {
+	if (outcome.result === "fail") {
+		return "error";
+	}
+	return outcome.tone === "warning" ? "warning" : "ok";
+}
+
+/** The custom editor's two inputs: a declared server label and a model ID the picker could not list. */
+interface CustomModelDraft {
+	readonly server: string;
+	readonly model: string;
+}
+
+interface CustomModelDraftState {
+	readonly draft: CustomModelDraft | undefined;
+	readonly committable: boolean;
+	readonly update: (next: CustomModelDraft | undefined) => void;
+	readonly commit: () => void;
+}
+
+interface FeatureModelProbe {
+	readonly outcome: IntentOutcome | undefined;
+	readonly probing: boolean;
+	readonly start: () => void;
+	readonly clear: () => void;
+}
+
+interface ModelPickerProps {
+	readonly inputId: string;
+	readonly selected: string;
+	readonly options: readonly FeatureModelRef[];
+	readonly dangling: boolean;
+	readonly describedBy: string | undefined;
+	readonly onPick: (next: string) => void;
+}
+
+interface CustomModelEditorProps {
+	readonly inputId: string;
+	readonly draft: CustomModelDraft;
+	readonly declaredLabels: readonly string[];
+	readonly committable: boolean;
+	readonly onDraft: (next: CustomModelDraft | undefined) => void;
+	readonly onCommit: () => void;
+}
+
+interface PickContext {
+	readonly feature: FeatureModelId;
+	readonly value: FeatureModelRef | null;
+	readonly selected: string;
+	readonly options: readonly FeatureModelRef[];
+	readonly declaredLabels: readonly string[];
+	readonly openCustom: (draft: CustomModelDraft) => void;
+}
+
+/**
+ * The probe's own round trip (hook order is fixed; only probe-carrying rows render the button). The outcome is keyed
+ * to the request id AND the tested pair, so a result can never sit beside a model it did not test.
+ */
+function useFeatureModelProbe(feature: FeatureModelId, value: FeatureModelRef | null): FeatureModelProbe {
+	const probe = useIntentOutcome("testFeatureModel");
+	const [request, setRequest] = useState<{ id: string; model: string } | undefined>(undefined);
+	const current = request !== undefined && value !== null && request.model === modelRefIdentity(value);
+	const outcome = current && probe.outcome !== undefined && probe.outcome.id === request.id ? probe.outcome : undefined;
+	return {
+		outcome,
+		probing: current && outcome === undefined,
+		start: () => {
+			if (value !== null) {
+				setRequest({ id: probe.send({ feature, model: value }), model: modelRefIdentity(value) });
+			}
+		},
+		clear: () => setRequest(undefined),
+	};
+}
+
+/**
+ * The custom editor's draft. Any activity in it runs `onActivity`, which clears the landed probe outcome: the editor
+ * exists to change what the probe tested, so a standing result would be a stale annotation (the Test connection
+ * staleness rule).
+ */
+function useCustomModelDraft(
+	feature: FeatureModelId,
+	declaredLabels: readonly string[],
+	onActivity: () => void
+): CustomModelDraftState {
+	const [draft, setDraft] = useState<CustomModelDraft | undefined>(undefined);
+	const committable =
+		draft !== undefined && declaredLabels.includes(draft.server) && trimHttpWhitespace(draft.model) !== "";
+	const update = (next: CustomModelDraft | undefined) => {
+		setDraft(next);
+		onActivity();
+	};
+	return {
+		draft,
+		committable,
+		update,
+		commit: () => {
+			if (draft === undefined || !committable) {
+				return;
+			}
+			sendRequest("setFeatureModel", {
+				feature,
+				value: { server: draft.server, model: trimHttpWhitespace(draft.model) },
+			});
+			update(undefined);
+		},
+	};
+}
+
+/**
+ * A select pick. The custom option opens the editor seeded only by a declared label: the controlled select would
+ * otherwise DISPLAY its first option while a commit submitted the stale label underneath. Total by construction: an
+ * option value that resolves to no offered pair (impossible from an honest select) writes nothing rather than clearing.
+ */
+function pickModel(next: string, picker: PickContext): void {
+	const { feature, value, selected, options, declaredLabels } = picker;
+	if (next === CUSTOM_OPTION) {
+		const seed = value !== null && declaredLabels.includes(value.server) ? value.server : (declaredLabels[0] ?? "");
+		picker.openCustom({ server: seed, model: "" });
+		return;
+	}
+	if (next === selected) {
+		return;
+	}
+	if (next === "") {
+		sendRequest("setFeatureModel", { feature, value: null });
+		return;
+	}
+	const picked = options.find((option) => modelRefIdentity(option) === next);
+	if (picked !== undefined) {
+		sendRequest("setFeatureModel", { feature, value: picked });
+	}
+}
+
+/**
+ * The ROW says only which server went; the consequence-first sentence rides Details, so the covered line stays
+ * scannable at every pane width and in every locale.
+ */
+function danglingError(server: string): CoveredMessage {
+	return {
+		headline: l10n.t('Server "{0}" is unavailable.', server),
+		detail: l10n.t(
+			'This model cannot be reached because server "{0}" is no longer configured. Choose another model or restore that server under Servers.',
+			server
+		),
+	};
+}
+
+/** The offered pairs plus the custom escape hatch; `describedBy` names the warning only while it renders. */
+function ModelPicker({ inputId, selected, options, dangling, describedBy, onPick }: ModelPickerProps) {
+	return (
+		<Select
+			id={inputId}
+			className="min-w-0 max-w-full"
+			value={selected}
+			aria-invalid={dangling}
+			aria-describedby={describedBy}
+			onChange={(event) => onPick(event.currentTarget.value)}
+		>
+			<option value="">{l10n.t("Not set")}</option>
+			{options.map((option) => (
+				<option key={modelRefIdentity(option)} value={modelRefIdentity(option)}>
+					{`${option.server}: ${option.model}`}
+				</option>
+			))}
+			<option value={CUSTOM_OPTION}>{l10n.t("Custom model ID...")}</option>
+		</Select>
+	);
+}
+
+/**
+ * A deliberate two-line editor: the inputs share the first line and the RANKED actions sit on their own (Use model
+ * primary, Cancel one rank below) - opening it is a user-initiated height change the geometry registry marks intended.
+ */
+function CustomModelEditor({ inputId, draft, declaredLabels, committable, onDraft, onCommit }: CustomModelEditorProps) {
+	return (
+		<div className="flex w-full min-w-0 flex-col gap-2">
+			<div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+				<Select
+					id={inputId}
+					aria-label={l10n.t("Server")}
+					className="min-w-0 max-w-48 shrink"
+					value={draft.server}
+					onChange={(event) => onDraft({ ...draft, server: event.currentTarget.value })}
+				>
+					{declaredLabels.length === 0 ? <option value="">{l10n.t("No servers configured")}</option> : null}
+					{declaredLabels.map((label) => (
+						<option key={label} value={label}>
+							{label}
+						</option>
+					))}
+				</Select>
+				<Input
+					aria-label={l10n.t("Model ID")}
+					className="w-32 min-w-0 flex-1"
+					placeholder={l10n.t("e.g. codestral-fim")}
+					maxLength={WIRE_LIMITS.modelId}
+					value={draft.model}
+					onInput={(event) => onDraft({ ...draft, model: event.currentTarget.value })}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") {
+							onCommit();
+						}
+					}}
+				/>
+			</div>
+			<div className="flex items-center gap-2">
+				<Button size="compact" variant="default" disabled={!committable} onClick={onCommit}>
+					{l10n.t("Use model")}
+				</Button>
+				<Button size="compact" variant="secondary" onClick={() => onDraft(undefined)}>
+					{l10n.t("Cancel")}
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+/**
+ * A configured pair the options do not list joins them so the pick stays visible and keepable; labels and model IDs
+ * are user configuration, safe to render.
+ */
+function optionsWithValue(
+	options: readonly FeatureModelRef[],
+	value: FeatureModelRef | null
+): readonly FeatureModelRef[] {
+	if (value === null) {
+		return options;
+	}
+	const listed = options.some((option) => modelRefIdentity(option) === modelRefIdentity(value));
+	return listed ? options : [...options, value];
+}
+
+interface FeatureModelControlProps {
+	readonly feature: FeatureModelId;
+	readonly value: FeatureModelRef | null;
+	readonly options: readonly FeatureModelRef[];
+	readonly declaredLabels: readonly string[];
+	readonly inputId: string;
+	readonly dangling: boolean;
+	readonly describedBy: string | undefined;
+	readonly probeAvailable: boolean;
+	readonly probe: FeatureModelProbe;
+	readonly custom: CustomModelDraftState;
+}
+
+/** The row's control cell: the picker or the open custom editor, and the test button beside a closed picker. */
+function FeatureModelControl(props: FeatureModelControlProps) {
+	const { feature, value, options, declaredLabels, inputId, dangling, describedBy, probeAvailable, probe, custom } =
+		props;
+	const selected = value === null ? "" : modelRefIdentity(value);
+	if (custom.draft !== undefined) {
+		return (
+			<CustomModelEditor
+				inputId={inputId}
+				draft={custom.draft}
+				declaredLabels={declaredLabels}
+				committable={custom.committable}
+				onDraft={custom.update}
+				onCommit={custom.commit}
+			/>
+		);
+	}
+	return (
+		<>
+			<ModelPicker
+				inputId={inputId}
+				selected={selected}
+				options={options}
+				dangling={dangling}
+				describedBy={describedBy}
+				onPick={(next) =>
+					pickModel(next, { feature, value, selected, options, declaredLabels, openCustom: custom.update })
+				}
+			/>
+			{probeAvailable ? (
+				<Button
+					size="compact"
+					variant="secondary"
+					disabled={value === null || dangling || probe.probing}
+					onClick={probe.start}
+				>
+					{probe.probing ? l10n.t("Testing...") : l10n.t("Test model")}
+				</Button>
+			) : null}
+		</>
+	);
+}
+
 /**
  * A configured ref no offered pair backs stays IN the option list, selected with the same rendered text, so the
  * dangling state changes no geometry (check-geometry pins it, feature-model-dangling). A standing write failure
@@ -195,148 +485,22 @@ function FeatureModelRow({
 	// declared server may legitimately serve IDs the chat catalog does not list (completion-mode FIM models above
 	// all, unless the entry includes the mode), so absence from the options proves nothing about the model.
 	const dangling = value !== null && !declaredLabels.includes(value.server);
-	// A configured pair the options do not list joins them so the pick stays visible and keepable; labels and model IDs
-	// are user configuration, safe to render.
-	const listed = value !== null && options.some((option) => modelRefIdentity(option) === modelRefIdentity(value));
-	const allOptions = value !== null && !listed ? [...options, value] : options;
-	const selected = value === null ? "" : modelRefIdentity(value);
 	const settingId = FEATURE_MODEL_SETTING_KEYS[feature];
 	const inputId = `setting-${settingId}`;
 	const errorId = `${inputId}-error`;
-	const [customDraft, setCustomDraft] = useState<{ server: string; model: string } | undefined>(undefined);
-	// The probe's own round trip (hook order is fixed; only probe-carrying rows render the button). The outcome is
-	// keyed to the request id AND the tested pair, so a result can never sit beside a model it did not test.
-	const probe = useIntentOutcome("testFeatureModel");
-	const [probeRequest, setProbeRequest] = useState<{ id: string; model: string } | undefined>(undefined);
-	const probeCurrent = probeRequest !== undefined && value !== null && probeRequest.model === modelRefIdentity(value);
-	const probeOutcome =
-		probeCurrent && probe.outcome !== undefined && probe.outcome.id === probeRequest.id ? probe.outcome : undefined;
-	const probing = probeCurrent && probeOutcome === undefined;
+	const probe = useFeatureModelProbe(feature, value);
+	const custom = useCustomModelDraft(feature, declaredLabels, probe.clear);
 	// SettingRow shows a write failure only while `error` is empty, so the standing warning yields to it here; the
 	// warning resurfaces once the next push clears the failure.
 	const writeFailure = useContext(SettingFailuresContext)[settingId];
-	const warningShown = dangling && writeFailure === undefined && customDraft === undefined;
+	const warningShown = dangling && writeFailure === undefined && custom.draft === undefined;
 	// The landed probe outcome rides the covered-description slot (the height-keeping overlay), below the dangling
 	// warning and write failures. The FULL message travels: the cover renders its first truncated line and the Details
 	// disclosure reveals the whole two-part text selectable.
 	const probeNotice =
-		probeOutcome === undefined || warningShown
+		probe.outcome === undefined || warningShown
 			? undefined
-			: {
-					text: probeOutcome.message ?? "",
-					tone:
-						probeOutcome.result === "fail"
-							? ("error" as const)
-							: probeOutcome.tone === "warning"
-								? ("warning" as const)
-								: ("ok" as const),
-				};
-	// Any custom-editor activity clears the landed probe outcome: the editor exists to change what the probe tested, so
-	// a standing result would be a stale annotation (the Test connection staleness rule).
-	const updateDraft = (draft: { server: string; model: string } | undefined) => {
-		setCustomDraft(draft);
-		setProbeRequest(undefined);
-	};
-	const pick = (next: string) => {
-		if (next === CUSTOM_OPTION) {
-			// Only a declared label may seed the draft: the controlled select would otherwise DISPLAY its first option
-			// while a commit submitted the stale label underneath.
-			const seed = value !== null && declaredLabels.includes(value.server) ? value.server : (declaredLabels[0] ?? "");
-			updateDraft({ server: seed, model: "" });
-			return;
-		}
-		if (next === selected) {
-			return;
-		}
-		if (next === "") {
-			sendRequest("setFeatureModel", { feature, value: null });
-			return;
-		}
-		// Total by construction: an option value that resolves to no offered pair (impossible from an honest select)
-		// writes nothing rather than clearing.
-		const picked = allOptions.find((option) => modelRefIdentity(option) === next);
-		if (picked !== undefined) {
-			sendRequest("setFeatureModel", { feature, value: picked });
-		}
-	};
-	const customCommittable =
-		customDraft !== undefined &&
-		declaredLabels.includes(customDraft.server) &&
-		trimHttpWhitespace(customDraft.model) !== "";
-	const commitCustom = () => {
-		if (customDraft === undefined || !customCommittable) {
-			return;
-		}
-		sendRequest("setFeatureModel", {
-			feature,
-			value: { server: customDraft.server, model: trimHttpWhitespace(customDraft.model) },
-		});
-		updateDraft(undefined);
-	};
-	const picker =
-		customDraft === undefined ? (
-			<Select
-				id={inputId}
-				className="min-w-0 max-w-full"
-				value={selected}
-				aria-invalid={dangling}
-				// Only while the warning element actually renders under errorId; the write-failure cover that can
-				// replace it carries no id.
-				aria-describedby={warningShown ? errorId : undefined}
-				onChange={(event) => pick(event.currentTarget.value)}
-			>
-				<option value="">{l10n.t("Not set")}</option>
-				{allOptions.map((option) => (
-					<option key={modelRefIdentity(option)} value={modelRefIdentity(option)}>
-						{`${option.server}: ${option.model}`}
-					</option>
-				))}
-				<option value={CUSTOM_OPTION}>{l10n.t("Custom model ID...")}</option>
-			</Select>
-		) : (
-			// A deliberate two-line editor: the inputs share the first line and the RANKED actions sit on their own
-			// (Use model primary, Cancel one rank below) - opening it is a user-initiated height change the geometry
-			// registry marks intended.
-			<div className="flex w-full min-w-0 flex-col gap-2">
-				<div className="flex w-full min-w-0 flex-wrap items-center gap-2">
-					<Select
-						id={inputId}
-						aria-label={l10n.t("Server")}
-						className="min-w-0 max-w-48 shrink"
-						value={customDraft.server}
-						onChange={(event) => updateDraft({ ...customDraft, server: event.currentTarget.value })}
-					>
-						{declaredLabels.length === 0 ? <option value="">{l10n.t("No servers configured")}</option> : null}
-						{declaredLabels.map((label) => (
-							<option key={label} value={label}>
-								{label}
-							</option>
-						))}
-					</Select>
-					<Input
-						aria-label={l10n.t("Model ID")}
-						className="w-32 min-w-0 flex-1"
-						placeholder={l10n.t("e.g. codestral-fim")}
-						maxLength={WIRE_LIMITS.modelId}
-						value={customDraft.model}
-						onInput={(event) => updateDraft({ ...customDraft, model: event.currentTarget.value })}
-						onKeyDown={(event) => {
-							if (event.key === "Enter") {
-								commitCustom();
-							}
-						}}
-					/>
-				</div>
-				<div className="flex items-center gap-2">
-					<Button size="compact" variant="default" disabled={!customCommittable} onClick={commitCustom}>
-						{l10n.t("Use model")}
-					</Button>
-					<Button size="compact" variant="secondary" onClick={() => updateDraft(undefined)}>
-						{l10n.t("Cancel")}
-					</Button>
-				</div>
-			</div>
-		);
+			: { text: probe.outcome.message ?? "", tone: probeTone(probe.outcome) };
 	return (
 		<SettingRow
 			settingId={settingId}
@@ -344,44 +508,26 @@ function FeatureModelRow({
 			titleFor={inputId}
 			description={featureModelDescription(feature)}
 			help={helpFeatureModel()}
-			error={
-				warningShown
-					? {
-							// The ROW says only which server went; the consequence-first sentence rides Details, so
-							// the covered line stays scannable at every pane width and in every locale.
-							headline: l10n.t('Server "{0}" is unavailable.', value?.server ?? ""),
-							detail: l10n.t(
-								'This model cannot be reached because server "{0}" is no longer configured. Choose another model or restore that server under Servers.',
-								value?.server ?? ""
-							),
-						}
-					: undefined
-			}
+			error={warningShown ? danglingError(value?.server ?? "") : undefined}
 			errorId={errorId}
 			notice={probeNotice}
 			configuredScope={configuredScope}
 			hidden={hidden}
 			control={
-				<>
-					{picker}
-					{probeAvailable && customDraft === undefined ? (
-						<Button
-							size="compact"
-							variant="secondary"
-							disabled={value === null || dangling || probing}
-							onClick={() => {
-								if (value !== null) {
-									setProbeRequest({
-										id: probe.send({ feature, model: value }),
-										model: modelRefIdentity(value),
-									});
-								}
-							}}
-						>
-							{probing ? l10n.t("Testing...") : l10n.t("Test model")}
-						</Button>
-					) : null}
-				</>
+				<FeatureModelControl
+					feature={feature}
+					value={value}
+					options={optionsWithValue(options, value)}
+					declaredLabels={declaredLabels}
+					inputId={inputId}
+					dangling={dangling}
+					// Only while the warning element actually renders under errorId; the write-failure cover that can
+					// replace it carries no id.
+					describedBy={warningShown ? errorId : undefined}
+					probeAvailable={probeAvailable}
+					probe={probe}
+					custom={custom}
+				/>
 			}
 		/>
 	);
@@ -624,6 +770,130 @@ export const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } 
 	},
 };
 
+/** The header's quiet count of modified rows; nothing while none is. */
+function modifiedMeta(count: number): string | undefined {
+	if (count === 0) {
+		return undefined;
+	}
+	return count === 1 ? l10n.t("1 modified") : l10n.t("{0} modified", count);
+}
+
+/** The filter's verdicts, one per kind of row the page renders; every verdict reads the one matcher. */
+interface FeatureVisibility {
+	readonly scalar: (id: NumberSettingId | BooleanSettingId) => boolean;
+	readonly model: (feature: FeatureModelId) => boolean;
+	readonly tail: (feature: FeatureId) => boolean;
+	readonly section: (feature: FeatureId) => boolean;
+	readonly row: (row: SettingRowId) => boolean;
+}
+
+interface FeatureGroupProps {
+	readonly feature: FeatureId;
+	readonly settings: DashboardSettings;
+	readonly visibility: FeatureVisibility;
+	readonly tailContext: FeatureTailContext;
+	readonly featureModelOptions: readonly FeatureModelRef[];
+	readonly declaredLabels: readonly string[];
+	readonly featureProbes: readonly FeatureModelId[] | undefined;
+}
+
+/** A feature's boolean rows: its enable switch first, then the switches its descriptor adds. */
+function featureBooleans(feature: FeatureId): readonly BooleanSettingId[] {
+	return [FEATURE_ENABLE_SETTING_KEYS[feature], ...(FEATURE_REGISTRY[feature].booleans ?? [])];
+}
+
+/**
+ * The filter's verdicts for one matcher. `row` is total and fail-open by construction: an id this page cannot name
+ * renders visible.
+ */
+function featureVisibility(
+	filter: ReturnType<typeof filterMatcher>,
+	tailContext: FeatureTailContext
+): FeatureVisibility {
+	const { needle, matches } = filter;
+	const scalar = (id: NumberSettingId | BooleanSettingId): boolean => {
+		const { label, description } = scalarText(id);
+		return matches(label, description, id, settingRowHelp(id) ?? "");
+	};
+	const model = (feature: FeatureModelId): boolean =>
+		matches(
+			featureModelTitle(feature),
+			featureModelDescription(feature),
+			FEATURE_MODEL_SETTING_KEYS[feature],
+			helpFeatureModel()
+		);
+	const tail = (feature: FeatureId): boolean => {
+		const descriptor = FEATURE_REGISTRY[feature].tail;
+		return descriptor !== undefined && (needle.length === 0 || descriptor.visible(matches, tailContext));
+	};
+	const section = (feature: FeatureId): boolean =>
+		featureBooleans(feature).some(scalar) || (isFeatureModelId(feature) && model(feature)) || tail(feature);
+	const row = (id: SettingRowId): boolean => {
+		for (const feature of FEATURE_IDS) {
+			const own = featureBooleans(feature).find((candidate) => candidate === id);
+			if (own !== undefined) {
+				return scalar(own);
+			}
+			if (isFeatureModelId(feature) && id === FEATURE_MODEL_SETTING_KEYS[feature]) {
+				return model(feature);
+			}
+		}
+		if (id === "inlineCompletions.languageFilter") {
+			return tail("inlineCompletions");
+		}
+		if (id === "commitGeneration.prompt") {
+			return tail("commitGeneration");
+		}
+		return true;
+	};
+	return { scalar, model, tail, section, row };
+}
+
+/** How many of the page's settings are configured somewhere: every feature switch, model ref, prompt, and list. */
+function modifiedScopeCount(settings: DashboardSettings): number {
+	const scopes: readonly (SettingScope | null)[] = [
+		...FEATURE_IDS.flatMap((feature) => featureBooleans(feature).map((id) => settings.configuredScopes.booleans[id])),
+		...Object.values(settings.featureModelScopes),
+		settings.commitPromptScope,
+		settings.languageFilter.languages.scope,
+	];
+	return scopes.filter((scope) => scope !== null).length;
+}
+
+/** One feature's group: its switches, then its model row and descriptor tail where it has them. */
+function FeatureGroup(props: FeatureGroupProps) {
+	const { feature, settings, visibility, tailContext, featureModelOptions, declaredLabels, featureProbes } = props;
+	const descriptor = FEATURE_REGISTRY[feature];
+	const model = isFeatureModelId(feature) ? feature : undefined;
+	return (
+		<SettingGroup
+			title={() => featureDisplayName(feature, "title")}
+			note={descriptor.shipped ? undefined : comingSoonMarker}
+			numbers={[]}
+			booleans={featureBooleans(feature)}
+			settings={settings}
+			isVisible={visibility.scalar}
+			tailVisible={(model !== undefined && visibility.model(model)) || visibility.tail(feature)}
+			tail={
+				<>
+					{model === undefined ? null : (
+						<FeatureModelRow
+							feature={model}
+							value={settings.featureModels[model]}
+							options={featureModelOptions}
+							declaredLabels={declaredLabels}
+							configuredScope={settings.featureModelScopes[model]}
+							hidden={!visibility.model(model)}
+							probeAvailable={featureProbes?.includes(model) === true}
+						/>
+					)}
+					{descriptor.tail === undefined ? null : descriptor.tail.rows(tailContext, !visibility.tail(feature))}
+				</>
+			}
+		/>
+	);
+}
+
 /**
  * The Features page: one section per FeatureId, as FEATURE_REGISTRY declares it, behind one filter box.
  *
@@ -647,66 +917,14 @@ export function FeaturesSection({
 	const featureModelOptions = modelRefOptions(models, new Set(declaredServerLabels ?? []));
 	const [filter, setFilter] = useState("");
 	const filterId = useId();
-	const { needle, matches } = filterMatcher(filter);
 	const tailContext: FeatureTailContext = { settings };
-
-	const scalarVisible = (id: NumberSettingId | BooleanSettingId): boolean => {
-		const { label, description } = scalarText(id);
-		return matches(label, description, id, settingRowHelp(id) ?? "");
-	};
-	const featureBooleans = (feature: FeatureId): readonly BooleanSettingId[] => [
-		FEATURE_ENABLE_SETTING_KEYS[feature],
-		...(FEATURE_REGISTRY[feature].booleans ?? []),
-	];
-	const booleansVisible = (feature: FeatureId): boolean => featureBooleans(feature).some(scalarVisible);
-	const modelVisible = (feature: FeatureModelId): boolean =>
-		matches(
-			featureModelTitle(feature),
-			featureModelDescription(feature),
-			FEATURE_MODEL_SETTING_KEYS[feature],
-			helpFeatureModel()
-		);
-	const tailVisible = (feature: FeatureId): boolean => {
-		const tail = FEATURE_REGISTRY[feature].tail;
-		return tail !== undefined && (needle.length === 0 || tail.visible(matches, tailContext));
-	};
-	const sectionAnyVisible = (feature: FeatureId): boolean =>
-		booleansVisible(feature) || (isFeatureModelId(feature) && modelVisible(feature)) || tailVisible(feature);
-	const nothingMatches = !FEATURE_IDS.some(sectionAnyVisible);
-	const comingShown = FEATURE_IDS.some((feature) => !FEATURE_REGISTRY[feature].shipped && sectionAnyVisible(feature));
-
-	// Whether the row a failure would land on is actually on screen; total and fail-open by construction - an id this
-	// page cannot name renders visible.
-	const rowVisible = (row: SettingRowId): boolean => {
-		for (const feature of FEATURE_IDS) {
-			const own = featureBooleans(feature).find((id) => id === row);
-			if (own !== undefined) {
-				return scalarVisible(own);
-			}
-			if (isFeatureModelId(feature) && row === FEATURE_MODEL_SETTING_KEYS[feature]) {
-				return modelVisible(feature);
-			}
-		}
-		if (row === "inlineCompletions.languageFilter") {
-			return tailVisible("inlineCompletions");
-		}
-		if (row === "commitGeneration.prompt") {
-			return tailVisible("commitGeneration");
-		}
-		return true;
-	};
-	const { rowFailures, unclaimed } = placeWriteFailures(writeFailures, "features", rowVisible);
+	const visibility = featureVisibility(filterMatcher(filter), tailContext);
+	const nothingMatches = !FEATURE_IDS.some(visibility.section);
+	const comingShown = FEATURE_IDS.some((feature) => !FEATURE_REGISTRY[feature].shipped && visibility.section(feature));
+	const { rowFailures, unclaimed } = placeWriteFailures(writeFailures, "features", visibility.row);
 	// One announcement per failure seq across every surface: the pane-top away line may already have spoken this
 	// failure before the reader arrived here.
 	const unclaimedRole = useAlertOnce(unclaimed?.seq);
-
-	const scopes: readonly (SettingScope | null)[] = [
-		...FEATURE_IDS.flatMap((feature) => featureBooleans(feature).map((id) => settings.configuredScopes.booleans[id])),
-		...Object.values(settings.featureModelScopes),
-		settings.commitPromptScope,
-		settings.languageFilter.languages.scope,
-	];
-	const modifiedCount = scopes.filter((scope) => scope !== null).length;
 
 	return (
 		<SettingFailuresContext.Provider value={rowFailures}>
@@ -715,13 +933,7 @@ export function FeaturesSection({
 				title={l10n.t("Features")}
 				help={helpFeaturesSection()}
 				docs={{ href: DOCS_LINK_DASHBOARD_FEATURES, label: l10n.t("Open the features guide") }}
-				meta={
-					modifiedCount === 0
-						? undefined
-						: modifiedCount === 1
-							? l10n.t("1 modified")
-							: l10n.t("{0} modified", modifiedCount)
-				}
+				meta={modifiedMeta(modifiedScopeCount(settings))}
 				actions={
 					<Input
 						id={filterId}
@@ -744,38 +956,18 @@ export function FeaturesSection({
 				{nothingMatches ? <p className="empty">{l10n.t("No features match the filter.")}</p> : null}
 				{comingShown ? <p className="hint">{featuresComingHint()}</p> : null}
 				<div className={SETTING_GRID_TRACKS}>
-					{FEATURE_IDS.map((feature) => {
-						const descriptor = FEATURE_REGISTRY[feature];
-						const model = isFeatureModelId(feature) ? feature : undefined;
-						return (
-							<SettingGroup
-								key={feature}
-								title={() => featureDisplayName(feature, "title")}
-								note={descriptor.shipped ? undefined : comingSoonMarker}
-								numbers={[]}
-								booleans={featureBooleans(feature)}
-								settings={settings}
-								isVisible={scalarVisible}
-								tailVisible={(model !== undefined && modelVisible(model)) || tailVisible(feature)}
-								tail={
-									<>
-										{model === undefined ? null : (
-											<FeatureModelRow
-												feature={model}
-												value={settings.featureModels[model]}
-												options={featureModelOptions}
-												declaredLabels={declaredServerLabels ?? []}
-												configuredScope={settings.featureModelScopes[model]}
-												hidden={!modelVisible(model)}
-												probeAvailable={featureProbes?.includes(model) === true}
-											/>
-										)}
-										{descriptor.tail === undefined ? null : descriptor.tail.rows(tailContext, !tailVisible(feature))}
-									</>
-								}
-							/>
-						);
-					})}
+					{FEATURE_IDS.map((feature) => (
+						<FeatureGroup
+							key={feature}
+							feature={feature}
+							settings={settings}
+							visibility={visibility}
+							tailContext={tailContext}
+							featureModelOptions={featureModelOptions}
+							declaredLabels={declaredServerLabels ?? []}
+							featureProbes={featureProbes}
+						/>
+					))}
 				</div>
 			</Section>
 		</SettingFailuresContext.Provider>

@@ -9,15 +9,16 @@ import type {
 	ExternalDashboardServer,
 	HiddenGroup,
 	UsageServerCardView,
+	UsageServerView,
 } from "../../dashboard/viewModels";
 import type { ExpectedFailureCategory } from "../../shared/serverEntry";
 import { DOCS_LINK_SERVERS } from "./docsLinks";
 import { FailureText } from "./failureText";
 import { helpServersSection } from "./helpText";
-import { type IntentOutcome, useIntentOutcome } from "./hooks";
+import { type IntentOutcome, type IntentOutcomeState, useIntentOutcome } from "./hooks";
 import { IconAdd } from "./icons";
 import { tupleKey } from "./keys";
-import type { ServerHealthVerdict, SpendContext } from "./serverDiagnostics";
+import type { DrawerNotice, ServerHealthVerdict, SpendContext } from "./serverDiagnostics";
 import { ServerDiagnosticLine, serverDiagnostics, serverHealth } from "./serverDiagnostics";
 import { ServerDrawer, SpendUnit, UrlBreaks, urlParts } from "./serverDrawer";
 import { type DiagnosticSeverity, severityLabel } from "./severity";
@@ -138,6 +139,188 @@ function StatusPill({
 	);
 }
 
+interface ServerLineProps {
+	readonly server: DashboardServer;
+	readonly open: boolean;
+	readonly drawerId: string;
+	readonly worst: DiagnosticSeverity | undefined;
+	readonly now: number;
+	readonly spend: SpendContext;
+	readonly usageNumbers: UsageServerView | undefined;
+	readonly onToggle: () => void;
+}
+
+interface RowActionsClusterProps {
+	readonly server: DashboardServer;
+	readonly armed: boolean;
+	readonly onEdit: () => void;
+	readonly onArmRemove: (armed: boolean) => void;
+	readonly onConfirmRemove: () => void;
+}
+
+/** The credential KIND for the row's badge; the kind is the information, so it is the visible text. */
+function credentialBadgeText(server: DashboardServer): string {
+	if (server.hasOAuth) {
+		return "OAuth";
+	}
+	return server.hasVirtualKey ? l10n.t("Virtual key") : l10n.t("API key");
+}
+
+/**
+ * The declare control's confirm step, per row (row identity is keyed, so a push cannot re-associate the armed state).
+ * The pair survives the post - that is where "Declaring..." renders - and disarms when the round trip ends, either
+ * answer.
+ */
+function useDeclareArming(
+	declaring: boolean
+): [ExpectedFailureCategory | undefined, (next: ExpectedFailureCategory | undefined) => void] {
+	const [armedDeclare, setArmedDeclare] = useState<ExpectedFailureCategory | undefined>(undefined);
+	useEffect(() => {
+		if (!declaring) {
+			setArmedDeclare(undefined);
+		}
+	}, [declaring]);
+	return [armedDeclare, setArmedDeclare];
+}
+
+/**
+ * One disclosure button for the whole readable block, actions as its sibling (a button cannot contain a button); the
+ * chevron is decoration, aria-expanded announces.
+ *
+ * The hover/open wash lives on the WRAPPER row (:has rules): the button stops short of the actions column, and a wash
+ * that stopped with it cut the row into two boxes. border-control-outline is transparent in ordinary themes and the
+ * contrast border under high contrast; with no preflight a bare button wears the UA's box.
+ */
+function ServerLine({ server, open, drawerId, worst, now, spend, usageNumbers, onToggle }: ServerLineProps) {
+	const url = urlParts(server.baseUrl);
+	return (
+		<button
+			type="button"
+			className="server-line rounded-sm border border-control-outline text-left focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset-inset) focus-visible:outline-ring focus-visible:outline-solid"
+			aria-expanded={open}
+			// Only while the drawer exists: aria-controls at an unmounted id dangles.
+			aria-controls={open ? drawerId : undefined}
+			onClick={onToggle}
+		>
+			<DisclosureChevron className="server-chevron" />
+			<span className="server-name">
+				<span className="server-label-text">{server.label}</span>
+				{server.origin === "misconfigured" ? <span className="server-tag">{l10n.t("not in use")}</span> : null}
+			</span>
+			<span className="server-status">
+				<StatusPill server={server} worst={worst} now={now} />
+			</span>
+			{/* The row's second line when narrow, nothing when wide: display: contents
+			    hands these four straight to the button's grid, so one markup carries both
+			    shapes; the stylesheet names the columns, not this order. */}
+			<span className="server-meta">
+				<span className="server-url">
+					{/* The scheme is its own element so the stylesheet can hide it from the paint alone. */}
+					{url.scheme.length > 0 ? (
+						<span className={url.quiet ? "url-scheme visually-hidden" : "url-scheme"}>{url.scheme}</span>
+					) : null}
+					<UrlBreaks text={url.rest} />
+				</span>
+				<span className="server-count">
+					{/* The count carries its own noun. Plain text here (a button cannot contain
+					    a button); the link into the scoped Models list lives in the drawer. */}
+					<span className="count-plain">
+						{server.servedModelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.servedModelCount)}
+					</span>
+				</span>
+				<span className="server-usage">
+					<SpendUnit usage={usageNumbers} thresholds={spend.thresholds} currencySymbol={spend.currencySymbol} />
+				</span>
+				<span className="server-badges">
+					{/* Badges assert presence only: both "absent" and the pre-proof "unknown" stay blank here, and the
+					    drawer's Authentication fact tells the two apart. */}
+					{server.credentials === "present" ? <Badge>{credentialBadgeText(server)}</Badge> : null}
+					{/* Provenance is the drawer's Origin fact; a hover tip here would be a focusable wrapper
+					    inside this button. */}
+					{server.origin === "external" ? <Badge>{l10n.t("external")}</Badge> : null}
+					{server.origin === "legacy" ? <Badge>{l10n.t("legacy")}</Badge> : null}
+				</span>
+			</span>
+		</button>
+	);
+}
+
+/**
+ * The row's action cluster. A legacy leftover has no action: not in the setting (no Edit, no adopt), not the user's
+ * own (no hide); the drawer's Origin fact names the deletion route.
+ *
+ * A misconfigured entry has no Edit: it cannot round-trip the form without rewriting what the user typed, and the
+ * blocking line beneath the row already carries the fix action (reveal the setting).
+ *
+ * At the narrowest tier the armed pair covers ALL of the row, so the name the reader is checking against goes inside
+ * the cover there, ellipsized; the stylesheet hides it above, where the row's own name still stands. The buttons carry
+ * the label in their accessible names at every tier, LEADING with their visible words (Label in Name).
+ */
+function RowActionsCluster({ server, armed, onEdit, onArmRemove, onConfirmRemove }: RowActionsClusterProps) {
+	if (server.origin === "legacy") {
+		return null;
+	}
+	if (armed) {
+		return (
+			<>
+				<span className="armed-subject">{server.label}</span>
+				<Button
+					variant="danger"
+					size="compact"
+					aria-label={l10n.t("Confirm remove? {0}", server.label)}
+					onClick={onConfirmRemove}
+				>
+					{l10n.t("Confirm remove?")}
+				</Button>
+				<Button
+					variant="secondary"
+					size="compact"
+					aria-label={l10n.t("Cancel removing {0}", server.label)}
+					onClick={() => onArmRemove(false)}
+				>
+					{l10n.t("Cancel")}
+				</Button>
+			</>
+		);
+	}
+	return (
+		<>
+			{server.origin === "misconfigured" ? null : (
+				<Button variant="secondary" size="compact" aria-label={l10n.t("Edit {0}", server.label)} onClick={onEdit}>
+					{l10n.t("Edit")}
+				</Button>
+			)}
+			<Button
+				variant="danger"
+				size="compact"
+				aria-label={l10n.t("Remove {0}", server.label)}
+				onClick={() => onArmRemove(true)}
+			>
+				{l10n.t("Remove")}
+			</Button>
+		</>
+	);
+}
+
+/**
+ * A closed drawer keeps its notices in the ACCESSIBLE tree: the meter's tone is colour, which a screen reader never
+ * gets. The open drawer renders the visible line, so the twin stands down with it.
+ */
+function HiddenNoticeTwins({ open, notices }: { open: boolean; notices: readonly DrawerNotice[] }) {
+	if (open) {
+		return null;
+	}
+	return (
+		<>
+			{notices.map((diagnostic) => (
+				<div key={diagnostic.key} className="visually-hidden">
+					{severityLabel(diagnostic.severity, "server")} {diagnostic.headline}
+				</div>
+			))}
+		</>
+	);
+}
+
 function ServerRow({
 	server,
 	usage,
@@ -208,15 +391,7 @@ function ServerRow({
 		sendRequest("removeServerSetting", { label: server.label, baseUrl: server.baseUrl });
 		onArmRemove(false);
 	};
-	// The declare control's confirm step, per row (row identity is keyed, so a push cannot re-associate the armed
-	// state). The pair survives the post - that is where "Declaring..." renders - and disarms when the round trip ends,
-	// either answer.
-	const [armedDeclare, setArmedDeclare] = useState<ExpectedFailureCategory | undefined>(undefined);
-	useEffect(() => {
-		if (!declaring) {
-			setArmedDeclare(undefined);
-		}
-	}, [declaring]);
+	const [armedDeclare, setArmedDeclare] = useDeclareArming(declaring);
 	// Local state on purpose: a push that reorders rows keeps each drawer with its keyed row, and a closed dashboard
 	// forgets, exactly like the model rows.
 	const [open, setOpen] = useState(false);
@@ -237,134 +412,38 @@ function ServerRow({
 	// drawer-deferred warning still signals.
 	const rowDiagnostics = diagnostics.filter((diagnostic) => diagnostic.placement !== "drawer");
 	const drawerDiagnostics = diagnostics.filter((diagnostic) => diagnostic.placement === "drawer");
-	const url = urlParts(server.baseUrl);
 	const usageNumbers = usage?.kind === "usage" ? usage : undefined;
+	const confirm = () => {
+		if (server.origin === "external") {
+			onHideExternal(server);
+			onArmRemove(false);
+		} else {
+			confirmRemove();
+		}
+	};
 	return (
 		// The actions are revealed by hover AND focus-within: hover alone would put Remove out of the keyboard's reach
 		// entirely.
 		<li className="server-item">
 			<div className="server-row">
-				{/* One disclosure button for the whole readable block, actions as its sibling
-				    (a button cannot contain a button); the chevron is decoration, aria-expanded
-				    announces. The hover/open wash lives on the WRAPPER row (:has rules):
-				    the button stops short of the actions column, and a wash that stopped with
-				    it cut the row into two boxes.
-
-				      border-control-outline -> transparent in ordinary themes
-				      no preflight           -> a bare button wears the UA's box
-				      border-control-outline -> the contrast border under high contrast */}
-				<button
-					type="button"
-					className="server-line rounded-sm border border-control-outline text-left focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset-inset) focus-visible:outline-ring focus-visible:outline-solid"
-					aria-expanded={open}
-					// Only while the drawer exists: aria-controls at an unmounted id dangles.
-					aria-controls={open ? drawerId : undefined}
-					onClick={() => setOpen(!open)}
-				>
-					<DisclosureChevron className="server-chevron" />
-					<span className="server-name">
-						<span className="server-label-text">{server.label}</span>
-						{server.origin === "misconfigured" ? <span className="server-tag">{l10n.t("not in use")}</span> : null}
-					</span>
-					<span className="server-status">
-						<StatusPill server={server} worst={diagnostics[0]?.severity} now={now} />
-					</span>
-					{/* The row's second line when narrow, nothing when wide: display: contents
-					    hands these four straight to the button's grid, so one markup carries both
-					    shapes; the stylesheet names the columns, not this order. */}
-					<span className="server-meta">
-						<span className="server-url">
-							{/* The scheme is its own element so the stylesheet can hide it from the paint alone. */}
-							{url.scheme.length > 0 ? (
-								<span className={url.quiet ? "url-scheme visually-hidden" : "url-scheme"}>{url.scheme}</span>
-							) : null}
-							<UrlBreaks text={url.rest} />
-						</span>
-						<span className="server-count">
-							{/* The count carries its own noun. Plain text here (a button cannot contain
-							    a button); the link into the scoped Models list lives in the drawer. */}
-							<span className="count-plain">
-								{server.servedModelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.servedModelCount)}
-							</span>
-						</span>
-						<span className="server-usage">
-							<SpendUnit usage={usageNumbers} thresholds={spend.thresholds} currencySymbol={spend.currencySymbol} />
-						</span>
-						<span className="server-badges">
-							{/* The credential kind is the information, so it is the visible text. Badges assert
-							    presence only: both "absent" and the pre-proof "unknown" stay blank here, and the
-							    drawer's Authentication fact tells the two apart. */}
-							{server.credentials === "present" ? (
-								<Badge>
-									{server.hasOAuth ? "OAuth" : server.hasVirtualKey ? l10n.t("Virtual key") : l10n.t("API key")}
-								</Badge>
-							) : null}
-							{/* Provenance is the drawer's Origin fact; a hover tip here would be a focusable wrapper
-							    inside this button. */}
-							{server.origin === "external" ? <Badge>{l10n.t("external")}</Badge> : null}
-							{server.origin === "legacy" ? <Badge>{l10n.t("legacy")}</Badge> : null}
-						</span>
-					</span>
-				</button>
-				{/* A legacy leftover has no action: not in the setting (no Edit, no adopt), not the user's own
-				    (no hide); the drawer's Origin fact names the deletion route. */}
+				<ServerLine
+					server={server}
+					open={open}
+					drawerId={drawerId}
+					worst={diagnostics[0]?.severity}
+					now={now}
+					spend={spend}
+					usageNumbers={usageNumbers}
+					onToggle={() => setOpen(!open)}
+				/>
 				<span className={armed ? "server-actions armed" : "server-actions"}>
-					{server.origin === "legacy" ? null : armed ? (
-						<>
-							{/* At the narrowest tier the armed pair covers ALL of the row, so the name the reader
-							    is checking against goes inside the cover there, ellipsized; the stylesheet hides it
-							    above, where the row's own name still stands. The buttons carry the label in their
-							    accessible names at every tier, LEADING with their visible words (Label in Name). */}
-							<span className="armed-subject">{server.label}</span>
-							<Button
-								variant="danger"
-								size="compact"
-								aria-label={l10n.t("Confirm remove? {0}", server.label)}
-								onClick={() => {
-									if (server.origin === "external") {
-										onHideExternal(server);
-										onArmRemove(false);
-									} else {
-										confirmRemove();
-									}
-								}}
-							>
-								{l10n.t("Confirm remove?")}
-							</Button>
-							<Button
-								variant="secondary"
-								size="compact"
-								aria-label={l10n.t("Cancel removing {0}", server.label)}
-								onClick={() => onArmRemove(false)}
-							>
-								{l10n.t("Cancel")}
-							</Button>
-						</>
-					) : (
-						<>
-							{/* A misconfigured entry has no Edit: it cannot round-trip the form without
-							    rewriting what the user typed, and the blocking line beneath the row
-							    already carries the fix action (reveal the setting). */}
-							{server.origin === "misconfigured" ? null : (
-								<Button
-									variant="secondary"
-									size="compact"
-									aria-label={l10n.t("Edit {0}", server.label)}
-									onClick={onEdit}
-								>
-									{l10n.t("Edit")}
-								</Button>
-							)}
-							<Button
-								variant="danger"
-								size="compact"
-								aria-label={l10n.t("Remove {0}", server.label)}
-								onClick={() => onArmRemove(true)}
-							>
-								{l10n.t("Remove")}
-							</Button>
-						</>
-					)}
+					<RowActionsCluster
+						server={server}
+						armed={armed}
+						onEdit={onEdit}
+						onArmRemove={onArmRemove}
+						onConfirmRemove={confirm}
+					/>
 				</span>
 			</div>
 			{open ? (
@@ -386,15 +465,7 @@ function ServerRow({
 			{rowDiagnostics.map((diagnostic) => (
 				<ServerDiagnosticLine key={diagnostic.key} diagnostic={diagnostic} />
 			))}
-			{/* A closed drawer keeps its notices in the ACCESSIBLE tree: the meter's tone is colour, which a screen
-			    reader never gets. The open drawer renders the visible line, so the twin stands down with it. */}
-			{open
-				? null
-				: drawerDiagnostics.map((diagnostic) => (
-						<div key={diagnostic.key} className="visually-hidden">
-							{severityLabel(diagnostic.severity, "server")} {diagnostic.headline}
-						</div>
-					))}
+			<HiddenNoticeTwins open={open} notices={drawerDiagnostics} />
 		</li>
 	);
 }
@@ -446,11 +517,12 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 		return null;
 	}
 	// Open drops the count: it is the reason to open the list and says nothing once it is open.
-	const label = expanded
-		? l10n.t("Hide")
-		: hidden.length === 1
-			? l10n.t("Show 1 hidden group")
-			: l10n.t("Show {0} hidden groups", hidden.length);
+	let label = l10n.t("Show {0} hidden groups", hidden.length);
+	if (expanded) {
+		label = l10n.t("Hide");
+	} else if (hidden.length === 1) {
+		label = l10n.t("Show 1 hidden group");
+	}
 	return (
 		<div className="hidden-groups">
 			<Button
@@ -578,6 +650,438 @@ function serversMeta(
 	return clauses.join(" - ");
 }
 
+/** A row's in-flight request: the row it belongs to, its label for the aria-live text, and the id the answer echoes. */
+interface RowRequest {
+	readonly rowKey: string;
+	readonly label: string;
+	readonly requestId: string;
+}
+
+/** The hide round trip's two ends: the pending request and, once acked, the guidance notice naming the hidden group. */
+interface HideRoundTrip {
+	readonly removedNotice: { readonly label: string; readonly baseUrl: string } | undefined;
+	readonly dismiss: () => void;
+	readonly hideExternal: (server: ExternalDashboardServer) => void;
+}
+
+/** The outcome hooks the list owns, one per acked method; the banners and Dismiss read each hook's latest fail. */
+interface ListIntents {
+	readonly save: IntentOutcomeState<"saveServerSetting">;
+	readonly remove: IntentOutcomeState<"removeServerSetting">;
+	readonly adopt: IntentOutcomeState<"adoptServer">;
+	readonly hide: IntentOutcomeState<"hideExternalServer">;
+	readonly unhide: IntentOutcomeState<"unhideServer">;
+	readonly manage: IntentOutcomeState<"manageHiddenGroup">;
+	readonly declare: IntentOutcomeState<"declareExpectedFailure">;
+}
+
+interface ServerListProps {
+	readonly servers: readonly DashboardServer[];
+	readonly usageFor: (server: DashboardServer) => UsageServerCardView | undefined;
+	readonly spend: SpendContext;
+	readonly now: number;
+	readonly usage: DashboardUsage | undefined;
+	readonly armedRemove: string | undefined;
+	readonly onArmRemove: (rowKey: string | undefined) => void;
+	readonly retrying: RowRequest | undefined;
+	readonly onRetry: (request: RowRequest) => void;
+	readonly pendingDeclare: RowRequest | undefined;
+	readonly onDeclare: (request: RowRequest) => void;
+	readonly syncIntent: IntentOutcomeState<"syncModels">;
+	readonly declareIntent: IntentOutcomeState<"declareExpectedFailure">;
+	readonly hideExternal: (server: ExternalDashboardServer) => void;
+	readonly onShowModels: ((label: string) => void) | undefined;
+	readonly onEditServer: (label: string) => void;
+	readonly onAdoptServer: (handle: string) => void;
+}
+
+/**
+ * One row's unanswered request, keyed by row identity (the label rides along only for the aria-live text), like the
+ * armed Remove.
+ *
+ * The id is held, not just the row: useIntentOutcome reports the METHOD's latest envelope whoever posted it (the
+ * rail's Sync button posts the same method as a row's Retry). Only the answer to THIS request clears it - either
+ * answer, since a failed post is finished too.
+ */
+function useRowRequest(outcome: IntentOutcome | undefined): [RowRequest | undefined, (next: RowRequest) => void] {
+	const [request, setRequest] = useState<RowRequest | undefined>(undefined);
+	useEffect(() => {
+		setRequest((current) => (current !== undefined && outcome?.id === current.requestId ? undefined : current));
+	}, [outcome]);
+	return [request, setRequest];
+}
+
+/**
+ * The hide round trip: requestId plus the row's label and base URL, so the guidance notice can name the exact group
+ * to delete once the ack lands. Only the ack crosses the boundary. The notice must name the URL, since an unlabeled
+ * group's display label is only its URL host, not the name the host's editor or its models file carries.
+ */
+function useHideRoundTrip(hideIntent: IntentOutcomeState<"hideExternalServer">): HideRoundTrip {
+	const [pending, setPending] = useState<{ requestId: string; label: string; baseUrl: string } | undefined>(undefined);
+	const [removedNotice, setRemovedNotice] = useState<{ label: string; baseUrl: string } | undefined>(undefined);
+	const pendingRequestId = pending?.requestId;
+	const pendingLabel = pending?.label;
+	const pendingBaseUrl = pending?.baseUrl;
+	const hideOutcome = hideIntent.outcome;
+	useEffect(() => {
+		if (
+			pendingRequestId !== undefined &&
+			pendingLabel !== undefined &&
+			pendingBaseUrl !== undefined &&
+			hideOutcome?.result === "ok" &&
+			hideOutcome.id === pendingRequestId
+		) {
+			setRemovedNotice({ label: pendingLabel, baseUrl: pendingBaseUrl });
+			setPending(undefined);
+		}
+	}, [hideOutcome, pendingRequestId, pendingLabel, pendingBaseUrl]);
+	return {
+		removedNotice,
+		dismiss: () => setRemovedNotice(undefined),
+		hideExternal: (server) => {
+			const requestId = hideIntent.send({ baseUrl: server.baseUrl, sourceHandle: server.adoptHandle });
+			setPending({ requestId, label: server.label, baseUrl: server.baseUrl });
+		},
+	};
+}
+
+/**
+ * The one-time post-adoption notice: the old host-owned group survives (no removal API), so the user is told plainly
+ * why models now appear twice. The edit page owns the adopt round trip and leaves on its own ack; this hook sees the
+ * same envelope, which is what lets the notice belong to the list, not the page that left.
+ */
+function useAdoptNotice(adoptOutcome: IntentOutcome | undefined): [string | undefined, () => void] {
+	const [notice, setNotice] = useState<string | undefined>(undefined);
+	const adoptedId = adoptOutcome?.result === "ok" ? adoptOutcome.id : undefined;
+	const adoptedCaveat = adoptOutcome?.result === "ok" ? adoptOutcome.message : undefined;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the acked id so one ack raises one notice
+	useEffect(() => {
+		if (adoptedId === undefined) {
+			return;
+		}
+		const base = l10n.t(
+			"Adopted into the servers setting. Models appear twice until the original group's object is deleted: open the models file, remove it, reload the window."
+		);
+		setNotice(adoptedCaveat === undefined ? base : `${base} ${adoptedCaveat}`);
+	}, [adoptedId]);
+	return [notice, () => setNotice(undefined)];
+}
+
+/** The snapshot's spend inputs once, read by rows, diagnostics, and header meta alike, so a threshold can never rank a row differently from the line under it. */
+function spendContext(usage: DashboardUsage | undefined, currencySymbol: string): SpendContext {
+	return {
+		thresholds: usage?.thresholds ?? [],
+		currencySymbol,
+		pollingOff: usage?.pollIntervalMs === 0,
+		discoveryTimeoutMs: usage?.discoveryTimeoutMs ?? 0,
+	};
+}
+
+/**
+ * Rows carrying something worth acting on, read through the same classifier the rows render - a second predicate would
+ * drift. Advisories excluded on purpose; a denied usage key counts, per the tier contract's user-ruled carve-out.
+ */
+function countAttention(
+	servers: readonly DashboardServer[],
+	usageFor: (server: DashboardServer) => UsageServerCardView | undefined,
+	spend: SpendContext
+): number {
+	return servers.filter((server) =>
+		serverDiagnostics(server, usageFor(server), spend, { onEdit: () => {}, onRetry: () => {} }).lines.some(
+			(diagnostic) => diagnostic.severity !== "advisory"
+		)
+	).length;
+}
+
+/** Whether any rendered row shows a stale spend number, through the same join the rows use. */
+function anyStaleSpend(
+	servers: readonly DashboardServer[],
+	usageFor: (server: DashboardServer) => UsageServerCardView | undefined
+): boolean {
+	return servers.some((server) => {
+		const card = usageFor(server);
+		return card?.kind === "usage" && !card.fresh && card.spend !== undefined;
+	});
+}
+
+/**
+ * The list's verdict for its live region. No verdict yet: "All servers are healthy" would assert a clean bill of health
+ * the page has never taken.
+ */
+function verdictLine(attentionCount: number, newestCheck: number): string {
+	if (attentionCount === 1) {
+		return l10n.t("1 server needs attention");
+	}
+	if (attentionCount > 1) {
+		return l10n.t("{0} servers need attention", attentionCount);
+	}
+	return newestCheck > 0 ? l10n.t("All servers are healthy") : l10n.t("No servers have been checked yet");
+}
+
+/** The list's ONE in-flight announcement, every pass in flight joined into one sentence. */
+function inFlightLine(
+	retrying: RowRequest | undefined,
+	pendingDeclare: RowRequest | undefined,
+	usage: DashboardUsage | undefined
+): string {
+	return [
+		retrying === undefined ? undefined : l10n.t("Checking {0}", retrying.label),
+		pendingDeclare === undefined ? undefined : l10n.t("Declaring the expected failure for {0}", pendingDeclare.label),
+		usage?.refreshingExplicitly === true ? l10n.t("Refreshing usage data") : undefined,
+	]
+		.filter((line): line is string => line !== undefined)
+		.join("; ");
+}
+
+/**
+ * The one place the destination's purpose is decided: a declared row edits, an external row adopts; the misconfigured
+ * guard (no Edit renders) keeps the narrowing honest.
+ */
+function openEditDestination(
+	server: DashboardServer,
+	onEditServer: (label: string) => void,
+	onAdoptServer: (handle: string) => void
+): void {
+	if (server.origin === "misconfigured" || server.origin === "legacy") {
+		return;
+	}
+	if (server.origin === "declared") {
+		onEditServer(server.label);
+		return;
+	}
+	onAdoptServer(server.adoptHandle);
+}
+
+/**
+ * Refresh now: disabled during ANY pass (one serialized engine); the busy label only for an EXPLICIT one - a spinner
+ * on every scheduled poll read as the app acting unasked. Both labels stay mounted in one grid cell, the hidden one
+ * holding the width, so the swap cannot resize the button; check-geometry's servers-refresh-busy pair holds that.
+ */
+function RefreshUsageButton({ usage, disabled }: { usage: DashboardUsage | undefined; disabled: boolean }) {
+	const explicit = usage?.refreshingExplicitly === true;
+	return (
+		<Button
+			variant="secondary"
+			className="refresh-usage"
+			disabled={usage?.refreshing === true || disabled}
+			onClick={() => sendRequest("refreshUsage", null)}
+		>
+			<span className="grid">
+				<span
+					className={cn(
+						"refresh-busy-label col-start-1 row-start-1 inline-flex items-center justify-center gap-1",
+						explicit ? undefined : "invisible"
+					)}
+					aria-hidden={explicit ? undefined : true}
+				>
+					<span className="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
+				</span>
+				<span
+					className={cn(
+						"refresh-idle-label col-start-1 row-start-1 inline-flex items-center justify-center",
+						explicit && "invisible"
+					)}
+					aria-hidden={explicit ? true : undefined}
+				>
+					{l10n.t("Refresh now")}
+				</span>
+			</span>
+		</Button>
+	);
+}
+
+/** The guidance notice after a hide: how to delete the host-owned group for good. */
+function RemovedNotice({ notice, onDismiss }: { notice: { label: string; baseUrl: string }; onDismiss: () => void }) {
+	return (
+		<div className="notice" role="status">
+			<p>
+				{l10n.t(
+					'Hid "{0}" and its models. VS Code still keeps its provider group at {1}; its name here is only a display label, so find it by that base URL. To delete it for good:',
+					notice.label,
+					notice.baseUrl
+				)}
+			</p>
+			<ol className="notice-steps">
+				<li>
+					{l10n.t(
+						"Open the models file and remove the object whose baseUrl is {0} from the JSON array.",
+						notice.baseUrl
+					)}
+				</li>
+				<li>{l10n.t('Reload the window (Ctrl+Shift+P, "Developer: Reload Window") or restart VS Code.')}</li>
+				<li>{l10n.t("Run Sync models.")}</li>
+			</ol>
+			<div className="toolbar">
+				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}>
+					{l10n.t("Open models file")}
+				</Button>
+				<Button variant="secondary" size="compact" onClick={onDismiss}>
+					{l10n.t("Dismiss")}
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+/** The post-adoption notice with the models-file route beside it. */
+function AdoptNotice({ text, onDismiss }: { text: string; onDismiss: () => void }) {
+	return (
+		<div className="notice" role="status">
+			<p>{text}</p>
+			<div className="toolbar">
+				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}>
+					{l10n.t("Open models file")}
+				</Button>
+				<Button variant="secondary" size="compact" onClick={onDismiss}>
+					{l10n.t("Dismiss")}
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+/**
+ * The list's failure banners, one per acked method. The edit page keeps a validation failure beside the draft it
+ * refused; the list hears the same envelope and shows only the failures whose disposition closed the page.
+ */
+function FailureBanners({ intents }: { intents: ListIntents }) {
+	const failed = (state: { readonly outcome: IntentOutcome | undefined }) =>
+		state.outcome?.result === "fail" ? state.outcome : undefined;
+	const adoptFailure = closingFailure(intents.adopt.outcome);
+	const saveFailure = closingFailure(intents.save.outcome);
+	const removeFailure = failed(intents.remove);
+	const hideFailure = failed(intents.hide);
+	const unhideFailure = failed(intents.unhide);
+	const manageFailure = failed(intents.manage);
+	const declareFailure = failed(intents.declare);
+	return (
+		<>
+			{adoptFailure === undefined ? null : (
+				<IntentFailureBanner message={adoptFailure.message} onDismiss={intents.adopt.reset} />
+			)}
+			{saveFailure === undefined ? null : (
+				<IntentFailureBanner message={saveFailure.message} onDismiss={intents.save.reset} />
+			)}
+			{removeFailure === undefined ? null : (
+				<IntentFailureBanner
+					message={removeFailure.message}
+					heading={l10n.t("Removing failed:")}
+					onDismiss={intents.remove.reset}
+				/>
+			)}
+			{hideFailure === undefined ? null : (
+				<IntentFailureBanner
+					message={hideFailure.message}
+					heading={l10n.t("Hiding the group failed:")}
+					onDismiss={intents.hide.reset}
+				/>
+			)}
+			{unhideFailure === undefined ? null : (
+				<IntentFailureBanner
+					message={unhideFailure.message}
+					heading={l10n.t("Unhiding the group failed:")}
+					onDismiss={intents.unhide.reset}
+				/>
+			)}
+			{manageFailure === undefined ? null : (
+				<IntentFailureBanner
+					message={manageFailure.message}
+					heading={l10n.t("Opening Manage Language Models failed:")}
+					onDismiss={intents.manage.reset}
+				/>
+			)}
+			{declareFailure === undefined ? null : (
+				<IntentFailureBanner
+					message={declareFailure.message}
+					heading={l10n.t("Declaring the expected failure failed:")}
+					onDismiss={intents.declare.reset}
+				/>
+			)}
+		</>
+	);
+}
+
+/** First run: the guided card alone, not a header of dead disabled buttons. */
+function EmptyStart({ onAddServer }: { onAddServer: () => void }) {
+	return (
+		<div className="empty-start">
+			<h3>{l10n.t("Connect LiteLLM to Copilot Chat")}</h3>
+			<p className="hint">
+				{l10n.t("Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.")}
+			</p>
+			<ol>
+				<li>{l10n.t("Enter the server's URL - for a local proxy that is usually http://localhost:4000.")}</li>
+				<li>{l10n.t("Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.")}</li>
+				<li>{l10n.t("Save. Models sync automatically and show up on this page.")}</li>
+			</ol>
+			<Button onClick={onAddServer}>{l10n.t("Add your first server")}</Button>
+		</div>
+	);
+}
+
+/**
+ * The rows. Keyed identity (origin plus opaque handle or setting-unique label) so an async push cannot re-associate
+ * another server's row with the user's focus.
+ */
+function ServerList(props: ServerListProps) {
+	const { servers, usageFor, spend, now, usage, armedRemove, retrying, pendingDeclare, syncIntent, declareIntent } =
+		props;
+	return (
+		<ul className="server-list">
+			{servers.map((server) => {
+				const rowKey = serverRowKey(server);
+				return (
+					<ServerRow
+						key={rowKey}
+						server={server}
+						usage={usageFor(server)}
+						spend={spend}
+						now={now}
+						armed={armedRemove === rowKey}
+						onEdit={() => openEditDestination(server, props.onEditServer, props.onAdoptServer)}
+						onArmRemove={(armed) => props.onArmRemove(armed ? rowKey : undefined)}
+						onHideExternal={props.hideExternal}
+						onShowModels={props.onShowModels}
+						retrying={retrying?.rowKey === rowKey}
+						syncBusy={retrying !== undefined}
+						onRetry={() => props.onRetry({ rowKey, label: server.label, requestId: syncIntent.send(null) })}
+						onDeclareExpected={(category) =>
+							props.onDeclare({
+								rowKey,
+								label: server.label,
+								requestId: declareIntent.send({ label: server.label, baseUrl: server.baseUrl, category }),
+							})
+						}
+						declaring={pendingDeclare?.rowKey === rowKey}
+						refreshing={usage?.refreshing === true}
+						refreshingExplicitly={usage?.refreshingExplicitly === true}
+					/>
+				);
+			})}
+		</ul>
+	);
+}
+
+/**
+ * The Servers page. One outcome hook per acked method: the failure banners render each hook's latest fail (a later ok
+ * retires it), and Dismiss is the hook's reset. Separate hook instances from the open form's own - both see the same
+ * envelopes.
+ *
+ * Usage is keyed by label (the usage store's documented join key), so only declared rows look it up; a URL spelling
+ * difference must not break the join. Denied cards join too - they carry the row's usage-denied diagnostic.
+ *
+ *   servers        -> the servers as the host published them, every origin included; one row each
+ *   hidden         -> host groups the dashboard hides, tombstoned or superseded, listed under it behind a "Show hidden
+ *                     groups" disclosure
+ *   usage          -> the usage snapshot: the per-server cards, the alert thresholds, and the refresh state the
+ *                     header's button reads
+ *   currencySymbol -> the configured spend prefix (usage.currencySymbol); display only, never a conversion
+ *   now            -> the shared clock tick (one useNow in App), so a hidden panel does not run its own interval
+ *   onShowModels   -> scope the models section to one server; absent, the drawers' model counts stay plain text
+ *   onEditServer   -> a declared row's Edit, by the label the setting holds
+ *   onAdoptServer  -> an external row's Edit, which adopts rather than edits; addressed by its opaque handle
+ *   onAddServer    -> open the add form; the header's button and the empty state's first-server button share it
+ */
 export function ServersSection({
 	servers,
 	hidden = [],
@@ -589,154 +1093,41 @@ export function ServersSection({
 	onAdoptServer,
 	onAddServer,
 }: {
-	/** The fleet as the host published it, every origin included; one row each. */
 	servers: readonly DashboardServer[];
-
-	/** Host groups the fleet hides, tombstoned or superseded, listed under it behind a "Show hidden groups" disclosure. */
 	hidden?: readonly HiddenGroup[];
-
-	/** The usage snapshot: the per-server cards, the alert thresholds, and the refresh state the header's button reads. */
 	usage?: DashboardUsage | undefined;
-
-	/** The configured spend prefix (usage.currencySymbol); display only, never a conversion. */
 	currencySymbol: string;
-
-	/** The shared clock tick (one useNow in App), so a hidden panel does not run its own interval. */
 	now: number;
-
-	/** Scope the models section to one server; absent, the drawers' model counts stay plain text. */
 	onShowModels?: ((label: string) => void) | undefined;
-
-	/** A declared row's Edit, by the label the setting holds. */
 	onEditServer: (label: string) => void;
-
-	/** An external row's Edit, which adopts rather than edits; addressed by its opaque handle. */
 	onAdoptServer: (handle: string) => void;
-
-	/** Open the add form; the header's button and the empty state's first-server button share it. */
 	onAddServer: () => void;
 }) {
-	// One outcome hook per acked method: the failure banners render each hook's latest fail (a later ok retires it),
-	// and Dismiss is the hook's reset. Separate hook instances from the open form's own - both see the same envelopes.
-	const saveIntent = useIntentOutcome("saveServerSetting");
-	const removeIntent = useIntentOutcome("removeServerSetting");
-	const adoptIntent = useIntentOutcome("adoptServer");
-	const hideIntent = useIntentOutcome("hideExternalServer");
-	const unhideIntent = useIntentOutcome("unhideServer");
-	const manageIntent = useIntentOutcome("manageHiddenGroup");
+	const intents: ListIntents = {
+		save: useIntentOutcome("saveServerSetting"),
+		remove: useIntentOutcome("removeServerSetting"),
+		adopt: useIntentOutcome("adoptServer"),
+		hide: useIntentOutcome("hideExternalServer"),
+		unhide: useIntentOutcome("unhideServer"),
+		manage: useIntentOutcome("manageHiddenGroup"),
+		declare: useIntentOutcome("declareExpectedFailure"),
+	};
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
-	// The id is held, not just the row: useIntentOutcome reports the METHOD's latest envelope whoever posted it, and
-	// the rail's Sync button posts the same method. Keyed by row identity (label rides along only for the aria-live
-	// text), like the armed Remove.
-	const [retrying, setRetrying] = useState<
-		{ readonly rowKey: string; readonly label: string; readonly requestId: string } | undefined
-	>(undefined);
-	// Whether the fleet has ever been checked at all: the live region below needs it so a first-run page does not
-	// announce a clean bill of health it never took.
+	// Whether the fleet has ever been checked at all: the live region needs it so a first-run page does not announce a
+	// clean bill of health it never took.
 	const newestCheck = latestCheckedMs(servers) ?? 0;
 	const syncIntent = useIntentOutcome("syncModels");
-	const syncOutcome = syncIntent.outcome;
-	// Clear on either answer to THIS row's request; the failure is deliberately not rendered here, because runModelSync
-	// already reports every outcome as a VS Code toast.
-	useEffect(() => {
-		setRetrying((current) => (current !== undefined && syncOutcome?.id === current.requestId ? undefined : current));
-	}, [syncOutcome]);
-	// The row whose declare-expected intent is unanswered, keyed like the retry state: only the answer to THIS request
-	// may clear it - either answer, a failed declare is finished.
-	const declareIntent = useIntentOutcome("declareExpectedFailure");
-	const [pendingDeclare, setPendingDeclare] = useState<
-		{ readonly rowKey: string; readonly label: string; readonly requestId: string } | undefined
-	>(undefined);
-	const declareOutcome = declareIntent.outcome;
-	useEffect(() => {
-		setPendingDeclare((current) =>
-			current !== undefined && declareOutcome?.id === current.requestId ? undefined : current
-		);
-	}, [declareOutcome]);
-	// The one-time post-adoption notice: the old host-owned group survives (no removal API), so the user is told
-	// plainly why models now appear twice.
-	const [adoptNotice, setAdoptNotice] = useState<string | undefined>(undefined);
-	// The hide round trip: requestId plus the row's label, so the guidance notice can name the exact group to delete
-	// once the ack lands. Only the ack crosses the boundary.
-	const [pendingHide, setPendingHide] = useState<{ requestId: string; label: string; baseUrl: string } | undefined>(
-		undefined
-	);
-	// The hidden row's label AND base URL: the notice must name the URL, since an unlabeled group's display label is
-	// only its URL host, not the name the host's editor or its models file carries.
-	const [removedNotice, setRemovedNotice] = useState<{ label: string; baseUrl: string } | undefined>(undefined);
-	const pendingHideRequestId = pendingHide?.requestId;
-	const pendingHideLabel = pendingHide?.label;
-	const pendingHideBaseUrl = pendingHide?.baseUrl;
-	const hideOutcome = hideIntent.outcome;
-	useEffect(() => {
-		if (
-			pendingHideRequestId !== undefined &&
-			pendingHideLabel !== undefined &&
-			pendingHideBaseUrl !== undefined &&
-			hideOutcome?.result === "ok" &&
-			hideOutcome.id === pendingHideRequestId
-		) {
-			setRemovedNotice({ label: pendingHideLabel, baseUrl: pendingHideBaseUrl });
-			setPendingHide(undefined);
-		}
-	}, [hideOutcome, pendingHideRequestId, pendingHideLabel, pendingHideBaseUrl]);
-	const hideExternal = (server: ExternalDashboardServer) => {
-		const requestId = hideIntent.send({ baseUrl: server.baseUrl, sourceHandle: server.adoptHandle });
-		setPendingHide({ requestId, label: server.label, baseUrl: server.baseUrl });
-	};
-	// The edit page keeps a validation failure beside the draft it refused; the list hears the same envelope and shows
-	// only the failures whose disposition closed the page.
-	const saveFailure = closingFailure(saveIntent.outcome);
-	const removeFailure = removeIntent.outcome?.result === "fail" ? removeIntent.outcome : undefined;
-	const adoptFailure = closingFailure(adoptIntent.outcome);
-	const hideFailure = hideIntent.outcome?.result === "fail" ? hideIntent.outcome : undefined;
-	const unhideFailure = unhideIntent.outcome?.result === "fail" ? unhideIntent.outcome : undefined;
-	const manageFailure = manageIntent.outcome?.result === "fail" ? manageIntent.outcome : undefined;
-	const declareFailure = declareIntent.outcome?.result === "fail" ? declareIntent.outcome : undefined;
+	// A failed sync is not rendered here: runModelSync already reports every outcome as a VS Code toast.
+	const [retrying, setRetrying] = useRowRequest(syncIntent.outcome);
+	const [pendingDeclare, setPendingDeclare] = useRowRequest(intents.declare.outcome);
+	const [adoptNotice, dismissAdoptNotice] = useAdoptNotice(intents.adopt.outcome);
+	const hide = useHideRoundTrip(intents.hide);
 	const noServers = servers.length === 0;
-	// The snapshot's spend inputs once, read by rows, diagnostics, and header meta alike, so a threshold can never
-	// rank a row differently from the line under it.
-	const spend: SpendContext = {
-		thresholds: usage?.thresholds ?? [],
-		currencySymbol,
-		pollingOff: usage?.pollIntervalMs === 0,
-		discoveryTimeoutMs: usage?.discoveryTimeoutMs ?? 0,
-	};
-	// Usage is keyed by label (the usage store's documented join key), so only declared rows look it up; a URL spelling
-	// difference must not break the join. Denied cards join too - they carry the row's usage-denied diagnostic.
+	const spend = spendContext(usage, currencySymbol);
 	const usageByLabel = new Map((usage?.servers ?? []).map((view) => [view.label, view] as const));
 	const usageFor = (server: DashboardServer) =>
 		server.origin === "declared" ? usageByLabel.get(server.label) : undefined;
-	// Rows carrying something worth acting on, read through the same classifier the rows render - a second predicate
-	// would drift. Advisories excluded on purpose; a denied usage key counts, per the tier contract's user-ruled
-	// carve-out.
-	const attentionCount = servers.filter((server) =>
-		serverDiagnostics(server, usageFor(server), spend, { onEdit: () => {}, onRetry: () => {} }).lines.some(
-			(diagnostic) => diagnostic.severity !== "advisory"
-		)
-	).length;
-	//   Whether any rendered row shows a stale spend number -> the same join the rows use
-	const staleSpendVisible = servers.some((server) => {
-		const card = usageFor(server);
-		return card?.kind === "usage" && !card.fresh && card.spend !== undefined;
-	});
-
-	// The edit page owns the adopt round trip and leaves on its own ack; this hook sees the same envelope, which is
-	// what lets the notice belong to the list, not the page that left.
-	const adoptOutcome = adoptIntent.outcome;
-	const adoptedId = adoptOutcome?.result === "ok" ? adoptOutcome.id : undefined;
-	const adoptedCaveat = adoptOutcome?.result === "ok" ? adoptOutcome.message : undefined;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the acked id so one ack raises one notice
-	useEffect(() => {
-		if (adoptedId === undefined) {
-			return;
-		}
-		const base = l10n.t(
-			"Adopted into the servers setting. Models appear twice until the original group's object is deleted: open the models file, remove it, reload the window."
-		);
-		setAdoptNotice(adoptedCaveat === undefined ? base : `${base} ${adoptedCaveat}`);
-	}, [adoptedId]);
-
+	const attentionCount = countAttention(servers, usageFor, spend);
 	return (
 		<Section
 			id="servers"
@@ -745,224 +1136,57 @@ export function ServersSection({
 			// The trigger sits near the top of the document, where a tip above it clips.
 			helpBelow
 			docs={{ href: DOCS_LINK_SERVERS, label: l10n.t("Open the servers guide") }}
-			meta={noServers ? undefined : serversMeta(servers.length, attentionCount, usage, staleSpendVisible)}
-			// First run shows the guided card alone, not a header of dead disabled buttons.
+			meta={
+				noServers ? undefined : serversMeta(servers.length, attentionCount, usage, anyStaleSpend(servers, usageFor))
+			}
 			actions={
 				noServers ? undefined : (
 					<>
 						<Button onClick={onAddServer}>
 							<IconAdd /> {l10n.t("Add server")}
 						</Button>
-						{/* Disabled during ANY pass (one serialized engine); the busy label only for an EXPLICIT one -
-						    a spinner on every scheduled poll read as the app acting unasked. Both labels stay mounted
-						    in one grid cell, the hidden one holding the width, so the swap cannot resize the button;
-						    check-geometry's servers-refresh-busy pair holds that. */}
-						<Button
-							variant="secondary"
-							className="refresh-usage"
-							disabled={usage?.refreshing === true || noServers}
-							onClick={() => sendRequest("refreshUsage", null)}
-						>
-							<span className="grid">
-								<span
-									className={cn(
-										"refresh-busy-label col-start-1 row-start-1 inline-flex items-center justify-center gap-1",
-										usage?.refreshingExplicitly === true ? undefined : "invisible"
-									)}
-									aria-hidden={usage?.refreshingExplicitly === true ? undefined : true}
-								>
-									<span className="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
-								</span>
-								<span
-									className={cn(
-										"refresh-idle-label col-start-1 row-start-1 inline-flex items-center justify-center",
-										usage?.refreshingExplicitly === true && "invisible"
-									)}
-									aria-hidden={usage?.refreshingExplicitly === true ? true : undefined}
-								>
-									{l10n.t("Refresh now")}
-								</span>
-							</span>
-						</Button>
+						<RefreshUsageButton usage={usage} disabled={noServers} />
 					</>
 				)
 			}
 		>
-			{removedNotice === undefined ? null : (
-				<div className="notice" role="status">
-					<p>
-						{l10n.t(
-							'Hid "{0}" and its models. VS Code still keeps its provider group at {1}; its name here is only a display label, so find it by that base URL. To delete it for good:',
-							removedNotice.label,
-							removedNotice.baseUrl
-						)}
-					</p>
-					<ol className="notice-steps">
-						<li>
-							{l10n.t(
-								"Open the models file and remove the object whose baseUrl is {0} from the JSON array.",
-								removedNotice.baseUrl
-							)}
-						</li>
-						<li>{l10n.t('Reload the window (Ctrl+Shift+P, "Developer: Reload Window") or restart VS Code.')}</li>
-						<li>{l10n.t("Run Sync models.")}</li>
-					</ol>
-					<div className="toolbar">
-						<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}>
-							{l10n.t("Open models file")}
-						</Button>
-						<Button variant="secondary" size="compact" onClick={() => setRemovedNotice(undefined)}>
-							{l10n.t("Dismiss")}
-						</Button>
-					</div>
-				</div>
-			)}
-			{adoptNotice === undefined ? null : (
-				<div className="notice" role="status">
-					<p>{adoptNotice}</p>
-					<div className="toolbar">
-						<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}>
-							{l10n.t("Open models file")}
-						</Button>
-						<Button variant="secondary" size="compact" onClick={() => setAdoptNotice(undefined)}>
-							{l10n.t("Dismiss")}
-						</Button>
-					</div>
-				</div>
-			)}
-			{adoptFailure === undefined ? null : (
-				<IntentFailureBanner message={adoptFailure.message} onDismiss={adoptIntent.reset} />
-			)}
-			{saveFailure === undefined ? null : (
-				<IntentFailureBanner message={saveFailure.message} onDismiss={saveIntent.reset} />
-			)}
-			{removeFailure === undefined ? null : (
-				<IntentFailureBanner
-					message={removeFailure.message}
-					heading={l10n.t("Removing failed:")}
-					onDismiss={removeIntent.reset}
-				/>
-			)}
-			{hideFailure === undefined ? null : (
-				<IntentFailureBanner
-					message={hideFailure.message}
-					heading={l10n.t("Hiding the group failed:")}
-					onDismiss={hideIntent.reset}
-				/>
-			)}
-			{unhideFailure === undefined ? null : (
-				<IntentFailureBanner
-					message={unhideFailure.message}
-					heading={l10n.t("Unhiding the group failed:")}
-					onDismiss={unhideIntent.reset}
-				/>
-			)}
-			{manageFailure === undefined ? null : (
-				<IntentFailureBanner
-					message={manageFailure.message}
-					heading={l10n.t("Opening Manage Language Models failed:")}
-					onDismiss={manageIntent.reset}
-				/>
-			)}
-			{declareFailure === undefined ? null : (
-				<IntentFailureBanner
-					message={declareFailure.message}
-					heading={l10n.t("Declaring the expected failure failed:")}
-					onDismiss={declareIntent.reset}
-				/>
-			)}
+			{hide.removedNotice === undefined ? null : <RemovedNotice notice={hide.removedNotice} onDismiss={hide.dismiss} />}
+			{adoptNotice === undefined ? null : <AdoptNotice text={adoptNotice} onDismiss={dismissAdoptNotice} />}
+			<FailureBanners intents={intents} />
 			{noServers ? (
-				<div className="empty-start">
-					<h3>{l10n.t("Connect LiteLLM to Copilot Chat")}</h3>
-					<p className="hint">
-						{l10n.t("Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.")}
-					</p>
-					<ol>
-						<li>{l10n.t("Enter the server's URL - for a local proxy that is usually http://localhost:4000.")}</li>
-						<li>{l10n.t("Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.")}</li>
-						<li>{l10n.t("Save. Models sync automatically and show up on this page.")}</li>
-					</ol>
-					<Button onClick={onAddServer}>{l10n.t("Add your first server")}</Button>
-				</div>
+				<EmptyStart onAddServer={onAddServer} />
 			) : (
 				<>
-					{/* The list's verdict region: polite, one region for the page (per-row
-					    announcements on every push are noise). The sighted reader's copy of the
-					    count is the header's meta line. */}
+					{/* The list's verdict region: polite, one region for the page (per-row announcements on every push
+					    are noise). The sighted reader's copy of the count is the header's meta line. */}
 					<p className="visually-hidden" role="status" aria-live="polite">
-						{attentionCount > 0
-							? attentionCount === 1
-								? l10n.t("1 server needs attention")
-								: l10n.t("{0} servers need attention", attentionCount)
-							: newestCheck > 0
-								? l10n.t("All servers are healthy")
-								: // No verdict yet: "All servers are healthy" would assert a clean bill of
-									// health the page has never taken.
-									l10n.t("No servers have been checked yet")}
+						{verdictLine(attentionCount, newestCheck)}
 					</p>
-					{/* The list's ONE in-flight announcement: a changed accessible name is announced only on the
-					    FOCUSED element, and a mouse user's focus never sits on the button they pressed. One region,
-					    not per cluster - status regions are atomic, and a fleet-wide flag flips every label at
-					    once. */}
+					{/* A changed accessible name is announced only on the FOCUSED element, and a mouse user's focus never
+					    sits on the button they pressed. One region, not per cluster - status regions are atomic, and a
+					    fleet-wide flag flips every label at once. */}
 					<p className="visually-hidden" role="status" aria-live="polite">
-						{[
-							retrying === undefined ? undefined : l10n.t("Checking {0}", retrying.label),
-							pendingDeclare === undefined
-								? undefined
-								: l10n.t("Declaring the expected failure for {0}", pendingDeclare.label),
-							usage?.refreshingExplicitly === true ? l10n.t("Refreshing usage data") : undefined,
-						]
-							.filter((line): line is string => line !== undefined)
-							.join("; ")}
+						{inFlightLine(retrying, pendingDeclare, usage)}
 					</p>
-					<ul className="server-list">
-						{servers.map((server) => {
-							// Keyed identity (origin plus opaque handle or setting-unique label) so an
-							// async push cannot re-associate another server's row with the user's focus.
-							const rowKey = serverRowKey(server);
-							return (
-								<ServerRow
-									key={rowKey}
-									server={server}
-									usage={usageFor(server)}
-									spend={spend}
-									now={now}
-									armed={armedRemove === rowKey}
-									onEdit={() => {
-										// The one place the destination's purpose is decided: a declared row
-										// edits, an external row adopts; the misconfigured guard (no Edit
-										// renders) keeps the narrowing honest.
-										if (server.origin === "misconfigured" || server.origin === "legacy") {
-											return;
-										}
-										if (server.origin === "declared") {
-											onEditServer(server.label);
-											return;
-										}
-										onAdoptServer(server.adoptHandle);
-									}}
-									onArmRemove={(armed) => setArmedRemove(armed ? rowKey : undefined)}
-									onHideExternal={hideExternal}
-									onShowModels={onShowModels}
-									retrying={retrying?.rowKey === rowKey}
-									syncBusy={retrying !== undefined}
-									onRetry={() => {
-										setRetrying({ rowKey, label: server.label, requestId: syncIntent.send(null) });
-									}}
-									onDeclareExpected={(category) => {
-										setPendingDeclare({
-											rowKey,
-											label: server.label,
-											requestId: declareIntent.send({ label: server.label, baseUrl: server.baseUrl, category }),
-										});
-									}}
-									declaring={pendingDeclare?.rowKey === rowKey}
-									refreshing={usage?.refreshing === true}
-									refreshingExplicitly={usage?.refreshingExplicitly === true}
-								/>
-							);
-						})}
-					</ul>
+					<ServerList
+						servers={servers}
+						usageFor={usageFor}
+						spend={spend}
+						now={now}
+						usage={usage}
+						armedRemove={armedRemove}
+						onArmRemove={setArmedRemove}
+						retrying={retrying}
+						onRetry={setRetrying}
+						pendingDeclare={pendingDeclare}
+						onDeclare={setPendingDeclare}
+						syncIntent={syncIntent}
+						declareIntent={intents.declare}
+						hideExternal={hide.hideExternal}
+						onShowModels={onShowModels}
+						onEditServer={onEditServer}
+						onAdoptServer={onAdoptServer}
+					/>
 				</>
 			)}
 			<HiddenGroupsLine hidden={hidden} />

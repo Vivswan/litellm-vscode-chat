@@ -305,144 +305,177 @@ function docsAction(href: DocsUrl, subject: string): DiagnosticAction {
 }
 
 /**
+ * A record lint as a problem. An entry-layer record lives inside the servers setting, so that is the place to reveal;
+ * a global one lives in its own setting.
+ *
+ * The subject joins identifiers by a slash, never a localized phrase: the pair is machine text a reader retypes, and
+ * an invalid matcher key IS the record key, so naming it twice would read as a mistake.
+ *
+ * Five of the sentences stopped naming the record when cut to one clause; they get it back as a location chip, without
+ * which two records failing on the same field render as identical rows.
+ */
+function recordProblem(diagnostic: Extract<PageConfigDiagnostic, { kind: "record" }>): ConfigProblem {
+	const setting: RevealableSettingId = diagnostic.entryLabel === undefined ? diagnostic.setting : "servers";
+	const lint = diagnostic.diagnostic;
+	const subject = lint.key === lint.recordKey ? lint.recordKey : `${lint.recordKey}/${lint.key}`;
+	const namesRecord = lint.kind === "invalid-matcher" || lint.kind === "unknown-inherit-key";
+	//   Learn more                              -> on the one lint the sentence cannot fix by itself
+	//   for this lint the grammar IS the remedy -> N invalid keys still produce N identical links
+	const actions: DiagnosticAction[] = [{ kind: "reveal", setting, subject }];
+	if (lint.kind === "invalid-matcher") {
+		actions.push(docsAction(DOCS_LINK_MODEL_MATCHING, l10n.t("the model-matching guide")));
+	}
+	return {
+		key: tupleKey("record", diagnostic.setting, diagnostic.entryLabel, lint.kind, lint.recordKey, lint.key),
+		severity: problemSeverity(diagnostic),
+		headline: recordProblemText(lint),
+		where: [
+			diagnostic.setting,
+			...(diagnostic.entryLabel === undefined ? [] : [l10n.t("entry {0}", diagnostic.entryLabel)]),
+			...(namesRecord ? [] : [lint.recordKey]),
+		],
+		actions,
+	};
+}
+
+/**
+ * A rejected or degraded server entry as a problem. Keyed by position, not label: a rejected entry can reuse a label
+ * an accepted one already owns, and that is exactly the case whose two diagnostics must not collapse onto one key - or
+ * one button name, which is why the position rides the subject too.
+ */
+function entryProblem(diagnostic: Extract<PageConfigDiagnostic, { kind: "entry" }>): ConfigProblem {
+	const name = diagnostic.label === undefined ? `#${diagnostic.position}` : `"${diagnostic.label}"`;
+	return {
+		key: tupleKey("entry", diagnostic.position),
+		severity: problemSeverity(diagnostic),
+		headline: diagnostic.misconfigured
+			? l10n.t("Server entry {0} is switched off until it is fixed.", name)
+			: l10n.t("Server entry {0} runs without part of its configuration.", name),
+		where: ["servers"],
+		detail: diagnostic.problems.join("; "),
+		actions: [
+			{ kind: "reveal", setting: "servers", subject: `${name} #${diagnostic.position}` },
+			docsAction(DOCS_LINK_AUTHENTICATION, l10n.t("the authentication guide")),
+		],
+	};
+}
+
+/**
+ * A leftover key as a problem. The same leftover key can sit in BOTH record settings, and the two hints differ only in
+ * which one; without `detail` they share a key and React drops one of the blocks.
+ */
+function legacyProblem(diagnostic: Extract<PageConfigDiagnostic, { kind: "legacy" }>): ConfigProblem {
+	const urlScoped = diagnostic.hint === "inert-url-scoped-key";
+	return {
+		key: tupleKey("legacy", diagnostic.hint, diagnostic.oldKey, diagnostic.detail),
+		severity: problemSeverity(diagnostic),
+		headline: legacyProblemText(diagnostic),
+		where: urlScoped ? [diagnostic.detail] : [diagnostic.oldKey],
+		actions: [
+			{
+				kind: "reveal",
+				setting: urlScoped ? revealTarget(diagnostic.detail) : "servers",
+				subject: diagnostic.oldKey,
+			} as const,
+			docsAction(DOCS_LINK_SETTINGS_MIGRATION, l10n.t("the settings-migration guide")),
+		],
+	};
+}
+
+function thresholdsProblem(diagnostic: Extract<PageConfigDiagnostic, { kind: "thresholds" }>): ConfigProblem {
+	return {
+		key: "thresholds",
+		severity: problemSeverity(diagnostic),
+		headline:
+			diagnostic.dropped === 1
+				? l10n.t("1 alert threshold was dropped: a threshold must be inside (0, 1].")
+				: l10n.t("{0} alert thresholds were dropped: a threshold must be inside (0, 1].", diagnostic.dropped),
+		where: ["usage.alertThresholds"],
+		actions: [
+			{ kind: "reveal", setting: "usage.alertThresholds", subject: "usage.alertThresholds" },
+			docsAction(DOCS_LINK_USAGE, l10n.t("the usage and budgets guide")),
+		],
+	};
+}
+
+function numberSettingProblem(diagnostic: Extract<PageConfigDiagnostic, { kind: "number-setting" }>): ConfigProblem {
+	return {
+		key: `number-setting:${diagnostic.setting}`,
+		severity: problemSeverity(diagnostic),
+		headline: `${numberContractSentence(diagnostic.setting)} ${l10n.t("The default is in effect.")}`,
+		where: [diagnostic.setting],
+		actions: [
+			{ kind: "reveal", setting: diagnostic.setting, subject: diagnostic.setting },
+			docsAction(DOCS_LINK_SETTINGS, l10n.t("the settings reference")),
+		],
+	};
+}
+
+/** The one sentence for a malformed record setting: the whole setting, a reserved key, or one non-object key. */
+function settingShapeHeadline(diagnostic: Extract<PageConfigDiagnostic, { kind: "setting-shape" }>): string {
+	if (diagnostic.key === undefined) {
+		return l10n.t("{0} must be an object; remove it to restore the default.", diagnostic.setting);
+	}
+	if (diagnostic.reason === "reserved-name") {
+		return l10n.t(
+			"{0}.{1} is a reserved name and cannot be a model matcher; remove it.",
+			diagnostic.setting,
+			diagnostic.key
+		);
+	}
+	return l10n.t("{0}.{1} must be an object; remove it to restore the default.", diagnostic.setting, diagnostic.key);
+}
+
+function settingShapeProblem(diagnostic: Extract<PageConfigDiagnostic, { kind: "setting-shape" }>): ConfigProblem {
+	return {
+		key: `setting-shape:${diagnostic.setting}:${diagnostic.key ?? ""}`,
+		severity: problemSeverity(diagnostic),
+		headline: settingShapeHeadline(diagnostic),
+		where: [diagnostic.setting, ...(diagnostic.key === undefined ? [] : [diagnostic.key])],
+		actions: [
+			{ kind: "reveal", setting: diagnostic.setting, subject: `${diagnostic.setting} ${diagnostic.key ?? ""}` },
+			docsAction(DOCS_LINK_SETTINGS, l10n.t("the settings reference")),
+		],
+	};
+}
+
+function credentialProblem(diagnostic: Extract<PageConfigDiagnostic, { kind: "credential" }>): ConfigProblem {
+	return {
+		key: `credential:${diagnostic.label}:${diagnostic.path}`,
+		severity: problemSeverity(diagnostic),
+		headline: l10n.t(
+			"Server entry {0} sends requests without {1}: the stored value cannot be sent as an HTTP header. Enter it again.",
+			`"${diagnostic.label}"`,
+			diagnostic.path
+		),
+		where: ["servers", l10n.t("entry {0}", diagnostic.label)],
+		actions: [
+			{ kind: "reveal", setting: "servers", subject: `${diagnostic.label} ${diagnostic.path}` },
+			docsAction(DOCS_LINK_AUTHENTICATION, l10n.t("the authentication guide")),
+		],
+	};
+}
+
+/**
  * Keys come from the diagnostic's own identity, never list position: a new earlier problem would slide every key down
  * one and move the user's focus.
  */
 function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 	switch (diagnostic.kind) {
-		case "record": {
-			// An entry-layer record lives inside the servers setting, so that is the place to reveal; a global one
-			// lives in its own setting.
-			const setting: RevealableSettingId = diagnostic.entryLabel === undefined ? diagnostic.setting : "servers";
-			const lint = diagnostic.diagnostic;
-			// Identifiers joined by a slash, never a localized phrase: the pair is machine text a reader retypes, and
-			// it needs no translation. An invalid matcher key IS the record key, so naming it twice would read as a
-			// mistake.
-			const subject = lint.key === lint.recordKey ? lint.recordKey : `${lint.recordKey}/${lint.key}`;
-			// Five of the sentences stopped naming the record when cut to one clause; they get it back as a location
-			// chip - without it, two records failing on the same field render as identical rows.
-			const namesRecord = lint.kind === "invalid-matcher" || lint.kind === "unknown-inherit-key";
-			return {
-				key: tupleKey("record", diagnostic.setting, diagnostic.entryLabel, lint.kind, lint.recordKey, lint.key),
-				severity: problemSeverity(diagnostic),
-				headline: recordProblemText(lint),
-				where: [
-					diagnostic.setting,
-					...(diagnostic.entryLabel === undefined ? [] : [l10n.t("entry {0}", diagnostic.entryLabel)]),
-					...(namesRecord ? [] : [lint.recordKey]),
-				],
-				//   Learn more                              -> on the one lint the sentence cannot fix by itself
-				//   for this lint the grammar IS the remedy -> N invalid keys still produce N identical links
-				actions:
-					lint.kind === "invalid-matcher"
-						? [
-								{ kind: "reveal", setting, subject },
-								docsAction(DOCS_LINK_MODEL_MATCHING, l10n.t("the model-matching guide")),
-							]
-						: [{ kind: "reveal", setting, subject }],
-			};
-		}
-		case "entry": {
-			const name = diagnostic.label === undefined ? `#${diagnostic.position}` : `"${diagnostic.label}"`;
-			return {
-				// The position, not the label: a rejected entry can reuse a label an accepted one already owns, and
-				// that is exactly the case whose two diagnostics must not collapse onto one key - or one button name,
-				// which is why the position rides the subject too.
-				key: tupleKey("entry", diagnostic.position),
-				severity: problemSeverity(diagnostic),
-				headline: diagnostic.misconfigured
-					? l10n.t("Server entry {0} is switched off until it is fixed.", name)
-					: l10n.t("Server entry {0} runs without part of its configuration.", name),
-				where: ["servers"],
-				detail: diagnostic.problems.join("; "),
-				actions: [
-					{ kind: "reveal", setting: "servers", subject: `${name} #${diagnostic.position}` },
-					docsAction(DOCS_LINK_AUTHENTICATION, l10n.t("the authentication guide")),
-				],
-			};
-		}
-		case "legacy": {
-			return {
-				// The same leftover key can sit in BOTH record settings, and the two hints differ only in which one;
-				// without `detail` they share a key and React drops one of the blocks.
-				key: tupleKey("legacy", diagnostic.hint, diagnostic.oldKey, diagnostic.detail),
-				severity: problemSeverity(diagnostic),
-				headline: legacyProblemText(diagnostic),
-				where: diagnostic.hint === "inert-url-scoped-key" ? [diagnostic.detail] : [diagnostic.oldKey],
-				actions: [
-					{
-						kind: "reveal",
-						setting: diagnostic.hint === "inert-url-scoped-key" ? revealTarget(diagnostic.detail) : "servers",
-						subject: diagnostic.oldKey,
-					} as const,
-					docsAction(DOCS_LINK_SETTINGS_MIGRATION, l10n.t("the settings-migration guide")),
-				],
-			};
-		}
+		case "record":
+			return recordProblem(diagnostic);
+		case "entry":
+			return entryProblem(diagnostic);
+		case "legacy":
+			return legacyProblem(diagnostic);
 		case "thresholds":
-			return {
-				key: "thresholds",
-				severity: problemSeverity(diagnostic),
-				headline:
-					diagnostic.dropped === 1
-						? l10n.t("1 alert threshold was dropped: a threshold must be inside (0, 1].")
-						: l10n.t("{0} alert thresholds were dropped: a threshold must be inside (0, 1].", diagnostic.dropped),
-				where: ["usage.alertThresholds"],
-				actions: [
-					{ kind: "reveal", setting: "usage.alertThresholds", subject: "usage.alertThresholds" },
-					docsAction(DOCS_LINK_USAGE, l10n.t("the usage and budgets guide")),
-				],
-			};
+			return thresholdsProblem(diagnostic);
 		case "number-setting":
-			return {
-				key: `number-setting:${diagnostic.setting}`,
-				severity: problemSeverity(diagnostic),
-				headline: `${numberContractSentence(diagnostic.setting)} ${l10n.t("The default is in effect.")}`,
-				where: [diagnostic.setting],
-				actions: [
-					{ kind: "reveal", setting: diagnostic.setting, subject: diagnostic.setting },
-					docsAction(DOCS_LINK_SETTINGS, l10n.t("the settings reference")),
-				],
-			};
+			return numberSettingProblem(diagnostic);
 		case "setting-shape":
-			return {
-				key: `setting-shape:${diagnostic.setting}:${diagnostic.key ?? ""}`,
-				severity: problemSeverity(diagnostic),
-				headline:
-					diagnostic.key === undefined
-						? l10n.t("{0} must be an object; remove it to restore the default.", diagnostic.setting)
-						: diagnostic.reason === "reserved-name"
-							? l10n.t(
-									"{0}.{1} is a reserved name and cannot be a model matcher; remove it.",
-									diagnostic.setting,
-									diagnostic.key
-								)
-							: l10n.t(
-									"{0}.{1} must be an object; remove it to restore the default.",
-									diagnostic.setting,
-									diagnostic.key
-								),
-				where: [diagnostic.setting, ...(diagnostic.key === undefined ? [] : [diagnostic.key])],
-				actions: [
-					{ kind: "reveal", setting: diagnostic.setting, subject: `${diagnostic.setting} ${diagnostic.key ?? ""}` },
-					docsAction(DOCS_LINK_SETTINGS, l10n.t("the settings reference")),
-				],
-			};
+			return settingShapeProblem(diagnostic);
 		case "credential":
-			return {
-				key: `credential:${diagnostic.label}:${diagnostic.path}`,
-				severity: problemSeverity(diagnostic),
-				headline: l10n.t(
-					"Server entry {0} sends requests without {1}: the stored value cannot be sent as an HTTP header. Enter it again.",
-					`"${diagnostic.label}"`,
-					diagnostic.path
-				),
-				where: ["servers", l10n.t("entry {0}", diagnostic.label)],
-				actions: [
-					{ kind: "reveal", setting: "servers", subject: `${diagnostic.label} ${diagnostic.path}` },
-					docsAction(DOCS_LINK_AUTHENTICATION, l10n.t("the authentication guide")),
-				],
-			};
+			return credentialProblem(diagnostic);
 	}
 }
 
@@ -500,6 +533,17 @@ function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
 	);
 }
 
+/** The configuration header's quiet count: how many problems need attention, out of the total when some do not. */
+function attentionMeta(actionable: number, total: number): string | undefined {
+	if (actionable === 0) {
+		return undefined;
+	}
+	if (actionable !== total) {
+		return l10n.t("{0} of {1} need attention", actionable, total);
+	}
+	return actionable === 1 ? l10n.t("1 needs attention") : l10n.t("{0} need attention", actionable);
+}
+
 /**
  * Always present as a section - sections do not appear and disappear under the reader - with the clean state saying
  * so in words.
@@ -522,15 +566,7 @@ function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagno
 			// The trigger sits near the top of the document, where a tip placed above it clips.
 			helpBelow
 			docs={{ href: DOCS_LINK_MODEL_MATCHING, label: l10n.t("Open the model-matching guide") }}
-			meta={
-				actionable === 0
-					? undefined
-					: actionable === problems.length
-						? actionable === 1
-							? l10n.t("1 needs attention")
-							: l10n.t("{0} need attention", actionable)
-						: l10n.t("{0} of {1} need attention", actionable, problems.length)
-			}
+			meta={attentionMeta(actionable, problems.length)}
 		>
 			{problems.length === 0 ? (
 				<p className="hint mt-0">{l10n.t("Your settings read cleanly.")}</p>
@@ -557,6 +593,37 @@ function nodeFieldText(field: RecordTreeNode["fields"][number]): string {
 	return `${field.name} ${field.valueText}${marks.length > 0 ? ` (${marks.join(", ")})` : ""}`;
 }
 
+/** One matched model under a tree node, with the value it resolved to when one did. */
+function TreeModel({ model }: { model: RecordTreeNode["models"][number] }) {
+	return (
+		<li className="tree-model">
+			<span className="tree-model-id">{model.id}</span>
+			{model.resolvedText.length > 0 ? (
+				<span className="hint">
+					{" "}
+					{"->"} {model.resolvedText}
+				</span>
+			) : null}
+		</li>
+	);
+}
+
+function TreeTail({ node }: { node: RecordTreeNode }) {
+	if (node.children.length > 0 || node.models.length > 0) {
+		return (
+			<ul>
+				{node.children.map((child) => (
+					<TreeNode key={child.key} node={child} />
+				))}
+				{node.models.map((model) => (
+					<TreeModel key={model.id} model={model} />
+				))}
+			</ul>
+		);
+	}
+	return <span className="hint"> {l10n.t("(matches no current model)")}</span>;
+}
+
 function TreeNode({ node }: { node: RecordTreeNode }) {
 	return (
 		<li className="tree-node">
@@ -572,26 +639,7 @@ function TreeNode({ node }: { node: RecordTreeNode }) {
 			{!node.barrier && node.inheritFrom !== undefined ? (
 				<span className="hint"> [{l10n.t("inherits from: {0}", node.inheritFrom)}]</span>
 			) : null}
-			{node.children.length > 0 || node.models.length > 0 ? (
-				<ul>
-					{node.children.map((child) => (
-						<TreeNode key={child.key} node={child} />
-					))}
-					{node.models.map((model) => (
-						<li key={model.id} className="tree-model">
-							<span className="tree-model-id">{model.id}</span>
-							{model.resolvedText.length > 0 ? (
-								<span className="hint">
-									{" "}
-									{"->"} {model.resolvedText}
-								</span>
-							) : null}
-						</li>
-					))}
-				</ul>
-			) : node.models.length === 0 ? (
-				<span className="hint"> {l10n.t("(matches no current model)")}</span>
-			) : null}
+			<TreeTail node={node} />
 		</li>
 	);
 }
@@ -811,6 +859,17 @@ function matchesResolvedFilter(row: ResolvedModelRow, needle: string): boolean {
 	);
 }
 
+/** The rows the filter keeps: every row for an empty needle, none while the feed has not answered. */
+function filteredResolvedRows(
+	rows: readonly ResolvedModelRow[] | undefined,
+	needle: string
+): readonly ResolvedModelRow[] {
+	if (rows === undefined) {
+		return [];
+	}
+	return needle.length === 0 ? rows : rows.filter((row) => matchesResolvedFilter(row, needle));
+}
+
 function ResolvedModels({
 	active,
 	stateSeq,
@@ -837,12 +896,7 @@ function ResolvedModels({
 
 	const view = resolved.data?.view;
 	const needle = trimHttpWhitespace(filter).toLowerCase();
-	const rows =
-		view === undefined
-			? []
-			: needle.length === 0
-				? view.rows
-				: view.rows.filter((row) => matchesResolvedFilter(row, needle));
+	const rows = filteredResolvedRows(view?.rows, needle);
 	return (
 		<Section
 			id="resolution"

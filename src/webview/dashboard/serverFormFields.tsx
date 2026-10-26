@@ -359,6 +359,101 @@ export function TextField({
 	);
 }
 
+interface SecretStorageChoiceProps {
+	readonly id: string;
+	readonly field: SecretFieldId;
+	readonly location: SecretFieldDraft["location"];
+	readonly disabled: boolean;
+	readonly onLocation: (location: SecretFieldDraft["location"]) => void;
+}
+
+interface SecretRemovalRowProps {
+	readonly field: SecretFieldId;
+	readonly clear: boolean;
+	readonly disabled: boolean;
+	readonly onClear: (clear: boolean) => void;
+}
+
+/** Whether the field still shows the inline value the form prefilled from settings.json, untouched. */
+function isUnchangedPrefill(value: SecretFieldDraft): boolean {
+	return value.prefill !== undefined && value.value === value.prefill && value.location === "settings";
+}
+
+/**
+ * One short line, only where it says what the reader cannot see: where the value is now, or what Save will do with the
+ * typed one. A problem takes its place, so the row stays one line tall; the states need separate sentences (tense
+ * differs in translation).
+ */
+function secretStorageHint(value: SecretFieldDraft, empty: boolean, unchangedPrefill: boolean): string | undefined {
+	if (value.clear) {
+		return l10n.t("Removed on save.");
+	}
+	if (value.prefill !== undefined && empty) {
+		return l10n.t("Emptied; the stored value is kept.");
+	}
+	if (unchangedPrefill) {
+		return l10n.t("In settings.json, in plain text.");
+	}
+	if (!empty && value.location === "settings") {
+		return l10n.t("Saved as plain text in settings.json.");
+	}
+	if (value.existing !== "none" && empty) {
+		return l10n.t("In {0}. Leave empty to keep it.", locationName(value.existing));
+	}
+	return undefined;
+}
+
+/**
+ * The storage radios under the secret input. Stacked, the wrapped-apart options lost their shared left edge: the label
+ * and glyph take the line together and the options share the next one.
+ */
+function SecretStorageChoice({ id, field, location, disabled, onLocation }: SecretStorageChoiceProps) {
+	return (
+		<FieldUnderRow className="text-[11.5px] text-muted-foreground">
+			<span
+				className="secret-where flex flex-wrap items-center gap-x-3 gap-y-1"
+				role="radiogroup"
+				aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
+			>
+				<span className="flex items-center gap-1.5 @max-[700px]/pane:basis-full">
+					<span className="where-label">{l10n.t("Store in:")}</span>
+					<Help text={helpSecretStorage()} name={l10n.t("Help: where to store the {0}", serverFormFieldLabel(field))} />
+				</span>
+				<label className="flex items-center gap-1.5">
+					<Radio
+						name={`${id}-where`}
+						checked={location === "secure"}
+						disabled={disabled}
+						onChange={() => onLocation("secure")}
+					/>
+					{l10n.t("secret storage")}
+				</label>
+				<label className="flex items-center gap-1.5">
+					<Radio
+						name={`${id}-where`}
+						checked={location === "settings"}
+						disabled={disabled}
+						onChange={() => onLocation("settings")}
+					/>
+					{l10n.t("settings (visible)")}
+				</label>
+			</span>
+		</FieldUnderRow>
+	);
+}
+
+/** Removal is destructive, so it takes a line of its own: beside the storage radios it read as a third place to put the value. */
+function SecretRemovalRow({ field, clear, disabled, onClear }: SecretRemovalRowProps) {
+	return (
+		<FieldUnderRow>
+			<label className={cn("secret-remove flex items-center gap-1.5 text-[12px]", clear && "armed text-err")}>
+				<Checkbox checked={clear} disabled={disabled} onChange={(event) => onClear(event.currentTarget.checked)} />
+				{l10n.t("Remove the stored {0} on save", serverFormFieldLabel(field))}
+			</label>
+		</FieldUnderRow>
+	);
+}
+
 /**
  * Secure-side values never reach this page; an inline value prefills masked (settings.json already shows it).
  * Invariant: the page's ONLY secret-bearing input - the uncontrolled SecretInput keeps the value out of the serialized
@@ -381,22 +476,8 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 	const errorId = `${id}-error`;
 	const patchSecret = (patch: Partial<SecretFieldDraft>) =>
 		props.patch({ [field]: { ...value, ...patch } } as Partial<ServerFormDraft>);
-	// One short line, only where it says what the reader cannot see: where the value is now, or what Save will do with
-	// the typed one. A problem takes its place, so the row stays one line tall; the two states need separate sentences
-	// (tense differs in translation).
-	const unchangedPrefill =
-		value.prefill !== undefined && value.value === value.prefill && value.location === "settings";
-	const storageHint = value.clear
-		? l10n.t("Removed on save.")
-		: value.prefill !== undefined && empty
-			? l10n.t("Emptied; the stored value is kept.")
-			: unchangedPrefill
-				? l10n.t("In settings.json, in plain text.")
-				: !empty && value.location === "settings"
-					? l10n.t("Saved as plain text in settings.json.")
-					: value.existing !== "none" && empty
-						? l10n.t("In {0}. Leave empty to keep it.", locationName(value.existing))
-						: undefined;
+	const unchangedPrefill = isUnchangedPrefill(value);
+	const storageHint = secretStorageHint(value, empty, unchangedPrefill);
 	// Two states earn a tone: a value on its way into plain text, and a stored value on its way out - consequences one
 	// Save away. An unchanged prefill states itself plainly.
 	const hintTone =
@@ -445,54 +526,20 @@ export function SecretField({ field, help, props }: { field: SecretFieldId; help
 					</Button>
 				</span>
 			</FormFieldRow>
-			<FieldUnderRow className="text-[11.5px] text-muted-foreground">
-				<span
-					className="secret-where flex flex-wrap items-center gap-x-3 gap-y-1"
-					role="radiogroup"
-					aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
-				>
-					{/* Stacked, the wrapped-apart options lost their shared left edge: the label and glyph
-					    take the line together and the options share the next one. */}
-					<span className="flex items-center gap-1.5 @max-[700px]/pane:basis-full">
-						<span className="where-label">{l10n.t("Store in:")}</span>
-						<Help
-							text={helpSecretStorage()}
-							name={l10n.t("Help: where to store the {0}", serverFormFieldLabel(field))}
-						/>
-					</span>
-					<label className="flex items-center gap-1.5">
-						<Radio
-							name={`${id}-where`}
-							checked={value.location === "secure"}
-							disabled={props.disabled || value.clear}
-							onChange={() => patchSecret({ location: "secure" })}
-						/>
-						{l10n.t("secret storage")}
-					</label>
-					<label className="flex items-center gap-1.5">
-						<Radio
-							name={`${id}-where`}
-							checked={value.location === "settings"}
-							disabled={props.disabled || value.clear}
-							onChange={() => patchSecret({ location: "settings" })}
-						/>
-						{l10n.t("settings (visible)")}
-					</label>
-				</span>
-			</FieldUnderRow>
-			{/* Removal is destructive, so it takes a line of its own: beside the
-			    storage radios it read as a third place to put the value. */}
+			<SecretStorageChoice
+				id={id}
+				field={field}
+				location={value.location}
+				disabled={props.disabled || value.clear}
+				onLocation={(location) => patchSecret({ location })}
+			/>
 			{value.existing === "none" ? null : (
-				<FieldUnderRow>
-					<label className={cn("secret-remove flex items-center gap-1.5 text-[12px]", value.clear && "armed text-err")}>
-						<Checkbox
-							checked={value.clear}
-							disabled={props.disabled}
-							onChange={(event) => patchSecret({ clear: event.currentTarget.checked })}
-						/>
-						{l10n.t("Remove the stored {0} on save", serverFormFieldLabel(field))}
-					</label>
-				</FieldUnderRow>
+				<SecretRemovalRow
+					field={field}
+					clear={value.clear}
+					disabled={props.disabled}
+					onClear={(clear) => patchSecret({ clear })}
+				/>
 			)}
 		</>
 	);
@@ -524,6 +571,14 @@ export function fieldHasContent(draft: ServerFormDraft, field: ServerFormField):
 	return typeof value === "string" ? value.length > 0 : value.value.length > 0;
 }
 
+/** Where an inactive form's stored secret lives, or that Save removes it; nothing for a field that holds none. */
+function storedSecretHint(value: SecretFieldDraft): string | undefined {
+	if (value.clear) {
+		return l10n.t("Removed on save.");
+	}
+	return value.existing === "none" ? undefined : l10n.t("In {0}.", locationName(value.existing));
+}
+
 /**
  * An inactive form's stored secret: keeps the Remove checkbox reachable without offering an input (the parse would
  * drop anything typed into an unselected form's field).
@@ -536,13 +591,7 @@ export function StoredSecretRow({ field, props }: { field: SecretFieldId; props:
 	return (
 		<FormFieldRow
 			label={serverFormFieldLabel(field)}
-			hint={
-				value.clear
-					? l10n.t("Removed on save.")
-					: value.existing === "none"
-						? undefined
-						: l10n.t("In {0}.", locationName(value.existing))
-			}
+			hint={storedSecretHint(value)}
 			problem={problem}
 			// The same id the input-bearing row uses; the two never render together, so it stays unique.
 			errorId={`server-${field}-error`}

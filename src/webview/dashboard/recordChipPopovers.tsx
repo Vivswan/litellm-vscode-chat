@@ -1,6 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import { cva } from "class-variance-authority";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FieldDirective, ParamRow, PrefixGroup } from "../../dashboard/recordDraft";
 import {
@@ -286,6 +286,303 @@ function PopoverShell({
 	);
 }
 
+interface ValueControlProps {
+	readonly valueKind: ReturnType<typeof capabilityControlKind>;
+	readonly valueText: string;
+	readonly disabled: boolean;
+	readonly ariaInvalid: boolean | undefined;
+	readonly describedBy: string | undefined;
+	readonly ariaLabel: string;
+	readonly onValue: (next: string) => void;
+	readonly onEnter: () => void;
+}
+
+interface FlagCheckboxProps {
+	readonly ariaLabel: string;
+	readonly word: string;
+	readonly checked: boolean;
+	readonly disabled: boolean;
+	readonly help: string;
+	readonly onChange: (checked: boolean) => void;
+}
+
+interface FieldFlagsProps {
+	readonly kind: RecordEditorKind;
+	readonly groups: readonly PrefixGroup[];
+	readonly groupIndex: number;
+	readonly group: PrefixGroup;
+	readonly fieldKey: string;
+	readonly disabled: boolean;
+	readonly onChange: (next: PrefixGroup[]) => void;
+}
+
+interface CandidateFlagsProps {
+	readonly kind: RecordEditorKind;
+	readonly name: string;
+	readonly keyTyped: boolean;
+	readonly disabled: boolean;
+	readonly flagChecked: (flag: FieldDirective) => boolean;
+	readonly onToggle: (flag: FieldDirective, enabled: boolean) => void;
+}
+
+/** The add popover's local state and the group it lands in, as candidateField reads them. */
+interface CandidateInput {
+	readonly kind: RecordEditorKind;
+	readonly groups: readonly PrefixGroup[];
+	readonly groupIndex: number;
+	readonly group: PrefixGroup;
+	readonly key: string;
+	readonly valueText: string;
+	readonly flagOverrides: Partial<Record<FieldDirective, boolean>>;
+	readonly setKey: (next: string) => void;
+	readonly setValueText: (next: string) => void;
+	readonly setFlagOverrides: (
+		update: (current: Partial<Record<FieldDirective, boolean>>) => Partial<Record<FieldDirective, boolean>>
+	) => void;
+	readonly onChange: (next: PrefixGroup[]) => void;
+	readonly onClose: () => void;
+}
+
+/** The candidate field's one reading: its resolved name, its verdict, and the moves that type, flag, and commit it. */
+interface Candidate {
+	readonly name: string;
+	readonly problem: string | undefined;
+	readonly canAdd: boolean;
+	readonly valueKind: ReturnType<typeof capabilityControlKind>;
+	readonly setKeyAndSeed: (nextKey: string) => void;
+	readonly flagChecked: (flag: FieldDirective) => boolean;
+	readonly toggleFlag: (flag: FieldDirective, enabled: boolean) => void;
+	readonly commit: () => void;
+}
+
+/**
+ * The value's control by its kind: a checkbox for a boolean capability, the catalog picker for the OpenRouter model
+ * directive, a number or text input otherwise. Enter runs `onEnter`, since the draft already holds every keystroke.
+ */
+function ValueControl(props: ValueControlProps) {
+	const { valueKind, valueText, disabled, ariaInvalid, describedBy, ariaLabel, onValue, onEnter } = props;
+	if (valueKind === "boolean") {
+		return (
+			<label className="capability-flag">
+				<Checkbox
+					checked={trimHttpWhitespace(valueText) === "true"}
+					disabled={disabled}
+					onChange={(event) => onValue(event.currentTarget.checked ? "true" : "false")}
+				/>
+				{l10n.t("supported")}
+			</label>
+		);
+	}
+	if (valueKind === "catalog-id") {
+		return <CatalogPicker value={valueText} disabled={disabled} invalid={ariaInvalid === true} onValue={onValue} />;
+	}
+	const numberProps = valueKind === "number" || valueKind === "cost" ? numberInputProps(valueKind) : undefined;
+	return (
+		<Input
+			type={numberProps === undefined ? "text" : "number"}
+			min={numberProps?.min}
+			step={numberProps?.step}
+			className="value"
+			aria-invalid={ariaInvalid}
+			aria-describedby={describedBy}
+			aria-label={ariaLabel}
+			placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
+			value={valueText}
+			disabled={disabled}
+			onChange={(event) => onValue(event.currentTarget.value)}
+			onKeyDown={(event) => {
+				if (event.key === "Enter") {
+					onEnter();
+				}
+			}}
+		/>
+	);
+}
+
+/** One directive flag: its checkbox with the chip word as the label, and the help glyph beside it. */
+function FlagCheckbox({ ariaLabel, word, checked, disabled, help, onChange }: FlagCheckboxProps) {
+	return (
+		<>
+			<label>
+				<Checkbox
+					aria-label={ariaLabel}
+					checked={checked}
+					disabled={disabled}
+					onChange={(event) => onChange(event.currentTarget.checked)}
+				/>
+				{word}
+			</label>
+			<Help text={help} />
+		</>
+	);
+}
+
+/**
+ * The edit popover's flag row for a live field; a directive key has none. Any non-directive key takes the fallback
+ * mark: the vocabulary is open and the resolver's `_fallback` accepts any set field.
+ */
+function FieldFlags({ kind, groups, groupIndex, group, fieldKey, disabled, onChange }: FieldFlagsProps) {
+	if (fieldKey.length === 0 || fieldKey.startsWith("_")) {
+		return null;
+	}
+	const forcedFields = directiveMarkedFields(kind, group, FORCE_DIRECTIVE);
+	const fallbackFields = directiveMarkedFields(kind, group, FALLBACK_DIRECTIVE);
+	const toggle = (flag: FieldDirective, enabled: boolean) =>
+		onChange(groups.map((g, i) => (i === groupIndex ? toggleDirectiveField(kind, g, flag, fieldKey, enabled) : g)));
+	return (
+		<div className="chip-popover-flags">
+			{kind === "params" ? (
+				<FlagCheckbox
+					ariaLabel={l10n.t('Force "{0}"', fieldKey)}
+					word={forceWord()}
+					checked={forcedFields.has(fieldKey)}
+					disabled={disabled || !directiveEligible(FORCE_DIRECTIVE, fieldKey)}
+					help={directiveEligible(FORCE_DIRECTIVE, fieldKey) ? helpForceFlag() : helpForceFlagDisabled()}
+					onChange={(enabled) => toggle(FORCE_DIRECTIVE, enabled)}
+				/>
+			) : null}
+			{kind === "caps" && directiveEligible(FALLBACK_DIRECTIVE, fieldKey) ? (
+				<FlagCheckbox
+					ariaLabel={l10n.t('Fall back for "{0}"', fieldKey)}
+					word={fallbackWord()}
+					checked={fallbackFields.has(fieldKey)}
+					disabled={disabled}
+					help={helpFallbackFlag()}
+					onChange={(enabled) => toggle(FALLBACK_DIRECTIVE, enabled)}
+				/>
+			) : null}
+			<InheritableFlag
+				kind={kind}
+				group={group}
+				fieldKey={fieldKey}
+				disabled={disabled}
+				onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
+			/>
+		</div>
+	);
+}
+
+/** The add popover's flag row for the typed candidate; the fallback mark follows the edit popover's open-vocabulary rule. */
+function CandidateFlags({ kind, name, keyTyped, disabled, flagChecked, onToggle }: CandidateFlagsProps) {
+	if (!keyTyped || name.startsWith("_")) {
+		return null;
+	}
+	return (
+		<div className="chip-popover-flags">
+			{kind === "params" ? (
+				<FlagCheckbox
+					ariaLabel={l10n.t('Force "{0}"', name)}
+					word={forceWord()}
+					checked={flagChecked(FORCE_DIRECTIVE)}
+					disabled={disabled || !directiveEligible(FORCE_DIRECTIVE, name)}
+					help={directiveEligible(FORCE_DIRECTIVE, name) ? helpForceFlag() : helpForceFlagDisabled()}
+					onChange={(enabled) => onToggle(FORCE_DIRECTIVE, enabled)}
+				/>
+			) : null}
+			{kind === "caps" && directiveEligible(FALLBACK_DIRECTIVE, name) ? (
+				<FlagCheckbox
+					ariaLabel={l10n.t('Fall back for "{0}"', name)}
+					word={fallbackWord()}
+					checked={flagChecked(FALLBACK_DIRECTIVE)}
+					disabled={disabled}
+					help={helpFallbackFlag()}
+					onChange={(enabled) => onToggle(FALLBACK_DIRECTIVE, enabled)}
+				/>
+			) : null}
+			<FlagCheckbox
+				ariaLabel={l10n.t('Mark "{0}" inheritable', name)}
+				word={inheritableWord()}
+				checked={flagChecked(INHERITABLE_DIRECTIVE)}
+				disabled={disabled}
+				help={helpInheritableFlag()}
+				onChange={(enabled) => onToggle(INHERITABLE_DIRECTIVE, enabled)}
+			/>
+		</div>
+	);
+}
+
+/**
+ * The one status line, in reserved space AFTER the actions: the verdict re-renders per keystroke and must not move
+ * Remove field under the pointer (the charter's transients clause). Worst first, one message at a time
+ * (chip-popover-status is one line).
+ */
+function IssueStatus({ id, issue }: { id: string; issue: RowIssueView | undefined }) {
+	let line: ReactNode = null;
+	if (issue?.problem !== undefined) {
+		line = <p className="error">{issue.problem.message}</p>;
+	} else if (issue?.hint !== undefined) {
+		line = <p className="hint">{issue.hint}</p>;
+	}
+	return (
+		<div className="chip-popover-status" id={id}>
+			{line}
+		</div>
+	);
+}
+
+/**
+ * ONE reading of the typed key - the resolver's - shared by the validation probe, the flag simulation, and the commit,
+ * so the popover can never judge one row and land another: for a parameters record the key commits verbatim (a padded
+ * " _fallback" stays the live field the probe judged).
+ *
+ * The group's directive rows are simulated with a probe row appended, so a literal true's expansion sees the new key;
+ * the commit mints the real row.
+ *
+ * Only explicit flag choices touch the directive rows, and only when they change what the rows already say: an
+ * untouched box over a literal `true` must never explode it into a list.
+ */
+function candidateField(input: CandidateInput): Candidate {
+	const { kind, groups, groupIndex, group, key, valueText, flagOverrides } = input;
+	const name = resolvedFieldName(kind, key);
+	const keyTyped = trimHttpWhitespace(key).length > 0;
+	const problem = keyTyped ? candidateProblem(kind, groups, groupIndex, { key: name, valueText }) : undefined;
+	const canAdd = keyTyped && problem === undefined;
+	const withCandidate: PrefixGroup = { ...group, params: [...group.params, probeRow(name, valueText)] };
+	const impliedFlag = (flag: FieldDirective): boolean => directiveMarkedFields(kind, withCandidate, flag).has(name);
+	return {
+		name,
+		problem,
+		canAdd,
+		valueKind: kind === "caps" ? capabilityControlKind(name, valueText) : "json",
+		setKeyAndSeed: (nextKey) => {
+			input.setKey(nextKey);
+			if (
+				kind === "caps" &&
+				capabilityValueKind(resolvedFieldName(kind, nextKey)) === "boolean" &&
+				trimHttpWhitespace(valueText).length === 0
+			) {
+				input.setValueText("true");
+			}
+		},
+		flagChecked: (flag) => flagOverrides[flag] ?? impliedFlag(flag),
+		toggleFlag: (flag, enabled) => input.setFlagOverrides((current) => ({ ...current, [flag]: enabled })),
+		commit: () => {
+			if (!canAdd) {
+				return;
+			}
+			let next: PrefixGroup = { ...group, params: [...group.params, newParamRow(name, valueText)] };
+			for (const flag of [FORCE_DIRECTIVE, FALLBACK_DIRECTIVE, INHERITABLE_DIRECTIVE] as const) {
+				const desired = flagOverrides[flag];
+				if (desired === undefined || !directiveEligible(flag, name)) {
+					continue;
+				}
+				if (directiveMarkedFields(kind, next, flag).has(name) !== desired) {
+					next = toggleDirectiveField(kind, next, flag, name, desired);
+				}
+			}
+			input.onChange(groups.map((g, i) => (i === groupIndex ? next : g)));
+			input.onClose();
+		},
+	};
+}
+
+/**
+ * The field chip's popover: the value control, the flag row, Remove field, and the status line.
+ *
+ * The status slot's id lets the value input point at the verdict (aria-describedby): the slot renders after the
+ * actions for layout, and the association keeps DOM order irrelevant to assistive tech. Enter closes the popover once
+ * the value is typed - the draft already holds every keystroke, so there is nothing else to commit here.
+ */
 export function FieldChipPopover({
 	kind,
 	groups,
@@ -309,8 +606,6 @@ export function FieldChipPopover({
 }) {
 	const group = groups[groupIndex];
 	const row = group?.params[rowIndex];
-	// The status slot's id, so the value input can point at the verdict (aria-describedby): the slot renders after the
-	// actions for layout, and the association keeps DOM order irrelevant to assistive tech.
 	const statusId = useId();
 	if (group === undefined || row === undefined) {
 		return null;
@@ -328,129 +623,43 @@ export function FieldChipPopover({
 		);
 		onClose();
 	};
-	const valueKind = kind === "caps" ? capabilityControlKind(key, row.valueText) : "json";
-	const numberProps = valueKind === "number" || valueKind === "cost" ? numberInputProps(valueKind) : undefined;
 	const valueInvalid = issue?.problem?.field === "value";
-	// Enter closes the popover once the value is typed - the draft already holds every keystroke, so there is nothing
-	// else to commit here.
-	const onValueKeyDown = (event: KeyboardEvent) => {
-		if (event.key === "Enter") {
-			onClose();
-		}
-	};
-	const forcedFields = directiveMarkedFields(kind, group, FORCE_DIRECTIVE);
-	const fallbackFields = directiveMarkedFields(kind, group, FALLBACK_DIRECTIVE);
 	return (
 		<PopoverShell label={l10n.t('Edit field "{0}"', key)} align={align} onClose={onClose}>
 			<span className="popover-label">{l10n.t("Value")}</span>
-			{valueKind === "boolean" ? (
-				<label className="capability-flag">
-					<Checkbox
-						checked={trimHttpWhitespace(row.valueText) === "true"}
-						disabled={disabled}
-						onChange={(event) => patchValue(event.currentTarget.checked ? "true" : "false")}
-					/>
-					{l10n.t("supported")}
-				</label>
-			) : valueKind === "catalog-id" ? (
-				<CatalogPicker value={row.valueText} disabled={disabled} invalid={valueInvalid} onValue={patchValue} />
-			) : (
-				<Input
-					type={numberProps === undefined ? "text" : "number"}
-					min={numberProps?.min}
-					step={numberProps?.step}
-					className="value"
-					aria-invalid={valueInvalid}
-					aria-describedby={issue?.problem !== undefined || issue?.hint !== undefined ? statusId : undefined}
-					aria-label={l10n.t('Value for "{0}"', key)}
-					placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
-					value={row.valueText}
-					disabled={disabled}
-					onChange={(event) => patchValue(event.currentTarget.value)}
-					onKeyDown={onValueKeyDown}
-				/>
-			)}
-			{key.length > 0 && !key.startsWith("_") ? (
-				<div className="chip-popover-flags">
-					{kind === "params" ? (
-						<>
-							<label>
-								<Checkbox
-									aria-label={l10n.t('Force "{0}"', key)}
-									checked={forcedFields.has(key)}
-									disabled={disabled || !directiveEligible(FORCE_DIRECTIVE, key)}
-									onChange={(event) =>
-										onChange(
-											groups.map((g, i) =>
-												i === groupIndex
-													? toggleDirectiveField(kind, g, FORCE_DIRECTIVE, key, event.currentTarget.checked)
-													: g
-											)
-										)
-									}
-								/>
-								{forceWord()}
-							</label>
-							<Help text={directiveEligible(FORCE_DIRECTIVE, key) ? helpForceFlag() : helpForceFlagDisabled()} />
-						</>
-					) : null}
-					{/* Any non-directive key takes the fallback mark: the vocabulary is
-					    open and the resolver's `_fallback` accepts any set field. */}
-					{kind === "caps" && directiveEligible(FALLBACK_DIRECTIVE, key) ? (
-						<>
-							<label>
-								<Checkbox
-									aria-label={l10n.t('Fall back for "{0}"', key)}
-									checked={fallbackFields.has(key)}
-									disabled={disabled}
-									onChange={(event) =>
-										onChange(
-											groups.map((g, i) =>
-												i === groupIndex
-													? toggleDirectiveField(kind, g, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
-													: g
-											)
-										)
-									}
-								/>
-								{fallbackWord()}
-							</label>
-							<Help text={helpFallbackFlag()} />
-						</>
-					) : null}
-					<InheritableFlag
-						kind={kind}
-						group={group}
-						fieldKey={key}
-						disabled={disabled}
-						onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
-					/>
-				</div>
-			) : null}
-			{/* The one status line, in reserved space AFTER the actions: the verdict re-renders per keystroke and must
-			    not move Remove field under the pointer (the charter's transients clause). Worst first, one message at a
-			    time (chip-popover-status is one line). */}
+			<ValueControl
+				valueKind={kind === "caps" ? capabilityControlKind(key, row.valueText) : "json"}
+				valueText={row.valueText}
+				disabled={disabled}
+				ariaInvalid={valueInvalid}
+				describedBy={issue?.problem !== undefined || issue?.hint !== undefined ? statusId : undefined}
+				ariaLabel={l10n.t('Value for "{0}"', key)}
+				onValue={patchValue}
+				onEnter={onClose}
+			/>
+			<FieldFlags
+				kind={kind}
+				groups={groups}
+				groupIndex={groupIndex}
+				group={group}
+				fieldKey={key}
+				disabled={disabled}
+				onChange={onChange}
+			/>
 			<div className="chip-popover-actions">
 				<Button variant="danger" size="compact" disabled={disabled} onClick={removeRow}>
 					<IconTrash /> {l10n.t("Remove field")}
 				</Button>
 			</div>
-			<div className="chip-popover-status" id={statusId}>
-				{issue?.problem === undefined ? (
-					issue?.hint === undefined ? null : (
-						<p className="hint">{issue.hint}</p>
-					)
-				) : (
-					<p className="error">{issue.problem.message}</p>
-				)}
-			</div>
+			<IssueStatus id={statusId} issue={issue} />
 		</PopoverShell>
 	);
 }
 
 /**
  * The [+] chip's popover: a complete field assembled locally and landed as ONE commit, so half-typed rows never leak
- * into the table.
+ * into the table. The status line sits in the edit popover's after-the-actions slot: the candidate verdict also
+ * re-renders per keystroke, and Add field must not walk away from the pointer while the row is typed.
  */
 export function AddFieldPopover({
 	kind,
@@ -481,56 +690,24 @@ export function AddFieldPopover({
 	if (group === undefined) {
 		return null;
 	}
-	// ONE reading of the typed key - the resolver's - shared by the validation probe, the flag simulation, and the
-	// commit, so the popover can never judge one row and land another: for a parameters record the key commits
-	// verbatim (a padded " _fallback" stays the live field the probe judged).
-	const name = resolvedFieldName(kind, key);
-	const problem =
-		trimHttpWhitespace(key).length === 0
-			? undefined
-			: candidateProblem(kind, groups, groupIndex, { key: name, valueText });
-	const canAdd = trimHttpWhitespace(key).length > 0 && problem === undefined;
-	const valueKind = kind === "caps" ? capabilityControlKind(name, valueText) : "json";
-	const numberProps = valueKind === "number" || valueKind === "cost" ? numberInputProps(valueKind) : undefined;
-	const setKeyAndSeed = (nextKey: string) => {
-		setKey(nextKey);
-		if (
-			kind === "caps" &&
-			capabilityValueKind(resolvedFieldName(kind, nextKey)) === "boolean" &&
-			trimHttpWhitespace(valueText).length === 0
-		) {
-			setValueText("true");
-		}
-	};
-	// What the group's directive rows would already mark on the candidate once its row lands (simulated with a probe
-	// row appended, so a literal true's expansion sees the new key; the commit mints the real row).
-	const withCandidate: PrefixGroup = { ...group, params: [...group.params, probeRow(name, valueText)] };
-	const impliedFlag = (flag: FieldDirective): boolean => directiveMarkedFields(kind, withCandidate, flag).has(name);
-	const flagChecked = (flag: FieldDirective): boolean => flagOverrides[flag] ?? impliedFlag(flag);
-	const toggleLocalFlag = (flag: FieldDirective, enabled: boolean) =>
-		setFlagOverrides((current) => ({ ...current, [flag]: enabled }));
-	const commit = () => {
-		if (!canAdd) {
-			return;
-		}
-		let next: PrefixGroup = { ...group, params: [...group.params, newParamRow(name, valueText)] };
-		// Only explicit choices touch the directive rows, and only when they change what the rows already say: an
-		// untouched box over a literal `true` must never explode it into a list.
-		for (const flag of [FORCE_DIRECTIVE, FALLBACK_DIRECTIVE, INHERITABLE_DIRECTIVE] as const) {
-			const desired = flagOverrides[flag];
-			if (desired === undefined || !directiveEligible(flag, name)) {
-				continue;
-			}
-			if (directiveMarkedFields(kind, next, flag).has(name) !== desired) {
-				next = toggleDirectiveField(kind, next, flag, name, desired);
-			}
-		}
-		onChange(groups.map((g, i) => (i === groupIndex ? next : g)));
-		onClose();
-	};
+	const candidate = candidateField({
+		kind,
+		groups,
+		groupIndex,
+		group,
+		key,
+		valueText,
+		flagOverrides,
+		setKey,
+		setValueText,
+		setFlagOverrides,
+		onChange,
+		onClose,
+	});
+	const noun = kind === "params" ? l10n.t("Parameter") : l10n.t("Capability");
 	return (
 		<PopoverShell label={l10n.t("Add field")} align={align} onClose={onClose}>
-			<span className="popover-label">{kind === "params" ? l10n.t("Parameter") : l10n.t("Capability")}</span>
+			<span className="popover-label">{noun}</span>
 			<SuggestInput
 				value={key}
 				suggestions={keySuggestions}
@@ -539,94 +716,37 @@ export function AddFieldPopover({
 				placeholder={
 					kind === "params" ? l10n.t("Parameter, e.g. temperature") : l10n.t("Capability, e.g. context_length")
 				}
-				ariaLabel={kind === "params" ? l10n.t("Parameter") : l10n.t("Capability")}
+				ariaLabel={noun}
 				disabled={disabled}
-				onValue={setKeyAndSeed}
-				onEnter={commit}
+				onValue={candidate.setKeyAndSeed}
+				onEnter={candidate.commit}
 			/>
 			<span className="popover-label">{l10n.t("Value")}</span>
-			{valueKind === "boolean" ? (
-				<label className="capability-flag">
-					<Checkbox
-						checked={trimHttpWhitespace(valueText) === "true"}
-						disabled={disabled}
-						onChange={(event) => setValueText(event.currentTarget.checked ? "true" : "false")}
-					/>
-					{l10n.t("supported")}
-				</label>
-			) : valueKind === "catalog-id" ? (
-				<CatalogPicker value={valueText} disabled={disabled} invalid={false} onValue={setValueText} />
-			) : (
-				<Input
-					type={numberProps === undefined ? "text" : "number"}
-					min={numberProps?.min}
-					step={numberProps?.step}
-					className="value"
-					aria-describedby={problem === undefined ? undefined : statusId}
-					aria-label={l10n.t("New field value")}
-					placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
-					value={valueText}
-					disabled={disabled}
-					onChange={(event) => setValueText(event.currentTarget.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Enter") {
-							commit();
-						}
-					}}
-				/>
-			)}
-			{trimHttpWhitespace(key).length > 0 && !name.startsWith("_") ? (
-				<div className="chip-popover-flags">
-					{kind === "params" ? (
-						<>
-							<label>
-								<Checkbox
-									aria-label={l10n.t('Force "{0}"', name)}
-									checked={flagChecked(FORCE_DIRECTIVE)}
-									disabled={disabled || !directiveEligible(FORCE_DIRECTIVE, name)}
-									onChange={(event) => toggleLocalFlag(FORCE_DIRECTIVE, event.currentTarget.checked)}
-								/>
-								{forceWord()}
-							</label>
-							<Help text={directiveEligible(FORCE_DIRECTIVE, name) ? helpForceFlag() : helpForceFlagDisabled()} />
-						</>
-					) : null}
-					{/* Same open-vocabulary rule as the edit popover's fallback mark. */}
-					{kind === "caps" && directiveEligible(FALLBACK_DIRECTIVE, name) ? (
-						<>
-							<label>
-								<Checkbox
-									aria-label={l10n.t('Fall back for "{0}"', name)}
-									checked={flagChecked(FALLBACK_DIRECTIVE)}
-									disabled={disabled}
-									onChange={(event) => toggleLocalFlag(FALLBACK_DIRECTIVE, event.currentTarget.checked)}
-								/>
-								{fallbackWord()}
-							</label>
-							<Help text={helpFallbackFlag()} />
-						</>
-					) : null}
-					<label>
-						<Checkbox
-							aria-label={l10n.t('Mark "{0}" inheritable', name)}
-							checked={flagChecked(INHERITABLE_DIRECTIVE)}
-							disabled={disabled}
-							onChange={(event) => toggleLocalFlag(INHERITABLE_DIRECTIVE, event.currentTarget.checked)}
-						/>
-						{inheritableWord()}
-					</label>
-					<Help text={helpInheritableFlag()} />
-				</div>
-			) : null}
-			{/* The edit popover's reserved status line, in the same after-the-actions slot: the candidate verdict also
-			    re-renders per keystroke, and Add field must not walk away from the pointer while the row is typed. */}
+			<ValueControl
+				valueKind={candidate.valueKind}
+				valueText={valueText}
+				disabled={disabled}
+				ariaInvalid={undefined}
+				describedBy={candidate.problem === undefined ? undefined : statusId}
+				ariaLabel={l10n.t("New field value")}
+				onValue={setValueText}
+				onEnter={candidate.commit}
+			/>
+			<CandidateFlags
+				kind={kind}
+				name={candidate.name}
+				keyTyped={trimHttpWhitespace(key).length > 0}
+				disabled={disabled}
+				flagChecked={candidate.flagChecked}
+				onToggle={candidate.toggleFlag}
+			/>
 			<div className="chip-popover-actions">
-				<Button disabled={disabled || !canAdd} onClick={commit}>
+				<Button disabled={disabled || !candidate.canAdd} onClick={candidate.commit}>
 					<IconAdd /> {l10n.t("Add field")}
 				</Button>
 			</div>
 			<div className="chip-popover-status" id={statusId}>
-				{problem === undefined ? null : <p className="error">{problem}</p>}
+				{candidate.problem === undefined ? null : <p className="error">{candidate.problem}</p>}
 			</div>
 		</PopoverShell>
 	);

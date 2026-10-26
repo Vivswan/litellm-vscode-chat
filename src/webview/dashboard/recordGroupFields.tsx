@@ -1,7 +1,13 @@
 import * as l10n from "@vscode/l10n";
 import type { FocusEvent, KeyboardEvent } from "react";
 import { useEffect, useId, useRef, useState } from "react";
-import type { CapabilityGroupIssues, GroupHints, GroupProblems, PrefixGroup } from "../../dashboard/recordDraft";
+import type {
+	CapabilityGroupIssues,
+	GroupHints,
+	GroupProblems,
+	ParamRow,
+	PrefixGroup,
+} from "../../dashboard/recordDraft";
 import {
 	directiveEligible,
 	directiveMarkedFields,
@@ -41,7 +47,13 @@ import {
 } from "./helpText";
 import { useRpc } from "./hooks";
 import { IconAdd, IconTrash } from "./icons";
-import { CAPABILITY_FLAG_DIRECTIVES, PARAM_FLAG_DIRECTIVES, WrongTypeFlagCell } from "./recordFlags";
+import {
+	CAPABILITY_FLAG_DIRECTIVES,
+	fallbackWord,
+	forceWord,
+	PARAM_FLAG_DIRECTIVES,
+	WrongTypeFlagCell,
+} from "./recordFlags";
 import type { RecordEditorKind } from "./recordIssues";
 import { matcherKindLabel } from "./recordIssues";
 import { Button } from "./ui/button";
@@ -85,7 +97,7 @@ function InheritFromControl({
 		);
 	}
 	const shownKind =
-		choice.kind === "keys" ? "keys" : pending !== undefined && choice.kind === "default" ? "keys" : choice.kind;
+		choice.kind === "keys" || (pending !== undefined && choice.kind === "default") ? "keys" : choice.kind;
 	const keysText = choice.kind === "keys" ? choice.keysText : (pending?.text ?? "");
 	const writeKeys = (text: string) => {
 		const keys = parseInheritKeysText(text);
@@ -226,9 +238,230 @@ function useFocusedRow(): {
 	};
 }
 
+/** What every parameter row reads: the group, its verdicts, the shared inputs, and the group's edit moves. */
+interface ParamRowContext {
+	readonly group: PrefixGroup;
+	readonly inert: boolean;
+	readonly disabled: boolean | undefined;
+	readonly problems: GroupProblems | undefined;
+	readonly hints: GroupHints | undefined;
+	readonly paramNameSuggestions: readonly string[] | undefined;
+	readonly forcedFields: ReadonlySet<string>;
+	readonly wrongTypeIdBase: string;
+	readonly focusHold: ReturnType<typeof useFocusedRow>;
+	readonly onChange: (next: PrefixGroup) => void;
+	readonly patchGroup: (patch: Partial<PrefixGroup>) => void;
+	readonly onEnter: (() => void) | undefined;
+	readonly onKeyDown: ((event: KeyboardEvent) => void) | undefined;
+}
+
+interface ParamRowProps {
+	readonly row: ParamRowContext;
+	readonly param: ParamRow;
+	readonly paramIndex: number;
+}
+
+interface MatcherSectionProps {
+	readonly group: PrefixGroup;
+	readonly prefixProblem: string | undefined;
+	readonly inert: boolean;
+	readonly prefixPlaceholder: string;
+	readonly prefixHelp: string;
+	readonly prefixSuggestions: readonly string[] | undefined;
+	readonly onPrefix: (next: string) => void;
+	readonly onEnter: (() => void) | undefined;
+}
+
+/**
+ * The plain value inputs' Enter handler; the suggestion inputs guard their own Enter (a highlighted suggestion is
+ * accepted, never applied).
+ */
+function enterHandler(onEnter: (() => void) | undefined): ((event: KeyboardEvent) => void) | undefined {
+	if (onEnter === undefined) {
+		return undefined;
+	}
+	return (event) => {
+		if (event.key === "Enter") {
+			onEnter();
+		}
+	};
+}
+
+/**
+ * The matcher input with its reserved status line (dashboard.css .matcher-status): grammar at rest, verdict in the
+ * same one-size slot - two spans changed heights and moved the sections below under the typing hand.
+ */
+function MatcherSection(props: MatcherSectionProps) {
+	const { group, prefixProblem, inert, prefixPlaceholder, prefixHelp, prefixSuggestions, onPrefix, onEnter } = props;
+	return (
+		<div className="editor-section">
+			<span className="editor-label">
+				{l10n.t("Matcher")}
+				<Help text={prefixHelp} />
+			</span>
+			<div className="matcher-line">
+				<SuggestInput
+					value={group.prefix}
+					suggestions={prefixSuggestions ?? []}
+					inputClass="key"
+					invalid={prefixProblem !== undefined}
+					placeholder={prefixPlaceholder}
+					ariaLabel={l10n.t("Matcher")}
+					disabled={inert}
+					onValue={onPrefix}
+					onEnter={onEnter}
+				/>
+			</div>
+			<span className={cn("matcher-status", prefixProblem !== undefined && "error")}>
+				{prefixProblem ??
+					(trimHttpWhitespace(group.prefix).length > 0 ? matcherKindLabel(matcherKind(group.prefix)) : null)}
+			</span>
+		</div>
+	);
+}
+
+/** The wrong-record-type note a row's key earns, with the id its key input's aria-describedby points at. */
+interface WrongTypeNote {
+	readonly note: string;
+	readonly id: string;
+}
+
+function wrongTypeNote(kind: RecordEditorKind, key: string, id: string): WrongTypeNote | undefined {
+	const note = wrongRecordTypeHint(kind, key);
+	return note === undefined ? undefined : { note, id };
+}
+
+function ParamRowsHead() {
+	return (
+		<div className="rows-head">
+			<span className="col-head">
+				{l10n.t("Parameter")}
+				<Help text={helpModelParameterName()} />
+			</span>
+			<span className="col-head">
+				{l10n.t("Value")}
+				<Help text={helpModelParameterValue()} />
+			</span>
+		</div>
+	);
+}
+
+/**
+ * The per-row force/inheritable marks in their own fixed column so the boxes align. Directive rows carry no flag
+ * checkboxes (a directive cannot be forced or inherited); unforceable keys keep the box visible but disabled, the help
+ * naming why. A directive key of the other record type gets the wrong-type note in the cell instead.
+ */
+function ParamFlagCell({
+	row,
+	param,
+	wrongType,
+}: {
+	row: ParamRowContext;
+	param: ParamRow;
+	wrongType: WrongTypeNote | undefined;
+}) {
+	const { group, inert, forcedFields, onChange } = row;
+	if (param.key.startsWith("_") || trimHttpWhitespace(param.key).length === 0) {
+		return wrongType === undefined ? null : <WrongTypeFlagCell note={wrongType.note} id={wrongType.id} />;
+	}
+	return (
+		<span className="cell directive-flag">
+			<label>
+				<Checkbox
+					aria-label={l10n.t('Force "{0}"', param.key)}
+					checked={forcedFields.has(param.key)}
+					disabled={inert || !directiveEligible(FORCE_DIRECTIVE, param.key)}
+					onChange={(event) =>
+						onChange(toggleDirectiveField("params", group, FORCE_DIRECTIVE, param.key, event.currentTarget.checked))
+					}
+				/>
+				{forceWord()}
+			</label>
+			<Help text={directiveEligible(FORCE_DIRECTIVE, param.key) ? helpForceFlag() : helpForceFlagDisabled()} />
+			<InheritableFlag kind="params" group={group} fieldKey={param.key} disabled={inert} onChange={onChange} />
+		</span>
+	);
+}
+
+/**
+ * One parameter row. The stacked tier's per-cell labels (dashboard.css .cell-label): once the rows stack there are no
+ * tracks left for the column heads to label; aria-hidden, since the input already carries the word as its accessible
+ * name and the help button stays exposed.
+ *
+ * The Remove label names the field as the record stores it (verbatim); emptiness is the one judgment made trimmed,
+ * matching the parse's own refusal of a whitespace-only name.
+ *
+ * The status slot is reserved whether or not it speaks (dashboard.css .row .row-status): the verdict lands per
+ * keystroke, and a line mounted only when it speaks moves the rows below; worst first, a problem outranks a hint.
+ */
+function ParamRowFields({ row, param, paramIndex }: ParamRowProps) {
+	const { group, inert, disabled, problems, hints, patchGroup, onEnter, onKeyDown } = row;
+	const removeLabel = trimHttpWhitespace(param.key).length > 0 ? l10n.t('Remove "{0}"', param.key) : l10n.t("Remove");
+	const rowProblem = problems?.params[paramIndex]?.message;
+	const rowHint = hints?.params[paramIndex];
+	const wrongType = wrongTypeNote("params", param.key, `${row.wrongTypeIdBase}-${param.id}`);
+	const patchParam = (patch: Partial<ParamRow>) =>
+		patchGroup({ params: group.params.map((p, i) => (i === paramIndex ? { ...p, ...patch } : p)) });
+	return (
+		<div className="row" {...row.focusHold.rowFocusProps(param.id)}>
+			<span className="cell-label">
+				<span aria-hidden="true">{l10n.t("Parameter")}</span>
+				<Help text={helpModelParameterName()} />
+			</span>
+			<span className="cell key">
+				<SuggestInput
+					value={param.key}
+					suggestions={row.paramNameSuggestions ?? []}
+					inputClass="key"
+					invalid={problems?.params[paramIndex]?.field === "name"}
+					placeholder={l10n.t("Parameter, e.g. temperature")}
+					ariaLabel={l10n.t("Parameter")}
+					describedBy={wrongType?.id}
+					disabled={inert}
+					onValue={(next) => patchParam({ key: next })}
+					onEnter={onEnter}
+				/>
+			</span>
+			<span className="cell-label">
+				<span aria-hidden="true">{l10n.t("Value")}</span>
+				<Help text={helpModelParameterValue()} />
+			</span>
+			<span className="cell value">
+				<Input
+					type="text"
+					className="value"
+					aria-invalid={problems?.params[paramIndex]?.field === "value"}
+					aria-label={l10n.t("Value")}
+					placeholder={l10n.t("JSON value, e.g. 0.2")}
+					value={param.valueText}
+					disabled={inert}
+					onChange={(event) => patchParam({ valueText: event.currentTarget.value })}
+					onKeyDown={onKeyDown}
+				/>
+			</span>
+			<ParamFlagCell row={row} param={param} wrongType={wrongType} />
+			<Button
+				variant="danger"
+				size="compact"
+				aria-label={removeLabel}
+				title={removeLabel}
+				disabled={disabled}
+				onClick={() => patchGroup({ params: group.params.filter((_, i) => i !== paramIndex) })}
+			>
+				<IconTrash />
+			</Button>
+			<span className={cn("row-status", rowProblem === undefined ? rowHint !== undefined && "hint" : "error")}>
+				{rowProblem ?? rowHint}
+			</span>
+		</div>
+	);
+}
+
 /**
  * Prefix placeholder and help are required props because the two surfaces differ (global keys may lead with a base
- * URL; entry keys are already scoped).
+ * URL; entry keys are already scoped). Row keys read RAW throughout this editor: parseParameterRecord trims nothing,
+ * so a padded " _inherit_from" is a live field, not the directive. The grid's column heads label rendered rows; an
+ * empty group keeps just the add action instead of heads over nothing.
  *
  *   hints                                    -> row-aligned non-blocking notes from the same parse (the _force
  *                                               semantic warnings)
@@ -260,60 +493,44 @@ export function ParamGroupsFields({
 	onEnter?: (() => void) | undefined;
 }) {
 	const inert = disabled === true;
-	// The suggestion inputs guard their own Enter (a highlighted suggestion is accepted, never applied); this handler
-	// serves the plain value inputs.
-	const onKeyDown =
-		onEnter === undefined
-			? undefined
-			: (event: KeyboardEvent) => {
-					if (event.key === "Enter") {
-						onEnter();
-					}
-				};
 	const patchGroup = (patch: Partial<PrefixGroup>) => {
 		onChange({ ...group, ...patch });
 	};
 	const focusHold = useFocusedRow();
-	const forcedFields = directiveMarkedFields("params", group, FORCE_DIRECTIVE);
 	const wrongTypeIdBase = useId();
-	// Row keys read RAW throughout this editor: parseParameterRecord trims nothing, so a padded " _inherit_from" is a
-	// live field, not the directive.
 	const rowAbsorbed = (index: number): boolean =>
 		!focusHold.focused(group.params[index]?.id ?? "") &&
 		directiveRowAbsorbed("params", group, index, PARAM_FLAG_DIRECTIVES) &&
 		(group.params[index]?.key === INHERIT_FROM_DIRECTIVE || hints?.params[index] === undefined);
 	const inheritFromIndex = group.params.findIndex((param) => param.key === INHERIT_FROM_DIRECTIVE);
-	// The grid's column heads label rendered rows; an empty group keeps just the add action instead of heads over
-	// nothing.
 	const anyRowVisible = group.params.some((_, index) => !rowAbsorbed(index));
+	const row: ParamRowContext = {
+		group,
+		inert,
+		disabled,
+		problems,
+		hints,
+		paramNameSuggestions,
+		forcedFields: directiveMarkedFields("params", group, FORCE_DIRECTIVE),
+		wrongTypeIdBase,
+		focusHold,
+		onChange,
+		patchGroup,
+		onEnter,
+		onKeyDown: enterHandler(onEnter),
+	};
 	return (
 		<div className="group">
-			<div className="editor-section">
-				<span className="editor-label">
-					{l10n.t("Matcher")}
-					<Help text={prefixHelp} />
-				</span>
-				<div className="matcher-line">
-					<SuggestInput
-						value={group.prefix}
-						suggestions={prefixSuggestions ?? []}
-						inputClass="key"
-						invalid={problems?.prefix !== undefined}
-						placeholder={prefixPlaceholder}
-						ariaLabel={l10n.t("Matcher")}
-						disabled={inert}
-						onValue={(next) => patchGroup({ prefix: next })}
-						onEnter={onEnter}
-					/>
-				</div>
-				{/* The matcher's reserved status line (dashboard.css .matcher-status): grammar at rest, verdict in the
-				    same one-size slot - two spans changed heights and moved the sections below under the typing
-				    hand. */}
-				<span className={cn("matcher-status", problems?.prefix !== undefined && "error")}>
-					{problems?.prefix ??
-						(trimHttpWhitespace(group.prefix).length > 0 ? matcherKindLabel(matcherKind(group.prefix)) : null)}
-				</span>
-			</div>
+			<MatcherSection
+				group={group}
+				prefixProblem={problems?.prefix}
+				inert={inert}
+				prefixPlaceholder={prefixPlaceholder}
+				prefixHelp={prefixHelp}
+				prefixSuggestions={prefixSuggestions}
+				onPrefix={(next) => patchGroup({ prefix: next })}
+				onEnter={onEnter}
+			/>
 			<div className="editor-section">
 				<InheritFromControl
 					kind="params"
@@ -326,144 +543,12 @@ export function ParamGroupsFields({
 			<div className="editor-section">
 				<span className="editor-label">{l10n.t("Fields")}</span>
 				<div className="rows">
-					{anyRowVisible ? (
-						<div className="rows-head">
-							<span className="col-head">
-								{l10n.t("Parameter")}
-								<Help text={helpModelParameterName()} />
-							</span>
-							<span className="col-head">
-								{l10n.t("Value")}
-								<Help text={helpModelParameterValue()} />
-							</span>
-						</div>
-					) : null}
-					{group.params.map((param, paramIndex) => {
-						if (rowAbsorbed(paramIndex)) {
-							return null;
-						}
-						// The label names the field as the record stores it (verbatim here); emptiness is the one
-						// judgment made trimmed, matching the parse's own refusal of a whitespace-only name.
-						const removeLabel =
-							trimHttpWhitespace(param.key).length > 0 ? l10n.t('Remove "{0}"', param.key) : l10n.t("Remove");
-						const rowProblem = problems?.params[paramIndex]?.message;
-						const rowHint = hints?.params[paramIndex];
-						const wrongType = wrongRecordTypeHint("params", param.key);
-						const wrongTypeId = wrongType === undefined ? undefined : `${wrongTypeIdBase}-${param.id}`;
-						return (
-							<div className="row" key={param.id} {...focusHold.rowFocusProps(param.id)}>
-								{/* The stacked tier's per-cell labels (dashboard.css .cell-label): once the rows stack
-								    there are no tracks left for the column heads to label. aria-hidden - the input
-								    already carries the word as its accessible name; the help button stays exposed. */}
-								<span className="cell-label">
-									<span aria-hidden="true">{l10n.t("Parameter")}</span>
-									<Help text={helpModelParameterName()} />
-								</span>
-								<span className="cell key">
-									<SuggestInput
-										value={param.key}
-										suggestions={paramNameSuggestions ?? []}
-										inputClass="key"
-										invalid={problems?.params[paramIndex]?.field === "name"}
-										placeholder={l10n.t("Parameter, e.g. temperature")}
-										ariaLabel={l10n.t("Parameter")}
-										describedBy={wrongTypeId}
-										disabled={inert}
-										onValue={(next) =>
-											patchGroup({
-												params: group.params.map((p, i) => (i === paramIndex ? { ...p, key: next } : p)),
-											})
-										}
-										onEnter={onEnter}
-									/>
-								</span>
-								<span className="cell-label">
-									<span aria-hidden="true">{l10n.t("Value")}</span>
-									<Help text={helpModelParameterValue()} />
-								</span>
-								<span className="cell value">
-									<Input
-										type="text"
-										className="value"
-										aria-invalid={problems?.params[paramIndex]?.field === "value"}
-										aria-label={l10n.t("Value")}
-										placeholder={l10n.t("JSON value, e.g. 0.2")}
-										value={param.valueText}
-										disabled={inert}
-										onChange={(event) =>
-											patchGroup({
-												params: group.params.map((p, i) =>
-													i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
-												),
-											})
-										}
-										onKeyDown={onKeyDown}
-									/>
-								</span>
-								{/* The per-row force/inheritable marks in their own fixed column so the boxes align.
-								    Directive rows carry no flag checkboxes (a directive cannot be forced or inherited);
-								    unforceable keys keep the box visible but disabled, the help naming why. */}
-								{param.key.startsWith("_") || trimHttpWhitespace(param.key).length === 0 ? (
-									wrongType === undefined || wrongTypeId === undefined ? null : (
-										<WrongTypeFlagCell note={wrongType} id={wrongTypeId} />
-									)
-								) : (
-									<span className="cell directive-flag">
-										<label>
-											<Checkbox
-												aria-label={l10n.t('Force "{0}"', param.key)}
-												checked={forcedFields.has(param.key)}
-												disabled={inert || !directiveEligible(FORCE_DIRECTIVE, param.key)}
-												onChange={(event) =>
-													onChange(
-														toggleDirectiveField(
-															"params",
-															group,
-															FORCE_DIRECTIVE,
-															param.key,
-															event.currentTarget.checked
-														)
-													)
-												}
-											/>
-											{l10n.t({
-												message: "force",
-												comment: ["Checkbox label on a parameter row; marks the value as forced over runtime options."],
-											})}
-										</label>
-										<Help
-											text={directiveEligible(FORCE_DIRECTIVE, param.key) ? helpForceFlag() : helpForceFlagDisabled()}
-										/>
-										<InheritableFlag
-											kind="params"
-											group={group}
-											fieldKey={param.key}
-											disabled={inert}
-											onChange={onChange}
-										/>
-									</span>
-								)}
-								<Button
-									variant="danger"
-									size="compact"
-									aria-label={removeLabel}
-									title={removeLabel}
-									disabled={disabled}
-									onClick={() => patchGroup({ params: group.params.filter((_, i) => i !== paramIndex) })}
-								>
-									<IconTrash />
-								</Button>
-								{/* Reserved whether or not it speaks (dashboard.css .row .row-status): the verdict
-								    lands per keystroke, and a line mounted only when it speaks moves the rows below.
-								    Worst first - a problem outranks a hint. */}
-								<span
-									className={cn("row-status", rowProblem === undefined ? rowHint !== undefined && "hint" : "error")}
-								>
-									{rowProblem ?? rowHint}
-								</span>
-							</div>
-						);
-					})}
+					{anyRowVisible ? <ParamRowsHead /> : null}
+					{group.params.map((param, paramIndex) =>
+						rowAbsorbed(paramIndex) ? null : (
+							<ParamRowFields key={param.id} row={row} param={param} paramIndex={paramIndex} />
+						)
+					)}
 				</div>
 				<Button
 					variant="secondary"
@@ -499,10 +584,129 @@ export function capabilityKeySuggestions(observedKeys?: readonly string[]): read
 /** The no-evidence list (consumed fields plus directives), the fallback wherever no observed set is known. */
 export const CAPABILITY_KEY_SUGGESTIONS: readonly string[] = capabilityKeySuggestions();
 
+/** The listbox cursor as the key handler drives it: what is open, what it can land on, and how to move. */
+interface SuggestNavigation {
+	readonly expanded: boolean;
+	readonly matches: readonly string[];
+	readonly highlighted: number;
+	readonly disabled: boolean;
+	readonly pick: (suggestion: string) => void;
+	readonly openAt: (index: number) => void;
+	readonly moveTo: (index: number) => void;
+	readonly close: () => void;
+	readonly onEnter: (() => void) | undefined;
+}
+
+interface SuggestionListProps {
+	readonly listId: string;
+	readonly listRef: React.RefObject<HTMLDivElement | null>;
+	readonly matches: readonly string[];
+	readonly highlighted: number;
+	readonly onPick: (suggestion: string) => void;
+}
+
+/**
+ * Reopen a closed list after an Escape (or blur) with the arrow landing straight on an option, per the combobox
+ * pattern: an unhighlighted reopen would send the very next Enter to Apply instead of accepting.
+ */
+function closedListKey(event: KeyboardEvent, nav: SuggestNavigation): void {
+	if (nav.matches.length === 0 || nav.disabled) {
+		return;
+	}
+	if (event.key === "ArrowDown") {
+		nav.openAt(0);
+		event.preventDefault();
+	} else if (event.key === "ArrowUp") {
+		nav.openAt(nav.matches.length - 1);
+		event.preventDefault();
+	}
+}
+
+/**
+ * The open list's arrows wrap; Escape closes it and consumes the key, because inside a slide-over form it must close
+ * only the suggestions, not request the form's close.
+ */
+function openListKey(event: KeyboardEvent, nav: SuggestNavigation): void {
+	const count = nav.matches.length;
+	if (event.key === "ArrowDown") {
+		nav.moveTo((nav.highlighted + 1) % count);
+	} else if (event.key === "ArrowUp") {
+		nav.moveTo(nav.highlighted <= 0 ? count - 1 : nav.highlighted - 1);
+	} else if (event.key === "Escape") {
+		nav.close();
+		event.stopPropagation();
+	} else {
+		return;
+	}
+	event.preventDefault();
+}
+
+/** Enter accepts a highlighted suggestion and nothing else; otherwise it falls through to the owner's Enter. */
+function suggestKeyDown(event: KeyboardEvent, nav: SuggestNavigation): void {
+	if (event.key === "Enter") {
+		const match = nav.highlighted >= 0 ? nav.matches[nav.highlighted] : undefined;
+		if (nav.expanded && match !== undefined) {
+			nav.pick(match);
+			event.preventDefault();
+			return;
+		}
+		nav.onEnter?.();
+		return;
+	}
+	if (nav.expanded) {
+		openListKey(event, nav);
+	} else {
+		closedListKey(event, nav);
+	}
+}
+
+/**
+ * The suggestion listbox. mousedown, not click: the input's blur closes the list before a click could land. The click
+ * handler still picks for activations that never send a mousedown (assistive tech's synthesized clicks); pick is
+ * idempotent.
+ */
+function SuggestionList({ listId, listRef, matches, highlighted, onPick }: SuggestionListProps) {
+	return (
+		<div
+			className="catalog-results suggest-results"
+			role="listbox"
+			id={listId}
+			ref={listRef}
+			aria-label={l10n.t("Suggestions")}
+		>
+			{matches.map((suggestion, index) => (
+				<button
+					key={suggestion}
+					type="button"
+					role="option"
+					id={`${listId}-${index}`}
+					aria-selected={index === highlighted}
+					tabIndex={-1}
+					className={index === highlighted ? "active" : undefined}
+					onMouseDown={(event) => {
+						event.preventDefault();
+						onPick(suggestion);
+					}}
+					onClick={() => onPick(suggestion)}
+				>
+					{suggestion}
+				</button>
+			))}
+		</div>
+	);
+}
+
 /**
  * A text input with its own suggestion listbox, replacing the native datalist (the webview host renders it all-bold
  * and unstylable); the catalog picker's combobox pattern. Enter WITHOUT a highlighted suggestion falls through to
  * `onEnter`, so accepting a suggestion can never double as Apply on a half-typed row.
+ *
+ * With nothing to suggest (the read-only scope grids, entry editors without model data) the input stays a plain text
+ * field: combobox aria naming a listbox that can never exist would be a lie to assistive tech. A separate element, not
+ * conditional attributes: the a11y lint checks role/aria pairs statically.
+ *
+ * Focus stays on the input (the aria-activedescendant pattern), so the browser never scrolls the highlight into the
+ * popup's view on its own.
  *
  *   inputClass  -> the input's base class ("key"); invalid appends the shared error class
  *   ariaLabel   -> the input's accessible name where the visible label is a column head, not a wired <label>
@@ -544,61 +748,34 @@ export function SuggestInput({
 	// Typing reshapes the match list under the cursor, so input resets it; the render-time clamp covers the same list
 	// shrinking for any other reason.
 	const highlighted = active >= 0 && active < matches.length ? active : -1;
-	// Focus stays on the input (the aria-activedescendant pattern), so the browser never scrolls the highlight into the
-	// popup's view on its own.
 	useEffect(() => {
 		if (highlighted >= 0) {
 			listRef.current?.querySelector(`[aria-selected="true"]`)?.scrollIntoView({ block: "nearest" });
 		}
 	}, [highlighted]);
-	const pick = (suggestion: string) => {
-		onValue(suggestion);
+	const close = () => {
 		setOpen(false);
 		setActive(-1);
 	};
-	const onKeyDown = (event: KeyboardEvent) => {
-		if (event.key === "Enter") {
-			const match = highlighted >= 0 ? matches[highlighted] : undefined;
-			if (expanded && match !== undefined) {
-				pick(match);
-				event.preventDefault();
-				return;
-			}
-			onEnter?.();
-			return;
-		}
-		if (!expanded) {
-			// Reopen after an Escape (or blur) with the arrow landing straight on an option, per the combobox pattern:
-			// an unhighlighted reopen would send the very next Enter to Apply instead of accepting.
-			if (event.key === "ArrowDown" && matches.length > 0 && disabled !== true) {
-				setOpen(true);
-				setActive(0);
-				event.preventDefault();
-			} else if (event.key === "ArrowUp" && matches.length > 0 && disabled !== true) {
-				setOpen(true);
-				setActive(matches.length - 1);
-				event.preventDefault();
-			}
-			return;
-		}
-		if (event.key === "ArrowDown") {
-			setActive((highlighted + 1) % matches.length);
-		} else if (event.key === "ArrowUp") {
-			setActive(highlighted <= 0 ? matches.length - 1 : highlighted - 1);
-		} else if (event.key === "Escape") {
-			setOpen(false);
-			setActive(-1);
-			// The listbox consumes this Escape: inside a slide-over form it must close only the suggestions, not
-			// request the form's close.
-			event.stopPropagation();
-		} else {
-			return;
-		}
-		event.preventDefault();
+	const pick = (suggestion: string) => {
+		onValue(suggestion);
+		close();
 	};
-	// With nothing to suggest (the read-only scope grids, entry editors without model data) the input stays a plain
-	// text field: combobox aria naming a listbox that can never exist would be a lie to assistive tech. A separate
-	// element, not conditional attributes: the a11y lint checks role/aria pairs statically.
+	const onKeyDown = (event: KeyboardEvent) =>
+		suggestKeyDown(event, {
+			expanded,
+			matches,
+			highlighted,
+			disabled: disabled === true,
+			pick,
+			openAt: (index) => {
+				setOpen(true);
+				setActive(index);
+			},
+			moveTo: setActive,
+			close,
+			onEnter,
+		});
 	if (suggestions.length === 0) {
 		return (
 			<span className="suggest-input">
@@ -639,42 +816,11 @@ export function SuggestInput({
 					onValue(event.currentTarget.value);
 				}}
 				onFocus={() => setOpen(true)}
-				onBlur={() => {
-					setOpen(false);
-					setActive(-1);
-				}}
+				onBlur={close}
 				onKeyDown={onKeyDown}
 			/>
 			{expanded ? (
-				<div
-					className="catalog-results suggest-results"
-					role="listbox"
-					id={listId}
-					ref={listRef}
-					aria-label={l10n.t("Suggestions")}
-				>
-					{matches.map((suggestion, index) => (
-						<button
-							key={suggestion}
-							type="button"
-							role="option"
-							id={`${listId}-${index}`}
-							aria-selected={index === highlighted}
-							tabIndex={-1}
-							className={index === highlighted ? "active" : undefined}
-							// mousedown, not click: the input's blur closes the list before a click could land. The
-							// click handler still picks for activations that never send a mousedown (assistive tech's
-							// synthesized clicks); pick is idempotent.
-							onMouseDown={(event) => {
-								event.preventDefault();
-								pick(suggestion);
-							}}
-							onClick={() => pick(suggestion)}
-						>
-							{suggestion}
-						</button>
-					))}
-				</div>
+				<SuggestionList listId={listId} listRef={listRef} matches={matches} highlighted={highlighted} onPick={pick} />
 			) : null}
 		</span>
 	);
@@ -721,6 +867,76 @@ export function capabilityControlKind(key: string, valueText: string): ReturnTyp
 
 const CATALOG_SEARCH_DEBOUNCE_MS = 300;
 
+/** One catalog hit the picker lists. */
+interface CatalogMatch {
+	readonly id: string;
+	readonly name: string;
+}
+
+interface CatalogResultsProps {
+	readonly listId: string;
+	readonly matches: readonly CatalogMatch[];
+	readonly active: number;
+	readonly onPick: (id: string) => void;
+}
+
+/**
+ * The open result list's keys: the arrows wrap, Enter picks the highlighted hit, Escape closes and consumes the key,
+ * because inside a chip popover or a slide-over it must close only the results, not the surface above.
+ */
+function catalogKeyDown(
+	event: KeyboardEvent,
+	matches: readonly CatalogMatch[],
+	active: number,
+	moves: {
+		readonly setActive: (update: (current: number) => number) => void;
+		readonly pick: (id: string) => void;
+		readonly close: () => void;
+	}
+): void {
+	if (event.key === "ArrowDown") {
+		moves.setActive((current) => (current + 1) % matches.length);
+	} else if (event.key === "ArrowUp") {
+		moves.setActive((current) => (current <= 0 ? matches.length - 1 : current - 1));
+	} else if (event.key === "Enter" && active >= 0) {
+		const match = matches[active];
+		if (match !== undefined) {
+			moves.pick(match.id);
+		}
+	} else if (event.key === "Escape") {
+		moves.close();
+		event.stopPropagation();
+	} else {
+		return;
+	}
+	event.preventDefault();
+}
+
+/** The catalog hits; mousedown, not click, because the input's blur closes the list before a click could land. */
+function CatalogResults({ listId, matches, active, onPick }: CatalogResultsProps) {
+	return (
+		<div className="catalog-results" role="listbox" id={listId} aria-label={l10n.t("Catalog matches")}>
+			{matches.map((match, index) => (
+				<button
+					key={match.id}
+					type="button"
+					role="option"
+					id={`${listId}-${index}`}
+					aria-selected={index === active}
+					tabIndex={-1}
+					className={index === active ? "active" : undefined}
+					onMouseDown={(event) => {
+						event.preventDefault();
+						onPick(match.id);
+					}}
+				>
+					<span className="catalog-id">{match.id}</span> <span className="hint">{match.name}</span>
+				</button>
+			))}
+		</div>
+	);
+}
+
 /**
  * Only summaries cross the boundary - the catalog itself never enters the webview.
  *
@@ -759,34 +975,20 @@ export function CatalogPicker({
 	}, [open, query, debounceMs, searchCatalog, resetCatalog]);
 
 	const matches = catalog.data?.results;
-	const pick = (id: string) => {
-		onValue(id);
+	const listed = open && matches !== undefined && matches.length > 0;
+	const close = () => {
 		setOpen(false);
 		setActive(-1);
 	};
+	const pick = (id: string) => {
+		onValue(id);
+		close();
+	};
 	const onKeyDown = (event: KeyboardEvent) => {
-		if (!open || matches === undefined || matches.length === 0) {
+		if (!listed) {
 			return;
 		}
-		if (event.key === "ArrowDown") {
-			setActive((current) => (current + 1) % matches.length);
-		} else if (event.key === "ArrowUp") {
-			setActive((current) => (current <= 0 ? matches.length - 1 : current - 1));
-		} else if (event.key === "Enter" && active >= 0) {
-			const match = matches[active];
-			if (match !== undefined) {
-				pick(match.id);
-			}
-		} else if (event.key === "Escape") {
-			setOpen(false);
-			setActive(-1);
-			// The result list consumes this Escape: inside a chip popover or a slide-over it must close only the
-			// results, not the surface above.
-			event.stopPropagation();
-		} else {
-			return;
-		}
-		event.preventDefault();
+		catalogKeyDown(event, matches, active, { setActive, pick, close });
 	};
 	return (
 		<span className="cell value catalog-picker">
@@ -795,7 +997,7 @@ export function CatalogPicker({
 				className="value"
 				role="combobox"
 				aria-invalid={invalid}
-				aria-expanded={open && matches !== undefined && matches.length > 0}
+				aria-expanded={listed}
 				aria-controls={listId}
 				aria-autocomplete="list"
 				aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
@@ -809,41 +1011,207 @@ export function CatalogPicker({
 					onValue(event.currentTarget.value);
 				}}
 				onFocus={() => setOpen(true)}
-				onBlur={() => {
-					setOpen(false);
-					setActive(-1);
-				}}
+				onBlur={close}
 				onKeyDown={onKeyDown}
 			/>
 			<Help text={helpCatalogPicker()} />
-			{open && matches !== undefined && matches.length > 0 ? (
-				<div className="catalog-results" role="listbox" id={listId} aria-label={l10n.t("Catalog matches")}>
-					{matches.map((match, index) => (
-						<button
-							key={match.id}
-							type="button"
-							role="option"
-							id={`${listId}-${index}`}
-							aria-selected={index === active}
-							tabIndex={-1}
-							className={index === active ? "active" : undefined}
-							// mousedown, not click: the input's blur closes the list before a click could land.
-							onMouseDown={(event) => {
-								event.preventDefault();
-								pick(match.id);
-							}}
-						>
-							<span className="catalog-id">{match.id}</span> <span className="hint">{match.name}</span>
-						</button>
-					))}
-				</div>
-			) : null}
+			{listed ? <CatalogResults listId={listId} matches={matches} active={active} onPick={pick} /> : null}
+		</span>
+	);
+}
+
+/** What every capability row reads: the group, its issues, the shared inputs, and the group's edit moves. */
+interface CapabilityRowContext {
+	readonly group: PrefixGroup;
+	readonly inert: boolean;
+	readonly issues: CapabilityGroupIssues | undefined;
+	readonly keySuggestions: readonly string[] | undefined;
+	readonly fallbackFields: ReadonlySet<string>;
+	readonly wrongTypeIdBase: string;
+	readonly focusHold: ReturnType<typeof useFocusedRow>;
+	readonly onChange: (next: PrefixGroup) => void;
+	readonly patchGroup: (patch: Partial<PrefixGroup>) => void;
+	readonly onEnter: (() => void) | undefined;
+	readonly onKeyDown: ((event: KeyboardEvent) => void) | undefined;
+}
+
+interface CapabilityRowProps {
+	readonly row: CapabilityRowContext;
+	readonly param: ParamRow;
+	readonly paramIndex: number;
+}
+
+interface CapabilityValueCellProps {
+	readonly kind: ReturnType<typeof capabilityControlKind>;
+	readonly valueText: string;
+	readonly inert: boolean;
+	readonly invalid: boolean;
+	readonly onValue: (next: string) => void;
+	readonly onKeyDown: ((event: KeyboardEvent) => void) | undefined;
+}
+
+function CapabilityRowsHead() {
+	return (
+		<div className="rows-head">
+			<span className="col-head">
+				{l10n.t("Capability")}
+				<Help text={helpCapabilityName()} />
+			</span>
+			<span className="col-head">
+				{l10n.t("Value")}
+				<Help text={helpCapabilityValue()} />
+			</span>
+		</div>
+	);
+}
+
+/** The value cell by the key's kind: a checkbox, the catalog picker, or a number or text input. */
+function CapabilityValueCell({ kind, valueText, inert, invalid, onValue, onKeyDown }: CapabilityValueCellProps) {
+	if (kind === "boolean") {
+		return (
+			<label className="cell value capability-flag">
+				<Checkbox
+					checked={trimHttpWhitespace(valueText) === "true"}
+					disabled={inert}
+					onChange={(event) => onValue(event.currentTarget.checked ? "true" : "false")}
+				/>
+				{l10n.t("supported")}
+			</label>
+		);
+	}
+	if (kind === "catalog-id") {
+		return <CatalogPicker value={valueText} disabled={inert} invalid={invalid} onValue={onValue} />;
+	}
+	const numberProps = kind === "number" || kind === "cost" ? numberInputProps(kind) : undefined;
+	return (
+		<span className="cell value">
+			<Input
+				type={numberProps === undefined ? "text" : "number"}
+				min={numberProps?.min}
+				step={numberProps?.step}
+				className="value"
+				aria-invalid={invalid}
+				aria-label={l10n.t("Value")}
+				placeholder={numberProps?.placeholder ?? l10n.t("JSON value")}
+				value={valueText}
+				disabled={inert}
+				onChange={(event) => onValue(event.currentTarget.value)}
+				onKeyDown={onKeyDown}
+			/>
 		</span>
 	);
 }
 
 /**
- * The capabilities twin of ParamGroupsFields: one matcher group's rows, with the fallback and inheritable flags.
+ * The row's flag cell. The vocabulary is open, so every non-directive field carries the fallback box - the resolver's
+ * `_fallback` accepts any field the record sets; a directive key of the other record type gets the wrong-type note.
+ */
+function CapabilityFlagCell({
+	row,
+	fieldKey,
+	wrongType,
+}: {
+	row: CapabilityRowContext;
+	fieldKey: string;
+	wrongType: WrongTypeNote | undefined;
+}) {
+	const { group, inert, fallbackFields, onChange } = row;
+	if (directiveEligible(FALLBACK_DIRECTIVE, fieldKey)) {
+		return (
+			<span className="cell directive-flag">
+				<label>
+					<Checkbox
+						aria-label={l10n.t('Fall back for "{0}"', fieldKey)}
+						checked={fallbackFields.has(fieldKey)}
+						disabled={inert}
+						onChange={(event) =>
+							onChange(toggleDirectiveField("caps", group, FALLBACK_DIRECTIVE, fieldKey, event.currentTarget.checked))
+						}
+					/>
+					{fallbackWord()}
+				</label>
+				<Help text={helpFallbackFlag()} />
+				<InheritableFlag kind="caps" group={group} fieldKey={fieldKey} disabled={inert} onChange={onChange} />
+			</span>
+		);
+	}
+	return wrongType === undefined ? null : <WrongTypeFlagCell note={wrongType.note} id={wrongType.id} />;
+}
+
+/**
+ * One capability row, the parameters row's twin: the stacked tier's per-cell labels (dashboard.css .cell-label, words
+ * aria-hidden since the inputs carry the same accessible names), the reserved status line with its worst-first pick
+ * between the row's problem and its non-blocking hint. A key whose kind is boolean seeds an empty value to "true".
+ */
+function CapabilityRowFields({ row, param, paramIndex }: CapabilityRowProps) {
+	const { group, inert, issues, patchGroup, onEnter, onKeyDown } = row;
+	const issue = issues?.rows[paramIndex];
+	const key = resolvedFieldName("caps", param.key);
+	const kind = capabilityControlKind(key, param.valueText);
+	const removeLabel = key.length > 0 ? l10n.t('Remove "{0}"', key) : l10n.t("Remove");
+	const wrongType = wrongTypeNote("caps", key, `${row.wrongTypeIdBase}-${param.id}`);
+	const patchRow = (patch: Partial<{ key: string; valueText: string }>) =>
+		patchGroup({
+			params: group.params.map((p, i) => (i === paramIndex ? { ...p, ...patch } : p)),
+		});
+	return (
+		<div className="row" {...row.focusHold.rowFocusProps(param.id)}>
+			<span className="cell-label">
+				<span aria-hidden="true">{l10n.t("Capability")}</span>
+				<Help text={helpCapabilityName()} />
+			</span>
+			<span className="cell key">
+				<SuggestInput
+					value={param.key}
+					suggestions={row.keySuggestions ?? CAPABILITY_KEY_SUGGESTIONS}
+					inputClass="key"
+					invalid={issue?.problem?.field === "name"}
+					placeholder={l10n.t("Capability, e.g. context_length")}
+					ariaLabel={l10n.t("Capability")}
+					describedBy={wrongType?.id}
+					disabled={inert}
+					onValue={(nextKey) => {
+						const seedsTrue =
+							capabilityValueKind(resolvedFieldName("caps", nextKey)) === "boolean" &&
+							trimHttpWhitespace(param.valueText).length === 0;
+						patchRow({ key: nextKey, ...(seedsTrue ? { valueText: "true" } : {}) });
+					}}
+					onEnter={onEnter}
+				/>
+			</span>
+			<span className="cell-label">
+				<span aria-hidden="true">{l10n.t("Value")}</span>
+				<Help text={helpCapabilityValue()} />
+			</span>
+			<CapabilityValueCell
+				kind={kind}
+				valueText={param.valueText}
+				inert={inert}
+				invalid={issue?.problem?.field === "value"}
+				onValue={(next) => patchRow({ valueText: next })}
+				onKeyDown={onKeyDown}
+			/>
+			<CapabilityFlagCell row={row} fieldKey={key} wrongType={wrongType} />
+			<Button
+				variant="danger"
+				size="compact"
+				aria-label={removeLabel}
+				title={removeLabel}
+				disabled={inert}
+				onClick={() => patchGroup({ params: group.params.filter((_, i) => i !== paramIndex) })}
+			>
+				<IconTrash />
+			</Button>
+			<span className={cn("row-status", issue?.problem === undefined ? issue?.hint !== undefined && "hint" : "error")}>
+				{issue?.problem?.message ?? issue?.hint}
+			</span>
+		</div>
+	);
+}
+
+/**
+ * The capabilities twin of ParamGroupsFields: one matcher group's rows, with the fallback and inheritable flags. The
+ * grid's column heads label rendered rows; an empty group keeps just the add action instead of heads over nothing.
  *
  *   prefixSuggestions -> the matcher input's listbox; absent, the input stays plain
  *   keySuggestions    -> the capability-name suggestions (capabilityKeySuggestions); absent, the no-evidence static
@@ -868,21 +1236,10 @@ export function CapabilityGroupsFields({
 	onEnter?: (() => void) | undefined;
 }) {
 	const inert = disabled === true;
-	// The suggestion inputs guard their own Enter (a highlighted suggestion is accepted, never applied); this handler
-	// serves the plain value inputs.
-	const onKeyDown =
-		onEnter === undefined
-			? undefined
-			: (event: KeyboardEvent) => {
-					if (event.key === "Enter") {
-						onEnter();
-					}
-				};
 	const patchGroup = (patch: Partial<PrefixGroup>) => {
 		onChange({ ...group, ...patch });
 	};
 	const focusHold = useFocusedRow();
-	const fallbackFields = directiveMarkedFields("caps", group, FALLBACK_DIRECTIVE);
 	const wrongTypeIdBase = useId();
 	const rowAbsorbed = (index: number): boolean =>
 		!focusHold.focused(group.params[index]?.id ?? "") &&
@@ -892,36 +1249,32 @@ export function CapabilityGroupsFields({
 	const inheritFromIndex = group.params.findIndex(
 		(param) => resolvedFieldName("caps", param.key) === INHERIT_FROM_DIRECTIVE
 	);
-	// The grid's column heads label rendered rows; an empty group keeps just the add action instead of heads over
-	// nothing.
 	const anyRowVisible = group.params.some((_, index) => !rowAbsorbed(index));
+	const row: CapabilityRowContext = {
+		group,
+		inert,
+		issues,
+		keySuggestions,
+		fallbackFields: directiveMarkedFields("caps", group, FALLBACK_DIRECTIVE),
+		wrongTypeIdBase,
+		focusHold,
+		onChange,
+		patchGroup,
+		onEnter,
+		onKeyDown: enterHandler(onEnter),
+	};
 	return (
 		<div className="group">
-			<div className="editor-section">
-				<span className="editor-label">
-					{l10n.t("Matcher")}
-					<Help text={helpCapabilityPrefix()} />
-				</span>
-				<div className="matcher-line">
-					<SuggestInput
-						value={group.prefix}
-						suggestions={prefixSuggestions ?? []}
-						inputClass="key"
-						invalid={issues?.prefix !== undefined}
-						placeholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
-						ariaLabel={l10n.t("Matcher")}
-						disabled={inert}
-						onValue={(next) => patchGroup({ prefix: next })}
-						onEnter={onEnter}
-					/>
-				</div>
-				{/* The reserved status line, the parameters editor's rule (see the twin above dashboard.css
-				    .matcher-status). */}
-				<span className={cn("matcher-status", issues?.prefix !== undefined && "error")}>
-					{issues?.prefix ??
-						(trimHttpWhitespace(group.prefix).length > 0 ? matcherKindLabel(matcherKind(group.prefix)) : null)}
-				</span>
-			</div>
+			<MatcherSection
+				group={group}
+				prefixProblem={issues?.prefix}
+				inert={inert}
+				prefixPlaceholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
+				prefixHelp={helpCapabilityPrefix()}
+				prefixSuggestions={prefixSuggestions}
+				onPrefix={(next) => patchGroup({ prefix: next })}
+				onEnter={onEnter}
+			/>
 			<div className="editor-section">
 				<InheritFromControl
 					kind="caps"
@@ -936,149 +1289,12 @@ export function CapabilityGroupsFields({
 			<div className="editor-section">
 				<span className="editor-label">{l10n.t("Fields")}</span>
 				<div className="rows">
-					{anyRowVisible ? (
-						<div className="rows-head">
-							<span className="col-head">
-								{l10n.t("Capability")}
-								<Help text={helpCapabilityName()} />
-							</span>
-							<span className="col-head">
-								{l10n.t("Value")}
-								<Help text={helpCapabilityValue()} />
-							</span>
-						</div>
-					) : null}
-					{group.params.map((param, paramIndex) => {
-						if (rowAbsorbed(paramIndex)) {
-							return null;
-						}
-						const issue = issues?.rows[paramIndex];
-						const key = resolvedFieldName("caps", param.key);
-						const kind = capabilityControlKind(key, param.valueText);
-						const numberProps = kind === "number" || kind === "cost" ? numberInputProps(kind) : undefined;
-						const removeLabel = key.length > 0 ? l10n.t('Remove "{0}"', key) : l10n.t("Remove");
-						const wrongType = wrongRecordTypeHint("caps", key);
-						const wrongTypeId = wrongType === undefined ? undefined : `${wrongTypeIdBase}-${param.id}`;
-						const patchRow = (patch: Partial<{ key: string; valueText: string }>) =>
-							patchGroup({
-								params: group.params.map((p, i) => (i === paramIndex ? { ...p, ...patch } : p)),
-							});
-						return (
-							<div className="row" key={param.id} {...focusHold.rowFocusProps(param.id)}>
-								{/* The stacked tier's per-cell labels, the parameters editor's rule (dashboard.css
-								    .cell-label; words aria-hidden there too - the inputs carry the same accessible
-								    names). */}
-								<span className="cell-label">
-									<span aria-hidden="true">{l10n.t("Capability")}</span>
-									<Help text={helpCapabilityName()} />
-								</span>
-								<span className="cell key">
-									<SuggestInput
-										value={param.key}
-										suggestions={keySuggestions ?? CAPABILITY_KEY_SUGGESTIONS}
-										inputClass="key"
-										invalid={issue?.problem?.field === "name"}
-										placeholder={l10n.t("Capability, e.g. context_length")}
-										ariaLabel={l10n.t("Capability")}
-										describedBy={wrongTypeId}
-										disabled={inert}
-										onValue={(nextKey) => {
-											const seedsTrue =
-												capabilityValueKind(resolvedFieldName("caps", nextKey)) === "boolean" &&
-												trimHttpWhitespace(param.valueText).length === 0;
-											patchRow({ key: nextKey, ...(seedsTrue ? { valueText: "true" } : {}) });
-										}}
-										onEnter={onEnter}
-									/>
-								</span>
-								<span className="cell-label">
-									<span aria-hidden="true">{l10n.t("Value")}</span>
-									<Help text={helpCapabilityValue()} />
-								</span>
-								{kind === "boolean" ? (
-									<label className="cell value capability-flag">
-										<Checkbox
-											checked={trimHttpWhitespace(param.valueText) === "true"}
-											disabled={inert}
-											onChange={(event) => patchRow({ valueText: event.currentTarget.checked ? "true" : "false" })}
-										/>
-										{l10n.t("supported")}
-									</label>
-								) : kind === "catalog-id" ? (
-									<CatalogPicker
-										value={param.valueText}
-										disabled={inert}
-										invalid={issue?.problem?.field === "value"}
-										onValue={(next) => patchRow({ valueText: next })}
-									/>
-								) : (
-									<span className="cell value">
-										<Input
-											type={numberProps === undefined ? "text" : "number"}
-											min={numberProps?.min}
-											step={numberProps?.step}
-											className="value"
-											aria-invalid={issue?.problem?.field === "value"}
-											aria-label={l10n.t("Value")}
-											placeholder={numberProps?.placeholder ?? l10n.t("JSON value")}
-											value={param.valueText}
-											disabled={inert}
-											onChange={(event) => patchRow({ valueText: event.currentTarget.value })}
-											onKeyDown={onKeyDown}
-										/>
-									</span>
-								)}
-								{/* The vocabulary is open, so every non-directive field carries the fallback box - the
-								    resolver's `_fallback` accepts any field the record sets. */}
-								{directiveEligible(FALLBACK_DIRECTIVE, key) ? (
-									<span className="cell directive-flag">
-										<label>
-											<Checkbox
-												aria-label={l10n.t('Fall back for "{0}"', key)}
-												checked={fallbackFields.has(key)}
-												disabled={inert}
-												onChange={(event) =>
-													onChange(
-														toggleDirectiveField("caps", group, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
-													)
-												}
-											/>
-											{l10n.t({
-												message: "fallback",
-												comment: [
-													"Checkbox label on a capability row; applies the value only where the server reports none.",
-												],
-											})}
-										</label>
-										<Help text={helpFallbackFlag()} />
-										<InheritableFlag kind="caps" group={group} fieldKey={key} disabled={inert} onChange={onChange} />
-									</span>
-								) : wrongType !== undefined && wrongTypeId !== undefined ? (
-									<WrongTypeFlagCell note={wrongType} id={wrongTypeId} />
-								) : null}
-								<Button
-									variant="danger"
-									size="compact"
-									aria-label={removeLabel}
-									title={removeLabel}
-									disabled={inert}
-									onClick={() => patchGroup({ params: group.params.filter((_, i) => i !== paramIndex) })}
-								>
-									<IconTrash />
-								</Button>
-								{/* The parameters editor's reserved status line, same idiom, same worst-first pick
-								    between the row's problem and its non-blocking hint. */}
-								<span
-									className={cn(
-										"row-status",
-										issue?.problem === undefined ? issue?.hint !== undefined && "hint" : "error"
-									)}
-								>
-									{issue?.problem?.message ?? issue?.hint}
-								</span>
-							</div>
-						);
-					})}
+					{anyRowVisible ? <CapabilityRowsHead /> : null}
+					{group.params.map((param, paramIndex) =>
+						rowAbsorbed(paramIndex) ? null : (
+							<CapabilityRowFields key={param.id} row={row} param={param} paramIndex={paramIndex} />
+						)
+					)}
 				</div>
 				<Button
 					variant="secondary"

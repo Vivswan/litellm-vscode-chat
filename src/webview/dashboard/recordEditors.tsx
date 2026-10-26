@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import { useEffect, useRef, useState } from "react";
 import { settingScopeLabel } from "../../dashboard/presenters";
-import type { PrefixGroup } from "../../dashboard/recordDraft";
+import type { PrefixGroup, RecordJsonParse } from "../../dashboard/recordDraft";
 import {
 	capabilityGroupsFromJsonText,
 	draftRowsKey,
@@ -14,6 +14,7 @@ import {
 import type { DashboardModel, ScopedRecordSetting, SettingScope } from "../../dashboard/viewModels";
 import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
 import { trimHttpWhitespace } from "../../shared/util/headers";
+import type { DocsUrl } from "./docsLinks";
 import { DOCS_LINK_MODEL_CAPABILITIES, DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpModelCapabilitiesSection, helpModelParameterPrefix, helpModelParametersSection } from "./helpText";
@@ -21,7 +22,7 @@ import type { IntentOutcome } from "./hooks";
 import { useIntentOutcome } from "./hooks";
 import { IconAdd, IconBraces } from "./icons";
 import { capabilityKeySuggestions } from "./recordGroupFields";
-import type { GroupIssueView } from "./recordIssues";
+import type { GroupIssueView, RecordEditorKind } from "./recordIssues";
 import { capabilityIssueViews, paramIssueViews } from "./recordIssues";
 import { RecordMatcherEditorOverlay, RecordMatcherTable, useMatcherEditing } from "./recordMatcherTable";
 import { Button } from "./ui/button";
@@ -81,17 +82,16 @@ type DraftState<T> =
 	| { readonly kind: "applying"; readonly rows: T; readonly requestId: string }
 	| { readonly kind: "acked"; readonly rows: T; readonly externalAtAck: string };
 
-/**
- * Both editors follow one draft-and-apply model: rows edited locally, validated per keystroke, written back only
- * through Apply, so the object settings never pass through an invalid shape.
- *
- * An acked draft keeps rendering until the store push arrives - dropping it at the ack would flash the pre-apply value
- * for one frame.
- */
-function useDraftRows<T>(
-	external: T,
-	outcome: IntentOutcome | undefined
-): {
+/** An acked write is no longer a draft phase: the saved notice's window decides between "saved" and "idle". */
+function draftPhase<T>(draft: DraftState<T> | undefined, saved: boolean): DraftPhase {
+	if (draft === undefined || draft.kind === "acked") {
+		return saved ? "saved" : "idle";
+	}
+	return draft.kind;
+}
+
+/** The draft-and-apply state both editors share; the Apply bar and the matcher overlay read it. */
+interface DraftRows<T> {
 	/** The draft's rows while one is live, else the store's; row ids stay stable until the store value itself changes. */
 	rows: T;
 
@@ -115,7 +115,16 @@ function useDraftRows<T>(
 
 	/** Discard: drops the draft, the saved notice, and the correlation id. */
 	reset: () => void;
-} {
+}
+
+/**
+ * Both editors follow one draft-and-apply model: rows edited locally, validated per keystroke, written back only
+ * through Apply, so the object settings never pass through an invalid shape.
+ *
+ * An acked draft keeps rendering until the store push arrives - dropping it at the ack would flash the pre-apply value
+ * for one frame.
+ */
+function useDraftRows<T>(external: T, outcome: IntentOutcome | undefined): DraftRows<T> {
 	// Value identity, id-stripped: the caller re-derives `external` per render and each derivation mints fresh row
 	// ids, so the LAST value-distinct external is the one that renders - stable row ids at rest, new ids only when the
 	// store value actually changed.
@@ -166,7 +175,7 @@ function useDraftRows<T>(
 		setDraft({ kind: "dirty", rows: draft.rows });
 	}, [failureSeq, failureId, draft]);
 
-	const phase: DraftPhase = draft === undefined || draft.kind === "acked" ? (saved ? "saved" : "idle") : draft.kind;
+	const phase = draftPhase(draft, saved);
 	return {
 		rows: draft?.rows ?? externalRef.current.rows,
 		// Unchanged rows post nothing (the scalar rows' rule, in draft form).
@@ -239,9 +248,15 @@ function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undef
  * in it.
  */
 function ApplyStatus({ phase }: { phase: DraftPhase }) {
+	let text = "";
+	if (phase === "applying") {
+		text = l10n.t("Applying...");
+	} else if (phase === "saved") {
+		text = l10n.t("Saved");
+	}
 	return (
 		<span className={cn("apply-status", phase === "saved" && "saved")} role="status">
-			{phase === "applying" ? l10n.t("Applying...") : phase === "saved" ? l10n.t("Saved") : ""}
+			{text}
 		</span>
 	);
 }
@@ -264,21 +279,27 @@ function seededJson(value: unknown): JsonDraft {
 	return { text, base: text };
 }
 
+/** Code-unit order, a total order unlike locale collation, so a canonical form is stable across locales. */
+function compareKeys(a: string, b: string): number {
+	if (a < b) {
+		return -1;
+	}
+	return a > b ? 1 : 0;
+}
+
 /**
  * Field order inside a record is no change, so those keys sort (by code unit - a total order, unlike locale
  * collation); the matcher map keeps its order, because a later regex key beats an earlier one
  * (src/shared/config/modelMatcher.ts compareSpecificity). The root is told by identity: a nested field may be named "".
  */
 function canonicalKey(value: unknown): string {
-	return (
-		JSON.stringify(value, (_key, inner: unknown) =>
-			inner !== value && inner !== null && typeof inner === "object" && !Array.isArray(inner)
-				? Object.fromEntries(
-						Object.entries(inner as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-					)
-				: inner
-		) ?? ""
-	);
+	const sortNestedKeys = (_key: string, inner: unknown): unknown => {
+		if (inner === value || inner === null || typeof inner !== "object" || Array.isArray(inner)) {
+			return inner;
+		}
+		return Object.fromEntries(Object.entries(inner as Record<string, unknown>).sort(([a], [b]) => compareKeys(a, b)));
+	};
+	return JSON.stringify(value, sortNestedKeys) ?? "";
 }
 
 /** Hand-curated (docs/models.md#where-parameters-come-from): no canonical inventory, pass-through; suggestions only. */
@@ -334,8 +355,12 @@ function RecordVerdictLine({
 		return null;
 	}
 	// The count keeps the others from being dropped silently; fixing the worst promotes the next into the line.
-	const more =
-		verdict.others === 0 ? "" : verdict.others === 1 ? l10n.t("(+1 more)") : l10n.t("(+{0} more)", verdict.others);
+	let more = "";
+	if (verdict.others === 1) {
+		more = l10n.t("(+1 more)");
+	} else if (verdict.others !== 0) {
+		more = l10n.t("(+{0} more)", verdict.others);
+	}
 	const spoken = `${verdict.matcher}: ${verdict.message}${more === "" ? "" : ` ${more}`}`;
 	// The line clips visually where the slot runs short; the text stays whole in the DOM (and in the title for pointer
 	// readers), so nothing is lost.
@@ -387,48 +412,111 @@ export function anyRecordProblem(issues: readonly GroupIssueView[]): boolean {
 	return issues.some((issue) => issue.prefix !== undefined || issue.rows.some((row) => row.problem !== undefined));
 }
 
+/** The Edit-as-JSON side door's state and moves; `parse` is the per-keystroke verdict while the door is open. */
+interface JsonSideDoor {
+	readonly json: JsonDraft | undefined;
+	readonly parse: RecordJsonParse<PrefixGroup[]> | undefined;
+	readonly blocked: boolean;
+	readonly edited: boolean;
+	readonly open: (value: unknown) => void;
+	readonly close: () => void;
+	readonly edit: (text: string) => void;
+	readonly markApplied: () => void;
+	readonly reseed: (value: unknown) => void;
+}
+
+interface RecordCommit {
+	readonly canApply: boolean;
+	readonly apply: () => void;
+	readonly discard: () => void;
+}
+
+/** The matcher overlay's target and the draft edits it makes through the editor. */
+interface MatcherOverlayState {
+	readonly editingIndex: number | undefined;
+	readonly openEditor: (index: number, key?: string) => void;
+	readonly change: (next: PrefixGroup) => void;
+	readonly remove: () => void;
+	readonly close: () => void;
+}
+
+interface ExternalJumpInput {
+	readonly external: ExternalRecordEdit | undefined;
+	readonly groups: readonly PrefixGroup[];
+	readonly draft: DraftRows<PrefixGroup[]>;
+	readonly openEditor: (index: number, key?: string) => void;
+	readonly jsonOpen: boolean;
+}
+
+/** The record the edit scope holds, the type both editors edit. */
+type RecordValue = Readonly<Record<string, unknown>>;
+
+/** What a clean parse assembles: the record Apply writes. */
+type AssembledRecord = Record<string, Record<string, unknown>>;
+
+interface EditorHeadingProps {
+	readonly title: string;
+	readonly settingId: "models.parameters" | "models.capabilities";
+	readonly help: string;
+	readonly docsHref: DocsUrl;
+	readonly docsLabel: string;
+}
+
+interface RowsOrEmptyProps {
+	readonly kind: RecordEditorKind;
+	readonly groups: readonly PrefixGroup[];
+	readonly issues: readonly GroupIssueView[];
+	readonly keySuggestions: readonly string[];
+	readonly emptyText: string;
+	readonly onChange: (next: PrefixGroup[]) => void;
+	readonly onOpenEditor: (groupIndex: number) => void;
+	readonly onOpenField: (openField: string | undefined) => void;
+}
+
+interface JsonDoorProps {
+	readonly door: JsonSideDoor;
+	readonly json: JsonDraft;
+	readonly ariaLabel: string;
+}
+
+interface ModeButtonsProps {
+	readonly door: JsonSideDoor;
+	readonly addId: string;
+	readonly addLabel: string;
+	readonly assembled: AssembledRecord | undefined;
+	readonly onAdd: () => void;
+}
+
+interface CommitTrioProps {
+	readonly draft: DraftRows<PrefixGroup[]>;
+	readonly door: JsonSideDoor;
+	readonly commit: RecordCommit;
+	readonly discardLabel: string;
+}
+
+interface OtherScopeFrameProps {
+	readonly kind: RecordEditorKind;
+	readonly scope: SettingScope;
+	readonly groups: readonly PrefixGroup[];
+	readonly issues: readonly GroupIssueView[];
+}
+
 /**
- * Structured editor for litellm-vscode-chat.models.parameters, the object-of-objects the native Settings GUI cannot
- * edit. Edits apply to one scope; others render read-only.
+ * The Edit-as-JSON side door. A JSON view without a live draft follows the store like the rows do. Any draft - dirty,
+ * in flight, or acked - pins it: a dirty one because the text is (or seeded) the user's, the others because resyncing
+ * before the reflecting push would flash the pre-apply value back into the textarea. A keystroke that parses clean
+ * lands in the rows through `onRows`.
  */
-export function ModelParametersEditor({
-	scoped,
-	models,
-	hidden,
-	external,
-}: {
-	/** The record at every scope; only editScope's value is edited and written back whole, the others render read-only. */
-	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
-
-	/** The discovered models, feeding the prefix input's suggestions. */
-	models: readonly DashboardModel[];
-
-	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
-	hidden?: boolean;
-
-	/** The inspectors' configure-jump; see ExternalRecordEdit. */
-	external?: ExternalRecordEdit | undefined;
-}) {
-	const intent = useIntentOutcome("setModelParameters");
-	const draft = useDraftRows(toGroups(scoped.value), intent.outcome);
-	const groups = draft.rows;
-	//   the row problems, the Apply gate, and the assembled record -> are the same verdict
-	//   a draft that renders clean                                 -> can never assemble differently
-	const parse = parseGroups(groups);
-	const problems = parse.ok ? [] : parse.problems;
+function useJsonSideDoor(
+	storedValue: RecordValue,
+	pinned: boolean,
+	parseText: (text: string) => RecordJsonParse<PrefixGroup[]>,
+	onRows: (rows: PrefixGroup[]) => void
+): JsonSideDoor {
 	const [json, setJson] = useState<JsonDraft | undefined>(undefined);
-	// The table reports its open field so the card's verdict skips the one problem it already states.
-	const [openField, setOpenField] = useState<string | undefined>(undefined);
-	const jsonParse = json === undefined ? undefined : groupsFromJsonText(json.text);
-	const jsonBlocked = jsonParse !== undefined && !jsonParse.ok;
-
-	// A JSON view without a live draft follows the store like the rows do. Any draft - dirty, in flight, or acked -
-	// pins it: a dirty one because the text is (or seeded) the user's, the others because resyncing before the
-	// reflecting push would flash the pre-apply value back into the textarea.
-	const externalJsonText = JSON.stringify(scoped.value, null, 2) ?? "{}";
-	const draftPinned = draft.pinned;
+	const externalJsonText = JSON.stringify(storedValue, null, 2) ?? "{}";
 	useEffect(() => {
-		if (draftPinned) {
+		if (pinned) {
 			return;
 		}
 		setJson((current) =>
@@ -436,51 +524,103 @@ export function ModelParametersEditor({
 				? { text: externalJsonText, base: externalJsonText }
 				: current
 		);
-	}, [externalJsonText, draftPinned]);
-
-	// Apply needs a real value change on top of a dirty draft: rows can differ in spelling ("1e1" vs "10") while
-	// assembling to the record already stored (the scalar rows' unchanged-posts-nothing rule).
-	const changed = parse.ok && canonicalKey(parse.value) !== canonicalKey(scoped.value);
-	const canApply = draft.dirty && changed && !jsonBlocked;
-	const apply = () => {
-		if (!parse.ok || !canApply) {
-			return;
-		}
-		const requestId = intent.send({ value: parse.value });
-		draft.apply(requestId);
-		// The applied text becomes the JSON baseline; only edits after it count as discardable again.
-		setJson((current) => (current === undefined ? current : { ...current, base: current.text }));
-	};
-	const discard = () => {
-		draft.reset();
-		if (json !== undefined) {
-			setJson(seededJson(scoped.value));
-		}
-	};
-
-	const modelIds = Array.from(new Set(models.map((model) => model.id)));
-	const issueViews = paramIssueViews(groups, problems, parse.hints);
-	const { editingIndex, openEditor, trackRename, closeEditing } = useMatcherEditing(groups);
-	// A removal that lands the rows back on the store value resets the draft inside useDraftRows.update itself; every
-	// path below simply updates. Closing the overlay sweeps up a still-pristine new matcher (no key, no fields):
-	// keeping it would strand an invalid empty row in the table.
-	const closeEditor = () => {
-		if (editingIndex !== undefined) {
-			const group = groups[editingIndex];
-			if (group !== undefined && trimHttpWhitespace(group.prefix).length === 0 && group.params.length === 0) {
-				draft.update(groups.filter((_, index) => index !== editingIndex));
+	}, [externalJsonText, pinned]);
+	const parse = json === undefined ? undefined : parseText(json.text);
+	return {
+		json,
+		parse,
+		blocked: parse !== undefined && !parse.ok,
+		edited: json !== undefined && json.text !== json.base,
+		open: (value) => setJson(seededJson(value)),
+		close: () => setJson(undefined),
+		edit: (text) => {
+			setJson((current) => (current === undefined ? current : { ...current, text }));
+			const parsed = parseText(text);
+			if (parsed.ok) {
+				onRows(parsed.rows);
 			}
-		}
-		closeEditing();
+		},
+		// The applied text becomes the JSON baseline; only edits after it count as discardable again.
+		markApplied: () => setJson((current) => (current === undefined ? current : { ...current, base: current.text })),
+		reseed: (value) => {
+			if (json !== undefined) {
+				setJson(seededJson(value));
+			}
+		},
 	};
-	// Matcher keys compare RAW on both sides - the request carries the stored record key and the draft holds the
-	// stored prefix, and the grammar trims neither. Inert while the JSON view is open (rewriting a JSON draft would
-	// lose text).
-	//
-	//   Keyed on the request's seq -> repeating the same jump re-opens
+}
+
+/**
+ * Apply needs a real value change on top of a dirty draft: rows can differ in spelling ("1e1" vs "10") while
+ * assembling to the record already stored (the scalar rows' unchanged-posts-nothing rule). Discard drops the draft and
+ * reseeds an open JSON door from the store.
+ */
+function recordCommit(
+	draft: DraftRows<PrefixGroup[]>,
+	assembled: AssembledRecord | undefined,
+	stored: RecordValue,
+	door: JsonSideDoor,
+	send: (value: AssembledRecord) => string
+): RecordCommit {
+	const changed = assembled !== undefined && canonicalKey(assembled) !== canonicalKey(stored);
+	const canApply = draft.dirty && changed && !door.blocked;
+	return {
+		canApply,
+		apply: () => {
+			if (assembled === undefined || !canApply) {
+				return;
+			}
+			draft.apply(send(assembled));
+			door.markApplied();
+		},
+		discard: () => {
+			draft.reset();
+			door.reseed(stored);
+		},
+	};
+}
+
+/**
+ * The overlay's target with the draft edits it makes. A removal that lands the rows back on the store value resets the
+ * draft inside useDraftRows.update itself; every path below simply updates. Closing the overlay sweeps up a
+ * still-pristine new matcher (no key, no fields): keeping it would strand an invalid empty row in the table.
+ */
+function useMatcherOverlay(groups: readonly PrefixGroup[], draft: DraftRows<PrefixGroup[]>): MatcherOverlayState {
+	const { editingIndex, openEditor, trackRename, closeEditing } = useMatcherEditing(groups);
+	const without = (index: number | undefined): PrefixGroup[] => groups.filter((_, at) => at !== index);
+	return {
+		editingIndex,
+		openEditor,
+		change: (next) => {
+			if (editingIndex === undefined) {
+				return;
+			}
+			const remapped = groups.map((group, index) => (index === editingIndex ? next : group));
+			draft.update(remapped);
+			trackRename(next, remapped, editingIndex);
+		},
+		remove: () => {
+			draft.update(without(editingIndex));
+			closeEditing();
+		},
+		close: () => {
+			const group = editingIndex === undefined ? undefined : groups[editingIndex];
+			if (group !== undefined && trimHttpWhitespace(group.prefix).length === 0 && group.params.length === 0) {
+				draft.update(without(editingIndex));
+			}
+			closeEditing();
+		},
+	};
+}
+
+/**
+ * The inspectors' configure-jump. Matcher keys compare RAW on both sides - the request carries the stored record key
+ * and the draft holds the stored prefix, and the grammar trims neither. Inert while the JSON view is open (rewriting a
+ * JSON draft would lose text). Keyed on the request's seq, so repeating the same jump re-opens; the draft, groups, and
+ * editor are read at fire time, not watched.
+ */
+function useExternalJump({ external, groups, draft, openEditor, jsonOpen }: ExternalJumpInput): void {
 	const externalSeq = external?.seq;
-	const jsonOpen = json !== undefined;
-	// The draft, groups, and editor are read at fire time, not watched.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the request seq alone (see above)
 	useEffect(() => {
 		if (external === undefined || externalSeq === undefined || jsonOpen) {
@@ -497,180 +637,323 @@ export function ModelParametersEditor({
 		draft.update([...groups, { prefix: external.key, params: [] }]);
 		openEditor(groups.length, external.key);
 	}, [externalSeq]);
+}
+
+/**
+ * A contained heading sits a step quieter than the group heading above it: same muted tone, one size down, and no
+ * rule of its own. At the surrounding group's weight and the page's foreground it out-shouted its own container.
+ */
+function EditorHeading({ title, settingId, help, docsHref, docsLabel }: EditorHeadingProps) {
+	return (
+		<div className="section-head group/head mb-1">
+			<h3 className="m-0 font-semibold text-[0.9em] text-muted-foreground">{title}</h3>
+			<HeadingRevealButton title={title} settingId={settingId} />
+			<Help text={help} name={l10n.t("Help: {0}", title)} />
+			<DocsLink href={docsHref} label={docsLabel} />
+		</div>
+	);
+}
+
+/**
+ * Where Apply writes, said only when it is news: the write-scope rule sends edits to a scope that already sets the
+ * record, and "not your User settings" is the one case worth a line.
+ */
+function EditScopeNote({ editScope }: { editScope: SettingScope }) {
+	if (editScope === "global") {
+		return null;
+	}
+	return (
+		<p className="hint editor-scope-note">
+			{l10n.t("Apply writes {0} settings - that scope already sets this record.", settingScopeLabel(editScope))}
+		</p>
+	);
+}
+
+/** The matcher rows while the JSON door is closed, or the one empty line while there are none. */
+function RowsOrEmpty({
+	kind,
+	groups,
+	issues,
+	keySuggestions,
+	emptyText,
+	onChange,
+	onOpenEditor,
+	onOpenField,
+}: RowsOrEmptyProps) {
+	return (
+		<>
+			{groups.length === 0 ? <p className="empty">{emptyText}</p> : null}
+			{groups.length > 0 ? (
+				<RecordMatcherTable
+					kind={kind}
+					groups={groups}
+					issues={issues}
+					keySuggestions={keySuggestions}
+					onChange={onChange}
+					onOpenEditor={onOpenEditor}
+					onOpenFieldChange={onOpenField}
+				/>
+			) : null}
+		</>
+	);
+}
+
+/**
+ * The side door's textarea with its reserved status line (dashboard.css .json-status): the parse verdict lands per
+ * keystroke, and mounted only alongside a problem it pushed the mode buttons and the commit bar down on the first bad
+ * character.
+ */
+function JsonDoor({ door, json, ariaLabel }: JsonDoorProps) {
+	return (
+		<div className="record-json">
+			<Textarea
+				className="w-full px-2 py-1"
+				rows={10}
+				aria-label={ariaLabel}
+				aria-invalid={door.blocked}
+				value={json.text}
+				onChange={(event) => door.edit(event.currentTarget.value)}
+			/>
+			<p className={cn("json-status", door.blocked && "error")}>
+				{door.parse !== undefined && !door.parse.ok ? door.parse.problem : null}
+			</p>
+		</div>
+	);
+}
+
+/**
+ * The bar's mode actions: Add matcher and Edit as JSON while rows show, Edit as rows while the door is open. Two
+ * slots, the mode button always in the second: it is one element across the switch, so the focus that activated it
+ * stays on it instead of dropping to the body.
+ */
+function ModeButtons({ door, addId, addLabel, assembled, onAdd }: ModeButtonsProps) {
+	const rows = door.json === undefined;
+	return (
+		<>
+			{rows ? (
+				<Button variant="secondary" id={addId} onClick={onAdd}>
+					<IconAdd /> {addLabel}
+				</Button>
+			) : null}
+			{rows ? (
+				<Button
+					variant="secondary"
+					size="compact"
+					disabled={assembled === undefined}
+					onClick={() => {
+						if (assembled !== undefined) {
+							door.open(assembled);
+						}
+					}}
+				>
+					{l10n.t("Edit as JSON")}
+				</Button>
+			) : (
+				<Button variant="secondary" size="compact" disabled={door.blocked} onClick={door.close}>
+					{l10n.t("Edit as rows")}
+				</Button>
+			)}
+		</>
+	);
+}
+
+/**
+ * The commit trio is ONE flex group so a narrow pane wraps it as a unit - a bare ms-auto on the status once let Apply
+ * wrap onto a line of its own, left-aligned under the mode actions.
+ *
+ * Discard stays available while a write is in flight: a lost ack must not wedge the editor until a reload. Apply is
+ * last in the bar, first in rank: the accent `default` rank is the dashboard's primary, and the trailing slot is where
+ * a region's commit lives.
+ */
+function CommitTrio({ draft, door, commit, discardLabel }: CommitTrioProps) {
+	return (
+		<span className="editor-commit ms-auto flex flex-wrap items-center gap-2">
+			<ApplyStatus phase={draft.phase} />
+			<Button
+				variant="danger"
+				disabled={!draft.dirty && draft.phase !== "applying" && !door.edited}
+				aria-label={discardLabel}
+				onClick={commit.discard}
+			>
+				{l10n.t("Discard")}
+			</Button>
+			<Button disabled={!commit.canApply} onClick={commit.apply}>
+				{l10n.t("Apply")}
+			</Button>
+		</span>
+	);
+}
+
+/**
+ * Another scope's record as a static table. A read-only chip's mark is a border with no popover behind it, so the
+ * frame's own message row says what stands - the footer-position line, message alone (no write path, no buttons),
+ * mounted only while a problem does.
+ */
+function OtherScopeFrame({ kind, scope, groups, issues }: OtherScopeFrameProps) {
+	return (
+		<div className="other-scope">
+			<OtherScopeNote scope={scope} />
+			<div className="record-frame">
+				<RecordMatcherTable kind={kind} groups={groups} issues={issues} readOnly />
+				{anyRecordProblem(issues) ? (
+					<div className="toolbar editor-actions">
+						<RecordStatusSlot groups={groups} issues={issues} />
+					</div>
+				) : null}
+			</div>
+		</div>
+	);
+}
+
+/**
+ * The other scopes' parameter records. The static tables judge their rows with the same parse as the edit scope:
+ * absorption reads the hints, and a directive the badges cannot faithfully summarize must keep its raw chip here too.
+ */
+function OtherParamScopes({ scopes }: { scopes: ScopedRecordSetting<RecordValue>["otherScopes"] }) {
+	return (
+		<>
+			{scopes.map((other) => {
+				const groups = toGroups(other.value);
+				const parse = parseGroups(groups);
+				const issues = paramIssueViews(groups, parse.ok ? [] : parse.problems, parse.hints);
+				return <OtherScopeFrame key={other.scope} kind="params" scope={other.scope} groups={groups} issues={issues} />;
+			})}
+		</>
+	);
+}
+
+/**
+ * The other scopes' capability records, under the same-parse rule as the parameters editor's static tables and with
+ * the same evidence: other scopes still hold global records.
+ */
+function OtherCapabilityScopes({
+	scopes,
+	recognizedKeys,
+}: {
+	scopes: ScopedRecordSetting<RecordValue>["otherScopes"];
+	recognizedKeys: ReadonlySet<string> | undefined;
+}) {
+	return (
+		<>
+			{scopes.map((other) => {
+				const groups = toCapabilityGroups(other.value);
+				const issues = capabilityIssueViews(groups, parseCapabilityGroups(groups, recognizedKeys).issues);
+				return <OtherScopeFrame key={other.scope} kind="caps" scope={other.scope} groups={groups} issues={issues} />;
+			})}
+		</>
+	);
+}
+
+/**
+ * Structured editor for litellm-vscode-chat.models.parameters, the object-of-objects the native Settings GUI cannot
+ * edit. Edits apply to one scope; others render read-only.
+ *
+ * The frame bounds the draft: the matcher rows (or the JSON side door), the failure note, and the action bar that
+ * commits them are one region, so "what does Apply apply" has a visible answer. The row problems, the Apply gate, and
+ * the assembled record are the same verdict, so a draft that renders clean can never assemble differently.
+ *
+ *   scoped   -> the record at every scope; only editScope's value is edited and written back whole, the others render
+ *               read-only
+ *   models   -> the discovered models, feeding the prefix input's suggestions
+ *   hidden   -> the settings filter's verdict; hides the section without unmounting it, so a dirty draft survives
+ *   external -> the inspectors' configure-jump; see ExternalRecordEdit
+ */
+export function ModelParametersEditor({
+	scoped,
+	models,
+	hidden,
+	external,
+}: {
+	scoped: ScopedRecordSetting<RecordValue>;
+	models: readonly DashboardModel[];
+	hidden?: boolean;
+	external?: ExternalRecordEdit | undefined;
+}) {
+	const intent = useIntentOutcome("setModelParameters");
+	const draft = useDraftRows(toGroups(scoped.value), intent.outcome);
+	const groups = draft.rows;
+	const parse = parseGroups(groups);
+	const problems = parse.ok ? [] : parse.problems;
+	const assembled = parse.ok ? parse.value : undefined;
+	// The table reports its open field so the card's verdict skips the one problem it already states.
+	const [openField, setOpenField] = useState<string | undefined>(undefined);
+	const door = useJsonSideDoor(scoped.value, draft.pinned, groupsFromJsonText, draft.update);
+	const commit = recordCommit(draft, assembled, scoped.value, door, (value) => intent.send({ value }));
+	const issueViews = paramIssueViews(groups, problems, parse.hints);
+	const overlay = useMatcherOverlay(groups, draft);
+	useExternalJump({ external, groups, draft, openEditor: overlay.openEditor, jsonOpen: door.json !== undefined });
+	const modelIds = Array.from(new Set(models.map((model) => model.id)));
+	const addMatcher = () => {
+		draft.update([...groups, { prefix: "", params: [] }]);
+		overlay.openEditor(groups.length, "");
+	};
+	const editing = overlay.editingIndex === undefined ? undefined : groups[overlay.editingIndex];
 	return (
 		<section hidden={hidden}>
-			{/* A contained heading sits a step quieter than the group heading above it: same muted tone, one size down,
-			    and no rule of its own. At the surrounding group's weight and the page's foreground it out-shouted its
-			    own container. */}
-			<div className="section-head group/head mb-1">
-				<h3 className="m-0 font-semibold text-[0.9em] text-muted-foreground">{modelParametersTitle()}</h3>
-				<HeadingRevealButton title={modelParametersTitle()} settingId="models.parameters" />
-				<Help text={helpModelParametersSection()} name={l10n.t("Help: {0}", modelParametersTitle())} />
-				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label={l10n.t("Open the model parameters guide")} />
-			</div>
-			{/* The frame bounds the draft: the matcher rows (or the JSON side door), the failure note, and the action
-			    bar that commits them are one region, so "what does Apply apply" has a visible answer. */}
+			<EditorHeading
+				title={modelParametersTitle()}
+				settingId="models.parameters"
+				help={helpModelParametersSection()}
+				docsHref={DOCS_LINK_MODEL_PARAMETERS}
+				docsLabel={l10n.t("Open the model parameters guide")}
+			/>
 			<div className="record-frame">
-				{/* Where Apply writes, said only when it is news: the write-scope rule sends edits to a scope that
-				    already sets the record, and "not your User settings" is the one case worth a line. */}
-				{scoped.editScope === "global" ? null : (
-					<p className="hint editor-scope-note">
-						{l10n.t(
-							"Apply writes {0} settings - that scope already sets this record.",
-							settingScopeLabel(scoped.editScope)
-						)}
-					</p>
-				)}
-				{json === undefined ? (
-					<>
-						{groups.length === 0 ? (
-							<p className="empty">{l10n.t("No model parameters configured in this scope.")}</p>
-						) : null}
-						{groups.length > 0 ? (
-							<RecordMatcherTable
-								kind="params"
-								groups={groups}
-								issues={issueViews}
-								keySuggestions={COMMON_PARAMETER_NAMES}
-								onChange={(next) => draft.update(next)}
-								onOpenEditor={openEditor}
-								onOpenFieldChange={setOpenField}
-							/>
-						) : null}
-					</>
+				<EditScopeNote editScope={scoped.editScope} />
+				{door.json === undefined ? (
+					<RowsOrEmpty
+						kind="params"
+						groups={groups}
+						issues={issueViews}
+						keySuggestions={COMMON_PARAMETER_NAMES}
+						emptyText={l10n.t("No model parameters configured in this scope.")}
+						onChange={draft.update}
+						onOpenEditor={overlay.openEditor}
+						onOpenField={setOpenField}
+					/>
 				) : (
-					<div className="record-json">
-						<Textarea
-							className="w-full px-2 py-1"
-							rows={10}
-							aria-label={l10n.t("Model parameters as JSON")}
-							aria-invalid={jsonBlocked}
-							value={json.text}
-							onChange={(event) => {
-								const text = event.currentTarget.value;
-								setJson((current) => (current === undefined ? current : { ...current, text }));
-								const parsed = groupsFromJsonText(text);
-								if (parsed.ok) {
-									draft.update(parsed.rows);
-								}
-							}}
-						/>
-						{/* The side door's reserved status line (dashboard.css .json-status): the parse verdict lands
-						    per keystroke, and mounted only alongside a problem it pushed the mode buttons and the
-						    commit bar down on the first bad character. */}
-						<p className={cn("json-status", jsonParse !== undefined && !jsonParse.ok && "error")}>
-							{jsonParse !== undefined && !jsonParse.ok ? jsonParse.problem : null}
-						</p>
-					</div>
+					<JsonDoor door={door} json={door.json} ariaLabel={l10n.t("Model parameters as JSON")} />
 				)}
+				{/* The bar's one message slot rides its free space, between the mode actions and the commit trio: the
+				    refusal and the validation verdict speak here, one at a time, without moving either group. */}
 				<div className="toolbar editor-actions">
-					{json === undefined ? (
-						<Button
-							variant="secondary"
-							id="params-add-matcher"
-							onClick={() => {
-								draft.update([...groups, { prefix: "", params: [] }]);
-								openEditor(groups.length, "");
-							}}
-						>
-							<IconAdd /> {l10n.t("Add model matcher")}
-						</Button>
-					) : null}
-					{json === undefined ? (
-						<Button
-							variant="secondary"
-							size="compact"
-							disabled={!parse.ok}
-							onClick={() => {
-								if (parse.ok) {
-									setJson(seededJson(parse.value));
-								}
-							}}
-						>
-							{l10n.t("Edit as JSON")}
-						</Button>
-					) : (
-						<Button variant="secondary" size="compact" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
-							{l10n.t("Edit as rows")}
-						</Button>
-					)}
-					{/* The bar's one message slot rides its free space, between the mode actions and the commit trio:
-					    the refusal and the validation verdict speak here, one at a time, without moving either
-					    group. */}
+					<ModeButtons
+						door={door}
+						addId="params-add-matcher"
+						addLabel={l10n.t("Add model matcher")}
+						assembled={assembled}
+						onAdd={addMatcher}
+					/>
 					<RecordStatusSlot
 						groups={groups}
 						issues={issueViews}
 						openField={openField}
 						refusal={{ failure: draft.failure, dirty: draft.dirty }}
 					/>
-					{/* The commit trio is ONE flex group so a narrow pane wraps it as a unit - a bare ms-auto on the
-					    status once let Apply wrap onto a line of its own, left-aligned under the mode actions. */}
-					<span className="editor-commit ms-auto flex flex-wrap items-center gap-2">
-						<ApplyStatus phase={draft.phase} />
-						{/* Discard stays available while a write is in flight: a lost ack
-					    must not wedge the editor until a reload. */}
-						<Button
-							variant="danger"
-							disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
-							aria-label={l10n.t("Discard the unapplied model parameter edits")}
-							onClick={discard}
-						>
-							{l10n.t("Discard")}
-						</Button>
-						{/* Last in the bar, first in rank: the accent `default` rank is the dashboard's primary, and
-						    the trailing slot is where a region's commit lives. */}
-						<Button disabled={!canApply} onClick={apply}>
-							{l10n.t("Apply")}
-						</Button>
-					</span>
+					<CommitTrio
+						draft={draft}
+						door={door}
+						commit={commit}
+						discardLabel={l10n.t("Discard the unapplied model parameter edits")}
+					/>
 				</div>
 			</div>
-			{scoped.otherScopes.map((other) => {
-				// The static table judges its rows with the same parse as the edit scope: absorption reads the hints,
-				// and a directive the badges cannot faithfully summarize must keep its raw chip here too.
-				const otherGroups = toGroups(other.value);
-				const otherParse = parseGroups(otherGroups);
-				const otherIssues = paramIssueViews(otherGroups, otherParse.ok ? [] : otherParse.problems, otherParse.hints);
-				return (
-					<div className="other-scope" key={other.scope}>
-						<OtherScopeNote scope={other.scope} />
-						<div className="record-frame">
-							<RecordMatcherTable kind="params" groups={otherGroups} issues={otherIssues} readOnly />
-							{/* A read-only chip's mark is a border with no popover behind it, so the frame's own
-							    message row says what stands - the footer-position line, message alone (no write path,
-							    no buttons), mounted only while a problem does. */}
-							{anyRecordProblem(otherIssues) ? (
-								<div className="toolbar editor-actions">
-									<RecordStatusSlot groups={otherGroups} issues={otherIssues} />
-								</div>
-							) : null}
-						</div>
-					</div>
-				);
-			})}
-			{editingIndex !== undefined && groups[editingIndex] !== undefined ? (
+			<OtherParamScopes scopes={scoped.otherScopes} />
+			{overlay.editingIndex !== undefined && editing !== undefined ? (
 				<RecordMatcherEditorOverlay
 					kind="params"
-					group={groups[editingIndex] as PrefixGroup}
-					groupProblems={problems[editingIndex]}
-					groupHints={parse.hints[editingIndex]}
+					group={editing}
+					groupProblems={problems[overlay.editingIndex]}
+					groupHints={parse.hints[overlay.editingIndex]}
 					prefixPlaceholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
 					prefixHelp={helpModelParameterPrefix()}
 					prefixSuggestions={modelIds}
 					keySuggestions={COMMON_PARAMETER_NAMES}
 					fallbackFocusId="params-add-matcher"
 					note={l10n.t("Changes here edit the draft; Apply in the editor saves them.")}
-					onChange={(next) => {
-						const remapped = groups.map((group, index) => (index === editingIndex ? next : group));
-						draft.update(remapped);
-						trackRename(next, remapped, editingIndex);
-					}}
-					onRemove={() => {
-						draft.update(groups.filter((_, index) => index !== editingIndex));
-						closeEditing();
-					}}
-					onClose={closeEditor}
-					onEnter={apply}
+					onChange={overlay.change}
+					onRemove={overlay.remove}
+					onClose={overlay.close}
+					onEnter={commit.apply}
 				/>
 			) : null}
 		</section>
@@ -682,6 +965,14 @@ export function ModelParametersEditor({
  * observed-key union is both the hints' evidence and the autocomplete's server half because the global records scope
  * over every server, so one union fits both; absent or empty it is no evidence, and the hints stay quiet while the
  * suggestions fall back to the static vocabulary.
+ *
+ *   scoped       -> the record at every scope; only editScope's value is edited and written back whole, the others
+ *                   render read-only
+ *   models       -> the discovered models, feeding the matcher input's suggestions
+ *   observedKeys -> the cross-server union of observed /model/info keys: hint evidence and the server half of the key
+ *                   autocomplete
+ *   hidden       -> the settings filter's verdict; hides the section without unmounting it, so a dirty draft survives
+ *   external     -> the inspectors' configure-jump; see ExternalRecordEdit
  */
 export function ModelCapabilitiesEditor({
 	scoped,
@@ -690,19 +981,10 @@ export function ModelCapabilitiesEditor({
 	hidden,
 	external,
 }: {
-	/** The record at every scope; only editScope's value is edited and written back whole, the others render read-only. */
-	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
-
-	/** The discovered models, feeding the matcher input's suggestions. */
+	scoped: ScopedRecordSetting<RecordValue>;
 	models: readonly DashboardModel[];
-
-	/** The cross-server union of observed /model/info keys: hint evidence and the server half of the key autocomplete. */
 	observedKeys?: readonly string[] | undefined;
-
-	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
 	hidden?: boolean;
-
-	/** The inspectors' configure-jump; see ExternalRecordEdit. */
 	external?: ExternalRecordEdit | undefined;
 }) {
 	const intent = useIntentOutcome("setModelCapabilities");
@@ -711,236 +993,81 @@ export function ModelCapabilitiesEditor({
 	const recognizedKeys = observedKeys === undefined ? undefined : new Set(observedKeys);
 	const keySuggestions = capabilityKeySuggestions(observedKeys);
 	const parse = parseCapabilityGroups(groups, recognizedKeys);
-	const issues = parse.issues;
-	const [json, setJson] = useState<JsonDraft | undefined>(undefined);
+	const assembled = parse.ok ? parse.value : undefined;
 	// The table reports its open field so the card's verdict skips the one problem it already states.
 	const [openField, setOpenField] = useState<string | undefined>(undefined);
-	const jsonParse = json === undefined ? undefined : capabilityGroupsFromJsonText(json.text);
-	const jsonBlocked = jsonParse !== undefined && !jsonParse.ok;
-
-	const externalJsonText = JSON.stringify(scoped.value, null, 2) ?? "{}";
-	const draftPinned = draft.pinned;
-	useEffect(() => {
-		if (draftPinned) {
-			return;
-		}
-		setJson((current) =>
-			current !== undefined && current.text === current.base && current.text !== externalJsonText
-				? { text: externalJsonText, base: externalJsonText }
-				: current
-		);
-	}, [externalJsonText, draftPinned]);
-
-	const changed = parse.ok && canonicalKey(parse.value) !== canonicalKey(scoped.value);
-	const canApply = draft.dirty && changed && !jsonBlocked;
-	const apply = () => {
-		if (!parse.ok || !canApply) {
-			return;
-		}
-		const requestId = intent.send({ value: parse.value });
-		draft.apply(requestId);
-		setJson((current) => (current === undefined ? current : { ...current, base: current.text }));
-	};
-	const discard = () => {
-		draft.reset();
-		if (json !== undefined) {
-			setJson(seededJson(scoped.value));
-		}
-	};
-
+	const door = useJsonSideDoor(scoped.value, draft.pinned, capabilityGroupsFromJsonText, draft.update);
+	const commit = recordCommit(draft, assembled, scoped.value, door, (value) => intent.send({ value }));
+	const issueViews = capabilityIssueViews(groups, parse.issues);
+	const overlay = useMatcherOverlay(groups, draft);
+	useExternalJump({ external, groups, draft, openEditor: overlay.openEditor, jsonOpen: door.json !== undefined });
 	const modelIds = Array.from(new Set(models.map((model) => model.id)));
-	const issueViews = capabilityIssueViews(groups, issues);
-	const { editingIndex, openEditor, trackRename, closeEditing } = useMatcherEditing(groups);
-	const closeEditor = () => {
-		if (editingIndex !== undefined) {
-			const group = groups[editingIndex];
-			if (group !== undefined && trimHttpWhitespace(group.prefix).length === 0 && group.params.length === 0) {
-				draft.update(groups.filter((_, index) => index !== editingIndex));
-			}
-		}
-		closeEditing();
+	const addMatcher = () => {
+		draft.update([...groups, { prefix: "", params: [] }]);
+		overlay.openEditor(groups.length, "");
 	};
-	// Keyed on the request's seq so repeating the same jump re-opens.
-	const externalSeq = external?.seq;
-	const jsonOpen = json !== undefined;
-	// The draft, groups, and editor are read at fire time, not watched.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the request seq alone (see above)
-	useEffect(() => {
-		if (external === undefined || externalSeq === undefined || jsonOpen) {
-			return;
-		}
-		const index = groups.findIndex((group) => group.prefix === external.key);
-		if (index >= 0) {
-			openEditor(index);
-			return;
-		}
-		if (!external.create) {
-			return;
-		}
-		draft.update([...groups, { prefix: external.key, params: [] }]);
-		openEditor(groups.length, external.key);
-	}, [externalSeq]);
+	const editing = overlay.editingIndex === undefined ? undefined : groups[overlay.editingIndex];
 	return (
 		<section hidden={hidden}>
-			{/* Quieter than its container, like the parameters twin above. */}
-			<div className="section-head group/head mb-1">
-				<h3 className="m-0 font-semibold text-[0.9em] text-muted-foreground">{modelCapabilitiesTitle()}</h3>
-				<HeadingRevealButton title={modelCapabilitiesTitle()} settingId="models.capabilities" />
-				<Help text={helpModelCapabilitiesSection()} name={l10n.t("Help: {0}", modelCapabilitiesTitle())} />
-				<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
-			</div>
-			{/* The parameters editor's frame, on this editor's own parse. */}
+			<EditorHeading
+				title={modelCapabilitiesTitle()}
+				settingId="models.capabilities"
+				help={helpModelCapabilitiesSection()}
+				docsHref={DOCS_LINK_MODEL_CAPABILITIES}
+				docsLabel={l10n.t("Open the model capabilities guide")}
+			/>
 			<div className="record-frame">
-				{/* The write scope, said only when it is news (the parameters editor's rule). */}
-				{scoped.editScope === "global" ? null : (
-					<p className="hint editor-scope-note">
-						{l10n.t(
-							"Apply writes {0} settings - that scope already sets this record.",
-							settingScopeLabel(scoped.editScope)
-						)}
-					</p>
-				)}
-				{json === undefined ? (
-					<>
-						{groups.length === 0 ? (
-							<p className="empty">{l10n.t("No model capabilities configured in this scope.")}</p>
-						) : null}
-						{groups.length > 0 ? (
-							<RecordMatcherTable
-								kind="caps"
-								groups={groups}
-								issues={issueViews}
-								keySuggestions={keySuggestions}
-								onChange={(next) => draft.update(next)}
-								onOpenEditor={openEditor}
-								onOpenFieldChange={setOpenField}
-							/>
-						) : null}
-					</>
+				<EditScopeNote editScope={scoped.editScope} />
+				{door.json === undefined ? (
+					<RowsOrEmpty
+						kind="caps"
+						groups={groups}
+						issues={issueViews}
+						keySuggestions={keySuggestions}
+						emptyText={l10n.t("No model capabilities configured in this scope.")}
+						onChange={draft.update}
+						onOpenEditor={overlay.openEditor}
+						onOpenField={setOpenField}
+					/>
 				) : (
-					<div className="record-json">
-						<Textarea
-							className="w-full px-2 py-1"
-							rows={10}
-							aria-label={l10n.t("Model capabilities as JSON")}
-							aria-invalid={jsonBlocked}
-							value={json.text}
-							onChange={(event) => {
-								const text = event.currentTarget.value;
-								setJson((current) => (current === undefined ? current : { ...current, text }));
-								const parsed = capabilityGroupsFromJsonText(text);
-								if (parsed.ok) {
-									draft.update(parsed.rows);
-								}
-							}}
-						/>
-						{/* The reserved status line, the parameters door's rule (see the twin above dashboard.css
-						    .json-status). */}
-						<p className={cn("json-status", jsonParse !== undefined && !jsonParse.ok && "error")}>
-							{jsonParse !== undefined && !jsonParse.ok ? jsonParse.problem : null}
-						</p>
-					</div>
+					<JsonDoor door={door} json={door.json} ariaLabel={l10n.t("Model capabilities as JSON")} />
 				)}
 				<div className="toolbar editor-actions">
-					{json === undefined ? (
-						<Button
-							variant="secondary"
-							id="caps-add-matcher"
-							onClick={() => {
-								draft.update([...groups, { prefix: "", params: [] }]);
-								openEditor(groups.length, "");
-							}}
-						>
-							<IconAdd /> {l10n.t("Add capability matcher")}
-						</Button>
-					) : null}
-					{json === undefined ? (
-						<Button
-							variant="secondary"
-							size="compact"
-							disabled={!parse.ok}
-							onClick={() => {
-								if (parse.ok) {
-									setJson(seededJson(parse.value));
-								}
-							}}
-						>
-							{l10n.t("Edit as JSON")}
-						</Button>
-					) : (
-						<Button variant="secondary" size="compact" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
-							{l10n.t("Edit as rows")}
-						</Button>
-					)}
-					{/* The bar's one message slot in its free space; the params editor above states the two-speaker
-					    rule. */}
+					<ModeButtons
+						door={door}
+						addId="caps-add-matcher"
+						addLabel={l10n.t("Add capability matcher")}
+						assembled={assembled}
+						onAdd={addMatcher}
+					/>
 					<RecordStatusSlot
 						groups={groups}
 						issues={issueViews}
 						openField={openField}
 						refusal={{ failure: draft.failure, dirty: draft.dirty }}
 					/>
-					{/* The commit trio wraps as a unit; the parameters editor's twin. */}
-					<span className="editor-commit ms-auto flex flex-wrap items-center gap-2">
-						<ApplyStatus phase={draft.phase} />
-						{/* Discard stays available while a write is in flight: a lost ack
-					    must not wedge the editor until a reload. */}
-						<Button
-							variant="danger"
-							disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
-							aria-label={l10n.t("Discard the unapplied model capability edits")}
-							onClick={discard}
-						>
-							{l10n.t("Discard")}
-						</Button>
-						<Button disabled={!canApply} onClick={apply}>
-							{l10n.t("Apply")}
-						</Button>
-					</span>
+					<CommitTrio
+						draft={draft}
+						door={door}
+						commit={commit}
+						discardLabel={l10n.t("Discard the unapplied model capability edits")}
+					/>
 				</div>
 			</div>
-			{scoped.otherScopes.map((other) => {
-				// The same-parse rule as the parameters editor's static tables, with the same evidence: other scopes
-				// still hold global records.
-				const otherGroups = toCapabilityGroups(other.value);
-				const otherParse = parseCapabilityGroups(otherGroups, recognizedKeys);
-				const otherIssues = capabilityIssueViews(otherGroups, otherParse.issues);
-				return (
-					<div className="other-scope" key={other.scope}>
-						<OtherScopeNote scope={other.scope} />
-						<div className="record-frame">
-							<RecordMatcherTable kind="caps" groups={otherGroups} issues={otherIssues} readOnly />
-							{/* The params frames' rule above: a standing problem gets the frame's own message row, and
-							    a quiet frame closes flush. */}
-							{anyRecordProblem(otherIssues) ? (
-								<div className="toolbar editor-actions">
-									<RecordStatusSlot groups={otherGroups} issues={otherIssues} />
-								</div>
-							) : null}
-						</div>
-					</div>
-				);
-			})}
-			{editingIndex !== undefined && groups[editingIndex] !== undefined ? (
+			<OtherCapabilityScopes scopes={scoped.otherScopes} recognizedKeys={recognizedKeys} />
+			{overlay.editingIndex !== undefined && editing !== undefined ? (
 				<RecordMatcherEditorOverlay
 					kind="caps"
-					group={groups[editingIndex] as PrefixGroup}
-					groupIssues={issues[editingIndex]}
+					group={editing}
+					groupIssues={parse.issues[overlay.editingIndex]}
 					prefixSuggestions={modelIds}
 					keySuggestions={keySuggestions}
 					fallbackFocusId="caps-add-matcher"
 					note={l10n.t("Changes here edit the draft; Apply in the editor saves them.")}
-					onChange={(next) => {
-						const remapped = groups.map((group, index) => (index === editingIndex ? next : group));
-						draft.update(remapped);
-						trackRename(next, remapped, editingIndex);
-					}}
-					onRemove={() => {
-						draft.update(groups.filter((_, index) => index !== editingIndex));
-						closeEditing();
-					}}
-					onClose={closeEditor}
-					onEnter={apply}
+					onChange={overlay.change}
+					onRemove={overlay.remove}
+					onClose={overlay.close}
+					onEnter={commit.apply}
 				/>
 			) : null}
 		</section>

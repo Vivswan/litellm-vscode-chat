@@ -1,6 +1,13 @@
 import * as l10n from "@vscode/l10n";
+import type { ReactNode } from "react";
 import { useEffect, useId, useState } from "react";
-import type { CapabilityGroupIssues, GroupHints, GroupProblems, PrefixGroup } from "../../dashboard/recordDraft";
+import type {
+	CapabilityGroupIssues,
+	GroupHints,
+	GroupProblems,
+	ParamRow,
+	PrefixGroup,
+} from "../../dashboard/recordDraft";
 import { matcherKind, resolvedFieldName, sortedGroupOrder } from "../../dashboard/recordDraft";
 import { OPENROUTER_MODEL_DIRECTIVE } from "../../shared/config/recordResolution";
 import { trimHttpWhitespace } from "../../shared/util/headers";
@@ -20,7 +27,7 @@ import {
 } from "./recordChipPopovers";
 import { ChipFlagWord, chipFlags } from "./recordFlags";
 import { CAPABILITY_KEY_SUGGESTIONS, CapabilityGroupsFields, ParamGroupsFields } from "./recordGroupFields";
-import type { GroupIssueView, RecordEditorKind } from "./recordIssues";
+import type { GroupIssueView, RecordEditorKind, RowIssueView } from "./recordIssues";
 import { matcherKindLabel, recordListLabel } from "./recordIssues";
 import { SlideOver } from "./slideOver";
 import { Button } from "./ui/button";
@@ -59,32 +66,90 @@ type RecordMatcherTableProps = {
 	  }
 );
 
+/** The table's edit affordance, present on an editable table and absent on a read-only one, so a chip asks once. */
+interface RowEdit {
+	readonly disabled: boolean | undefined;
+	readonly onChange: (next: PrefixGroup[]) => void;
+}
+
+/** One matcher row as every chip in it sees it: the group, its identity, its issues, the open popover, the edit. */
+interface RowContext {
+	readonly kind: RecordEditorKind;
+	readonly groups: readonly PrefixGroup[];
+	readonly group: PrefixGroup;
+	readonly groupIndex: number;
+	readonly groupKey: string;
+	readonly groupOrdinal: number;
+	readonly issueView: GroupIssueView | undefined;
+	readonly tableId: string;
+	readonly popover: ChipPopoverTarget | undefined;
+	readonly setPopover: (next: ChipPopoverTarget | undefined) => void;
+	readonly edit: RowEdit | undefined;
+}
+
+interface ChipPopoverState {
+	readonly target: ChipPopoverTarget | undefined;
+	readonly set: (next: ChipPopoverTarget | undefined) => void;
+}
+
+interface ChipBodyProps {
+	readonly catalog: boolean;
+	readonly fieldKey: string;
+	readonly valueText: string;
+	readonly flags: ReturnType<typeof chipFlags>;
+}
+
+interface ChipFaceProps {
+	readonly row: RowContext;
+	readonly chipClass: string;
+	readonly body: ReactNode;
+	readonly openHere: boolean;
+	readonly describedBy: string | undefined;
+	readonly invalid: boolean;
+	readonly flagNote: string | undefined;
+	readonly onToggle: (anchor: EventTarget | null) => void;
+}
+
+interface ChipDescriptionsProps {
+	readonly problemId: string | undefined;
+	readonly hintId: string | undefined;
+	readonly issue: RowIssueView | undefined;
+}
+
+interface FieldChipProps {
+	readonly row: RowContext;
+	readonly rowIndex: number;
+}
+
+interface AddFieldChipProps {
+	readonly row: RowContext;
+	readonly matcherName: string;
+	readonly keySuggestions: readonly string[] | undefined;
+}
+
+interface MatcherRowProps {
+	readonly row: RowContext;
+	readonly keySuggestions: readonly string[] | undefined;
+	readonly onOpenEditor: ((groupIndex: number) => void) | undefined;
+}
+
 /**
- * Rows display in precedence order, lowest first (sortedGroupOrder - a VIEW order; the draft's storage order is never
- * rewritten).
+ * The open chip popover, reported to the owner as a field address and closed when its group or field leaves the draft
+ * (editing a stale row would be worse than closing). The report is cleared on unmount: a stale address would silence a
+ * real problem.
  */
-export function RecordMatcherTable({
-	kind,
-	groups,
-	issues,
-	readOnly,
-	disabled,
-	keySuggestions,
-	onChange,
-	onOpenEditor,
-	onOpenFieldChange,
-}: RecordMatcherTableProps) {
-	const [popover, setPopover] = useState<ChipPopoverTarget | undefined>(undefined);
-	const tableId = useId();
-	const openField = openFieldAddress(groups, popover);
+function useChipPopover(
+	groups: readonly PrefixGroup[],
+	onOpenFieldChange: ((openField: string | undefined) => void) | undefined
+): ChipPopoverState {
+	const [target, setTarget] = useState<ChipPopoverTarget | undefined>(undefined);
+	const openField = openFieldAddress(groups, target);
 	useEffect(() => {
 		onOpenFieldChange?.(openField);
-		// Cleared on unmount: a stale address would silence a real problem.
 		return () => onOpenFieldChange?.(undefined);
 	}, [openField, onOpenFieldChange]);
-	//   A popover whose group or field left the draft -> closes instead of editing a stale row
 	useEffect(() => {
-		setPopover((current) => {
+		setTarget((current) => {
 			if (current === undefined) {
 				return current;
 			}
@@ -101,7 +166,303 @@ export function RecordMatcherTable({
 			return current;
 		});
 	}, [groups]);
-	const editable = readOnly !== true;
+	return { target, set: setTarget };
+}
+
+/** Whether a popover target addresses this row's group. */
+function groupHere(target: ChipPopoverTarget | undefined, row: RowContext): boolean {
+	return target !== undefined && target.groupKey === row.groupKey && target.groupOrdinal === row.groupOrdinal;
+}
+
+/** How many earlier rows share this row's key: exact duplicates block the parse but stay representable. */
+function occurrenceOrdinal(params: readonly ParamRow[], rowIndex: number): number {
+	const key = params[rowIndex]?.key;
+	return params.slice(0, rowIndex).filter((candidate) => candidate.key === key).length;
+}
+
+/** Worst mark first, so the exclusivity between the two marks is the variant's shape rather than merge order. */
+function chipMark(issue: RowIssueView | undefined): "none" | "hint" | "invalid" {
+	if (issue?.problem !== undefined) {
+		return "invalid";
+	}
+	return issue?.hint === undefined ? "none" : "hint";
+}
+
+/** The chip's content: the key (or the catalog word), the value, and the flag words; every face wears the same body. */
+function ChipBody({ catalog, fieldKey, valueText, flags }: ChipBodyProps) {
+	return (
+		<>
+			{catalog ? (
+				<span className="chip-key text-muted-foreground">{l10n.t("catalog")}</span>
+			) : (
+				<code className="chip-key text-muted-foreground">{fieldKey.length > 0 ? fieldKey : l10n.t("(unnamed)")}</code>
+			)}
+			<span className="chip-value max-w-[14em] truncate text-foreground">{valueText}</span>
+			{flags.map((flag) => (
+				<ChipFlagWord flag={flag} key={flag.id} />
+			))}
+		</>
+	);
+}
+
+/**
+ * The chip as a control on an editable row. The action rides a hidden prefix so the accessible name keeps the chip's
+ * visible content - key, value, and flag badges - instead of masking it. A read-only chip cannot open the popover and
+ * a native title never reliably renders in the webview host, so the flag's sentence rides the tip primitive: hover,
+ * keyboard focus, and aria-describedby all reach it.
+ */
+function ChipFace({ row, chipClass, body, openHere, describedBy, invalid, flagNote, onToggle }: ChipFaceProps) {
+	if (row.edit !== undefined) {
+		return (
+			<button
+				type="button"
+				className={chipClass}
+				aria-expanded={openHere}
+				aria-describedby={describedBy}
+				aria-invalid={invalid || undefined}
+				disabled={row.edit.disabled}
+				onClick={(event) => onToggle(event.currentTarget)}
+			>
+				<span className="visually-hidden">{l10n.t("Edit field")}</span>
+				{body}
+			</button>
+		);
+	}
+	if (flagNote === undefined) {
+		return <span className={chipClass}>{body}</span>;
+	}
+	return (
+		<HoverTip tip={flagNote}>
+			<span className={chipClass}>{body}</span>
+		</HoverTip>
+	);
+}
+
+/**
+ * Both marks said in words: a border is invisible to a screen reader, and the card's verdict names the matcher, not
+ * this field. Descriptions rather than name parts, so the chip still announces as its key and value first.
+ */
+function ChipDescriptions({ problemId, hintId, issue }: ChipDescriptionsProps) {
+	return (
+		<>
+			{problemId !== undefined && issue?.problem !== undefined ? (
+				<span id={problemId} className="visually-hidden">
+					{issue.problem.message}
+				</span>
+			) : null}
+			{hintId !== undefined && issue?.hint !== undefined ? (
+				<span id={hintId} className="visually-hidden">
+					{issue.hint}
+				</span>
+			) : null}
+		</>
+	);
+}
+
+/**
+ * One field chip with its popover. Chip identity mirrors the group's: the RAW key plus the occurrence ordinal among
+ * exact duplicates, so each duplicate answers its OWN popover and Remove field can never aim at a sibling row. The
+ * chip's states resolve through chipVariants, the module's one table.
+ */
+function FieldChip({ row, rowIndex }: FieldChipProps) {
+	const param = row.group.params[rowIndex];
+	if (param === undefined) {
+		return null;
+	}
+	const { kind, group, groupIndex, groupKey, groupOrdinal, popover, tableId } = row;
+	const key = resolvedFieldName(kind, param.key);
+	const issue = row.issueView?.rows[rowIndex];
+	const catalog = kind === "caps" && key === OPENROUTER_MODEL_DIRECTIVE;
+	const ordinal = occurrenceOrdinal(group.params, rowIndex);
+	const openHere =
+		popover?.kind === "field" &&
+		groupHere(popover, row) &&
+		popover.fieldKey === param.key &&
+		popover.ordinal === ordinal;
+	const hintId = issue?.hint === undefined ? undefined : `${tableId}-hint-${groupIndex}-${rowIndex}`;
+	const problemId = issue?.problem === undefined ? undefined : `${tableId}-problem-${groupIndex}-${rowIndex}`;
+	const describedBy = [problemId, hintId].filter((id) => id !== undefined).join(" ") || undefined;
+	const chipClass = cn(
+		chipVariants({ editable: row.edit !== undefined, catalog, open: openHere, mark: chipMark(issue) })
+	);
+	const flags = chipFlags(kind, group, key);
+	const toggle = (anchor: EventTarget | null) =>
+		row.setPopover(
+			openHere
+				? undefined
+				: { kind: "field", groupKey, groupOrdinal, fieldKey: param.key, ordinal, align: popoverAlign(anchor) }
+		);
+	return (
+		<span className="chip-anchor">
+			<ChipFace
+				row={row}
+				chipClass={chipClass}
+				body={<ChipBody catalog={catalog} fieldKey={key} valueText={param.valueText} flags={flags} />}
+				openHere={openHere}
+				describedBy={describedBy}
+				invalid={issue?.problem !== undefined}
+				flagNote={flags.find((flag) => flag.note !== undefined)?.note}
+				onToggle={toggle}
+			/>
+			<ChipDescriptions problemId={problemId} hintId={hintId} issue={issue} />
+			{openHere && popover !== undefined && row.edit !== undefined ? (
+				<FieldChipPopover
+					kind={kind}
+					groups={row.groups}
+					groupIndex={groupIndex}
+					rowIndex={rowIndex}
+					issue={issue}
+					disabled={row.edit.disabled === true}
+					align={popover.align}
+					onChange={row.edit.onChange}
+					onClose={() => row.setPopover(undefined)}
+				/>
+			) : null}
+		</span>
+	);
+}
+
+/** The row's trailing [+] chip and the add popover it opens. */
+function AddFieldChip({ row, matcherName, keySuggestions }: AddFieldChipProps) {
+	const { kind, groupKey, groupOrdinal, popover } = row;
+	const addOpen = popover?.kind === "add" && groupHere(popover, row);
+	return (
+		<span className="chip-anchor">
+			<button
+				type="button"
+				className={cn(
+					"chip-field chip-add rounded-(--radius-chip) border border-transparent px-1 text-muted-foreground",
+					"group-hover/row:border-border group-focus-within/row:border-border hover:text-foreground",
+					"focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset)",
+					"focus-visible:outline-ring focus-visible:outline-solid"
+				)}
+				aria-expanded={addOpen}
+				disabled={row.edit?.disabled}
+				aria-label={l10n.t('Add a field to "{0}"', matcherName)}
+				onClick={(event) =>
+					row.setPopover(
+						addOpen ? undefined : { kind: "add", groupKey, groupOrdinal, align: popoverAlign(event.currentTarget) }
+					)
+				}
+			>
+				<IconAdd />
+			</button>
+			{addOpen && popover !== undefined && row.edit !== undefined ? (
+				<AddFieldPopover
+					kind={kind}
+					groups={row.groups}
+					groupIndex={row.groupIndex}
+					disabled={row.edit.disabled === true}
+					keySuggestions={keySuggestions ?? (kind === "caps" ? CAPABILITY_KEY_SUGGESTIONS : [])}
+					align={popover.align}
+					onChange={row.edit.onChange}
+					onClose={() => row.setPopover(undefined)}
+				/>
+			) : null}
+		</span>
+	);
+}
+
+/**
+ * One matcher row. The wash is the row's edit affordance, so only editable rows wear it: on a read-only row it
+ * promises an editor that never comes, and its tint under the non-repainting read-only chips took their flag words
+ * under AA (3.38:1 in the server drawer, violet). The visible cell's fallback doubles as the accessible name for the
+ * row's actions: a fresh matcher must not announce as "".
+ */
+function MatcherRow({ row, keySuggestions, onOpenEditor }: MatcherRowProps) {
+	const { kind, group, groupIndex, popover } = row;
+	const editable = row.edit !== undefined;
+	const pinnedKey = popover?.kind === "field" && groupHere(popover, row) ? popover.fieldKey : undefined;
+	const chips = chipRowIndices(kind, group, row.issueView?.rows ?? [], pinnedKey);
+	const matcherName = trimHttpWhitespace(group.prefix).length > 0 ? group.prefix : l10n.t("(no matcher)");
+	return (
+		<li
+			className={cn(
+				"record-row group/row -mx-2 rounded-md px-2 py-1",
+				editable && "hover:bg-accent-soft focus-within:bg-accent-soft"
+			)}
+		>
+			{/* Shrinkable on purpose: the wide tier's grid ignores flex-shrink, and in
+			    the sub-700px flex rows a max-content cell would carry a long regex key
+			    past the pane; min-w-[104px] still floors the collapse. */}
+			<span className="matcher-cell flex min-w-[104px] flex-wrap items-baseline gap-2">
+				{/* The matcher wears the chip chrome OUTLINED where the field
+				    chips are FILLED: one radius system, two fills - identity
+				    reads as a container, data as contents. */}
+				<code className="matcher-key rounded-(--radius-chip) border border-border px-1 font-mono text-[12px] text-foreground [overflow-wrap:anywhere]">
+					{matcherName}
+				</code>
+				<span className="matcher-kind text-[11px] text-muted-foreground">
+					{matcherKindLabel(matcherKind(group.prefix))}
+				</span>
+			</span>
+			{/* min-w-min, not min-w-0: a zero floor let the chips overflow the inherit summary; the
+			    floor is a chip's longest UNBREAKABLE piece (check-overflow holds it). No flex-item
+			    utilities: a utility would beat the 700px stylesheet fallback. */}
+			<span className="chip-list flex min-w-min flex-wrap items-baseline gap-x-2 gap-y-1">
+				{/* Chips are keyed by their FIELD KEY so a directive row inserted or removed by a
+				    flag toggle cannot remount an open popover mid-interaction. */}
+				{chips.map((rowIndex) => {
+					const param = group.params[rowIndex];
+					if (param === undefined) {
+						return null;
+					}
+					return (
+						<FieldChip
+							key={tupleKey(param.key, occurrenceOrdinal(group.params, rowIndex))}
+							row={row}
+							rowIndex={rowIndex}
+						/>
+					);
+				})}
+				{editable ? <AddFieldChip row={row} matcherName={matcherName} keySuggestions={keySuggestions} /> : null}
+			</span>
+			<InheritsSummary kind={kind} group={group} />
+			{editable ? (
+				/**
+				 * Pushed to the row's end only in the wrapping tier (the wide grid has no free space). A
+				 * utility, because the button primitive's own mx- would outrank a stylesheet rule; it
+				 * survives the bordered modes only because their hand-back zeroes a custom property, not
+				 * the margin itself (ui/button.tsx).
+				 */
+				<Button
+					variant="secondary"
+					size="compact"
+					className="edit-cell shrink-0 @max-[700px]/pane:ms-auto"
+					aria-label={l10n.t('Open the full editor for "{0}"', matcherName)}
+					disabled={row.edit?.disabled}
+					onClick={() => onOpenEditor?.(groupIndex)}
+				>
+					<IconEdit />
+				</Button>
+			) : null}
+		</li>
+	);
+}
+
+/**
+ * Rows display in precedence order, lowest first (sortedGroupOrder - a VIEW order; the draft's storage order is never
+ * rewritten).
+ *
+ * Rows are keyed by their MATCHER KEY plus occurrence: an index key would remount the row when a state push reorders
+ * the record, dropping an open add popover's half-typed field with it. Identity is the RAW key (reorder-stable where
+ * trimmed identity is not) plus the occurrence ordinal for exact duplicates, which block the parse but stay
+ * representable.
+ */
+export function RecordMatcherTable({
+	kind,
+	groups,
+	issues,
+	readOnly,
+	disabled,
+	keySuggestions,
+	onChange,
+	onOpenEditor,
+	onOpenFieldChange,
+}: RecordMatcherTableProps) {
+	const popover = useChipPopover(groups, onOpenFieldChange);
+	const tableId = useId();
+	const edit = readOnly === true ? undefined : { disabled, onChange };
 	const order = sortedGroupOrder(groups);
 	return (
 		// Rows share ONE internal grid through subgrid (the models list's construction). The STRUCTURE lives in
@@ -113,230 +474,28 @@ export function RecordMatcherTable({
 				if (group === undefined) {
 					return null;
 				}
-				const issueView = issues[groupIndex];
-				// Identity is the RAW key (reorder-stable where trimmed identity is not) plus the occurrence ordinal
-				// for exact duplicates, which block the parse but stay representable.
 				const groupKey = group.prefix;
 				const groupOrdinal = groups.slice(0, groupIndex).filter((candidate) => candidate.prefix === groupKey).length;
-				const groupHere = (target: ChipPopoverTarget | undefined): boolean =>
-					target !== undefined && target.groupKey === groupKey && target.groupOrdinal === groupOrdinal;
-				const pinnedKey = popover?.kind === "field" && groupHere(popover) ? popover.fieldKey : undefined;
-				const chips = chipRowIndices(kind, group, issueView?.rows ?? [], pinnedKey);
-				const addOpen = popover?.kind === "add" && groupHere(popover);
-				// The visible cell's fallback doubles as the accessible name for the row's actions: a fresh matcher
-				// must not announce as "".
-				const matcherName = trimHttpWhitespace(group.prefix).length > 0 ? group.prefix : l10n.t("(no matcher)");
+				const row: RowContext = {
+					kind,
+					groups,
+					group,
+					groupIndex,
+					groupKey,
+					groupOrdinal,
+					issueView: issues[groupIndex],
+					tableId,
+					popover: popover.target,
+					setPopover: popover.set,
+					edit,
+				};
 				return (
-					//   Rows                  -> are keyed by their MATCHER KEY plus occurrence
-					//   an index key          -> would remount the row when a state push reorders the record
-					//   would remount the row -> dropping an open add popover's half-typed field with it
-					<li
-						// The wash is the row's edit affordance, so only editable rows wear it: on a read-only row it
-						// promises an editor that never comes, and its tint under the non-repainting read-only chips
-						// took their flag words under AA (3.38:1 in the server drawer, violet).
-						className={cn(
-							"record-row group/row -mx-2 rounded-md px-2 py-1",
-							editable && "hover:bg-accent-soft focus-within:bg-accent-soft"
-						)}
+					<MatcherRow
 						key={tupleKey(groupKey, groupOrdinal)}
-					>
-						{/* Shrinkable on purpose: the wide tier's grid ignores flex-shrink, and in
-						    the sub-700px flex rows a max-content cell would carry a long regex key
-						    past the pane; min-w-[104px] still floors the collapse. */}
-						<span className="matcher-cell flex min-w-[104px] flex-wrap items-baseline gap-2">
-							{/* The matcher wears the chip chrome OUTLINED where the field
-							    chips are FILLED: one radius system, two fills - identity
-							    reads as a container, data as contents. */}
-							<code className="matcher-key rounded-(--radius-chip) border border-border px-1 font-mono text-[12px] text-foreground [overflow-wrap:anywhere]">
-								{matcherName}
-							</code>
-							<span className="matcher-kind text-[11px] text-muted-foreground">
-								{matcherKindLabel(matcherKind(group.prefix))}
-							</span>
-						</span>
-						{/* min-w-min, not min-w-0: a zero floor let the chips overflow the inherit summary; the
-						    floor is a chip's longest UNBREAKABLE piece (check-overflow holds it). No flex-item
-						    utilities: a utility would beat the 700px stylesheet fallback. */}
-						<span className="chip-list flex min-w-min flex-wrap items-baseline gap-x-2 gap-y-1">
-							{chips.map((rowIndex) => {
-								const row = group.params[rowIndex];
-								if (row === undefined) {
-									return null;
-								}
-								const key = resolvedFieldName(kind, row.key);
-								const issue = issueView?.rows[rowIndex];
-								const catalog = kind === "caps" && key === OPENROUTER_MODEL_DIRECTIVE;
-								// Chip identity mirrors the group's: the RAW key plus the occurrence ordinal among
-								// exact duplicates, so each duplicate answers its OWN popover and Remove field can
-								// never aim at a sibling row.
-								const ordinal = group.params.slice(0, rowIndex).filter((param) => param.key === row.key).length;
-								const openHere =
-									popover?.kind === "field" &&
-									groupHere(popover) &&
-									popover.fieldKey === row.key &&
-									popover.ordinal === ordinal;
-								// Both marks said in words: a border is invisible to a screen reader, and the card's
-								// verdict names the matcher, not this field. Descriptions rather than name parts, so
-								// the chip still announces as its key and value first.
-								const hintId = issue?.hint === undefined ? undefined : `${tableId}-hint-${groupIndex}-${rowIndex}`;
-								const problemId =
-									issue?.problem === undefined ? undefined : `${tableId}-problem-${groupIndex}-${rowIndex}`;
-								const describedBy = [problemId, hintId].filter((id) => id !== undefined).join(" ") || undefined;
-								// The chip's states resolve through chipVariants (the module's one table); worst mark
-								// first, so the exclusivity between the two marks is the variant's shape rather than
-								// merge order.
-								const chipClass = cn(
-									chipVariants({
-										editable,
-										catalog,
-										open: openHere,
-										mark: issue?.problem === undefined ? (issue?.hint === undefined ? "none" : "hint") : "invalid",
-									})
-								);
-								const flags = chipFlags(kind, group, key);
-								const flagNote = flags.find((flag) => flag.note !== undefined)?.note;
-								const body = (
-									<>
-										{catalog ? (
-											<span className="chip-key text-muted-foreground">{l10n.t("catalog")}</span>
-										) : (
-											<code className="chip-key text-muted-foreground">
-												{key.length > 0 ? key : l10n.t("(unnamed)")}
-											</code>
-										)}
-										<span className="chip-value max-w-[14em] truncate text-foreground">{row.valueText}</span>
-										{flags.map((flag) => (
-											<ChipFlagWord flag={flag} key={flag.id} />
-										))}
-									</>
-								);
-								return (
-									// Chips are keyed by their FIELD KEY so a directive row inserted or removed by a
-									// flag toggle cannot remount an open popover mid-interaction.
-									<span className="chip-anchor" key={tupleKey(row.key, ordinal)}>
-										{editable ? (
-											<button
-												type="button"
-												className={chipClass}
-												aria-expanded={openHere}
-												aria-describedby={describedBy}
-												aria-invalid={issue?.problem !== undefined || undefined}
-												disabled={disabled}
-												onClick={(event) =>
-													setPopover(
-														openHere
-															? undefined
-															: {
-																	kind: "field",
-																	groupKey,
-																	groupOrdinal,
-																	fieldKey: row.key,
-																	ordinal,
-																	align: popoverAlign(event.currentTarget),
-																}
-													)
-												}
-											>
-												{/* The action rides a hidden prefix so the accessible
-												    name keeps the chip's visible content - key, value,
-												    and flag badges - instead of masking it. */}
-												<span className="visually-hidden">{l10n.t("Edit field")}</span>
-												{body}
-											</button>
-										) : flagNote === undefined ? (
-											<span className={chipClass}>{body}</span>
-										) : (
-											// A read-only chip cannot open the popover and a native title never
-											// reliably renders in the webview host, so the flag's sentence rides the
-											// tip primitive: hover, keyboard focus, and aria-describedby all reach it.
-											<HoverTip tip={flagNote}>
-												<span className={chipClass}>{body}</span>
-											</HoverTip>
-										)}
-										{problemId !== undefined && issue?.problem !== undefined ? (
-											<span id={problemId} className="visually-hidden">
-												{issue.problem.message}
-											</span>
-										) : null}
-										{hintId !== undefined && issue?.hint !== undefined ? (
-											<span id={hintId} className="visually-hidden">
-												{issue.hint}
-											</span>
-										) : null}
-										{openHere && popover !== undefined && onChange !== undefined ? (
-											<FieldChipPopover
-												kind={kind}
-												groups={groups}
-												groupIndex={groupIndex}
-												rowIndex={rowIndex}
-												issue={issue}
-												disabled={disabled === true}
-												align={popover.align}
-												onChange={onChange}
-												onClose={() => setPopover(undefined)}
-											/>
-										) : null}
-									</span>
-								);
-							})}
-							{editable ? (
-								<span className="chip-anchor">
-									<button
-										type="button"
-										className={cn(
-											"chip-field chip-add rounded-(--radius-chip) border border-transparent px-1 text-muted-foreground",
-											"group-hover/row:border-border group-focus-within/row:border-border hover:text-foreground",
-											"focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset)",
-											"focus-visible:outline-ring focus-visible:outline-solid"
-										)}
-										aria-expanded={addOpen}
-										disabled={disabled}
-										aria-label={l10n.t('Add a field to "{0}"', matcherName)}
-										onClick={(event) =>
-											setPopover(
-												addOpen
-													? undefined
-													: { kind: "add", groupKey, groupOrdinal, align: popoverAlign(event.currentTarget) }
-											)
-										}
-									>
-										<IconAdd />
-									</button>
-									{addOpen && popover !== undefined && onChange !== undefined ? (
-										<AddFieldPopover
-											kind={kind}
-											groups={groups}
-											groupIndex={groupIndex}
-											disabled={disabled === true}
-											keySuggestions={keySuggestions ?? (kind === "caps" ? CAPABILITY_KEY_SUGGESTIONS : [])}
-											align={popover.align}
-											onChange={onChange}
-											onClose={() => setPopover(undefined)}
-										/>
-									) : null}
-								</span>
-							) : null}
-						</span>
-						<InheritsSummary kind={kind} group={group} />
-						{editable ? (
-							/**
-							 * Pushed to the row's end only in the wrapping tier (the wide grid has no free space). A
-							 * utility, because the button primitive's own mx- would outrank a stylesheet rule; it
-							 * survives the bordered modes only because their hand-back zeroes a custom property, not
-							 * the margin itself (ui/button.tsx).
-							 */
-							<Button
-								variant="secondary"
-								size="compact"
-								className="edit-cell shrink-0 @max-[700px]/pane:ms-auto"
-								aria-label={l10n.t('Open the full editor for "{0}"', matcherName)}
-								disabled={disabled}
-								onClick={() => onOpenEditor?.(groupIndex)}
-							>
-								<IconEdit />
-							</Button>
-						) : null}
-					</li>
+						row={row}
+						keySuggestions={keySuggestions}
+						onOpenEditor={onOpenEditor}
+					/>
 				);
 			})}
 		</ul>

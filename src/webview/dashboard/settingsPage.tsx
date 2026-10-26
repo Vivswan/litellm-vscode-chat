@@ -431,10 +431,155 @@ function ThresholdBox({
 	);
 }
 
+/** The two boxes' texts for a stored list. */
+interface ThresholdTexts {
+	readonly warning: string;
+	readonly error: string;
+}
+
+/** The two boxes as one draft: their texts, their parses, and the sorted list they write when both read clean. */
+interface ThresholdDraft {
+	readonly warningText: string;
+	readonly errorText: string;
+	readonly setWarningText: (next: string) => void;
+	readonly setErrorText: (next: string) => void;
+	readonly warning: ReturnType<typeof parseThresholdBox>;
+	readonly error: ReturnType<typeof parseThresholdBox>;
+	readonly parsed: readonly number[] | undefined;
+}
+
+interface ThresholdBoxesProps {
+	readonly warningId: string;
+	readonly errorInputId: string;
+	readonly problemId: string;
+	readonly draft: ThresholdDraft;
+	readonly onCommit: (event?: FocusEvent) => void;
+}
+
+/**
+ * Stored -> boxes: [low, high] fills both; a single value is the error threshold by the alerts' semantics, so it fills
+ * the Error box alone.
+ */
+function storedThresholdTexts(values: readonly number[]): ThresholdTexts {
+	if (values.length === 2) {
+		return { warning: formatPercentExact(values[0] as number), error: formatPercentExact(values[1] as number) };
+	}
+	return { warning: "", error: values.length === 1 ? formatPercentExact(values[0] as number) : "" };
+}
+
+/** The list the two boxes write: sorted, equal values collapsed, nothing while either box reads invalid. */
+function parsedThresholds(
+	warning: ReturnType<typeof parseThresholdBox>,
+	error: ReturnType<typeof parseThresholdBox>
+): readonly number[] | undefined {
+	if (warning.kind === "invalid" || error.kind === "invalid") {
+		return undefined;
+	}
+	const values = [
+		...(warning.kind === "value" ? [warning.value] : []),
+		...(error.kind === "value" ? [error.value] : []),
+	];
+	return [...new Set(values)].sort((a, b) => a - b);
+}
+
+/**
+ * The boxes' draft, resynced from the store on every value or scope change. One parse per keystroke feeds display and
+ * commit alike.
+ */
+function useThresholdDraft(values: readonly number[], configuredScope: SettingScope | null): ThresholdDraft {
+	const stored = storedThresholdTexts(values);
+	const [warningText, setWarningText] = useState(stored.warning);
+	const [errorText, setErrorText] = useState(stored.error);
+	const syncKey = `${values.join(",")}@${configuredScope ?? "default"}`;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on syncKey alone
+	useEffect(() => {
+		setWarningText(stored.warning);
+		setErrorText(stored.error);
+	}, [syncKey]);
+	const warning = parseThresholdBox(warningText);
+	const error = parseThresholdBox(errorText);
+	return {
+		warningText,
+		errorText,
+		setWarningText,
+		setErrorText,
+		warning,
+		error,
+		parsed: parsedThresholds(warning, error),
+	};
+}
+
+/**
+ * The description's trailing semantics. The custom branch reads the stored list - its boxes do not exist, so their
+ * empty drafts must not speak for it (they once printed "Alerts are off." beside a live list); the editable branch
+ * reads the live draft the boxes hold.
+ */
+function thresholdSemanticsHint(
+	custom: boolean,
+	values: readonly number[],
+	parsed: readonly number[] | undefined
+): string | undefined {
+	if (custom) {
+		return l10n.t(
+			"Warns from {0}; errors at {1}.",
+			formatPercentExact(values[0] as number),
+			formatPercentExact(values[values.length - 1] as number)
+		);
+	}
+	if (parsed === undefined) {
+		return undefined;
+	}
+	if (parsed.length === 0) {
+		return l10n.t("Alerts are off.");
+	}
+	return parsed.length === 1 ? l10n.t("A single threshold goes straight to the error alert.") : undefined;
+}
+
+/** The warning and error boxes, each with its unit-style trailing label. */
+function ThresholdBoxes({ warningId, errorInputId, problemId, draft, onCommit }: ThresholdBoxesProps) {
+	return (
+		<>
+			<ThresholdBox
+				id={warningId}
+				label={l10n.t({
+					message: "warning",
+					comment: ["Trailing label after the lower usage-alert threshold input, unit-style."],
+				})}
+				text={draft.warningText}
+				invalid={draft.warning.kind === "invalid"}
+				errorId={problemId}
+				placeholder={l10n.t("e.g. 80%")}
+				onText={draft.setWarningText}
+				onCommit={onCommit}
+			/>
+			<ThresholdBox
+				id={errorInputId}
+				label={l10n.t({
+					message: "error",
+					comment: ["Trailing label after the higher usage-alert threshold input, unit-style."],
+				})}
+				text={draft.errorText}
+				invalid={draft.error.kind === "invalid"}
+				errorId={problemId}
+				placeholder={l10n.t("e.g. 95%")}
+				onText={draft.setErrorText}
+				onCommit={onCommit}
+			/>
+		</>
+	);
+}
+
 /**
  * Both set writes [low, high] (sorted, equal values collapse); one writes a single-element list (treated as the error
  * threshold); both empty writes [] (off). A stored list the boxes cannot represent renders read-only with the reveal
  * button, so the dashboard never destroys it.
+ *
+ * The two boxes are ONE draft: a blur that only moves focus to the sibling box must not commit, or the write's own
+ * state push would resync the pair and overwrite what is being typed in the second box. Enter and a blur leaving the
+ * pair commit.
+ *
+ * "Did the user change anything" compares in the vocabulary the boxes show: reparsing a rendered percent lands an ulp
+ * off the stored value, so a raw compare reads an untouched blur as an edit.
  */
 function UsageThresholdsRow({
 	values,
@@ -445,43 +590,12 @@ function UsageThresholdsRow({
 	configuredScope: SettingScope | null;
 	hidden: boolean;
 }) {
-	// Stored -> boxes: [low, high] fills both; a single value is the error
-	// threshold by the alerts' semantics, so it fills the Error box alone.
-	const externalWarning = values.length === 2 ? formatPercentExact(values[0] as number) : "";
-	const externalError =
-		values.length === 2
-			? formatPercentExact(values[1] as number)
-			: values.length === 1
-				? formatPercentExact(values[0] as number)
-				: "";
-	const [warningText, setWarningText] = useState(externalWarning);
-	const [errorText, setErrorText] = useState(externalError);
-	const syncKey = `${values.join(",")}@${configuredScope ?? "default"}`;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on syncKey alone
-	useEffect(() => {
-		setWarningText(externalWarning);
-		setErrorText(externalError);
-	}, [syncKey]);
-
-	const warning = parseThresholdBox(warningText);
-	const error = parseThresholdBox(errorText);
-	const parsed =
-		warning.kind === "invalid" || error.kind === "invalid"
-			? undefined
-			: [
-					...new Set([
-						...(warning.kind === "value" ? [warning.value] : []),
-						...(error.kind === "value" ? [error.value] : []),
-					]),
-				].sort((a, b) => a - b);
-
+	const draft = useThresholdDraft(values, configuredScope);
+	const { parsed } = draft;
 	const inputId = "setting-usage.alertThresholds";
 	const warningId = `${inputId}-warning`;
 	const errorInputId = `${inputId}-error-at`;
 	const problemId = `${inputId}-problem`;
-	// The two boxes are ONE draft: a blur that only moves focus to the sibling box must not commit, or the write's own
-	// state push would resync the pair and overwrite what is being typed in the second box. Enter and a blur leaving
-	// the pair commit.
 	const commit = (event?: FocusEvent) => {
 		const next = event?.relatedTarget;
 		if (next instanceof HTMLElement && (next.id === warningId || next.id === errorInputId)) {
@@ -490,35 +604,16 @@ function UsageThresholdsRow({
 		if (parsed === undefined) {
 			return;
 		}
-		// "Did the user change anything" compares in the vocabulary the boxes show: reparsing a rendered percent lands
-		// an ulp off the stored value, so a raw compare reads an untouched blur as an edit.
 		if (parsed.map(formatPercentExact).join(",") !== values.map(formatPercentExact).join(",")) {
 			sendRequest("setUsageAlertThresholds", { values: parsed });
 		}
 	};
-
-	const title = l10n.t("Usage alert thresholds");
 	const custom = values.length > 2;
-	// The custom branch reads the stored list - its boxes do not exist, so their empty drafts must not speak for it
-	// (they once printed "Alerts are off." beside a live list); the editable branch reads the live draft the boxes
-	// hold.
-	const semanticsHint = custom
-		? l10n.t(
-				"Warns from {0}; errors at {1}.",
-				formatPercentExact(values[0] as number),
-				formatPercentExact(values[values.length - 1] as number)
-			)
-		: parsed === undefined
-			? undefined
-			: parsed.length === 0
-				? l10n.t("Alerts are off.")
-				: parsed.length === 1
-					? l10n.t("A single threshold goes straight to the error alert.")
-					: undefined;
+	const semanticsHint = thresholdSemanticsHint(custom, values, parsed);
 	return (
 		<SettingRow
 			settingId="usage.alertThresholds"
-			title={title}
+			title={l10n.t("Usage alert thresholds")}
 			titleFor={custom ? undefined : warningId}
 			description={
 				<>
@@ -542,34 +637,13 @@ function UsageThresholdsRow({
 						<span className="hint">{l10n.t("Custom list - edit in settings.json.")}</span>
 					</>
 				) : (
-					<>
-						<ThresholdBox
-							id={warningId}
-							label={l10n.t({
-								message: "warning",
-								comment: ["Trailing label after the lower usage-alert threshold input, unit-style."],
-							})}
-							text={warningText}
-							invalid={warning.kind === "invalid"}
-							errorId={problemId}
-							placeholder={l10n.t("e.g. 80%")}
-							onText={setWarningText}
-							onCommit={commit}
-						/>
-						<ThresholdBox
-							id={errorInputId}
-							label={l10n.t({
-								message: "error",
-								comment: ["Trailing label after the higher usage-alert threshold input, unit-style."],
-							})}
-							text={errorText}
-							invalid={error.kind === "invalid"}
-							errorId={problemId}
-							placeholder={l10n.t("e.g. 95%")}
-							onText={setErrorText}
-							onCommit={commit}
-						/>
-					</>
+					<ThresholdBoxes
+						warningId={warningId}
+						errorInputId={errorInputId}
+						problemId={problemId}
+						draft={draft}
+						onCommit={commit}
+					/>
 				)
 			}
 		/>
@@ -718,6 +792,414 @@ function recordEditorMatches(
 	);
 }
 
+/** Which of the four groups carrying non-scalar tails a group is, mirroring the manifest's grouping. */
+type TailGroupKind = "models" | "chat" | "usage" | "ui";
+
+/** The filter's verdict per non-scalar row, each named so the empty-state verdict and the placement can read them. */
+interface TailVisibility {
+	readonly params: boolean;
+	readonly caps: boolean;
+	readonly statusBar: boolean;
+	readonly tokenEstimation: boolean;
+	readonly toolSchemaKeywords: boolean;
+	readonly sessionId: boolean;
+	readonly thresholds: boolean;
+	readonly currency: boolean;
+	readonly theme: boolean;
+	readonly accent: boolean;
+	readonly importExport: boolean;
+}
+
+/** The filter's verdicts for the whole page, from one matcher. */
+interface SettingsVisibility {
+	readonly scalar: (id: NumberSettingId | BooleanSettingId) => boolean;
+	readonly tail: TailVisibility;
+	readonly nothingMatches: boolean;
+	readonly row: (row: SettingRowId) => boolean;
+}
+
+interface GroupTailProps {
+	readonly kind: TailGroupKind;
+	readonly settings: DashboardSettings;
+	readonly models: readonly DashboardModel[];
+	readonly observedModelInfoKeys: readonly string[] | undefined;
+	readonly editRecordRequest: EditRecordRequest | undefined;
+	readonly tail: TailVisibility;
+}
+
+interface SettingsToolbarProps {
+	readonly filterId: string;
+	readonly filter: string;
+	readonly onFilter: (next: string) => void;
+}
+
+interface ImportExportGroupProps {
+	readonly settings: DashboardSettings;
+	readonly isVisible: (id: NumberSettingId | BooleanSettingId) => boolean;
+	readonly visible: boolean;
+}
+
+/**
+ * The non-scalar rows filter by the same rule as the scalar ones, so a needle cannot find one kind and miss the other.
+ * The thresholds row's editable-branch help joins its haystack only while that branch renders it: a needle from the
+ * tip must not keep the custom row alive.
+ *
+ * The Import & Export group's help stays OUT of the haystack even though row-level help is in: a group matched through
+ * group help would stand with no row in it matching - the reader scans the surviving rows and finds the needle in
+ * none. Section-level help is out likewise.
+ */
+function tailVisibility(settings: DashboardSettings, filter: ReturnType<typeof filterMatcher>): TailVisibility {
+	const { needle, matches } = filter;
+	const thresholdsCustom = settings.usage.alertThresholds.length > 2;
+	return {
+		params:
+			needle.length === 0 ||
+			recordEditorMatches(needle, modelParametersTitle(), helpModelParametersSection(), settings.modelParameters),
+		caps:
+			needle.length === 0 ||
+			recordEditorMatches(needle, modelCapabilitiesTitle(), helpModelCapabilitiesSection(), settings.modelCapabilities),
+		statusBar: matches(
+			l10n.t("Usage status bar"),
+			usageStatusBarDescription(),
+			"usage.statusBar",
+			helpUsageStatusBar()
+		),
+		tokenEstimation: matches(
+			l10n.t("Token estimation"),
+			tokenEstimationDescription(),
+			"chat.tokenEstimation",
+			helpTokenEstimation()
+		),
+		toolSchemaKeywords: matches(
+			l10n.t("Extra tool schema keywords"),
+			toolSchemaKeywordsDescription(),
+			"chat.additionalToolSchemaKeywords",
+			helpToolSchemaKeywords()
+		),
+		sessionId: matches(l10n.t("Session id"), sessionIdDescription(), "chat.sessionId", helpSessionId()),
+		thresholds: matches(
+			l10n.t("Usage alert thresholds"),
+			usageThresholdsDescription(thresholdsCustom),
+			"usage.alertThresholds",
+			...(thresholdsCustom ? [] : [helpUsageThresholds()])
+		),
+		currency: matches(
+			l10n.t("Currency symbol"),
+			currencySymbolDescription(),
+			"usage.currencySymbol",
+			helpCurrencySymbol()
+		),
+		theme: matches(l10n.t("Dashboard theme"), uiThemeDescription(), "ui.theme", helpUiTheme()),
+		accent: matches(l10n.t("Accent color"), uiAccentDescription(), "ui.accent", helpUiAccent()),
+		importExport:
+			needle.length === 0 ||
+			[l10n.t("Import & Export"), l10n.t("Export settings"), l10n.t("Import settings")].some((text) =>
+				text.toLowerCase().includes(needle)
+			),
+	};
+}
+
+/**
+ * The page's verdicts for one matcher. Row-level help is in a row's haystack: the "?" is visible at rest and its tip
+ * carries the matching words, so a reader can see why the row survived.
+ *
+ * The catalog row's haystack is what that row SHOWS - its static description renders nowhere, and a translated bundle
+ * renders the two keys independently, so only excluding it keeps "the haystack holds what the row shows" true in every
+ * locale.
+ *
+ * `row` is total and fails OPEN to visible: an id this page cannot name must render its notice, never crash a lookup
+ * (settingRowPage's contract).
+ */
+function settingsVisibility(
+	settings: DashboardSettings,
+	filter: ReturnType<typeof filterMatcher>,
+	nowMs: number
+): SettingsVisibility {
+	const { matches } = filter;
+	const catalogTexts = Object.values(
+		catalogStatusParts(settings.catalog, settings.booleans["models.openRouterCatalog"], nowMs)
+	).filter((text): text is string => text !== undefined);
+	const scalar = (id: NumberSettingId | BooleanSettingId): boolean => {
+		const { label, description } = scalarText(id);
+		if (id === "models.openRouterCatalog") {
+			return matches(label, id, settingRowHelp(id) ?? "", ...catalogTexts);
+		}
+		return matches(label, description, id, settingRowHelp(id) ?? "");
+	};
+	const tail = tailVisibility(settings, filter);
+	const scalarIds = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].filter((id) => settingRowPage(id) === "settings");
+	const nothingMatches = !scalarIds.some(scalar) && !Object.values(tail).some((visible) => visible);
+	const tailRows: Partial<Record<SettingRowId, boolean>> = {
+		"chat.tokenEstimation": tail.tokenEstimation,
+		"chat.additionalToolSchemaKeywords": tail.toolSchemaKeywords,
+		"chat.sessionId": tail.sessionId,
+		"usage.alertThresholds": tail.thresholds,
+		"usage.statusBar": tail.statusBar,
+		"usage.currencySymbol": tail.currency,
+		"ui.theme": tail.theme,
+		"ui.accent": tail.accent,
+	};
+	const row = (id: SettingRowId): boolean => {
+		const named = tailRows[id];
+		if (named !== undefined) {
+			return named;
+		}
+		return isScalarRowId(id) ? scalar(id) : true;
+	};
+	return { scalar, tail, nothingMatches, row };
+}
+
+/** The scalar rows no group places; they render in the trailing Other group so a new setting can never vanish. */
+function otherScalarIds(): { readonly numbers: NumberSettingId[]; readonly booleans: BooleanSettingId[] } {
+	const placed = new Set<string>(SETTING_GROUPS.flatMap((group) => [...group.numbers, ...group.booleans]));
+	return {
+		numbers: NUMBER_SETTING_IDS.filter((id) => !placed.has(id) && settingRowPage(id) === "settings"),
+		booleans: BOOLEAN_SETTING_IDS.filter((id) => !placed.has(id) && settingRowPage(id) === "settings"),
+	};
+}
+
+/** Which tail a group carries, by the scalar row that marks it; the other groups carry none. */
+function tailGroupKind(group: (typeof SETTING_GROUPS)[number]): TailGroupKind | undefined {
+	if (group.booleans.includes("models.openRouterCatalog")) {
+		return "models";
+	}
+	if (group.numbers.includes("chat.timeout")) {
+		return "chat";
+	}
+	if (group.numbers.includes("usage.pollInterval")) {
+		return "usage";
+	}
+	return group.booleans.includes("ui.maskSecretInputs") ? "ui" : undefined;
+}
+
+/** Whether any of a group's tail rows survives the filter. */
+function groupTailVisible(kind: TailGroupKind | undefined, tail: TailVisibility): boolean {
+	switch (kind) {
+		case "models":
+			return tail.params || tail.caps;
+		case "chat":
+			return tail.tokenEstimation || tail.toolSchemaKeywords || tail.sessionId;
+		case "usage":
+			return tail.statusBar || tail.thresholds || tail.currency;
+		case "ui":
+			return tail.theme || tail.accent;
+		default:
+			return false;
+	}
+}
+
+/** The header's quiet count of modified settings, then where they are set. */
+function settingsMeta(scopes: readonly (SettingScope | null)[]): string {
+	const modifiedCount = scopes.filter((scope) => scope !== null).length;
+	const parts: string[] = [];
+	if (modifiedCount === 1) {
+		parts.push(l10n.t("1 modified"));
+	} else if (modifiedCount > 1) {
+		parts.push(l10n.t("{0} modified", modifiedCount));
+	}
+	parts.push(scopeSummary(scopes));
+	return parts.join(" - ");
+}
+
+/**
+ * The two record editors under the Models group. The editors' apply-together save model is stated by each editor's own
+ * "?" (helpModelParametersSection and helpModelCapabilitiesSection), not by a free-standing paragraph between the rows.
+ */
+function ModelsGroupTail({ settings, models, observedModelInfoKeys, editRecordRequest, tail }: GroupTailProps) {
+	return (
+		<div className="settings-editors min-w-0">
+			<ModelParametersEditor
+				scoped={settings.modelParameters}
+				models={models}
+				hidden={!tail.params}
+				external={editRecordRequest?.kind === "parameters" ? editRecordRequest : undefined}
+			/>
+			<ModelCapabilitiesEditor
+				scoped={settings.modelCapabilities}
+				models={models}
+				observedKeys={observedModelInfoKeys}
+				hidden={!tail.caps}
+				external={editRecordRequest?.kind === "capabilities" ? editRecordRequest : undefined}
+			/>
+		</div>
+	);
+}
+
+/** The Chat group's enum and list rows. */
+function ChatGroupTail({ settings, tail }: GroupTailProps) {
+	return (
+		<>
+			<EnumSettingRow
+				settingId="chat.tokenEstimation"
+				title={l10n.t("Token estimation")}
+				description={tokenEstimationDescription()}
+				help={helpTokenEstimation()}
+				value={settings.chat.tokenEstimation}
+				options={TOKEN_ESTIMATION_MODES}
+				optionLabel={tokenEstimationLabel}
+				onPick={(value) => sendRequest("setTokenEstimation", { value })}
+				configuredScope={settings.chat.tokenEstimationScope}
+				hidden={!tail.tokenEstimation}
+			/>
+			<ToolSchemaKeywordsRow setting={settings.chat.additionalToolSchemaKeywords} hidden={!tail.toolSchemaKeywords} />
+			<EnumSettingRow
+				settingId="chat.sessionId"
+				title={l10n.t("Session id")}
+				description={sessionIdDescription()}
+				help={helpSessionId()}
+				value={settings.chat.sessionId}
+				options={SESSION_ID_MODES}
+				optionLabel={sessionIdLabel}
+				onPick={(value) => sendRequest("setChatSessionId", { value })}
+				configuredScope={settings.chat.sessionIdScope}
+				hidden={!tail.sessionId}
+			/>
+		</>
+	);
+}
+
+/** The Usage group's threshold, status-bar, and currency rows. */
+function UsageGroupTail({ settings, tail }: GroupTailProps) {
+	return (
+		<>
+			<UsageThresholdsRow
+				values={settings.usage.alertThresholds}
+				configuredScope={settings.usage.thresholdsScope}
+				hidden={!tail.thresholds}
+			/>
+			<EnumSettingRow
+				settingId="usage.statusBar"
+				title={l10n.t("Usage status bar")}
+				description={usageStatusBarDescription()}
+				help={helpUsageStatusBar()}
+				value={settings.usage.statusBarMode}
+				options={USAGE_STATUS_BAR_MODES}
+				optionLabel={statusBarModeLabel}
+				onPick={(value) => sendRequest("setUsageStatusBar", { value })}
+				configuredScope={settings.usage.statusBarScope}
+				hidden={!tail.statusBar}
+			/>
+			<CurrencySymbolRow
+				value={settings.usage.currencySymbol}
+				configuredScope={settings.usage.currencySymbolScope}
+				hidden={!tail.currency}
+			/>
+		</>
+	);
+}
+
+/** The Appearance group's theme and accent rows. */
+function UiGroupTail({ settings, tail }: GroupTailProps) {
+	return (
+		<>
+			<EnumSettingRow
+				settingId="ui.theme"
+				title={l10n.t("Dashboard theme")}
+				description={uiThemeDescription()}
+				help={helpUiTheme()}
+				value={settings.appearance.theme}
+				options={UI_THEMES}
+				optionLabel={uiThemeLabel}
+				onPick={(value) => sendRequest("setUiTheme", { value })}
+				configuredScope={settings.appearance.themeScope}
+				hidden={!tail.theme}
+			/>
+			<UiAccentRow
+				accent={settings.appearance.accent}
+				configuredScope={settings.appearance.accentScope}
+				hidden={!tail.accent}
+			/>
+		</>
+	);
+}
+
+/** A group's tail rows by its kind. */
+function GroupTail(props: GroupTailProps) {
+	switch (props.kind) {
+		case "models":
+			return <ModelsGroupTail {...props} />;
+		case "chat":
+			return <ChatGroupTail {...props} />;
+		case "usage":
+			return <UsageGroupTail {...props} />;
+		case "ui":
+			return <UiGroupTail {...props} />;
+	}
+}
+
+/**
+ * The header line's actions. The filter's one home is the header line: it governs the whole page the way the header's
+ * other actions do, and a floating box between the header and the first group read as belonging to nothing. 16rem
+ * beside the button while the header line holds both; once the 640px strip wrap gives the input its own line, w-full
+ * is what makes it BE that line.
+ */
+function SettingsToolbar({ filterId, filter, onFilter }: SettingsToolbarProps) {
+	return (
+		<>
+			<Input
+				id={filterId}
+				type="text"
+				className="w-[16rem] @max-[640px]/pane:w-full min-w-0 max-w-full shrink"
+				placeholder={l10n.t("Filter settings, e.g. timeout")}
+				aria-label={l10n.t("Filter settings")}
+				value={filter}
+				onChange={(event) => onFilter(event.currentTarget.value)}
+			/>
+			<Button
+				variant="secondary"
+				className="whitespace-nowrap"
+				onClick={() => sendRequest("executeCommand", { command: "openSettings" })}
+			>
+				{l10n.t("Open in Settings editor")}
+			</Button>
+		</>
+	);
+}
+
+/**
+ * The trailing Import & Export group: the two actions ARE its content, so they stand in its body at full size (parked
+ * in the heading's actions slot they read as tucked-away chrome) and at the primary rank - a section whose whole
+ * content is its actions has no quieter neighbour to rank under. Rendered last so file transfer never sits between rows.
+ */
+function ImportExportGroup({ settings, isVisible, visible }: ImportExportGroupProps) {
+	return (
+		<SettingGroup
+			title={() => l10n.t("Import & Export")}
+			help={helpImportExportGroup}
+			numbers={[]}
+			booleans={[]}
+			settings={settings}
+			isVisible={isVisible}
+			tailVisible={visible}
+			tail={
+				<div className="settings-transfer flex flex-wrap items-center gap-x-3.5 gap-y-1 py-2">
+					<Button onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}>
+						{l10n.t("Export settings")}
+					</Button>
+					<Button onClick={() => sendRequest("executeCommand", { command: "importSettings" })}>
+						{l10n.t("Import settings")}
+					</Button>
+				</div>
+			}
+		/>
+	);
+}
+
+/**
+ * The Settings page. One clock reading for the whole render: the filter haystack and the rendered status cluster must
+ * speak the same age - two Date.now() calls straddling a minute boundary would let a needle match "5 min ago" while
+ * the row shows 6. A jump must land on a visible editor: a leftover filter that hides the target section would swallow
+ * the focus, so the request clears it.
+ *
+ *   settings              -> the scalars with their configured scopes, the two scoped records, and the catalog
+ *                            status, as the push carries them
+ *   models                -> the discovered models; the record editors' matcher inputs suggest from them
+ *   observedModelInfoKeys -> the cross-server observed /model/info key union (DashboardState.observedModelInfoKeys):
+ *                            the capability hints' evidence
+ *   now                   -> the shared clock tick; the catalog row's "updated N ago" reads it
+ *   editRecordRequest     -> the inspectors' configure-jump into one of the record editors; see EditRecordRequest
+ *   writeFailures         -> the standing scalar-write failures from App's store, for this page to place by owning row
+ */
 export function SettingsSection({
 	settings,
 	models,
@@ -726,159 +1208,31 @@ export function SettingsSection({
 	editRecordRequest,
 	writeFailures,
 }: {
-	/** The scalars with their configured scopes, the two scoped records, and the catalog status, as the push carries them. */
 	settings: DashboardSettings;
-
-	/** The discovered models; the record editors' matcher inputs suggest from them. */
 	models: readonly DashboardModel[];
-
-	/** The cross-server observed /model/info key union (DashboardState.observedModelInfoKeys): the capability hints' evidence. */
 	observedModelInfoKeys?: readonly string[] | undefined;
-
-	/** The shared clock tick; the catalog row's "updated N ago" reads it. */
 	now?: number;
-
-	/** The inspectors' configure-jump into one of the record editors; see EditRecordRequest. */
 	editRecordRequest?: EditRecordRequest | undefined;
-
-	/** The standing scalar-write failures from App's store, for this page to place by owning row. */
 	writeFailures?: Partial<Record<SettingWriteMethod, SettingWriteFailure>> | undefined;
 }) {
 	const [filter, setFilter] = useState("");
 	const filterId = useId();
-	// A jump must land on a visible editor: a leftover filter that hides the target section would swallow the focus, so
-	// the request clears it.
 	const editSeq = editRecordRequest?.seq;
 	useEffect(() => {
 		if (editSeq !== undefined) {
 			setFilter("");
 		}
 	}, [editSeq]);
-	const { needle, matches } = filterMatcher(filter);
-	// One clock reading for the whole render: the filter haystack and the rendered status cluster must speak the same
-	// age - two Date.now() calls straddling a minute boundary would let a needle match "5 min ago" while the row
-	// shows 6.
 	const nowMs = now ?? Date.now();
-	// Row-level help is in a row's haystack: the "?" is visible at rest and its tip carries the matching words, so a
-	// reader can see why the row survived. The catalog row's haystack is what that row SHOWS - its static description
-	// renders nowhere, and a translated bundle renders the two keys independently, so only excluding it keeps "the
-	// haystack holds what the row shows" true in every locale.
-	const catalogTexts = Object.values(
-		catalogStatusParts(settings.catalog, settings.booleans["models.openRouterCatalog"], nowMs)
-	).filter((text): text is string => text !== undefined);
-	const isVisible = (id: NumberSettingId | BooleanSettingId): boolean => {
-		const { label, description } = scalarText(id);
-		if (id === "models.openRouterCatalog") {
-			return matches(label, id, settingRowHelp(id) ?? "", ...catalogTexts);
-		}
-		return matches(label, description, id, settingRowHelp(id) ?? "");
-	};
-
-	const placed = new Set<string>(SETTING_GROUPS.flatMap((group) => [...group.numbers, ...group.booleans]));
-	const otherNumbers = NUMBER_SETTING_IDS.filter((id) => !placed.has(id) && settingRowPage(id) === "settings");
-	const otherBooleans = BOOLEAN_SETTING_IDS.filter((id) => !placed.has(id) && settingRowPage(id) === "settings");
-
-	const paramsVisible =
-		needle.length === 0 ||
-		recordEditorMatches(needle, modelParametersTitle(), helpModelParametersSection(), settings.modelParameters);
-	const capsVisible =
-		needle.length === 0 ||
-		recordEditorMatches(needle, modelCapabilitiesTitle(), helpModelCapabilitiesSection(), settings.modelCapabilities);
-	const scalarIds = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].filter((id) => settingRowPage(id) === "settings");
-	const anyScalarVisible = scalarIds.some(isVisible);
-	// The non-scalar rows filter by the same rule as the scalar ones, so a needle cannot find one kind and miss the
-	// other. Hoisted because the empty-state verdict below has to see them: a filter matching only a tail row once
-	// rendered it under "nothing matched".
-	const statusBarVisible = matches(
-		l10n.t("Usage status bar"),
-		usageStatusBarDescription(),
-		"usage.statusBar",
-		helpUsageStatusBar()
-	);
-	const tokenEstimationVisible = matches(
-		l10n.t("Token estimation"),
-		tokenEstimationDescription(),
-		"chat.tokenEstimation",
-		helpTokenEstimation()
-	);
-	const toolSchemaKeywordsVisible = matches(
-		l10n.t("Extra tool schema keywords"),
-		toolSchemaKeywordsDescription(),
-		"chat.additionalToolSchemaKeywords",
-		helpToolSchemaKeywords()
-	);
-	const sessionIdVisible = matches(l10n.t("Session id"), sessionIdDescription(), "chat.sessionId", helpSessionId());
-	const thresholdsCustom = settings.usage.alertThresholds.length > 2;
-	// The editable branch's help joins its haystack only while that branch renders it: a needle from the tip must not
-	// keep the custom row alive.
-	const thresholdsVisible = matches(
-		l10n.t("Usage alert thresholds"),
-		usageThresholdsDescription(thresholdsCustom),
-		"usage.alertThresholds",
-		...(thresholdsCustom ? [] : [helpUsageThresholds()])
-	);
-	const currencyVisible = matches(
-		l10n.t("Currency symbol"),
-		currencySymbolDescription(),
-		"usage.currencySymbol",
-		helpCurrencySymbol()
-	);
-	const themeVisible = matches(l10n.t("Dashboard theme"), uiThemeDescription(), "ui.theme", helpUiTheme());
-	const accentVisible = matches(l10n.t("Accent color"), uiAccentDescription(), "ui.accent", helpUiAccent());
-	// Its help stays OUT of the haystack even though row-level help is in: a group matched through group help would
-	// stand with no row in it matching - the reader scans the surviving rows and finds the needle in none.
-	// Section-level help is out likewise.
-	const importExportVisible =
-		needle.length === 0 ||
-		[l10n.t("Import & Export"), l10n.t("Export settings"), l10n.t("Import settings")].some((text) =>
-			text.toLowerCase().includes(needle)
-		);
-	const nothingMatches =
-		!anyScalarVisible &&
-		!paramsVisible &&
-		!capsVisible &&
-		!importExportVisible &&
-		!statusBarVisible &&
-		!tokenEstimationVisible &&
-		!toolSchemaKeywordsVisible &&
-		!sessionIdVisible &&
-		!thresholdsVisible &&
-		!currencyVisible &&
-		!themeVisible &&
-		!accentVisible;
+	const visibility = settingsVisibility(settings, filterMatcher(filter), nowMs);
+	const { tail } = visibility;
+	const other = otherScalarIds();
 	const booleanMeta: Partial<Record<BooleanSettingId, ReactNode>> = {
 		"models.openRouterCatalog": (
 			<CatalogMeta catalog={settings.catalog} enabled={settings.booleans["models.openRouterCatalog"]} now={nowMs} />
 		),
 	};
-	const scopes = configuredScopes(settings);
-	const modifiedCount = scopes.filter((scope) => scope !== null).length;
-	// Whether the row a failure would land on is actually on screen: the tail rows carry the named verdicts above,
-	// every scalar row the shared one, and anything else fails OPEN to visible - an id this page cannot name must
-	// render its notice, never crash a lookup (settingRowPage's contract).
-	const rowVisible = (row: SettingRowId): boolean => {
-		switch (row) {
-			case "chat.tokenEstimation":
-				return tokenEstimationVisible;
-			case "chat.additionalToolSchemaKeywords":
-				return toolSchemaKeywordsVisible;
-			case "chat.sessionId":
-				return sessionIdVisible;
-			case "usage.alertThresholds":
-				return thresholdsVisible;
-			case "usage.statusBar":
-				return statusBarVisible;
-			case "usage.currencySymbol":
-				return currencyVisible;
-			case "ui.theme":
-				return themeVisible;
-			case "ui.accent":
-				return accentVisible;
-			default:
-				return isScalarRowId(row) ? isVisible(row) : true;
-		}
-	};
-	const { rowFailures, unclaimed } = placeWriteFailures(writeFailures, "settings", rowVisible);
+	const { rowFailures, unclaimed } = placeWriteFailures(writeFailures, "settings", visibility.row);
 	// One announcement per failure seq across every surface: the pane-top away line may already have spoken this
 	// failure before the reader arrived here.
 	const unclaimedRole = useAlertOnce(unclaimed?.seq);
@@ -889,38 +1243,8 @@ export function SettingsSection({
 				title={l10n.t("Settings")}
 				help={helpSettingsSection()}
 				docs={{ href: DOCS_LINK_SETTINGS, label: l10n.t("Open the settings guide") }}
-				meta={[
-					...(modifiedCount === 0
-						? []
-						: [modifiedCount === 1 ? l10n.t("1 modified") : l10n.t("{0} modified", modifiedCount)]),
-					scopeSummary(scopes),
-				].join(" - ")}
-				actions={
-					<>
-						{/* The filter's one home is the header line: it governs the whole
-					    page the way the header's other actions do, and a floating box
-					    between the header and the first group read as belonging to
-					    nothing. */}
-						<Input
-							id={filterId}
-							type="text"
-							// 16rem beside the button while the header line holds both; once the 640px strip wrap
-							// gives this input its own line, w-full is what makes it BE that line.
-							className="w-[16rem] @max-[640px]/pane:w-full min-w-0 max-w-full shrink"
-							placeholder={l10n.t("Filter settings, e.g. timeout")}
-							aria-label={l10n.t("Filter settings")}
-							value={filter}
-							onChange={(event) => setFilter(event.currentTarget.value)}
-						/>
-						<Button
-							variant="secondary"
-							className="whitespace-nowrap"
-							onClick={() => sendRequest("executeCommand", { command: "openSettings" })}
-						>
-							{l10n.t("Open in Settings editor")}
-						</Button>
-					</>
-				}
+				meta={settingsMeta(configuredScopes(settings))}
+				actions={<SettingsToolbar filterId={filterId} filter={filter} onFilter={setFilter} />}
 			>
 				{/* The fallback for a failure no mounted row claims; a claimed one renders under its own row instead
 				    (see SettingRow). */}
@@ -929,165 +1253,47 @@ export function SettingsSection({
 						{writeFailureText(unclaimed)}
 					</p>
 				)}
-				{nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
+				{visibility.nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
 				{/* The wide tier's track owner (SETTING_GRID_TRACKS): groups and rows
 				    subgrid onto these columns, so the label gutter is one measured
 				    width for the whole page. */}
 				<div className={SETTING_GRID_TRACKS}>
 					{SETTING_GROUPS.map((group, index) => {
-						// Four groups carry non-scalar tails, mirroring the manifest's grouping.
-						const isModelsGroup = group.booleans.includes("models.openRouterCatalog");
-						const isChatGroup = group.numbers.includes("chat.timeout");
-						const isUsageGroup = group.numbers.includes("usage.pollInterval");
-						const isUiGroup = group.booleans.includes("ui.maskSecretInputs");
+						const kind = tailGroupKind(group);
 						return (
 							<SettingGroup
 								// biome-ignore lint/suspicious/noArrayIndexKey: the group list is a fixed literal
 								key={index}
 								{...group}
 								settings={settings}
-								isVisible={isVisible}
+								isVisible={visibility.scalar}
 								booleanMeta={booleanMeta}
-								tailVisible={
-									(isModelsGroup && (paramsVisible || capsVisible)) ||
-									(isChatGroup && (tokenEstimationVisible || toolSchemaKeywordsVisible || sessionIdVisible)) ||
-									(isUsageGroup && (statusBarVisible || thresholdsVisible || currencyVisible)) ||
-									(isUiGroup && (themeVisible || accentVisible))
-								}
+								tailVisible={groupTailVisible(kind, tail)}
 								tail={
-									isModelsGroup ? (
-										<div className="settings-editors min-w-0">
-											{/* The editors' apply-together save model is stated by each
-										    editor's own "?" (helpModelParametersSection and
-										    helpModelCapabilitiesSection), not by a free-standing
-										    paragraph between the rows. */}
-											<ModelParametersEditor
-												scoped={settings.modelParameters}
-												models={models}
-												hidden={!paramsVisible}
-												external={editRecordRequest?.kind === "parameters" ? editRecordRequest : undefined}
-											/>
-											<ModelCapabilitiesEditor
-												scoped={settings.modelCapabilities}
-												models={models}
-												observedKeys={observedModelInfoKeys}
-												hidden={!capsVisible}
-												external={editRecordRequest?.kind === "capabilities" ? editRecordRequest : undefined}
-											/>
-										</div>
-									) : isChatGroup ? (
-										<>
-											<EnumSettingRow
-												settingId="chat.tokenEstimation"
-												title={l10n.t("Token estimation")}
-												description={tokenEstimationDescription()}
-												help={helpTokenEstimation()}
-												value={settings.chat.tokenEstimation}
-												options={TOKEN_ESTIMATION_MODES}
-												optionLabel={tokenEstimationLabel}
-												onPick={(value) => sendRequest("setTokenEstimation", { value })}
-												configuredScope={settings.chat.tokenEstimationScope}
-												hidden={!tokenEstimationVisible}
-											/>
-											<ToolSchemaKeywordsRow
-												setting={settings.chat.additionalToolSchemaKeywords}
-												hidden={!toolSchemaKeywordsVisible}
-											/>
-											<EnumSettingRow
-												settingId="chat.sessionId"
-												title={l10n.t("Session id")}
-												description={sessionIdDescription()}
-												help={helpSessionId()}
-												value={settings.chat.sessionId}
-												options={SESSION_ID_MODES}
-												optionLabel={sessionIdLabel}
-												onPick={(value) => sendRequest("setChatSessionId", { value })}
-												configuredScope={settings.chat.sessionIdScope}
-												hidden={!sessionIdVisible}
-											/>
-										</>
-									) : isUsageGroup ? (
-										<>
-											<UsageThresholdsRow
-												values={settings.usage.alertThresholds}
-												configuredScope={settings.usage.thresholdsScope}
-												hidden={!thresholdsVisible}
-											/>
-											<EnumSettingRow
-												settingId="usage.statusBar"
-												title={l10n.t("Usage status bar")}
-												description={usageStatusBarDescription()}
-												help={helpUsageStatusBar()}
-												value={settings.usage.statusBarMode}
-												options={USAGE_STATUS_BAR_MODES}
-												optionLabel={statusBarModeLabel}
-												onPick={(value) => sendRequest("setUsageStatusBar", { value })}
-												configuredScope={settings.usage.statusBarScope}
-												hidden={!statusBarVisible}
-											/>
-											<CurrencySymbolRow
-												value={settings.usage.currencySymbol}
-												configuredScope={settings.usage.currencySymbolScope}
-												hidden={!currencyVisible}
-											/>
-										</>
-									) : isUiGroup ? (
-										<>
-											<EnumSettingRow
-												settingId="ui.theme"
-												title={l10n.t("Dashboard theme")}
-												description={uiThemeDescription()}
-												help={helpUiTheme()}
-												value={settings.appearance.theme}
-												options={UI_THEMES}
-												optionLabel={uiThemeLabel}
-												onPick={(value) => sendRequest("setUiTheme", { value })}
-												configuredScope={settings.appearance.themeScope}
-												hidden={!themeVisible}
-											/>
-											<UiAccentRow
-												accent={settings.appearance.accent}
-												configuredScope={settings.appearance.accentScope}
-												hidden={!accentVisible}
-											/>
-										</>
-									) : undefined
+									kind === undefined ? undefined : (
+										<GroupTail
+											kind={kind}
+											settings={settings}
+											models={models}
+											observedModelInfoKeys={observedModelInfoKeys}
+											editRecordRequest={editRecordRequest}
+											tail={tail}
+										/>
+									)
 								}
 							/>
 						);
 					})}
-					{otherNumbers.length + otherBooleans.length > 0 ? (
+					{other.numbers.length + other.booleans.length > 0 ? (
 						<SettingGroup
 							title={() => l10n.t("Other")}
-							numbers={otherNumbers}
-							booleans={otherBooleans}
+							numbers={other.numbers}
+							booleans={other.booleans}
 							settings={settings}
-							isVisible={isVisible}
+							isVisible={visibility.scalar}
 						/>
 					) : null}
-					{/* The trailing Import & Export group: the two actions ARE its content, so they stand in its body
-					    at full size (parked in the heading's actions slot they read as tucked-away chrome) and at the
-					    primary rank - a section whose whole content is its actions has no quieter neighbour to rank
-					    under. Rendered last so file transfer never sits between rows. */}
-					<SettingGroup
-						title={() => l10n.t("Import & Export")}
-						help={helpImportExportGroup}
-						numbers={[]}
-						booleans={[]}
-						settings={settings}
-						isVisible={isVisible}
-						tailVisible={importExportVisible}
-						tail={
-							<div className="settings-transfer flex flex-wrap items-center gap-x-3.5 gap-y-1 py-2">
-								<Button onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}>
-									{l10n.t("Export settings")}
-								</Button>
-								<Button onClick={() => sendRequest("executeCommand", { command: "importSettings" })}>
-									{l10n.t("Import settings")}
-								</Button>
-							</div>
-						}
-					/>
+					<ImportExportGroup settings={settings} isVisible={visibility.scalar} visible={tail.importExport} />
 				</div>
 			</Section>
 		</SettingFailuresContext.Provider>
