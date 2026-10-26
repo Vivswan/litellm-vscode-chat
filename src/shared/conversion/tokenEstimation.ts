@@ -9,13 +9,13 @@ import type {
 	OpenAIToolCall,
 } from "./wire";
 
+/** The high-detail charge for a 1024x1024 image, the safe direction for a budget. */
 export const IMAGE_TOKEN_ESTIMATE = 765;
+
+/** A fixed per-document figure; nothing here can count pages. */
 export const PDF_TOKEN_ESTIMATE = 500;
-/**
- * Providers meter audio by duration, not bytes, and the duration is not recoverable here without decoding the
- * container. A fixed minute-scale figure keeps a typical voice clip from counting as zero, which is the dangerous
- * direction.
- */
+
+/** Audio is metered by duration, which nothing here can recover; a minute-scale figure keeps a clip above zero. */
 export const AUDIO_TOKEN_ESTIMATE = 1000;
 
 /**

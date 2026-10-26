@@ -23,8 +23,10 @@ export function probeThinkingPartCtor(host: object): ThinkingPartProbe {
 // Probed once at module load; the streaming path and the history-replay path share this result.
 const probe = probeThinkingPartCtor(vscode);
 
+/** The host's LanguageModelThinkingPart, or undefined where the proposed class is absent. */
 export const thinkingPartCtor: ThinkingPartCtor | undefined = probe.ctor;
 
+/** The probe's failure text when the property read threw; logged once. */
 const thinkingPartProbeError: string | undefined = probe.error;
 
 let loggedMissingThinkingSupport = false;

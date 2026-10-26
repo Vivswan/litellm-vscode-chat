@@ -15,17 +15,14 @@ export const TRANSPORT_ERROR_KINDS = [
 ] as const;
 export type TransportErrorKind = (typeof TRANSPORT_ERROR_KINDS)[number];
 
-/**
- * Setup-hint ids, assigned ONLY at RequestError construction sites that know the advice is right. Never derive one from
- * kind+status: the same pair means different failures at different sites (an OAuth token-endpoint 404 is not a wrong
- * LiteLLM base URL).
- */
+/** Set only where a RequestError is built; never derived from kind+status, the same pair meaning different failures. */
 export const SETUP_HINT_KINDS = [
 	"check-base-url",
 	"proxy-not-running",
 	"configure-api-key",
 	"use-bare-localhost",
 ] as const;
+
 export type SetupHintKind = (typeof SETUP_HINT_KINDS)[number];
 
 /**
@@ -34,11 +31,14 @@ export type SetupHintKind = (typeof SETUP_HINT_KINDS)[number];
  */
 export type UnservedEndpointEvidence = "timeout" | "status";
 
+/**
+ * A transport failure as enum ids and a status number; `unsupportedEndpoint` is discovery-only, assigned at the
+ * construction site like setupHint.
+ */
 export interface TransportErrorClassification {
 	readonly kind: TransportErrorKind;
 	readonly status?: number | undefined;
 	readonly setupHint?: SetupHintKind | undefined;
-	/** Discovery-only, assigned at the construction site like setupHint. */
 	readonly unsupportedEndpoint?: "modelListing" | undefined;
 }
 

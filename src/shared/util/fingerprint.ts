@@ -1,10 +1,7 @@
 import { pbkdf2Sync } from "node:crypto";
 import { z } from "zod";
 
-/**
- * A compile-time guard only: it keeps raw secret material out of fingerprint-typed fields, while persisted strings
- * re-enter shape-checked exactly as loosely as before.
- */
+/** A compile-time brand: raw secret material cannot land in a fingerprint-typed field; strings re-enter as before. */
 const fingerprintSchema = z.string().brand<"Fingerprint">();
 
 export type Fingerprint = z.infer<typeof fingerprintSchema>;

@@ -111,12 +111,10 @@ export function twoBandTextTokenEstimate(text: string): number {
 	return twoBandFromScan(text, scanText(text));
 }
 
-/**
- * When adaptive counting reports a text as significantly non-Latin. The count floor keeps a stray glyph inside English
- * text from pulling megabytes of rank data into memory; the fraction keeps a long English prompt quoting one foreign
- * line from doing the same.
- */
+/** The detection's count floor: a stray glyph inside English text must not pull megabytes of rank data into memory. */
 const NON_LATIN_DETECTION_MIN_CHARS = 8;
+
+/** The detection's fraction floor: a long English prompt quoting one foreign line must not either. */
 const NON_LATIN_DETECTION_MIN_FRACTION = 0.05;
 
 function meetsDetectionThreshold(scan: TextScan): boolean {

@@ -3,10 +3,7 @@ import * as vscode from "vscode";
 import { isToolResultPart, pairToolCallIds, type ToolCallPairing, wireIdKey } from "./conversion/toolCallIds";
 import { chatErrorMessage, englishChatErrorMessage, localizedError, type MirroredError } from "./mirroredError";
 
-/**
- * The call IDs in the detail are response-derived, so the thrown error also carries a count-only logClassification; the
- * full mirror rides only as englishMessage.
- */
+/** The detail's call IDs are response-derived, so the log classification counts them; the mirror is englishMessage. */
 const TOOL_PAIRING_HEADLINE_ENGLISH =
 	"This conversation is missing a tool result, so the request can't be sent. Start a new chat to continue; if it keeps happening, the extension driving this conversation is dropping tool results when it rebuilds history.";
 

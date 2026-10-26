@@ -80,10 +80,10 @@ export interface MatcherDiagnostic {
 	readonly reason: MatcherInvalidReason;
 }
 
+/** One matching record; `position` is the key's place in the record's order, and later regexes are more specific. */
 export interface RecordMatch<T> {
 	readonly key: string;
 	readonly matcher: ParsedMatcher;
-	/** The key's position in the record's own order; later regexes are more specific. */
 	readonly position: number;
 	readonly record: T;
 }
@@ -114,6 +114,7 @@ export function compareSpecificity(
 export interface MatchChain<T> {
 	/** Every record whose key matches the ID, broadest first, most specific last. */
 	readonly chain: readonly RecordMatch<T>[];
+
 	/** The invalid keys found in the record map (matching or not); each is inert. */
 	readonly diagnostics: readonly MatcherDiagnostic[];
 }

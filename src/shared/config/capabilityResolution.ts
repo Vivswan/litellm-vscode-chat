@@ -22,10 +22,7 @@ import {
 	wrongTypeDirectives,
 } from "./recordResolution";
 
-/**
- * The registration-typed core, keyed by wire name (aligned with /model/info), each with its value kind.
- * These seven are total in every resolution result; every other field resolves only where some level carries a value.
- */
+/** The core, keyed by wire name (as /model/info spells them) with its value kind; total in every resolution result. */
 export const CAPABILITY_FIELDS = {
 	context_length: "number",
 	max_input_tokens: "number",
@@ -154,13 +151,14 @@ type CapabilityConfigLayer = RecordLayer;
 export interface CapabilityDiagnostic extends RecordDiagnostic {
 	readonly layer: CapabilityConfigLayer;
 }
+
+/** A capability record's parse; `openrouterModel` is the `_openrouter_model` directive's catalog ID when valid. */
 export interface ParsedCapabilityRecord extends ParsedRecord {
 	readonly fields: Readonly<Record<string, CapabilityJsonValue>>;
-	/** The `_openrouter_model` directive's catalog ID, when validly set. */
 	readonly openrouterModel?: string | undefined;
 }
 
-/** A `_fallback` or `_inheritable` list entry in canonical spelling; a non-string entry stays for the directive parse. */
+/** A marking-list entry in canonical spelling; a non-string entry is left as is for the directive parse to diagnose. */
 function canonicalListEntry(entry: unknown): unknown {
 	return typeof entry === "string" ? canonicalFieldKey("capabilities", entry) : entry;
 }
@@ -349,11 +347,7 @@ export type CapabilityLevel =
 	| "derived"
 	| "floor";
 
-/**
- * The walk's levels in precedence order, highest first - the ONE declaration of that order, which
- * resolveModelCapabilities' code must layer candidates in. Consumers that rank levels derive from this list; the
- * satisfies check keeps it total, so adding a level fails compilation here too.
- */
+/** The levels in precedence order, highest first; resolveModelCapabilities' candidates and every ranker follow it. */
 export const CAPABILITY_LEVEL_ORDER: readonly CapabilityLevel[] = Object.keys({
 	entry: true,
 	global: true,
@@ -366,21 +360,29 @@ export const CAPABILITY_LEVEL_ORDER: readonly CapabilityLevel[] = Object.keys({
 	floor: true,
 } satisfies Record<CapabilityLevel, true>) as CapabilityLevel[];
 
-/** A lower-precedence level's value for a field some higher level won. */
+/**
+ * A lower-precedence level's value for a field some higher level won; `key` is the source record key (entry/global
+ * levels) or the catalog entry ID (directive/catalog).
+ */
 export interface ShadowedCapabilityValue {
 	readonly level: CapabilityLevel;
-	/** The source record key (entry/global levels), or the catalog entry ID (directive/catalog). */
 	readonly key?: string | undefined;
 	readonly value: CapabilityJsonValue;
 }
 
 export interface ResolvedCapabilityOverrideField<V extends CapabilityJsonValue = CapabilityJsonValue> {
+	/** The winning override's value; consumed fields are kind-validated at the parse, open fields pass as written. */
 	readonly value: V;
+
+	/** The override level that won: entry over global over directive. */
 	readonly level: CapabilityOverrideLevel;
+
 	/** The record key whose literal field set it (entry/global) or the directive's catalog ID (directive). */
 	readonly key: string;
+
 	/** Present when the layer's winning record inherited the field from `key`; names that winning record. */
 	readonly inheritedBy?: string | undefined;
+
 	/** Lower override levels that also set this field, highest first. */
 	readonly shadowed: readonly ShadowedCapabilityValue[];
 }
@@ -391,11 +393,16 @@ export type ResolvedCapabilityOverrideFields = {
 
 /** One `_fallback`-demoted value, ready to slot into the walk below the server level. */
 export interface CapabilityFallbackCandidate<V extends CapabilityJsonValue = CapabilityJsonValue> {
+	/** entry-fallback over global-fallback, both below the server level. */
 	readonly level: CapabilityFallbackLevel;
+
 	/** The record key whose literal field carries the value. */
 	readonly key: string;
+
 	/** Present when the layer's winning record inherited the field from `key`; names that winning record. */
 	readonly inheritedBy?: string | undefined;
+
+	/** The demoted value; consumed fields are kind-validated at the parse, open fields pass as written. */
 	readonly value: V;
 }
 
@@ -411,22 +418,32 @@ export interface DirectiveOutcome {
 }
 
 export interface ResolveCapabilityOverridesInput {
+	/** The model's own raw ID: the key the records are matched against and the implicit catalog lookup uses. */
 	readonly rawModelId: string;
+
 	/** The models.capabilities setting as normalizeModelCapabilities returns it. */
 	readonly globalCapabilities: ModelCapabilitiesRecord;
+
 	/** The declared server entry's own capability records, when one matched. */
 	readonly entryCapabilities?: ModelCapabilitiesRecord | undefined;
+
+	/** The catalog the directive and implicit lookups answer from. */
 	readonly catalog: CapabilityCatalogLookup;
 }
 
 export interface ResolvedCapabilityOverrides {
+	/** The override levels' winners per field, entry over global over directive. */
 	readonly fields: ResolvedCapabilityOverrideFields;
+
 	/** The `_fallback`-demoted fields, applied below the server level in the walk. */
 	readonly fallbackFields: ResolvedCapabilityFallbackFields;
+
 	/** Present exactly when a winning record carried `_openrouter_model`. */
 	readonly directive?: DirectiveOutcome | undefined;
+
 	/** The implicit catalog lookup by the model's own raw ID, for the walk's catalog level. */
 	readonly implicitCatalog: CatalogLookupResult;
+
 	/** Field and `_openrouter_model` problems in the matching records. */
 	readonly diagnostics: readonly CapabilityDiagnostic[];
 }
@@ -579,10 +596,7 @@ export function guessedMaxTokensDefault(limit: number): number {
 	return Math.min(DEFAULT_MAX_TOKENS_CAP, limit);
 }
 
-/**
- * max_input_tokens has no floor - the context-minus-output derivation is its backstop, and it is total because both
- * inputs are. Only the core fields have floors; every other field resolves open (absent when no level carries it).
- */
+/** The core floors. max_input_tokens has none (context minus output is total); every other field resolves open. */
 export const CAPABILITY_FLOOR: Readonly<Omit<CapabilityFieldValues, "max_input_tokens">> = {
 	context_length: FLOOR_CONTEXT_LENGTH,
 	max_output_tokens: FLOOR_MAX_OUTPUT_TOKENS,
@@ -593,12 +607,18 @@ export const CAPABILITY_FLOOR: Readonly<Omit<CapabilityFieldValues, "max_input_t
 };
 
 export interface EffectiveCapabilityField<V extends CapabilityJsonValue = CapabilityJsonValue> {
+	/** The value the walk settled on, typed by the field's kind for the core fields. */
 	readonly value: V;
+
+	/** The level that supplied the value; floor and derived are the backstops. */
 	readonly level: CapabilityLevel;
+
 	/** The source record key (entry/global/fallback) or catalog entry ID (directive/catalog); absent elsewhere. */
 	readonly key?: string | undefined;
+
 	/** Present when the level's winning record inherited the field from `key`; names that winning record. */
 	readonly inheritedBy?: string | undefined;
+
 	/** Every lower level that also carried a value, highest first; floor and derived never shadow. */
 	readonly shadowed: readonly ShadowedCapabilityValue[];
 }
@@ -617,11 +637,16 @@ export interface ResolveModelCapabilitiesInput extends ResolveCapabilityOverride
 }
 
 export interface EffectiveCapabilities {
+	/** The core fields, total, plus every open field some level carried. */
 	readonly fields: EffectiveCapabilityFields;
+
 	/** The request's max_tokens when nothing configures one; the one number the chat path reads for the fallback. */
 	readonly defaultMaxTokens: number;
+
 	/** See ResolvedCapabilityOverrides.directive. */
 	readonly directive?: DirectiveOutcome | undefined;
+
+	/** Field and `_openrouter_model` problems in the matching records. */
 	readonly diagnostics: readonly CapabilityDiagnostic[];
 }
 
@@ -658,11 +683,7 @@ function resolveField(
 	};
 }
 
-/**
- * Total over CapabilityLevel on purpose: a level added to the walk fails compilation here instead of silently
- * resolving to a guess and regaining the wire clamp. The directive level is deliberately NOT user-set - an
- * `_openrouter_model` output limit is still the catalog's guess, so both catalog paths keep the clamp.
- */
+/** Total so a new level fails here; the directive level is not user-set, so its catalog guess keeps the wire clamp. */
 const LEVEL_IS_USER_SET: Readonly<Record<CapabilityLevel, boolean>> = {
 	entry: true,
 	global: true,

@@ -10,16 +10,14 @@
  * itself again at every exit, and no exit can write "[[redacted]]" or re-mask a reveal once a shorter value joins the
  * set. A span that merely overlaps a marker is still a match (a long value whose own head reads like its reveal), so
  * the mask cannot be defeated by text shaped like a marker.
+ *
+ * MIN_SECRET_LENGTH is the floor the known-value collector and the masker share: a shorter value would blank most of
+ * every line ("a" in "chat"). A masked span becomes REDACTED_MARKER unless the value is REVEAL_FROM_LENGTH or longer,
+ * when its first REVEALED_CHARS show (revealOf) so the user can tell which key a message is about.
  */
 
-/**
- * The floor the known-value collector and the masker share: a shorter value would blank most of every line ("a" in
- * "chat").
- */
 export const MIN_SECRET_LENGTH = 4;
-/** What a masked span becomes, unless the value is long enough to reveal (revealOf). */
 export const REDACTED_MARKER = "[redacted]";
-/** A configured value this long shows its first REVEALED_CHARS so the user can tell which key a message is about. */
 const REVEAL_FROM_LENGTH = 20;
 const REVEALED_CHARS = 6;
 
@@ -54,6 +52,7 @@ interface Spelling {
 /** A complete percent escape, the only "%" whose following hex digits fold: "100%off" and "100%oFf" differ. */
 const PERCENT_ESCAPE = /%[0-9a-fA-F]{2}/;
 
+/** The percent and form encodings; the form one spells a space as "+". */
 const ENCODINGS: readonly ((value: string) => string)[] = [
 	encodeURIComponent,
 	(value) => new URLSearchParams({ v: value }).toString().slice("v=".length),

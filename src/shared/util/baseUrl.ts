@@ -56,12 +56,10 @@ export function canonicalStoredBaseUrl(stored: string): NormalizedBaseUrl | unde
 	return canonicalBaseUrl(`${stored}/`);
 }
 
+/** The version segment appended when auto-detection finds none in the base URL. */
 export const DEFAULT_API_VERSION = "v1";
 
-/**
- * A trailing version segment: v + digits, optionally staged Google-style (v1beta, v1alpha2). Lowercase only, so a /V1
- * that meant something else is not swallowed.
- */
+/** A trailing v + digits, optionally staged Google-style (v1beta, v1alpha2); lowercase, so /V1 is not swallowed. */
 const VERSION_SEGMENT_PATTERN = /\/v\d+(?:(?:alpha|beta)\d*)?$/;
 
 function trailingVersionSegmentIndex(normalized: string): number | undefined {

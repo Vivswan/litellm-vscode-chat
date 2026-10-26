@@ -33,6 +33,7 @@ export type EnglishRendering =
  */
 export class MirroredError extends Error {
 	readonly englishMessage?: string;
+
 	readonly logClassification?: string;
 
 	/**

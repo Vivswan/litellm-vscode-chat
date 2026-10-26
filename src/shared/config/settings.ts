@@ -396,12 +396,7 @@ export function normalizeModelParameters(
 	return normalizePrefixKeyedRecords(raw, report);
 }
 
-/**
- * The value each records setting was last reported under. The getters below run per chat request, per inline
- * completion, and per serve, so a wrong-shaped slot would otherwise put the same line in the channel on every one of
- * them; a value already reported reads silently until the user changes the setting. Problems are a function of the
- * value, so the value is the whole identity. A read with no sink never claims a value.
- */
+/** The value each records setting was last reported under; a read with no sink never claims a value. */
 const reportedRecordValues = new Map<RecordSettingKey, string>();
 
 /** Test hook: lets a value the session already reported report again. */
@@ -409,6 +404,11 @@ export function resetRecordShapeReports(): void {
 	reportedRecordValues.clear();
 }
 
+/**
+ * The getters run per chat request, per inline completion, and per serve, so a wrong-shaped slot would otherwise put
+ * the same line in the channel on every one of them; a value already reported reads silently until the user changes
+ * the setting. Problems are a function of the value, so the value is the whole identity.
+ */
 function readRecordsSetting(
 	setting: RecordSettingKey,
 	log: LogFn | undefined

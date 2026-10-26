@@ -14,18 +14,16 @@ export const VENDOR_ID = "litellm";
 
 /** The chatParticipants contribution's id (the @litellm participant). */
 export const PARTICIPANT_ID = "litellm.participant";
-/**
- * The participant's handle: what the user types after "@" and what the quick fixes submit. Not VENDOR_ID, which
- * happens to share the spelling.
- */
+
+/** The handle typed after "@" and submitted by the quick fixes; VENDOR_ID only happens to share the spelling. */
 export const PARTICIPANT_NAME = "litellm";
+
 /** The languageModelTools contribution's name (the consult tool). */
 export const TOOL_NAME = "litellm_consult";
-/**
- * The wiring sets it to whether the tool is REGISTERED - both the enable boolean and a model ref - so the agent's tool
- * picker never advertises the half-configured state, where every call could only fail.
- */
+
+/** Whether the tool is REGISTERED (enabled with a model ref), so the picker never offers a half-configured tool. */
 export const CONSULT_TOOL_READY_CONTEXT_KEY = "litellm.consultToolReady";
+
 /** The agent tools, in manifest order: the four reads first, then the five writes. */
 export const AGENT_TOOL_IDS = [
 	"diagnostics",
@@ -44,15 +42,15 @@ export type AgentToolId = (typeof AGENT_TOOL_IDS)[number];
 export interface AgentToolContribution {
 	/** The languageModelTools contribution's name: snake_case, namespaced like TOOL_NAME. */
 	readonly name: string;
+
 	/** The `#handle` a user types to reference the tool in a prompt. */
 	readonly referenceName: string;
+
+	/** The write toggle that also gates the tool; undefined for a read, which the feature switch alone registers. */
 	readonly toggle: AgentWriteToolId | undefined;
 }
 
-/**
- * Each read registers under the feature switch alone; each write also under its own toggle, and the generated
- * manifest's `when` clauses read the same two switches.
- */
+/** A read registers under the feature switch alone, a write also under its toggle; the when clauses read both. */
 export const AGENT_TOOLS = {
 	diagnostics: { name: "litellm_diagnostics", referenceName: "litellmDiagnostics", toggle: undefined },
 	configuration: { name: "litellm_configuration", referenceName: "litellmConfiguration", toggle: undefined },
@@ -72,10 +70,7 @@ export const AGENT_TOOLS = {
 /** The mcpServerDefinitionProviders contribution's id. */
 export const MCP_PROVIDER_ID = "litellm.mcpServers";
 
-/**
- * Not a manifest contribution - the controller is created at runtime - but the comment menus' when-clauses name it, so
- * it drifts exactly like a contributed identity would and lives beside the others.
- */
+/** Made at runtime, not contributed; the comment menus' when-clauses name it, so it drifts like a contribution. */
 export const COMMENT_CONTROLLER_ID = "litellm.review";
 
 /** The commands package.json contributes; the palette and walkthrough deep-links use exactly these. */
@@ -105,11 +100,7 @@ export const CMD = {
 	reviewDeleteThread: "litellm.reviewDeleteThread",
 } as const;
 
-/**
- * The feature whose enable setting gates each command: its palette entry and menu items hide until that boolean is
- * on, and a command with no feature is always offered. Literal-typed so the generator can tell gated commands from
- * ungated ones at compile time.
- */
+/** The feature switch that hides each command until on (undefined: always offered); literal-typed for the generator. */
 export const COMMAND_FEATURES = {
 	manage: undefined,
 	openDashboard: undefined,
@@ -176,30 +167,24 @@ export function reviewFileCommandTitle(): string {
 	return l10n.t("LiteLLM: Review This File");
 }
 
-/**
- * Registered at runtime but kept out of contributes.commands on purpose, so the palette never offers them.
- *
- *   openGroupsFile -> the host's provider-groups JSON, the fallback for deleting a group the Manage Language Models
- *                     editor cannot reach
- *   quickFixChat   -> takes a structured payload no user could type, so a palette entry would fail on every invocation
- */
+/** Registered at runtime but kept out of contributes.commands on purpose, so the palette never offers them. */
 export const INTERNAL_CMD = {
 	manageServers: "litellm.manageServers",
+	// The host's provider-groups JSON, the fallback for deleting a group the Manage Language Models editor cannot reach.
 	openGroupsFile: "litellm.openGroupsFile",
 	openOutput: "litellm.openOutput",
 	openSettingKey: "litellm.openSettingKey",
 	openUsage: "litellm.openUsage",
+	// Takes a structured payload no user could type, so a palette entry would fail on every invocation.
 	quickFixChat: "litellm.quickFixChat",
 	toggleInlineCompletionsLanguage: "litellm.toggleInlineCompletionsLanguage",
 } as const;
 
-/**
- * The host's own commands this extension drives: the provider-group add serverSync talks to (the family is add-only;
- * hostGroupCommand.test.ts pins it) and the Manage Language Models editor the removal notices open, whose group menu
- * carries the Delete action.
- */
+/** The host's own commands this extension drives. */
 export const HOST_CMD = {
+	// The provider-group add serverSync talks to; the family is add-only (hostGroupCommand.test.ts pins it).
 	addProviderGroup: "lm.addLanguageModelsProviderGroup",
+	// The Manage Language Models editor the removal notices open; its group menu carries the Delete action.
 	manageLanguageModels: "workbench.action.chat.manage",
 } as const;
 

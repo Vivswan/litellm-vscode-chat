@@ -30,19 +30,12 @@ import {
 
 export type { ModelRecordMap } from "./modelMatcher";
 
-/**
- * Cap on the fallback max_tokens when neither runtime options nor configured model parameters set one and the model's
- * output limit is a guess rather than declared; applied where the limit is derived (guessedMaxTokensDefault).
- */
+/** The fallback max_tokens cap when nothing sets one and the output limit is a guess (guessedMaxTokensDefault). */
 export const DEFAULT_MAX_TOKENS_CAP = 4096;
 
 export type ModelParametersRecord = ModelRecordMap;
 
-/**
- * The request fields the extension owns: buildRequestBody skips these keys on every pass-through source, and the
- * inspector renders them as not-sent. max_tokens belongs here too - it is provider-owned on the wire - but its VALUE
- * is special-cased: a numeric configured max_tokens feeds resolveMaxTokens instead of passing through.
- */
+/** Extension-owned: skipped on every pass-through source and shown as not-sent; max_tokens feeds resolveMaxTokens. */
 const PROVIDER_OWNED_KEYS: ReadonlySet<string> = new Set([
 	"model",
 	"messages",
@@ -168,53 +161,62 @@ export type ParameterSourceRef =
 /** A lower-precedence layer's value for a key some higher layer won. */
 export type ShadowedParameterValue = ParameterSourceRef & { readonly value: unknown };
 
+/** Where a value came from; `key` is the record whose literal field carries it (the place to edit it). */
 interface ResolvedSourceRef {
 	readonly layer: ParameterConfigLayer;
-	/** The record key whose literal field carries the value (the place to edit it). */
 	readonly key: string;
 }
 
+/**
+ * A merged key's attribution. `inheritedBy` is present exactly when the winning layer's record did not write the field
+ * itself: it inherited it from source.key, and this names that winning record (never equal to source.key by
+ * construction). `forced` is present exactly when the value's source record `_force`-marks this key.
+ */
 interface ResolvedParameterSource {
 	readonly source: ResolvedSourceRef;
-	/**
-	 * Present exactly when the winning layer's record did not write the field itself: it inherited it from source.key,
-	 * and this names that winning record (never equal to source.key by construction).
-	 */
 	readonly inheritedBy?: string;
 	readonly shadowed: readonly (ResolvedSourceRef & { readonly value: unknown })[];
-	/** Present exactly when the value's source record `_force`-marks this key. */
 	readonly forced?: true;
 }
 
 export interface ResolveModelParametersInput {
+	/** The model's own raw ID, matched against the record keys. */
 	readonly rawModelId: string;
+
 	/** The models.parameters setting as the request path reads it (normalizeModelParameters output). */
 	readonly globalParameters: ModelParametersRecord;
+
 	/** The declared server entry's own record, when the request routes through one. */
 	readonly entryParameters?: ModelParametersRecord | undefined;
 }
 
+/**
+ * The resolved parameters of one model.
+ *
+ * `params` is each layer's resolved chain view merged entry over global key by key, then the forced winners on top (a
+ * globally forced key beats an unforced entry value); underscore keys never appear.
+ *
+ * `forcedParams` is always a subset of `params` (same values); buildRequestBody re-applies them ABOVE runtime options
+ * and the picker configuration.
+ *
+ * `fimTemplate` is the winning `_fim_template`, entry layer over global: a directive belongs to a layer's WINNING
+ * record only, never inherited (the capability side's `_openrouter_model` rule). It is the ONE parameters-record value
+ * the /completions path reads; the chat path ignores it. The parse captures only usable templates, so it is valid by
+ * construction.
+ */
 export interface ResolvedModelParameters {
-	/**
-	 * The effective configured merge: each layer's resolved chain view, entry over global key by key, then the forced
-	 * winners on top (a globally forced key beats an unforced entry value). Underscore keys never appear.
-	 */
+	/** The effective configured merge. */
 	readonly params: Record<string, unknown>;
-	/**
-	 * The forced values, entry over global key by key; always a subset of `params` (same values). buildRequestBody
-	 * re-applies them ABOVE runtime options and the picker configuration.
-	 */
+
+	/** The forced values, entry over global key by key. */
 	readonly forcedParams: Readonly<Record<string, unknown>>;
+
 	/** Attribution per merged key; every own key of `params` has an entry. */
 	readonly sources: ReadonlyMap<string, ResolvedParameterSource>;
-	/**
-	 * The winning `_fim_template`, entry layer over global (a directive belongs to a layer's WINNING record only, never
-	 * inherited - the capability side's `_openrouter_model` rule).
-	 *
-	 * The ONE parameters-record value the /completions path reads; the chat request path ignores it.
-	 *   the parse captures only usable templates -> Valid by construction
-	 */
+
+	/** The winning `_fim_template`, when a winning record spelled a usable one. */
 	readonly fimTemplate?: string | undefined;
+
 	/** Matcher, directive, and `_force` problems in the matching records, attributed to their layer. */
 	readonly diagnostics: readonly ParameterDiagnostic[];
 }
@@ -280,7 +282,7 @@ function mergeParameterLayers(
 	return { params, sources };
 }
 
-/** The forced values, entry over global key by key. Forced fields can never be underscore keys: parseParameterRecord bars them. */
+/** The forced values, entry over global key by key; never underscore keys, which parseParameterRecord bars. */
 function forcedParamsOf(global: RecordChainResolution, entry: RecordChainResolution): Record<string, unknown> {
 	const forced: Record<string, unknown> = {};
 	for (const [name, field] of global.fields) {
@@ -331,17 +333,19 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 
 export type MaxTokensSource = "forced" | "runtime" | "configured" | "limit" | "capped";
 
+/** A model's output limits; `defaultMaxTokens` is LiteLLMModelMetadataBase.defaultMaxTokens (groupModels.ts). */
 export interface OutputLimits {
 	readonly maxOutputTokens: number;
-	/** See LiteLLMModelMetadataBase.defaultMaxTokens (groupModels.ts). */
 	readonly defaultMaxTokens: number;
 }
 
 export interface ResolveMaxTokensInput extends OutputLimits {
 	/** The merged forced parameters' max_tokens, untyped: only a number counts. Beats even runtime options. */
 	readonly forcedMaxTokens?: unknown;
+
 	/** options.modelOptions?.max_tokens, untyped: only a number counts. */
 	readonly runtimeMaxTokens: unknown;
+
 	/** The merged configured parameters' max_tokens, untyped: only a number counts. */
 	readonly configuredMaxTokens: unknown;
 }
@@ -366,39 +370,48 @@ export function resolveMaxTokens(input: ResolveMaxTokensInput): { value: number;
 	};
 }
 
+/**
+ * One row of the parameter inspector.
+ *
+ * `sent` says whether the request body carries the key; a false row carries its `skipReason`.
+ *
+ * `inheritedBy` is present when the winning record inherited the value from source.key, and names that winning record.
+ *
+ * `forced` is present exactly when `_force` marks the key, whose value then beats runtime options and the picker.
+ */
 export interface EffectiveParameterRow {
 	readonly name: string;
 	readonly value: unknown;
-	/** Whether the request body carries this key; false rows carry their reason. */
 	readonly sent: boolean;
 	readonly skipReason?: ParameterSkipReason | undefined;
 	readonly source: ParameterSourceRef;
-	/** Present when the winning record inherited the value from source.key; names that winning record. */
 	readonly inheritedBy?: string | undefined;
 	readonly shadowed: readonly ShadowedParameterValue[];
-	/** Present exactly when `_force` marks this key: the value beats runtime options and the picker. */
 	readonly forced?: true;
 }
 
-/** The inspector's max_tokens derivation. Runtime options are unknowable ahead of a request, so no "runtime" here. */
+/**
+ * The inspector's max_tokens derivation. Runtime options are unknowable ahead of a request, so no "runtime" here.
+ * `configuredSource` is the layer that set the value, present exactly when source is "configured" or "forced".
+ */
 export interface ProjectedMaxTokens {
 	readonly value: number;
 	readonly source: Exclude<MaxTokensSource, "runtime">;
-	/** Which layer set the value; present exactly when source is "configured" or "forced". */
 	readonly configuredSource?: ParameterSourceRef | undefined;
 }
 
+/**
+ * What the inspector's projection reads; `entry` is the declared entry's record together with its label, since
+ * entry-layer refs carry the label and the two travel as one.
+ */
 export interface EffectiveParametersInput extends OutputLimits {
 	readonly rawModelId: string;
 	readonly globalParameters: ModelParametersRecord;
-	/**
-	 * The declared entry's record together with its label: entry-layer refs carry the label, so the two travel as one.
-	 */
 	readonly entry?: { readonly label: string; readonly parameters: ModelParametersRecord } | undefined;
 }
 
+/** The inspector's view; `rows` are the configured parameters matching the model, sent and not-sent alike, by name. */
 export interface EffectiveParametersProjection {
-	/** Configured parameters matching the model, sent and not-sent alike, sorted by name. */
 	readonly rows: readonly EffectiveParameterRow[];
 	readonly maxTokens: ProjectedMaxTokens;
 	readonly diagnostics: readonly ParameterDiagnostic[];

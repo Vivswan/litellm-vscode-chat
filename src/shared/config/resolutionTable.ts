@@ -23,14 +23,19 @@ import { resolveModelParameters } from "./parameterResolution";
 export interface ParameterResolutionInputs {
 	/** The models.parameters setting as the request path reads it (normalizeModelParameters output). */
 	readonly globalParameters: ModelParametersRecord;
+
 	/** The declared server entry's own record, when the request routes through one. */
 	readonly entryParameters?: ModelParametersRecord | undefined;
 }
 
+/**
+ * What a capability resolution reads.
+ *
+ *   globalCapabilities -> the models.capabilities setting as normalizeModelCapabilities returns it
+ *   entryCapabilities  -> the declared server entry's own capability records, when one matched
+ */
 export interface CapabilityResolutionInputs {
-	/** The models.capabilities setting as normalizeModelCapabilities returns it. */
 	readonly globalCapabilities: ModelCapabilitiesRecord;
-	/** The declared server entry's own capability records, when one matched. */
 	readonly entryCapabilities?: ModelCapabilitiesRecord | undefined;
 	readonly serverDeclared: ServerDeclaredCapabilities;
 	readonly catalog: CapabilityCatalogLookup;
@@ -79,14 +84,12 @@ function probesStillHold(probes: readonly CatalogProbe[], catalog: CapabilityCat
 	return probes.every((probe) => JSON.stringify(catalog[probe.method](probe.id)) === probe.answer);
 }
 
-/**
- * Per-server model-entry bound: a server can rotate model IDs indefinitely, so the per-server map evicts its oldest
- * entry past this bound (an evicted entry merely recomputes on its next lookup).
- */
+/** The per-server model-entry bound; servers rotate model IDs endlessly, and an evicted entry merely recomputes. */
 const MAX_MODELS_PER_SERVER = 512;
 
 export class ModelResolutionTable {
 	private readonly parameters = new Map<string, Map<string, ParameterEntry>>();
+
 	private readonly capabilities = new Map<string, Map<string, CapabilityEntry>>();
 
 	resolveParameters(serverKey: string, rawModelId: string, inputs: ParameterResolutionInputs): ResolvedModelParameters {

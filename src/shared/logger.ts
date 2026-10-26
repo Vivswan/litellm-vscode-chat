@@ -11,11 +11,13 @@ export interface LogSink {
 	error(message: string): void;
 }
 
-/** What a recorder receives for a thrown value: its public renderings, never the value itself. */
+/**
+ * What a recorder receives for a thrown value: its public renderings, never the value itself. `classification` is the
+ * enum ids and status number read off a transport error, absent for anything else.
+ */
 export interface RecordedError {
 	readonly message: string;
 	readonly stack?: string | undefined;
-	/** Enum ids and a status number, read off a transport error; absent for anything else. */
 	readonly classification?: TransportErrorClassification | undefined;
 }
 
@@ -179,22 +181,19 @@ function logDataText(data: unknown): string {
 	}
 }
 
-/**
- * What replay restores after a logs.redactSecrets flip: the channel's own history, held raw. The line and character
- * bounds evict channel-only entries (advisory lines, stack prints), oldest first, so a run of stack prints cannot pin
- * hundreds of megabytes in the extension host; a single line past CHANNEL_LINE_CHARS is cut at write, with a marker,
- * since neither the channel nor the replay can use it whole. The raw cut never splits a value the door would replace
- * (safeCut), so the kept prefix masks the same in either mode; a report rendering is cut and charged the same way,
- * since the report masks it later. The masked rendering masks FIRST and cuts the masked text plainly, so a value
- * astride the bound is masked whole, never cut.
- */
+// What replay restores after a logs.redactSecrets flip: the channel's own history, held raw. The line and character
+// bounds evict channel-only entries (advisory lines, stack prints), oldest first, so a run of stack prints cannot pin
+// hundreds of megabytes in the extension host; a single line past CHANNEL_LINE_CHARS is cut at write, with a marker,
+// since neither the channel nor the replay can use it whole. The raw cut never splits a value the door would replace
+// (safeCut), so the kept prefix masks the same in either mode; a report rendering is cut and charged the same way,
+// since the report masks it later. The masked rendering masks FIRST and cuts the masked text plainly, so a value
+// astride the bound is masked whole, never cut. REPORT_LOG_LINES is the issue report's share of the same history: the
+// entries that carry a report rendering, capped by their own count so channel-only traffic never evicts the errors a
+// report exists to carry.
+
 const CHANNEL_HISTORY_LINES = 200;
 const CHANNEL_HISTORY_CHARS = 1_048_576;
 const CHANNEL_LINE_CHARS = 262_144;
-/**
- * The issue report's share of the same history: the entries that carry a report rendering, capped by their own count
- * so channel-only traffic never evicts the errors a report exists to carry.
- */
 const REPORT_LOG_LINES = 50;
 
 /** A text cut at `at` with a marker saying how much went; the identity when nothing is past `at`. */
@@ -247,8 +246,14 @@ interface HistoryEntry {
 export class Logger {
 	/** Every configured credential value the collector has published this session (wiring/knownSecrets.ts). */
 	private static secrets: readonly string[] = [];
+
+	/** Every line written, raw, oldest first; the channel bounds evict the oldest channel-only entries. */
 	private readonly history: HistoryEntry[] = [];
+
+	/** The characters the history holds, against CHANNEL_HISTORY_CHARS. */
 	private historyChars = 0;
+
+	/** The entries that still carry a report rendering, against REPORT_LOG_LINES. */
 	private reportCount = 0;
 
 	/**

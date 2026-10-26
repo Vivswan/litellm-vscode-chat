@@ -12,52 +12,54 @@ import { createHash } from "node:crypto";
 import { fixedHeaderValue, type HeaderValue } from "../util/headers";
 import type { SessionIdMode } from "./settingSpec";
 
-/**
- * The one header the session id rides. LiteLLM reads it on every route the extension uses and writes it to the spend
- * log's session column, so the requests that share a value group together in the proxy's session view.
- *
- *   Not the trace header: the proxy reads x-litellm-trace-id first, so a trace id on a server entry outranks this.
- */
+/** The header the spend log groups sessions by; the proxy reads x-litellm-trace-id first, so a trace id outranks it. */
 export const SESSION_ID_HEADER_NAME = "x-litellm-session-id";
 
-/** The hash's readable prefix, so a session id in the proxy's UI says what kind of session it is. */
+/** The chat rule's prefix: the session follows the conversation. Readable prefixes tell the kinds apart. */
 const CHAT_SESSION_PREFIX = "vscode-chat-";
+
+/** The folder rule's prefix: the session follows the open folder. */
 const FOLDER_SESSION_PREFIX = "vscode-folder-";
+
+/** The window rule's prefix: the session follows the VS Code window. */
 const WINDOW_SESSION_PREFIX = "vscode-window-";
 
 /** The hash's width: 12 hex characters, short enough to read in a UI and long enough not to collide in one proxy. */
 const SESSION_HASH_LENGTH = 12;
 
-/** The editor identity a session id is derived from. */
+/**
+ * The editor identity a session id is derived from. `windowSessionId` is vscode.env.sessionId: one per VS Code window,
+ * a new one every time it opens; with telemetry disabled VS Code hands every window the same placeholder, so those
+ * windows share one session.
+ */
 export interface SessionIdContext {
-	/**
-	 * vscode.env.sessionId: one per VS Code window, a new one every time it opens. With telemetry disabled VS Code
-	 * hands every window the same placeholder, so those windows share one session; the value is hashed like every
-	 * other, never sent as is.
-	 */
+	/** Hashed like every other value, never sent as is. */
 	readonly windowSessionId: string;
+
 	/** The open folder's path; undefined when the window has no folder. */
 	readonly folderPath?: string | undefined;
 }
 
 /**
- * One turn of the conversation, reduced to what the chat rule reads: its role, its text, and the media it carries.
+ * One turn of the conversation, reduced to what the chat rule reads: its role, its text parts joined, and the media it
+ * carries, the last two empty when the turn carries none.
  *
  *   The reduction happens in the caller's tree, because telling a text part from a data part needs the host's own
  *     classes; no vscode type reaches this module.
  */
 export interface SessionIdMessage {
 	readonly role: "user" | "assistant" | "system";
-	/** The turn's text parts, joined; empty when it carries none. */
 	readonly text: string;
-	/** The media the turn carries; empty when it carries none. */
 	readonly data: readonly Uint8Array[];
 }
 
 export interface SessionIdInput {
 	/** What the session id is derived from; "off" resolves to no header at all. */
 	readonly mode: SessionIdMode;
+
+	/** The window and folder identity the window and folder rules hash. */
 	readonly context: SessionIdContext;
+
 	/** The conversation, as the provider receives it: before the wire conversion, so no synthetic turn can be picked. */
 	readonly messages?: readonly SessionIdMessage[] | undefined;
 }

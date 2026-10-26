@@ -24,17 +24,17 @@ export interface DevSeedEntry {
 	readonly models?: DevSeedModels;
 }
 
+/**
+ * The seed. `models` holds the main entry's own records (the entry-over-global demo); `records` the global demo records
+ * for the models.parameters and models.capabilities settings: the seed owns exactly the matcher keys named there
+ * (re-pinned wholesale every run), and keys it does not name are user records that survive verbatim.
+ */
 export interface DevSeed {
 	readonly label: string;
 	readonly baseUrl: string;
 	readonly apiKey: string;
 	readonly openDashboard: boolean;
-	/** Entry-level records for the main entry (the entry-over-global demo). */
 	readonly models?: DevSeedModels;
 	readonly entries?: readonly DevSeedEntry[];
-	/**
-	 * Global demo records for the models.parameters / models.capabilities settings. The seed owns exactly the matcher
-	 * keys named here (re-pinned wholesale every run); keys it does not name are user records that survive verbatim.
-	 */
 	readonly records?: DevSeedModels;
 }

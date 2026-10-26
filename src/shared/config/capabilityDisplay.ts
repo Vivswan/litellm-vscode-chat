@@ -1,6 +1,7 @@
 /**
  * Presentation helpers for capability fields, shared by the capability inspector and the Diagnostics tab. Display only:
  * the value vocabulary itself (which keys are consumed, how their values validate) stays in capabilityResolution.ts.
+ * Both pricing surfaces group and order their rows by COST_CAPABILITY_FIELDS.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -19,7 +20,6 @@ const COST_FIELD_DISPLAY_RANK = {
 	long_context_cache_creation_input_token_cost: 7,
 } as const satisfies Record<CostCapabilityField, number>;
 
-/** The cost fields in display order; both pricing surfaces group and order by this list. */
 export const COST_CAPABILITY_FIELDS: readonly CostCapabilityField[] = consumedFieldsOfKind("cost").sort(
 	(a, b) => COST_FIELD_DISPLAY_RANK[a] - COST_FIELD_DISPLAY_RANK[b]
 );
@@ -30,10 +30,7 @@ export function isCostCapabilityField(name: string): name is CostCapabilityField
 	return COST_FIELD_SET.has(name);
 }
 
-/**
- * The token-count fields, derived from the consumed vocabulary's "number" kind (the same derivation the record
- * editors' inputs use), so a new number-kind field renders as a token count the day it is consumed.
- */
+/** The "number" kind's fields as the record editors derive them, so a new number field counts as tokens at once. */
 const TOKEN_FIELD_SET: ReadonlySet<string> = new Set(consumedFieldsOfKind("number"));
 
 /** Whether a capability key's numbers render as token counts; other numbers (costs aside) render plain. */
@@ -41,10 +38,7 @@ export function isTokenCapabilityField(name: string): boolean {
 	return TOKEN_FIELD_SET.has(name);
 }
 
-/**
- * Every consumed field's display label as a thunk, so the text resolves at call time (no module-level localized
- * constants).
- */
+/** Every consumed field's label as a thunk: resolved at call time, so no module constant holds localized text. */
 const CAPABILITY_DISPLAY_LABELS: Readonly<Record<ConsumedCapabilityField, () => string>> = {
 	context_length: () => l10n.t("Context length"),
 	max_input_tokens: () => l10n.t("Max input tokens"),

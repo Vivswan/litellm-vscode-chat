@@ -11,10 +11,7 @@ import type { TransportErrorClassification } from "./errorClassification";
 import type { RejectedCredentialField } from "./serverEntry";
 import { displayUrl } from "./util/displayUrl";
 
-/**
- * The sync engine's failure classes (serverSync/engine.ts syncFailureOf): why a declared entry's provider group is not
- * in step with its entry.
- */
+/** The sync engine's failure classes (engine.ts syncFailureOf): why a group is not in step with its entry. */
 export const SYNC_ERROR_CLASSES = [
 	"upsertFailed",
 	"blocked",
@@ -23,20 +20,17 @@ export const SYNC_ERROR_CLASSES = [
 	"saltUnavailable",
 	"credentialsRefused",
 ] as const;
+
 export type SyncErrorClass = (typeof SYNC_ERROR_CLASSES)[number];
 
-/**
- * Why a declared entry's credentials did not resolve at serve or request time: the engine's own skip reasons
- * (secretsUnreadable, secretsMismatched), a configuration the group parser refuses (unusable), or an entry the setting
- * still carries in a shape the parser rejects (misconfigured). A refusal of header-borne values is its own arm, since
- * its text names the fields.
- */
+/** Why an entry's credentials did not resolve at serve or request time; a header-value refusal is its own arm. */
 export const CREDENTIALS_UNAVAILABLE_REASONS = [
-	"secretsUnreadable",
+	"secretsUnreadable", // the engine's own skip reasons
 	"secretsMismatched",
-	"unusable",
-	"misconfigured",
+	"unusable", // a configuration the group parser refuses
+	"misconfigured", // an entry the setting still carries in a shape the parser rejects
 ] as const;
+
 type CredentialsUnavailableReason = (typeof CREDENTIALS_UNAVAILABLE_REASONS)[number];
 
 export type FailureCause =
@@ -60,54 +54,36 @@ export function failureClassification(cause: FailureCause): TransportErrorClassi
 export interface FailureTexts {
 	/** Localized, for the surfaces the user reads. */
 	readonly display: string;
+
 	/** The English mirror, for the paste line, the agent tools, and the issue report. */
 	readonly english: string;
 }
 
-/**
- * The classified upsert-failure text. The host's raw error message is never stored, displayed, or logged: the command
- * was called with fully resolved secrets, and the log buffer feeds public issue reports.
- */
+/** Never the host's raw error: the command ran with resolved secrets, and the log buffer feeds public issue reports. */
 const GROUP_UPSERT_FAILED_MESSAGE = "The host rejected the provider group upsert";
 
-/**
- * That covers an entry whose configuration changed after its group was created AND a brand-new entry under a name the
- * host already uses, so the text must not assert that anything changed. VS Code's group commands are strictly additive
- * and no update or removal command exists (pinned by hostGroupCommand.test.ts).
- */
+/** A changed entry and a new one under a taken name alike, so it asserts no change; the host only adds groups. */
 const GROUP_UPDATE_UNAVAILABLE_MESSAGE =
 	"A VS Code provider group already uses this name, and VS Code cannot update an existing group. " +
 	"If the group does not match this entry, delete it in Manage Language Models (or remove its object from the models file, chatLanguageModels.json, and reload the window), " +
 	"then run Sync Models Now.";
 
-/**
- * The classified text for an entry whose stored secrets could not be read this pass. The entry is skipped, not failed
- * permanently: the next pass (or Sync Models Now) reads again.
- */
+/** Skipped, not failed permanently: the next pass (or Sync Models Now) reads the stored secrets again. */
 const SECRETS_READ_FAILED_MESSAGE =
 	"Reading this entry's stored secrets failed, so it was not synced. Run Sync Models Now to retry.";
 
-/**
- * The classified text for an entry whose stored secret is stamped for a different destination (see
- * resolveOwnedSecrets).
- *
- *   the host is add-only     -> the entry is skipped, not synced without the credential
- *   Re-pairing is deliberate -> the user re-enters or removes the stored value
- */
+/** A secret stamped for another destination (resolveOwnedSecrets); skipped: re-pairing is the user's deliberate act. */
 const SECRET_OWNERSHIP_MISMATCH_MESSAGE =
 	"A stored secret for this entry was saved for a different server address, so the entry was not synced. Set the secret again (edit the server in the dashboard, or run LiteLLM: Set Server Secret), or remove the stored value.";
 
-/**
- * The classified text for a pass skipped because the fingerprint salt could not be confirmed durable (see
- * ServerSyncEnv.confirmFingerprintsDurable). Entries are skipped, not failed: the live groups keep serving, and the
- * next session (with the stored salt back) syncs normally.
- */
+/** The salt was not confirmed durable (confirmFingerprintsDurable): skipped, not failed; live groups keep serving. */
 const SALT_UNAVAILABLE_MESSAGE =
 	"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session.";
 
 /** A parser-refused entry's row text, English by the issue-report policy. */
 export const MISCONFIGURED_ENTRY_TEXT = "misconfigured entry; not used until its configuration is fixed";
 
+/** How every refusal text names a refused field, localized and in English (rejectedCredentialKinds). */
 const REJECTED_FIELD_KIND: Readonly<
 	Record<RejectedCredentialField, { readonly display: () => string; readonly english: string }>
 > = {

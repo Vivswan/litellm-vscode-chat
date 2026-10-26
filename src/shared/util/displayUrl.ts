@@ -6,16 +6,18 @@
  * (knownSecrets.ts urlPasswordsOf).
  */
 
+/** The parser's special schemes, whose authority slashes may be backslashes too. */
 const SPECIAL_SCHEMES = new Set(["http", "https", "ws", "wss", "ftp", "file"]);
-/**
- * A host with its userinfo never runs this long, so a span stops growing when its authority does; a long path never
- * refuses a cut, and a run of credential-shaped words never grows without bound.
- */
+
+/** No authority runs this long, so a span stops growing with its authority and a long path never refuses a cut. */
 const MAX_AUTHORITY_LENGTH = 8192;
+
 /** What a refused URL with an "@" and nothing after its last "@" is shown as. */
 const UNPARSEABLE = "[unparseable URL]";
+
 /** Punctuation that may follow a URL in text without belonging to it; dropped as a second end for each candidate. */
 const CLOSERS = new Set([")", ",", ".", ";", ":", ">", "]"]);
+
 /** Brackets that may precede a URL in text; skipped as a second start for each candidate. */
 const OPENERS = new Set(["(", "[", "<", "{"]);
 
@@ -141,9 +143,12 @@ function lowerBound(values: readonly number[], minimum: number): number {
 
 /** What one pass over the text yields for every "@" in it, so a text of many URLs or quotes stays linear. */
 interface TextScan {
-	/** The starts and ends of every run holding an "@", ascending. */
+	/** The start of every run holding an "@", ascending. */
 	readonly atRunStarts: readonly number[];
+
+	/** The matching ends, ascending like the starts. */
 	readonly atRunEnds: readonly number[];
+
 	/** Every delimiting quote, ascending: a URL never crosses one (a JSON key and its value are two strings). */
 	readonly delimiters: readonly number[];
 }
@@ -200,7 +205,7 @@ function candidateStarts(text: string, at: number, runStart: number, segmentStar
 	return starts;
 }
 
-/** What the parser made of one candidate span: the URL, its userinfo cut when it has one, and whether the authority is settled. */
+/** One candidate span as read: the URL, its userinfo cut when it has one, and whether its authority is settled. */
 interface CandidateRead {
 	readonly parsed: URL;
 	readonly cut: Cut | undefined;
@@ -246,7 +251,7 @@ function readCandidate(text: string, candidateStart: number, end: number): Candi
 	return undefined;
 }
 
-/** The "@" settled from one start: the cut the widest URL with userinfo gave, or none when the URL carries no userinfo. */
+/** The "@" settled from one start: the widest URL with userinfo's cut, or none when the URL carries no userinfo. */
 interface SettledAt {
 	readonly cut: Cut | undefined;
 }

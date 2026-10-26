@@ -39,28 +39,28 @@ export interface OpenAIPromptMessage {
 	content: string | OpenAIChatContentBlock[];
 }
 
+/**
+ * An assistant turn. `reasoning_content`: DeepSeek's thinking mode refuses a tool-carrying request unless every
+ * replayed assistant message carries this field, presence being what it checks; LiteLLM forwards it. Present on every
+ * assistant message, the empty string included, exactly when the model's replay_reasoning_content capability is on.
+ */
 export interface OpenAIAssistantMessage {
 	role: "assistant";
 	content?: string | OpenAIChatContentBlock[] | undefined;
 	tool_calls?: OpenAIToolCall[];
 	thinking_blocks?: OpenAIThinkingBlock[];
-	/**
-	 * DeepSeek's thinking mode refuses a tool-carrying request unless every replayed assistant message carries this
-	 * field, presence being what it checks; LiteLLM forwards it. Present on every assistant message, the empty string
-	 * included, exactly when the model's replay_reasoning_content capability is on.
-	 */
 	reasoning_content?: string;
 }
 
-/** Content is always the flattened text. */
+/**
+ * Content is always the flattened text. `cache_control` is the message-level prompt-cache marker, valid only on
+ * tool-role messages: LiteLLM's Anthropic adapter copies it onto the top-level tool_result block, the only cacheable
+ * position there.
+ */
 export interface OpenAIToolMessage {
 	role: "tool";
 	tool_call_id: string;
 	content: string;
-	/**
-	 * Message-level prompt-cache marker, valid only on tool-role messages: LiteLLM's Anthropic adapter copies it onto
-	 * the top-level tool_result block, the only cacheable position there.
-	 */
 	cache_control?: EphemeralCacheControl;
 }
 

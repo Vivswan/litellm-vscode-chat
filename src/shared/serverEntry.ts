@@ -4,6 +4,15 @@
  * The entry's extension-side-only fields (headers, models.*, discovery.*, budget, mcp) stay out of the descriptor
  * because they must never reach the provider-group args or their fingerprint; they get the deliberately separate
  * sibling registry at the bottom of this file (ENTRY_VIEW_FIELD_SET), whose order is NOT load-bearing.
+ *
+ * OPTIONAL_ENTRY_FIELDS' order carries no meaning for the sync fingerprints either: the "i1:" print reads only the
+ * identity projection (serverSync/engine.ts groupIdentityArgs) and the legacy projection owns its key order
+ * (migrations/fingerprintProjection.ts LEGACY_ARGS_KEY_ORDER). The readers here walk `id` and `secret`; the OAuth
+ * client secret rides the token request's body (transport/auth.ts), so HEADER_BORNE_SECRET_FIELDS leaves it out.
+ *
+ * SECRET_FIELD_NESTED_PATHS is pinned position by position by a host test so that a nested secret the parser reads is
+ * always a secret field the known-value collector receives from the parsed entry; the flat position is the field id
+ * itself (SECRET_FIELD_IDS).
  */
 
 import type { ModelRecordMap } from "./config/modelMatcher";
@@ -11,14 +20,7 @@ import { canonicalStoredBaseUrl, canonicalUrl, normalizeBaseUrl } from "./util/b
 import { type HeaderValue, headerNameKey } from "./util/headers";
 import { isRecord } from "./util/json";
 
-/**
- * The order carries no meaning for the sync fingerprints: the "i1:" print reads only the identity projection
- * (serverSync/engine.ts groupIdentityArgs) and the legacy projection owns its key order
- * (migrations/fingerprintProjection.ts LEGACY_ARGS_KEY_ORDER). The `format` flag reaches only the generated provider
- * configuration in package.json (scripts/dev/manifest); the readers here walk `id` and `secret`.
- *
- *   secret ones flagged -> inline storage is legal for those; a SecretStorage blob is the alternative
- */
+/** The flat credential fields; a secret lives inline or in a SecretStorage blob, and `format` is manifest-only. */
 export const OPTIONAL_ENTRY_FIELDS = [
 	{ id: "apiKey", secret: true },
 	{ id: "oauthTokenUrl", secret: false, format: "uri" },
@@ -37,10 +39,7 @@ export type SecretFieldId = Extract<OptionalEntryField, { secret: true }>["id"];
 
 export type NonSecretOptionalFieldId = Exclude<OptionalEntryFieldId, SecretFieldId>;
 
-/**
- * The secret fields that ride an HTTP header, so a value the platform's Headers would refuse is a refusal of the field.
- * The OAuth client secret rides the token request's body (transport/auth.ts) and has no header rule.
- */
+/** The secret fields riding an HTTP header, so a value the platform's Headers would refuse refuses the field. */
 export const HEADER_BORNE_SECRET_FIELDS = ["apiKey", "virtualKeyValue"] as const satisfies readonly SecretFieldId[];
 
 export type RejectedCredentialField = (typeof HEADER_BORNE_SECRET_FIELDS)[number];
@@ -164,12 +163,7 @@ export function parseSecretOwner(raw: unknown, field: SecretFieldId): SecretOwne
 	return parseOAuthDestination(raw);
 }
 
-/**
- * Where each secret field's value may sit inside a raw entry's `auth` object: the one table the settings parser
- * assigns secret values through (parseAuth), pinned position by position by a host test, so a nested secret the
- * parser reads is always a secret field the known-value collector receives from the parsed entry. The flat position
- * is the field id itself (SECRET_FIELD_IDS).
- */
+/** Where a secret may sit in an entry's `auth` object: parseAuth's one table, pinned position by position. */
 export const SECRET_FIELD_NESTED_PATHS = {
 	apiKey: [
 		["auth", "apiKey"],
@@ -213,11 +207,7 @@ export function isCredentialHeader(name: string, carriers: Iterable<string> = []
 	return lower.split(/[^a-z0-9]+/).some((word) => CREDENTIAL_HEADER_WORDS.has(word));
 }
 
-/**
- * The non-secret fields a secret field rides with: the unit rule, owned once for every reader. Every path that forms an
- * auth unit takes its carriers from presentCarriers below, and entryUsesSecretField judges an ENTRY by the same
- * presence.
- */
+/** The non-secret fields a secret rides with: the one unit rule, read by presentCarriers and entryUsesSecretField. */
 const SECRET_FIELD_CARRIERS = {
 	apiKey: [],
 	oauthClientSecret: ["oauthTokenUrl", "oauthClientId"],
@@ -261,13 +251,11 @@ export function entryUsesSecretField(
 	return normalizeBaseUrl(entry.baseUrl).length > 0 && presentCarriers(field, entry) !== undefined;
 }
 
-/**
- * The discovery-endpoint failure categories an entry's `expectedFailures` may list.
- *
- *   "modelListing" -> GET /models
- *   "modelInfo"    -> GET /model/info
- */
-export const EXPECTED_FAILURE_CATEGORIES = ["modelListing", "modelInfo"] as const;
+/** The discovery-endpoint failure categories an entry's `expectedFailures` may list. */
+export const EXPECTED_FAILURE_CATEGORIES = [
+	"modelListing", // GET /models
+	"modelInfo", // GET /model/info
+] as const;
 
 export type ExpectedFailureCategory = (typeof EXPECTED_FAILURE_CATEGORIES)[number];
 
@@ -276,15 +264,7 @@ export function isExpectedFailureCategory(value: unknown): value is ExpectedFail
 	return typeof value === "string" && (EXPECTED_FAILURE_CATEGORIES as readonly string[]).includes(value);
 }
 
-/**
- * Deliberately not the inverse (an allow-list of chat modes): an absent or unrecognized mode keeps registering, never
- * losing a model to a vocabulary this extension has not learned yet. `completion` is listed because text completion
- * models are the inline-completions feature's targets; LiteLLM still bridges chat requests to them, which is what
- * includeModes admits.
- *
- *   The model_info modes that provably serve a non-chat endpoint -> discovery drops them unless the entry's
- *     `discovery.includeModes` names them
- */
+/** The model_info modes that provably serve a non-chat endpoint; dropped unless the entry's includeModes names them. */
 export const NON_CHAT_MODES = [
 	"embedding",
 	"image_generation",
@@ -292,12 +272,18 @@ export const NON_CHAT_MODES = [
 	"audio_transcription",
 	"rerank",
 	"moderation",
+	// Text completion models are the inline-completions feature's targets; LiteLLM still bridges chat requests to
+	// them, which is what includeModes admits.
 	"completion",
 ] as const;
 
 export type NonChatMode = (typeof NON_CHAT_MODES)[number];
 
-/** The one membership check for the mode tokens, shared by discovery, the setting parser, and the dashboard's form. */
+/**
+ * The one membership check for the mode tokens, shared by discovery, the setting parser, and the dashboard's form. A
+ * deny-list, deliberately not an allow-list of chat modes: an absent or unrecognized mode keeps registering, never
+ * losing a model to a vocabulary this extension has not learned yet.
+ */
 export function isNonChatMode(value: unknown): value is NonChatMode {
 	return typeof value === "string" && (NON_CHAT_MODES as readonly string[]).includes(value);
 }
@@ -317,17 +303,24 @@ export type McpOptIn = true | { readonly url?: string | undefined };
 
 type EntryModelRecordMap = ModelRecordMap;
 
-/** These fields must never reach the provider-group args or their fingerprint; buildGroupArgs walks OPTIONAL_ENTRY_FIELDS alone. */
+/**
+ * These fields must never reach the provider-group args or their fingerprint; buildGroupArgs walks
+ * OPTIONAL_ENTRY_FIELDS alone.
+ *
+ * `apiVersion` is what apiRootOf appends to the base URL: "" is a real value (append nothing), absent means
+ * auto-detect.
+ *
+ * `declaredModels` are exact model IDs to register when discovery does not list them (discovery.declared).
+ *
+ * `includeModes` are the non-chat modes discovery admits to the chat catalog for this entry (discovery.includeModes).
+ */
 export interface EntryViewFieldValues {
-	/** What apiRootOf appends to the base URL: "" is a real value (append nothing), absent means auto-detect. */
 	readonly apiVersion: string;
 	readonly headers: Readonly<Record<string, HeaderValue>>;
 	readonly modelParameters: EntryModelRecordMap;
 	readonly modelCapabilities: EntryModelRecordMap;
 	readonly expectedFailures: readonly ExpectedFailureCategory[];
-	/** Exact model IDs to register when discovery does not list them (discovery.declared). */
 	readonly declaredModels: readonly string[];
-	/** The non-chat modes discovery admits to the chat catalog for this entry (discovery.includeModes). */
 	readonly includeModes: readonly NonChatMode[];
 	readonly budget: number;
 	readonly mcp: McpOptIn;
@@ -347,13 +340,10 @@ const ENTRY_VIEW_FIELD_SET = {
 
 export type EntryViewFieldId = keyof typeof ENTRY_VIEW_FIELD_SET;
 
+/** The field ids in ENTRY_VIEW_FIELD_SET order; the order is not load-bearing. */
 export const ENTRY_VIEW_FIELD_IDS = Object.keys(ENTRY_VIEW_FIELD_SET) as readonly EntryViewFieldId[];
 
-/**
- * The keys a servers entry may carry at its top level. The parser reads exactly these (a key outside them is never
- * read, so it reports nothing), the manifest schema's items.properties are gated to equal them, and the settings
- * import names any other key on an entry it keeps.
- */
+/** An entry's top-level keys: read exactly, the manifest schema gated to them, any other key named by the import. */
 export const SERVER_ENTRY_KEYS: readonly string[] = [
 	"label",
 	"baseUrl",

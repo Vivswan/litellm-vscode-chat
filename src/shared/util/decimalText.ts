@@ -8,6 +8,7 @@
  * Groups: 1 sign; 2 whole digits and 3 the fraction after their dot ("12.", "12.5"); 4 the fraction of a leading dot
  * (".5"); 5 the exponent.
  */
+
 export const DECIMAL_TEXT_PATTERN = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:e([+-]?\d+))?$/i;
 
 /** The finite number a decimal text spells, or undefined when the text is not decimal notation or overflows. */

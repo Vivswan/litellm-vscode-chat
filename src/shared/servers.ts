@@ -20,65 +20,68 @@ export interface ServerWithKey extends ServerConfig {
 	apiKey: HeaderValue | "";
 }
 
+/**
+ * What every status row carries.
+ *
+ * `entryLabel` is the group's CONFIGURED label, never the URL-host display fallback an unlabeled group renders under as
+ * `label`, which can collide with a declared entry's label; ui/diagnostics.ts pairs a report with its declared entry
+ * on it.
+ *
+ * `hasApiKey` says whether the configuration carries credentials of any kind (groupHasCredentials); the values never
+ * leave their store.
+ *
+ * `hasOAuth` and `hasVirtualKey` name the kind beside that presence, for rows with no settings entry, whose group
+ * configuration is the only source.
+ */
 interface ServerStatusCommon {
 	serverId: string;
 	label: string;
 	baseUrl: string;
 	lastChecked: string;
 	servedModelCount: number;
-	/**
-	 * The group's CONFIGURED label, never the URL-host display fallback an unlabeled group renders under as `label`,
-	 * which can collide with a declared entry's label. ui/diagnostics.ts pairs a report with its declared entry on it.
-	 */
 	entryLabel?: string | undefined;
-	/**
-	 * Whether the configuration carries credentials of any kind (groupHasCredentials); the values never leave their
-	 * store.
-	 */
 	hasApiKey?: boolean | undefined;
-	/**
-	 * The credential kind beside that presence, for rows with no settings entry, whose group configuration is the only
-	 * source: OAuth client credentials, or a virtual-key header, rather than a static key.
-	 */
 	hasOAuth?: boolean | undefined;
 	hasVirtualKey?: boolean | undefined;
 }
 
+/**
+ * A served group.
+ *
+ * `hiddenByRemoval` is true when it serves zero models because the user hid it, not because the server listed none:
+ * suppression never touches the network, so the outcome stays "ok" and the flag carries the cause.
+ *
+ * `modelInfoUnsupported` is present when discovery fell back to /models because the model-info probe failed like an
+ * unserved endpoint the entry does not declare expected; the models serve fine, and nothing gates on it.
+ */
 interface ServerStatusOk extends ServerStatusCommon {
 	state: "ok";
-	/**
-	 * True when the group serves zero models because the user hid it, not because the server listed none: suppression
-	 * never touches the network, so the outcome stays "ok" and this flag carries the cause.
-	 */
 	hiddenByRemoval?: boolean | undefined;
-	/**
-	 * Present when discovery fell back to /models because the model-info probe failed like an unserved endpoint the
-	 * entry does not declare expected: the models serve fine.
-	 * Advisory only - nothing gates on it.
-	 */
 	modelInfoUnsupported?: UnservedEndpointEvidence | undefined;
 	error?: undefined;
 }
 
+/**
+ * A failed serve.
+ *
+ * `cause` says why, as a key (shared/failureCause.ts) every surface renders at display time in the current locale;
+ * log-legal and protocol-legal because it carries no rendered text.
+ *
+ * `logSafeError` is the log rendering: a classification, never response-derived text, since log lines prefill public
+ * GitHub issues.
+ *
+ * `expected` is true when the failure hit a category the entry's expectedFailures declares. The outcome stays a
+ * truthful error (the stale anchor and failure counting depend on it); presentation derives the "(expected)" downgrade
+ * from it.
+ *
+ * `declaredModelCount` is the declared subset of servedModelCount: how many still-served models exist only because the
+ * entry declares them. The "N declared models" wording reads it; counts and verdicts read servedModelCount.
+ */
 export interface ServerStatusError extends ServerStatusCommon {
 	state: "error";
-	/**
-	 * Why the serve failed, as a key (shared/failureCause.ts): every surface renders it at display time in the current
-	 * locale, and it is log-legal and protocol-legal because it carries no rendered text.
-	 */
 	cause: FailureCause;
-	/** The log rendering: a classification, never response-derived text; log lines prefill public GitHub issues. */
 	logSafeError: LogSafeErrorText;
-	/**
-	 * True when the failure hit a category the entry's expectedFailures declares. The outcome stays a truthful error
-	 * (the stale anchor and failure counting depend on it); presentation derives the "(expected)" downgrade from this
-	 * flag.
-	 */
 	expected?: boolean | undefined;
-	/**
-	 * The declared subset of servedModelCount: how many of the still-served models exist only because the entry
-	 * declares them. Presentation wording ("N declared models") reads this; counts and verdicts read servedModelCount.
-	 */
 	declaredModelCount?: number | undefined;
 }
 

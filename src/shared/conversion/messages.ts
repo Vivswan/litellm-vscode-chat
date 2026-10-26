@@ -19,13 +19,13 @@ type LogFn = (message: string, data?: unknown) => void;
 
 /**
  * Parts a gate excludes take the same drop-and-log paths as if no wire mapping existed. Capabilities decide what goes
- * on the wire; nothing here injects a request parameter.
+ * on the wire; nothing here injects a request parameter. `replayReasoningContent` is the model's
+ * replay_reasoning_content capability (see OpenAIAssistantMessage.reasoning_content).
  */
 export interface ConvertMessagesOptions {
 	log?: LogFn | undefined;
 	imageInput?: boolean | undefined;
 	audioInput?: boolean | undefined;
-	/** The model's replay_reasoning_content capability: see OpenAIAssistantMessage.reasoning_content. */
 	replayReasoningContent?: boolean | undefined;
 }
 
@@ -184,9 +184,7 @@ function collectToolResultContent(
 	return content;
 }
 
-/**
- * A constant, never response-derived text: it tells the model these blocks are tool output, not a new user question.
- */
+/** A constant, never response-derived text: it tells the model these blocks are tool output, not a user question. */
 const TOOL_IMAGES_LEAD_IN = "Images returned by the tool calls above:";
 
 type ThinkingHistoryEntry =
@@ -216,9 +214,12 @@ function extractThinkingHistoryEntry(part: unknown): ThinkingHistoryEntry | unde
 	return undefined;
 }
 
+/**
+ * The signed blocks and the unsigned text no signature closed; a provider that never signs (DeepSeek's
+ * reasoning_content) leaves all of its text in `unsignedText`.
+ */
 interface FoldedThinking {
 	readonly blocks: OpenAIThinkingBlock[];
-	/** The unsigned text no signature closed: a provider that never signs (DeepSeek's reasoning_content) leaves all of it here. */
 	readonly unsignedText: string;
 }
 

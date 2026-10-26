@@ -16,10 +16,13 @@ export function isToolResultPart(value: unknown): value is vscode.LanguageModelT
 export interface ToolCallPairing {
 	/** Wire id for every tool-call and tool-result part, keyed by wireIdKey. */
 	readonly wireIds: ReadonlyMap<string, string>;
+
 	/** Tool calls no tool result answers, ordered by each id's first appearance. */
 	readonly unpairedCallIds: readonly string[];
+
 	/** Tool results answering no call still awaiting one at their position. */
 	readonly strayResultIds: readonly string[];
+
 	/** Ids reused while still live, by a later call or by two calls of one message. */
 	readonly duplicateLiveCallIds: readonly string[];
 }
@@ -83,7 +86,7 @@ class OpenCallLedger {
 		return id;
 	}
 
-	/** The wire id of a result: its own when it has one (a stray is recorded), else the oldest minted call's, else a minted stray. */
+	/** A result's wire id: its own when it has one (strays recorded), else the oldest minted call's, else minted. */
 	closeCall(callId: string): string {
 		if (callId) {
 			const open = this.pending.get(callId) ?? 0;

@@ -24,8 +24,10 @@ export function probeDataPartCtor(host: object): DataPartProbe {
 // Probed once at module load; every StreamProcessor shares this result.
 const probe = probeDataPartCtor(vscode);
 
+/** The host's LanguageModelDataPart, or undefined where the class is absent. */
 export const dataPartCtor: DataPartCtor | undefined = probe.ctor;
 
+/** The probe's failure text when the property read threw; logged once. */
 const dataPartProbeError: string | undefined = probe.error;
 
 let loggedMissingDataPartSupport = false;

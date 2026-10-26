@@ -14,39 +14,28 @@ import { trimHttpWhitespace } from "../util/headers";
 import type { ModelRecordMap } from "./modelMatcher";
 import { compareSpecificity, matchChain, matcherMatches, parseMatcherKey } from "./modelMatcher";
 
+/** Giver-side: marks the fields that flow to more specific matches. */
 export const INHERITABLE_DIRECTIVE = "_inheritable";
+
+/** Receiver-side: what a record accepts (true, false, or the named records' literal fields); see the module doc. */
 export const INHERIT_FROM_DIRECTIVE = "_inherit_from";
 
-/**
- * Marks all (`true`) or the listed parameter fields as FORCED: forced fields beat runtime modelOptions and the picker
- * configuration on the wire. Parsed and enforced in parameterResolution.ts.
- */
+/** All (true) or the listed parameter fields, forced past runtime options and the picker (parameterResolution.ts). */
 export const FORCE_DIRECTIVE = "_force";
 
-/**
- * Demotes all (`true`) or the listed capability fields from override level to fallback level: applied BELOW the
- * server-reported value instead of above it. Parsed and enforced in capabilityResolution.ts.
- */
+/** All (true) or the listed capability fields, demoted BELOW the server-reported value (capabilityResolution.ts). */
 export const FALLBACK_DIRECTIVE = "_fallback";
 
-/**
- * Names an OpenRouter catalog entry whose capabilities backfill fields the record leaves unset. Parsed and enforced in
- * capabilityResolution.ts.
- */
+/** An OpenRouter catalog entry whose capabilities backfill what the record leaves unset (capabilityResolution.ts). */
 export const OPENROUTER_MODEL_DIRECTIVE = "_openrouter_model";
 
-/**
- * Names a FIM prompt template for raw backends without native fill-in-the-middle support: a string carrying both
- * `{prefix}` and `{suffix}` placeholders.
- *
- * The ONE parameters-record directive the /completions path reads - everything else in a parameters record
- * stays chat-only.
- *
- *   the completions transport applies it (provider/transport/fim.ts) -> omits the wire `suffix` field when it does
- */
+/** A FIM template for raw backends ({prefix} and {suffix}): the ONE parameters-record directive /completions reads. */
 export const FIM_TEMPLATE_DIRECTIVE = "_fim_template";
 
-/** Whether a raw directive value is a usable FIM template: the one grammar, shared by the parser and the transport. */
+/**
+ * Whether a raw directive value is a usable FIM template: the one grammar, shared by the parser and the transport. The
+ * completions transport (provider/transport/fim.ts) applies it and omits the wire `suffix` field when it does.
+ */
 export function isFimTemplateValue(value: unknown): value is string {
 	return typeof value === "string" && value.includes("{prefix}") && value.includes("{suffix}");
 }
@@ -112,13 +101,14 @@ export type InheritFromDirective =
 	| { readonly kind: "none" }
 	| { readonly kind: "keys"; readonly keys: readonly string[] };
 
-/** The marking sets are always subsets of `fields`' keys. */
+/**
+ * A record's parse. The marking sets are always subsets of `fields`' keys; `forced` (parameters records) and
+ * `fallback` (capabilities records) are empty elsewhere.
+ */
 export interface ParsedRecord {
 	readonly fields: Readonly<Record<string, unknown>>;
 	readonly inheritable: ReadonlySet<string>;
-	/** `_force`-marked fields (parameters records); empty elsewhere. */
 	readonly forced: ReadonlySet<string>;
-	/** `_fallback`-marked fields (capabilities records); empty elsewhere. */
 	readonly fallback: ReadonlySet<string>;
 	readonly inheritFrom: InheritFromDirective;
 	readonly diagnostics: readonly Omit<RecordDiagnostic, "recordKey">[];
@@ -255,9 +245,9 @@ export function parseSharedDirectives(
 	};
 }
 
+/** A resolved view's field with its markings, which come from `sourceKey`, the record whose literal field it is. */
 export interface ResolvedChainField {
 	readonly value: unknown;
-	/** The record key whose literal field this is - markings always come from here. */
 	readonly sourceKey: string;
 	readonly inheritable: boolean;
 	readonly forced: boolean;
@@ -265,15 +255,15 @@ export interface ResolvedChainField {
 }
 
 export interface RecordChainResolution {
-	/**
-	 * The most specific matching record's resolved view: its own fields plus everything it accepted, each field
-	 * carrying its source record's key and markings. Empty when nothing matches.
-	 */
+	/** The winner's own fields plus everything it accepted, each with its source record's key and markings. */
 	readonly fields: ReadonlyMap<string, ResolvedChainField>;
+
 	/** The most specific matching record's key; undefined when nothing matches. */
 	readonly winnerKey: string | undefined;
+
 	/** The most specific matching record's parse, for type-specific directives (`_openrouter_model`). */
 	readonly winner: ParsedRecord | undefined;
+
 	/** Matcher, directive, and field problems across the matching chain, deduplicated. */
 	readonly diagnostics: readonly RecordDiagnostic[];
 }
@@ -418,7 +408,7 @@ function namedSources(walk: ChainWalk, recordKey: string, keys: readonly string[
 	return named.sort(bySpecificity);
 }
 
-/** The fields a record accepts from the chain above it, by its `_inherit_from`; named sources give their LITERAL fields only. */
+/** What a record accepts from the chain above, by its `_inherit_from`; named sources give their LITERAL fields only. */
 function acceptedFields(
 	inheritFrom: InheritFromDirective,
 	incoming: ReadonlyMap<string, ResolvedChainField>,

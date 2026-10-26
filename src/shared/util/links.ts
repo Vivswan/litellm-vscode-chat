@@ -16,8 +16,10 @@
 
 import type { SetupHintKind } from "../errorClassification";
 
+/** Defined by scripts/dev/bundle.mts from package.json's repository.url; the test runners set the same global. */
 declare const __LITELLM_REPOSITORY_URL__: string;
 
+/** The repository every issue link derives from. */
 export const GITHUB_REPO_URL: string = __LITELLM_REPOSITORY_URL__;
 
 /** The value is the Pages URL as GitHub assigns it, a literal: nothing from a server ever interpolates here. */
@@ -44,11 +46,7 @@ export const DOCS_GETTING_STARTED_URL = docsUrl("getting-started");
 /** A pre-labelled feature request; the bug reporter builds its own issue URL from the diagnostics. */
 export const GITHUB_FEATURE_REQUEST_URL = `${GITHUB_REPO_URL}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
 
-/**
- * Where each setup hint's "Troubleshooting Docs" action lands, in the host's toasts and gates and in the dashboard's
- * test footer and error banner alike. A Record over the full hint union, so a new hint id fails to compile until it
- * names its docs target; `as const` keeps each value a literal type so the webview's DocsUrl union stays narrow.
- */
+/** Each setup hint's "Troubleshooting Docs" target; total over the hint union, so a new hint needs one to compile. */
 export const SETUP_HINT_DOCS_URLS = {
 	// The doubled hyphens are github-slugger's rendering of the heading's stripped "/" (leaving a doubled space)
 	// and its literal " - " separator.
