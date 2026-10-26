@@ -527,7 +527,7 @@
 	"LiteLLM answered {0} with a missing response body ({1})": "LiteLLM 回應了 {0} 但缺少回應主體 ({1})",
 	"LiteLLM code review timed out after {0}ms. Increase the \"{1}.chat.timeout\" setting if your model needs more time, or review a smaller change.": "LiteLLM 程式碼審查在 {0} 毫秒後逾時。如果您的模型需要更多時間, 請調高「{1}.chat.timeout」設定, 或是審查更小的變更。",
 	"LiteLLM commit message generation timed out after {0}ms. Increase the \"{1}.chat.timeout\" setting if your model needs more time.": "LiteLLM 提交訊息產生在 {0}ms 後逾時。若模型需要更多時間, 請調高「{1}.chat.timeout」設定。",
-	"LiteLLM groups requests that share a session id, as other LiteLLM clients send one. On hashes the chat's opening question with this window's id, so no text leaves the machine; a one-shot feature's request rides the window's session. Folder hashes the open folder's path; Window hashes this window's own id.": "LiteLLM 把共享同一工作階段 ID 的請求歸為一組, 其他 LiteLLM 用戶端也是這樣送出的。開啟: 把聊天的開場問題與本視窗 ID 一起雜湊, 因此沒有文字離開本機; 一次性功能的請求歸入視窗的工作階段。資料夾: 雜湊開啟的資料夾路徑; 視窗: 雜湊本視窗自己的 ID。",
+	"LiteLLM groups requests sharing a session id. On hashes the chat's opening question with this window's id, so no text leaves the machine; one-shot requests ride the window's session. Folder hashes the open folder's path; Window the window's own id.": "LiteLLM 把共享同一工作階段 ID 的請求歸為一組。開啟: 把聊天的開場問題與本視窗 ID 一起雜湊, 因此沒有文字離開本機; 一次性功能的請求歸入視窗的工作階段。資料夾: 雜湊開啟的資料夾路徑; 視窗: 雜湊本視窗自己的 ID。",
 	"LiteLLM inline completion request timed out after {0}ms.": "LiteLLM 內嵌補全要求在 {0}ms 後逾時。",
 	"LiteLLM inline suggestions: active for {0}": "LiteLLM 內嵌建議: 對 {0} 已啟用",
 	"LiteLLM inline suggestions: no model selected": "LiteLLM 內嵌建議: 未選擇模型",

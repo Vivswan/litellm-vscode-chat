@@ -527,7 +527,7 @@
 	"LiteLLM answered {0} with a missing response body ({1})": "LiteLLM 返回了 {0} 但缺少响应正文 ({1})",
 	"LiteLLM code review timed out after {0}ms. Increase the \"{1}.chat.timeout\" setting if your model needs more time, or review a smaller change.": "LiteLLM 代码评审在 {0} 毫秒后超时。如果你的模型需要更多时间, 请调高「{1}.chat.timeout」设置, 或者评审更小的改动。",
 	"LiteLLM commit message generation timed out after {0}ms. Increase the \"{1}.chat.timeout\" setting if your model needs more time.": "LiteLLM 提交消息生成在 {0}ms 后超时。如果你的模型需要更多时间, 请调大「{1}.chat.timeout」设置。",
-	"LiteLLM groups requests that share a session id, as other LiteLLM clients send one. On hashes the chat's opening question with this window's id, so no text leaves the machine; a one-shot feature's request rides the window's session. Folder hashes the open folder's path; Window hashes this window's own id.": "LiteLLM 把共享同一会话 ID 的请求归为一组, 其他 LiteLLM 客户端也是这样发送的。开启: 把聊天的开场问题与本窗口 ID 一起哈希, 因此没有文本离开本机; 一次性功能的请求归入窗口的会话。文件夹: 哈希打开的文件夹路径; 窗口: 哈希本窗口自己的 ID。",
+	"LiteLLM groups requests sharing a session id. On hashes the chat's opening question with this window's id, so no text leaves the machine; one-shot requests ride the window's session. Folder hashes the open folder's path; Window the window's own id.": "LiteLLM 把共享同一会话 ID 的请求归为一组。开启: 把聊天的开场问题与本窗口 ID 一起哈希, 因此没有文本离开本机; 一次性功能的请求归入窗口的会话。文件夹: 哈希打开的文件夹路径; 窗口: 哈希本窗口自己的 ID。",
 	"LiteLLM inline completion request timed out after {0}ms.": "LiteLLM 内联补全请求在 {0}ms 后超时。",
 	"LiteLLM inline suggestions: active for {0}": "LiteLLM 内联建议: 对 {0} 已启用",
 	"LiteLLM inline suggestions: no model selected": "LiteLLM 内联建议: 未选择模型",
