@@ -37,21 +37,18 @@ import { replaceServersSetting } from "../settingsWriteTurn";
 import type { FingerprintMemento } from "./fingerprintProjection";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
-export async function canonicalizeUrlSpellingsFor(
-	settings: ServersSettingStore,
-	globalState: FingerprintMemento,
-	logger: Logger
-): Promise<MigrationOutcome> {
-	const value = settings.readServersSetting();
-	const raw: readonly unknown[] = Array.isArray(value) ? value : [];
-	// The accepted carrier of each label, by raw index: the only entries whose spelling and record move.
-	const carriers = new Map<number, DeclaredServer>(acceptedEntries(raw).map(({ index, entry }) => [index, entry]));
-	const respelled: readonly { record: unknown; changed: boolean; oldBaseUrl?: string }[] = raw.map((item, index) =>
-		carriers.has(index) && isRecord(item) ? respellEntryUrls(item) : { record: item, changed: false }
-	);
+/** One raw entry after respellEntryUrls: the record to write, whether it changed, and the base URL it had before. */
+type RespelledEntry = { record: unknown; changed: boolean; oldBaseUrl?: string };
 
-	let rewrites = 0;
-	const stored = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));
+/**
+ * The fingerprint rewrites the respelling earns: for each carrier whose base URL changed and whose stored record equals
+ * the OLD spelling's print, the canonical spelling's print, keyed by label.
+ */
+function fingerprintRewrites(
+	carriers: ReadonlyMap<number, DeclaredServer>,
+	respelled: readonly RespelledEntry[],
+	stored: Readonly<Record<string, string>>
+): Record<string, string> {
 	const printRewrites: Record<string, string> = {};
 	for (const [index, entry] of carriers) {
 		const oldBaseUrl = respelled[index]?.oldBaseUrl;
@@ -62,49 +59,103 @@ export async function canonicalizeUrlSpellingsFor(
 			printRewrites[entry.label] = groupArgsFingerprint(buildGroupArgs(entry, {}));
 		}
 	}
+	return printRewrites;
+}
+
+/**
+ * Persists the print rewrites and returns how many landed, or undefined when the write failed (logged; the next
+ * activation retries). Merged over a FRESH read and applied only where the value still equals the record this pass
+ * judged, so another window's newer records survive (the whole-key write hazard of #220).
+ */
+async function persistFingerprintRewrites(
+	globalState: FingerprintMemento,
+	stored: Readonly<Record<string, string>>,
+	printRewrites: Readonly<Record<string, string>>,
+	logger: Logger
+): Promise<number | undefined> {
+	try {
+		const fresh = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));
+		const merged = { ...fresh };
+		let rewrites = 0;
+		for (const [label, print] of Object.entries(printRewrites)) {
+			if (fresh[label] === stored[label]) {
+				merged[label] = print;
+				rewrites += 1;
+			}
+		}
+		if (rewrites > 0) {
+			await globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, merged);
+		}
+		return rewrites;
+	} catch (error) {
+		// Classification only: log lines feed the public issue-report buffer.
+		logger.log("Persisting sync fingerprints for the canonical URL spelling failed; retrying on next activation", {
+			error: errorLabel(error),
+		});
+		return undefined;
+	}
+}
+
+/**
+ * Writes the respelled records over the setting: true when written, false when the write failed or the setting changed
+ * under the pass (both logged; the next activation retries). The write turn checks in the same tick that the setting
+ * still reads as this pass read it, so an edit landing during the awaits before it (another window, the user) is never
+ * overwritten by the pass-start snapshot.
+ */
+async function rewriteSetting(
+	settings: ServersSettingStore,
+	value: unknown,
+	records: readonly unknown[],
+	logger: Logger
+): Promise<boolean> {
+	let written: boolean;
+	try {
+		written = await replaceServersSetting(settings, value, records);
+	} catch (error) {
+		logger.log("Rewriting the servers setting to the canonical URL spelling failed; retrying on next activation", {
+			error: errorLabel(error),
+		});
+		return false;
+	}
+	if (!written) {
+		logger.log("The servers setting changed during the canonical URL spelling rewrite; retrying on next activation");
+		return false;
+	}
+	return true;
+}
+
+export async function canonicalizeUrlSpellingsFor(
+	settings: ServersSettingStore,
+	globalState: FingerprintMemento,
+	logger: Logger
+): Promise<MigrationOutcome> {
+	const value = settings.readServersSetting();
+	const raw: readonly unknown[] = Array.isArray(value) ? value : [];
+	// The accepted carrier of each label, by raw index: the only entries whose spelling and record move.
+	const carriers = new Map<number, DeclaredServer>(acceptedEntries(raw).map(({ index, entry }) => [index, entry]));
+	const respelled: readonly RespelledEntry[] = raw.map((item, index) =>
+		carriers.has(index) && isRecord(item) ? respellEntryUrls(item) : { record: item, changed: false }
+	);
+
+	let rewrites = 0;
+	const stored = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));
+	const printRewrites = fingerprintRewrites(carriers, respelled, stored);
 	if (Object.keys(printRewrites).length > 0) {
-		try {
-			// Merged over a FRESH read and applied only where the value still equals the record this pass judged, so
-			// another window's newer records survive (the whole-key write hazard of #220).
-			const fresh = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));
-			const merged = { ...fresh };
-			for (const [label, print] of Object.entries(printRewrites)) {
-				if (fresh[label] === stored[label]) {
-					merged[label] = print;
-					rewrites += 1;
-				}
-			}
-			if (rewrites > 0) {
-				await globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, merged);
-			}
-		} catch (error) {
-			// Classification only: log lines feed the public issue-report buffer.
-			logger.log("Persisting sync fingerprints for the canonical URL spelling failed; retrying on next activation", {
-				error: errorLabel(error),
-			});
+		const persisted = await persistFingerprintRewrites(globalState, stored, printRewrites, logger);
+		if (persisted === undefined) {
 			return "in-progress";
 		}
+		rewrites += persisted;
 	}
 
 	if (respelled.some((item) => item.changed)) {
-		// Written only while the setting still reads as this pass read it (the write turn checks in the same tick): an
-		// edit landing during the awaits above (another window, the user) must not be overwritten by the pass-start
-		// snapshot.
-		let written: boolean;
-		try {
-			written = await replaceServersSetting(
-				settings,
-				value,
-				respelled.map((item) => item.record)
-			);
-		} catch (error) {
-			logger.log("Rewriting the servers setting to the canonical URL spelling failed; retrying on next activation", {
-				error: errorLabel(error),
-			});
-			return "in-progress";
-		}
+		const written = await rewriteSetting(
+			settings,
+			value,
+			respelled.map((item) => item.record),
+			logger
+		);
 		if (!written) {
-			logger.log("The servers setting changed during the canonical URL spelling rewrite; retrying on next activation");
 			return "in-progress";
 		}
 		rewrites += 1;

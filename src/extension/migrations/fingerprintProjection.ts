@@ -30,6 +30,7 @@ import { validatedStringRecord } from "../../shared/util/json";
 import { buildGroupArgs, groupArgsFingerprint } from "../servers/serverSync/engine";
 import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
 import { readServerSecretsRecord, resolveOwnedSecrets } from "../servers/serverSync/secrets";
+import type { DeclaredServer } from "../servers/serverSync/setting";
 import { parseServersSetting } from "../servers/serverSync/setting";
 import { canonicalEntryBaseUrls, readRawServersSetting } from "../servers/serverSync/vscodeEnv";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
@@ -59,6 +60,116 @@ export interface FingerprintMemento {
 	update(key: string, value: unknown): Thenable<void>;
 }
 
+/** What one candidate's projection reads: the pass-start records, the ledger, and the blob read. */
+interface ProjectionReads {
+	readonly stored: Readonly<Record<string, string>>;
+	readonly ledger: Readonly<Record<string, string>>;
+	readonly readSecrets: (label: string) => Promise<StoredSecretsRecord>;
+	readonly logger: Logger;
+}
+
+/** One candidate's projection: the print it earns, none when neither proof holds, or a blob read that threw. */
+type Projection = { readonly kind: "print"; readonly print: string } | { readonly kind: "none" | "failed" };
+
+/**
+ * The identity print one candidate earns; a failed blob read is logged and the next activation retries it. Proof 1 is
+ * the ledger: it already proved a live group holds this label at this host, which is the whole identity, so the
+ * record's credential content is irrelevant and no secrets are read. Proof 2 is the record being the legacy rendering
+ * of the current args.
+ */
+async function projectedPrint(entry: DeclaredServer, reads: ProjectionReads): Promise<Projection> {
+	if (reads.ledger[entry.label] === normalizeBaseUrl(entry.baseUrl)) {
+		return { kind: "print", print: groupArgsFingerprint(buildGroupArgs(entry, {})) };
+	}
+	let record: StoredSecretsRecord;
+	try {
+		record = await reads.readSecrets(entry.label);
+	} catch (error) {
+		// Classification only: log lines feed the public issue-report buffer.
+		reads.logger.log("Reading a blob to project a sync fingerprint failed; retrying on next activation", {
+			error: errorLabel(error),
+		});
+		return { kind: "failed" };
+	}
+	const owned = resolveOwnedSecrets(entry, record);
+	if (owned.refused.length > 0) {
+		return { kind: "none" };
+	}
+	const args = buildGroupArgs(entry, owned.values);
+	if (reads.stored[entry.label] === legacyGroupArgsFingerprint(args)) {
+		return { kind: "print", print: groupArgsFingerprint(args) };
+	}
+	return { kind: "none" };
+}
+
+/**
+ * How a persist of the projected prints ended: how many landed, deferred on an unconfirmed salt, or failed
+ * (logged).
+ */
+type ProjectionPersist =
+	| { readonly kind: "applied"; readonly count: number }
+	| { readonly kind: "deferred" | "failed" };
+
+/**
+ * Persists the projected prints. Re-gated on the salt at write time like the engine's own persists: a store mutation
+ * since the pass-start check must not persist unrecognizable records over the durable ones. Merged over a FRESH read,
+ * never the pass-start snapshot, and a rewrite applies only where the fresh value STILL equals the record this pass
+ * judged: another window may have added labels (a whole-key write of the stale snapshot would destroy them, #220's
+ * failure class) or re-synced a candidate label itself (its newer record must win over this pass's now-stale
+ * projection). Nothing is written when no rewrite still applies.
+ */
+async function persistProjection(
+	globalState: FingerprintMemento,
+	stored: Readonly<Record<string, string>>,
+	rewrites: Readonly<Record<string, string>>,
+	confirmSaltDurable: () => Promise<boolean>,
+	logger: Logger
+): Promise<ProjectionPersist> {
+	try {
+		if (!(await confirmSaltDurable())) {
+			return { kind: "deferred" };
+		}
+		const fresh = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));
+		const next = { ...fresh };
+		let applied = 0;
+		for (const [label, print] of Object.entries(rewrites)) {
+			if (fresh[label] === stored[label]) {
+				next[label] = print;
+				applied += 1;
+			}
+		}
+		if (applied > 0) {
+			await globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, next);
+		}
+		return { kind: "applied", count: applied };
+	} catch (error) {
+		logger.log("Persisting projected sync fingerprints failed; retrying on next activation", {
+			error: errorLabel(error),
+		});
+		return { kind: "failed" };
+	}
+}
+
+/** Every candidate's projected print by label, and how many blob reads failed on the way. */
+async function projectCandidates(
+	candidates: readonly DeclaredServer[],
+	reads: ProjectionReads
+): Promise<{ rewrites: Record<string, string>; failures: number }> {
+	let failures = 0;
+	const rewrites: Record<string, string> = {};
+	for (const entry of candidates) {
+		const projection = await projectedPrint(entry, reads);
+		if (projection.kind === "failed") {
+			failures += 1;
+			continue;
+		}
+		if (projection.kind === "print") {
+			rewrites[entry.label] = projection.print;
+		}
+	}
+	return { rewrites, failures };
+}
+
 export async function projectSyncFingerprintsFor(
 	readServersSetting: () => unknown,
 	readSecrets: (label: string) => Promise<StoredSecretsRecord>,
@@ -81,65 +192,14 @@ export async function projectSyncFingerprintsFor(
 	if (!(await confirmSaltDurable())) {
 		return "in-progress";
 	}
-	let failures = 0;
-	const rewrites: Record<string, string> = {};
-	for (const entry of candidates) {
-		// Proof 1: the ledger already proved a live group holds this label at this host, which is the whole identity -
-		// the record's credential content is irrelevant, so no secrets read.
-		if (ledger[entry.label] === normalizeBaseUrl(entry.baseUrl)) {
-			rewrites[entry.label] = groupArgsFingerprint(buildGroupArgs(entry, {}));
-			continue;
-		}
-		// Proof 2: the record IS the legacy rendering of the current args.
-		let record: StoredSecretsRecord;
-		try {
-			record = await readSecrets(entry.label);
-		} catch (error) {
-			failures += 1;
-			// Classification only: log lines feed the public issue-report buffer.
-			logger.log("Reading a blob to project a sync fingerprint failed; retrying on next activation", {
-				error: errorLabel(error),
-			});
-			continue;
-		}
-		const owned = resolveOwnedSecrets(entry, record);
-		if (owned.refused.length > 0) {
-			continue;
-		}
-		const args = buildGroupArgs(entry, owned.values);
-		if (stored[entry.label] === legacyGroupArgsFingerprint(args)) {
-			rewrites[entry.label] = groupArgsFingerprint(args);
-		}
-	}
+	const { rewrites, failures } = await projectCandidates(candidates, { stored, ledger, readSecrets, logger });
 	if (Object.keys(rewrites).length > 0) {
-		try {
-			// Re-gated at write time like the engine's own persists: a store mutation since the check above must not
-			// persist unrecognizable records over the durable ones.
-			if (!(await confirmSaltDurable())) {
-				return "in-progress";
-			}
-			// Merged over a FRESH read, never the pass-start snapshot, and a rewrite applies only where the fresh value
-			// STILL equals the record this pass judged: another window may have added labels (a whole-key write of the
-			// stale snapshot would destroy them - #220's failure class) or re-synced a candidate label itself (its
-			// newer record must win over this pass's now-stale projection).
-			const fresh = validatedStringRecord(globalState.get(SERVER_SYNC_FINGERPRINTS_KEY));
-			const next = { ...fresh };
-			let applied = 0;
-			for (const [label, print] of Object.entries(rewrites)) {
-				if (fresh[label] === stored[label]) {
-					next[label] = print;
-					applied += 1;
-				}
-			}
-			if (applied === 0) {
-				return failures > 0 ? "in-progress" : "nothing-to-do";
-			}
-			await globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, next);
-		} catch (error) {
-			logger.log("Persisting projected sync fingerprints failed; retrying on next activation", {
-				error: errorLabel(error),
-			});
+		const persisted = await persistProjection(globalState, stored, rewrites, confirmSaltDurable, logger);
+		if (persisted.kind !== "applied") {
 			return "in-progress";
+		}
+		if (persisted.count === 0) {
+			return failures > 0 ? "in-progress" : "nothing-to-do";
 		}
 	}
 	if (failures > 0) {

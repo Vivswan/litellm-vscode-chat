@@ -16,7 +16,13 @@ import { validatedStringRecord } from "../../../shared/util/json";
 import type { FingerprintSaltSession } from "../../fingerprintSalt";
 import type { MessageAction } from "../../ui/notifier";
 import { showActionableMessage, showMessage } from "../../ui/notifier";
-import type { GroupKey, GroupRemovalStore, TombstoneIdentity, TombstonePersistence } from "../groupRemovals";
+import type {
+	DeclaredGroupClaim,
+	GroupKey,
+	GroupRemovalStore,
+	TombstoneIdentity,
+	TombstonePersistence,
+} from "../groupRemovals";
 import { tombstoneHides } from "../groupRemovals";
 import { manageLanguageModelsAvailable, openManageLanguageModels } from "../manageLanguageModels";
 import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engine";
@@ -154,28 +160,102 @@ type NoticeEvent =
  */
 export type RemovalNoticeDoor = typeof showActionableMessage;
 
-async function notifyRemovalEvents(events: readonly NoticeEvent[], show: RemovalNoticeDoor): Promise<void> {
-	const hidden: string[] = [];
-	const hiddenThisSession: string[] = [];
-	const shared: string[] = [];
-	const unreported: string[] = [];
-	const untracked: string[] = [];
-	const renamed: Extract<RemovedEntryEvent, { kind: "renamed" }>[] = [];
+/** The removal events sorted by what their notice must say; a renamed event keeps both labels. */
+interface RemovalBuckets {
+	readonly hidden: string[];
+	readonly hiddenThisSession: string[];
+	readonly shared: string[];
+	readonly unreported: string[];
+	readonly untracked: string[];
+	readonly renamed: Extract<RemovedEntryEvent, { kind: "renamed" }>[];
+}
+
+/** Sorts the events into their notice buckets; a removal with no base URL or no outcome is untracked. */
+function bucketRemovalEvents(events: readonly NoticeEvent[]): RemovalBuckets {
+	const buckets: RemovalBuckets = {
+		hidden: [],
+		hiddenThisSession: [],
+		shared: [],
+		unreported: [],
+		untracked: [],
+		renamed: [],
+	};
 	for (const event of events) {
 		if (event.kind === "renamed") {
-			renamed.push(event);
+			buckets.renamed.push(event);
 		} else if (event.baseUrl === undefined || event.outcome === undefined) {
-			untracked.push(event.label);
+			buckets.untracked.push(event.label);
 		} else if (event.outcome === "hidden") {
-			hidden.push(event.label);
+			buckets.hidden.push(event.label);
 		} else if (event.outcome === "hidden-session-only") {
-			hiddenThisSession.push(event.label);
+			buckets.hiddenThisSession.push(event.label);
 		} else if (event.outcome === "shared") {
-			shared.push(event.label);
+			buckets.shared.push(event.label);
 		} else {
-			unreported.push(event.label);
+			buckets.unreported.push(event.label);
 		}
 	}
+	return buckets;
+}
+
+/** The notice for removed entries whose groups the host has not reported this session. */
+function unreportedNotice(labels: readonly string[]): string {
+	if (labels.length === 1) {
+		return l10n.t(
+			"Removed {0} from the servers setting. VS Code has not reported its provider group this session, so its models may still appear; delete it in Manage Language Models, or remove its object from the models file and reload the window.",
+			quoted(labels)
+		);
+	}
+	return l10n.t(
+		"Removed {0} from the servers setting. VS Code has not reported their provider groups this session, so their models may still appear; delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
+		quoted(labels)
+	);
+}
+
+/** The notice for removed entries whose models a durable tombstone hides. */
+function hiddenNotice(labels: readonly string[]): string {
+	if (labels.length === 1) {
+		return l10n.t(
+			"Removed {0} from the servers setting; its models are hidden. VS Code still keeps a provider group named {0}: delete it in Manage Language Models, or remove its object from the models file and reload the window.",
+			quoted(labels)
+		);
+	}
+	return l10n.t(
+		"Removed {0} from the servers setting; their models are hidden. VS Code still keeps a provider group for each: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
+		quoted(labels)
+	);
+}
+
+/** The notice for removed entries whose models are hidden for this session only. */
+function hiddenThisSessionNotice(labels: readonly string[]): string {
+	if (labels.length === 1) {
+		return l10n.t(
+			"Removed {0} from the servers setting; its models are hidden for this session only, because the hide cannot be kept across restarts. VS Code still keeps a provider group named {0}: delete it in Manage Language Models, or remove its object from the models file and reload the window.",
+			quoted(labels)
+		);
+	}
+	return l10n.t(
+		"Removed {0} from the servers setting; their models are hidden for this session only, because the hides cannot be kept across restarts. VS Code still keeps a provider group for each: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
+		quoted(labels)
+	);
+}
+
+/** The notice for removed entries whose group identity nothing tracked, so nothing is hidden. */
+function untrackedNotice(labels: readonly string[]): string {
+	if (labels.length === 1) {
+		return l10n.t(
+			"Removed {0} from the servers setting. VS Code keeps the provider group and its models: delete it in Manage Language Models, or remove its object from the models file and reload the window.",
+			quoted(labels)
+		);
+	}
+	return l10n.t(
+		"Removed {0} from the servers setting. VS Code keeps their provider groups and models: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
+		quoted(labels)
+	);
+}
+
+async function notifyRemovalEvents(events: readonly NoticeEvent[], show: RemovalNoticeDoor): Promise<void> {
+	const { hidden, hiddenThisSession, shared, unreported, untracked, renamed } = bucketRemovalEvents(events);
 	if (shared.length > 0) {
 		void show(
 			"info",
@@ -187,46 +267,13 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[], show: Removal
 		);
 	}
 	if (unreported.length > 0) {
-		const labels = quoted(unreported);
-		const message =
-			unreported.length === 1
-				? l10n.t(
-						"Removed {0} from the servers setting. VS Code has not reported its provider group this session, so its models may still appear; delete it in Manage Language Models, or remove its object from the models file and reload the window.",
-						labels
-					)
-				: l10n.t(
-						"Removed {0} from the servers setting. VS Code has not reported their provider groups this session, so their models may still appear; delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
-						labels
-					);
-		void show("info", message, await leftoverGroupActions(unreported));
+		void show("info", unreportedNotice(unreported), await leftoverGroupActions(unreported));
 	}
 	if (hidden.length > 0) {
-		const labels = quoted(hidden);
-		const message =
-			hidden.length === 1
-				? l10n.t(
-						"Removed {0} from the servers setting; its models are hidden. VS Code still keeps a provider group named {0}: delete it in Manage Language Models, or remove its object from the models file and reload the window.",
-						labels
-					)
-				: l10n.t(
-						"Removed {0} from the servers setting; their models are hidden. VS Code still keeps a provider group for each: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
-						labels
-					);
-		void show("info", message, await leftoverGroupActions(hidden));
+		void show("info", hiddenNotice(hidden), await leftoverGroupActions(hidden));
 	}
 	if (hiddenThisSession.length > 0) {
-		const labels = quoted(hiddenThisSession);
-		const message =
-			hiddenThisSession.length === 1
-				? l10n.t(
-						"Removed {0} from the servers setting; its models are hidden for this session only, because the hide cannot be kept across restarts. VS Code still keeps a provider group named {0}: delete it in Manage Language Models, or remove its object from the models file and reload the window.",
-						labels
-					)
-				: l10n.t(
-						"Removed {0} from the servers setting; their models are hidden for this session only, because the hides cannot be kept across restarts. VS Code still keeps a provider group for each: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
-						labels
-					);
-		void show("info", message, await leftoverGroupActions(hiddenThisSession));
+		void show("info", hiddenThisSessionNotice(hiddenThisSession), await leftoverGroupActions(hiddenThisSession));
 	}
 	for (const event of renamed) {
 		void show(
@@ -240,19 +287,148 @@ async function notifyRemovalEvents(events: readonly NoticeEvent[], show: Removal
 		);
 	}
 	if (untracked.length > 0) {
-		const labels = quoted(untracked);
-		const message =
-			untracked.length === 1
-				? l10n.t(
-						"Removed {0} from the servers setting. VS Code keeps the provider group and its models: delete it in Manage Language Models, or remove its object from the models file and reload the window.",
-						labels
-					)
-				: l10n.t(
-						"Removed {0} from the servers setting. VS Code keeps their provider groups and models: delete them in Manage Language Models, or remove their objects from the models file and reload the window.",
-						labels
-					);
-		void show("info", message, await leftoverGroupActions(untracked));
+		void show("info", untrackedNotice(untracked), await leftoverGroupActions(untracked));
 	}
+}
+
+/** What recording a removal needs: the store, the logger, and the live snapshots the outcome is judged against. */
+interface RemovalRecording {
+	readonly removals: GroupRemovalStore;
+	readonly logger: Logger;
+	readonly observedSnapshots: () => readonly ServerModelsSnapshot[];
+}
+
+/**
+ * Records every removed entry's identities in one store mutation, so a reconcile fires one change event however many
+ * entries it removed (each event is a host re-resolve of every group). A throw degrades the events to the untracked
+ * wording rather than promising a hiding that may not have reached the provider. A pre-label group carries no stamp:
+ * it hides by the identity the removed entry joined it by.
+ */
+async function recordRemovalTombstones(
+	removed: readonly RemovedEntry[],
+	recording: RemovalRecording
+): Promise<NoticeEvent[]> {
+	const plans = removed.map((event) => {
+		const { label, baseUrl } = event;
+		const identities: readonly [TombstoneIdentity, ...TombstoneIdentity[]] = [
+			{ by: "entry", label, baseUrl },
+			...event.groupIds.map((groupId): TombstoneIdentity => ({ by: "group", groupId, label, baseUrl })),
+		];
+		return { event, identities };
+	});
+	const [first, ...rest] = plans;
+	if (first === undefined) {
+		return [];
+	}
+	const [head, ...tail] = first.identities;
+	let recorded: readonly RecordedTombstone[];
+	try {
+		recorded = await recording.removals.addTombstones([head, ...tail, ...rest.flatMap((plan) => plan.identities)]);
+	} catch (error) {
+		recording.logger.error("Recording removed-group tombstones failed", error);
+		return removed.map(untrackedRemoval);
+	}
+	return plans.map(({ event, identities }) => ({
+		...event,
+		outcome: removalOutcome(
+			event,
+			recorded.filter((record) => identities.includes(record.identity)),
+			recording.observedSnapshots(),
+			(group) => recording.removals.isTombstoned(group)
+		),
+	}));
+}
+
+/**
+ * One removal event's provenance recorded, sorted by what follows. A rename orphans the old group but is not an
+ * explicit removal: provenance only, no tombstone, models stay visible. A removal the ledger predates has no group
+ * identity to resolve: no tombstone, no provenance, only the notice, never a suppression on a guess. Any other removal
+ * records its origin and goes on to the tombstone batch. A failed record degrades the event to the untracked wording.
+ */
+async function recordRemovalOrigin(
+	event: RemovedEntryEvent,
+	recording: RemovalRecording
+): Promise<{ notice: NoticeEvent } | { removed: RemovedEntry }> {
+	try {
+		if (event.kind === "renamed") {
+			await recording.removals.recordOrigin({
+				label: event.oldLabel,
+				baseUrl: event.baseUrl,
+				origin: { kind: "rename-leftover", oldLabel: event.oldLabel, newLabel: event.newLabel },
+			});
+			return { notice: event };
+		}
+		if (event.baseUrl === undefined) {
+			return { notice: { ...event, outcome: undefined } };
+		}
+		await recording.removals.recordOrigin({
+			label: event.label,
+			baseUrl: event.baseUrl,
+			origin: { kind: "removed-entry-leftover", removedLabel: event.label },
+		});
+		return { removed: { ...event, baseUrl: event.baseUrl } };
+	} catch (error) {
+		recording.logger.error("Recording removed-group provenance failed", error);
+		return { notice: event.kind === "removed" ? untrackedRemoval(event) : event };
+	}
+}
+
+/** Clears the tombstones of the re-declared claims, records the removals, and sends their notices. */
+async function reconcileIdentities(
+	claims: readonly DeclaredGroupClaim[],
+	events: readonly RemovedEntryEvent[],
+	recording: RemovalRecording,
+	show: RemovalNoticeDoor
+): Promise<void> {
+	try {
+		await recording.removals.clearTombstonesFor(claims);
+	} catch (error) {
+		recording.logger.error("Clearing removed-group tombstones failed", error);
+	}
+	const noticeEvents: NoticeEvent[] = [];
+	const removed: RemovedEntry[] = [];
+	for (const event of events) {
+		const recorded = await recordRemovalOrigin(event, recording);
+		if ("notice" in recorded) {
+			noticeEvents.push(recorded.notice);
+		} else {
+			removed.push(recorded.removed);
+		}
+	}
+	noticeEvents.push(...(await recordRemovalTombstones(removed, recording)));
+	if (noticeEvents.length > 0) {
+		void notifyRemovalEvents(noticeEvents, show).catch((error: unknown) => {
+			recording.logger.error("Removal notice failed", error);
+		});
+	}
+}
+
+/**
+ * Persists the engine's fingerprint map. Re-confirmed at write time, per batch, not once per pass: a store mutation
+ * detected mid-pass must stop this write too, since a map built under an unconfirmed salt holds renderings no later
+ * session can recognize, and persisting it would overwrite the durable records that let a healthy group read as
+ * in-sync once the real salt is back. Format dominance: a current-format ("i1:") store record is never overwritten by
+ * a carried legacy-format one. Only pre-projection records lack the prefix, and the engine carries them purely as
+ * last-known-good, so a store record another window already projected is strictly newer knowledge; keeping it costs
+ * nothing here (the engine's next duplicate response confirms against the store and adopts it into the session map).
+ */
+async function persistFingerprints(
+	globalState: vscode.Memento,
+	fingerprintSalt: FingerprintSaltSession,
+	map: Readonly<Record<string, string>>
+): Promise<void> {
+	if ((await fingerprintSalt.confirmDurable()) !== "durable") {
+		return;
+	}
+	const stored = validatedStringRecord(globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY));
+	const next: Record<string, string> = { ...map };
+	for (const [label, record] of Object.entries(map)) {
+		const storedRecord = stored[label];
+		if (!record.startsWith("i1:") && storedRecord !== undefined && storedRecord.startsWith("i1:")) {
+			next[label] = storedRecord;
+		}
+	}
+	await globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, next);
 }
 
 interface ServerSyncEnvDeps {
@@ -280,43 +456,7 @@ export function createServerSyncEnv(deps: ServerSyncEnvDeps): ServerSyncEnv {
 			"Server sync will not persist fingerprints this session: the fingerprint salt is session-only, so no later session could recognize them"
 		);
 	}
-	/**
-	 * Every removed entry's identities go into one store mutation, so a reconcile fires one change event however many
-	 * entries it removed (each event is a host re-resolve of every group). A throw degrades the events to the untracked
-	 * wording rather than promising a hiding that may not have reached the provider.
-	 */
-	const recordRemovals = async (removed: readonly RemovedEntry[]): Promise<NoticeEvent[]> => {
-		const plans = removed.map((event) => {
-			// A pre-label group carries no stamp: it hides by the identity the removed entry joined it by.
-			const { label, baseUrl } = event;
-			const identities: readonly [TombstoneIdentity, ...TombstoneIdentity[]] = [
-				{ by: "entry", label, baseUrl },
-				...event.groupIds.map((groupId): TombstoneIdentity => ({ by: "group", groupId, label, baseUrl })),
-			];
-			return { event, identities };
-		});
-		const [first, ...rest] = plans;
-		if (first === undefined) {
-			return [];
-		}
-		const [head, ...tail] = first.identities;
-		let recorded: readonly RecordedTombstone[];
-		try {
-			recorded = await removals.addTombstones([head, ...tail, ...rest.flatMap((plan) => plan.identities)]);
-		} catch (error) {
-			logger.error("Recording removed-group tombstones failed", error);
-			return removed.map(untrackedRemoval);
-		}
-		return plans.map(({ event, identities }) => ({
-			...event,
-			outcome: removalOutcome(
-				event,
-				recorded.filter((record) => identities.includes(record.identity)),
-				observedSnapshots(),
-				(group) => removals.isTombstoned(group)
-			),
-		}));
-	};
+	const recording: RemovalRecording = { removals, logger, observedSnapshots };
 	return {
 		readServersSetting: readRawServersSetting,
 		readSecrets: (label) => readServerSecretsRecord(context.secrets, label),
@@ -329,78 +469,14 @@ export function createServerSyncEnv(deps: ServerSyncEnvDeps): ServerSyncEnv {
 			// records unguarded.
 			return validatedStringRecord(context.globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY));
 		},
-		setFingerprints: async (map) => {
-			// Re-confirmed at write time, per batch, not once per pass: a store mutation detected mid-pass must stop
-			// this write too. A map built under an unconfirmed salt holds renderings no later session can recognize,
-			// and persisting it would overwrite the durable records that let a healthy group read as in-sync once the
-			// real salt is back.
-			if ((await fingerprintSalt.confirmDurable()) !== "durable") {
-				return;
-			}
-			// Format dominance: a current-format ("i1:") store record is never overwritten by a carried legacy-format
-			// one. Only pre-projection records lack the prefix, and the engine carries them purely as last-known-good,
-			// so a store record another window already projected is strictly newer knowledge; keeping it costs nothing
-			// here (the engine's next duplicate response confirms against the store and adopts it into the session
-			// map).
-			const stored = validatedStringRecord(context.globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY));
-			const next: Record<string, string> = { ...map };
-			for (const [label, record] of Object.entries(map)) {
-				const storedRecord = stored[label];
-				if (!record.startsWith("i1:") && storedRecord !== undefined && storedRecord.startsWith("i1:")) {
-					next[label] = storedRecord;
-				}
-			}
-			await context.globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, next);
-		},
+		setFingerprints: (map) => persistFingerprints(context.globalState, fingerprintSalt, map),
 		getEntryBaseUrls: () => canonicalEntryBaseUrls(context.globalState.get<unknown>(SYNCED_ENTRY_BASE_URLS_KEY)),
 		setEntryBaseUrls: async (map) => {
 			await context.globalState.update(SYNCED_ENTRY_BASE_URLS_KEY, map);
 		},
 		observedGroupBaseUrls,
 		observedSnapshots,
-		reconcileEntryIdentities: async (claims, events) => {
-			try {
-				await removals.clearTombstonesFor(claims);
-			} catch (error) {
-				logger.error("Clearing removed-group tombstones failed", error);
-			}
-			const noticeEvents: NoticeEvent[] = [];
-			const removed: RemovedEntry[] = [];
-			for (const event of events) {
-				try {
-					if (event.kind === "renamed") {
-						// A rename orphans the old group but is not an explicit removal: provenance only, no tombstone,
-						// models stay visible.
-						await removals.recordOrigin({
-							label: event.oldLabel,
-							baseUrl: event.baseUrl,
-							origin: { kind: "rename-leftover", oldLabel: event.oldLabel, newLabel: event.newLabel },
-						});
-						noticeEvents.push(event);
-					} else if (event.baseUrl === undefined) {
-						// The ledger predates this label, so no group identity can be resolved: no tombstone, no
-						// provenance, only the notice - never suppress on a guess.
-						noticeEvents.push({ ...event, outcome: undefined });
-					} else {
-						await removals.recordOrigin({
-							label: event.label,
-							baseUrl: event.baseUrl,
-							origin: { kind: "removed-entry-leftover", removedLabel: event.label },
-						});
-						removed.push({ ...event, baseUrl: event.baseUrl });
-					}
-				} catch (error) {
-					logger.error("Recording removed-group provenance failed", error);
-					noticeEvents.push(event.kind === "removed" ? untrackedRemoval(event) : event);
-				}
-			}
-			noticeEvents.push(...(await recordRemovals(removed)));
-			if (noticeEvents.length > 0) {
-				void notifyRemovalEvents(noticeEvents, showRemovalNotice).catch((error: unknown) => {
-					logger.error("Removal notice failed", error);
-				});
-			}
-		},
+		reconcileEntryIdentities: (claims, events) => reconcileIdentities(claims, events, recording, showRemovalNotice),
 		log: (message, data) => logger.log(message, data),
 		logError: (message, error) => logger.error(message, error),
 	};
@@ -503,6 +579,94 @@ function secretPaletteLabel(field: SecretFieldId): string {
 	return labels[field];
 }
 
+/** The palette's three answers: the entry as the quick pick showed it, the secret field, and the typed value. */
+interface SecretChoice {
+	readonly entry: DeclaredServer;
+	readonly field: SecretFieldId;
+	readonly value: string;
+}
+
+/** The entry, field, and value the user picked, or undefined once any of the three prompts is dismissed. */
+async function promptSecretChoice(entries: readonly DeclaredServer[]): Promise<SecretChoice | undefined> {
+	const entryPick = await vscode.window.showQuickPick(
+		// The configured URL leaves the extension here; the host alone still names the server.
+		entries.map((entry) => ({ label: entry.label, description: Logger.redact(entry.baseUrl), entry })),
+		{ title: l10n.t("LiteLLM: Set Server Secret"), placeHolder: l10n.t("Which server?") }
+	);
+	if (entryPick === undefined) {
+		return undefined;
+	}
+	const fieldPick = await vscode.window.showQuickPick(
+		// Ids come from the descriptor so a new secret field cannot be silently unreachable here.
+		SECRET_FIELD_IDS.map((field) => ({ label: secretPaletteLabel(field), field })),
+		{ title: l10n.t("LiteLLM: Set Server Secret"), placeHolder: l10n.t("Which secret?") }
+	);
+	if (fieldPick === undefined) {
+		return undefined;
+	}
+	const value = await vscode.window.showInputBox({
+		title: l10n.t("{0} for {1}", fieldPick.label, entryPick.label),
+		prompt: l10n.t(
+			"Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value."
+		),
+		password: getMaskSecretInputs(),
+	});
+	if (value === undefined) {
+		return undefined;
+	}
+	return { entry: entryPick.entry, field: fieldPick.field, value };
+}
+
+/**
+ * Stores (or, for an empty value, clears) the chosen secret and returns whether it did. The label is re-resolved
+ * AFTER the prompts and must still name the entry the quick pick displayed: the prompts stay open indefinitely, and an
+ * entry swapped in under the label meanwhile (another window, a hand edit of settings.json) would receive a secret the
+ * user entered for a different host. The same identity comparison the dashboard's save path refuses through; nothing
+ * durable happened, so re-running the command shows fresh truth.
+ */
+async function storeChosenSecret(
+	secrets: vscode.SecretStorage,
+	choice: SecretChoice,
+	logger: Logger
+): Promise<boolean> {
+	const { field, value } = choice;
+	const label = choice.entry.label;
+	const fresh = acceptedEntry(readRawServersSetting(), label);
+	if (fresh === undefined || !nonSecretIdentityMatches(fresh.entry, choice.entry)) {
+		logger.log("Set Server Secret refused: the entry changed while the prompts were open", { label });
+		void showMessage(
+			"warning",
+			l10n.t(
+				'The server entry "{0}" changed while the prompts were open, so nothing was stored. Run the command again.',
+				label
+			),
+			[]
+		);
+		return false;
+	}
+	await updateServerSecret(
+		secrets,
+		label,
+		field,
+		value.length > 0 ? value : undefined,
+		// The stamp records the deliberate pairing: this value belongs to the destination the just-verified entry names.
+		secretDestination(fresh.entry, field)
+	);
+	logger.log("Server secret updated from the palette", { label, field, cleared: value.length === 0 });
+	if (value.length > 0 && inlineSecretValues(fresh.entry)[field] !== undefined) {
+		void showMessage(
+			"warning",
+			l10n.t(
+				'"{0}" also sets {1} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.',
+				label,
+				field
+			),
+			[]
+		);
+	}
+	return true;
+}
+
 export function registerSetServerSecretCommand(
 	context: vscode.ExtensionContext,
 	engine: ServerSyncEngine,
@@ -522,78 +686,13 @@ export function registerSetServerSecretCommand(
 				);
 				return;
 			}
-			const entryPick = await vscode.window.showQuickPick(
-				// The configured URL leaves the extension here; the host alone still names the server.
-				entries.map((entry) => ({ label: entry.label, description: Logger.redact(entry.baseUrl), entry })),
-				{ title: l10n.t("LiteLLM: Set Server Secret"), placeHolder: l10n.t("Which server?") }
-			);
-			if (entryPick === undefined) {
+			const choice = await promptSecretChoice(entries);
+			if (choice === undefined) {
 				return;
 			}
-			const fieldPick = await vscode.window.showQuickPick(
-				// Ids come from the descriptor so a new secret field cannot be silently unreachable here.
-				SECRET_FIELD_IDS.map((field) => ({ label: secretPaletteLabel(field), field })),
-				{ title: l10n.t("LiteLLM: Set Server Secret"), placeHolder: l10n.t("Which secret?") }
-			);
-			if (fieldPick === undefined) {
-				return;
+			if (await storeChosenSecret(context.secrets, choice, logger)) {
+				engine.requestSync();
 			}
-			const value = await vscode.window.showInputBox({
-				title: l10n.t("{0} for {1}", fieldPick.label, entryPick.label),
-				prompt: l10n.t(
-					"Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value."
-				),
-				password: getMaskSecretInputs(),
-			});
-			if (value === undefined) {
-				return;
-			}
-			// The label is re-resolved AFTER the prompts and must still name the entry the quick pick displayed: the
-			// prompts stay open indefinitely, and an entry swapped in under the label meanwhile (another window, a hand
-			// edit of settings.json) would receive a secret the user entered for a different host. The same identity
-			// comparison the dashboard's save path refuses through; nothing durable happened, so re-running the command
-			// shows fresh truth.
-			const fresh = acceptedEntry(readRawServersSetting(), entryPick.label);
-			if (fresh === undefined || !nonSecretIdentityMatches(fresh.entry, entryPick.entry)) {
-				logger.log("Set Server Secret refused: the entry changed while the prompts were open", {
-					label: entryPick.label,
-				});
-				void showMessage(
-					"warning",
-					l10n.t(
-						'The server entry "{0}" changed while the prompts were open, so nothing was stored. Run the command again.',
-						entryPick.label
-					),
-					[]
-				);
-				return;
-			}
-			await updateServerSecret(
-				context.secrets,
-				entryPick.label,
-				fieldPick.field,
-				value.length > 0 ? value : undefined,
-				// The stamp records the deliberate pairing: this value belongs to the destination the just-verified
-				// entry names.
-				secretDestination(fresh.entry, fieldPick.field)
-			);
-			logger.log("Server secret updated from the palette", {
-				label: entryPick.label,
-				field: fieldPick.field,
-				cleared: value.length === 0,
-			});
-			if (value.length > 0 && inlineSecretValues(fresh.entry)[fieldPick.field] !== undefined) {
-				void showMessage(
-					"warning",
-					l10n.t(
-						'"{0}" also sets {1} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.',
-						entryPick.label,
-						fieldPick.field
-					),
-					[]
-				);
-			}
-			engine.requestSync();
 		})
 	);
 }

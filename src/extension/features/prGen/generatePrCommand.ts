@@ -14,8 +14,10 @@ import {
 	featureNoModelMessage,
 } from "../featureGate";
 import { pickRepository, resolveGitApi } from "../gitAccess";
-import type { API } from "../gitApi";
+import type { API, Repository } from "../gitApi";
+import type { BranchContextOutcome } from "./branchContext";
 import { collectBranchContext } from "./branchContext";
+import type { TitleAndDescriptionProvider } from "./githubPullRequestsApi";
 import { createTitleAndDescriptionProvider } from "./provider";
 
 /**
@@ -44,6 +46,114 @@ function notifiedTitle(title: string): string {
 
 export function clipboardText(title: string, description: string | undefined): string {
 	return description === undefined ? title : `${title}\n\n${description}`;
+}
+
+/** The model's draft as the provider parses it: the title, and the description when the answer carried one. */
+type GeneratedDraft = NonNullable<Awaited<ReturnType<TitleAndDescriptionProvider["provideTitleAndDescription"]>>>;
+
+/** What the progress step produced: a branch walk that stopped short, or the model's answer or its absence. */
+type GenerationOutcome =
+	| Exclude<BranchContextOutcome, { kind: "collected" }>
+	| { readonly kind: "noAnswer" }
+	| { readonly kind: "generated"; readonly result: GeneratedDraft };
+
+/** The branch walk and the one-shot send under one cancellable progress notification; its token stops both. */
+async function generateDraft(
+	repo: Repository,
+	modelRef: FeatureModelRef,
+	send: (model: FeatureModelRef, prompt: string, token: vscode.CancellationToken) => Promise<string>
+): Promise<GenerationOutcome> {
+	return vscode.window.withProgress(
+		{
+			location: vscode.ProgressLocation.Notification,
+			title: l10n.t("Generating pull request description..."),
+			cancellable: true,
+		},
+		async (_progress, token) => {
+			const collected = await collectBranchContext(repo, token);
+			if (collected.kind !== "collected") {
+				return collected;
+			}
+			// The same provider the GitHub extension calls, so both entry points share one prompt, one send, and one
+			// parse.
+			const provider = createTitleAndDescriptionProvider((prompt, cancellation) =>
+				send(modelRef, prompt, cancellation)
+			);
+			const result = await provider.provideTitleAndDescription(collected.context, token);
+			return result === undefined ? ({ kind: "noAnswer" } as const) : ({ kind: "generated", result } as const);
+		}
+	);
+}
+
+/** The toast each outcome earns; a generated draft reaches the clipboard first, then the toast names its title. */
+async function reportOutcome(deps: GeneratePrDeps, outcome: GenerationOutcome): Promise<void> {
+	switch (outcome.kind) {
+		case "generated": {
+			const copy = deps.copy ?? copyToClipboard;
+			// The clipboard door masks the whole text; the toast's title is masked here, before its cut, so the cut
+			// never falls inside a value and leaves a fragment the door cannot recognize.
+			await copy(clipboardText(outcome.result.title, outcome.result.description));
+			const notified = notifiedTitle(Logger.redact(outcome.result.title));
+			await showActionableMessage(
+				"info",
+				outcome.result.description === undefined
+					? l10n.t('Copied "{0}" to the clipboard.', notified)
+					: l10n.t('Copied "{0}" and its description to the clipboard.', notified),
+				[]
+			);
+			return;
+		}
+		case "noBranch":
+			await showActionableMessage(
+				"info",
+				l10n.t("This repository has no checked-out branch, so there is nothing to describe."),
+				[]
+			);
+			return;
+		case "noBase":
+			await showActionableMessage(
+				"info",
+				l10n.t(
+					"No base branch could be resolved for this branch. Set its upstream (or push it) so VS Code can tell which branch it would be merged into."
+				),
+				[]
+			);
+			return;
+		case "noChanges":
+			await showActionableMessage(
+				"info",
+				l10n.t("This branch has no commits or file changes over its base branch."),
+				[]
+			);
+			return;
+		case "selfCompare":
+			await showActionableMessage(
+				"info",
+				l10n.t(
+					"This branch is compared against itself, so there is nothing to describe. Check out the branch whose pull request you want written."
+				),
+				[]
+			);
+			return;
+		case "cancelled":
+			// The walk stopped on the user's cancel; nothing was sent and nothing is worth saying.
+			return;
+		case "noAnswer":
+			await showActionableMessage(
+				"warning",
+				l10n.t("The model did not return a usable pull request title. Try again, or pick a different model."),
+				[]
+			);
+			return;
+		default: {
+			// Exhaustive by construction: a new outcome must bring its advice here rather than silently showing the user
+			// nothing. Only the DISCRIMINANT is named - this throw lands in the command's catch, which logs, and an
+			// outcome's payload carries branch names, commit messages and patches that must never reach a public issue
+			// report.
+			const unhandled: never = outcome;
+			throw new Error(`unhandled PR generation outcome: ${(unhandled as { kind: string }).kind}`);
+		}
+	}
 }
 
 /**
@@ -99,93 +209,8 @@ export async function runGeneratePrDescription(
 			]);
 			return;
 		}
-		const outcome = await vscode.window.withProgress(
-			{
-				location: vscode.ProgressLocation.Notification,
-				title: l10n.t("Generating pull request description..."),
-				cancellable: true,
-			},
-			async (_progress, token) => {
-				const collected = await collectBranchContext(repo, token);
-				if (collected.kind !== "collected") {
-					return collected;
-				}
-				// The same provider the GitHub extension calls, so both entry points share one prompt, one send, and
-				// one parse.
-				const provider = createTitleAndDescriptionProvider((prompt, cancellation) =>
-					send(modelRef, prompt, cancellation)
-				);
-				const result = await provider.provideTitleAndDescription(collected.context, token);
-				return result === undefined ? ({ kind: "noAnswer" } as const) : ({ kind: "generated", result } as const);
-			}
-		);
-		switch (outcome.kind) {
-			case "generated": {
-				const copy = deps.copy ?? copyToClipboard;
-				// The clipboard door masks the whole text; the toast's title is masked here, before its cut, so the cut
-				// never falls inside a value and leaves a fragment the door cannot recognize.
-				await copy(clipboardText(outcome.result.title, outcome.result.description));
-				const notified = notifiedTitle(Logger.redact(outcome.result.title));
-				await showActionableMessage(
-					"info",
-					outcome.result.description === undefined
-						? l10n.t('Copied "{0}" to the clipboard.', notified)
-						: l10n.t('Copied "{0}" and its description to the clipboard.', notified),
-					[]
-				);
-				return;
-			}
-			case "noBranch":
-				await showActionableMessage(
-					"info",
-					l10n.t("This repository has no checked-out branch, so there is nothing to describe."),
-					[]
-				);
-				return;
-			case "noBase":
-				await showActionableMessage(
-					"info",
-					l10n.t(
-						"No base branch could be resolved for this branch. Set its upstream (or push it) so VS Code can tell which branch it would be merged into."
-					),
-					[]
-				);
-				return;
-			case "noChanges":
-				await showActionableMessage(
-					"info",
-					l10n.t("This branch has no commits or file changes over its base branch."),
-					[]
-				);
-				return;
-			case "selfCompare":
-				await showActionableMessage(
-					"info",
-					l10n.t(
-						"This branch is compared against itself, so there is nothing to describe. Check out the branch whose pull request you want written."
-					),
-					[]
-				);
-				return;
-			case "cancelled":
-				// The walk stopped on the user's cancel; nothing was sent and nothing is worth saying.
-				return;
-			case "noAnswer":
-				await showActionableMessage(
-					"warning",
-					l10n.t("The model did not return a usable pull request title. Try again, or pick a different model."),
-					[]
-				);
-				return;
-			default: {
-				// Exhaustive by construction: a new outcome must bring its advice here rather than silently showing
-				// the user nothing. Only the DISCRIMINANT is named - this throw lands in the catch below, which logs,
-				// and an outcome's payload carries branch names, commit messages and patches that must never reach a
-				// public issue report.
-				const unhandled: never = outcome;
-				throw new Error(`unhandled PR generation outcome: ${(unhandled as { kind: string }).kind}`);
-			}
-		}
+		const outcome = await generateDraft(repo, modelRef, send);
+		await reportOutcome(deps, outcome);
 	} catch (error) {
 		await reportCommandFailure(deps, error, "Pull request description generation failed");
 	}

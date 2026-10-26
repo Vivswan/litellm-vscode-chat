@@ -228,13 +228,18 @@ export function declaredRow(state: DashboardState, label: string): DeclaredRow |
 	return state.servers.find((server): server is DeclaredRow => server.origin === "declared" && server.label === label);
 }
 
+/** The declared row when its secret locations are proven, else the refusal that says why not. */
+function editableOf(row: DeclaredRow, label: string): EditableDashboardServer | ToolPlan {
+	return isEditableServer(row) ? row : refused("secret-locations-unproven", { label });
+}
+
 /** A declared row the save intents may target, or the refusal that says why not. */
 function editableRow(state: DashboardState, label: string): EditableDashboardServer | ToolPlan {
 	const row = declaredRow(state, label);
 	if (row === undefined) {
 		return refused("server-not-found", { label });
 	}
-	return isEditableServer(row) ? row : refused("secret-locations-unproven", { label });
+	return editableOf(row, label);
 }
 
 function isPlan(value: EditableDashboardServer | ToolPlan): value is ToolPlan {
@@ -412,8 +417,71 @@ interface ComposedServer {
  * absent.
  */
 function fieldOf(name: string, given: unknown, stored: unknown, empty?: unknown): Record<string, unknown> {
-	const value = given === undefined ? (stored === undefined ? empty : stored) : given;
+	let value = given;
+	if (value === undefined) {
+		value = stored;
+	}
+	if (value === undefined) {
+		value = empty;
+	}
 	return value === undefined ? {} : { [name]: value };
+}
+
+type AdoptServerInput = Extract<AgentToolInput<"saveServer">, { adoptFrom: unknown }>;
+
+type EditServerInput = Exclude<AgentToolInput<"saveServer">, { adoptFrom: unknown }>;
+
+/** The adoption plan: the external group at the named label and base URL becomes the declared entry `input.label`. */
+function planAdoptServer(input: AdoptServerInput, state: DashboardState): ToolPlan {
+	const source = externalRow(state, input.adoptFrom.label, input.adoptFrom.baseUrl);
+	if (source === undefined) {
+		return refused("external-group-not-found", { label: input.adoptFrom.label, baseUrl: input.adoptFrom.baseUrl });
+	}
+	const secrets = recordFromKeys(SECRET_FIELD_IDS, (field) => input.secretLocations?.[field] ?? "secure");
+	return requests({
+		method: "adoptServer",
+		payload: { label: input.label, baseUrl: source.baseUrl, sourceHandle: source.adoptHandle, secrets },
+	});
+}
+
+/**
+ * The declared row a save edits (the renamed-from label, else the input's label), undefined for a new entry, or the
+ * refusal: a rename of a label that does not exist, or a row whose secret locations are unproven.
+ */
+function rowToEdit(input: EditServerInput, state: DashboardState): EditableDashboardServer | undefined | ToolPlan {
+	const existingLabel = input.renameFrom ?? input.label;
+	const existingRow = declaredRow(state, existingLabel);
+	if (input.renameFrom !== undefined && existingRow === undefined) {
+		return refused("server-not-found", { label: input.renameFrom });
+	}
+	if (existingRow === undefined) {
+		return undefined;
+	}
+	return editableOf(existingRow, existingLabel);
+}
+
+/** The composed save payload: each field as the agent gave it, else as stored in `base`, else its empty default. */
+function composeServer(input: EditServerInput, base: SaveServerPayload | undefined, baseUrl: string): ComposedServer {
+	const apiVersion = edited(base?.apiVersion, input.apiVersion);
+	return {
+		label: input.label,
+		baseUrl,
+		...(apiVersion === undefined ? {} : { apiVersion }),
+		...pickNonSecretOptionalFields({
+			oauthTokenUrl: editedOauthField(base?.oauthTokenUrl, input.oauthTokenUrl),
+			oauthClientId: editedOauthField(base?.oauthClientId, input.oauthClientId),
+			oauthScopes: edited(base?.oauthScopes, input.oauthScopes),
+			virtualKeyHeader: edited(base?.virtualKeyHeader, input.virtualKeyHeader),
+		}),
+		...fieldOf("modelParameters", input.modelParameters, base?.modelParameters),
+		...fieldOf("modelCapabilities", input.modelCapabilities, base?.modelCapabilities, {}),
+		...fieldOf("expectedFailures", input.expectedFailures, base?.expectedFailures, []),
+		...fieldOf("headers", input.headers, base?.headers, {}),
+		...fieldOf("declaredModels", input.declaredModels, base?.declaredModels, []),
+		...fieldOf("includeModes", input.includeModes, base?.includeModes, []),
+		...fieldOf("budget", input.budget, base?.budget, null),
+		...fieldOf("mcp", input.mcp, base?.mcp, null),
+	};
 }
 
 export function planSaveServer(
@@ -422,28 +490,11 @@ export function planSaveServer(
 	acceptSecretValues: boolean
 ): ToolPlan {
 	if ("adoptFrom" in input) {
-		const source = externalRow(state, input.adoptFrom.label, input.adoptFrom.baseUrl);
-		if (source === undefined) {
-			return refused("external-group-not-found", { label: input.adoptFrom.label, baseUrl: input.adoptFrom.baseUrl });
-		}
-		const secrets = recordFromKeys(SECRET_FIELD_IDS, (field) => input.secretLocations?.[field] ?? "secure");
-		return requests({
-			method: "adoptServer",
-			payload: { label: input.label, baseUrl: source.baseUrl, sourceHandle: source.adoptHandle, secrets },
-		});
+		return planAdoptServer(input, state);
 	}
-	const existingLabel = input.renameFrom ?? input.label;
-	const existingRow = declaredRow(state, existingLabel);
-	if (input.renameFrom !== undefined && existingRow === undefined) {
-		return refused("server-not-found", { label: input.renameFrom });
-	}
-	let existing: EditableDashboardServer | undefined;
-	if (existingRow !== undefined) {
-		const editable = editableRow(state, existingLabel);
-		if (isPlan(editable)) {
-			return editable;
-		}
-		existing = editable;
+	const existing = rowToEdit(input, state);
+	if (existing !== undefined && isPlan(existing)) {
+		return existing;
 	}
 	const base = existing === undefined ? undefined : savePayloadFromRow(existing);
 	const baseUrl = input.baseUrl ?? base?.baseUrl;
@@ -461,33 +512,13 @@ export function planSaveServer(
 	// The configuration read shows the placeholder where a credential header's value is; echoed back, it would be stored
 	// as the header's value. The placeholder is a sentinel no header legitimately carries, so it is refused under ANY
 	// name: a save that also renames the carrier would otherwise land it as the old header's plain value.
-	const virtualKeyHeader = edited(base?.virtualKeyHeader, input.virtualKeyHeader);
 	const placeholders = Object.entries(isRecord(input.headers) ? input.headers : {})
 		.filter(([, value]) => value === CREDENTIAL_HEADER_PLACEHOLDER)
 		.map(([name]) => name);
 	if (placeholders.length > 0) {
 		return refused("credential-header-placeholder", { label: input.label, headers: placeholders.join(", ") });
 	}
-	const apiVersion = edited(base?.apiVersion, input.apiVersion);
-	const server: ComposedServer = {
-		label: input.label,
-		baseUrl,
-		...(apiVersion === undefined ? {} : { apiVersion }),
-		...pickNonSecretOptionalFields({
-			oauthTokenUrl: editedOauthField(base?.oauthTokenUrl, input.oauthTokenUrl),
-			oauthClientId: editedOauthField(base?.oauthClientId, input.oauthClientId),
-			oauthScopes: edited(base?.oauthScopes, input.oauthScopes),
-			virtualKeyHeader,
-		}),
-		...fieldOf("modelParameters", input.modelParameters, base?.modelParameters),
-		...fieldOf("modelCapabilities", input.modelCapabilities, base?.modelCapabilities, {}),
-		...fieldOf("expectedFailures", input.expectedFailures, base?.expectedFailures, []),
-		...fieldOf("headers", input.headers, base?.headers, {}),
-		...fieldOf("declaredModels", input.declaredModels, base?.declaredModels, []),
-		...fieldOf("includeModes", input.includeModes, base?.includeModes, []),
-		...fieldOf("budget", input.budget, base?.budget, null),
-		...fieldOf("mcp", input.mcp, base?.mcp, null),
-	};
+	const server = composeServer(input, base, baseUrl);
 	if (existing !== undefined) {
 		const moving = keptSecretsChangingDestination(existing, server, secrets.directives);
 		if (moving.length > 0) {
@@ -550,7 +581,7 @@ export function planRemoveServer(input: AgentToolInput<"removeServer">, state: D
 // Model records: one matcher key patched into the scope the dashboard edits
 // ---------------------------------------------------------------------------
 
-type RecordMap = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+export type RecordMap = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
 interface RecordPatch {
 	readonly key: string;

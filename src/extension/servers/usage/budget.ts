@@ -57,12 +57,23 @@ function usableBudget(value: number | undefined): number | undefined {
 	return amount !== undefined && amount > 0 ? amount : undefined;
 }
 
+/** Which budget is effective: the entry's manual one over the key-reported one, "none" when neither is usable. */
+function budgetSourceOf(entryBudget: number | undefined, keyBudget: number | undefined): BudgetSource {
+	if (entryBudget !== undefined) {
+		return "entry";
+	}
+	if (keyBudget !== undefined) {
+		return "key";
+	}
+	return "none";
+}
+
 export function resolveBudget(input: ResolveBudgetInput): BudgetStatus {
 	const entryBudget = usableBudget(input.entryBudget);
 	const keyBudget = usableBudget(input.keyBudget);
 	const spend = usableAmount(input.spend);
 	const effectiveBudget = entryBudget ?? keyBudget;
-	const budgetSource: BudgetSource = entryBudget === undefined ? (keyBudget === undefined ? "none" : "key") : "entry";
+	const budgetSource = budgetSourceOf(entryBudget, keyBudget);
 	const spentFraction =
 		spend !== undefined && effectiveBudget !== undefined && effectiveBudget > 0 ? spend / effectiveBudget : undefined;
 	return {

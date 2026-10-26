@@ -369,6 +369,63 @@ interface RetryState {
 }
 
 /**
+ * One pass's working state, shared by the steps syncPass runs: the pass-start fingerprint snapshot and the map the
+ * pass builds, the labels proved at their declared URL, and the records and secret values read on the way.
+ */
+interface PassState {
+	readonly force: boolean;
+	readonly saltDurable: boolean;
+	readonly previous: Readonly<Record<string, string>>;
+	readonly next: Record<string, string>;
+	readonly synced: Set<string>;
+	readonly records: Map<string, StoredSecretsRecord>;
+	readonly secretValues: Map<string, readonly string[]>;
+}
+
+/** One entry's stored secrets as the pass read them: the usable values with the fields ownership refused, or no read. */
+type EntrySecrets =
+	| { readonly kind: "read"; readonly stored: StoredServerSecrets; readonly refusedFields: readonly SecretFieldId[] }
+	| { readonly kind: "unreadable" };
+
+/**
+ * How the live observation and the retry state stand for one entry's print; `recordConfirms` judges a record by
+ * them.
+ */
+interface EntryStanding {
+	readonly servedAsDeclared: boolean;
+	readonly blockedAsPrinted: boolean;
+	readonly recordConfirms: (record: string | undefined) => boolean;
+}
+
+/**
+ * What the pass-end reconciliation reads: the pass-start and pass-end fingerprint maps, the store's records, the
+ * session and merged ledgers, the raw setting's presence predicate and declared labels, the accepted labels, and the
+ * host's live snapshots.
+ */
+interface FinishState {
+	readonly previous: Readonly<Record<string, string>>;
+	readonly next: Record<string, string>;
+	readonly labelStillPresent: (label: string) => boolean;
+	readonly storeRecords: Readonly<Record<string, string>>;
+	readonly sessionLedger: Readonly<Record<string, string>>;
+	readonly ledger: Readonly<Record<string, string>>;
+	readonly acceptedLabels: ReadonlySet<string>;
+	readonly declaredLabels: ReadonlySet<string>;
+	readonly snapshots: readonly ServerModelsSnapshot[];
+}
+
+/** Whether two identities name one group: a shared client ID, or a shared connection ID. */
+function sameDeclaredIdentity(a: DeclaredGroupIdentity | undefined, b: DeclaredGroupIdentity | undefined): boolean {
+	if (a === undefined || b === undefined) {
+		return false;
+	}
+	if (a.expectedClientId !== undefined && a.expectedClientId === b.expectedClientId) {
+		return true;
+	}
+	return a.expectedConnectionId !== undefined && a.expectedConnectionId === b.expectedConnectionId;
+}
+
+/**
  * Keeps provider groups in step with the servers setting. syncNow is serialized: a call during an in-flight pass queues
  * exactly one follow-up and resolves after that follow-up (the pass that includes the caller's request). requestSync
  * debounces bursts from settings.json keystrokes.
@@ -802,6 +859,301 @@ export class ServerSyncEngine implements vscode.Disposable {
 		this.fingerprints = { ...this.fingerprints, [label]: lastGood };
 	}
 
+	/** Keeps the last pass's secret values for a label whose blob could not be read this pass. */
+	private carrySecretValues(label: string, pass: PassState): void {
+		const last = this.secretValues.get(label);
+		if (last !== undefined) {
+			pass.secretValues.set(label, last);
+		}
+	}
+
+	/**
+	 * Carries the label's last-known-good fingerprint, the store's record standing in when the pass-start map has
+	 * none.
+	 */
+	private carryStoreRecord(label: string, pass: PassState): void {
+		this.carryLastGood(label, pass.previous, pass.next, this.env.getFingerprints()[label]);
+	}
+
+	/**
+	 * Reads one entry's stored secrets. The ownership check runs at the read boundary, before any branch (a forced
+	 * pass included): a stored value stamped for a different destination must never enter the args this pass could
+	 * submit. A failed read must not abort the pass: later entries still need their sync, and an earlier successful add
+	 * must still reach the fingerprint persist (losing it would misread that group's next duplicate response as a name
+	 * conflict), so the read reports unreadable, the view renders the classified error, and the secret locations
+	 * degrade to the inline-only reading. A failed read keeps the last pass's secret values, so a leftover holding the
+	 * label's key does not turn into an adoptable external row for the length of the outage.
+	 */
+	private async readEntrySecrets(entry: DeclaredServer, pass: PassState): Promise<EntrySecrets> {
+		try {
+			const record = await this.env.readSecrets(entry.label);
+			pass.records.set(entry.label, record);
+			pass.secretValues.set(entry.label, secretValuesOf(record, Object.values(inlineSecretValues(entry))));
+			const owned = resolveOwnedSecrets(entry, record);
+			return { kind: "read", stored: owned.values, refusedFields: owned.refused };
+		} catch (error) {
+			this.carrySecretValues(entry.label, pass);
+			this.env.log("Reading a server entry's stored secrets failed", {
+				label: entry.label,
+				error: errorLabel(error),
+			});
+			return { kind: "unreadable" };
+		}
+	}
+
+	/**
+	 * How the live observation and the retry state stand for one entry. The live observation outranks the records: the
+	 * label's one group at the entry's URL IS this entry's identity (groupIdentityArgs covers nothing else; credentials
+	 * overlay at serve time), while a record only pins the add this window made under the name, which a group
+	 * re-pointed natively in chatLanguageModels.json keeps.
+	 *
+	 *   no record, one group seen as declared (#398)  -> the duplicate refusal is the add-only steady state
+	 *   record matches, one group seen elsewhere       -> blocked, not in sync
+	 *   blocked on this print, not seen as declared     -> stays blocked; no group or two groups seen settles nothing
+	 */
+	private entryStanding(entry: DeclaredServer, printed: string, retryState: RetryState | undefined): EntryStanding {
+		const observed = this.observedBaseUrls(entry.label);
+		const servedAsDeclared = observed.length === 1 && observed[0] === normalizeBaseUrl(entry.baseUrl);
+		const servedElsewhere = observed.length === 1 && !servedAsDeclared;
+		const blockedAsPrinted = retryState?.kind === "blocked" && retryState.fingerprint === printed;
+		const recordConfirms = (record: string | undefined): boolean =>
+			record === printed && !servedElsewhere && (!blockedAsPrinted || servedAsDeclared);
+		return { servedAsDeclared, blockedAsPrinted, recordConfirms };
+	}
+
+	/**
+	 * Records a landed add. Write-through: in-memory first, because that record is what keeps the group's next
+	 * duplicate response reading as in-sync and it must survive any storage misbehavior; the persist for the next
+	 * session is log-only for the same reason.
+	 */
+	private async recordAdd(
+		entry: DeclaredServer,
+		pass: PassState,
+		args: Record<string, string>,
+		printed: string
+	): Promise<void> {
+		pass.next[entry.label] = printed;
+		pass.synced.add(entry.label);
+		this.retry.delete(entry.label);
+		this.fingerprints = { ...this.fingerprints, [entry.label]: printed };
+		try {
+			await this.env.setFingerprints(this.fingerprints);
+		} catch (error) {
+			this.env.logError("Persisting a synced fingerprint failed", error);
+		}
+		this.env.log("Synced server entry to its provider group", {
+			label: entry.label,
+			baseUrl: entry.baseUrl,
+			hasApiKey: args.apiKey !== undefined,
+			hasOAuth: args.oauthTokenUrl !== undefined,
+		});
+	}
+
+	/**
+	 * Records a failed add and returns the entry's failure, or undefined for a duplicate the records or the live
+	 * observation confirm. The servers setting is machine-scoped and globalState is shared, so another window's engine
+	 * may have added this exact configuration and persisted its fingerprint, a record this window's seed-once map
+	 * predates; the same read serves both, so the two can never disagree, and a stale read can only UNDER-report, never
+	 * invent a matching fingerprint (the asymmetry is load-bearing). An unconfirmed duplicate means the host holds the
+	 * name for a group this entry does not provably own (the entry changed, the name was taken, or the group was
+	 * re-pointed natively) and cannot update or replace it: the refused fingerprint goes into the retry state as
+	 * "blocked" (not the map) so unforced passes keep the error without hammering and a forced pass retries after the
+	 * user fixes the group.
+	 */
+	private recordAddFailure(
+		entry: DeclaredServer,
+		pass: PassState,
+		printed: string,
+		standing: EntryStanding,
+		error: unknown
+	): SyncFailure | undefined {
+		if (!isDuplicateGroupError(error)) {
+			// The set also replaces a stale "blocked", whose unforced-pass shortcut would otherwise skip the retry this
+			// failure needs.
+			this.carryStoreRecord(entry.label, pass);
+			this.retry.set(entry.label, { kind: "upsertFailed", fingerprint: printed });
+			this.env.log("Provider group upsert failed", {
+				label: entry.label,
+				error: errorLabel(error),
+			});
+			return syncFailureOf("upsertFailed");
+		}
+		const storeRecord = this.env.getFingerprints()[entry.label];
+		const confirmed =
+			standing.recordConfirms(pass.previous[entry.label]) ||
+			standing.recordConfirms(storeRecord) ||
+			standing.servedAsDeclared;
+		if (confirmed) {
+			// Not logged: every activation's forced pass lands here for every healthy entry. Into the session map at
+			// once, like a successful add: a LATER entry's write-through persists a spread of this map, and without the
+			// confirmed label it would re-clobber the other window's record mid-pass.
+			pass.next[entry.label] = printed;
+			pass.synced.add(entry.label);
+			this.fingerprints = { ...this.fingerprints, [entry.label]: printed };
+			this.retry.delete(entry.label);
+			return undefined;
+		}
+		this.carryLastGood(entry.label, pass.previous, pass.next, storeRecord);
+		this.retry.set(entry.label, { kind: "blocked", fingerprint: printed });
+		this.env.log("Provider group exists and the host has no update path", { label: entry.label });
+		return syncFailureOf("blocked");
+	}
+
+	/**
+	 * Adds the entry's group through the host: the failure, or undefined when the group landed or a duplicate
+	 * confirmed it.
+	 */
+	private async addEntryGroup(
+		entry: DeclaredServer,
+		pass: PassState,
+		args: Record<string, string>,
+		printed: string,
+		standing: EntryStanding
+	): Promise<SyncFailure | undefined> {
+		try {
+			await this.env.addProviderGroup(args);
+			await this.recordAdd(entry, pass, args, printed);
+			return undefined;
+		} catch (error) {
+			return this.recordAddFailure(entry, pass, printed, standing, error);
+		}
+	}
+
+	/**
+	 * One entry's failure for this pass, or undefined when its group is in sync, landed, or was confirmed. `secrets` is
+	 * the blob read for `entry`, `args` the group arguments built from it and `printed` their identity print. Exactly
+	 * one branch settles the entry, and only this entry's view reads the failure; what survives between passes is the
+	 * retry state, which the failure is recomputed from. Every branch that stops short of the host carries the
+	 * last-known-good fingerprint.
+	 */
+	private async judgeEntry(
+		entry: DeclaredServer,
+		pass: PassState,
+		secrets: EntrySecrets,
+		args: Record<string, string>,
+		printed: string
+	): Promise<SyncFailure | undefined> {
+		const retryState = this.retry.get(entry.label);
+		const standing = this.entryStanding(entry, printed, retryState);
+		if (secrets.kind === "unreadable") {
+			// No host call and no retry bookkeeping: the stored retry state stays put on purpose.
+			this.carryStoreRecord(entry.label, pass);
+			return syncFailureOf("secretsUnreadable");
+		}
+		if (secrets.refusedFields.length > 0) {
+			// The pairing must not reach the host, forced passes included: an activation force-sync is exactly where a
+			// delete-failure residual would pair a surviving blob with a re-declared label at another host.
+			this.carryStoreRecord(entry.label, pass);
+			this.env.log("A stored secret is stamped for a different destination; entry not synced", {
+				label: entry.label,
+				fields: secrets.refusedFields,
+			});
+			return syncFailureOf("secretsMismatched");
+		}
+		if (!pass.saltDurable) {
+			// The same skip for a different unusable secret; the next session, keyed by the stored salt, syncs normally.
+			this.carryStoreRecord(entry.label, pass);
+			return syncFailureOf("saltUnavailable");
+		}
+		const retryingThisPrint = retryState?.kind === "upsertFailed" && retryState.fingerprint === printed;
+		if (!pass.force && standing.recordConfirms(pass.previous[entry.label]) && !retryingThisPrint) {
+			// In sync without a call. Credential rotations land here by design: the identity print does not cover them
+			// and the overlay serves the current values. An entry stuck on the duplicate error whose last-known-good
+			// print matches again was reverted, and a pending retry for some OTHER configuration is moot for the same
+			// reason.
+			pass.next[entry.label] = printed;
+			pass.synced.add(entry.label);
+			this.retry.delete(entry.label);
+			return undefined;
+		}
+		if (!pass.force && standing.blockedAsPrinted && !standing.servedAsDeclared) {
+			// The error stands: retrying without a user gesture would just hammer the command. The carried print lets
+			// a later revert of the entry still match.
+			this.carryStoreRecord(entry.label, pass);
+			return syncFailureOf("blocked");
+		}
+		if (!(await this.confirmSaltDurable())) {
+			// A store mutation mid-pass must stop further adds.
+			this.carryStoreRecord(entry.label, pass);
+			return syncFailureOf("saltUnavailable");
+		}
+		if (!(await this.entryStillCurrent(entry.label, printed))) {
+			// The setting was read once at pass start and the secrets just above, so an edit landing in either window
+			// would pair a stale entry with fresh secrets (or the reverse).
+			this.carryStoreRecord(entry.label, pass);
+			this.env.log("Server entry changed mid-pass; group add skipped", { label: entry.label });
+			return undefined;
+		}
+		return this.addEntryGroup(entry, pass, args, printed, standing);
+	}
+
+	/**
+	 * The entry's view for the dashboard. The same narrowing the provider applies, collected rather than logged: the
+	 * dashboard names the dropped credential beside the entry (configDiagnostics.ts), where the user can re-enter it. A
+	 * failure the pass already decided outranks the refusal; the field detail rides beside either.
+	 */
+	private entryView(
+		entry: DeclaredServer,
+		args: Record<string, string>,
+		stored: StoredServerSecrets,
+		syncFailure: SyncFailure | undefined
+	): DeclaredServerView {
+		const parsed = parseGroupConfiguration(args);
+		const rejections = parsed?.rejections ?? [];
+		const failure = rejections.length > 0 ? (syncFailure ?? syncFailureOf("credentialsRefused")) : syncFailure;
+		const identity = declaredGroupIdentity(entry, parsed);
+		return {
+			...identity,
+			...pickNonSecretOptionalFields(entry),
+			...pickEntryViewFields(entry),
+			secrets: secretLocations(entry, stored),
+			rejectedCredentials: rejections.map((rejection) => rejection.field),
+			syncFailure: failure,
+		};
+	}
+
+	/**
+	 * Adds the rejected carriers' secret values to the pass's map, so a leftover holding a rejected label's key is that
+	 * label's and never an adoptable external row; a failed read keeps the last pass's values.
+	 */
+	private async collectCarrierSecrets(rawSetting: unknown, pass: PassState): Promise<void> {
+		const rawReports = serverSettingReports(rawSetting);
+		const carrierInline = rejectedCarrierInlineSecrets(rawSetting, rawReports);
+		for (const label of rejectedCarrierLabels(rawReports)) {
+			try {
+				const record = pass.records.get(label) ?? (await this.env.readSecrets(label));
+				pass.secretValues.set(label, [
+					...new Set([
+						...(pass.secretValues.get(label) ?? []),
+						...secretValuesOf(record, carrierInline.get(label) ?? []),
+					]),
+				]);
+			} catch (error) {
+				this.carrySecretValues(label, pass);
+				this.env.log("Reading a rejected entry's stored secrets failed", { label, error: errorLabel(error) });
+			}
+		}
+	}
+
+	/**
+	 * Remembers each view's identity for the removal and rename classification. A pass whose stored secrets did not
+	 * all resolve (the read failed, or a stamp refused a value) built its identities over incomplete secrets, not the
+	 * live group's, so those views are skipped.
+	 */
+	private rememberIdentities(views: readonly DeclaredServerView[]): void {
+		for (const view of views) {
+			if (view.syncFailure?.class === "secretsUnreadable" || view.syncFailure?.class === "secretsMismatched") {
+				continue;
+			}
+			this.lastIdentities.set(view.label, {
+				label: view.label,
+				baseUrl: view.baseUrl,
+				expectedClientId: view.expectedClientId,
+				expectedConnectionId: view.expectedConnectionId,
+			});
+		}
+	}
+
 	private async syncPass(force: boolean): Promise<void> {
 		const rawSetting = this.env.readServersSetting();
 		const { entries, problems } = parseServersSetting(rawSetting);
@@ -816,232 +1168,33 @@ export class ServerSyncEngine implements vscode.Disposable {
 		//   the write-through replaces this.fingerprints instead of mutating it
 		//     -> `previous` keeps pass-start snapshot semantics
 		this.fingerprints ??= { ...this.env.getFingerprints() };
-		const previous: Readonly<Record<string, string>> = this.fingerprints;
-		const next: Record<string, string> = {};
-		const views: DeclaredServerView[] = [];
-		// The labels whose live group this pass proved at the declared URL (added, confirmed, or in sync without a call);
-		// the pass-end ledger records the declared URL for these and the observed or remembered one for the rest.
-		const synced = new Set<string>();
-		// Secret values by declared label, carriers included, for the dashboard's group ownership; published with the
-		// views. A failed read keeps the last pass's values, so a leftover holding the label's key does not turn into
-		// an adoptable external row for the length of the outage.
-		const records = new Map<string, StoredSecretsRecord>();
-		const secretValues = new Map<string, readonly string[]>();
-		const carrySecretValues = (label: string) => {
-			const last = this.secretValues.get(label);
-			if (last !== undefined) {
-				secretValues.set(label, last);
-			}
+		// `synced` holds the labels whose live group this pass proved at the declared URL (added, confirmed, or in sync
+		// without a call); the pass-end ledger records the declared URL for these and the observed or remembered one
+		// for the rest. `secretValues` holds secret values by declared label, carriers included, for the dashboard's
+		// group ownership, and is published with the views.
+		const pass: PassState = {
+			force,
+			saltDurable,
+			previous: this.fingerprints,
+			next: {},
+			synced: new Set(),
+			records: new Map(),
+			secretValues: new Map(),
 		};
+		const views: DeclaredServerView[] = [];
 		for (const entry of entries) {
-			let stored: StoredServerSecrets = {};
-			let refusedFields: readonly SecretFieldId[] = [];
-			let secretsUnreadable = false;
-			// The entry's user-facing failure for THIS pass: exactly one branch below decides it, and only this
-			// iteration's view reads it. What survives between passes is the retry state, which the failure is
-			// recomputed from.
-			let syncFailure: SyncFailure | undefined;
-			try {
-				// The ownership check runs at the read boundary, before any branch (a forced pass included): a stored
-				// value stamped for a different destination must never enter the args this pass could submit.
-				const record = await this.env.readSecrets(entry.label);
-				records.set(entry.label, record);
-				secretValues.set(entry.label, secretValuesOf(record, Object.values(inlineSecretValues(entry))));
-				const owned = resolveOwnedSecrets(entry, record);
-				stored = owned.values;
-				refusedFields = owned.refused;
-			} catch (error) {
-				// A failed secret read must not abort the pass: later entries still need their sync, and an earlier
-				// successful add must still reach the fingerprint persist below (losing it would misread that group's
-				// next duplicate response as a name conflict). The view renders the classified error and degrades the
-				// secret locations to the inline-only reading.
-				secretsUnreadable = true;
-				syncFailure = syncFailureOf("secretsUnreadable");
-				carrySecretValues(entry.label);
-				this.env.log("Reading a server entry's stored secrets failed", {
-					label: entry.label,
-					error: errorLabel(error),
-				});
-			}
+			const secrets = await this.readEntrySecrets(entry, pass);
+			const stored = secrets.kind === "read" ? secrets.stored : {};
 			const args = buildGroupArgs(entry, stored);
 			const printed = groupArgsFingerprint(args);
-			const retryState = this.retry.get(entry.label);
-			// The live observation outranks the records. The label's one group at the entry's URL IS this entry's identity
-			// (groupIdentityArgs covers nothing else; credentials overlay at serve time), while a record only pins the add
-			// this window made under the name, which a group re-pointed natively in chatLanguageModels.json keeps.
-			//
-			//   no record, one group seen as declared (#398)  -> the duplicate refusal is the add-only steady state
-			//   record matches, one group seen elsewhere       -> blocked, not in sync
-			//   blocked on this print, not seen as declared     -> stays blocked; no group or two groups seen settles nothing
-			const observed = this.observedBaseUrls(entry.label);
-			const servedAsDeclared = observed.length === 1 && observed[0] === normalizeBaseUrl(entry.baseUrl);
-			const servedElsewhere = observed.length === 1 && !servedAsDeclared;
-			const blockedAsPrinted = retryState?.kind === "blocked" && retryState.fingerprint === printed;
-			const recordConfirms = (record: string | undefined) =>
-				record === printed && !servedElsewhere && (!blockedAsPrinted || servedAsDeclared);
-			if (secretsUnreadable) {
-				//   no host call and no retry bookkeeping (the stored retry state stays put on purpose)
-				//     -> last-known-good carries
-				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
-			} else if (refusedFields.length > 0) {
-				// The ownership check refused a stored value this entry would have used: the pairing must not reach the
-				// host at all. Checked on forced passes too - an activation force-sync is exactly where a
-				// delete-failure residual would otherwise pair a surviving blob with a re-declared label at another
-				// host.
-				syncFailure = syncFailureOf("secretsMismatched");
-				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
-				this.env.log("A stored secret is stamped for a different destination; entry not synced", {
-					label: entry.label,
-					fields: refusedFields,
-				});
-			} else if (!saltDurable) {
-				//   The same skip -> for a different unusable secret
-				//   last-known-good carries -> the next session, keyed by the stored salt, syncs normally
-				syncFailure = syncFailureOf("saltUnavailable");
-				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
-			} else if (
-				!force &&
-				recordConfirms(previous[entry.label]) &&
-				!(retryState?.kind === "upsertFailed" && retryState.fingerprint === printed)
-			) {
-				next[entry.label] = printed;
-				synced.add(entry.label);
-				// Credential rotations land here by design - the identity print does not cover them, the overlay serves
-				// the current values, and no host call is owed.
-				//
-				//   An entry stuck on the duplicate error that matches its last-known-good fingerprint again
-				//     -> was reverted
-				//   A pending retry recorded for some OTHER configuration -> moot for the same reason
-				this.retry.delete(entry.label);
-			} else if (!force && blockedAsPrinted && !servedAsDeclared) {
-				// The last-known-good fingerprint is carried so a later revert of the entry can still match it.
-				//
-				//   retrying without a user gesture -> would just hammer the command
-				syncFailure = syncFailureOf("blocked");
-				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
-			} else if (!(await this.confirmSaltDurable())) {
-				//   a store mutation mid-pass -> must stop further adds
-				syncFailure = syncFailureOf("saltUnavailable");
-				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
-			} else if (await this.entryStillCurrent(entry.label, printed)) {
-				try {
-					await this.env.addProviderGroup(args);
-					next[entry.label] = printed;
-					synced.add(entry.label);
-					this.retry.delete(entry.label);
-					// Write-through: in-memory first, because that record is what keeps the group's next duplicate
-					// response reading as in-sync and it must survive any storage misbehavior; the persist for the next
-					// session is log-only for the same reason.
-					this.fingerprints = { ...this.fingerprints, [entry.label]: printed };
-					try {
-						await this.env.setFingerprints(this.fingerprints);
-					} catch (error) {
-						this.env.logError("Persisting a synced fingerprint failed", error);
-					}
-					this.env.log("Synced server entry to its provider group", {
-						label: entry.label,
-						baseUrl: entry.baseUrl,
-						hasApiKey: args.apiKey !== undefined,
-						hasOAuth: args.oauthTokenUrl !== undefined,
-					});
-				} catch (error) {
-					if (isDuplicateGroupError(error)) {
-						// The servers setting is machine-scoped and globalState is shared, so another window's engine
-						// may have added this exact configuration and persisted its fingerprint - a record this
-						// window's seed-once map predates.
-						//
-						//   the same read serves both -> the two can never disagree
-						//   a stale read can only UNDER-report, never invent a matching fingerprint
-						//     -> the asymmetry is load-bearing
-						const storeRecord = this.env.getFingerprints()[entry.label];
-						const confirmed = recordConfirms(previous[entry.label]) || recordConfirms(storeRecord) || servedAsDeclared;
-						if (confirmed) {
-							// Not logged for that reason.
-							//
-							//   every activation's forced pass -> lands here for every healthy entry
-							next[entry.label] = printed;
-							synced.add(entry.label);
-							// Into the session map at once, like a successful add: a LATER entry's write-through
-							// persists a spread of this map, and without the confirmed label it would re-clobber the
-							// other window's record mid-pass.
-							this.fingerprints = { ...this.fingerprints, [entry.label]: printed };
-							this.retry.delete(entry.label);
-						} else {
-							// The host holds the name for a group this entry does not provably own (the entry changed, the
-							// name was taken, or the group was re-pointed natively) and cannot update or replace it. The
-							// refused fingerprint goes into the retry state as "blocked" (not the map) so unforced passes
-							// keep the error without hammering and a forced pass retries after the user fixes the group.
-							this.carryLastGood(entry.label, previous, next, storeRecord);
-							this.retry.set(entry.label, { kind: "blocked", fingerprint: printed });
-							syncFailure = syncFailureOf("blocked");
-							this.env.log("Provider group exists and the host has no update path", { label: entry.label });
-						}
-					} else {
-						// The set also replaces a stale "blocked", whose unforced-pass shortcut would otherwise skip the
-						// retry this failure needs.
-						this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
-						this.retry.set(entry.label, { kind: "upsertFailed", fingerprint: printed });
-						syncFailure = syncFailureOf("upsertFailed");
-						this.env.log("Provider group upsert failed", {
-							label: entry.label,
-							error: errorLabel(error),
-						});
-					}
-				}
-			} else {
-				//   the setting was read once at pass start and the secrets just above
-				//     -> an edit landing in either window would pair a stale entry with fresh secrets (or the reverse)
-				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
-				this.env.log("Server entry changed mid-pass; group add skipped", { label: entry.label });
-			}
-			// The same narrowing the provider applies, collected rather than logged: the dashboard names the dropped
-			// credential beside the entry (configDiagnostics.ts), where the user can re-enter it. A failure the pass
-			// already decided above outranks the refusal; the field detail rides beside either.
-			const parsed = parseGroupConfiguration(args);
-			const rejections = parsed?.rejections ?? [];
-			if (rejections.length > 0) {
-				syncFailure ??= syncFailureOf("credentialsRefused");
-			}
-			const identity = declaredGroupIdentity(entry, parsed);
-			views.push({
-				...identity,
-				...pickNonSecretOptionalFields(entry),
-				...pickEntryViewFields(entry),
-				secrets: secretLocations(entry, stored),
-				rejectedCredentials: rejections.map((rejection) => rejection.field),
-				syncFailure,
-			});
+			const syncFailure = await this.judgeEntry(entry, pass, secrets, args, printed);
+			views.push(this.entryView(entry, args, stored, syncFailure));
 		}
 
-		const rawReports = serverSettingReports(rawSetting);
-		const carrierInline = rejectedCarrierInlineSecrets(rawSetting, rawReports);
-		for (const label of rejectedCarrierLabels(rawReports)) {
-			try {
-				const record = records.get(label) ?? (await this.env.readSecrets(label));
-				secretValues.set(label, [
-					...new Set([...(secretValues.get(label) ?? []), ...secretValuesOf(record, carrierInline.get(label) ?? [])]),
-				]);
-			} catch (error) {
-				carrySecretValues(label);
-				this.env.log("Reading a rejected entry's stored secrets failed", { label, error: errorLabel(error) });
-			}
-		}
-
-		for (const view of views) {
-			// A pass whose stored secrets did not all resolve (the read failed, or a stamp refused a value) built its
-			// identities over incomplete secrets: not the live group's.
-			if (view.syncFailure?.class === "secretsUnreadable" || view.syncFailure?.class === "secretsMismatched") {
-				continue;
-			}
-			this.lastIdentities.set(view.label, {
-				label: view.label,
-				baseUrl: view.baseUrl,
-				expectedClientId: view.expectedClientId,
-				expectedConnectionId: view.expectedConnectionId,
-			});
-		}
+		await this.collectCarrierSecrets(rawSetting, pass);
+		this.rememberIdentities(views);
 		try {
-			await this.finishPass(rawSetting, entries, views, previous, next, synced);
+			await this.finishPass(rawSetting, entries, views, pass.previous, pass.next, pass.synced);
 		} finally {
 			// In a finally because a throwing finish must not discard the pass's computed views.
 			//
@@ -1049,8 +1202,226 @@ export class ServerSyncEngine implements vscode.Disposable {
 			this.views = views;
 			// A non-array setting declares every old label and parses no entry, so the pass read no blob; the last
 			// pass's records stay until an array reads them again.
-			this.secretValues = Array.isArray(rawSetting) ? secretValues : this.secretValues;
+			this.secretValues = Array.isArray(rawSetting) ? pass.secretValues : this.secretValues;
 		}
+	}
+
+	/**
+	 * The removal candidates. A label is one on either kind of evidence that a group exists for it: a fingerprint
+	 * record (a landed add) or a SESSION ledger record (a proven or observed group identity; an entry whose add the host
+	 * refused still has its live group observed). The session ledger, never the merged one: a stale store read can
+	 * re-surface a label this session already dropped, and keying on it would fire the removal again. An entry that
+	 * never synced AND was never seen served raises no event. Removals still unresolved from earlier passes join this
+	 * pass's candidates once more; the setting declaring the label again ends the carry.
+	 */
+	private removalCandidates(finish: FinishState): string[] {
+		const removed = [...new Set([...Object.keys(finish.previous), ...Object.keys(finish.sessionLedger)])].filter(
+			(label) => !finish.labelStillPresent(label)
+		);
+		for (const label of [...this.unresolvedRemovals.keys()]) {
+			if (finish.labelStillPresent(label)) {
+				this.unresolvedRemovals.delete(label);
+			} else if (!removed.includes(label)) {
+				removed.push(label);
+			}
+		}
+		return removed;
+	}
+
+	/**
+	 * Carries the records of present-but-rejected labels into the pass-end maps, and returns the ledger records carried.
+	 * The pass-end writes rebuild both maps from the accepted entries, and without this carry a mid-edit malformed entry
+	 * would shed its fingerprint (wedging the repaired entry on an unrecognizable duplicate) and its ledger record
+	 * (blinding a later real removal). Reserved (prototype-mutating) keys cannot reach these loops: the env filters them
+	 * at its read boundary, and the parser rejects them as labels.
+	 */
+	private carryRejectedRecords(finish: FinishState): Record<string, string> {
+		const { previous, next, storeRecords, ledger, acceptedLabels, labelStillPresent } = finish;
+		for (const label of new Set([...Object.keys(previous), ...Object.keys(storeRecords)])) {
+			if (acceptedLabels.has(label) || !labelStillPresent(label)) {
+				continue;
+			}
+			const carried = previous[label] ?? storeRecords[label];
+			if (carried !== undefined && next[label] === undefined) {
+				next[label] = carried;
+			}
+		}
+		const carriedLedger: Record<string, string> = {};
+		for (const [label, url] of Object.entries(ledger)) {
+			if (!acceptedLabels.has(label) && labelStillPresent(label)) {
+				carriedLedger[label] = url;
+			}
+		}
+		return carriedLedger;
+	}
+
+	/**
+	 * Prunes per-label retry state with its entry; the map is keyed by user-controlled labels and would otherwise grow
+	 * without bound. Pruned by PRESENCE, never by this pass's acceptance: a mid-edit entry or an unreadable container
+	 * must not erase an upsertFailed marker, whose loss would read the restored entry's carried fingerprint as in-sync
+	 * and silently skip the retry that failure still needs.
+	 */
+	private pruneRetries(labelStillPresent: (label: string) => boolean): void {
+		for (const label of [...this.retry.keys()]) {
+			if (!labelStillPresent(label)) {
+				this.retry.delete(label);
+			}
+		}
+	}
+
+	/**
+	 * The labels NEW this pass, with the URL each declares: a removed label's host re-declared under one of them reads
+	 * as a rename's other half. New means absent from the last valid pass's declaration; a pre-existing entry with no
+	 * records (blocked, unreadable secrets) is not new, and before the first valid pass the delta falls back to record
+	 * absence.
+	 */
+	private newLabelsThisPass(entries: readonly DeclaredServer[], finish: FinishState): ReadonlyMap<string, string> {
+		const baseline = this.declaredLabelsLastPass;
+		return new Map(
+			entries
+				.filter((entry) =>
+					baseline === undefined
+						? finish.previous[entry.label] === undefined && finish.sessionLedger[entry.label] === undefined
+						: !baseline.has(entry.label)
+				)
+				.map((entry) => [entry.label, normalizeBaseUrl(entry.baseUrl)])
+		);
+	}
+
+	/**
+	 * The event for one removal candidate, or undefined for a candidate whose group identity is still unresolved and
+	 * already carried. A candidate with no known base URL is remembered with this pass's new labels, since a rename's
+	 * other half is remembered only within the session. A resolved candidate is a rename when one of the new labels
+	 * (of its own detecting pass) declares its URL and shares its identity; otherwise its keys are judged against the
+	 * entries present at THIS removal, since a key shared with an entry removed later is tombstoned then.
+	 */
+	private removalEvent(
+		label: string,
+		finish: FinishState,
+		newLabels: ReadonlyMap<string, string>
+	): RemovedEntryEvent | undefined {
+		const baseUrl = this.knownBaseUrl(label, finish.ledger);
+		const carried = this.unresolvedRemovals.get(label);
+		if (baseUrl === undefined) {
+			if (carried !== undefined) {
+				return undefined;
+			}
+			this.unresolvedRemovals.set(label, newLabels);
+			return { kind: "removed", label, baseUrl, groupIds: [], sharedGroupIds: [] };
+		}
+		if (finish.ledger[label] === undefined) {
+			this.env.log("Removed entry's group identity resolved from the live provider group", { label });
+		}
+		this.unresolvedRemovals.delete(label);
+		const own = this.lastIdentities.get(label);
+		this.lastIdentities.delete(label);
+		const renamedTo = [...(carried ?? newLabels)].find(
+			([newLabel, url]) => url === baseUrl && sameDeclaredIdentity(own, this.lastIdentities.get(newLabel))
+		)?.[0];
+		if (renamedTo !== undefined) {
+			return { kind: "renamed", oldLabel: label, newLabel: renamedTo, baseUrl };
+		}
+		const presentKeys = new Set(
+			[...this.lastIdentities].flatMap(([other, ids]) =>
+				finish.declaredLabels.has(other) ? this.identityKeys(ids, finish.snapshots) : []
+			)
+		);
+		const ownKeys = this.identityKeys(own, finish.snapshots);
+		return {
+			kind: "removed",
+			label,
+			baseUrl,
+			groupIds: ownKeys.filter((key) => !presentKeys.has(key)),
+			sharedGroupIds: ownKeys.filter((key) => presentKeys.has(key)),
+		};
+	}
+
+	/**
+	 * Keeps every unresolved removal's fingerprint record (see unresolvedRemovals): the label is not declared, so
+	 * nothing else would carry it, and pruning it would leave the next session no candidate.
+	 */
+	private carryUnresolvedRecords(finish: FinishState): void {
+		for (const label of this.unresolvedRemovals.keys()) {
+			const carried = finish.previous[label] ?? finish.storeRecords[label];
+			if (carried !== undefined && finish.next[label] === undefined) {
+				finish.next[label] = carried;
+			}
+		}
+	}
+
+	/**
+	 * Persists the pass-end fingerprint map, in memory before the store: session truth must survive a failing (or
+	 * later-reverted) storage write. The persist itself is log-only, because a throw here must not abort the
+	 * reconciliation that follows; the removal's tombstone and notice would be lost with no later pass able to
+	 * rediscover them.
+	 */
+	private async persistFingerprints(next: Record<string, string>): Promise<void> {
+		this.fingerprints = next;
+		try {
+			await this.env.setFingerprints(next);
+		} catch (error) {
+			this.env.logError("Persisting the pass-end fingerprint map failed", error);
+		}
+	}
+
+	/**
+	 * Persists the entry identity ledger: the declared URL for the labels this pass proved there, the known URL for the
+	 * rest, and the carried records. Never the unproven declared URL: it would make a later removal tombstone a group
+	 * that does not exist while the real one keeps serving, and no evidence at all degrades that removal to the honest
+	 * untracked notice instead. Session truth before the persist, like the fingerprint map, and log-only like it: the
+	 * session ledger already holds the records, so only a NEXT session's removal degrades to the untracked notice.
+	 */
+	private async persistLedger(
+		entries: readonly DeclaredServer[],
+		synced: ReadonlySet<string>,
+		ledger: Readonly<Record<string, string>>,
+		carriedLedger: Readonly<Record<string, string>>
+	): Promise<void> {
+		try {
+			const ledgerEntries = entries.flatMap((entry): [string, string][] => {
+				if (synced.has(entry.label)) {
+					return [[entry.label, normalizeBaseUrl(entry.baseUrl)]];
+				}
+				const knownUrl = this.knownBaseUrl(entry.label, ledger);
+				return knownUrl === undefined ? [] : [[entry.label, knownUrl]];
+			});
+			const nextLedger = Object.fromEntries([...ledgerEntries, ...Object.entries(carriedLedger)]);
+			this.ledger = nextLedger;
+			await this.env.setEntryBaseUrls(nextLedger);
+		} catch (error) {
+			this.env.logError("Persisting the entry identity ledger failed", error);
+		}
+	}
+
+	/**
+	 * Logs the removals and reconciles the identities with the env. Logged per EMITTED event, not per candidate: a
+	 * carried unresolved removal is a candidate on every pass and would otherwise repeat this line into the
+	 * issue-report buffer until its observation arrives. There is no programmatic group removal, so the provider groups
+	 * survive, and the labels' SecretStorage blobs are kept on purpose. A deferred removal (unresolvedRemovals) keeps
+	 * its identity until its observation arrives and classifies it.
+	 */
+	private async reconcileRemovals(
+		views: readonly DeclaredServerView[],
+		events: readonly RemovedEntryEvent[],
+		finish: FinishState
+	): Promise<void> {
+		const reported = events.map((event) => (event.kind === "renamed" ? event.oldLabel : event.label));
+		if (reported.length > 0) {
+			this.env.log("Servers setting entries removed; their provider groups remain", { labels: reported });
+		}
+		for (const label of [...this.lastIdentities.keys()]) {
+			if (!finish.declaredLabels.has(label) && !this.unresolvedRemovals.has(label)) {
+				this.lastIdentities.delete(label);
+			}
+		}
+		await this.env.reconcileEntryIdentities(
+			views.map(({ label, baseUrl }) => ({
+				label,
+				baseUrl: normalizeBaseUrl(baseUrl),
+				group: this.joinedGroupOf(this.lastIdentities.get(label), finish.snapshots),
+			})),
+			events
+		);
 	}
 
 	/**
@@ -1076,188 +1447,40 @@ export class ServerSyncEngine implements vscode.Disposable {
 			this.env.log("Servers setting container is not an array; the pass changes no records");
 			return;
 		}
-		const currentLabels = new Set(entries.map((entry) => entry.label));
-		// Removal detection uses the shared still-declared predicate: presence, not this pass's acceptance (see
-		// stillDeclaredIn) - a tombstone written for a present entry would suppress a group the user did not remove.
-		const labelStillPresent = stillDeclaredIn(rawSetting);
-		const storeRecords = this.env.getFingerprints();
-		// The session ledger is the truth for this pass (see the field's doc);
-		// the fresh store read merges underneath it, presence-only.
+		// The session ledger is the truth for this pass (see the field's doc); the fresh store read merges underneath
+		// it, presence-only. Removal detection uses the shared still-declared predicate: presence, not this pass's
+		// acceptance (see stillDeclaredIn), since a tombstone written for a present entry would suppress a group the
+		// user did not remove.
 		const storedLedger = this.env.getEntryBaseUrls();
 		this.ledger ??= { ...storedLedger };
-		const sessionLedger: Readonly<Record<string, string>> = this.ledger;
-		const ledger: Readonly<Record<string, string>> = { ...storedLedger, ...sessionLedger };
-		// A label is a removal candidate on either kind of evidence that a group exists for it: a fingerprint record (a
-		// landed add) or a SESSION ledger record (a proven or observed group identity - an entry whose add the host
-		// refused still has its live group observed). The session ledger, never the merged one: a stale store read can
-		// re-surface a label this session already dropped, and keying on it would fire the removal again.
-		//
-		//   An entry that never synced AND was never seen served -> raises no event
-		const removed = [...new Set([...Object.keys(previous), ...Object.keys(sessionLedger)])].filter(
-			(label) => !labelStillPresent(label)
-		);
-		// A present-but-rejected label also KEEPS its records: the pass-end writes below rebuild both maps from the
-		// accepted entries, and without this carry a mid-edit malformed entry would shed its fingerprint (wedging the
-		// repaired entry on an unrecognizable duplicate) and its ledger record (blinding a later real removal).
-		// Reserved (prototype-mutating) keys cannot reach these loops: the env filters them at its read boundary, and
-		// the parser rejects them as labels.
-		const carriedLedger: Record<string, string> = {};
-		for (const label of new Set([...Object.keys(previous), ...Object.keys(storeRecords)])) {
-			if (currentLabels.has(label) || !labelStillPresent(label)) {
-				continue;
-			}
-			const carried = previous[label] ?? storeRecords[label];
-			if (carried !== undefined && next[label] === undefined) {
-				next[label] = carried;
-			}
-		}
-		for (const [label, url] of Object.entries(ledger)) {
-			if (!currentLabels.has(label) && labelStillPresent(label)) {
-				carriedLedger[label] = url;
-			}
-		}
-		// Per-label retry state is pruned with its entry; the map is keyed by user-controlled labels and would
-		// otherwise grow without bound. Pruned by PRESENCE, never by this pass's acceptance: a mid-edit entry or an
-		// unreadable container must not erase an upsertFailed marker - its loss would read the restored entry's carried
-		// fingerprint as in-sync and silently skip the retry that failure still needs.
-		for (const label of [...this.retry.keys()]) {
-			if (!labelStillPresent(label)) {
-				this.retry.delete(label);
-			}
-		}
-		// The labels NEW this pass, with the URL each declares: a removed label's host re-declared under one of them
-		// reads as a rename's other half. New means absent from the last valid pass's declaration - a pre-existing
-		// entry with no records (blocked, unreadable secrets) is not new.
-		const baseline = this.declaredLabelsLastPass;
-		const newLabels: ReadonlyMap<string, string> = new Map(
-			entries
-				.filter((entry) =>
-					baseline === undefined
-						? previous[entry.label] === undefined && sessionLedger[entry.label] === undefined
-						: !baseline.has(entry.label)
-				)
-				.map((entry) => [entry.label, normalizeBaseUrl(entry.baseUrl)])
-		);
+		const finish: FinishState = {
+			previous,
+			next,
+			labelStillPresent: stillDeclaredIn(rawSetting),
+			storeRecords: this.env.getFingerprints(),
+			sessionLedger: this.ledger,
+			ledger: { ...storedLedger, ...this.ledger },
+			acceptedLabels: new Set(entries.map((entry) => entry.label)),
+			declaredLabels: rawDeclaredLabels(rawSetting),
+			snapshots: this.liveSnapshots(),
+		};
+		const removed = this.removalCandidates(finish);
+		const carriedLedger = this.carryRejectedRecords(finish);
+		this.pruneRetries(finish.labelStillPresent);
+		const newLabels = this.newLabelsThisPass(entries, finish);
 		this.declaredLabelsLastPass = rawDeclaredLabels(rawSetting);
-		// Removals still unresolved from earlier passes join this pass's candidates once more, classified against their
-		// own detecting pass's new labels; the setting declaring the label again ends the carry.
-		for (const label of [...this.unresolvedRemovals.keys()]) {
-			if (labelStillPresent(label)) {
-				this.unresolvedRemovals.delete(label);
-			} else if (!removed.includes(label)) {
-				removed.push(label);
-			}
-		}
-		const present = rawDeclaredLabels(rawSetting);
-		const snapshots = this.liveSnapshots();
-		const sameIdentity = (a: DeclaredGroupIdentity | undefined, b: DeclaredGroupIdentity | undefined) =>
-			a !== undefined &&
-			b !== undefined &&
-			((a.expectedClientId !== undefined && a.expectedClientId === b.expectedClientId) ||
-				(a.expectedConnectionId !== undefined && a.expectedConnectionId === b.expectedConnectionId));
+
 		const events: RemovedEntryEvent[] = [];
 		for (const label of removed) {
-			const baseUrl = this.knownBaseUrl(label, ledger);
-			const carried = this.unresolvedRemovals.get(label);
-			if (baseUrl === undefined) {
-				//   A rename's other half -> is remembered only within the session
-				if (carried === undefined) {
-					this.unresolvedRemovals.set(label, newLabels);
-					events.push({ kind: "removed", label, baseUrl, groupIds: [], sharedGroupIds: [] });
-				}
-				continue;
-			}
-			if (ledger[label] === undefined) {
-				this.env.log("Removed entry's group identity resolved from the live provider group", { label });
-			}
-			this.unresolvedRemovals.delete(label);
-			const own = this.lastIdentities.get(label);
-			this.lastIdentities.delete(label);
-			const renamedTo = [...(carried ?? newLabels)].find(
-				([newLabel, url]) => url === baseUrl && sameIdentity(own, this.lastIdentities.get(newLabel))
-			)?.[0];
-			// Judged against the entries present at THIS removal: a key shared with an entry removed later is
-			// tombstoned then.
-			const presentKeys = new Set(
-				[...this.lastIdentities].flatMap(([other, ids]) =>
-					present.has(other) ? this.identityKeys(ids, snapshots) : []
-				)
-			);
-			const ownKeys = this.identityKeys(own, snapshots);
-			events.push(
-				renamedTo === undefined
-					? {
-							kind: "removed",
-							label,
-							baseUrl,
-							groupIds: ownKeys.filter((key) => !presentKeys.has(key)),
-							sharedGroupIds: ownKeys.filter((key) => presentKeys.has(key)),
-						}
-					: { kind: "renamed", oldLabel: label, newLabel: renamedTo, baseUrl }
-			);
-		}
-		// An unresolved removal - detected this pass or carried from an earlier one - keeps its fingerprint record (see
-		// unresolvedRemovals): the label is not declared, so nothing else would carry it, and pruning it would leave
-		// the next session no candidate.
-		for (const label of this.unresolvedRemovals.keys()) {
-			const carried = previous[label] ?? storeRecords[label];
-			if (carried !== undefined && next[label] === undefined) {
-				next[label] = carried;
+			const event = this.removalEvent(label, finish, newLabels);
+			if (event !== undefined) {
+				events.push(event);
 			}
 		}
-		// In-memory before the persist: session truth must survive a failing (or later-reverted) storage write. The
-		// persist itself is log-only, because a throw here must not abort the reconciliation below - the removal's
-		// tombstone and notice would be lost with no later pass able to rediscover them.
-		this.fingerprints = next;
-		try {
-			await this.env.setFingerprints(next);
-		} catch (error) {
-			this.env.logError("Persisting the pass-end fingerprint map failed", error);
-		}
-		try {
-			// Never the unproven declared URL: it would make a later removal tombstone a group that does not exist
-			// while the real one keeps serving.
-			//
-			//   No evidence at all -> degrades that removal to the honest untracked notice instead
-			const ledgerEntries = entries.flatMap((entry): [string, string][] => {
-				if (synced.has(entry.label)) {
-					return [[entry.label, normalizeBaseUrl(entry.baseUrl)]];
-				}
-				const knownUrl = this.knownBaseUrl(entry.label, ledger);
-				return knownUrl === undefined ? [] : [[entry.label, knownUrl]];
-			});
-			const nextLedger = Object.fromEntries([...ledgerEntries, ...Object.entries(carriedLedger)]);
-			// Session truth before the persist, like the fingerprint map: a failing (or later-reverted) storage write
-			// must not cost a later removal its tombstone.
-			this.ledger = nextLedger;
-			await this.env.setEntryBaseUrls(nextLedger);
-		} catch (error) {
-			// Log-only like the fingerprint persist: the session ledger already holds the records, so only a NEXT
-			// session's removal degrades to the untracked (no-tombstone) notice.
-			this.env.logError("Persisting the entry identity ledger failed", error);
-		}
-		// Logged per EMITTED event, not per candidate: a carried unresolved removal is a candidate on every pass and
-		// would otherwise repeat this line into the issue-report buffer until its observation arrives.
-		//
-		//   there is no programmatic group removal -> the provider groups survive
-		//   Labels' SecretStorage blobs             -> are kept on purpose
-		const reported = events.map((event) => (event.kind === "renamed" ? event.oldLabel : event.label));
-		if (reported.length > 0) {
-			this.env.log("Servers setting entries removed; their provider groups remain", { labels: reported });
-		}
-		// A deferred removal (unresolvedRemovals) keeps its identity until its observation arrives and classifies it.
-		for (const label of [...this.lastIdentities.keys()]) {
-			if (!present.has(label) && !this.unresolvedRemovals.has(label)) {
-				this.lastIdentities.delete(label);
-			}
-		}
-		await this.env.reconcileEntryIdentities(
-			views.map(({ label, baseUrl }) => ({
-				label,
-				baseUrl: normalizeBaseUrl(baseUrl),
-				group: this.joinedGroupOf(this.lastIdentities.get(label), snapshots),
-			})),
-			events
-		);
+		this.carryUnresolvedRecords(finish);
+
+		await this.persistFingerprints(next);
+		await this.persistLedger(entries, synced, finish.ledger, carriedLedger);
+		await this.reconcileRemovals(views, events, finish);
 	}
 }

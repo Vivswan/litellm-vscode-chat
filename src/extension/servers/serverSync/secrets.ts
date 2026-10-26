@@ -26,6 +26,7 @@ import {
 	sameSecretDestination,
 	secretDestination,
 } from "../../../shared/serverEntry";
+import { recordFromKeys } from "../../../shared/util/json";
 import type { DeclaredServer } from "./setting";
 
 /** The secure-side secrets of one label, as the SecretStorage blob holds them. */
@@ -50,6 +51,37 @@ export interface SecretStore {
 /** The blob key the `_owner` map rides under; never a secret field id, so old readers ignore it. */
 const OWNER_KEY = "_owner";
 
+/** The non-empty string values of a parsed blob, by secret field. */
+function parseValues(parsed: Record<string, unknown>): { -readonly [K in SecretFieldId]?: string } {
+	const values: { -readonly [K in SecretFieldId]?: string } = {};
+	for (const field of SECRET_FIELD_IDS) {
+		const value = parsed[field];
+		if (typeof value === "string" && value.length > 0) {
+			values[field] = value;
+		}
+	}
+	return values;
+}
+
+/** The ownership stamps of a parsed blob; a stamp is meaningful only beside its value, so one without is dropped. */
+function parseOwners(
+	parsed: Record<string, unknown>,
+	values: Partial<Readonly<Record<SecretFieldId, string>>>
+): { -readonly [K in SecretFieldId]?: SecretOwner } {
+	const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = {};
+	const rawOwners = parsed[OWNER_KEY];
+	if (typeof rawOwners !== "object" || rawOwners === null) {
+		return owners;
+	}
+	for (const field of SECRET_FIELD_IDS) {
+		const owner = parseSecretOwner((rawOwners as Record<string, unknown>)[field], field);
+		if (owner !== undefined && values[field] !== undefined) {
+			owners[field] = owner;
+		}
+	}
+	return owners;
+}
+
 function parseRecord(raw: string | undefined): StoredSecretsRecord {
 	if (raw === undefined) {
 		return { values: {}, owners: {} };
@@ -63,25 +95,9 @@ function parseRecord(raw: string | undefined): StoredSecretsRecord {
 	if (typeof parsed !== "object" || parsed === null) {
 		return { values: {}, owners: {} };
 	}
-	const values: { -readonly [K in SecretFieldId]?: string } = {};
-	for (const field of SECRET_FIELD_IDS) {
-		const value = (parsed as Record<string, unknown>)[field];
-		if (typeof value === "string" && value.length > 0) {
-			values[field] = value;
-		}
-	}
-	const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = {};
-	const rawOwners = (parsed as Record<string, unknown>)[OWNER_KEY];
-	if (typeof rawOwners === "object" && rawOwners !== null) {
-		for (const field of SECRET_FIELD_IDS) {
-			const owner = parseSecretOwner((rawOwners as Record<string, unknown>)[field], field);
-			// A stamp is meaningful only beside its value.
-			if (owner !== undefined && values[field] !== undefined) {
-				owners[field] = owner;
-			}
-		}
-	}
-	return { values, owners };
+	const record = parsed as Record<string, unknown>;
+	const values = parseValues(record);
+	return { values, owners: parseOwners(record, values) };
 }
 
 function serializeRecord(record: StoredSecretsRecord): string {
@@ -327,6 +343,17 @@ export function inlineSecretValues(entry: DeclaredServer): Readonly<Partial<Reco
 	return values;
 }
 
+/** Where one field's value lives: inline in the setting wins, else the stored blob, else nowhere. */
+function locationOf(inline: string | undefined, stored: string | undefined): SecretLocation {
+	if (inline !== undefined) {
+		return "settings";
+	}
+	if (stored !== undefined) {
+		return "secure";
+	}
+	return "none";
+}
+
 /**
  * Where each of an entry's secret fields lives, under the inline-wins rule: "settings" for inlineSecretValues' keys,
  * "secure" for the label's blob fields behind them, "none" otherwise. `stored` is the ownership-resolved view
@@ -338,9 +365,5 @@ export function secretLocations(
 	stored: StoredServerSecrets
 ): Record<SecretFieldId, SecretLocation> {
 	const inline = inlineSecretValues(entry);
-	const locations = {} as Record<SecretFieldId, SecretLocation>;
-	for (const field of SECRET_FIELD_IDS) {
-		locations[field] = inline[field] === undefined ? (stored[field] === undefined ? "none" : "secure") : "settings";
-	}
-	return locations;
+	return recordFromKeys(SECRET_FIELD_IDS, (field) => locationOf(inline[field], stored[field]));
 }

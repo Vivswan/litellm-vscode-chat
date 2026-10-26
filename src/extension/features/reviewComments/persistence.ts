@@ -62,6 +62,28 @@ export function decodeStore(raw: unknown): DecodeStoreResult {
 	}
 }
 
+/**
+ * One URI's stored list decoded: the readable threads, and the count of threads and comments dropped on the way.
+ * Undefined when the value is not a list at all.
+ */
+function decodeThreadList(value: unknown): { kept: StoredReviewThread[]; dropped: number } | undefined {
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+	const kept: StoredReviewThread[] = [];
+	let dropped = 0;
+	for (const candidate of value) {
+		const thread = decodeThread(candidate);
+		if (thread === undefined) {
+			dropped += 1;
+			continue;
+		}
+		kept.push(thread.thread);
+		dropped += thread.droppedComments;
+	}
+	return { kept, dropped };
+}
+
 function decodeStoreShape(raw: unknown): DecodeStoreResult {
 	if (raw === undefined || raw === null) {
 		return { ok: true, threads: {}, dropped: 0 };
@@ -82,22 +104,13 @@ function decodeStoreShape(raw: unknown): DecodeStoreResult {
 			dropped += 1;
 			continue;
 		}
-		const value = raw.threads[uri];
-		if (!Array.isArray(value)) {
+		const list = decodeThreadList(raw.threads[uri]);
+		if (list === undefined) {
 			dropped += 1;
 			continue;
 		}
-		const kept: StoredReviewThread[] = [];
-		for (const candidate of value) {
-			const thread = decodeThread(candidate);
-			if (thread === undefined) {
-				dropped += 1;
-			} else {
-				kept.push(thread.thread);
-				dropped += thread.droppedComments;
-			}
-		}
-		threads[uri] = kept;
+		threads[uri] = list.kept;
+		dropped += list.dropped;
 	}
 	return { ok: true, threads, dropped };
 }

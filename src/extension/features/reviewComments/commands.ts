@@ -409,6 +409,52 @@ async function announce(report: ReviewReport): Promise<void> {
 	await showActionableMessage("info", reportText(report), []);
 }
 
+/** The sentence for files whose review came back unreadable, or undefined when every file's did not. */
+function unusableSentence(unusable: number): string | undefined {
+	if (unusable === 1) {
+		return l10n.t("1 file got no readable review back and kept its earlier comments.");
+	}
+	if (unusable > 1) {
+		return l10n.t("{0} files got no readable review back and kept their earlier comments.", unusable);
+	}
+	return undefined;
+}
+
+/** The sentence for files that changed under their review, or undefined when none did. */
+function staleSentence(stale: number): string | undefined {
+	if (stale === 1) {
+		return l10n.t("1 file changed while it was being reviewed, so its comments were not placed.");
+	}
+	if (stale > 1) {
+		return l10n.t("{0} files changed while they were being reviewed, so their comments were not placed.", stale);
+	}
+	return undefined;
+}
+
+/** The sentence for files skipped over unsaved edits, or undefined when none were. */
+function dirtySentence(dirty: number): string | undefined {
+	if (dirty === 1) {
+		return l10n.t("1 file has unsaved changes; save it and review it on its own.");
+	}
+	if (dirty > 1) {
+		return l10n.t("{0} files have unsaved changes; save them and review them on their own.", dirty);
+	}
+	return undefined;
+}
+
+/**
+ * The sentence for files left out of the pass. "more" only reads right after another sentence; on its own (a change
+ * set of pure deletions or renames) it would dangle, so a leading sentence says what the files held instead.
+ */
+function skippedSentence(skipped: number, leading: boolean): string {
+	if (skipped === 1) {
+		return leading ? l10n.t("1 file had nothing reviewable in it.") : l10n.t("1 more file was left out of this pass.");
+	}
+	return leading
+		? l10n.t("{0} files had nothing reviewable in them.", skipped)
+		: l10n.t("{0} more files were left out of this pass.", skipped);
+}
+
 /**
  * The completion notice: counts only, never a word of what the model wrote. Each case is its own whole sentence rather
  * than assembled fragments, so a translation can order the numbers however its language needs.
@@ -432,38 +478,10 @@ function reportText(report: ReviewReport): string {
 	// No leading sentence when no file made it through: "Reviewed 0 files - nothing to report." would be the opposite
 	// of what happened, and the sentences below say what actually did.
 	const sentences = landed > 0 ? [reviewedSentence(outcome.findings, landed)] : [];
-	if (outcome.unusable === 1) {
-		sentences.push(l10n.t("1 file got no readable review back and kept its earlier comments."));
-	} else if (outcome.unusable > 1) {
-		sentences.push(l10n.t("{0} files got no readable review back and kept their earlier comments.", outcome.unusable));
-	}
-	if (outcome.stale === 1) {
-		sentences.push(l10n.t("1 file changed while it was being reviewed, so its comments were not placed."));
-	} else if (outcome.stale > 1) {
-		sentences.push(
-			l10n.t("{0} files changed while they were being reviewed, so their comments were not placed.", outcome.stale)
-		);
-	}
-	if (report.dirty === 1) {
-		sentences.push(l10n.t("1 file has unsaved changes; save it and review it on its own."));
-	} else if (report.dirty > 1) {
-		sentences.push(l10n.t("{0} files have unsaved changes; save them and review them on their own.", report.dirty));
-	}
+	const counted = [unusableSentence(outcome.unusable), staleSentence(outcome.stale), dirtySentence(report.dirty)];
+	sentences.push(...counted.filter((sentence): sentence is string => sentence !== undefined));
 	if (report.skipped > 0) {
-		// "more" only reads right after another sentence; on its own - a change set of pure deletions or renames - it
-		// would dangle.
-		const leading = sentences.length === 0;
-		if (report.skipped === 1) {
-			sentences.push(
-				leading ? l10n.t("1 file had nothing reviewable in it.") : l10n.t("1 more file was left out of this pass.")
-			);
-		} else {
-			sentences.push(
-				leading
-					? l10n.t("{0} files had nothing reviewable in them.", report.skipped)
-					: l10n.t("{0} more files were left out of this pass.", report.skipped)
-			);
-		}
+		sentences.push(skippedSentence(report.skipped, sentences.length === 0));
 	}
 	return sentences.join(" ");
 }
@@ -486,6 +504,40 @@ interface DiffUnits {
 	readonly units: readonly FileReviewUnit[];
 	readonly skipped: number;
 	readonly dirty: number;
+}
+
+/**
+ * One changed file's review unit: "dirty" for a document with unsaved edits, before or during the diff read, and
+ * undefined when the document cannot be opened or its diff is empty.
+ */
+async function diffUnitFor(repo: Repository, change: Change): Promise<FileReviewUnit | "dirty" | undefined> {
+	// Two different strings on purpose: git is asked about the path relative to ITS root, while the model is shown the
+	// same label every other review path uses - which never carries an absolute path.
+	const gitPath = repositoryRelativePath(repo.rootUri, change.uri);
+	let document: vscode.TextDocument;
+	try {
+		document = await vscode.workspace.openTextDocument(change.uri);
+	} catch {
+		return undefined;
+	}
+	if (document.isDirty) {
+		return "dirty";
+	}
+	const version = document.version;
+	const diff = await repo.diffWith("HEAD", gitPath);
+	if (document.isDirty || document.version !== version) {
+		// Edited while its diff was being read: the diff describes what is on disk, which the buffer no longer matches.
+		return "dirty";
+	}
+	if (diff.trim() === "") {
+		return undefined;
+	}
+	return {
+		target: change.uri,
+		lineCount: document.lineCount,
+		version,
+		prompt: buildDiffReviewPrompt({ path: documentLabel(change.uri), diff }),
+	};
 }
 
 /**
@@ -512,36 +564,14 @@ async function diffUnits(repo: Repository, token: vscode.CancellationToken): Pro
 		if (token.isCancellationRequested || units.length >= REVIEW_FILE_LIMIT) {
 			break;
 		}
-		// Two different strings on purpose: git is asked about the path relative to ITS root, while the model is shown
-		// the same label every other review path uses - which never carries an absolute path.
-		const gitPath = repositoryRelativePath(repo.rootUri, change.uri);
-		let document: vscode.TextDocument;
-		try {
-			document = await vscode.workspace.openTextDocument(change.uri);
-		} catch {
-			continue;
-		}
-		if (document.isDirty) {
+		const unit = await diffUnitFor(repo, change);
+		if (unit === "dirty") {
 			dirty += 1;
 			continue;
 		}
-		const version = document.version;
-		const diff = await repo.diffWith("HEAD", gitPath);
-		if (document.isDirty || document.version !== version) {
-			// Edited while its diff was being read: the diff describes what is on disk, which the buffer no longer
-			// matches.
-			dirty += 1;
-			continue;
+		if (unit !== undefined) {
+			units.push(unit);
 		}
-		if (diff.trim() === "") {
-			continue;
-		}
-		units.push({
-			target: change.uri,
-			lineCount: document.lineCount,
-			version,
-			prompt: buildDiffReviewPrompt({ path: documentLabel(change.uri), diff }),
-		});
 	}
 	return { units, skipped: Math.max(0, changes.length - units.length - dirty), dirty };
 }

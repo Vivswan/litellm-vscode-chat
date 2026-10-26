@@ -52,7 +52,13 @@ function idCell(id: string): string {
 
 /** Code-unit comparison: deterministic across locales, unlike localeCompare. */
 function byCodeUnit(a: string, b: string): number {
-	return a < b ? -1 : a > b ? 1 : 0;
+	if (a < b) {
+		return -1;
+	}
+	if (a > b) {
+		return 1;
+	}
+	return 0;
 }
 
 /**

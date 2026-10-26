@@ -24,10 +24,24 @@ import type { StoredSecretsRecord, StoredServerSecrets } from "../serverSync/sec
 import { resolveOwnedSecrets } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "../serverSync/setting";
+import type { BudgetStatus } from "./budget";
 import { newlyCrossedThresholds, resolveBudget } from "./budget";
-import type { ActivityWindow, DailyUsage, KeyUsage, UsageConnection, UserUsage } from "./spendClient";
+import type {
+	ActivityWindow,
+	DailyUsage,
+	KeyUsage,
+	UsageConnection,
+	UsageConnectionResolution,
+	UserUsage,
+} from "./spendClient";
 import { activityWindow, usageConnectionFor, usageUnavailabilityOf } from "./spendClient";
-import type { UsageEndpointState, UsageEndpointStates, UsageFailureClassification } from "./store";
+import type {
+	ServerUsageState,
+	UsageAvailability,
+	UsageEndpointState,
+	UsageEndpointStates,
+	UsageFailureClassification,
+} from "./store";
 import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "./store";
 
 /** How many calendar days the daily-activity window reaches back (today included). */
@@ -110,16 +124,59 @@ export interface UsageRefreshOutcome {
 	readonly servers: readonly UsageServerRefreshOutcome[];
 }
 
+/**
+ * The closed failure vocabulary for a transient endpoint error, judged from the thrown error's own classification
+ * (never its message): undefined for anything that is not a classified transport error. Exhaustive over the transport
+ * kinds so a new kind is a compile error here, not a silent "http".
+ */
+function failureClassificationOf(error: unknown): UsageFailureClassification | undefined {
+	if (!(error instanceof RequestError)) {
+		return undefined;
+	}
+	switch (error.kind) {
+		case "timeout":
+			return "timeout";
+		// The server never answered; the OAuth token exchange surfaces these too.
+		case "network":
+		case "connection":
+		case "certificate":
+			return "network";
+		// "auth" and "http" mean the server answered; the status says how. "aborted" is not a network signal either, so
+		// it keeps the same arm.
+		case "auth":
+		case "http":
+		case "aborted":
+			return "http";
+	}
+}
+
+/** The standing of a transient failure: the closed classification when the error carries one, the status when known. */
+function errorStanding(error: unknown, status: number | undefined): UsageEndpointState {
+	const classification = failureClassificationOf(error);
+	return {
+		kind: "error",
+		...(classification === undefined ? {} : { classification }),
+		...(status === undefined ? {} : { status }),
+	};
+}
+
+/** The word for how an endpoint failed: its HTTP status when it answered, else the classification's word. */
+function failureWord(failure: UsageEndpointFailure): string {
+	if (failure.status !== undefined) {
+		return String(failure.status);
+	}
+	if (failure.classification === "timeout") {
+		return l10n.t("timeout");
+	}
+	if (failure.classification === "network") {
+		return l10n.t("network error");
+	}
+	return l10n.t("failed");
+}
+
 /** "unsupported" never reaches the toast (actionableFailureText filters it), so only "forbidden" has a word. */
 function describeEndpointFailure(failure: UsageEndpointFailure): string {
-	const how =
-		failure.status === undefined
-			? failure.classification === "timeout"
-				? l10n.t("timeout")
-				: failure.classification === "network"
-					? l10n.t("network error")
-					: l10n.t("failed")
-			: String(failure.status);
+	const how = failureWord(failure);
 	const reason = failure.reason === "forbidden" ? ` ${l10n.t("forbidden")}` : "";
 	return `${USAGE_ENDPOINT_PATHS[failure.endpoint]} ${how}${reason}`;
 }
@@ -165,6 +222,135 @@ export function usageRefreshFailureSummary(outcome: UsageRefreshOutcome): string
 		return undefined;
 	}
 	return failed.join("; ");
+}
+
+/** One server's refresh in progress: what it carries from the stored state and what the probes have settled so far. */
+interface ServerRefresh {
+	readonly entry: DeclaredServer;
+	readonly endpoints: Record<UsageEndpointId, UsageEndpointState>;
+	readonly logBaseline: UsageEndpointStates;
+	readonly failures: UsageEndpointFailure[];
+	succeededAny: boolean;
+	lastUpdatedAt: number | undefined;
+}
+
+/** What one endpoint probe left behind: the value this probe fetched, or the carried one when it did not fetch. */
+type ProbedValue<T> =
+	| { readonly fetched: true; readonly value: T }
+	| { readonly fetched: false; readonly value: T | undefined };
+
+/**
+ * The data a server's refresh holds: the key probe's result, the daily and user readings, and the spend numbers'
+ * age.
+ */
+interface ProbedData {
+	readonly key: ProbedValue<KeyUsage>;
+	readonly daily: DailyUsage | undefined;
+	readonly user: UserUsage | undefined;
+	readonly spendUpdatedAt: number | undefined;
+}
+
+/** The stored secrets a refresh may probe with, or why it may not: the blob was unreadable or stamped for another destination. */
+type ProbeSecrets =
+	| { readonly kind: "stored"; readonly stored: StoredServerSecrets }
+	| { readonly kind: "unreadable" | "mismatched" };
+
+/**
+ * The budget to store and the thresholds newly crossed. Alerts evaluate on fetches only (docs/usage.md), the contract
+ * applyConfiguration keeps by leaving stored crossings alone, so a threshold edit toasts on the next fetch and never
+ * from cached data.
+ *
+ *   key fetched       -> diff against the stored crossings
+ *   key carried       -> crossings kept, nothing newly crossed (unreadable secrets, backoff, a failed call)
+ *   re-pointed entry  -> clean slate: the old crossings belong to another server
+ */
+function budgetAfterProbe(
+	entry: DeclaredServer,
+	carriedFrom: ServerUsageState | undefined,
+	key: ProbedValue<KeyUsage>,
+	thresholds: readonly number[]
+): { budget: BudgetStatus; newly: readonly number[] } {
+	const resolved = resolveBudget({
+		entryBudget: entry.budget,
+		keyBudget: key.value?.maxBudget,
+		spend: key.value?.spend,
+		budgetResetAt: key.value?.budgetResetAt,
+		thresholds,
+	});
+	const budget =
+		key.fetched || carriedFrom === undefined
+			? resolved
+			: { ...resolved, crossedThresholds: carriedFrom.budget.crossedThresholds };
+	const crossedBefore = carriedFrom === undefined ? [] : carriedFrom.budget.crossedThresholds;
+	const newly = key.fetched ? newlyCrossedThresholds(crossedBefore, budget.crossedThresholds) : [];
+	return { budget, newly };
+}
+
+/**
+ * The card-visibility verdict to store. Reset or all-failed standings can compute "unknown", which would silently drop
+ * a card the user was looking at: once this server proved availability, only a permanent both-endpoints-unavailable
+ * verdict may hide it again.
+ */
+function availabilityAfterProbe(
+	endpoints: UsageEndpointStates,
+	carriedFrom: ServerUsageState | undefined
+): UsageAvailability {
+	const computed = usageAvailabilityOf(endpoints);
+	if (computed === "unknown" && carriedFrom?.availability === "available") {
+		return "available";
+	}
+	return computed;
+}
+
+/**
+ * The refresh frame for one server and the data it starts from: the carried standings and readings, or fresh ones for
+ * a new, re-pointed, or forced probe. The log-transition baseline is the server's real previous standings, NOT the
+ * force-reset probe states, so an explicit re-probe of a still-broken server does not re-log its classification.
+ */
+function startRefresh(
+	entry: DeclaredServer,
+	force: boolean,
+	carriedFrom: ServerUsageState | undefined
+): { refresh: ServerRefresh; data: ProbedData } {
+	const carriedEndpoints = force || carriedFrom === undefined ? UNPROBED_ENDPOINTS : carriedFrom.endpoints;
+	const refresh: ServerRefresh = {
+		entry,
+		endpoints: { ...carriedEndpoints },
+		logBaseline: carriedFrom?.endpoints ?? UNPROBED_ENDPOINTS,
+		failures: [],
+		succeededAny: false,
+		lastUpdatedAt: carriedFrom?.lastUpdatedAt,
+	};
+	const data: ProbedData = {
+		key: { value: carriedFrom?.key, fetched: false },
+		daily: carriedFrom?.daily,
+		user: carriedFrom?.user,
+		spendUpdatedAt: carriedFrom?.spendUpdatedAt,
+	};
+	return { refresh, data };
+}
+
+/** The pass's outcome for one server: what failed, whether anything answered, and why a probe was skipped. */
+function refreshOutcome(
+	refresh: ServerRefresh,
+	secrets: ProbeSecrets,
+	credentialsRefused: UsageServerRefreshOutcome["credentialsRefused"]
+): UsageServerRefreshOutcome {
+	const outcome: { -readonly [K in keyof UsageServerRefreshOutcome]: UsageServerRefreshOutcome[K] } = {
+		label: refresh.entry.label,
+		failures: refresh.failures,
+		succeededAny: refresh.succeededAny,
+	};
+	if (secrets.kind === "unreadable") {
+		outcome.secretsUnreadable = true;
+	}
+	if (secrets.kind === "mismatched") {
+		outcome.secretsMismatched = true;
+	}
+	if (credentialsRefused !== undefined) {
+		outcome.credentialsRefused = credentialsRefused;
+	}
+	return outcome;
 }
 
 /**
@@ -451,6 +637,159 @@ export class UsagePoller {
 	}
 
 	/**
+	 * The stored state this refresh carries, or undefined for a new or re-pointed entry. A re-pointed entry is a
+	 * different server: carried standings and data would describe the old host, so both reset with the URL, along with
+	 * its failure streaks and token-retry grant. A forced pass also restarts the failure count.
+	 */
+	private carriedState(entry: DeclaredServer, force: boolean): ServerUsageState | undefined {
+		const previous = this.store.get(entry.label);
+		const sameServer = previous !== undefined && normalizeBaseUrl(previous.baseUrl) === normalizeBaseUrl(entry.baseUrl);
+		if (force || !sameServer) {
+			this.errorStreaks.delete(entry.label);
+		}
+		if (!sameServer) {
+			this.tokenRetryGranted.delete(entry.label);
+		}
+		return sameServer ? previous : undefined;
+	}
+
+	/**
+	 * Reads the entry's stored secrets for the probe, the same ownership check the sync engine applies at its read
+	 * boundary: a stored value stamped for a different destination must never ride an authenticated probe to this
+	 * entry's host. A refused or unreadable blob skips the probe for this pass (probing without the credential would
+	 * only manufacture 401 noise; the next pass reads again), the carried state keeps rendering, and the sync engine's
+	 * view carries the actionable text. The outcome flags let an explicit refresh acknowledge the skip while the error
+	 * itself stays out of the toast.
+	 */
+	private async probeSecrets(entry: DeclaredServer): Promise<ProbeSecrets> {
+		try {
+			const owned = resolveOwnedSecrets(entry, await this.env.readSecrets(entry.label));
+			if (owned.refused.length > 0) {
+				this.env.log("A stored secret is stamped for a different destination; usage refresh skipped", {
+					label: entry.label,
+					fields: owned.refused,
+				});
+				return { kind: "mismatched" };
+			}
+			return { kind: "stored", stored: owned.values };
+		} catch (error) {
+			this.env.log("Reading a server entry's stored secrets failed; usage refresh skipped", {
+				label: entry.label,
+				error: errorLabel(error),
+			});
+			return { kind: "unreadable" };
+		}
+	}
+
+	/**
+	 * The connection the probe sends with, the refusal when a configured key cannot ride its header, or undefined when
+	 * the entry changed mid-pass. The entries were snapshotted at the pass start and this entry's secrets read just now,
+	 * so an edit landing in between would pair a stale entry with fresh credentials, or report a stale entry's refusal:
+	 * the entry is re-read before anything is probed, written, or reported and compared by host AND by RESOLUTION (a
+	 * refusal carries no host, and presence alone would still let a re-point send this credential to the old host); on
+	 * any difference the server is skipped and the servers-change refresh probes the true pairing. A refused key is
+	 * skipped like a mismatched stamp: a keyless probe would only manufacture a 401 to render, and the sync engine's
+	 * view carries the actionable text.
+	 */
+	private probeConnection(entry: DeclaredServer, stored: StoredServerSecrets): UsageConnectionResolution | undefined {
+		const resolution = usageConnectionFor(entry, buildGroupArgs(entry, stored));
+		const fresh = acceptedEntry(this.env.readServersSetting(), entry.label);
+		if (
+			fresh === undefined ||
+			fresh.entry.baseUrl !== entry.baseUrl ||
+			!isDeepStrictEqual(usageConnectionFor(fresh.entry, buildGroupArgs(fresh.entry, stored)), resolution)
+		) {
+			return undefined;
+		}
+		if (resolution.kind !== "resolved") {
+			this.env.log("A configured key cannot be sent as an HTTP header; usage refresh skipped", {
+				label: entry.label,
+				fields: resolution.fields,
+			});
+		}
+		return resolution;
+	}
+
+	/**
+	 * Probes one endpoint when its standing allows and records the outcome on the refresh: a success marks the endpoint
+	 * ok and advances the update time, a failure is classified and tracked. Returns the value to hold afterwards: the
+	 * fetched one, the carried one when the probe was skipped or failed transiently, or nothing once the endpoint stands
+	 * unavailable. Disposal aborts in-flight fetches; the interrupted attempt proves nothing and must not read as a
+	 * failed endpoint.
+	 */
+	private async probeValue<T>(
+		refresh: ServerRefresh,
+		connection: UsageConnection,
+		endpoint: UsageEndpointId,
+		carried: T | undefined,
+		fetch: () => Promise<T>
+	): Promise<ProbedValue<T>> {
+		const label = refresh.entry.label;
+		if (!this.shouldAttempt(label, endpoint, refresh.endpoints[endpoint])) {
+			return { value: carried, fetched: false };
+		}
+		try {
+			const value = await fetch();
+			refresh.endpoints[endpoint] = { kind: "ok" };
+			refresh.succeededAny = true;
+			this.endpointSucceeded(label, endpoint);
+			refresh.lastUpdatedAt = this.clock.now();
+			return { value, fetched: true };
+		} catch (error) {
+			if (!this.disposed) {
+				refresh.failures.push(this.failureOf(endpoint, error));
+			}
+			const standing = this.classifyFailure(label, endpoint, refresh.logBaseline[endpoint], error, connection);
+			refresh.endpoints[endpoint] = standing;
+			this.trackFailure(label, endpoint, standing);
+			return { value: standing.kind === "unavailable" ? undefined : carried, fetched: false };
+		}
+	}
+
+	/**
+	 * Runs the three probes and returns the data to hold afterwards, or undefined when disposal interrupted them. The
+	 * spend numbers' own age advances only on a /key/info success, so an activity success can never relabel old spend
+	 * fresh. The user rollup exists only for keys that carry a user: a key that answered WITHOUT one clears any carried
+	 * rollup (after a credential change the old rollup would describe another account), and no key answer means no
+	 * proof the carried rollup still belongs to this key.
+	 */
+	private async probeEndpoints(
+		refresh: ServerRefresh,
+		connection: UsageConnection,
+		carried: ProbedData
+	): Promise<ProbedData | undefined> {
+		const signal = this.abort.signal;
+		const key = await this.probeValue(refresh, connection, "keyInfo", carried.key.value, () =>
+			this.env.client.fetchKeyInfo(connection, signal)
+		);
+		const spendUpdatedAt = key.fetched ? refresh.lastUpdatedAt : carried.spendUpdatedAt;
+		if (this.disposed) {
+			return undefined;
+		}
+		const daily = await this.probeValue(refresh, connection, "dailyActivity", carried.daily, () =>
+			this.env.client.fetchDailyActivity(
+				connection,
+				activityWindow(this.clock.now(), USAGE_ACTIVITY_WINDOW_DAYS),
+				signal
+			)
+		);
+		if (this.disposed) {
+			return undefined;
+		}
+		let user = carried.user;
+		if ((key.value !== undefined && !key.value.hasUser) || refresh.endpoints.keyInfo.kind === "unavailable") {
+			user = undefined;
+		}
+		if (key.value?.hasUser === true) {
+			const probed = await this.probeValue(refresh, connection, "userInfo", user, () =>
+				this.env.client.fetchUserInfo(connection, signal)
+			);
+			user = probed.value;
+		}
+		return { key, daily: daily.value, user, spendUpdatedAt };
+	}
+
+	/**
 	 * Returns the pass's outcome for this server (what failed, whether anything answered), or undefined when nothing
 	 * can be said truthfully: disposal interrupted the fetches, or the entry left the setting mid-pass.
 	 */
@@ -459,176 +798,26 @@ export class UsagePoller {
 		thresholds: readonly number[],
 		force: boolean
 	): Promise<UsageServerRefreshOutcome | undefined> {
-		const previous = this.store.get(entry.label);
-		const failures: UsageEndpointFailure[] = [];
-		let succeededAny = false;
-		// Disposal aborts in-flight fetches; the interrupted attempt proves nothing and must not read as a failed
-		// endpoint.
-		const recordFailure = (endpoint: UsageEndpointId, error: unknown) => {
-			if (!this.disposed) {
-				failures.push(this.failureOf(endpoint, error));
-			}
-		};
-		// A re-pointed entry is a different server: carried standings and data would describe the old host, so both
-		// reset with the URL.
-		const sameServer = previous !== undefined && normalizeBaseUrl(previous.baseUrl) === normalizeBaseUrl(entry.baseUrl);
-		// A forced pass attempts immediately and restarts the failure count; a re-pointed entry's streaks describe the
-		// old host.
-		if (force || !sameServer) {
-			this.errorStreaks.delete(entry.label);
-		}
-		if (!sameServer) {
-			this.tokenRetryGranted.delete(entry.label);
-		}
-		const carried: UsageEndpointStates = !force && sameServer ? previous.endpoints : UNPROBED_ENDPOINTS;
-		const endpoints: Record<UsageEndpointId, UsageEndpointState> = { ...carried };
-		// Log-transition baseline: the server's real previous standings, NOT the force-reset probe states, so an
-		// explicit re-probe of a still-broken server does not re-log its classification.
-		const logBaseline: UsageEndpointStates = sameServer ? previous.endpoints : UNPROBED_ENDPOINTS;
-		let key: KeyUsage | undefined = sameServer ? previous.key : undefined;
-		let keyFetched = false;
-		let daily: DailyUsage | undefined = sameServer ? previous.daily : undefined;
-		let user: UserUsage | undefined = sameServer ? previous.user : undefined;
-		let lastUpdatedAt = sameServer ? previous.lastUpdatedAt : undefined;
-		let spendUpdatedAt = sameServer ? previous.spendUpdatedAt : undefined;
+		const carriedFrom = this.carriedState(entry, force);
+		const { refresh, data: carried } = startRefresh(entry, force, carriedFrom);
+		let data = carried;
 		const attemptAt = this.clock.now();
 
-		let stored: StoredServerSecrets | undefined;
-		let secretsUnreadable = false;
-		let secretsMismatched = false;
+		const secrets = await this.probeSecrets(entry);
 		let credentialsRefused: UsageServerRefreshOutcome["credentialsRefused"];
-		try {
-			// The same ownership check the sync engine applies at its read boundary: a stored value stamped for a
-			// different destination must never ride an authenticated probe to this entry's host.
-			const owned = resolveOwnedSecrets(entry, await this.env.readSecrets(entry.label));
-			if (owned.refused.length > 0) {
-				// Skipped like an unreadable blob (probing without the credential would only manufacture 401 noise);
-				// the carried state keeps rendering and the sync engine's view carries the actionable text.
-				secretsMismatched = true;
-				this.env.log("A stored secret is stamped for a different destination; usage refresh skipped", {
-					label: entry.label,
-					fields: owned.refused,
-				});
-			} else {
-				stored = owned.values;
-			}
-		} catch (error) {
-			// Skipped for this pass, like the sync engine's unreadable-secrets branch: the next pass reads again, and
-			// the carried state keeps rendering. The outcome flag lets an explicit refresh acknowledge it; the error
-			// itself stays out of the toast.
-			secretsUnreadable = true;
-			this.env.log("Reading a server entry's stored secrets failed; usage refresh skipped", {
-				label: entry.label,
-				error: errorLabel(error),
-			});
-		}
-		let connection: UsageConnection | undefined;
-		if (stored !== undefined) {
-			const resolution = usageConnectionFor(entry, buildGroupArgs(entry, stored));
-			// The entries were snapshotted at the pass start and this entry's secrets read just now, so an edit landing
-			// in between would pair a stale entry with fresh credentials, or report a stale entry's refusal. Re-read the
-			// entry before anything is probed, written, or reported and compare the host AND the RESOLUTION (a refusal
-			// carries no host, and presence alone would still let a re-point send this credential to the old host); on
-			// any difference the server is skipped and the servers-change refresh probes the true pairing.
-			const fresh = acceptedEntry(this.env.readServersSetting(), entry.label);
-			if (
-				fresh === undefined ||
-				fresh.entry.baseUrl !== entry.baseUrl ||
-				!isDeepStrictEqual(usageConnectionFor(fresh.entry, buildGroupArgs(fresh.entry, stored)), resolution)
-			) {
+		if (secrets.kind === "stored") {
+			const resolution = this.probeConnection(entry, secrets.stored);
+			if (resolution === undefined) {
 				return undefined;
 			}
 			if (resolution.kind === "resolved") {
-				connection = resolution.connection;
+				const probed = await this.probeEndpoints(refresh, resolution.connection, data);
+				if (probed === undefined) {
+					return undefined;
+				}
+				data = probed;
 			} else {
-				// Skipped like a mismatched stamp: a keyless probe would only manufacture a 401 to render, and the sync
-				// engine's view carries the actionable text.
 				credentialsRefused = resolution.fields;
-				this.env.log("A configured key cannot be sent as an HTTP header; usage refresh skipped", {
-					label: entry.label,
-					fields: resolution.fields,
-				});
-			}
-		}
-		if (connection !== undefined) {
-			if (this.shouldAttempt(entry.label, "keyInfo", endpoints.keyInfo)) {
-				try {
-					key = await this.env.client.fetchKeyInfo(connection, this.abort.signal);
-					keyFetched = true;
-					endpoints.keyInfo = { kind: "ok" };
-					succeededAny = true;
-					this.endpointSucceeded(entry.label, "keyInfo");
-					lastUpdatedAt = this.clock.now();
-					// The spend numbers' own age: only a /key/info success advances it, so an activity success can
-					// never relabel old spend fresh.
-					spendUpdatedAt = lastUpdatedAt;
-				} catch (error) {
-					recordFailure("keyInfo", error);
-					endpoints.keyInfo = this.classifyFailure(entry.label, "keyInfo", logBaseline.keyInfo, error, connection);
-					this.trackFailure(entry.label, "keyInfo", endpoints.keyInfo);
-					if (endpoints.keyInfo.kind === "unavailable") {
-						key = undefined;
-					}
-				}
-			}
-
-			if (this.disposed) {
-				return undefined;
-			}
-			if (this.shouldAttempt(entry.label, "dailyActivity", endpoints.dailyActivity)) {
-				try {
-					daily = await this.env.client.fetchDailyActivity(
-						connection,
-						activityWindow(this.clock.now(), USAGE_ACTIVITY_WINDOW_DAYS),
-						this.abort.signal
-					);
-					endpoints.dailyActivity = { kind: "ok" };
-					succeededAny = true;
-					this.endpointSucceeded(entry.label, "dailyActivity");
-					lastUpdatedAt = this.clock.now();
-				} catch (error) {
-					recordFailure("dailyActivity", error);
-					endpoints.dailyActivity = this.classifyFailure(
-						entry.label,
-						"dailyActivity",
-						logBaseline.dailyActivity,
-						error,
-						connection
-					);
-					this.trackFailure(entry.label, "dailyActivity", endpoints.dailyActivity);
-					if (endpoints.dailyActivity.kind === "unavailable") {
-						daily = undefined;
-					}
-				}
-			}
-
-			if (this.disposed) {
-				return undefined;
-			}
-			// The rollup exists only for keys that carry a user. A key that answered WITHOUT one also clears any
-			// carried rollup: after a credential change the old rollup would describe another account.
-			if (key !== undefined && !key.hasUser) {
-				user = undefined;
-			}
-			if (endpoints.keyInfo.kind === "unavailable") {
-				// No key answer means no proof the carried rollup still belongs to this key.
-				user = undefined;
-			}
-			if (key?.hasUser === true && this.shouldAttempt(entry.label, "userInfo", endpoints.userInfo)) {
-				try {
-					user = await this.env.client.fetchUserInfo(connection, this.abort.signal);
-					endpoints.userInfo = { kind: "ok" };
-					succeededAny = true;
-					this.endpointSucceeded(entry.label, "userInfo");
-					lastUpdatedAt = this.clock.now();
-				} catch (error) {
-					recordFailure("userInfo", error);
-					endpoints.userInfo = this.classifyFailure(entry.label, "userInfo", logBaseline.userInfo, error, connection);
-					this.trackFailure(entry.label, "userInfo", endpoints.userInfo);
-					if (endpoints.userInfo.kind === "unavailable") {
-						user = undefined;
-					}
-				}
 			}
 		}
 
@@ -642,54 +831,24 @@ export class UsagePoller {
 		if (!stillDeclaredIn(this.env.readServersSetting())(entry.label)) {
 			return undefined;
 		}
-		const resolved = resolveBudget({
-			entryBudget: entry.budget,
-			keyBudget: key?.maxBudget,
-			spend: key?.spend,
-			budgetResetAt: key?.budgetResetAt,
-			thresholds,
-		});
-		// Alerts evaluate on fetches only (docs/usage.md), the contract applyConfiguration keeps by leaving stored
-		// crossings alone, so a threshold edit toasts on the next fetch and never from cached data.
-		//   key fetched       -> diff against the stored crossings
-		//   key carried       -> crossings kept, nothing newly crossed (unreadable secrets, backoff, a failed call)
-		//   re-pointed entry  -> clean slate: the old crossings belong to another server
-		const budget =
-			keyFetched || !sameServer ? resolved : { ...resolved, crossedThresholds: previous.budget.crossedThresholds };
-		const crossedBefore = sameServer ? previous.budget.crossedThresholds : [];
-		const newly = keyFetched ? newlyCrossedThresholds(crossedBefore, budget.crossedThresholds) : [];
-		// Reset or all-failed standings can compute "unknown", which would silently drop a card the user was looking
-		// at. Once this server proved availability, only a permanent both-endpoints-unavailable verdict may hide it
-		// again.
-		const computedAvailability = usageAvailabilityOf(endpoints);
-		const availability =
-			computedAvailability === "unknown" && sameServer && previous.availability === "available"
-				? "available"
-				: computedAvailability;
+		const { budget, newly } = budgetAfterProbe(entry, carriedFrom, data.key, thresholds);
 		this.store.upsert(
 			{
 				label: entry.label,
 				baseUrl: entry.baseUrl,
-				endpoints,
-				availability,
-				lastUpdatedAt,
-				spendUpdatedAt,
+				endpoints: refresh.endpoints,
+				availability: availabilityAfterProbe(refresh.endpoints, carriedFrom),
+				lastUpdatedAt: refresh.lastUpdatedAt,
+				spendUpdatedAt: data.spendUpdatedAt,
 				lastAttemptAt: attemptAt,
-				key,
-				daily,
-				user,
+				key: data.key.value,
+				daily: data.daily,
+				user: data.user,
 				budget,
 			},
 			newly
 		);
-		return {
-			label: entry.label,
-			failures,
-			succeededAny,
-			...(secretsUnreadable ? { secretsUnreadable: true } : {}),
-			...(secretsMismatched ? { secretsMismatched: true } : {}),
-			...(credentialsRefused === undefined ? {} : { credentialsRefused }),
-		};
+		return refreshOutcome(refresh, secrets, credentialsRefused);
 	}
 
 	private failureOf(endpoint: UsageEndpointId, error: unknown): UsageEndpointFailure {
@@ -804,6 +963,28 @@ export class UsagePoller {
 		}
 	}
 
+	/** The sticky standing of an endpoint the server does not serve, logged once per transition into it. */
+	private unavailableStanding(
+		previous: UsageEndpointState,
+		failure: {
+			label: string;
+			endpoint: UsageEndpointId;
+			reason: "unsupported" | "forbidden";
+			status: number | undefined;
+		}
+	): UsageEndpointState {
+		const { label, endpoint, reason, status } = failure;
+		if (previous.kind !== "unavailable") {
+			this.env.log("Usage endpoint unavailable on this server; not retried until an explicit refresh", {
+				label,
+				endpoint,
+				reason,
+				...(status === undefined ? {} : { status }),
+			});
+		}
+		return { kind: "unavailable", reason, ...(status === undefined ? {} : { status }) };
+	}
+
 	/**
 	 * Classify one endpoint failure into its next standing, logging exactly one info-level line per state TRANSITION (a
 	 * server answering 404 every probe must not write a line per poll).
@@ -841,15 +1022,7 @@ export class UsagePoller {
 			return { kind: "error", classification: failureClassificationOf(error), status };
 		}
 		if (reason !== undefined) {
-			if (previous.kind !== "unavailable") {
-				this.env.log("Usage endpoint unavailable on this server; not retried until an explicit refresh", {
-					label,
-					endpoint,
-					reason,
-					...(status === undefined ? {} : { status }),
-				});
-			}
-			return { kind: "unavailable", reason, ...(status === undefined ? {} : { status }) };
+			return this.unavailableStanding(previous, { label, endpoint, reason, status });
 		}
 		if (previous.kind !== "error") {
 			this.env.log("Usage endpoint request failed; retrying on the next poll", {
@@ -859,37 +1032,6 @@ export class UsagePoller {
 				...(status === undefined ? {} : { status }),
 			});
 		}
-		const classification = failureClassificationOf(error);
-		return {
-			kind: "error",
-			...(classification === undefined ? {} : { classification }),
-			...(status === undefined ? {} : { status }),
-		};
-	}
-}
-
-/**
- * The closed failure vocabulary for a transient endpoint error, judged from the thrown error's own classification
- * (never its message): undefined for anything that is not a classified transport error. Exhaustive over the transport
- * kinds so a new kind is a compile error here, not a silent "http".
- */
-function failureClassificationOf(error: unknown): UsageFailureClassification | undefined {
-	if (!(error instanceof RequestError)) {
-		return undefined;
-	}
-	switch (error.kind) {
-		case "timeout":
-			return "timeout";
-		// The server never answered; the OAuth token exchange surfaces these too.
-		case "network":
-		case "connection":
-		case "certificate":
-			return "network";
-		// "auth" and "http" mean the server answered; the status says how. "aborted" is not a network signal either, so
-		// it keeps the same arm.
-		case "auth":
-		case "http":
-		case "aborted":
-			return "http";
+		return errorStanding(error, status);
 	}
 }

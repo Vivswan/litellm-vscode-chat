@@ -39,6 +39,80 @@ export interface SettingsExportResult {
 	readonly mismatchedSecretCount: number;
 }
 
+/** The secret values the file may carry for one entry, and how many stamped fields stayed out of it. */
+interface UsableSecrets {
+	readonly values: StoredServerSecrets;
+	readonly mismatched: number;
+}
+
+/**
+ * The usable secrets of an entry the parser rejects: it has no destinations to compare, so its stamped fields all
+ * refuse (fail closed) and unstamped ones ride as before.
+ */
+function unparsedEntrySecrets(record: StoredSecretsRecord): UsableSecrets {
+	const values: { -readonly [K in SecretFieldId]?: string } = {};
+	let mismatched = 0;
+	for (const field of SECRET_FIELD_IDS) {
+		const value = record.values[field];
+		if (value === undefined) {
+			continue;
+		}
+		if (record.owners[field] === undefined) {
+			values[field] = value;
+		} else {
+			mismatched += 1;
+		}
+	}
+	return { values, mismatched };
+}
+
+/**
+ * Only values the ownership check would let this entry use may materialize into the file (see mismatchedSecretCount).
+ * The mismatch count is the superset on purpose: an inert stale-stamped field (one the entry cannot send, so it does
+ * not refuse the pairing) still drops out of the file here, and the summary must say so.
+ */
+function usableEntrySecrets(
+	rawEntry: Readonly<Record<string, unknown>>,
+	label: string,
+	record: StoredSecretsRecord
+): UsableSecrets {
+	const parsed = acceptedEntry([rawEntry], label)?.entry;
+	if (parsed === undefined) {
+		return unparsedEntrySecrets(record);
+	}
+	const owned = resolveOwnedSecrets(parsed, record);
+	return { values: owned.values, mismatched: owned.mismatched.length };
+}
+
+/** The servers array as the file carries it, every usable secret placed inline, with the two omission counts. */
+interface ExportedServers {
+	readonly entries: readonly unknown[];
+	readonly unmaterialized: number;
+	readonly mismatched: number;
+}
+
+/** The servers array walked once: each labelled entry gets its usable blob secrets placed inline, the rest ride verbatim. */
+async function exportServers(value: readonly unknown[], env: SettingsExportEnv): Promise<ExportedServers> {
+	const entries: unknown[] = [];
+	let unmaterialized = 0;
+	let mismatched = 0;
+	for (const rawEntry of value) {
+		const label = isRecord(rawEntry) ? declaredEntryLabel(rawEntry) : undefined;
+		if (!isRecord(rawEntry) || label === undefined) {
+			// No label means no SecretStorage key, so there is nothing to place.
+			entries.push(rawEntry);
+			continue;
+		}
+		const record = await env.readServerSecrets(label);
+		const usable = usableEntrySecrets(rawEntry, label, record);
+		const materialized = materializeEntrySecrets(rawEntry, usable.values);
+		mismatched += usable.mismatched;
+		unmaterialized += materialized.unmaterialized;
+		entries.push(materialized.entry);
+	}
+	return { entries, unmaterialized, mismatched };
+}
+
 export async function buildSettingsExport(env: SettingsExportEnv): Promise<SettingsExportResult> {
 	const settings: Record<string, unknown> = {};
 	let settingCount = 0;
@@ -56,47 +130,11 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 			settings[key] = value;
 			continue;
 		}
-		const exported: unknown[] = [];
-		for (const rawEntry of value) {
-			const label = isRecord(rawEntry) ? declaredEntryLabel(rawEntry) : undefined;
-			if (!isRecord(rawEntry) || label === undefined) {
-				// No label means no SecretStorage key, so there is nothing to place.
-				exported.push(rawEntry);
-				continue;
-			}
-			const record = await env.readServerSecrets(label);
-			// Only values the ownership check would let this entry use may materialize into the file (see
-			// mismatchedSecretCount). An entry the parser rejects has no destinations to compare, so its stamped fields
-			// all refuse (fail closed) and unstamped ones ride as before.
-			const parsed = acceptedEntry([rawEntry], label)?.entry;
-			let usable: StoredServerSecrets;
-			if (parsed === undefined) {
-				const values: { -readonly [K in SecretFieldId]?: string } = {};
-				for (const field of SECRET_FIELD_IDS) {
-					const value = record.values[field];
-					if (value === undefined) {
-						continue;
-					}
-					if (record.owners[field] === undefined) {
-						values[field] = value;
-					} else {
-						mismatchedSecretCount += 1;
-					}
-				}
-				usable = values;
-			} else {
-				const owned = resolveOwnedSecrets(parsed, record);
-				usable = owned.values;
-				// The superset on purpose: an inert stale-stamped field (one the entry cannot send, so it does not
-				// refuse the pairing) still drops out of the file here, and the summary must say so.
-				mismatchedSecretCount += owned.mismatched.length;
-			}
-			const materialized = materializeEntrySecrets(rawEntry, usable);
-			unmaterializedSecretCount += materialized.unmaterialized;
-			exported.push(materialized.entry);
-		}
-		serverCount = exported.length;
-		settings[key] = exported;
+		const exported = await exportServers(value, env);
+		serverCount = exported.entries.length;
+		unmaterializedSecretCount += exported.unmaterialized;
+		mismatchedSecretCount += exported.mismatched;
+		settings[key] = exported.entries;
 	}
 
 	return {

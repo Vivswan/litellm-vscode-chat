@@ -176,6 +176,62 @@ function refusalError(reason: McpRefusal, label: string): MirroredError {
 	}
 }
 
+/** Logs the refusal and throws it; the resolve's catch recognizes the throw as already logged. */
+type Refuse = (reason: McpRefusal) => never;
+
+/**
+ * The headers for the session, with the base URL that decided them. Credentials ride only to the entry's own origin,
+ * so they are resolved only there: an endpoint on another origin is published bare, and a stale, unreadable, or
+ * refused credential has nothing to refuse for it.
+ */
+async function sessionHeadersFor(
+	deps: McpProviderDeps,
+	before: McpDefinitionDescriptor,
+	token: vscode.CancellationToken,
+	refuse: Refuse
+): Promise<{ headers: Record<string, HeaderValue>; baseUrl: string }> {
+	const entry = currentMcpEntries().find((candidate) => candidate.label === before.label);
+	if (entry === undefined) {
+		refuse({ kind: "not-published" });
+	}
+	const baseUrl = entry.baseUrl;
+	if (!sameOrigin(before.uri, baseUrl)) {
+		return { headers: {}, baseUrl };
+	}
+	const resolved = await entryConnectionFor(deps.secrets, before.label);
+	if (resolved.kind !== "resolved") {
+		refuse(mcpRefusalOf(resolved));
+	}
+	const headers = await deps.oneShot.authHeaders(resolved.connection, MCP_AUTH_SURFACE, {
+		timeout: { ms: getDiscoveryTimeout(), setting: "discovery.timeout" },
+		token,
+	});
+	return { headers, baseUrl };
+}
+
+/**
+ * The publication after the credentials were read, or a refusal. The composed headers are only safe to hand over if
+ * the setting still says the same thing: the same endpoint at the same rotation, and the same base URL, which is what
+ * decided whether credentials rode along at all and can move while the endpoint URL does not. Gone rather than moved
+ * is "not-published": "try again" would be false advice, since the retry lands on that refusal anyway.
+ */
+function publicationAfter(
+	deps: McpProviderDeps,
+	before: McpDefinitionDescriptor,
+	baseUrl: string,
+	refuse: Refuse
+): McpDefinitionDescriptor {
+	const after = mcpDescriptors(deps).find((descriptor) => descriptor.label === before.label);
+	const entryAfter = currentMcpEntries().find((candidate) => candidate.label === before.label);
+	if (after === undefined || entryAfter === undefined) {
+		refuse({ kind: "not-published" });
+	}
+	if (after.uri !== before.uri || after.version !== before.version || entryAfter.baseUrl !== baseUrl) {
+		refuse({ kind: "changed-during-resolve" });
+	}
+	return after;
+}
+
 /**
  * It is registered unconditionally: the opt-in lives on the entries, so with none opted in the eager pass simply
  * publishes an empty list, and an entry gaining `mcp` needs no registration change.
@@ -206,42 +262,21 @@ export function createMcpServerDefinitionProvider(
 			 * of them is "there is no such server": an entry that moved mid-resolve IS published, and telling the user
 			 * otherwise would send them looking for a missing entry.
 			 */
-			const refuse: (reason: McpRefusal) => never = (reason) => {
+			const refuse: Refuse = (reason) => {
 				refused = true;
 				const error = refusalError(reason, server.label);
 				deps.logError(`MCP resolve refused (${reason.kind})`, error);
 				throw error;
 			};
-			const publishedNow = (): McpDefinitionDescriptor | undefined =>
-				mcpDescriptors(deps).find((descriptor) => descriptor.label === server.label);
 
-			const before = publishedNow();
+			const before = mcpDescriptors(deps).find((descriptor) => descriptor.label === server.label);
 			if (before === undefined) {
 				refuse({ kind: "not-published" });
 			}
 
-			let headers: Record<string, HeaderValue>;
-			let baseUrl: string;
+			let session: { headers: Record<string, HeaderValue>; baseUrl: string };
 			try {
-				const entry = currentMcpEntries().find((candidate) => candidate.label === before.label);
-				if (entry === undefined) {
-					refuse({ kind: "not-published" });
-				}
-				baseUrl = entry.baseUrl;
-				// Credentials ride only to the entry's own origin, so they are resolved only there: an endpoint on another
-				// origin is published bare, and a stale, unreadable, or refused credential has nothing to refuse for it.
-				if (sameOrigin(before.uri, baseUrl)) {
-					const resolved = await entryConnectionFor(deps.secrets, before.label);
-					if (resolved.kind !== "resolved") {
-						refuse(mcpRefusalOf(resolved));
-					}
-					headers = await deps.oneShot.authHeaders(resolved.connection, MCP_AUTH_SURFACE, {
-						timeout: { ms: getDiscoveryTimeout(), setting: "discovery.timeout" },
-						token,
-					});
-				} else {
-					headers = {};
-				}
+				session = await sessionHeadersFor(deps, before, token, refuse);
 			} catch (error) {
 				// This feature is its own logging boundary (the one-shot callers' convention): the editor renders the
 				// failure to the user, but without this the output channel and the issue-report buffer stay silent
@@ -252,28 +287,16 @@ export function createMcpServerDefinitionProvider(
 				throw error;
 			}
 
-			// The composed headers are only safe to hand over if the setting still says the same thing: the same
-			// endpoint at the same rotation, and the same base URL - which is what decided whether credentials rode
-			// along at all, and can move while the endpoint URL does not.
-			const after = publishedNow();
-			const entryAfter = currentMcpEntries().find((candidate) => candidate.label === server.label);
-			if (after === undefined || entryAfter === undefined) {
-				// Gone rather than moved: "try again" would be false advice, since the retry lands on the not-published
-				// refusal anyway.
-				refuse({ kind: "not-published" });
-			}
-			if (after.uri !== before.uri || after.version !== before.version || entryAfter.baseUrl !== baseUrl) {
-				refuse({ kind: "changed-during-resolve" });
-			}
+			const after = publicationAfter(deps, before, session.baseUrl, refuse);
 			server.uri = vscode.Uri.parse(after.uri);
 			server.version = String(after.version);
-			server.headers = headers;
+			server.headers = session.headers;
 			// Recurs on every session start, so channel-only: the issue-report ring is small and informational lines
 			// evict the errors it exists to carry.
 			deps.advisory("MCP server resolved", {
 				label: server.label,
 				uri: after.uri,
-				credentialed: Object.keys(headers).length > 0,
+				credentialed: Object.keys(session.headers).length > 0,
 			});
 			return server;
 		},

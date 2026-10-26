@@ -1,5 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import type { DashboardState } from "../../../dashboard/viewModels";
 import type { AgentToolContribution, AgentToolId } from "../../../shared/config/commandIds";
 import { AGENT_TOOL_IDS, AGENT_TOOLS } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
@@ -25,7 +26,7 @@ import { featureDisabledMessage, featureDisabledMessageEnglish } from "../featur
 import { preparedInvocation, toolResult } from "../modelFacingExit";
 import type { AgentToolInput } from "./inputSchema";
 import { parseAgentToolInput } from "./inputSchema";
-import type { AgentRequest, SecretPrompt, ToolPlan } from "./planner";
+import type { AgentRequest, RecordMap, SecretPrompt, ToolPlan } from "./planner";
 import {
 	applyRecordPatch,
 	declaredRow,
@@ -127,6 +128,32 @@ function refusalError(tool: AgentToolId, text: string, classification: string): 
 	return localizedError(text, `Agent tool refused the call: ${tag}`, tag);
 }
 
+/** The record map a patch applies to: the scoped setting's, or the named entry's, empty when the entry is unknown. */
+function currentRecordMap(input: AgentToolInput<"editModelRecords">, state: DashboardState): RecordMap {
+	if (input.server === undefined) {
+		return input.kind === "capabilities"
+			? state.settings.modelCapabilities.value
+			: state.settings.modelParameters.value;
+	}
+	const row = declaredRow(state, input.server);
+	if (row === undefined) {
+		return {};
+	}
+	return (input.kind === "capabilities" ? row.config.modelCapabilities : row.config.modelParameters) ?? {};
+}
+
+/** What a run action's card names: the entry (with its base URL when declared), the feature, or nothing. */
+function runActionTarget(input: AgentToolInput<"runAction">, state: DashboardState): string | undefined {
+	if ("label" in input) {
+		const row = declaredRow(state, input.label);
+		return row === undefined ? input.label : l10n.t("{0} at {1}", input.label, row.baseUrl);
+	}
+	if ("feature" in input) {
+		return input.feature;
+	}
+	return undefined;
+}
+
 class AgentTool implements vscode.LanguageModelTool<unknown> {
 	private readonly contribution: AgentToolContribution;
 
@@ -153,138 +180,138 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 		return preparedInvocation(l10n.t("LiteLLM: {0}", this.id), this.confirmationCard(options.input));
 	}
 
+	/** The setting card, or undefined when the input is malformed or the planner would refuse the call. */
+	private setSettingCard(raw: unknown): ConfirmationCard | undefined {
+		const parsed = parseAgentToolInput("setSetting", raw);
+		if (!parsed.ok) {
+			return undefined;
+		}
+		const { setting, value } = parsed.input;
+		// The planner's refusals (servers, the records, this feature's own switches) get no card: rendering the
+		// current value of the servers setting would show its inline keys.
+		if (planSetSetting(parsed.input).kind === "refused") {
+			return undefined;
+		}
+		const inspection = this.deps.settings.inspect(setting);
+		return confirmationCard(
+			l10n.t("Change the LiteLLM setting {0}?", setting),
+			describeSettingChange(
+				setting,
+				this.deps.settings.readEffective(setting),
+				value,
+				inspection === undefined ? null : resolveConfiguredScope(inspection)
+			)
+		);
+	}
+
+	/** The record-edit card: the patched key beside the current one, under the scope or entry it lands in. */
+	private editModelRecordsCard(raw: unknown, state: DashboardState): ConfirmationCard | undefined {
+		const parsed = parseAgentToolInput("editModelRecords", raw);
+		if (!parsed.ok) {
+			return undefined;
+		}
+		const input = parsed.input;
+		if (planEditModelRecords(input, state).kind === "refused") {
+			return undefined;
+		}
+		const current = currentRecordMap(input, state);
+		const patched = applyRecordPatch(current, input);
+		const scope =
+			input.kind === "capabilities"
+				? state.settings.modelCapabilities.editScope
+				: state.settings.modelParameters.editScope;
+		const target =
+			input.server === undefined ? l10n.t("the {0} settings", scope) : l10n.t('servers entry "{0}"', input.server);
+		return confirmationCard(
+			l10n.t("Edit the LiteLLM model record {0}?", input.key),
+			describeRecordChange(input.kind, input.key, current[input.key], patched[input.key], target)
+		);
+	}
+
+	/** The save card: an adoption names the stored group, an edit shows the entry before and after. */
+	private saveServerCard(raw: unknown, state: DashboardState): ConfirmationCard | undefined {
+		const parsed = parseAgentToolInput("saveServer", raw);
+		if (!parsed.ok) {
+			return undefined;
+		}
+		const input = parsed.input;
+		const plan = planSaveServer(input, state, agentToolsAcceptSecretValues());
+		if (plan.kind === "refused") {
+			return undefined;
+		}
+		if ("adoptFrom" in input) {
+			// The card describes the STORED group (the plan accepted, so it resolves), whichever spelling of its URL the
+			// agent named it by.
+			const source = externalRow(state, input.adoptFrom.label, input.adoptFrom.baseUrl) ?? input.adoptFrom;
+			return confirmationCard(
+				l10n.t("Adopt the provider group {0} as the LiteLLM server {1}?", input.adoptFrom.label, input.label),
+				describeAdoption(source, input.label, input.secretLocations ?? {})
+			);
+		}
+		const payload = plan.requests[0]?.payload;
+		const existing = declaredRow(state, input.renameFrom ?? input.label);
+		const after = isRecord(payload) && isRecord(payload.server) ? payload.server : { label: input.label };
+		return confirmationCard(
+			l10n.t("Save the LiteLLM server {0}?", input.label),
+			describeServerChange(
+				input.label,
+				existing === undefined ? undefined : { ...savePayloadFromRow(existing) },
+				after,
+				plan.secrets,
+				plan.prompts
+			)
+		);
+	}
+
+	/**
+	 * The remove card. A hide or unhide is identified by label AND base URL (two groups can share a label), so the
+	 * card names both.
+	 */
+	private removeServerCard(raw: unknown, state: DashboardState): ConfirmationCard | undefined {
+		const parsed = parseAgentToolInput("removeServer", raw);
+		if (!parsed.ok) {
+			return undefined;
+		}
+		const input = parsed.input;
+		if (planRemoveServer(input, state).kind === "refused") {
+			return undefined;
+		}
+		const target = input.action === "remove" ? input.label : l10n.t("{0} at {1}", input.label, input.baseUrl);
+		return confirmationCard(
+			l10n.t("{0} the LiteLLM server {1}?", input.action, input.label),
+			describeAction(input.action, target)
+		);
+	}
+
+	/** The run-action card, naming the entry or feature the action targets. */
+	private runActionCard(raw: unknown, state: DashboardState): ConfirmationCard | undefined {
+		const parsed = parseAgentToolInput("runAction", raw);
+		if (!parsed.ok) {
+			return undefined;
+		}
+		if (planRunAction(parsed.input, state).kind === "refused") {
+			return undefined;
+		}
+		const input = parsed.input;
+		return confirmationCard(
+			l10n.t("Run the LiteLLM action {0}?", input.action),
+			describeAction(input.action, runActionTarget(input, state))
+		);
+	}
+
 	private confirmationCard(raw: unknown): ConfirmationCard | undefined {
 		const state = this.deps.dashboard.readState();
 		switch (this.id) {
-			case "setSetting": {
-				const parsed = parseAgentToolInput("setSetting", raw);
-				if (!parsed.ok) {
-					return undefined;
-				}
-				const { setting, value } = parsed.input;
-				// The planner's refusals (servers, the records, this feature's own switches) get no card: rendering the
-				// current value of the servers setting would show its inline keys.
-				if (planSetSetting(parsed.input).kind === "refused") {
-					return undefined;
-				}
-				const inspection = this.deps.settings.inspect(setting);
-				return confirmationCard(
-					l10n.t("Change the LiteLLM setting {0}?", setting),
-					describeSettingChange(
-						setting,
-						this.deps.settings.readEffective(setting),
-						value,
-						inspection === undefined ? null : resolveConfiguredScope(inspection)
-					)
-				);
-			}
-			case "editModelRecords": {
-				const parsed = parseAgentToolInput("editModelRecords", raw);
-				if (!parsed.ok) {
-					return undefined;
-				}
-				const input = parsed.input;
-				if (planEditModelRecords(input, state).kind === "refused") {
-					return undefined;
-				}
-				const row = input.server === undefined ? undefined : declaredRow(state, input.server);
-				const current =
-					input.server === undefined
-						? input.kind === "capabilities"
-							? state.settings.modelCapabilities.value
-							: state.settings.modelParameters.value
-						: row === undefined
-							? {}
-							: ((input.kind === "capabilities" ? row.config.modelCapabilities : row.config.modelParameters) ?? {});
-				const patched = applyRecordPatch(current, input);
-				const target =
-					input.server === undefined
-						? l10n.t(
-								"the {0} settings",
-								input.kind === "capabilities"
-									? state.settings.modelCapabilities.editScope
-									: state.settings.modelParameters.editScope
-							)
-						: l10n.t('servers entry "{0}"', input.server);
-				return confirmationCard(
-					l10n.t("Edit the LiteLLM model record {0}?", input.key),
-					describeRecordChange(input.kind, input.key, current[input.key], patched[input.key], target)
-				);
-			}
-			case "saveServer": {
-				const parsed = parseAgentToolInput("saveServer", raw);
-				if (!parsed.ok) {
-					return undefined;
-				}
-				const input = parsed.input;
-				if (planSaveServer(input, state, agentToolsAcceptSecretValues()).kind === "refused") {
-					return undefined;
-				}
-				if ("adoptFrom" in input) {
-					// The card describes the STORED group (the plan accepted, so it resolves), whichever spelling of its
-					// URL the agent named it by.
-					const source = externalRow(state, input.adoptFrom.label, input.adoptFrom.baseUrl) ?? input.adoptFrom;
-					return confirmationCard(
-						l10n.t("Adopt the provider group {0} as the LiteLLM server {1}?", input.adoptFrom.label, input.label),
-						describeAdoption(source, input.label, input.secretLocations ?? {})
-					);
-				}
-				const plan = planSaveServer(input, state, agentToolsAcceptSecretValues());
-				const payload = plan.kind === "requests" ? plan.requests[0]?.payload : undefined;
-				const prompts = plan.kind === "requests" ? plan.prompts : [];
-				const existing = declaredRow(state, input.renameFrom ?? input.label);
-				const after = isRecord(payload) && isRecord(payload.server) ? payload.server : { label: input.label };
-				return confirmationCard(
-					l10n.t("Save the LiteLLM server {0}?", input.label),
-					describeServerChange(
-						input.label,
-						existing === undefined ? undefined : { ...savePayloadFromRow(existing) },
-						after,
-						plan.kind === "requests" ? plan.secrets : undefined,
-						prompts
-					)
-				);
-			}
-			case "removeServer": {
-				const parsed = parseAgentToolInput("removeServer", raw);
-				if (!parsed.ok) {
-					return undefined;
-				}
-				const input = parsed.input;
-				if (planRemoveServer(input, state).kind === "refused") {
-					return undefined;
-				}
-				// A hide or unhide is identified by label AND base URL (two groups can share a label), so the card
-				// names both.
-				const target = input.action === "remove" ? input.label : l10n.t("{0} at {1}", input.label, input.baseUrl);
-				return confirmationCard(
-					l10n.t("{0} the LiteLLM server {1}?", input.action, input.label),
-					describeAction(input.action, target)
-				);
-			}
-			case "runAction": {
-				const parsed = parseAgentToolInput("runAction", raw);
-				if (!parsed.ok) {
-					return undefined;
-				}
-				if (planRunAction(parsed.input, state).kind === "refused") {
-					return undefined;
-				}
-				const input = parsed.input;
-				const row = "label" in input ? declaredRow(state, input.label) : undefined;
-				const target =
-					"label" in input
-						? row === undefined
-							? input.label
-							: l10n.t("{0} at {1}", input.label, row.baseUrl)
-						: "feature" in input
-							? input.feature
-							: undefined;
-				return confirmationCard(
-					l10n.t("Run the LiteLLM action {0}?", input.action),
-					describeAction(input.action, target)
-				);
-			}
+			case "setSetting":
+				return this.setSettingCard(raw);
+			case "editModelRecords":
+				return this.editModelRecordsCard(raw, state);
+			case "saveServer":
+				return this.saveServerCard(raw, state);
+			case "removeServer":
+				return this.removeServerCard(raw, state);
+			case "runAction":
+				return this.runActionCard(raw, state);
 			default:
 				return undefined;
 		}
@@ -438,31 +465,46 @@ class AgentTool implements vscode.LanguageModelTool<unknown> {
 	}
 }
 
+/** Whether a tool registers right now: the feature switch, plus a write tool's own toggle. */
+function toolActive(id: AgentToolId, featureOn: boolean): boolean {
+	const toggle = AGENT_TOOLS[id].toggle;
+	return featureOn && (toggle === undefined || isAgentWriteToolEnabled(toggle));
+}
+
+/**
+ * Registers each tool that should be live and disposes each that should not; a tool already in its state is left
+ * alone.
+ */
+function applyToolEnablement(
+	tools: ReadonlyMap<AgentToolId, AgentTool>,
+	registrations: Map<AgentToolId, vscode.Disposable>
+): void {
+	const featureOn = isFeatureEnabled("agentTools");
+	for (const id of AGENT_TOOL_IDS) {
+		const active = toolActive(id, featureOn);
+		const registration = registrations.get(id);
+		if (active && registration === undefined) {
+			const tool = tools.get(id);
+			if (tool !== undefined) {
+				registrations.set(id, vscode.lm.registerTool(AGENT_TOOLS[id].name, tool));
+			}
+			continue;
+		}
+		if (!active && registration !== undefined) {
+			registration.dispose();
+			registrations.delete(id);
+		}
+	}
+}
+
 export function wireAgentTools(context: vscode.ExtensionContext, logger: Logger, deps: AgentToolsDeps): void {
 	const tools = new Map<AgentToolId, AgentTool>(AGENT_TOOL_IDS.map((id) => [id, new AgentTool(id, deps, logger)]));
 	const registrations = new Map<AgentToolId, vscode.Disposable>();
-	const applyEnablement = (): void => {
-		const featureOn = isFeatureEnabled("agentTools");
-		for (const id of AGENT_TOOL_IDS) {
-			const toggle = AGENT_TOOLS[id].toggle;
-			const active = featureOn && (toggle === undefined || isAgentWriteToolEnabled(toggle));
-			const registration = registrations.get(id);
-			if (active && registration === undefined) {
-				const tool = tools.get(id);
-				if (tool !== undefined) {
-					registrations.set(id, vscode.lm.registerTool(AGENT_TOOLS[id].name, tool));
-				}
-			} else if (!active && registration !== undefined) {
-				registration.dispose();
-				registrations.delete(id);
-			}
-		}
-	};
-	applyEnablement();
+	applyToolEnablement(tools, registrations);
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration(CONFIG_SECTION)) {
-				applyEnablement();
+				applyToolEnablement(tools, registrations);
 			}
 		}),
 		new vscode.Disposable(() => {

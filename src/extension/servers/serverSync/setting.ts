@@ -158,21 +158,15 @@ function parseMcpOptIn(raw: unknown, report: (what: string) => void): McpOptIn |
 
 type FlatAuthFields = { -readonly [K in OptionalEntryFieldId]?: string };
 
-function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: string[] } {
-	const fields: FlatAuthFields = {};
-	if (raw === undefined) {
-		return { fields };
-	}
+/**
+ * The structural problems of an auth object: an unknown key, no form at all, or a flat key beside oauth. Unknown keys
+ * are named on purpose: a typo silently reading as "no auth" would be the worst failure mode.
+ */
+function authShapeProblems(auth: Record<string, unknown>): string[] {
 	const problems: string[] = [];
-	const auth = objectSlot(raw, notAnObject("an auth value", "rejects"), (what) => problems.push(what));
-	if (auth === undefined) {
-		return { problems };
-	}
-	const keys = Object.keys(auth);
 	const known = ["apiKey", "oauth", "virtualKey"];
-	for (const key of keys) {
+	for (const key of Object.keys(auth)) {
 		if (!known.includes(key)) {
-			// Named on purpose: a typo silently reading as "no auth" would be the worst failure mode.
 			problems.push(`has an unknown auth key "${key}"`);
 		}
 	}
@@ -189,11 +183,25 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 			}
 		}
 	}
-	if (problems.length > 0) {
+	return problems;
+}
+
+function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: string[] } {
+	const fields: FlatAuthFields = {};
+	if (raw === undefined) {
+		return { fields };
+	}
+	const problems: string[] = [];
+	const auth = objectSlot(raw, notAnObject("an auth value", "rejects"), (what) => problems.push(what));
+	if (auth === undefined) {
 		return { problems };
 	}
+	const shapeProblems = authShapeProblems(auth);
+	if (shapeProblems.length > 0) {
+		return { problems: shapeProblems };
+	}
 
-	if (hasOAuth) {
+	if (auth.oauth !== undefined) {
 		const oauthProblems = parseOAuthForm(auth.oauth, fields);
 		if (oauthProblems.length > 0) {
 			return { problems: oauthProblems };
@@ -201,10 +209,10 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 		assignNestedSecrets(auth, fields);
 		return { fields };
 	}
-	if (hasApiKey && typeof auth.apiKey !== "string") {
+	if (auth.apiKey !== undefined && typeof auth.apiKey !== "string") {
 		return { problems: ["has an auth.apiKey that is not a string"] };
 	}
-	if (hasVirtualKey) {
+	if (auth.virtualKey !== undefined) {
 		// Alone it is the virtualKey form; beside apiKey it is that form's companion. The flat fields are identical -
 		// primacy already decides the wire semantics.
 		const virtualKey = parseVirtualKeyObject(auth.virtualKey, "auth.virtualKey");
@@ -289,6 +297,51 @@ export function collectableEntries(raw: unknown): CollectableEntry[] {
 	});
 }
 
+/** The oauth form's identity pair, the token URL canonical, or the problems a missing or malformed one earns. */
+type OauthIdentity =
+	| { readonly kind: "identified"; readonly tokenUrl: string; readonly clientId: string }
+	| { readonly kind: "problems"; readonly problems: string[] };
+
+function oauthIdentity(form: Record<string, unknown>): OauthIdentity {
+	const problems: string[] = [];
+	const tokenUrlText = typeof form.tokenUrl === "string" ? usableHttpText(form.tokenUrl) : undefined;
+	const clientId = typeof form.clientId === "string" ? usableHttpText(form.clientId) : undefined;
+	if (tokenUrlText === undefined || clientId === undefined) {
+		problems.push("has an incomplete auth.oauth (tokenUrl and clientId are required)");
+	}
+	const tokenUrl = tokenUrlText === undefined ? undefined : canonicalUrl(tokenUrlText);
+	if (tokenUrlText !== undefined && tokenUrl === undefined) {
+		problems.push("has an auth.oauth.tokenUrl that is not a URL with a host");
+	}
+	if (tokenUrl === undefined || clientId === undefined) {
+		return { kind: "problems", problems };
+	}
+	return { kind: "identified", tokenUrl, clientId };
+}
+
+/** The oauth form's companions: the string fields checked for shape, and the virtual key parsed when present. */
+function oauthCompanions(form: Record<string, unknown>): {
+	problems: string[];
+	virtualKey: FlatAuthFields | undefined;
+} {
+	const problems: string[] = [];
+	for (const key of ["clientSecret", "scopes", "apiKey"] as const) {
+		if (form[key] !== undefined && typeof form[key] !== "string") {
+			problems.push(`has an auth.oauth.${key} that is not a string`);
+		}
+	}
+	let virtualKey: FlatAuthFields | undefined;
+	if (form.virtualKey !== undefined) {
+		const parsed = parseVirtualKeyObject(form.virtualKey, "auth.oauth.virtualKey");
+		if ("problems" in parsed) {
+			problems.push(...parsed.problems);
+		} else {
+			virtualKey = parsed.fields;
+		}
+	}
+	return { problems, virtualKey };
+}
+
 function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
 	const problems: string[] = [];
 	const form = objectSlot(raw, notAnObject("an auth.oauth value", "rejects"), (what) => problems.push(what));
@@ -301,37 +354,20 @@ function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
 			problems.push(`has an unknown auth.oauth key "${key}"`);
 		}
 	}
-	const tokenUrlText = typeof form.tokenUrl === "string" ? usableHttpText(form.tokenUrl) : undefined;
-	const clientId = typeof form.clientId === "string" ? usableHttpText(form.clientId) : undefined;
-	if (tokenUrlText === undefined || clientId === undefined) {
-		problems.push("has an incomplete auth.oauth (tokenUrl and clientId are required)");
+	const identity = oauthIdentity(form);
+	const companions = oauthCompanions(form);
+	if (identity.kind === "problems") {
+		problems.push(...identity.problems);
 	}
-	const tokenUrl = tokenUrlText === undefined ? undefined : canonicalUrl(tokenUrlText);
-	if (tokenUrlText !== undefined && tokenUrl === undefined) {
-		problems.push("has an auth.oauth.tokenUrl that is not a URL with a host");
-	}
-	for (const key of ["clientSecret", "scopes", "apiKey"] as const) {
-		if (form[key] !== undefined && typeof form[key] !== "string") {
-			problems.push(`has an auth.oauth.${key} that is not a string`);
-		}
-	}
-	let companionVirtualKey: FlatAuthFields | undefined;
-	if (form.virtualKey !== undefined) {
-		const virtualKey = parseVirtualKeyObject(form.virtualKey, "auth.oauth.virtualKey");
-		if ("problems" in virtualKey) {
-			problems.push(...virtualKey.problems);
-		} else {
-			companionVirtualKey = virtualKey.fields;
-		}
-	}
-	if (problems.length > 0 || tokenUrl === undefined || clientId === undefined) {
+	problems.push(...companions.problems);
+	if (identity.kind === "problems" || problems.length > 0) {
 		return problems;
 	}
-	if (companionVirtualKey !== undefined) {
-		Object.assign(fields, companionVirtualKey);
+	if (companions.virtualKey !== undefined) {
+		Object.assign(fields, companions.virtualKey);
 	}
-	fields.oauthTokenUrl = tokenUrl;
-	fields.oauthClientId = clientId;
+	fields.oauthTokenUrl = identity.tokenUrl;
+	fields.oauthClientId = identity.clientId;
 	const scopes = usableHttpText(form.scopes);
 	if (scopes !== undefined) {
 		fields.oauthScopes = scopes;
@@ -545,6 +581,212 @@ function reportedEntryRecords(
 	return records;
 }
 
+/** An entry as acceptance builds it up: the identity, the auth fields, then each optional slot the record supplies. */
+type MutableEntry = { label: string; baseUrl: string } & MutableEntryViewFields & FlatAuthFields;
+
+/**
+ * What the acceptance steps report through: `channels` splits the records normalizer's lines, `report` sends to
+ * both.
+ */
+interface EntryReporting {
+	readonly channels: EntryReportChannels;
+	readonly report: (what: string) => void;
+}
+
+/**
+ * The element's identity, or undefined after its problem was reported: not an object, no label or baseUrl, a reserved
+ * label, a repeated label (the first entry wins), or a base URL with no host. The last is a reject, not a drop: the
+ * entry keeps its label (no removal is inferred) and its row names the field.
+ */
+function entryIdentity(
+	item: unknown,
+	seen: Set<string>,
+	report: (what: string) => void
+): { record: Record<string, unknown>; label: string; baseUrl: string } | undefined {
+	const record = objectSlot(item, "is not an object", report);
+	if (record === undefined) {
+		return undefined;
+	}
+	const label = usableHttpText(record.label);
+	const baseUrlText = usableHttpText(record.baseUrl);
+	if (label === undefined || baseUrlText === undefined) {
+		report("is missing a label or baseUrl");
+		return undefined;
+	}
+	if (isUnsafeRecordKey(label)) {
+		report("uses a reserved label");
+		return undefined;
+	}
+	if (seen.has(label)) {
+		report("repeats an earlier entry's label; the first entry wins");
+		return undefined;
+	}
+	seen.add(label);
+	const baseUrl = canonicalBaseUrl(baseUrlText);
+	if (baseUrl === undefined) {
+		report("has a baseUrl that is not a URL with a host; the entry is not used until it is fixed");
+		return undefined;
+	}
+	return { record, label, baseUrl };
+}
+
+/**
+ * The entry's apiVersion. "" is a real value (append nothing to the base URL), so it cannot funnel through
+ * usableHttpText, which erases it; like budget, a malformed value is a diagnostic and is ignored, and the entry stays
+ * usable.
+ */
+function applyApiVersion(entry: MutableEntry, record: Record<string, unknown>, report: (what: string) => void): void {
+	if (record.apiVersion === undefined) {
+		return;
+	}
+	if (typeof record.apiVersion === "string") {
+		entry.apiVersion = trimHttpWhitespace(record.apiVersion);
+	} else {
+		report("has an apiVersion that is not a string, ignored");
+	}
+}
+
+/**
+ * The entry's custom headers. Header names are structural configuration (the same class the request-path narrowing
+ * logs); values never enter the report.
+ */
+function applyHeaders(entry: MutableEntry, record: Record<string, unknown>, report: (what: string) => void): void {
+	const headers = normalizeCustomHeaders(record.headers, (message, data) => {
+		const name = isRecord(data) && typeof data.name === "string" ? ` ("${data.name}")` : "";
+		report(`headers: ${message}${name}`);
+	});
+	if (Object.keys(headers).length > 0) {
+		entry.headers = headers;
+	}
+}
+
+/**
+ * The entry's per-entry records. An empty models result reads as absent; the capability vocabulary is enforced
+ * downstream by parseCapabilityRecord. Unknown keys are named on purpose, like the unknown auth keys: a typo silently
+ * reading as "no per-entry records" would be invisible. The records normalizer is the one shape classifier; its
+ * refusals ride this entry's report so a `"gpt-4": "oops"` does not read as "no per-entry records" in silence.
+ */
+function applyModelsSlot(entry: MutableEntry, record: Record<string, unknown>, reporting: EntryReporting): void {
+	const { channels, report } = reporting;
+	const models = optionalSlot(record.models, "models", report);
+	if (models === undefined) {
+		return;
+	}
+	for (const key of Object.keys(models)) {
+		if (key !== "parameters" && key !== "capabilities") {
+			report(`has an unknown models key "${key}", ignored`);
+		}
+	}
+	const modelParameters = reportedEntryRecords(models.parameters, "parameters", normalizeModelParameters, channels);
+	if (Object.keys(modelParameters).length > 0) {
+		entry.modelParameters = modelParameters;
+	}
+	const modelCapabilities = reportedEntryRecords(
+		models.capabilities,
+		"capabilities",
+		normalizeModelCapabilities,
+		channels
+	);
+	if (Object.keys(modelCapabilities).length > 0) {
+		entry.modelCapabilities = modelCapabilities;
+	}
+}
+
+/**
+ * The entry's discovery slot: expected failures, declared models, and include modes. Unknown keys are named on
+ * purpose: a typo silently reading as "no expected failures", "nothing declared", or "nothing included" would be
+ * invisible.
+ */
+function applyDiscoverySlot(
+	entry: MutableEntry,
+	record: Record<string, unknown>,
+	report: (what: string) => void
+): void {
+	const discovery = optionalSlot(record.discovery, "discovery", report);
+	if (discovery === undefined) {
+		return;
+	}
+	for (const key of Object.keys(discovery)) {
+		if (key !== "expectedFailures" && key !== "declared" && key !== "includeModes") {
+			report(`has an unknown discovery key "${key}", ignored`);
+		}
+	}
+	const expectedFailures = knownTokens(discovery, "expectedFailures", isExpectedFailureCategory, report);
+	if (expectedFailures.length > 0) {
+		entry.expectedFailures = expectedFailures;
+	}
+	const declared = listSlot(discovery.declared, "discovery.declared", report);
+	if (declared !== undefined) {
+		const ids = declared.map(usableHttpText).filter((id): id is string => id !== undefined);
+		if (ids.length < declared.length) {
+			const dropped = declared.length - ids.length;
+			report(`lists ${dropped} unusable discovery.declared value(s), ignored`);
+		}
+		const unique = [...new Set(ids)];
+		if (unique.length > 0) {
+			entry.declaredModels = unique;
+		}
+	}
+	const includeModes = knownTokens(discovery, "includeModes", isNonChatMode, report);
+	if (includeModes.length > 0) {
+		entry.includeModes = includeModes;
+	}
+}
+
+/** The entry's budget; a malformed value is a diagnostic and is ignored, and the entry stays usable. */
+function applyBudget(entry: MutableEntry, record: Record<string, unknown>, report: (what: string) => void): void {
+	if (record.budget === undefined) {
+		return;
+	}
+	const budget = usableBudget(record.budget);
+	if (budget === undefined) {
+		report("has a budget that is not a number greater than 0, ignored");
+	} else {
+		entry.budget = budget;
+	}
+}
+
+/** The entry's MCP opt-in, when the record carries one the opt-in parser accepts. */
+function applyMcp(entry: MutableEntry, record: Record<string, unknown>, report: (what: string) => void): void {
+	if (record.mcp === undefined) {
+		return;
+	}
+	const mcp = parseMcpOptIn(record.mcp, report);
+	if (mcp !== undefined) {
+		entry.mcp = mcp;
+	}
+}
+
+/**
+ * One raw element accepted into an entry, or undefined after its problems were reported. Auth shape errors make the
+ * whole entry misconfigured, but it is still PRESENT: rawDeclaredLabels keeps its label, so no removal is inferred and
+ * its group is not hidden.
+ */
+function acceptEntry(item: unknown, seen: Set<string>, reporting: EntryReporting): DeclaredServer | undefined {
+	const { report } = reporting;
+	const identity = entryIdentity(item, seen, report);
+	if (identity === undefined) {
+		return undefined;
+	}
+	const { record, label, baseUrl } = identity;
+	const auth = parseAuth(record.auth);
+	if ("problems" in auth) {
+		for (const problem of auth.problems) {
+			report(problem);
+		}
+		report("is misconfigured and will not be used until its auth is fixed");
+		return undefined;
+	}
+	const entry: MutableEntry = { label, baseUrl, ...auth.fields };
+	applyApiVersion(entry, record, report);
+	applyHeaders(entry, record, report);
+	applyModelsSlot(entry, record, reporting);
+	applyDiscoverySlot(entry, record, report);
+	applyBudget(entry, record, report);
+	applyMcp(entry, record, report);
+	return entry;
+}
+
 /**
  * The accepted entries with their raw-array indices: the single place the acceptance rules live, so
  * parseServersSetting and acceptedEntry cannot disagree about which raw entry a label resolves to.
@@ -568,149 +810,10 @@ function acceptEntries(
 			channels.log(what);
 			channels.row(what);
 		};
-		const record = objectSlot(item, "is not an object", report);
-		if (record === undefined) {
-			return;
+		const entry = acceptEntry(item, seen, { channels, report });
+		if (entry !== undefined) {
+			accepted.push({ index, entry });
 		}
-		const label = usableHttpText(record.label);
-		const baseUrlText = usableHttpText(record.baseUrl);
-		if (label === undefined || baseUrlText === undefined) {
-			report("is missing a label or baseUrl");
-			return;
-		}
-		if (isUnsafeRecordKey(label)) {
-			report("uses a reserved label");
-			return;
-		}
-		if (seen.has(label)) {
-			report("repeats an earlier entry's label; the first entry wins");
-			return;
-		}
-		seen.add(label);
-
-		// A reject, not a drop: the entry keeps its label (no removal is inferred) and its row names the field.
-		const baseUrl = canonicalBaseUrl(baseUrlText);
-		if (baseUrl === undefined) {
-			report("has a baseUrl that is not a URL with a host; the entry is not used until it is fixed");
-			return;
-		}
-
-		//   Auth shape errors -> make the whole entry misconfigured
-		//   still PRESENT - rawDeclaredLabels keeps its label -> no removal is inferred and its group is not hidden
-		const auth = parseAuth(record.auth);
-		if ("problems" in auth) {
-			for (const problem of auth.problems) {
-				report(problem);
-			}
-			report("is misconfigured and will not be used until its auth is fixed");
-			return;
-		}
-
-		const entry: {
-			label: string;
-			baseUrl: string;
-		} & MutableEntryViewFields &
-			FlatAuthFields = {
-			label,
-			baseUrl,
-			...auth.fields,
-		};
-
-		// "" is a real value (append nothing to the base URL), so this cannot funnel through usableHttpText, which erases
-		// it. Like budget, a malformed value is a diagnostic and is ignored; the entry stays usable.
-		if (record.apiVersion !== undefined) {
-			if (typeof record.apiVersion === "string") {
-				entry.apiVersion = trimHttpWhitespace(record.apiVersion);
-			} else {
-				report("has an apiVersion that is not a string, ignored");
-			}
-		}
-
-		// Header names are structural configuration (the same class the request-path narrowing logs); values never
-		// enter the report.
-		const headers = normalizeCustomHeaders(record.headers, (message, data) => {
-			const name = isRecord(data) && typeof data.name === "string" ? ` ("${data.name}")` : "";
-			report(`headers: ${message}${name}`);
-		});
-		if (Object.keys(headers).length > 0) {
-			entry.headers = headers;
-		}
-
-		// An empty models result reads as absent. The capability vocabulary is enforced downstream by
-		// parseCapabilityRecord.
-		const models = optionalSlot(record.models, "models", report);
-		if (models !== undefined) {
-			// Named on purpose, like the unknown auth keys: a typo silently reading as "no per-entry records" would be
-			// invisible.
-			for (const key of Object.keys(models)) {
-				if (key !== "parameters" && key !== "capabilities") {
-					report(`has an unknown models key "${key}", ignored`);
-				}
-			}
-			// The records normalizer is the one shape classifier; its refusals ride this entry's report so a
-			// `"gpt-4": "oops"` does not read as "no per-entry records" in silence.
-			const modelParameters = reportedEntryRecords(models.parameters, "parameters", normalizeModelParameters, channels);
-			if (Object.keys(modelParameters).length > 0) {
-				entry.modelParameters = modelParameters;
-			}
-			const modelCapabilities = reportedEntryRecords(
-				models.capabilities,
-				"capabilities",
-				normalizeModelCapabilities,
-				channels
-			);
-			if (Object.keys(modelCapabilities).length > 0) {
-				entry.modelCapabilities = modelCapabilities;
-			}
-		}
-
-		const discovery = optionalSlot(record.discovery, "discovery", report);
-		if (discovery !== undefined) {
-			// Named on purpose: a typo silently reading as "no expected failures", "nothing declared", or "nothing
-			// included" would be invisible.
-			for (const key of Object.keys(discovery)) {
-				if (key !== "expectedFailures" && key !== "declared" && key !== "includeModes") {
-					report(`has an unknown discovery key "${key}", ignored`);
-				}
-			}
-			const expectedFailures = knownTokens(discovery, "expectedFailures", isExpectedFailureCategory, report);
-			if (expectedFailures.length > 0) {
-				entry.expectedFailures = expectedFailures;
-			}
-			const declared = listSlot(discovery.declared, "discovery.declared", report);
-			if (declared !== undefined) {
-				const ids = declared.map(usableHttpText).filter((id): id is string => id !== undefined);
-				if (ids.length < declared.length) {
-					const dropped = declared.length - ids.length;
-					report(`lists ${dropped} unusable discovery.declared value(s), ignored`);
-				}
-				const unique = [...new Set(ids)];
-				if (unique.length > 0) {
-					entry.declaredModels = unique;
-				}
-			}
-			const includeModes = knownTokens(discovery, "includeModes", isNonChatMode, report);
-			if (includeModes.length > 0) {
-				entry.includeModes = includeModes;
-			}
-		}
-
-		if (record.budget !== undefined) {
-			const budget = usableBudget(record.budget);
-			if (budget === undefined) {
-				report("has a budget that is not a number greater than 0, ignored");
-			} else {
-				entry.budget = budget;
-			}
-		}
-
-		if (record.mcp !== undefined) {
-			const mcp = parseMcpOptIn(record.mcp, report);
-			if (mcp !== undefined) {
-				entry.mcp = mcp;
-			}
-		}
-		accepted.push({ index, entry });
 	});
 	return accepted;
 }
@@ -732,6 +835,25 @@ export function acceptedEntries(raw: unknown): { index: number; entry: DeclaredS
 }
 
 /**
+ * A URL field's trimmed text and its canonical spelling, or undefined when the field holds no usable text, no URL
+ * with a host, or already the canonical spelling.
+ */
+function respelled(
+	value: unknown,
+	canonicalize: (text: string) => string | undefined
+): { text: string; url: string } | undefined {
+	const text = usableHttpText(value);
+	if (text === undefined) {
+		return undefined;
+	}
+	const url = canonicalize(text);
+	if (url === undefined || url === value) {
+		return undefined;
+	}
+	return { text, url };
+}
+
+/**
  * A raw entry with its URL fields in the one spelling the parser reads, every other byte untouched: what a settings
  * import writes and what the one-time migration rewrites, so a stored entry reads back as itself. `oldBaseUrl` is the
  * trimmed spelling the base URL had when it changed: the one field the sync fingerprint hashes (engine.ts
@@ -745,26 +867,23 @@ export function respellEntryUrls(raw: Readonly<Record<string, unknown>>): {
 	const record: Record<string, unknown> = { ...raw };
 	let changed = false;
 	let oldBaseUrl: string | undefined;
-	const baseUrlText = usableHttpText(raw.baseUrl);
-	const baseUrl = baseUrlText === undefined ? undefined : canonicalBaseUrl(baseUrlText);
-	if (baseUrl !== undefined && baseUrl !== raw.baseUrl) {
-		record.baseUrl = baseUrl;
+	const baseUrl = respelled(raw.baseUrl, canonicalBaseUrl);
+	if (baseUrl !== undefined) {
+		record.baseUrl = baseUrl.url;
 		changed = true;
-		oldBaseUrl = baseUrlText;
+		oldBaseUrl = baseUrl.text;
 	}
 	if (isRecord(raw.auth) && isRecord(raw.auth.oauth)) {
-		const tokenUrlText = usableHttpText(raw.auth.oauth.tokenUrl);
-		const tokenUrl = tokenUrlText === undefined ? undefined : canonicalUrl(tokenUrlText);
-		if (tokenUrl !== undefined && tokenUrl !== raw.auth.oauth.tokenUrl) {
-			record.auth = { ...raw.auth, oauth: { ...raw.auth.oauth, tokenUrl } };
+		const tokenUrl = respelled(raw.auth.oauth.tokenUrl, canonicalUrl);
+		if (tokenUrl !== undefined) {
+			record.auth = { ...raw.auth, oauth: { ...raw.auth.oauth, tokenUrl: tokenUrl.url } };
 			changed = true;
 		}
 	}
 	if (isRecord(raw.mcp)) {
-		const urlText = usableHttpText(raw.mcp.url);
-		const url = urlText === undefined ? undefined : canonicalUrl(urlText);
-		if (url !== undefined && url !== raw.mcp.url) {
-			record.mcp = { ...raw.mcp, url };
+		const url = respelled(raw.mcp.url, canonicalUrl);
+		if (url !== undefined) {
+			record.mcp = { ...raw.mcp, url: url.url };
 			changed = true;
 		}
 	}

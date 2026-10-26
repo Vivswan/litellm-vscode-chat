@@ -143,6 +143,27 @@ export interface EntryRecordTransform {
 	readonly rewroteForce: number;
 }
 
+/** One record value as the migration carries it, with what the carry did to it. */
+interface CarriedValue {
+	readonly value: unknown;
+	readonly declared: boolean;
+	readonly strippedInert: boolean;
+	readonly rewroteForce: boolean;
+}
+
+/**
+ * Carries one record value: a capabilities record has its `_declare` stripped (declaring when the key can name an ID),
+ * a parameters record has its migrated `_force` normalized to the names it really forced.
+ */
+function carryValue(value: unknown, kind: RecordKind, declarable: boolean): CarriedValue {
+	if (kind === "capabilities") {
+		const strip = stripDeclare(value, declarable);
+		return { value: strip.value, declared: strip.declared, strippedInert: strip.strippedInert, rewroteForce: false };
+	}
+	const normalized = normalizeMigratedForce(value);
+	return { value: normalized.value, declared: false, strippedInert: false, rewroteForce: normalized.rewrote };
+}
+
 /**
  * A non-record value rides verbatim - it was inert under the old readers and stays inert under the new ones.
  */
@@ -162,30 +183,22 @@ export function transformEntryRecord(raw: unknown, kind: RecordKind): EntryRecor
 			transformed.push({ sourceKey: key, newKey: key, value });
 			continue;
 		}
-		let carried = value;
-		if (kind === "capabilities") {
-			const strip = stripDeclare(value, isDeclarableKey(key));
-			carried = strip.value;
-			if (strip.declared) {
-				// The parser trims declared IDs, so the move writes the trimmed form.
-				declared.push(trimHttpWhitespace(key));
-			}
-			if (strip.strippedInert) {
-				strippedInertDeclares += 1;
-			}
+		const carried = carryValue(value, kind, isDeclarableKey(key));
+		if (carried.declared) {
+			// The parser trims declared IDs, so the move writes the trimmed form.
+			declared.push(trimHttpWhitespace(key));
 		}
-		if (kind === "parameters") {
-			const normalized = normalizeMigratedForce(carried);
-			carried = normalized.value;
-			if (normalized.rewrote) {
-				rewroteForce += 1;
-			}
+		if (carried.strippedInert) {
+			strippedInertDeclares += 1;
+		}
+		if (carried.rewroteForce) {
+			rewroteForce += 1;
 		}
 		const newKey = explicitMatcherKey(key);
 		if (newKey !== key) {
 			starredKeys += 1;
 		}
-		transformed.push({ sourceKey: key, newKey, value: carried });
+		transformed.push({ sourceKey: key, newKey, value: carried.value });
 	}
 	const { record, dropped } = assembleRecord(transformed);
 	return { value: record, declared, starredKeys, droppedAliasKeys: dropped, strippedInertDeclares, rewroteForce };
@@ -236,6 +249,143 @@ export interface GlobalRecordTransform {
 }
 
 /**
+ * One place a URL-scoped key lands: the entry at its URL, the key's remainder past the URL, the value stripped for
+ * it.
+ */
+interface ScopedLanding {
+	readonly target: ScopedMoveTargetState;
+	readonly remainder: string;
+	readonly strip: DeclareStripResult;
+}
+
+/**
+ * The mutable state of one global-record transform: the moved keys per entry, the kept keys, and the running
+ * counts.
+ */
+interface GlobalMoveState {
+	readonly entryAdditions: Map<number, Map<string, unknown>>;
+	readonly entryDeclares: Map<number, string[]>;
+	readonly kept: TransformedKey[];
+	starredKeys: number;
+	movedScopedKeys: number;
+	inertScopedKeys: number;
+	strippedInertDeclares: number;
+	rewroteForce: number;
+}
+
+/**
+ * The entries a URL-scoped key lands in. A bare "<baseUrl>" key without a remainder separator never scoped-matched
+ * anything under the old rules; only "<baseUrl>/..." keys are movable readings.
+ */
+function scopedLandings(
+	key: string,
+	value: unknown,
+	kind: RecordKind,
+	targets: readonly ScopedMoveTargetState[]
+): ScopedLanding[] {
+	return targets.flatMap((target) => {
+		if (!key.startsWith(`${target.normalizedBaseUrl}/`)) {
+			return [];
+		}
+		const remainder = key.slice(target.normalizedBaseUrl.length + 1);
+		const strip: DeclareStripResult =
+			kind === "capabilities"
+				? stripDeclare(value, isDeclarableKey(remainder))
+				: { value, declared: false, strippedInert: false };
+		return [{ target, remainder, strip }];
+	});
+}
+
+/**
+ * Lands one key in one target: a declaration joins the entry's declared list, a parameters value has its `_force`
+ * normalized, and the value lands under its explicit matcher key. The one intra-entry collision mirrors assembleRecord:
+ * the "*" remainder beat "" under the old per-scope tie rule.
+ */
+function landInTarget(state: GlobalMoveState, kind: RecordKind, { target, remainder, strip }: ScopedLanding): void {
+	if (strip.declared) {
+		const list = state.entryDeclares.get(target.entryIndex) ?? [];
+		// The parser trims declared IDs, so the move writes the trimmed form.
+		list.push(trimHttpWhitespace(remainder));
+		state.entryDeclares.set(target.entryIndex, list);
+	}
+	let carried = strip.value;
+	if (kind === "parameters") {
+		const normalized = normalizeMigratedForce(carried);
+		carried = normalized.value;
+		if (normalized.rewrote) {
+			state.rewroteForce += 1;
+		}
+	}
+	const additions = state.entryAdditions.get(target.entryIndex) ?? new Map<string, unknown>();
+	const newKey = explicitMatcherKey(remainder);
+	if (!additions.has(newKey) || remainder === "*") {
+		additions.set(newKey, carried);
+	}
+	state.entryAdditions.set(target.entryIndex, additions);
+}
+
+/**
+ * Lands one movable key in every target. Declare bookkeeping is per KEY: the directive moved if any target declared
+ * it, and counts as inert at most once otherwise.
+ */
+function landScopedKey(state: GlobalMoveState, kind: RecordKind, landings: readonly ScopedLanding[]): void {
+	let keyDeclared = false;
+	let keyStrippedInert = false;
+	for (const landing of landings) {
+		landInTarget(state, kind, landing);
+		keyDeclared ||= landing.strip.declared;
+		keyStrippedInert ||= !landing.strip.declared && landing.strip.strippedInert;
+	}
+	if (keyStrippedInert && !keyDeclared) {
+		state.strippedInertDeclares += 1;
+	}
+}
+
+/**
+ * Moves one URL-scoped key into every declared entry at its URL, or keeps it verbatim when no entry is there or one
+ * cannot take it. Under the old runtime every entry at the URL read the key, so a partial move would silently drop
+ * one entry's reading.
+ */
+function moveScopedKey(
+	state: GlobalMoveState,
+	kind: RecordKind,
+	targets: readonly ScopedMoveTargetState[],
+	key: string,
+	value: unknown
+): void {
+	const landings = scopedLandings(key, value, kind, targets);
+	const blocked = landings.some(
+		({ target, strip }) => !target.acceptsRecords || (strip.declared && !target.acceptsDeclares)
+	);
+	if (landings.length === 0 || blocked) {
+		state.inertScopedKeys += 1;
+		state.kept.push({ sourceKey: key, newKey: key, value });
+		return;
+	}
+	state.movedScopedKeys += 1;
+	landScopedKey(state, kind, landings);
+}
+
+/**
+ * Carries one unscoped key like the entry transform does, except that an unscoped `_declare` was the unscoped-declare
+ * diagnostic: never a declaration, so it strips without one.
+ */
+function carryUnscopedKey(state: GlobalMoveState, kind: RecordKind, key: string, value: unknown): void {
+	const carried = carryValue(value, kind, false);
+	if (carried.strippedInert) {
+		state.strippedInertDeclares += 1;
+	}
+	if (carried.rewroteForce) {
+		state.rewroteForce += 1;
+	}
+	const newKey = explicitMatcherKey(key);
+	if (newKey !== key) {
+		state.starredKeys += 1;
+	}
+	state.kept.push({ sourceKey: key, newKey, value: carried.value });
+}
+
+/**
  *   Under the old runtime every server at a URL -> read its scoped keys
  *
  *   scoped key no declared entry matches -> kept verbatim
@@ -263,116 +413,41 @@ export function transformGlobalRecord(
 			rewroteForce: 0,
 		};
 	}
-	const entryAdditions = new Map<number, Map<string, unknown>>();
-	const entryDeclares = new Map<number, string[]>();
-	let starredKeys = 0;
-	let movedScopedKeys = 0;
-	let inertScopedKeys = 0;
-	let strippedInertDeclares = 0;
-	let rewroteForce = 0;
-	const kept: TransformedKey[] = [];
+	const state: GlobalMoveState = {
+		entryAdditions: new Map(),
+		entryDeclares: new Map(),
+		kept: [],
+		starredKeys: 0,
+		movedScopedKeys: 0,
+		inertScopedKeys: 0,
+		strippedInertDeclares: 0,
+		rewroteForce: 0,
+	};
 
 	for (const [key, value] of Object.entries(raw)) {
 		if (isUrlScopedKey(key)) {
-			// A bare "<baseUrl>" key without a remainder separator never scoped-matched anything under the old rules;
-			// only "<baseUrl>/..." keys are movable readings.
-			const landings = targets.flatMap((target) => {
-				if (!key.startsWith(`${target.normalizedBaseUrl}/`)) {
-					return [];
-				}
-				const remainder = key.slice(target.normalizedBaseUrl.length + 1);
-				const strip: DeclareStripResult =
-					kind === "capabilities"
-						? stripDeclare(value, isDeclarableKey(remainder))
-						: { value, declared: false, strippedInert: false };
-				return [{ target, remainder, strip }];
-			});
-			// Under the old runtime every entry at the URL read the key, so a partial move would silently drop one
-			// entry's reading.
-			const blocked = landings.some(
-				({ target, strip }) => !target.acceptsRecords || (strip.declared && !target.acceptsDeclares)
-			);
-			if (landings.length === 0 || blocked) {
-				inertScopedKeys += 1;
-				kept.push({ sourceKey: key, newKey: key, value });
-				continue;
-			}
-			movedScopedKeys += 1;
-			// Declare bookkeeping is per KEY: the directive moved if any target declared it, and counts as inert at
-			// most once otherwise.
-			let keyDeclared = false;
-			let keyStrippedInert = false;
-			for (const { target, remainder, strip } of landings) {
-				let carried = strip.value;
-				if (strip.declared) {
-					keyDeclared = true;
-					const list = entryDeclares.get(target.entryIndex) ?? [];
-					// The parser trims declared IDs, so the move writes the trimmed form.
-					list.push(trimHttpWhitespace(remainder));
-					entryDeclares.set(target.entryIndex, list);
-				} else if (strip.strippedInert) {
-					keyStrippedInert = true;
-				}
-				if (kind === "parameters") {
-					const normalized = normalizeMigratedForce(carried);
-					carried = normalized.value;
-					if (normalized.rewrote) {
-						rewroteForce += 1;
-					}
-				}
-				const additions = entryAdditions.get(target.entryIndex) ?? new Map<string, unknown>();
-				const newKey = explicitMatcherKey(remainder);
-				// The one intra-entry collision mirrors assembleRecord: the "*" remainder beat "" under the old
-				// per-scope tie rule.
-				if (!additions.has(newKey) || remainder === "*") {
-					additions.set(newKey, carried);
-				}
-				entryAdditions.set(target.entryIndex, additions);
-			}
-			if (keyStrippedInert && !keyDeclared) {
-				strippedInertDeclares += 1;
-			}
+			moveScopedKey(state, kind, targets, key, value);
 			continue;
 		}
 		if (isUnsafeRecordKey(key)) {
 			// Same rule as the entry transform: reserved keys were dropped-inert and stay verbatim so they cannot
 			// become active matchers.
-			kept.push({ sourceKey: key, newKey: key, value });
+			state.kept.push({ sourceKey: key, newKey: key, value });
 			continue;
 		}
-		let carried = value;
-		if (kind === "capabilities") {
-			// Unscoped `_declare` was the unscoped-declare diagnostic: never a declaration, so it strips without one.
-			const strip = stripDeclare(value, false);
-			carried = strip.value;
-			if (strip.strippedInert) {
-				strippedInertDeclares += 1;
-			}
-		}
-		if (kind === "parameters") {
-			const normalized = normalizeMigratedForce(carried);
-			carried = normalized.value;
-			if (normalized.rewrote) {
-				rewroteForce += 1;
-			}
-		}
-		const newKey = explicitMatcherKey(key);
-		if (newKey !== key) {
-			starredKeys += 1;
-		}
-		kept.push({ sourceKey: key, newKey, value: carried });
+		carryUnscopedKey(state, kind, key, value);
 	}
 
-	const { record, dropped } = assembleRecord(kept);
+	const { record, dropped } = assembleRecord(state.kept);
 	return {
 		value: record,
-		entryAdditions,
-		entryDeclares,
-		starredKeys,
+		entryAdditions: state.entryAdditions,
+		entryDeclares: state.entryDeclares,
+		starredKeys: state.starredKeys,
 		droppedAliasKeys: dropped,
-		movedScopedKeys,
-		inertScopedKeys,
-		strippedInertDeclares,
-		rewroteForce,
+		movedScopedKeys: state.movedScopedKeys,
+		inertScopedKeys: state.inertScopedKeys,
+		strippedInertDeclares: state.strippedInertDeclares,
+		rewroteForce: state.rewroteForce,
 	};
 }

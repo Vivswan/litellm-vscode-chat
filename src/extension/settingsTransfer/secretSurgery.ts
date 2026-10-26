@@ -80,14 +80,14 @@ function certifyStrippedAuth(auth: unknown): boolean {
 	return certifyContainer(auth, [], { oauth, virtualKey });
 }
 
-export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): StrippedEntry {
-	const entry = cloneJson(rawEntry) as Record<string, unknown>;
-	const secrets: MutableSecrets = {};
-	// Beside a record-shaped auth object they DISCARD instead (the migration's nested-wins-wholesale rule; see
-	// StrippedEntry.secrets); without one they move 1:1. A container left at one of these keys could still hide text;
-	// that flags the entry rather than being guessed at.
-	const nestedAuthWins = isRecord(rawEntry.auth);
-	let flatResidue = false;
+/**
+ * Moves the flat shape's top-level secret fields into the blob, or discards them: beside a record-shaped auth object
+ * they DISCARD (the migration's nested-wins-wholesale rule; see StrippedEntry.secrets); without one they move 1:1.
+ * Returns whether a container left at one of these keys could still hide text, which flags the entry rather than
+ * being guessed at.
+ */
+function stripFlatSecrets(entry: Record<string, unknown>, nestedAuthWins: boolean, secrets: MutableSecrets): boolean {
+	let residue = false;
 	for (const field of SECRET_FIELD_IDS) {
 		if (nestedAuthWins) {
 			if (usableHttpText(entry[field]) !== undefined) {
@@ -97,25 +97,37 @@ export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): 
 			takeSecret(entry, field, field, secrets);
 		}
 		if (!textless(entry[field])) {
-			flatResidue = true;
+			residue = true;
 		}
 	}
+	return residue;
+}
+
+/** Moves the nested auth positions' secrets into the blob; returns whether any value was removed. */
+function stripNestedSecrets(auth: Record<string, unknown>, secrets: MutableSecrets): boolean {
+	let removed = takeSecret(auth, "apiKey", "apiKey", secrets);
+	const oauth = auth.oauth;
+	if (isRecord(oauth)) {
+		removed = takeSecret(oauth, "apiKey", "apiKey", secrets) || removed;
+		removed = takeSecret(oauth, "clientSecret", "oauthClientSecret", secrets) || removed;
+	}
+	const virtualKey = auth.virtualKey;
+	if (isRecord(virtualKey)) {
+		removed = takeSecret(virtualKey, "value", "virtualKeyValue", secrets) || removed;
+	}
+	if (isRecord(oauth) && isRecord(oauth.virtualKey)) {
+		removed = takeSecret(oauth.virtualKey, "value", "virtualKeyValue", secrets) || removed;
+	}
+	return removed;
+}
+
+export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): StrippedEntry {
+	const entry = cloneJson(rawEntry) as Record<string, unknown>;
+	const secrets: MutableSecrets = {};
+	const flatResidue = stripFlatSecrets(entry, isRecord(rawEntry.auth), secrets);
 	const auth = entry.auth;
-	let removed = false;
 	if (isRecord(auth)) {
-		removed = takeSecret(auth, "apiKey", "apiKey", secrets);
-		const oauth = auth.oauth;
-		if (isRecord(oauth)) {
-			removed = takeSecret(oauth, "apiKey", "apiKey", secrets) || removed;
-			removed = takeSecret(oauth, "clientSecret", "oauthClientSecret", secrets) || removed;
-		}
-		const virtualKey = auth.virtualKey;
-		if (isRecord(virtualKey)) {
-			removed = takeSecret(virtualKey, "value", "virtualKeyValue", secrets) || removed;
-		}
-		if (isRecord(oauth) && isRecord(oauth.virtualKey)) {
-			removed = takeSecret(oauth.virtualKey, "value", "virtualKeyValue", secrets) || removed;
-		}
+		const removed = stripNestedSecrets(auth, secrets);
 		// Only an auth object the strip itself emptied is deleted; a pre-existing empty auth is the user's
 		// misconfiguration and rides through unchanged.
 		if (removed && Object.keys(auth).length === 0) {
@@ -149,53 +161,75 @@ function placeSecret(container: Record<string, unknown>, key: string, value: str
 	return { placed: true };
 }
 
+/** Whether `value` found a home at `key` of `container`; no container is no legal home. */
+function placedAt(container: Record<string, unknown> | undefined, key: string, value: string): boolean {
+	return container !== undefined && placeSecret(container, key, value).placed;
+}
+
+/**
+ * Places the blob's API key where the auth shape puts it: a missing auth object is created around it, an oauth object
+ * takes it over the auth root, and a non-record auth is no legal home. Returns whether it landed.
+ */
+function placeApiKey(entry: Record<string, unknown>, apiKey: string): boolean {
+	const auth = entry.auth;
+	if (auth === undefined) {
+		entry.auth = { apiKey };
+		return true;
+	}
+	if (!isRecord(auth)) {
+		return false;
+	}
+	return placeSecret(isRecord(auth.oauth) ? auth.oauth : auth, "apiKey", apiKey).placed;
+}
+
+/** The oauth object inside `auth`, when the auth shape has one. */
+function oauthOf(auth: unknown): Record<string, unknown> | undefined {
+	return isRecord(auth) && isRecord(auth.oauth) ? auth.oauth : undefined;
+}
+
+/**
+ * The virtual key object a blob value belongs in: the oauth-nested position outranks the sibling one, matching the
+ * strip walk's later-position-wins order.
+ */
+function virtualKeyHome(auth: unknown): Record<string, unknown> | undefined {
+	const oauth = oauthOf(auth);
+	if (oauth !== undefined && isRecord(oauth.virtualKey)) {
+		return oauth.virtualKey;
+	}
+	if (isRecord(auth) && isRecord(auth.virtualKey)) {
+		return auth.virtualKey;
+	}
+	return undefined;
+}
+
+/**
+ * Blob values ride verbatim: readServerSecrets and buildGroupArgs use the stored string untransformed, so the file
+ * must too. Only the empty string reads as no value.
+ */
+function blobValue(value: string | undefined): string | undefined {
+	return value !== undefined && value.length > 0 ? value : undefined;
+}
+
 export function materializeEntrySecrets(
 	rawEntry: Readonly<Record<string, unknown>>,
 	blob: StoredServerSecrets
 ): MaterializedEntry {
 	const entry = cloneJson(rawEntry) as Record<string, unknown>;
 	let unmaterialized = 0;
-	const place = (container: Record<string, unknown> | undefined, key: string, value: string) => {
-		if (container === undefined || !placeSecret(container, key, value).placed) {
-			unmaterialized += 1;
-		}
-	};
-	// Blob values ride verbatim: readServerSecrets and buildGroupArgs use the stored string untransformed, so the file
-	// must too. Only the empty string reads as no value.
-	const blobValue = (value: string | undefined): string | undefined =>
-		value !== undefined && value.length > 0 ? value : undefined;
 
 	const apiKey = blobValue(blob.apiKey);
-	if (apiKey !== undefined) {
-		const auth = entry.auth;
-		if (auth === undefined) {
-			entry.auth = { apiKey };
-		} else if (isRecord(auth)) {
-			place(isRecord(auth.oauth) ? auth.oauth : auth, "apiKey", apiKey);
-		} else {
-			unmaterialized += 1;
-		}
+	if (apiKey !== undefined && !placeApiKey(entry, apiKey)) {
+		unmaterialized += 1;
 	}
 
 	const clientSecret = blobValue(blob.oauthClientSecret);
-	if (clientSecret !== undefined) {
-		const auth = entry.auth;
-		const oauth = isRecord(auth) && isRecord(auth.oauth) ? auth.oauth : undefined;
-		place(oauth, "clientSecret", clientSecret);
+	if (clientSecret !== undefined && !placedAt(oauthOf(entry.auth), "clientSecret", clientSecret)) {
+		unmaterialized += 1;
 	}
 
 	const virtualKeyValue = blobValue(blob.virtualKeyValue);
-	if (virtualKeyValue !== undefined) {
-		const auth = entry.auth;
-		const oauth = isRecord(auth) && isRecord(auth.oauth) ? auth.oauth : undefined;
-		// The oauth-nested position outranks the sibling one, matching the strip walk's later-position-wins order.
-		const virtualKey =
-			oauth !== undefined && isRecord(oauth.virtualKey)
-				? oauth.virtualKey
-				: isRecord(auth) && isRecord(auth.virtualKey)
-					? auth.virtualKey
-					: undefined;
-		place(virtualKey, "value", virtualKeyValue);
+	if (virtualKeyValue !== undefined && !placedAt(virtualKeyHome(entry.auth), "value", virtualKeyValue)) {
+		unmaterialized += 1;
 	}
 
 	return { entry, unmaterialized };

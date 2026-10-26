@@ -275,44 +275,45 @@ function remarkSubject(incoming: IncomingServer): string {
 }
 
 /**
- * `storedSecrets` is the host's pre-fetched SecretStorage blobs by label; when provided, each collision's
- * connectionChanged compares the current side's effective secret material instead of inline text alone. Pure and
- * synchronous either way; the incoming side's material is the kept entry's own stripped secrets.
- *
- *   Absent -> resolution is inline-only
+ * The file's servers entries judged one by one, after the same restructure the activation migration applies,
+ * index-stable. A pre-redesign flat export otherwise lands entries the parser reads as credential-less until the next
+ * activation (its group syncs with the wrong credential), and the flat-vs-nested collision rule stays the migration's
+ * one rule.
  */
-export function planSettingsImport(
-	envelopeSettings: Readonly<Record<string, unknown>>,
-	currentServersRaw: unknown,
-	storedSecrets?: Readonly<Record<string, StoredServerSecrets>>
-): ImportPlan {
+function judgeIncomingServers(value: readonly unknown[]): IncomingServer[] {
+	const restructured = restructureServers(value).value;
+	const incoming: readonly unknown[] = Array.isArray(restructured) ? restructured : value;
+	const reports = serverSettingReports(incoming);
+	const accepted = new Map(acceptedEntries(incoming).map(({ index, entry }) => [index, entry]));
+	return incoming.map((raw: unknown, index) => {
+		const report = reports[index] ?? { index, problems: [], accepted: false };
+		return judgeEntry(raw, report, accepted.get(index));
+	});
+}
+
+/** The envelope's non-servers writes and refusals, and its servers entries judged. */
+interface EnvelopeReading {
+	readonly settingsWrites: SettingWrite[];
+	readonly skippedKeys: SkippedKey[];
+	readonly incomingServers: IncomingServer[];
+}
+
+/** Every known key the envelope carries: scalars into writes, wrong types into refusals, servers judged entry by entry. */
+function readEnvelopeSettings(envelopeSettings: Readonly<Record<string, unknown>>): EnvelopeReading {
 	const settingsWrites: SettingWrite[] = [];
 	const skippedKeys: SkippedKey[] = [];
 	const incomingServers: IncomingServer[] = [];
-
 	for (const key of ALL_SETTING_KEYS) {
 		if (!Object.hasOwn(envelopeSettings, key)) {
 			continue;
 		}
 		const value = envelopeSettings[key];
 		if (key === SERVERS_SETTING_KEY) {
-			if (!Array.isArray(value)) {
+			if (Array.isArray(value)) {
+				incomingServers.push(...judgeIncomingServers(value));
+			} else {
 				skippedKeys.push({ key, reason: "wrong-type" });
-				continue;
 			}
-			// Normalize to the current settings shape FIRST - the same restructure
-			// the activation migration applies, index-stable. A pre-redesign flat
-			// export otherwise lands entries the parser reads as credential-less
-			// until the next activation (its group syncs with the wrong credential), and
-			// the flat-vs-nested collision rule stays the migration's one rule.
-			const restructured = restructureServers(value).value;
-			const incoming: readonly unknown[] = Array.isArray(restructured) ? restructured : value;
-			const reports = serverSettingReports(incoming);
-			const accepted = new Map(acceptedEntries(incoming).map(({ index, entry }) => [index, entry]));
-			incoming.forEach((raw: unknown, index) => {
-				const report = reports[index] ?? { index, problems: [], accepted: false };
-				incomingServers.push(judgeEntry(raw, report, accepted.get(index)));
-			});
 			continue;
 		}
 		if (acceptsScalar(key, value)) {
@@ -321,7 +322,46 @@ export function planSettingsImport(
 			skippedKeys.push({ key, reason: "wrong-type" });
 		}
 	}
+	return { settingsWrites, skippedKeys, incomingServers };
+}
 
+type KeptServer = IncomingServer & { readonly kept: true };
+
+/**
+ * One kept entry's collision with the current entry of its label. A side neither parses is a side whose connection
+ * material is unknowable, so one parsed side against an unparseable one flags (the overwrite turns a dead entry live
+ * or vice versa).
+ */
+function collisionFor(
+	incoming: KeptServer,
+	currentServersRaw: unknown,
+	storedSecrets: Readonly<Record<string, StoredServerSecrets>> | undefined
+): ServerCollision {
+	// hasOwn: labels like "toString" must not read Object.prototype.
+	const currentBlob =
+		storedSecrets !== undefined && Object.hasOwn(storedSecrets, incoming.label)
+			? storedSecrets[incoming.label]
+			: undefined;
+	const current = connectionFingerprint(acceptedEntry(currentServersRaw, incoming.label)?.entry, currentBlob ?? {});
+	const imported = connectionFingerprint(acceptedEntry([incoming.entry], incoming.label)?.entry, incoming.secrets);
+	const connectionChanged = current === undefined && imported === undefined ? false : current !== imported;
+	return { label: incoming.label, connectionChanged };
+}
+
+/** The preview's remarks over the judged entries: the dropped reasons, the kept notes, collisions, and secret total. */
+interface ServerRemarks {
+	readonly dropped: EntryRemark[];
+	readonly notes: EntryRemark[];
+	readonly collisions: ServerCollision[];
+	readonly secretFieldCount: number;
+}
+
+/** The judged entries sorted into the preview's remarks, each kept entry judged against the current entry of its label. */
+function remarkServers(
+	incomingServers: readonly IncomingServer[],
+	currentServersRaw: unknown,
+	storedSecrets: Readonly<Record<string, StoredServerSecrets>> | undefined
+): ServerRemarks {
 	const currentLabels = rawDeclaredLabels(currentServersRaw);
 	const dropped: EntryRemark[] = [];
 	const notes: EntryRemark[] = [];
@@ -335,30 +375,35 @@ export function planSettingsImport(
 		const subject = remarkSubject(incoming);
 		notes.push(...incoming.notes.map((text) => ({ subject, text })));
 		secretFieldCount += Object.keys(incoming.secrets).length;
-		if (!currentLabels.has(incoming.label)) {
-			continue;
+		if (currentLabels.has(incoming.label)) {
+			collisions.push(collisionFor(incoming, currentServersRaw, storedSecrets));
 		}
-		// hasOwn: labels like "toString" must not read Object.prototype.
-		const currentBlob =
-			storedSecrets !== undefined && Object.hasOwn(storedSecrets, incoming.label)
-				? storedSecrets[incoming.label]
-				: undefined;
-		const current = connectionFingerprint(acceptedEntry(currentServersRaw, incoming.label)?.entry, currentBlob ?? {});
-		const imported = connectionFingerprint(acceptedEntry([incoming.entry], incoming.label)?.entry, incoming.secrets);
-		//   A side neither parses is a side whose connection material is unknowable -> one parsed side against an
-		//       unparseable one flags (the overwrite turns a dead entry live or vice versa)
-		const connectionChanged = current === undefined && imported === undefined ? false : current !== imported;
-		collisions.push({ label: incoming.label, connectionChanged });
 	}
+	return { dropped, notes, collisions, secretFieldCount };
+}
 
+/**
+ * `storedSecrets` is the host's pre-fetched SecretStorage blobs by label; when provided, each collision's
+ * connectionChanged compares the current side's effective secret material instead of inline text alone. Pure and
+ * synchronous either way; the incoming side's material is the kept entry's own stripped secrets.
+ *
+ *   Absent -> resolution is inline-only
+ */
+export function planSettingsImport(
+	envelopeSettings: Readonly<Record<string, unknown>>,
+	currentServersRaw: unknown,
+	storedSecrets?: Readonly<Record<string, StoredServerSecrets>>
+): ImportPlan {
+	const reading = readEnvelopeSettings(envelopeSettings);
+	const remarks = remarkServers(reading.incomingServers, currentServersRaw, storedSecrets);
 	return {
-		settingsWrites,
-		skippedKeys,
-		incomingServers,
-		dropped,
-		notes,
-		collisions,
-		secretFieldCount,
+		settingsWrites: reading.settingsWrites,
+		skippedKeys: reading.skippedKeys,
+		incomingServers: reading.incomingServers,
+		dropped: remarks.dropped,
+		notes: remarks.notes,
+		collisions: remarks.collisions,
+		secretFieldCount: remarks.secretFieldCount,
 		currentServersRaw,
 	};
 }
@@ -431,9 +476,8 @@ export interface ImportApplication {
 	};
 }
 
-/** Fold the collision decisions into the plan; see ImportApplication for the merge invariants. */
-export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecisions): ImportApplication {
-	const base: unknown[] = Array.isArray(plan.currentServersRaw) ? [...plan.currentServersRaw] : [];
+/** Each label's first index in the current servers array: the entry the parser's first-entry-wins rule reads. */
+function firstIndexByLabel(base: readonly unknown[]): Map<string, number> {
 	const indexByLabel = new Map<string, number>();
 	base.forEach((item, index) => {
 		const label = declaredEntryLabel(item);
@@ -441,103 +485,133 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 			indexByLabel.set(label, index);
 		}
 	});
+	return indexByLabel;
+}
 
+/**
+ * What the import has placed so far: the writes it accumulates and the labels it must not place twice. Kept labels are
+ * unique within the file, so only a rename target can repeat a landed one, and a second entry under it could never
+ * take effect under the parser's first-entry-wins rule.
+ */
+interface Landing {
+	readonly secretWrites: SecretWrite[];
+	readonly touchedLabels: string[];
+	readonly notes: EntryRemark[];
+	readonly landedLabels: Set<string>;
+}
+
+/**
+ * The entry as it lands under `label`, its secrets queued for SecretStorage. Reached only for a label the landing does
+ * not hold yet, so the label is new to every list it joins. What lands is the entry in the one spelling the parser
+ * reads (respellEntryUrls), never the file's; the ownership stamp targets that written entry as the parser reads it
+ * back (the import IS the deliberate pairing).
+ */
+function landEntry(label: string, incoming: KeptServer, landing: Landing): unknown {
+	const entry = incoming.label === label ? incoming.entry : { ...incoming.entry, label };
+	const written = respellEntryUrls(entry).record;
+	const target = acceptedEntry([written], label)?.entry;
+	if (target === undefined) {
+		throw new Error("settings import: a kept entry stopped parsing at landing");
+	}
+	const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = {};
+	for (const field of SECRET_FIELD_IDS) {
+		if (incoming.secrets[field] !== undefined) {
+			owners[field] = secretDestination(target, field);
+		}
+	}
+	landing.secretWrites.push({ label, secrets: incoming.secrets, owners });
+	landing.landedLabels.add(label);
+	landing.touchedLabels.push(label);
+	landing.notes.push(...incoming.notes.map((text) => ({ subject: labelSubject(label), text })));
+	return written;
+}
+
+/** Where one kept entry goes, named after the summary count it bumps; every kind but skipped carries its label. */
+type Placement =
+	| { readonly kind: "skipped" }
+	| { readonly kind: "imported"; readonly label: string }
+	| { readonly kind: "overwritten"; readonly label: string }
+	| { readonly kind: "renamed"; readonly label: string };
+
+/** What a placement is decided against: the collisions, the user's answers, and the labels already taken. */
+interface PlacementContext {
+	readonly collisionLabels: ReadonlySet<string>;
+	readonly decisions: CollisionDecisions;
+	readonly landedLabels: ReadonlySet<string>;
+	readonly indexByLabel: ReadonlyMap<string, number>;
+}
+
+/**
+ * One kept entry's placement. A missing decision is a contract violation whose safe reading writes nothing. A rename
+ * target the flow should have rejected would shadow another entry or clobber its blob, so its safe reading is skip;
+ * the trim mirrors the parser's label rule, keeping the SecretStorage key and the written entry's label in agreement.
+ */
+function placementOf(incoming: KeptServer, context: PlacementContext): Placement {
+	const { label } = incoming;
+	if (context.landedLabels.has(label)) {
+		return { kind: "skipped" };
+	}
+	if (!context.collisionLabels.has(label)) {
+		return { kind: "imported", label };
+	}
+	// hasOwn, not indexing: labels like "toString" are legal, and a plain index read would hand back an
+	// Object.prototype method instead of the missing-decision fallback.
+	const decision = Object.hasOwn(context.decisions, label) ? context.decisions[label] : undefined;
+	if (decision === undefined || decision.action === "skip") {
+		return { kind: "skipped" };
+	}
+	if (decision.action === "overwrite") {
+		return { kind: "overwritten", label };
+	}
+	const newLabel = typeof decision.newLabel === "string" ? trimHttpWhitespace(decision.newLabel) : "";
+	if (
+		newLabel.length === 0 ||
+		isUnsafeRecordKey(newLabel) ||
+		context.landedLabels.has(newLabel) ||
+		context.indexByLabel.has(newLabel)
+	) {
+		return { kind: "skipped" };
+	}
+	return { kind: "renamed", label: newLabel };
+}
+
+/** Fold the collision decisions into the plan; see ImportApplication for the merge invariants. */
+export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecisions): ImportApplication {
+	const base: unknown[] = Array.isArray(plan.currentServersRaw) ? [...plan.currentServersRaw] : [];
+	const indexByLabel = firstIndexByLabel(base);
 	const collisionLabels = new Set(plan.collisions.map((collision) => collision.label));
 	const appended: unknown[] = [];
-	const secretWrites: SecretWrite[] = [];
-	const touchedLabels: string[] = [];
-	const notes: EntryRemark[] = [];
-	// Labels this import has already placed: kept labels are unique within the file, so only a rename target can
-	// repeat one, and a second entry under it could never take effect under the parser's first-entry-wins rule.
-	const landedLabels = new Set<string>();
-	let imported = 0;
-	let overwritten = 0;
-	let renamed = 0;
-	let skipped = 0;
-
-	// Reached only for a label landedLabels does not hold yet, so the label is new to every list it joins.
-	const land = (label: string, incoming: IncomingServer & { readonly kept: true }): unknown => {
-		const entry = incoming.label === label ? incoming.entry : { ...incoming.entry, label };
-		// What lands is the entry in the one spelling the parser reads (respellEntryUrls), never the file's; the
-		// ownership stamp targets that written entry as the parser reads it back (the import IS the deliberate pairing).
-		const written = respellEntryUrls(entry).record;
-		const target = acceptedEntry([written], label)?.entry;
-		if (target === undefined) {
-			throw new Error("settings import: a kept entry stopped parsing at landing");
-		}
-		const owners: { -readonly [K in SecretFieldId]?: SecretOwner } = {};
-		for (const field of SECRET_FIELD_IDS) {
-			if (incoming.secrets[field] !== undefined) {
-				owners[field] = secretDestination(target, field);
-			}
-		}
-		secretWrites.push({ label, secrets: incoming.secrets, owners });
-		landedLabels.add(label);
-		touchedLabels.push(label);
-		notes.push(...incoming.notes.map((text) => ({ subject: labelSubject(label), text })));
-		return written;
-	};
+	const landing: Landing = { secretWrites: [], touchedLabels: [], notes: [], landedLabels: new Set() };
+	const counts = { imported: 0, overwritten: 0, renamed: 0, skipped: 0 };
 
 	for (const incoming of plan.incomingServers) {
 		if (!incoming.kept) {
 			continue;
 		}
-		const { label } = incoming;
-		if (landedLabels.has(label)) {
-			skipped += 1;
+		const context = { collisionLabels, decisions, landedLabels: landing.landedLabels, indexByLabel };
+		const placement = placementOf(incoming, context);
+		counts[placement.kind] += 1;
+		if (placement.kind === "skipped") {
 			continue;
 		}
-		if (!collisionLabels.has(label)) {
-			appended.push(land(label, incoming));
-			imported += 1;
-			continue;
+		const landed = landEntry(placement.label, incoming, landing);
+		const overwriteIndex = placement.kind === "overwritten" ? indexByLabel.get(placement.label) : undefined;
+		if (overwriteIndex === undefined) {
+			appended.push(landed);
+		} else {
+			base[overwriteIndex] = landed;
 		}
-		// hasOwn, not indexing: labels like "toString" are legal, and a plain
-		// index read would hand back an Object.prototype method instead of the
-		// missing-decision fallback. A missing decision is a contract violation;
-		// the safe reading is the one that writes nothing.
-		const decision = Object.hasOwn(decisions, label) ? decisions[label] : undefined;
-		if (decision === undefined || decision.action === "skip") {
-			skipped += 1;
-			continue;
-		}
-		if (decision.action === "overwrite") {
-			const overwriteIndex = indexByLabel.get(label);
-			const landed = land(label, incoming);
-			if (overwriteIndex === undefined) {
-				appended.push(landed);
-			} else {
-				base[overwriteIndex] = landed;
-			}
-			overwritten += 1;
-			continue;
-		}
-		// The rename targets the flow already validated; a target it should have rejected would shadow another entry or
-		// clobber its blob, so the safe reading is skip. The trim mirrors the parser's label rule, keeping the
-		// SecretStorage key and the written entry's label in agreement.
-		const newLabel = typeof decision.newLabel === "string" ? trimHttpWhitespace(decision.newLabel) : "";
-		if (
-			newLabel.length === 0 ||
-			isUnsafeRecordKey(newLabel) ||
-			landedLabels.has(newLabel) ||
-			indexByLabel.has(newLabel)
-		) {
-			skipped += 1;
-			continue;
-		}
-		appended.push(land(newLabel, incoming));
-		renamed += 1;
 	}
 
-	const landed = imported + overwritten + renamed;
+	const landed = counts.imported + counts.overwritten + counts.renamed;
 	return {
 		settingsWrites: plan.settingsWrites,
 		serversValue: landed > 0 ? [...base, ...appended] : undefined,
-		secretWrites,
-		touchedLabels,
+		secretWrites: landing.secretWrites,
+		touchedLabels: landing.touchedLabels,
 		dropped: plan.dropped,
-		notes,
-		counts: { imported, overwritten, renamed, skipped },
+		notes: landing.notes,
+		counts,
 	};
 }
 

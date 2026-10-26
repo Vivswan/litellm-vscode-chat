@@ -133,6 +133,49 @@ function collectAuthFields(
 }
 
 /**
+ * The virtual-key half of the restructured auth: the header with its value when present, or nothing with the pieces
+ * counted as dropped when the header is missing or illegal (the value then never reached the wire).
+ */
+function virtualKeyAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
+	virtualKey: Record<string, unknown> | undefined;
+	dropped: number;
+} {
+	if (fields.virtualKeyHeader === undefined || !HEADER_NAME_PATTERN.test(fields.virtualKeyHeader)) {
+		const dropped = (fields.virtualKeyHeader === undefined ? 0 : 1) + (fields.virtualKeyValue === undefined ? 0 : 1);
+		return { virtualKey: undefined, dropped };
+	}
+	const pairs: (readonly [string, unknown])[] = [["header", fields.virtualKeyHeader]];
+	if (fields.virtualKeyValue !== undefined) {
+		pairs.push(["value", fields.virtualKeyValue]);
+	}
+	return { virtualKey: Object.fromEntries(pairs), dropped: 0 };
+}
+
+/** The oauth object with its companions: client secret and scopes when present, then the api key and virtual key. */
+function oauthAuth(
+	fields: Partial<Record<LegacyEntryAuthFieldId, string>>,
+	virtualKey: Record<string, unknown> | undefined
+): Record<string, unknown> {
+	const pairs: (readonly [string, unknown])[] = [
+		["tokenUrl", fields.oauthTokenUrl],
+		["clientId", fields.oauthClientId],
+	];
+	if (fields.oauthClientSecret !== undefined) {
+		pairs.push(["clientSecret", fields.oauthClientSecret]);
+	}
+	if (fields.oauthScopes !== undefined) {
+		pairs.push(["scopes", fields.oauthScopes]);
+	}
+	if (fields.apiKey !== undefined) {
+		pairs.push(["apiKey", fields.apiKey]);
+	}
+	if (virtualKey !== undefined) {
+		pairs.push(["virtualKey", virtualKey]);
+	}
+	return Object.fromEntries(pairs);
+}
+
+/**
  * Primacy is oauth > apiKey > virtualKey with lower forms riding as companions, because that is exactly the
  * header set the old transport sent for each combination. Drops mirror what the old runtime never honored, so
  * nothing carried forward can turn a working entry into a misconfigured one.
@@ -146,38 +189,10 @@ function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 	auth: Record<string, unknown> | undefined;
 	droppedAuthPieces: number;
 } {
-	let droppedVirtualKeyValues = 0;
-	const virtualKeyPairs: (readonly [string, unknown])[] = [];
-	if (fields.virtualKeyHeader !== undefined && HEADER_NAME_PATTERN.test(fields.virtualKeyHeader)) {
-		virtualKeyPairs.push(["header", fields.virtualKeyHeader]);
-		if (fields.virtualKeyValue !== undefined) {
-			virtualKeyPairs.push(["value", fields.virtualKeyValue]);
-		}
-	} else {
-		droppedVirtualKeyValues =
-			(fields.virtualKeyHeader === undefined ? 0 : 1) + (fields.virtualKeyValue === undefined ? 0 : 1);
-	}
-	const virtualKey = virtualKeyPairs.length > 0 ? Object.fromEntries(virtualKeyPairs) : undefined;
+	const { virtualKey, dropped: droppedVirtualKeyValues } = virtualKeyAuth(fields);
 
-	const oauthUsable = fields.oauthTokenUrl !== undefined && fields.oauthClientId !== undefined;
-	if (oauthUsable) {
-		const oauthPairs: (readonly [string, unknown])[] = [
-			["tokenUrl", fields.oauthTokenUrl],
-			["clientId", fields.oauthClientId],
-		];
-		if (fields.oauthClientSecret !== undefined) {
-			oauthPairs.push(["clientSecret", fields.oauthClientSecret]);
-		}
-		if (fields.oauthScopes !== undefined) {
-			oauthPairs.push(["scopes", fields.oauthScopes]);
-		}
-		if (fields.apiKey !== undefined) {
-			oauthPairs.push(["apiKey", fields.apiKey]);
-		}
-		if (virtualKey !== undefined) {
-			oauthPairs.push(["virtualKey", virtualKey]);
-		}
-		return { auth: { oauth: Object.fromEntries(oauthPairs) }, droppedAuthPieces: droppedVirtualKeyValues };
+	if (fields.oauthTokenUrl !== undefined && fields.oauthClientId !== undefined) {
+		return { auth: { oauth: oauthAuth(fields, virtualKey) }, droppedAuthPieces: droppedVirtualKeyValues };
 	}
 
 	const droppedAuthPieces =
@@ -329,6 +344,64 @@ const LIST_DIRECTIVES: readonly {
 /** The list-directive keys, read off LIST_DIRECTIVES so the two tables cannot drift apart. */
 const LIST_DIRECTIVE_NAMES: readonly string[] = LIST_DIRECTIVES.map((directive) => directive.name);
 
+type ListDirective = (typeof LIST_DIRECTIVES)[number];
+
+/** The two records of one same-key collision and the canonical names the addition brings in. */
+interface CollisionContext {
+	readonly kind: RecordKind;
+	readonly existing: Record<string, unknown>;
+	readonly addition: Record<string, unknown>;
+	readonly arrivingNames: ReadonlySet<string>;
+}
+
+/**
+ * The field names the addition's list directive marks: everything the parser marks under a `true`, the addition's
+ * non-directive keys the list names otherwise, and none without a list.
+ */
+function additionMarks(context: CollisionContext, additionRaw: unknown, directive: ListDirective): string[] {
+	const { kind, addition } = context;
+	if (additionRaw === true) {
+		return directive.marksUnderTrue(addition);
+	}
+	if (!Array.isArray(additionRaw)) {
+		return [];
+	}
+	const listed = canonicalFieldNames(kind, additionRaw);
+	return Object.keys(addition).filter((key) => {
+		const canonical = canonicalFieldKey(kind, key);
+		return !canonical.startsWith("_") && listed.has(canonical);
+	});
+}
+
+/** The existing record's list directive after the merge, keyed as written, or undefined when it stays as it is. */
+function mergedDirective(context: CollisionContext, directive: ListDirective): readonly [string, unknown] | undefined {
+	const { kind, existing, addition, arrivingNames } = context;
+	const canonical = (key: string): string => canonicalFieldKey(kind, key);
+	const existingKey = directiveKey(kind, existing, directive.name);
+	const existingRaw = Object.hasOwn(existing, existingKey) ? existing[existingKey] : undefined;
+	const additionKey = directiveKey(kind, addition, directive.name);
+	const additionRaw = Object.hasOwn(addition, additionKey) ? addition[additionKey] : undefined;
+	const surviving = additionMarks(context, additionRaw, directive).filter((name) => arrivingNames.has(canonical(name)));
+	if (existingRaw !== undefined && existingRaw !== false && !Array.isArray(existingRaw)) {
+		if (existingRaw === true && arrivingNames.size > 0) {
+			// Expand before the arriving fields widen what `true` covers; the scoped side's marks follow its surviving
+			// fields.
+			return [existingKey, [...directive.marksUnderTrue(existing), ...surviving]];
+		}
+		// A `true` with nothing arriving (or a junk value) stays as written; junk cannot take additions without
+		// overwriting the user's text, so arriving marks are dropped with it.
+		return undefined;
+	}
+	// An entry-side name the entry itself does not set marked nothing; keep it only while the merge leaves it inert.
+	const base = (Array.isArray(existingRaw) ? existingRaw : []).filter(
+		(name) => typeof name !== "string" || !arrivingNames.has(canonical(name))
+	);
+	if (surviving.length > 0 || (Array.isArray(existingRaw) && base.length !== existingRaw.length)) {
+		return [existingKey, [...base, ...surviving]];
+	}
+	return undefined;
+}
+
 /**
  * A same-key collision merges field by field, fields identified by their canonical name, with the entry winning whole
  * (its spelling included), as the old runtime merged entry over scoped; the one accepted loss is a scoped mark on a
@@ -354,40 +427,12 @@ function mergeCollidingRecords(
 		newPlain.map(([name]) => name)
 	);
 
+	const context: CollisionContext = { kind, existing, addition, arrivingNames };
 	const directiveChanges: (readonly [string, unknown])[] = [];
-	for (const { name: directive, marksUnderTrue } of LIST_DIRECTIVES) {
-		const existingKey = directiveKey(kind, existing, directive);
-		const existingRaw = Object.hasOwn(existing, existingKey) ? existing[existingKey] : undefined;
-		const additionKey = directiveKey(kind, addition, directive);
-		const additionRaw = Object.hasOwn(addition, additionKey) ? addition[additionKey] : undefined;
-		const additionListed = Array.isArray(additionRaw) ? canonicalFieldNames(kind, additionRaw) : undefined;
-		const additionNames =
-			additionRaw === true
-				? marksUnderTrue(addition)
-				: additionListed === undefined
-					? []
-					: Object.keys(addition).filter(
-							(key) => !canonical(key).startsWith("_") && additionListed.has(canonical(key))
-						);
-		const surviving = additionNames.filter((name) => arrivingNames.has(canonical(name)));
-		if (existingRaw !== undefined && existingRaw !== false && !Array.isArray(existingRaw)) {
-			if (existingRaw === true && arrivingNames.size > 0) {
-				// Expand before the arriving fields widen what `true` covers; the scoped side's marks follow its
-				// surviving fields.
-				directiveChanges.push([existingKey, [...marksUnderTrue(existing), ...surviving]]);
-				continue;
-			}
-			// A `true` with nothing arriving (or a junk value) stays as written; junk cannot take additions without
-			// overwriting the user's text, so arriving marks are dropped with it.
-			continue;
-		}
-		// An entry-side name the entry itself does not set marked nothing; keep it only while the merge leaves it
-		// inert.
-		const base = (Array.isArray(existingRaw) ? existingRaw : []).filter(
-			(name) => typeof name !== "string" || !arrivingNames.has(canonical(name))
-		);
-		if (surviving.length > 0 || (Array.isArray(existingRaw) && base.length !== existingRaw.length)) {
-			directiveChanges.push([existingKey, [...base, ...surviving]]);
+	for (const directive of LIST_DIRECTIVES) {
+		const change = mergedDirective(context, directive);
+		if (change !== undefined) {
+			directiveChanges.push(change);
 		}
 	}
 	if (newPlain.length === 0 && directiveChanges.length === 0) {

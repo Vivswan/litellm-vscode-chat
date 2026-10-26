@@ -58,6 +58,121 @@ export interface TokenDefaultsMerge {
 
 const UNTOUCHED: TokenDefaultsMerge = { consumedIds: [], movedFields: 0, drainedKeys: 0, blockedValues: 0 };
 
+type RemovedTokenDefault = (typeof REMOVED_TOKEN_DEFAULTS)[number];
+
+/** What the fill added to the catch-all: the merged record, the fields filled, and each field by its placement. */
+interface CatchAllFill {
+	readonly merged: Record<string, unknown>;
+	readonly addedFields: readonly string[];
+	readonly overrideAdditions: readonly string[];
+	readonly fallbackAdditions: readonly string[];
+}
+
+/** The fallback rewrite's inputs: the catch-all as read, its directive key and value, and the fill by placement. */
+interface FallbackRewrite {
+	readonly catchAll: Record<string, unknown>;
+	readonly fallbackKey: string;
+	readonly fallbackValue: unknown;
+	readonly overrideAdditions: readonly string[];
+	readonly fallbackAdditions: readonly string[];
+}
+
+/**
+ * The inheritable rewrite's inputs: whether the catch-all is new, its directive key and value, and the filled
+ * fields.
+ */
+interface InheritableRewrite {
+	readonly freshCatchAll: boolean;
+	readonly inheritableKey: string;
+	readonly inheritableValue: unknown;
+	readonly addedFields: readonly string[];
+}
+
+/**
+ * Fills the catch-all's missing fields from the configured sources, each at its removed setting's own level. A source
+ * value the removed readers did not honor (zero, negative, fractional, non-numeric) had no effect and fills nothing;
+ * an existing user key always wins.
+ */
+function fillCatchAll(
+	catchAll: Record<string, unknown>,
+	configured: readonly RemovedTokenDefault[],
+	snapshot: SettingsSnapshot
+): CatchAllFill {
+	const present = canonicalFieldNames("capabilities", Object.keys(catchAll));
+	const merged: Record<string, unknown> = Object.fromEntries(Object.entries(catchAll));
+	const addedFields: string[] = [];
+	const overrideAdditions: string[] = [];
+	const fallbackAdditions: string[] = [];
+	for (const source of configured) {
+		const value = normalizePositiveNumber(snapshot[source.id]?.globalValue);
+		if (value === undefined || present.has(source.field)) {
+			continue;
+		}
+		merged[source.field] = value;
+		addedFields.push(source.field);
+		(source.placement === "override" ? overrideAdditions : fallbackAdditions).push(source.field);
+	}
+	return { merged, addedFields, overrideAdditions, fallbackAdditions };
+}
+
+/**
+ * Rewrites the merged catch-all's `_fallback` for the fill. An override-placed fill must land unmarked, so `true`
+ * expands to what the parser marks under it today and inert names of the filled field drop from a list. An emptied
+ * list takes every spelling with it, or an earlier shadowed spelling would surface.
+ */
+function applyFallbackDirective(merged: Record<string, unknown>, rewrite: FallbackRewrite): void {
+	const writeFallback = (list: readonly string[]): void => {
+		if (list.length === 0) {
+			for (const key of Object.keys(merged).filter((key) =>
+				canonicalFieldNames("capabilities", [key]).has(FALLBACK_DIRECTIVE)
+			)) {
+				delete merged[key];
+			}
+		} else {
+			merged[rewrite.fallbackKey] = [...list];
+		}
+	};
+	if (rewrite.fallbackValue === true) {
+		if (rewrite.overrideAdditions.length > 0) {
+			writeFallback([...fallbackMarksUnderTrue(rewrite.catchAll), ...rewrite.fallbackAdditions]);
+		}
+		return;
+	}
+	const listed = Array.isArray(rewrite.fallbackValue) ? rewrite.fallbackValue : [];
+	const base = listed.filter(
+		(name) => typeof name !== "string" || !rewrite.overrideAdditions.includes(canonicalFieldKey("capabilities", name))
+	);
+	const baseNames = canonicalFieldNames("capabilities", base);
+	const additions = rewrite.fallbackAdditions.filter((field) => !baseNames.has(field));
+	const list = [...base, ...additions];
+	const changed = Array.isArray(rewrite.fallbackValue)
+		? list.length !== rewrite.fallbackValue.length || additions.length > 0
+		: list.length > 0;
+	if (changed) {
+		writeFallback(list as string[]);
+	}
+}
+
+/**
+ * Marks the filled fields `_inheritable`: a fresh catch-all takes `true`, a listed directive takes the fields it lacks,
+ * and a user's `true` stays as it is.
+ */
+function applyInheritableDirective(merged: Record<string, unknown>, rewrite: InheritableRewrite): void {
+	if (rewrite.addedFields.length === 0 || rewrite.inheritableValue === true) {
+		return;
+	}
+	if (rewrite.freshCatchAll) {
+		merged[rewrite.inheritableKey] = true;
+		return;
+	}
+	const listedInheritable = Array.isArray(rewrite.inheritableValue) ? rewrite.inheritableValue : [];
+	const listedNames = canonicalFieldNames("capabilities", listedInheritable);
+	const additions = rewrite.addedFields.filter((field) => !listedNames.has(field));
+	if (additions.length > 0) {
+		merged[rewrite.inheritableKey] = [...listedInheritable, ...additions];
+	}
+}
+
 /**
  * A source value the removed readers did not honor (zero, negative, fractional, non-numeric) had no effect and is
  * consumed without a fill.
@@ -84,7 +199,6 @@ export function mergeTokenDefaults(capabilitiesValue: unknown, snapshot: Setting
 	}
 	// Fields, list entries, and directive keys are identified the way parseCapabilityRecord identifies them, so a padded
 	// spelling is the user's own value for that field or directive.
-	const names = (keys: readonly unknown[]): Set<string> => canonicalFieldNames("capabilities", keys);
 	const fallbackKey = directiveKey("capabilities", catchAll, FALLBACK_DIRECTIVE);
 	const inheritableKey = directiveKey("capabilities", catchAll, INHERITABLE_DIRECTIVE);
 	const fallback = directiveBase(catchAll, fallbackKey);
@@ -93,71 +207,28 @@ export function mergeTokenDefaults(capabilitiesValue: unknown, snapshot: Setting
 		return { ...UNTOUCHED, blockedValues: configured.length };
 	}
 
-	const present = names(Object.keys(catchAll));
-	const merged: Record<string, unknown> = Object.fromEntries(Object.entries(catchAll));
-	const addedFields: string[] = [];
-	const overrideAdditions: string[] = [];
-	const fallbackAdditions: string[] = [];
-	for (const source of configured) {
-		const value = normalizePositiveNumber(snapshot[source.id]?.globalValue);
-		if (value === undefined || present.has(source.field)) {
-			continue;
-		}
-		merged[source.field] = value;
-		addedFields.push(source.field);
-		(source.placement === "override" ? overrideAdditions : fallbackAdditions).push(source.field);
-	}
-
-	// An override-placed fill must land unmarked, so `true` expands to what the parser marks under it today and inert
-	// names of the filled field drop from a list. An emptied list takes every spelling with it, or an earlier shadowed
-	// spelling would surface.
-	const writeFallback = (list: readonly string[]): void => {
-		if (list.length === 0) {
-			for (const key of Object.keys(merged).filter((key) => names([key]).has(FALLBACK_DIRECTIVE))) {
-				delete merged[key];
-			}
-		} else {
-			merged[fallbackKey] = [...list];
-		}
-	};
-	if (fallback.value === true) {
-		if (overrideAdditions.length > 0) {
-			writeFallback([...fallbackMarksUnderTrue(catchAll), ...fallbackAdditions]);
-		}
-	} else {
-		const base = (Array.isArray(fallback.value) ? fallback.value : []).filter(
-			(name) => typeof name !== "string" || !overrideAdditions.includes(canonicalFieldKey("capabilities", name))
-		);
-		const baseNames = names(base);
-		const additions = fallbackAdditions.filter((field) => !baseNames.has(field));
-		const list = [...base, ...additions];
-		if (
-			Array.isArray(fallback.value) ? list.length !== fallback.value.length || additions.length > 0 : list.length > 0
-		) {
-			writeFallback(list as string[]);
-		}
-	}
-
-	if (addedFields.length > 0 && inheritable.value !== true) {
-		if (freshCatchAll) {
-			merged[inheritableKey] = true;
-		} else {
-			const listedInheritable = Array.isArray(inheritable.value) ? inheritable.value : [];
-			const listedNames = names(listedInheritable);
-			const additions = addedFields.filter((field) => !listedNames.has(field));
-			if (additions.length > 0) {
-				merged[inheritableKey] = [...listedInheritable, ...additions];
-			}
-		}
-	}
+	const fill = fillCatchAll(catchAll, configured, snapshot);
+	applyFallbackDirective(fill.merged, {
+		catchAll,
+		fallbackKey,
+		fallbackValue: fallback.value,
+		overrideAdditions: fill.overrideAdditions,
+		fallbackAdditions: fill.fallbackAdditions,
+	});
+	applyInheritableDirective(fill.merged, {
+		freshCatchAll,
+		inheritableKey,
+		inheritableValue: inheritable.value,
+		addedFields: fill.addedFields,
+	});
 
 	return {
-		...(addedFields.length > 0
-			? { capabilitiesValue: Object.fromEntries([...Object.entries(capabilities), [CATCH_ALL_KEY, merged]]) }
+		...(fill.addedFields.length > 0
+			? { capabilitiesValue: Object.fromEntries([...Object.entries(capabilities), [CATCH_ALL_KEY, fill.merged]]) }
 			: {}),
 		consumedIds: configured.map((source) => source.id),
-		movedFields: addedFields.length,
-		drainedKeys: configured.length - addedFields.length,
+		movedFields: fill.addedFields.length,
+		drainedKeys: configured.length - fill.addedFields.length,
 		blockedValues: 0,
 	};
 }

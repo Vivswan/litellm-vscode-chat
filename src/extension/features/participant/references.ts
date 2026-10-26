@@ -112,6 +112,24 @@ function leftOutNotice(dropped: number, included: number): string {
 }
 
 /**
+ * The block for a reference that did not fit whole, cut to the room left after its fence and the separators, or
+ * undefined for an unreadable reference or when no room is left. Truncating never lengthens the fence, so the cut
+ * block is never larger than this arithmetic assumed.
+ */
+function truncatedBlock(reference: ResolvedReference, rendered: string, remaining: number): string | undefined {
+	if (isUnreadable(reference)) {
+		return undefined;
+	}
+	const room = remaining - (rendered.length - reference.content.length) - 2 * SEPARATOR.length;
+	if (room <= 0) {
+		return undefined;
+	}
+	// The shared head-truncation, not a raw slice: cutting mid-surrogate would put a lone UTF-16 unit in the request
+	// body, which is exactly what a gateway rejects.
+	return block({ name: reference.name, content: truncateKeepingHead(reference.content, room) });
+}
+
+/**
  *   truncated to what remains and says so -> the model is never silently handed a half file it believes is whole
  */
 export function withReferences(prompt: string, references: readonly ResolvedReference[] | undefined): string {
@@ -139,23 +157,13 @@ export function withReferences(prompt: string, references: readonly ResolvedRefe
 			blocks.push(rendered);
 			continue;
 		}
-		// Truncating never lengthens the fence, so the re-rendered block is never larger than this arithmetic assumed.
-		if (isUnreadable(reference)) {
-			dropped += 1;
-			continue;
-		}
-		const room = remaining - (rendered.length - reference.content.length) - 2 * SEPARATOR.length;
-		if (room <= 0) {
+		const truncated = truncatedBlock(reference, rendered, remaining);
+		if (truncated === undefined) {
 			dropped += 1;
 			continue;
 		}
 		included += 1;
-		blocks.push(
-			// The shared head-truncation, not a raw slice: cutting mid-surrogate would put a lone UTF-16 unit in the
-			// request body, which is exactly what a gateway rejects.
-			block({ name: reference.name, content: truncateKeepingHead(reference.content, room) }),
-			"(truncated: the attachment was too long to include in full)"
-		);
+		blocks.push(truncated, "(truncated: the attachment was too long to include in full)");
 		remaining = 0;
 	}
 	if (dropped > 0) {

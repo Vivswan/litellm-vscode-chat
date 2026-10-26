@@ -88,6 +88,26 @@ function branchCommitMessages(commits: readonly Commit[]): string[] {
 }
 
 /**
+ * One file's patch fitted to the budget left, or undefined when no room is left for anything worth reading. The
+ * block's own overhead is charged first: the fixed lead and separator plus the URI, an upper bound on the relativized
+ * name the header will carry. A patch past the remainder is cut, with its marker charged too. Returns the kept text
+ * and its whole cost against the budget.
+ */
+function fitPatch(patch: string, fileUri: string, remaining: number): { kept: string; cost: number } | undefined {
+	const overhead = PATCH_BLOCK_FIXED_OVERHEAD + fileUri.length;
+	const truncating = patch.length > remaining - overhead;
+	// A truncated block also carries its marker, which the prompt's own cut would otherwise have to pay for.
+	const forPatch = remaining - overhead - (truncating ? PATCH_TRUNCATION_MARKER.length : 0);
+	if (forPatch <= 0) {
+		return undefined;
+	}
+	// The shared surrogate-safe cut, like every other model-bound truncation: a lone surrogate in the JSON body is what
+	// a strict gateway rejects.
+	const kept = truncating ? `${truncateKeepingHead(patch, forPatch)}${PATCH_TRUNCATION_MARKER}` : patch;
+	return { kept, cost: kept.length + overhead };
+}
+
+/**
  * Three bounds, because each file costs its own git call AND a single generated file can carry megabytes: at most
  * PR_PATCH_FILE_LIMIT files, each patch cut to what is left of the prompt's whole patch budget, and collection
  * stopping once that budget is spent - so even the first file cannot be unbounded.
@@ -118,23 +138,18 @@ async function branchPatches(
 		} catch {
 			continue;
 		}
-		if (patch.trim() !== "") {
-			const fileUri = change.uri.toString();
-			const overhead = PATCH_BLOCK_FIXED_OVERHEAD + fileUri.length;
-			const truncating = patch.length > remaining - overhead;
-			// A truncated block also carries its marker, which the prompt's own cut would otherwise have to pay for.
-			const forPatch = remaining - overhead - (truncating ? PATCH_TRUNCATION_MARKER.length : 0);
-			if (forPatch <= 0) {
-				// No room left for anything worth reading: a header over an empty body spends budget to tell the model
-				// nothing.
-				break;
-			}
-			// The shared surrogate-safe cut, like every other model-bound truncation: a lone surrogate in the JSON
-			// body is what a strict gateway rejects.
-			const kept = truncating ? `${truncateKeepingHead(patch, forPatch)}${PATCH_TRUNCATION_MARKER}` : patch;
-			patches.push({ patch: kept, fileUri });
-			remaining -= kept.length + overhead;
+		if (patch.trim() === "") {
+			continue;
 		}
+		const fileUri = change.uri.toString();
+		const fitted = fitPatch(patch, fileUri, remaining);
+		if (fitted === undefined) {
+			// No room left for anything worth reading: a header over an empty body spends budget to tell the model
+			// nothing.
+			break;
+		}
+		patches.push({ patch: fitted.kept, fileUri });
+		remaining -= fitted.cost;
 	}
 	return patches;
 }
