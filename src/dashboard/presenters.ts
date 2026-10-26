@@ -202,12 +202,15 @@ export function servedModelsBreakdown(served: number, declared: number): ServedM
  */
 export interface ServerOutcomeParts {
 	readonly status: "OK" | "Error" | "Misconfigured" | "Not checked yet";
+
 	readonly models?: string | undefined;
+
 	/**
 	 * The row's error: an "error" state's message, with the English "(expected)" annotation when the entry expects the
 	 * category. A sync failure is an error row (declaredOutcome), so an "ok" row never carries one.
 	 */
 	readonly error?: string | undefined;
+
 	/** The row's warning notices, fixed classification text, one line each. */
 	readonly notice: readonly string[];
 }
@@ -300,13 +303,18 @@ const NUMBER_SETTING_UNITS = {
  */
 export interface NumberUnitBehavior {
 	readonly parseDraft: (text: string) => number | undefined;
+
 	readonly parseProblem: () => string;
+
 	/** An exact human rendering of a value ("5 min"), or undefined to show the raw number. */
 	readonly exactDisplay: (value: number) => string | undefined;
+
 	/** The muted "= ..." equivalence beside the input, or undefined when the unit offers none. */
 	readonly equivalence: (value: number, zeroMeaning: string | undefined) => string | undefined;
+
 	/** A bound as failure-detail text, unit-suffixed; stays English (it rides intent-failure detail lines). */
 	readonly boundText: (minimum: number) => string;
+
 	/** Whether the grammar needs a free-text input (a number input would swallow suffix letters). */
 	readonly freeTextInput: boolean;
 }
@@ -455,9 +463,12 @@ export function unitBehavior(id: NumberSettingId): NumberUnitBehavior {
 
 export interface NumberSettingPresentation {
 	readonly label: string;
+
 	readonly description: string;
+
 	/** The input's unit suffix; display text only - the grammar keys off NUMBER_SETTING_UNITS, never off this. */
 	readonly unit: string;
+
 	/** What a configured 0 means, when 0 is legal and has a special reading (the cache TTL). */
 	readonly zeroMeaning?: string;
 }

@@ -65,19 +65,28 @@ export type EntryModelCapabilitiesPayload = Readonly<Record<string, Readonly<Rec
 interface DashboardServerConfig extends NonSecretOptionalFields {
 	/** Where each secret currently lives, when proven; the values themselves never reach the webview. */
 	readonly secrets: ServerSecretsView;
+
 	/** The entry's apiVersion override ("" is a real value: append nothing); the edit form's prefill. */
 	readonly apiVersion?: string | undefined;
+
 	readonly modelParameters?: EntryModelParametersPayload | undefined;
+
 	readonly modelCapabilities?: EntryModelCapabilitiesPayload | undefined;
+
 	readonly expectedFailures?: readonly ExpectedFailureCategory[] | undefined;
+
 	/** The entry's custom HTTP headers (plain settings text, not secrets); the edit form's prefill. */
 	readonly headers?: Readonly<Record<string, string>> | undefined;
+
 	/** The entry's discovery.declared model IDs, when it lists any. */
 	readonly declaredModels?: readonly string[] | undefined;
+
 	/** The entry's discovery.includeModes, when it names any. */
 	readonly includeModes?: readonly NonChatMode[] | undefined;
+
 	/** The entry's manual usage budget in USD, when set. */
 	readonly budget?: number | undefined;
+
 	readonly mcp?: McpOptIn | undefined;
 }
 
@@ -124,29 +133,36 @@ export type HiddenGroup =
 
 interface DashboardServerBase {
 	readonly label: string;
+
 	readonly baseUrl: string;
+
 	/**
 	 * How many models this server serves RIGHT NOW, regardless of state: the same field the merged counts and every
 	 * serving verdict read. An error row still serving stale-window or declared models carries their count here.
 	 */
 	readonly servedModelCount: number;
+
 	/**
 	 * The last discovery attempt as epoch milliseconds, the push's one timestamp vocabulary; absent while unchecked
 	 * (the host maps its "" never-checked sentinel and any unparseable stored value to absent).
 	 */
 	readonly lastChecked?: number | undefined;
+
 	/**
 	 * Three-valued because a declared row's "none" is a claim only a secret-blob read can back: while `config.secrets`
 	 * is unproven and nothing else vouches for a key, the row says "unknown" instead of denying a secure key nobody
 	 * read.
 	 */
 	readonly credentials: CredentialPresence;
+
 	/**
 	 * The credential kind beside that presence: OAuth client credentials, or a virtual-key header, rather than a
 	 * static key. Declared rows derive it from the entry's units, external rows from the group's own report.
 	 */
 	readonly hasOAuth: boolean;
+
 	readonly hasVirtualKey: boolean;
+
 	/**
 	 * The server's last successful /model/info key set, for the record editors' key suggestions.
 	 *
@@ -155,6 +171,7 @@ interface DashboardServerBase {
 	 *   "__proto__" is a legal member -> membership tests go through Set/Map
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
+
 	/**
 	 * How many usable /model/info entries the last successful listing dropped per non-chat mode: the edit form offers
 	 * includeModes on this evidence, and an all-dropped row explains its empty picker with it. Absent = nothing
@@ -173,16 +190,22 @@ export type DashboardServer = DashboardServerBase &
 	(
 		| {
 				readonly origin: "declared";
+
 				readonly config: DashboardServerConfig;
+
 				readonly adoptHandle?: undefined;
+
 				readonly notices?: readonly DeclaredServerNotice[] | undefined;
+
 				/**
 				 * The live group did not join by this entry's exact labeled identity, so entry-only fields written NOW
 				 * may not reach it either. Guards on entry-only WRITES must key on this flag, not the notices: an entry
 				 * configuring no such field has the same problem and no notice.
 				 */
 				readonly entryFieldsInactive?: true | undefined;
+
 				readonly provenance?: undefined;
+
 				readonly problems?: undefined;
 		  }
 		| {
@@ -196,11 +219,17 @@ export type DashboardServer = DashboardServerBase &
 				 *                                                                          instead
 				 */
 				readonly origin: "misconfigured";
+
 				readonly problems: readonly string[];
+
 				readonly config?: undefined;
+
 				readonly adoptHandle?: undefined;
+
 				readonly notices?: undefined;
+
 				readonly entryFieldsInactive?: undefined;
+
 				readonly provenance?: undefined;
 		  }
 		| {
@@ -212,15 +241,23 @@ export type DashboardServer = DashboardServerBase &
 				 * the host's job (Manage Language Models, or the models file).
 				 */
 				readonly origin: "legacy";
+
 				/** The declared label the group belongs to. */
 				readonly entryLabel: string;
+
 				/** The group's opaque per-session token (the same mint as adoptHandle), the row's key across pushes. */
 				readonly groupHandle: string;
+
 				readonly config?: undefined;
+
 				readonly adoptHandle?: undefined;
+
 				readonly notices?: undefined;
+
 				readonly entryFieldsInactive?: undefined;
+
 				readonly provenance?: undefined;
+
 				readonly problems?: undefined;
 		  }
 		| {
@@ -231,7 +268,9 @@ export type DashboardServer = DashboardServerBase &
 				 * external.
 				 */
 				readonly origin: "external";
+
 				readonly adoptHandle: string;
+
 				/**
 				 * The label the group's configuration is stamped with. The sync engine names the groups it creates after
 				 * their entry, so the stamp is usually the host-side name (which the host refuses to reuse), but a group
@@ -239,19 +278,28 @@ export type DashboardServer = DashboardServerBase &
 				 * for an unstamped group.
 				 */
 				readonly entryLabel?: string | undefined;
+
 				readonly config?: undefined;
+
 				readonly notices?: undefined;
+
 				readonly entryFieldsInactive?: undefined;
+
 				readonly provenance?: ExternalServerProvenance | undefined;
+
 				readonly problems?: undefined;
 		  }
 	) &
 	(
 		| {
 				readonly state: "ok";
+
 				readonly cause?: undefined;
+
 				readonly expected?: undefined;
+
 				readonly declaredModelCount?: undefined;
+
 				/**
 				 * ServerStatusOk.modelInfoUnsupported, on declared rows only (the fix lives on an entry).
 				 * Classification only; copy renders webview-side.
@@ -260,18 +308,22 @@ export type DashboardServer = DashboardServerBase &
 		  }
 		| {
 				readonly state: "error";
+
 				/**
 				 * Why the row fails, as a key (shared/failureCause.ts): the webview renders it in its locale, the paste
 				 * line in English; it carries no message text, so it crosses the webview boundary as data.
 				 */
 				readonly cause: FailureCause;
+
 				/**
 				 * True when the failure hit a category the entry's expectedFailures declares: the outcome stays a
 				 * truthful error (the stale anchor and counts depend on it), but presentation treats it as expected.
 				 */
 				readonly expected?: boolean | undefined;
+
 				/** The declared subset of servedModelCount; drives the "N declared models" wording. */
 				readonly declaredModelCount?: number | undefined;
+
 				readonly modelInfoUnsupported?: undefined;
 		  }
 		| {
@@ -307,38 +359,59 @@ export function isEditableServer(server: DashboardServer): server is EditableDas
 /** Costs are USD per million tokens, as registration converted them. */
 export interface DashboardModel {
 	readonly id: string;
+
 	/**
 	 * The model ID as the server knows it: what a request's `model` field and a modelParameters prefix match against.
 	 * Differs from `id` on registrations that mint exposed IDs of their own (aggregate `:cheapest`/`:fastest`
 	 * variants).
 	 */
 	readonly rawId: string;
+
 	/**
 	 * Opaque per-session handle for the serving server (a salted hash of the server ID): a stale key de-resolves
 	 * instead of hitting another server. Never persisted.
 	 */
 	readonly scopeKey: string;
+
 	readonly name: string;
+
 	readonly family: string;
+
 	readonly serverLabel: string;
+
 	readonly maxInputTokens: number;
+
 	readonly maxOutputTokens: number;
+
 	/** The request's max_tokens when nothing configures one; under maxOutputTokens when a guessed limit exceeds the cap. */
 	readonly defaultMaxTokens: number;
+
 	readonly inputCost?: number | undefined;
+
 	readonly outputCost?: number | undefined;
+
 	readonly cacheReadCost?: number | undefined;
+
 	readonly cacheWriteCost?: number | undefined;
+
 	/** Long-context tier costs; present only when the tier differs from the base price. */
 	readonly longContextInputCost?: number | undefined;
+
 	readonly longContextOutputCost?: number | undefined;
+
 	readonly longContextCacheReadCost?: number | undefined;
+
 	readonly longContextCacheWriteCost?: number | undefined;
+
 	readonly toolCalling: boolean;
+
 	readonly imageInput: boolean;
+
 	readonly promptCaching: boolean;
+
 	/** True when the model advertises the reasoning-effort configuration control. */
 	readonly reasoning: boolean;
+
 	/** True for a declared model (discovery does not list it); drives the declared badge. */
 	readonly declared?: boolean | undefined;
 }
@@ -442,10 +515,13 @@ export type SettingScope = "global" | "workspace" | "workspaceFolder";
  */
 export interface ScopedRecordSetting<V> {
 	readonly editScope: SettingScope;
+
 	/** The record the edit scope itself holds; what the editor edits and writes back whole. */
 	readonly value: Readonly<Record<string, V>>;
+
 	/** Non-empty records held by other scopes, read-only in the dashboard. */
 	readonly otherScopes: readonly { readonly scope: SettingScope; readonly value: Readonly<Record<string, V>> }[];
+
 	/**
 	 * The scope-merged record exactly as the request path reads it: read-only display truth for the effective-values
 	 * inspector, while the editors above keep editing single scopes.
@@ -456,7 +532,9 @@ export interface ScopedRecordSetting<V> {
 /** Scalars are the effective values; records are per-scope. */
 export interface DashboardSettings {
 	readonly numbers: Readonly<Record<NumberSettingId, number | null>>;
+
 	readonly booleans: Readonly<Record<BooleanSettingId, boolean>>;
+
 	/**
 	 * The highest-precedence scope each scalar is explicitly configured in, or null when only the default applies.
 	 * "Modified" means the key is set somewhere, matching the native Settings editor, and the named scope is the one a
@@ -466,9 +544,13 @@ export interface DashboardSettings {
 		readonly numbers: Readonly<Record<NumberSettingId, SettingScope | null>>;
 		readonly booleans: Readonly<Record<BooleanSettingId, SettingScope | null>>;
 	};
+
 	readonly modelParameters: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
+
 	readonly modelCapabilities: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
+
 	readonly catalog: CatalogStatusView;
+
 	/**
 	 * The dashboard's own theme and accent, plus where each is configured. On every state push because the webview
 	 * restamps the root element from it - what makes a change land on an open dashboard.
@@ -479,36 +561,52 @@ export interface DashboardSettings {
 		readonly accent: UiAccent;
 		readonly accentScope: SettingScope | null;
 	};
+
 	readonly chat: {
 		readonly tokenEstimation: TokenEstimationMode;
+
 		readonly tokenEstimationScope: SettingScope | null;
+
 		readonly additionalToolSchemaKeywords: StringListSetting;
+
 		/** What LiteLLM groups a chat request under, and where that is configured. */
 		readonly sessionId: SessionIdMode;
+
 		readonly sessionIdScope: SettingScope | null;
 	};
+
 	readonly usage: {
 		readonly statusBarMode: UsageStatusBarMode;
+
 		readonly statusBarScope: SettingScope | null;
+
 		/** The configured thresholds as normalization reads them (valid fractions, deduplicated, ascending). */
 		readonly alertThresholds: readonly number[];
+
 		readonly thresholdsScope: SettingScope | null;
+
 		/**
 		 * The prefix every spend and cost figure renders with (display only, never a conversion); the empty string
 		 * renders the bare number.
 		 */
 		readonly currencySymbol: string;
+
 		readonly currencySymbolScope: SettingScope | null;
 	};
+
 	/**
 	 * Each feature's configured model ref, null while unset or malformed. User configuration only - an entry label
 	 * and a raw model ID, never a secret.
 	 */
 	readonly featureModels: Readonly<Record<FeatureModelId, FeatureModelRef | null>>;
+
 	readonly featureModelScopes: Readonly<Record<FeatureModelId, SettingScope | null>>;
+
 	/** The commitGeneration.prompt row's value; "" means the built-in instruction applies. */
 	readonly commitPrompt: string;
+
 	readonly commitPromptScope: SettingScope | null;
+
 	readonly languageFilter: LanguageFilterSetting;
 }
 
@@ -583,39 +681,55 @@ export type UsageEndpointStandingView =
  */
 export interface UsageServerView {
 	readonly kind: "usage";
+
 	readonly label: string;
+
 	readonly baseUrl: string;
+
 	/**
 	 * Fresh under the polling rule: last fetch OK and younger than two poll intervals (with polling off, than
 	 * usage.pollingOffFreshnessWindow). Stale data still renders, labeled with its age.
 	 */
 	readonly fresh: boolean;
+
 	/** The /key/info standing: why spend numbers are missing or not updating. */
 	readonly keyInfo: UsageEndpointStandingView;
+
 	/** The /user/daily/activity standing: why request statistics are missing. */
 	readonly dailyActivity: UsageEndpointStandingView;
+
 	/**
 	 *   Epoch ms -> the "last updated" label
 	 */
 	readonly lastUpdatedAt?: number | undefined;
+
 	/** The key's server-side spend in USD, when /key/info reports one. */
 	readonly spend?: number | undefined;
+
 	/** The budget bars and alerts run against: entry over key. */
 	readonly effectiveBudget?: number | undefined;
+
 	/** The key-reported max_budget, retained even when the entry's budget wins. */
 	readonly keyBudget?: number | undefined;
+
 	readonly entryBudget?: number | undefined;
+
 	readonly budgetSource: "entry" | "key" | "none";
+
 	/** spend / effectiveBudget; can exceed 1 (the label shows the literal percentage). */
 	readonly spentFraction?: number | undefined;
+
 	/** The key's budget_reset_at as epoch ms, when it carries one. */
 	readonly budgetResetAt?: number | undefined;
+
 	/** The recent-window request statistics, when /user/daily/activity answers. */
 	readonly requests?:
 		| {
 				readonly total: number;
+
 				/** successfulRequests / total, when total > 0. */
 				readonly successRate?: number | undefined;
+
 				/** cacheReadInputTokens / promptTokens, when prompt tokens exist. */
 				readonly cacheHitRate?: number | undefined;
 		  }
@@ -628,10 +742,14 @@ export interface UsageServerView {
  */
 export interface UsageForbiddenServerView {
 	readonly kind: "forbidden";
+
 	readonly label: string;
+
 	readonly baseUrl: string;
+
 	/** The /key/info standing behind the block. */
 	readonly keyInfo: UsageEndpointStandingView;
+
 	/** The /user/daily/activity standing behind the block. */
 	readonly dailyActivity: UsageEndpointStandingView;
 }
@@ -640,16 +758,22 @@ export type UsageServerCardView = UsageServerView | UsageForbiddenServerView;
 
 export interface DashboardUsage {
 	readonly servers: readonly UsageServerCardView[];
+
 	/** The normalized alert thresholds, ascending; empty = alerts off. */
 	readonly thresholds: readonly number[];
+
 	/** The effective poll interval; 0 = background polling off. */
 	readonly pollIntervalMs: number;
+
 	/** The effective discovery.timeout (each usage attempt's clock); the timeout detail line prints it. */
 	readonly discoveryTimeoutMs: number;
+
 	/** Whether a usage refresh pass is in flight (one serialized engine); disables Refresh now. */
 	readonly refreshing: boolean;
+
 	/** Only an explicit pass wears the busy label; scheduled polls update the numbers silently. */
 	readonly refreshingExplicitly: boolean;
+
 	/**
 	 *   When this snapshot was computed -> epoch ms
 	 */
@@ -672,11 +796,15 @@ export type ConfigDiagnosticSeverity = "warning" | "advisory";
 export type ConfigDiagnosticView =
 	| {
 			readonly kind: "record";
+
 			/** Which record map: the setting id, or the entry field for entry layers. */
 			readonly setting: "models.parameters" | "models.capabilities";
+
 			/** The owning entry's label for entry-layer records; absent for the global settings. */
 			readonly entryLabel?: string | undefined;
+
 			readonly diagnostic: RecordDiagnostic;
+
 			/**
 			 * "advisory" exactly on the surviving unrecognized-key diagnostics (the field still APPLIES as-is); every
 			 * other record diagnostic warns.
@@ -684,36 +812,45 @@ export type ConfigDiagnosticView =
 			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
-			/**
-			 * One rejected or partially-ignored servers-setting entry; `misconfigured` when the entry is skipped
-			 * whole.
-			 */
+			/** One rejected or partially-ignored servers-setting entry; `misconfigured` when it is skipped whole. */
 			readonly kind: "entry";
+
 			readonly label?: string | undefined;
+
 			/** The entry's 1-based position in the raw array, for label-less entries. */
 			readonly position: number;
+
 			readonly problems: readonly string[];
+
 			readonly misconfigured: boolean;
+
 			/**
 			 * Whether a server row was drawn for this entry: a reject with a row has its problems there, so Diagnostics
 			 * does not repeat them; a reject without one has no row, and this list is its only report.
 			 */
 			readonly rowOwned: boolean;
+
 			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
 			readonly kind: "legacy";
+
 			readonly hint: LegacyHintViewKind;
+
 			/** The leftover key: a record key for scoped-key hints, the setting id for the headers hints. */
 			readonly oldKey: string;
+
 			/** The setting id the leftover sits in. */
 			readonly detail: string;
+
 			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
 			/** usage.alertThresholds entries outside (0, 1], dropped by normalization. */
 			readonly kind: "thresholds";
+
 			readonly dropped: number;
+
 			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
@@ -722,7 +859,9 @@ export type ConfigDiagnosticView =
 			 * rounded guess. The configured value itself stays out: the key and its spec are the facts.
 			 */
 			readonly kind: "number-setting";
+
 			readonly setting: NumberSettingId;
+
 			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
@@ -731,9 +870,13 @@ export type ConfigDiagnosticView =
 			 * one model's entry (it reads as absent) because its value is not an object or its name is reserved.
 			 */
 			readonly kind: "setting-shape";
+
 			readonly setting: "models.parameters" | "models.capabilities";
+
 			readonly key?: string | undefined;
+
 			readonly reason?: "not-object" | "reserved-name" | undefined;
+
 			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
@@ -743,8 +886,11 @@ export type ConfigDiagnosticView =
 			 * never the value.
 			 */
 			readonly kind: "credential";
+
 			readonly label: string;
+
 			readonly path: string;
+
 			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
@@ -753,7 +899,9 @@ export type ConfigDiagnosticView =
 			 * never URLs beyond what the hidden-groups line already shows.
 			 */
 			readonly kind: "hidden-groups";
+
 			readonly labels: readonly string[];
+
 			readonly severity: ConfigDiagnosticSeverity;
 	  };
 
@@ -764,20 +912,27 @@ export type ConfigDiagnosticView =
 export interface ResolvedModelsView {
 	/** One tree per record map that holds records, in render order. */
 	readonly trees: readonly RecordTreeView[];
+
 	/** One row per (server, model), every resolved field with provenance. */
 	readonly rows: readonly ResolvedModelRow[];
+
 	/** Total records across every map; 0 drives the no-records empty state. */
 	readonly recordCount: number;
 }
 
 export interface RecordTreeView {
 	readonly kind: "parameters" | "capabilities";
+
 	readonly layer: "global" | "entry";
+
 	/** The owning entry's label for entry-layer maps. */
 	readonly entryLabel?: string | undefined;
+
 	readonly roots: readonly RecordTreeNode[];
+
 	/** Models this map matches with no record at all (the implicit "everything else" leaf). */
 	readonly unmatchedModelIds: readonly string[];
+
 	/** Invalid matcher keys in this map; they match nothing and sit outside the tree. */
 	readonly invalidKeys: readonly string[];
 }
@@ -787,6 +942,7 @@ export interface RecordTreeView {
  */
 export interface RecordTreeNode {
 	readonly key: string;
+
 	readonly fields: readonly {
 		readonly name: string;
 		readonly valueText: string;
@@ -794,19 +950,25 @@ export interface RecordTreeNode {
 		readonly forced: boolean;
 		readonly fallback: boolean;
 	}[];
+
 	/** True when `_inherit_from` is false or the empty list: nothing flows past this record. */
 	readonly barrier: boolean;
+
 	/** The `_inherit_from` directive rendered for display ("true" or the named keys); absent for the default flow. */
 	readonly inheritFrom?: string | undefined;
+
 	readonly children: readonly RecordTreeNode[];
+
 	/** Models whose most specific match in this map is this record, with their resolved values. */
 	readonly models: readonly { readonly id: string; readonly resolvedText: string }[];
 }
 
 export interface RecordChainLink {
 	readonly key: string;
+
 	/** True when `_inherit_from` is false or the empty list: nothing flows past this record. */
 	readonly barrier: boolean;
+
 	/** The `_inherit_from` directive rendered for display ("true" or the named keys); absent for the default flow. */
 	readonly inheritFrom?: string | undefined;
 }
@@ -822,32 +984,46 @@ export type RecordChainView =
 
 export interface ResolvedParamCell {
 	readonly name: string;
+
 	readonly valueText: string;
+
 	readonly layer: "entry" | "global";
+
 	/** The record key whose literal field carries the value. */
 	readonly key: string;
+
 	/** Present when the winning record inherited the value from `key`; names that winning record. */
 	readonly inheritedBy?: string | undefined;
+
 	readonly forced?: true | undefined;
 }
 
 export interface ResolvedCapCell {
 	readonly name: string;
+
 	readonly valueText: string;
+
 	readonly level: CapabilityLevel;
+
 	readonly key?: string | undefined;
+
 	/** Present when the level's winning record inherited the value from `key`; names that winning record. */
 	readonly inheritedBy?: string | undefined;
 }
 
 export interface ResolvedModelRow {
 	readonly serverLabel: string;
+
 	readonly rawId: string;
+
 	/** The model's scope key (DashboardModel.scopeKey), for the per-row jump to the inspectors. */
 	readonly scopeKey: string;
+
 	/** Every matcher key that matched this model in any map; the filter's "show everything gpt-5* touched". */
 	readonly matchedKeys: readonly string[];
+
 	readonly parameters: readonly ResolvedParamCell[];
+
 	readonly capabilities: readonly ResolvedCapCell[];
 }
 
@@ -859,39 +1035,53 @@ export interface ResolvedModelRow {
  */
 export interface VerdictRow {
 	readonly state: "ok" | "error" | "unchecked";
+
 	readonly servedModelCount: number;
+
 	readonly expected?: boolean | undefined;
+
 	/** A group the user's configuration hides: answering, but counted apart in the zero-model detail. */
 	readonly hiddenByRemoval?: boolean | undefined;
+
 	/** A parser-refused entry's row: configuration, not transport, so it fails the fleet only when nothing else is there. */
 	readonly misconfigured?: boolean | undefined;
+
 	/** Why an error row fails and whose URL its text names, for the paste line (error rows only). */
 	readonly failure?: { readonly cause: FailureCause; readonly baseUrl: string } | undefined;
 }
 
 export interface DashboardState {
 	readonly servers: readonly DashboardServer[];
+
 	readonly hiddenGroups: readonly HiddenGroup[];
+
 	/** The hero's and the paste line's verdict input: the same row set the status bar and the notifier classify. */
 	readonly verdictRows: readonly VerdictRow[];
+
 	readonly models: readonly DashboardModel[];
+
 	/**
 	 * The hero and the diagnostics paste line read this, never models.length - the models table lists a
 	 * multi-claimant snapshot once per claimant, so the row count can overcount what the window actually serves.
 	 */
 	readonly servedModelCount: number;
+
 	/**
 	 * The union of the servers' observedModelInfoKeys, across exactly the servers that reported a set. Absent =
 	 * unknown, empty = known and empty; same handling rules as the per-server field.
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
+
 	readonly settings: DashboardSettings;
+
 	/**
 	 * The features whose model row offers a host-side test probe (the exact pipeline the feature itself runs). Derived
 	 * from the probes activation registered, so the button exists exactly where a probe does.
 	 */
 	readonly featureProbes: readonly FeatureModelId[];
+
 	readonly usage: DashboardUsage;
+
 	readonly diagnostics: readonly ConfigDiagnosticView[];
 }
 

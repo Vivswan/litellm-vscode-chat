@@ -147,14 +147,17 @@ export function filterModels(
 
 interface ServerFilterOption {
 	readonly scopeKey: string;
+
 	/** The raw server label: what toggleServer stores, never the numbered form. */
 	readonly label: string;
+
 	/** What the pill prints: the label, numbered apart when it collides. */
 	readonly display: string;
 }
 
 interface CapabilityFilterOption {
 	readonly key: CapabilityFilterKey;
+
 	/** Resolved per call, never at module load: the l10n bundle configures after modules load. */
 	readonly label: () => string;
 }

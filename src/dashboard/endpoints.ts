@@ -124,9 +124,12 @@ export type SecretDirective =
  */
 export interface ReplacedEntryIdentity extends NonSecretOptionalFields {
 	readonly label: string;
+
 	readonly baseUrl: string;
+
 	/** The entry's apiVersion override as displayed; "" is a real value (append nothing), absent is auto. */
 	readonly apiVersion?: string | undefined;
+
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 }
 
@@ -137,28 +140,38 @@ export interface ReplacedEntryIdentity extends NonSecretOptionalFields {
  */
 export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly label: string;
+
 	readonly baseUrl: string;
+
 	/**
 	 *   absent        -> auto (the saved entry carries no key)
 	 *   ""            -> append nothing
 	 *   anything else -> appended verbatim
 	 */
 	readonly apiVersion?: string | undefined;
+
 	/** The entry's per-entry modelParameters; absent or empty means the saved entry carries none. */
 	readonly modelParameters?: EntryModelParametersPayload | undefined;
+
 	/** The entry's per-entry modelCapabilities; empty means the saved entry carries none. */
 	readonly modelCapabilities: EntryModelCapabilitiesPayload;
+
 	readonly expectedFailures: readonly ExpectedFailureCategory[];
+
 	/**
 	 * The entry's custom HTTP headers (plain settings text, not secrets).
 	 *
 	 *   the schema refuses a payload without it -> Always sent
 	 */
 	readonly headers: Readonly<Record<string, HeaderScalar>>;
+
 	readonly declaredModels: readonly string[];
+
 	readonly includeModes: readonly NonChatMode[];
+
 	/** The entry's manual usage budget in USD; null means none (clearing any stored budget). */
 	readonly budget: number | null;
+
 	/**
 	 * Deliberately absent from ReplacedEntryIdentity, which re-checks the STAMPED destinations a resolved secret may be
 	 * sent to (the base URL, the token URL). An MCP endpoint is not one of those: it receives credentials only on the
@@ -189,7 +202,9 @@ type DashboardEndpointSpec =
 	| { readonly outcome: Exclude<EndpointOutcome, "fire-and-forget">; readonly channel: EndpointChannel }
 	| {
 			readonly outcome: "fire-and-forget";
+
 			readonly channel: EndpointChannel;
+
 			/**
 			 * Where a refused fire-and-forget intent's standing notice renders. Acked failures answer their posting
 			 * hook instead, so only this variant carries `fail`.
@@ -292,23 +307,38 @@ export type NotifyingMethod = AckedMethod | FireAndForgetMethod;
 /** A method missing a row breaks the RequestPayload mapped type; a read missing `response` breaks ResponseFor. */
 interface DashboardEndpointIO {
 	ready: { request: null };
+
 	setNumberSetting: { request: { readonly setting: NumberSettingId; readonly value: number | null } };
+
 	setBooleanSetting: { request: { readonly setting: BooleanSettingId; readonly value: boolean } };
+
 	resetSetting: { request: { readonly setting: ResettableSettingId } };
+
 	revealSetting: { request: { readonly setting: RevealableSettingId } };
+
 	setModelParameters: { request: { readonly value: Record<string, Record<string, unknown>> } };
+
 	setModelCapabilities: { request: { readonly value: Record<string, Record<string, unknown>> } };
+
 	setUsageStatusBar: { request: { readonly value: UsageStatusBarMode } };
+
 	setChatSessionId: { request: { readonly value: SessionIdMode } };
+
 	setTokenEstimation: { request: { readonly value: TokenEstimationMode } };
+
 	/** Any short string, the empty string included (bare numbers); the extension bounds the length at the schema. */
 	setCurrencySymbol: { request: { readonly value: string } };
+
 	/** Values must be non-empty keyword names; the extension re-validates and refuses anything else. */
 	setAdditionalToolSchemaKeywords: { request: { readonly values: readonly string[] } };
+
 	setUiTheme: { request: { readonly value: UiTheme } };
+
 	setUiAccent: { request: { readonly value: UiAccent } };
+
 	/** Values must be fractions in (0, 1]; the extension re-validates and refuses out-of-range entries. */
 	setUsageAlertThresholds: { request: { readonly values: readonly number[] } };
+
 	/**
 	 * Pick or clear one feature's model: a declared entry's label plus a raw model ID (user configuration, never a
 	 * secret); null clears the pick and resets the setting.
@@ -316,10 +346,12 @@ interface DashboardEndpointIO {
 	 *   the feature discriminant -> names the setting
 	 */
 	setFeatureModel: { request: { readonly feature: FeatureModelId; readonly value: FeatureModelRef | null } };
+
 	/**
 	 *   the empty string -> resets the setting
 	 */
 	setCommitPrompt: { request: { readonly value: string } };
+
 	/**
 	 * One field per request because each settings row sends only its own half (the schema refuses both or neither).
 	 * The type stays the optional pair so executeDashboardIntent keeps its own empty-patch refusal for a bypassing
@@ -331,12 +363,17 @@ interface DashboardEndpointIO {
 			readonly languages?: readonly string[] | undefined;
 		};
 	};
+
 	refreshCatalog: { request: null };
+
 	refreshUsage: { request: null };
+
 	saveServerSetting: {
 		request: {
 			readonly server: SaveServerPayload;
+
 			readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
+
 			/**
 			 * When editing: the displayed identity of the entry to replace (its label differs from server.label on
 			 * rename).
@@ -344,6 +381,7 @@ interface DashboardEndpointIO {
 			readonly replace?: ReplacedEntryIdentity | undefined;
 		};
 	};
+
 	/**
 	 * Read-only by contract: nothing is written, synced, or cached. "keep" directives resolve against the entry
 	 * `replace` identifies, and the success notice is composed extension-side, never from payload or response text.
@@ -355,6 +393,7 @@ interface DashboardEndpointIO {
 			readonly replace?: ReplacedEntryIdentity | undefined;
 		};
 	};
+
 	/**
 	 * Test one feature's picked (server, model) pair with the feature's own probe: the exact pipeline the feature runs
 	 * (the inline-completions probe is the FIM send over a sample context - same connection resolution, template
@@ -364,11 +403,13 @@ interface DashboardEndpointIO {
 	 *   no probe is registered for the feature -> Refused
 	 */
 	testFeatureModel: { request: { readonly feature: FeatureModelId; readonly model: FeatureModelRef } };
+
 	/**
 	 * Remove every entry under the row's label. `label` and `baseUrl` are the row's identity: the write refuses when
 	 * the entry under the label now points elsewhere, so a stale row cannot act on its successor.
 	 */
 	removeServerSetting: { request: { readonly label: string; readonly baseUrl: string } };
+
 	/**
 	 * Append `category` (a closed vocabulary) to the declared entry the row identifies, bound like
 	 * removeServerSetting; an already-declared category acks as a no-op.
@@ -376,6 +417,7 @@ interface DashboardEndpointIO {
 	declareExpectedFailure: {
 		request: { readonly label: string; readonly baseUrl: string; readonly category: ExpectedFailureCategory };
 	};
+
 	/**
 	 * Adopt an external provider group into the servers setting: the group's credentials are resolved extension-side
 	 * (the webview never sees them) and stored where `secrets` directs per field. `sourceHandle` resolves only against
@@ -389,18 +431,22 @@ interface DashboardEndpointIO {
 			readonly secrets: Readonly<Record<SecretFieldId, Exclude<SecretLocation, "none">>>;
 		};
 	};
+
 	/**
 	 * Remove (hide) an external provider group by writing its removal tombstone. Named by the opaque handle, resolved
 	 * only against groups still external and still at `baseUrl`, so a forged request cannot hide a declared group.
 	 */
 	hideExternalServer: { request: { readonly baseUrl: string; readonly sourceHandle: string } };
+
 	/** Clear one hidden group's tombstone (the identity its HiddenGroup row carried). */
 	unhideServer: { request: { readonly label: string; readonly baseUrl: string } };
+
 	/**
 	 * Open Manage Language Models searched for a hidden group's synced name (the identity its HiddenGroup row carried,
 	 * offered only with syncedName). Resolved against the tombstones, so a stale request opens nothing.
 	 */
 	manageHiddenGroup: { request: { readonly label: string; readonly baseUrl: string } };
+
 	/**
 	 * A declared entry's inline-stored secret values, for the edit form's prefill: inline values already sit in
 	 * plaintext in the settings file. Secure-stored or absent fields carry NO key in the response; their values never
@@ -414,8 +460,10 @@ interface DashboardEndpointIO {
 		 * prefill must get an empty answer, never the replacement's inline values into a form showing another entry.
 		 */
 		request: { readonly replace: ReplacedEntryIdentity };
+
 		response: { readonly values: Readonly<Partial<Record<SecretFieldId, string>>> };
 	};
+
 	/**
 	 * One model's effective capabilities, produced by the same resolveModelCapabilities walk registration runs, so the
 	 * inspector cannot drift from what is served. Addressed by scope key plus raw ID; a stale key de-resolves, and
@@ -431,6 +479,7 @@ interface DashboardEndpointIO {
 			readonly chains?: readonly RecordChainView[] | undefined;
 		};
 	};
+
 	/**
 	 *   One model's effective-parameters projection -> resolved through the provider's SHARED flat resolution table
 	 *   the provider's SHARED flat resolution table -> the same cache requests read
@@ -443,18 +492,23 @@ interface DashboardEndpointIO {
 			readonly chains?: readonly RecordChainView[] | undefined;
 		};
 	};
+
 	/**
 	 * The Diagnostics tab's Resolved-models view, computed extension-side. On demand rather than in state pushes
 	 * because it scales with models x fields.
 	 */
 	readResolvedModels: { request: null; response: { readonly view: ResolvedModelsView } };
+
 	/** The query is user-typed filter text, never a secret; the catalog data itself never enters the webview bundle. */
 	searchCatalog: {
 		request: { readonly query: string };
 		response: { readonly results: readonly CatalogModelSummary[] };
 	};
+
 	executeCommand: { request: { readonly command: DashboardCommandId } };
+
 	copyDiagnostics: { request: { readonly text: string } };
+
 	/** No parameters: the sync is fleet-wide, exactly as the command palette runs it. */
 	syncModels: { request: null };
 }
@@ -515,16 +569,23 @@ interface IntentAckMessage {
  */
 interface IntentFailMessage {
 	readonly kind: "fail";
+
 	readonly id: string;
+
 	readonly method: NotifyingMethod;
+
 	readonly message: string;
+
 	/**
 	 * The message's English twin, when the thrower supplied one. The webview shows `message`; the agent tools relay
 	 * this to the calling model, since model-facing text stays English.
 	 */
 	readonly englishMessage?: string | undefined;
+
 	readonly failureKind: "validation" | "operation";
+
 	readonly classification?: TransportErrorClassification | undefined;
+
 	readonly row?: SettingRowId | undefined;
 }
 
@@ -542,6 +603,7 @@ export type ExtensionToWebviewMessage =
 			 * directly when the page is live.
 			 */
 			readonly kind: "focusSection";
+
 			readonly section: DashboardSectionId;
 	  }
 	| RpcResponseType

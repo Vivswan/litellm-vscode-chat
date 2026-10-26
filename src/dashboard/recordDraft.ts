@@ -28,7 +28,9 @@ import { formatHeaderValue, formatJsonValue, parseHeaderValue, parseJsonValue } 
 export interface ParamRow {
 	/** UI-only draft identity (React keys, the focus hold); never part of the row's value. */
 	readonly id: string;
+
 	readonly key: string;
+
 	readonly valueText: string;
 }
 
@@ -103,6 +105,7 @@ export function toGroups(value: Readonly<Record<string, Readonly<Record<string, 
  * other record type. The resolver later diagnoses the same names as wrong-record-type, from the same rows.
  */
 const PARAMETER_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDirectives("parameters"));
+
 const CAPABILITY_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDirectives("capabilities"));
 
 /**
@@ -195,8 +198,10 @@ type DirectiveValueReading =
 	| { readonly kind: "flag"; readonly value: boolean }
 	| {
 			readonly kind: "list";
+
 			/** The raw entries, invalid members included (toggles preserve them). */
 			readonly entries: readonly unknown[];
+
 			/** The string members only: the lenient membership reading. */
 			readonly strings: readonly string[];
 	  };
@@ -281,7 +286,9 @@ function judgeInheritFromRow(
 export type GroupsParse =
 	| {
 			readonly ok: true;
+
 			readonly value: Record<string, Record<string, unknown>>;
+
 			/** Hints only (nothing blocks on an ok parse); row-aligned like the blocked branch. */
 			readonly hints: readonly GroupHints[];
 	  }
@@ -587,7 +594,9 @@ export interface CapabilityGroupIssues {
 export type CapabilityGroupsParse =
 	| {
 			readonly ok: true;
+
 			readonly value: Record<string, Record<string, unknown>>;
+
 			/** Hints only (nothing blocks on an ok parse); row-aligned like the blocked branch. */
 			readonly issues: readonly CapabilityGroupIssues[];
 	  }

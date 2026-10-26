@@ -469,11 +469,13 @@ export function parseDeclaredModelsText(text: string): string[] {
 export interface ServerFormContext {
 	/** Labels of the other declared entries. */
 	readonly takenLabels?: readonly string[];
+
 	/**
 	 * The entry being edited, as the form displayed it; absent when adding. Rides the intents as `replace`, so the
 	 * extension can refuse a save or probe when the label's entry no longer matches what the form showed.
 	 */
 	readonly original?: ReplacedEntryIdentity;
+
 	/**
 	 * The edited entry's observed /model/info key set, the evidence behind the capability rows' unknown-key hints: with
 	 * no set or an empty one, every such hint stays suppressed - the host's advisory filter, run live.
@@ -491,13 +493,16 @@ export interface ServerFormIntent {
 export type ServerFormParse =
 	| {
 			readonly ok: true;
+
 			readonly intent: ServerFormIntent;
+
 			/**
 			 * Row-aligned capability issues from the same parseCapabilityGroups pass that assembled the intent.
 			 *
 			 *   advisory hints -> never block a save but must still render
 			 */
 			readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
+
 			/**
 			 *   Row-aligned model-parameter hints (directive semantics and wrong-type notes) -> non-blocking
 			 */
@@ -505,16 +510,21 @@ export type ServerFormParse =
 	  }
 	| {
 			readonly ok: false;
+
 			readonly problems: ServerFormProblems;
+
 			/**
 			 * Row-aligned problems for the model-parameters rows, from the same parseGroups pass that judged the draft;
 			 * empty when those rows are clean and some other field blocks.
 			 */
 			readonly modelParameterProblems: readonly GroupProblems[];
+
 			/** Row-aligned capability issues; see the ok branch. */
 			readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
+
 			/** Row-aligned model-parameter hints; see the ok branch. */
 			readonly modelParameterHints: readonly GroupHints[];
+
 			/** Row-aligned custom-header problems, like modelParameterProblems; problems.headers holds the summary. */
 			readonly headerProblems: readonly (string | undefined)[];
 	  };
@@ -559,13 +569,19 @@ export const CONNECTION_FIELDS: readonly ServerFormField[] = [
 interface ServerConnectionValues {
 	/** The draft's trimmed label, possibly empty or reserved (only the save blocks on that). */
 	readonly label: string;
+
 	readonly baseUrl: string;
+
 	/** The entry apiVersion the draft means: undefined for auto, "" for none, the trimmed text for custom. */
 	readonly apiVersion: string | undefined;
+
 	readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
+
 	/** The active auth form's non-empty text fields, ready to spread into the payload. */
 	readonly optionalText: Readonly<Partial<Record<NonSecretOptionalFieldId, string>>>;
+
 	readonly headers: Record<string, HeaderScalar>;
+
 	readonly modelCapabilities: Record<string, Record<string, unknown>>;
 }
 
@@ -585,6 +601,7 @@ interface ServerFormValues extends ServerConnectionValues {
 type ServerFormAnalysis = {
 	/** Row-aligned capability issues from the parse that judged the draft; hints render on both arms. */
 	readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
+
 	/**
 	 *   Row-aligned model-parameter hints (directive semantics and wrong-type notes) -> non-blocking
 	 */

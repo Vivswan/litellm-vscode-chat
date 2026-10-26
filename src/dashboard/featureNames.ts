@@ -16,9 +16,12 @@ export type FeatureNameForm = "title" | "sentence";
 
 interface FeatureNameEntry {
 	readonly title: string;
+
 	readonly sentence: string;
+
 	/** The sentence form's English mirror, for English-by-policy log surfaces. */
 	readonly englishSentence: string;
+
 	/** The PascalCase tag log classifications name the feature by; English by policy. */
 	readonly logSurface: string;
 }
