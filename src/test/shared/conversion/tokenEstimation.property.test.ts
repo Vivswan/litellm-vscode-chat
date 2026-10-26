@@ -105,6 +105,7 @@ const toolResultPartArb = fc
  * this host exposes the class.
  */
 const hostThinkingCtor = thinkingPartCtor;
+
 const thinkingShapedArb: fc.Arbitrary<unknown> = fc.oneof(
 	fc.record({ value: textArb }),
 	fc.record({ value: textArb, metadata: fc.record({ signature: textArb }) }),

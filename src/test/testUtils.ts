@@ -146,20 +146,25 @@ export function systemMessage(text: string): vscode.LanguageModelChatRequestMess
 
 export interface CapturedRequest {
 	body: Record<string, unknown>;
+
 	headers: Record<string, string>;
+
 	/** The model object the request went out with: the discovered one under useDiscoveredModel, else the attached copy. */
 	model: LiteLLMModelInfo;
 }
 
 export interface CaptureRequestOverrides {
 	messages?: vscode.LanguageModelChatRequestMessage[];
+
 	discoveryPayload?: JsonBodyType;
+
 	/**
 	 * Send the chat request with the model object discovery returned (matched by id), mirroring the host contract of
 	 * handing the provider's own info objects back. Required for behavior that rides on the model object, such as
 	 * prompt-caching support.
 	 */
 	useDiscoveredModel?: boolean;
+
 	/** The group the host serves and the request routes through, as its flat host configuration; defaults to testGroupServer(). */
 	group?: Pick<GroupServer, "baseUrl" | "apiKey" | "label">;
 }
@@ -240,13 +245,20 @@ type ServerStatusOverrides = Partial<
 		  }
 		| {
 				state: "error";
+
 				/** The log rendering's source when no logSafeError is given; never the display text. */
 				error?: string;
+
 				cause?: FailureCause;
+
 				logSafeError?: string;
+
 				classification?: TransportErrorClassification;
+
 				expected?: boolean;
+
 				servedModelCount?: number;
+
 				declaredModelCount?: number;
 		  }
 	);

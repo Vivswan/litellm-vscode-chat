@@ -5,8 +5,10 @@ import { OPENROUTER_MODELS_URL } from "../../shared/config/openRouterCatalog";
 export const TEST_BASE_URL = "http://litellm.test";
 export const MODEL_INFO_URL = `${TEST_BASE_URL}/v1/model/info`;
 export const MODELS_URL = `${TEST_BASE_URL}/v1/models`;
+
 /** LiteLLM's root-level group endpoint; the extension probes it only after /v1/model/info answered. */
 export const MODEL_GROUP_INFO_URL = `${TEST_BASE_URL}/model_group/info`;
+
 export const CHAT_COMPLETIONS_URL = `${TEST_BASE_URL}/v1/chat/completions`;
 export const COMPLETIONS_URL = `${TEST_BASE_URL}/v1/completions`;
 

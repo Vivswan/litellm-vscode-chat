@@ -44,12 +44,15 @@ const SCOPE = "http://a.test";
 // Slash-free so a scoped key "<scope>/<prefix>" can never collide with an unscoped key or match a foreign scope;
 // colon-free so no cut of a raw ID spells a synthetic ":cheapest" variant.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
+
 const modelId = fc.string({ unit: idChar, minLength: 1, maxLength: 10 });
 
 const validNumber = fc.integer({ min: 1, max: 1_000_000 });
+
 // Post-ingest limits are positive numbers or undefined by construction (discovery narrows them at the mapping sites);
 // no null survives to here.
 const limitValue = fc.option(validNumber, { nil: undefined });
+
 const flagValue = fc.option(fc.oneof(fc.boolean(), fc.constant<null>(null)), { nil: undefined });
 
 const providerArb: fc.Arbitrary<LiteLLMProvider> = fc.record(
@@ -138,6 +141,7 @@ const fieldValueArb = fc.oneof(
 	},
 	{ arbitrary: fc.constantFrom<unknown>("128k", 0, -5, 1.5, null), weight: 1 }
 );
+
 const recordKeyArb = fc.oneof(
 	{
 		arbitrary: fc.constantFrom<string>(

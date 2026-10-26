@@ -91,12 +91,14 @@ function descriptorsOf(parts: vscode.LanguageModelResponsePart[]): unknown[] {
 }
 
 const seedArb = fc.integer({ min: 0, max: 0x7fffffff });
+
 // Kind frequencies mirror the docker fuzzer's weights, so both fuzzers explore the same shape mix;
 // cross-shrink lets counterexamples collapse toward the first (simplest) kind.
 const kindArb = fc.oneof(
 	{ withCrossShrink: true },
 	...PROPERTY_EVENT_KIND_WEIGHTS.map((entry) => ({ arbitrary: fc.constant(entry.kind), weight: entry.weight }))
 );
+
 const eventSpecArb = fc.tuple(kindArb, seedArb);
 const tailSpecArb = fc.option(fc.tuple(fc.constantFrom(...TAIL_EVENT_KINDS), seedArb), { nil: undefined });
 

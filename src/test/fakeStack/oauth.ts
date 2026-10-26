@@ -8,21 +8,26 @@
 
 export const FAKE_OAUTH_CLIENT_ID = "fake-oauth-client";
 export const FAKE_OAUTH_CLIENT_SECRET = "fake-oauth-secret";
+
 /** Every issued access token is this prefix plus the issue counter. */
 export const FAKE_OAUTH_TOKEN_PREFIX = "fake-token-";
+
 /** Advertised token lifetime; long enough that no test ever sees a natural expiry. */
 export const FAKE_OAUTH_EXPIRES_IN_SECONDS = 3600;
 
 /** The identity provider's whole state; the counters only ever grow. */
 export interface OAuthProviderState {
 	issued: number;
+
 	rejected: number;
+
 	/**
 	 * Wire attempts on the bearer-guarded chat endpoint, auth outcome included. The no-retry assertions read this as
 	 * "how many times did the extension actually hit the endpoint", which token-issuance counters cannot answer: a
 	 * background discovery sweep may legitimately re-exchange.
 	 */
 	authedChatRequests: number;
+
 	readonly live: Set<string>;
 }
 

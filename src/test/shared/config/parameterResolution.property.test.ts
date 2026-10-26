@@ -38,6 +38,7 @@ const paramKey = fc.oneof(
 	{ arbitrary: rawIdArb.map((key) => `_${key}`).filter((key) => key !== FORCE_DIRECTIVE), weight: 1 },
 	{ arbitrary: rawIdArb, weight: 1 }
 );
+
 const paramRecord = fc.dictionary(paramKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 5 });
 
 /** A `_force` value: all-fields, a list cut from the record's own keys plus noise, or an invalid shape. */

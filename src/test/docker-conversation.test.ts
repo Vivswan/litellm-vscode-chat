@@ -31,6 +31,7 @@ const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 
 // An explicit FUZZ_SEED reproduces exactly: one seed means one conversation walk (see src/test/fuzzSeed.ts).
 const SEED = resolveDockerFuzzSeed();
+
 const ITERATIONS = Math.max(1, Math.floor(Number(process.env.CONVERSATION_ITERATIONS)) || 10);
 
 /** Deterministic PRNG, same family as the stream fuzzer. */
@@ -54,6 +55,7 @@ const TOOL = {
 
 interface TurnPlan {
 	command: string;
+
 	/** Assert the turn's extracted content; returns the assistant text to append to history. */
 	check(parts: unknown[]): string;
 }

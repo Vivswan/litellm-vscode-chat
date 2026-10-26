@@ -19,6 +19,7 @@ const SEED = resolveFuzzSeed();
  * lone surrogates, and control characters.
  */
 const tokenChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'*+-.^_`|~");
+
 const headerNameArb = fc.oneof(
 	fc.string({ unit: tokenChar, minLength: 1, maxLength: 12 }),
 	fc.string({ maxLength: 12 }),

@@ -51,6 +51,7 @@ interface AdversarialEvent {
 // Nonempty: the converter intentionally drops messages whose only content is the empty string, and an empty
 // conversation is rejected by validateRequest.
 const textArb = fc.string({ minLength: 1, maxLength: 40 });
+
 const callIdArb = fc
 	.tuple(fc.constantFrom("call", "tool", "fn"), fc.nat({ max: 99999 }))
 	.map(([prefix, n]) => `${prefix}_${n}`);

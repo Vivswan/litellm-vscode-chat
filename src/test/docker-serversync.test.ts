@@ -27,13 +27,16 @@ import { expectDefined } from "./pureHelpers";
 // Env-derived URLs can arrive slash-suffixed; stripping keeps the derived NO_DISCOVERY_URL and every base-URL
 // comparison canonical.
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");
+
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
+
 /** The fake backend's discovery-less mirror: chat serves, the discovery GETs 404. */
 const NO_DISCOVERY_URL = `${FAKE_URL}${NO_DISCOVERY_PREFIX}`;
 
 /** Discovery through a proxy group registers the consolidated aliases; this one anchors "models appeared". */
 const ALIAS = PLAYBACK_MODEL.alias;
+
 /** Discovery against the fake backend directly registers upstream ids; this one anchors the OAuth group. */
 const OAUTH_MODEL = "fake-mini";
 
@@ -59,16 +62,21 @@ const WRONG_ROTATED_KEY = "sk-rotated-wrong-MARKER";
  * against the clamp bound rather than one exact guess.
  */
 const CAPS_MODEL = "llama-4-scout";
+
 /** Scenario 11's declared model; the ID is not in the fake catalog, only the declared list creates it. */
 const UNEXPECTED_DECLARED_MODEL = "fake-declared";
+
 /** Scenario 11's entry key: its bucket in the fake backend's discovery-attempt counters. */
 const UNEXPECTED_DECLARED_KEY = "declared-unexpected-key";
+
 const EXPECTED_DECLARED_MODEL = "fake-expected";
+
 /** Scenario 10's entry key, unique so its discovery-attempt bucket counts only its own group. */
 const EXPECTED_FAILURES_KEY = "expected-failures-key";
 
 /** Scenario 3's dormant stored value; scenario 5d scans the log buffer for it. */
 const GARBAGE_KEY = "sk-garbage-MARKER";
+
 /** Scenario 5a's rejected client secret; scenario 5d scans the log buffer for it. */
 const WRONG_OAUTH_SECRET = "not-the-secret";
 

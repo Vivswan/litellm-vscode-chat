@@ -446,25 +446,31 @@ type HealthKind = "proxy" | "fake" | "dark";
 interface OracleEntry {
 	/** The raw settings entry as currently declared (post any redeclare mutation). */
 	entry: Record<string, unknown>;
+
 	/** JSON of the resolved group args at the label's first sync: the host group's immutable content. */
 	hostArgs: string;
+
 	health: HealthKind;
+
 	/**
 	 * True once the label's healthy discovery was proven (its model wait passed), so a later removal must subtract from
 	 * the model-count floors.
 	 */
 	provenHealthy: boolean;
+
 	/**
 	 * True once the label's copies left the model-count floors: a redeclare made its live group a superseded leftover
 	 * (the provider serves nothing from a labeled group whose entry declares another URL), or a removal tombstoned it.
 	 * Guards the subtraction against being taken twice.
 	 */
 	hidden: boolean;
+
 	/**
 	 * The entry's unique discovery.declared model ID, when its extras carried one. Unlike the shared anchor IDs exactly
 	 * one label owns it, so its presence and its post-removal absence are both provable.
 	 */
 	declaredId?: string;
+
 	/**
 	 * The baseUrl the label's group was synced with. Entry-scoped configuration reaches a group only while the entry
 	 * matches it on label AND base URL, so the probes stop expecting the declared model once these two diverge.
@@ -527,10 +533,13 @@ const PROXY_CHAT_ALIASES: readonly string[] = [PLAYBACK_MODEL.alias, "claude-opu
 export interface MonkeyEnv {
 	/** The LiteLLM proxy base URL. */
 	baseUrl: string;
+
 	/** The fake OpenAI backend base URL (OAuth mode targets its /authed mirror). */
 	fakeUrl: string;
+
 	/** The proxy master key. */
 	apiKey: string;
+
 	seed: number;
 }
 
@@ -544,42 +553,55 @@ const MODEL_WAIT_MS = 60000;
  */
 export class MonkeySession {
 	private declared = new Map<string, OracleEntry>();
+
 	/** SecretStorage blob mirrors by real label; kept across removals like the real store keeps them. */
 	private stored = new Map<string, StoredBlobMirror>();
+
 	/** Add-only across the whole session: healthy group counts only ever grow. */
 	private everSyncedHealthy = { proxy: 0, fake: 0 };
+
 	/**
 	 * Healthy ever-synced groups the provider now answers with zero models: their entry was explicitly removed (the
 	 * removal tombstones the group) or re-pointed at another URL (the group is a superseded leftover). The live
 	 * model-count floor is everSyncedHealthy minus this.
 	 */
 	private hiddenHealthy = { proxy: 0, fake: 0 };
+
 	private expectedSettings = new Map<string, unknown | typeof UNSET>();
+
 	private minted: string[] = [];
+
 	/**
 	 * Labels declared with the ambiguous auth shape: the parser must skip them, so they never join `declared`, sync, or
 	 * produce a declared view.
 	 */
 	private misconfigured = new Set<string>();
+
 	/**
 	 * Declared-model IDs this session's entries carry: they register whenever discovery does not list them, so the
 	 * unknown-model probe must admit them.
 	 */
 	private declaredIds = new Set<string>();
+
 	/**
 	 * Cursor into the session log tee: each hygiene probe scans the lines logged since the previous one. A line can
 	 * only carry secrets that existed when it was logged, so scanning every line once sees every secret it could
 	 * contain.
 	 */
 	private logCursor = 0;
+
 	private baselineModelIds: ReadonlySet<string> = new Set();
+
 	/**
 	 * Pre-session copies of the two anchor IDs: the model-count floors are baseline + newly-synced, so a NEW healthy
 	 * group failing discovery cannot hide behind pre-existing groups' copies satisfying a bare count.
 	 */
 	private baselineCopies = { proxy: 0, fake: 0 };
+
 	private executionCounter = 0;
+
 	private probeCounter = 0;
+
 	private anchorLabel: string;
 
 	constructor(private readonly env: MonkeyEnv) {

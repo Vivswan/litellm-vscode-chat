@@ -26,6 +26,7 @@ const LOGIN = new RegExp(`@(${LOGIN_SOURCE})`, "g");
 export interface SubjectCredit {
 	/** The login as written in the subject (GitHub logins are case-insensitive; lowercase before comparing). */
 	readonly login: string;
+
 	/** The issue/PR numbers of the credit group the login sits in. */
 	readonly issues: readonly number[];
 }

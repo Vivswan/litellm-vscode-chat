@@ -8,6 +8,7 @@
 
 /** Every mode the docker suites emit; the parser's mode pattern only admits lowercase and hyphens. */
 export const FUZZ_MODES = ["proxy", "direct", "conversation", "monkey"] as const;
+
 export type FuzzMode = (typeof FUZZ_MODES)[number];
 
 /** The fresh-draw formula, pure so a test can pin its range and determinism. */

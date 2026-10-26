@@ -41,8 +41,10 @@ export function mulberry32(seed: number): () => number {
 const WORDS = ["alpha", "bravo", "delta", "echo", "lima", "oscar", "tango", "zulu"];
 export const UNICODE_WORDS = ["日本語", "café", "émoji✨", "مرحبا", "🚀🧠"];
 const TOOL_NAMES = ["get_weather", "search_docs", "run_query"];
+
 /** The longest control token the parser can be holding as a partial tail when a stray sigil's prose must be past the bound. */
 const ARG_BEGIN_LENGTH = "<|tool_call_argument_begin|>".length;
+
 /** Arg values that stress JSON escaping through two serialization hops. */
 const TRICKY_ARG_VALUES = [
 	'quo"te',
@@ -68,8 +70,11 @@ export function chunkOf(delta: Record<string, unknown>, finishReason?: string): 
 
 export interface GeneratorState {
 	random: () => number;
+
 	toolIndex: number;
+
 	citationIndex: number;
+
 	/** Direct mode may split surrogate pairs across chunks; the proxy cannot take those. */
 	allowSurrogateSplit: boolean;
 }
@@ -304,6 +309,7 @@ function interleavedToolsEvent(state: GeneratorState): FuzzEvent {
  * completes before the finish_reason is read.
  */
 const SPLIT_FINISH_VARIANTS = ["before-last", "same-chunk", "empty-delta-between", "text-after"] as const;
+
 type SplitFinishVariant = (typeof SPLIT_FINISH_VARIANTS)[number];
 
 function withFinishReason(chunk: Record<string, unknown>, reason: string): Record<string, unknown> {
@@ -699,6 +705,7 @@ export const PROPERTY_EVENT_KIND_WEIGHTS = [
 	{ kind: "indexless-delta-tool", weight: 5, directOnly: true },
 	{ kind: "structured-content", weight: 4, directOnly: true },
 ] as const;
+
 export type PropertyEventKind = (typeof PROPERTY_EVENT_KIND_WEIGHTS)[number]["kind"];
 
 export const TAIL_EVENT_KINDS = ["unterminated-inline-tail", "truncated-token-tail", "empty-args-delta-tool"] as const;
@@ -775,8 +782,11 @@ export function makeTailEvent(kind: TailEventKind, seed: number, state: Generato
 
 export interface AssembledStream {
 	chunks: unknown[];
+
 	expectedText: string;
+
 	expectedToolCalls: ExpectedToolCall[];
+
 	/**
 	 * Thinking text the stream must surface as thinking parts, in stream order. The in-process oracles assert it on
 	 * every stream, empty included; the docker oracle skips a stream whose events declare none.

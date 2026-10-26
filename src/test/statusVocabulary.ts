@@ -40,8 +40,10 @@ interface PillExpectation {
 
 export interface WindowStateRow {
 	readonly name: string;
+
 	/** The provider-reported status window, exactly as handleAggregatedStatus and the notifier receive it. */
 	readonly window: readonly ServerStatus[];
+
 	/**
 	 * Declared entries whose provider-group sync failed, by entry label: the sync-failure overlay's input beside the
 	 * window. The host suite feeds them to the bar and notifier as declared views carrying syncFailure; one with no
@@ -49,35 +51,48 @@ export interface WindowStateRow {
 	 */
 	readonly syncFailures?: readonly {
 		readonly label: string;
+
 		/** Derived from the engine union, so a new class can never leave this registry silently narrower. */
 		readonly failureClass: NonNullable<DeclaredServerView["syncFailure"]>["class"];
 	}[];
+
 	/**
 	 * The label-agnostic connection ID a declared entry mirrors (DeclaredServerView.expectedConnectionId), by entry
 	 * label: how two entries share one live group whose report carries that ID as its serverId.
 	 */
 	readonly connectionIds?: Readonly<Record<string, string>>;
+
 	/** The merged count reportMerged would derive from the window (asserted, not assumed). */
 	readonly totalModels: number;
+
 	/** Whether servers are configured (the bar's and notifier's shared gate); every row but not-configured. */
 	readonly configured: boolean;
+
 	/** The same state as the dashboard's server rows; the host suite pins this mirror against the REAL builder. */
 	readonly rows: readonly DashboardServer[];
+
 	/**
 	 * How many provider groups the user's configuration hides (state.hiddenGroups). The window carries the same groups
 	 * as hiddenByRemoval ok statuses, which the host mirror tombstones; the verdict rows count them from the window.
 	 */
 	readonly hiddenGroups?: number;
+
 	readonly expect: {
 		readonly severityClass: SeverityClass;
+
 		/** classifyOverall over the verdict rows (the window joined with the declared views, plus the refused entries). */
 		readonly verdict: OverallVerdict;
+
 		readonly bar: BarExpectation;
+
 		/** The dashboard hero's word (English bundle) and tone. */
 		readonly hero: { readonly word: string; readonly tone: "ok" | "warn" | "error" | "muted" };
+
 		/** The overallStatusText paste line (English by policy). */
 		readonly statusLine: string;
+
 		readonly notifier: NotifierExpectation;
+
 		/** The row pills, in `rows` order (English bundle words plus dot tones). */
 		readonly pills: readonly PillExpectation[];
 	};
@@ -261,11 +276,13 @@ function syncFailedRow(name: string, failureClass: SyncErrorClass, live?: Server
 }
 
 const HTTP_500: FailureCause = { kind: "transport", classification: { kind: "http", status: 500 } };
+
 /** A model listing the entry declares unsupported: the 404 discovery proved, with the hint that the entry can declare it. */
 const LISTING_404: FailureCause = {
 	kind: "transport",
 	classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
 };
+
 const allFailedDeclaredServing = errorStatus({ servedModelCount: 2, declaredModelCount: 2, cause: HTTP_500 });
 const staleServing = errorStatus({ servedModelCount: 3 });
 const answeredEmpty = okStatus({ servedModelCount: 0 });
@@ -294,6 +311,7 @@ const expectedDead = errorStatus({ serverId: "gw", servedModelCount: 0, expected
 const unexpectedDead = errorStatus({ serverId: "down", servedModelCount: 0 });
 const healthy = okStatus({ servedModelCount: 3 });
 const liveBeforeSyncFailure = okStatus({ serverId: "live", servedModelCount: 2 });
+
 /** A pre-label group answering with an empty listing, reporting under its connection ID. */
 const sharedEmpty = okStatus({ serverId: "shared", servedModelCount: 0 });
 

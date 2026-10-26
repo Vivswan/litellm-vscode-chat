@@ -39,8 +39,10 @@ async function registerScenario(name: string, config: Record<string, unknown>): 
 
 interface StreamOutcome {
 	parts: unknown[];
+
 	/** Undefined when the stream completed cleanly. */
 	error: unknown;
+
 	elapsedMs: number;
 }
 
@@ -64,6 +66,7 @@ async function runToOutcome(model: vscode.LanguageModelChat, text: string): Prom
 
 /** A minimal but valid streaming chunk for raw frames; parseChunk needs nothing beyond choices. */
 const rawChunk = (content: string): Record<string, unknown> => ({ choices: [{ index: 0, delta: { content } }] });
+
 const sseEvent = (chunk: unknown): string => `data: ${JSON.stringify(chunk)}\n\n`;
 const SSE_DONE = "data: [DONE]\n\n";
 const SSE_CONTENT_TYPE = { "Content-Type": "text/event-stream" };
@@ -75,6 +78,7 @@ const SSE_CONTENT_TYPE = { "Content-Type": "text/event-stream" };
  * caller's arguments.
  */
 const targetModels = new Map<string, Promise<vscode.LanguageModelChat>>();
+
 function resolveTargetModel(directMode: boolean): Promise<vscode.LanguageModelChat> {
 	const target = directMode ? "direct" : "proxy";
 	let resolved = targetModels.get(target);

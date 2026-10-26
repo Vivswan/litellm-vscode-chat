@@ -12,30 +12,39 @@ export interface ExpectedToolCall {
 /** Serializable, so failures can be shrunk, reported, and replayed verbatim. */
 export interface FuzzEvent {
 	label: string;
+
 	chunks: unknown[];
+
 	/** Visible text this event appends, in stream order. */
 	text?: string;
+
 	/**
 	 * Thinking text this event must surface. The in-process oracles compare the stream's thinking parts against the
 	 * concatenation always; the docker oracle only when at least one event declares it.
 	 */
 	thinking?: string;
+
 	tools?: ExpectedToolCall[];
+
 	/** True when the tool calls arrive on the delta channel (triggers the one-time space hint after text). */
 	deltaToolChannel?: boolean;
+
 	/** URL citation this event attaches; the extension emits one trailer at end of stream. */
 	citation?: { url: string; title: string };
+
 	/** Direct-mode only: the proxy rejects or rewrites these chunks, so they never run through it. */
 	directOnly?: boolean;
 }
 
 export interface CorpusEntry {
 	name: string;
+
 	/**
 	 * Direct-mode repros can carry shapes the proxy rejects outright, so a direct failure must never replay through
 	 * the proxy.
 	 */
 	mode: "proxy" | "direct" | "both";
+
 	events: FuzzEvent[];
 }
 
@@ -295,6 +304,7 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
  */
 export interface MigrationCorpusEntry {
 	name: string;
+
 	/** Setting id -> configured layers, exactly the pure transform's snapshot shape. */
 	snapshot: Record<string, { globalValue?: unknown; workspaceValue?: unknown; workspaceFolderValue?: unknown }>;
 }
@@ -309,6 +319,7 @@ export const MIGRATION_FUZZ_CORPUS: MigrationCorpusEntry[] = [];
  */
 export interface RefusedDashboardRequestEntry {
 	name: string;
+
 	/** The full envelope, exactly as the mutation run posted it. */
 	request: unknown;
 }

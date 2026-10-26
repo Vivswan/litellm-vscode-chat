@@ -11,6 +11,7 @@ import { REPO_ROOT } from "./util/repoRoot";
 export interface ShippedSource {
 	/** Repo-relative posix path (src/...), the same string on every OS. */
 	readonly file: string;
+
 	readonly text: string;
 }
 

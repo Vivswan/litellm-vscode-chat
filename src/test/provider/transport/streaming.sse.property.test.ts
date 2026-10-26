@@ -140,6 +140,7 @@ const framingEventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 
 /** Lines the splitter must ignore or log-and-skip; none may parse into a chunk or read as [DONE]. */
 const INERT_LINES = [": comment", "event: message", "id: 7", "retry: 100", "", 'data:{"no":"space"}'];
+
 const MALFORMED_DATA_LINES = ["data: {oops", "data: null", "data: [1,2", "data: 42", 'data: "text"', "data: [DONE ]"];
 
 suite("provider/streaming SSE framing properties", () => {

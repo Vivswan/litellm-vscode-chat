@@ -20,12 +20,14 @@ import { MAX_STALL_MS, STALL_MS_DEFAULT } from "../scenarios";
 export interface CommandContext {
 	/** The parsed /v1/chat/completions request body. */
 	request: Record<string, unknown>;
+
 	/** Built-in plus runtime-registered scenarios, for %play and %help. */
 	scenarios: ReadonlyMap<string, Scenario>;
 }
 
 export interface CommandResult {
 	scenario: Scenario;
+
 	/** Wait this long before the first response byte (%delay only). */
 	firstByteDelayMs?: number;
 }
@@ -129,6 +131,7 @@ function lastNonEmptyLine(text: string): string | undefined {
 
 /** Fixed epoch constant: realistic-looking, never clock-derived. */
 const CREATED = 1740000000;
+
 const SYSTEM_FINGERPRINT = "fp_fake_litellm";
 
 function sha256Hex(data: string | Uint8Array): string {

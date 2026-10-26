@@ -52,15 +52,21 @@ const modelsFor = (modelId: string) => ({
 
 export interface CaptureServer {
 	start(): Promise<void>;
+
 	readonly port: number;
+
 	setScenario(name: string): void;
+
 	getLastRequest(): Record<string, unknown> | null;
+
 	/**
 	 * Every distinct Authorization header seen past the _test introspection block, verbatim. Membership is race-free
 	 * where a last-write-wins field is not.
 	 */
 	getSeenAuthorizations(): readonly string[];
+
 	addScenario(name: string, config: Scenario): void;
+
 	close(): Promise<void>;
 }
 

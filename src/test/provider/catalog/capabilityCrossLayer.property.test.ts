@@ -67,8 +67,10 @@ const BOOLEAN_FIELD_NAMES = FIELD_NAMES.filter(
 const CONSUMED_EXTRA_NAMES = Object.keys(CONSUMED_CAPABILITY_FIELDS).filter(
 	(name) => !Object.hasOwn(CAPABILITY_FIELDS, name)
 );
+
 // Legal open fields that shadow Object.prototype members.
 const PROTOTYPE_NAMES = ["toString", "valueOf", "constructor", "hasOwnProperty"] as const;
+
 const USER_SET_LEVELS: readonly CapabilityLevel[] = ["entry", "global", "entry-fallback", "global-fallback"];
 
 const COST_FIELD_NAMES = consumedFieldsOfKind("cost");
@@ -89,9 +91,11 @@ const MODEL_PRICING_KEYS = Object.keys({
 // Slash-free so a scoped key can never collide with a plain key, colon-free so no cut spells ":cheapest",
 // underscore-free so no field name spells a directive.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
+
 const modelId = fc.string({ unit: idChar, minLength: 1, maxLength: 10 });
 
 const validNumber = fc.integer({ min: 1, max: 1_000_000 });
+
 // -0 rides JSON.parse("-0") in real settings files, so it belongs in the pool.
 const validCost = fc.constantFrom<number>(0, -0, 1e-7, 0.000003, 0.5);
 
@@ -122,6 +126,7 @@ const fieldValueArb = fc.oneof(
 	},
 	{ arbitrary: fc.constantFrom<unknown>(-1, 1.5, "128k", null, [""], { nested: [1] }, ""), weight: 2 }
 );
+
 const recordKeyArb = fc.oneof(
 	{ arbitrary: fc.constantFrom<string>(...FIELD_NAMES), weight: 5 },
 	{ arbitrary: fc.constantFrom<string>(...CONSUMED_EXTRA_NAMES), weight: 3 },
@@ -132,6 +137,7 @@ const recordKeyArb = fc.oneof(
 // Keys and values guaranteed OUTSIDE the consumed vocabulary, so the two injection properties stay behavior-neutral by
 // construction.
 const extraFieldKeyArb = fc.oneof(modelId, fc.constantFrom<string>(...PROTOTYPE_NAMES));
+
 const extraFieldValueArb = fc.constantFrom<unknown>(true, 7, "text", ["a"], { nested: [1] }, null);
 
 /** Object.fromEntries is CreateDataProperty, so "__proto__" becomes an own key, never a prototype write. */
@@ -421,6 +427,7 @@ function coreProjection(fields: Readonly<Record<string, EffectiveCapabilityField
 // Post-ingest limits are positive numbers or undefined by construction (discovery narrows them at the mapping sites);
 // no null survives to here.
 const limitValue = fc.option(validNumber, { nil: undefined });
+
 const flagValue = fc.option(fc.oneof(fc.boolean(), fc.constant<null>(null)), { nil: undefined });
 const providerCost = fc.option(fc.oneof(fc.constantFrom(0, -0, 0.000003, 0.000015), fc.constant<null>(null)), {
 	nil: undefined,

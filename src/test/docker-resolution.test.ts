@@ -40,31 +40,40 @@ const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_L
  */
 
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");
+
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
 const NO_DISCOVERY_URL = `${FAKE_URL}${NO_DISCOVERY_PREFIX}`;
 
 /** The catalog suite's declared entry; the declared IDs below are its whole serve. */
 const CATALOG_LABEL = uniqueName("ResolutionSuite Catalog");
+
 /** Exact catalog-ID match: the fixture's anthropic/claude-sonnet-4.5 entry. */
 const EXACT_ID = "anthropic/claude-sonnet-4.5";
+
 /** Unambiguous post-vendor suffix: only openai/gpt-4o-mini carries it. */
 const SUFFIX_ID = "gpt-4o-mini";
+
 /** Ambiguous suffix: meta-llama/ and fireworks/ both serve llama-3-8b-instruct. */
 const AMBIGUOUS_ID = "llama-3-8b-instruct";
+
 /** Implicitly matches mistralai/mistral-tiny; the explicit directive points it at openai/gpt-4o-mini instead. */
 const DIRECTIVE_ID = "mistral-tiny";
+
 const DECLARED_IDS = [EXACT_ID, SUFFIX_ID, AMBIGUOUS_ID, DIRECTIVE_ID];
 
 /** The built-in floors (128000 context, 16000 max output): input derives as the difference. */
 const FLOOR_MAX_INPUT = 112000;
+
 /** openai/gpt-4o-mini in the fixture: 128000 context, 16384 max completion. */
 const GPT4O_MINI_MAX_INPUT = 128000 - 16384;
+
 /** anthropic/claude-sonnet-4.5 in the fixture: 1000000 context, 64000 max completion. */
 const CLAUDE_MAX_INPUT = 1000000 - 64000;
 
 /** The directive suite's declared entry; its per-entry record is the entry-beats-global oracle. */
 const ENTRY_LABEL = uniqueName("ResolutionSuite Entry");
+
 const ALIAS = PLAYBACK_MODEL.alias;
 
 type ServersSettingEntry = Record<string, unknown>;

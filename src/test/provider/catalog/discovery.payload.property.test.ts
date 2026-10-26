@@ -43,6 +43,7 @@ const COST_FIELDS = consumedFieldsOfKind("cost");
 const LONG_CONTEXT_FIELD_BY_BASE: ReadonlyMap<string, LongContextCostField> = new Map(
 	LONG_CONTEXT_COST_FIELDS.map((field) => [field.slice(LONG_CONTEXT_COST_PREFIX.length), field])
 );
+
 const LONG_CONTEXT_BASES = [...LONG_CONTEXT_FIELD_BY_BASE.keys()];
 
 /** Keys that resemble tier keys but must never participate in tier selection. */

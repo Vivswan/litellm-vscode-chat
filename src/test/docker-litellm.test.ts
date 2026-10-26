@@ -35,6 +35,7 @@ const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_L
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
+
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 

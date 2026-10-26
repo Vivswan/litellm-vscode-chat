@@ -24,9 +24,11 @@ const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 // An explicit FUZZ_SEED reproduces exactly; otherwise a fresh pid- and time-mixed seed is drawn (see
 // src/test/fuzzSeed.ts).
 const SEED = resolveDockerFuzzSeed();
+
 const WALKS = Math.max(1, Math.floor(Number(process.env.MONKEY_ITERATIONS)) || 5);
 const MIN_STEPS = 12;
 const MAX_STEPS = 20;
+
 /** Generous per-walk budget: declares wait on host model propagation and every step can sync. */
 const WALK_BUDGET_MS = 300000;
 

@@ -44,6 +44,7 @@ export type EnvLookup = (name: string) => string;
 
 /** Aliases are what a real deployment would name; dots allowed. */
 const ALIAS_PATTERN = /^[a-z0-9][a-z0-9.-]*$/;
+
 /** The mandatory fake- prefix; models.ts says why upstream ids stay unrecognizable. */
 const UPSTREAM_PATTERN = /^fake-[a-z0-9-]+$/;
 
@@ -189,6 +190,7 @@ function realProviderEntry(prefix: string, envVar: string): string {
 /** The real-provider model_list entries, split by what gates the expansion flag. */
 interface RealProviderEntries {
 	entries: string[];
+
 	/** Entries from keyed REAL_PROVIDERS rows; the bare "*" passthrough is not one. */
 	keyed: number;
 }
@@ -237,8 +239,10 @@ export const COPILOT_TOKEN_DIR = "docker/.copilot-token";
 
 export interface CopilotModel {
 	readonly id: string;
+
 	/** The catalog's capabilities.type: "chat", "embeddings", ... */
 	readonly type: string;
+
 	/** The catalog's supported_endpoints; empty means the default /chat/completions. */
 	readonly supportedEndpoints: readonly string[];
 }
@@ -248,6 +252,7 @@ const COPILOT_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
 export interface CopilotCatalogParse {
 	models: CopilotModel[];
+
 	/** Entries dropped for an unusable or unsafe id; names only, never secrets. */
 	rejected: string[];
 }

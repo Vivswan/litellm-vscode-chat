@@ -11,6 +11,7 @@ import ts from "typescript";
 export interface RuntimeImports {
 	/** Every runtime specifier as written, packages included. */
 	readonly specs: readonly string[];
+
 	/** The module loads something by a specifier the scanner cannot read, so its edges are incomplete. */
 	readonly opaque: boolean;
 }

@@ -20,18 +20,25 @@
 export interface FakeModelPricing {
 	/** Wire key: input_cost_per_token. */
 	inputCostPerToken: number;
+
 	/** Wire key: output_cost_per_token. */
 	outputCostPerToken: number;
+
 	/** Wire key: cache_read_input_token_cost. */
 	cacheReadInputTokenCost?: number;
+
 	/** Wire key: cache_creation_input_token_cost. */
 	cacheCreationInputTokenCost?: number;
+
 	/** Wire key: input_cost_per_token_above_200k_tokens. */
 	inputCostPerTokenAbove200k?: number;
+
 	/** Wire key: output_cost_per_token_above_200k_tokens. */
 	outputCostPerTokenAbove200k?: number;
+
 	/** Wire key: cache_read_input_token_cost_above_200k_tokens. */
 	cacheReadInputTokenCostAbove200k?: number;
+
 	/** Wire key: cache_creation_input_token_cost_above_200k_tokens. */
 	cacheCreationInputTokenCostAbove200k?: number;
 }
@@ -39,20 +46,29 @@ export interface FakeModelPricing {
 interface FakeDeployment {
 	/** Bare upstream id; the generator emits model: openai/<upstreamModel>. */
 	upstreamModel: string;
+
 	/** Omitted limits are omitted from model_info (llama-4-scout's shape). */
 	maxInputTokens?: number;
+
 	maxOutputTokens?: number;
 }
 
 export interface FakeModelCapabilities {
 	tools: boolean;
+
 	/** Omitted here means emitted as false (see the file comment). */
 	vision?: boolean;
+
 	pdfInput?: boolean;
+
 	reasoning?: boolean;
+
 	promptCaching?: boolean;
+
 	audioInput?: boolean;
+
 	audioOutput?: boolean;
+
 	/**
 	 * Emitted as one supports_<level>_reasoning_effort: true flag per level; omission emits no per-level flags at
 	 * all, so the extension's picker menu falls back to its built-in level list. The menu follows LiteLLM's flag rule,
@@ -65,19 +81,24 @@ export interface FakeModelCapabilities {
 export interface FakeModel {
 	/** The model_name LiteLLM serves; what the host registers. */
 	alias: string;
+
 	capabilities: FakeModelCapabilities;
+
 	/**
 	 * More than one deployment makes the alias a LiteLLM load-balancing group. Pricing and capabilities are declared
 	 * ONCE per model and emitted identically on every deployment, because discovery merges deployments and any
 	 * disagreement would silently null the merged value.
 	 */
 	deployments: readonly FakeDeployment[];
+
 	pricing?: FakeModelPricing;
+
 	/**
 	 * Emitted as model_info mode. "completion" declares the alias a text-completion model - metadata for clients and
 	 * health checks, not dispatch (LiteLLM routes by the endpoint the client calls).
 	 */
 	mode?: "completion";
+
 	/** Emitted as model_info blocked: true; the model must never register. */
 	blocked?: boolean;
 }

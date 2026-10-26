@@ -38,6 +38,7 @@ import {
 } from "../../testUtils";
 
 const modelInfo = makeModelInfo();
+
 /** The Default group as the host serves it, for requests that bypass captureRequest. */
 const servedModel = attachGroup(modelInfo, groupIdentity(testGroupServer(), groupClientId(testGroupServer())));
 
@@ -1144,14 +1145,21 @@ suite("provider/request contract", () => {
 
 		interface MaxTokensCase {
 			readonly name: string;
+
 			/** The listing the model registers from; a row without one sends `model` by hand. */
 			readonly discovery?: unknown;
+
 			readonly model?: LiteLLMModelInfo;
+
 			readonly config?: Record<string, unknown>;
+
 			readonly modelOptions?: Record<string, unknown>;
+
 			readonly catalog?: CapabilityCatalogLookup;
+
 			/** maxOutputTokens as the host sees it. */
 			readonly advertised: number;
+
 			/** max_tokens as the server receives it. */
 			readonly wire: number;
 		}
