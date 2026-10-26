@@ -16,12 +16,10 @@ export interface SectionHeaderProps {
 	/** The id of the heading element, for the section's aria-labelledby. */
 	titleId?: string;
 
+	/** The heading text; the help glyph's accessible name is built from it ("Help: {title}"). */
 	title: string;
 
-	/**
-	 * Heading level; the replaced surfaces use h2-h4, and 5 is the server form's Companions sub-head, one step under
-	 * its h4 sections.
-	 */
+	/** Heading level: the replaced surfaces use h2-h4; 5 is the server form's Companions sub-head, one step under its h4. */
 	level?: 2 | 3 | 4 | 5;
 
 	/** Help tip text; renders the "?" affordance when present. */
@@ -39,6 +37,7 @@ export interface SectionHeaderProps {
 	/** Trailing actions, on the header line rather than a strip below it. */
 	actions?: ReactNode;
 
+	/** Lands on the wrapper line, not the heading element; FormSection uses it to mute a quiet section's head. */
 	className?: string | undefined;
 }
 
@@ -89,8 +88,10 @@ export function Section({
 	/** Names the section: the element becomes `sectionId(id)` and its heading `${id}-title`. */
 	id: string;
 
+	/** The body under the header line; the section element itself is focusable only by an in-page jump. */
 	children: ReactNode;
 
+	/** Reaches the section element; the header line has headerClassName. */
 	className?: string | undefined;
 
 	/** Reaches the header line, so a variant does not cost the caller the id contract. */

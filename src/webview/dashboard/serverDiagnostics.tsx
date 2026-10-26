@@ -46,6 +46,7 @@ const INACTIVE_NOTICE_PRESENTATION = {
 	},
 } as const satisfies Record<InactiveEntryNotice, { surface: () => string }>;
 
+/** Every notice kind in presentation order; the row and the drawer filter the server's notices through this list. */
 const INACTIVE_NOTICES = Object.keys(INACTIVE_NOTICE_PRESENTATION) as readonly InactiveEntryNotice[];
 
 /*
@@ -62,29 +63,21 @@ const INACTIVE_NOTICES = Object.keys(INACTIVE_NOTICE_PRESENTATION) as readonly I
  * One action offered beside a problem: it REVEALS where a human fixes it, or retries - never a silent settings edit.
  * The one exception, declare-expected, appends one closed-vocabulary token (discovery.expectedFailures) behind an
  * explicit confirm that named what it writes.
+ *
+ *   id         -> stable across renders and independent of the label: keying by text rebuilds the node the instant
+ *                 its wording changes, throwing away the reader's focus
+ *   disabled   -> in flight: the control states that it is working and refuses a second click
+ *   emphasized -> the accent rank, for the one action of an armed pair that commits; everything else stays secondary
  */
 type DiagnosticAction =
 	| {
 			readonly kind: "button";
-
-			/**
-			 * Stable across renders and independent of the label: keying by text rebuilds the node the instant its
-			 * wording changes, throwing away the reader's focus.
-			 */
 			readonly id: string;
-
 			readonly label: string;
-
 			readonly ariaLabel: string;
-
-			/** In flight: the control states that it is working and refuses a second click. */
 			readonly disabled?: boolean | undefined;
-
 			readonly busy?: boolean | undefined;
-
-			/** The accent rank, for the one action of an armed pair that commits; everything else stays secondary. */
 			readonly emphasized?: boolean | undefined;
-
 			readonly onClick: () => void;
 	  }
 	| {
@@ -99,6 +92,7 @@ interface DiagnosticBase {
 	/** Stable within a row, so React keeps focus on an action button across pushes. */
 	readonly key: string;
 
+	/** The tier the row ranks by, worst first (SEVERITY_ORDER); the summary line counts the tiers. */
 	readonly severity: DiagnosticSeverity;
 
 	/** Names the server and leads with the consequence, not the mechanism. */
@@ -107,6 +101,7 @@ interface DiagnosticBase {
 	/** One paragraph per line. English by policy - these land in issue reports. */
 	readonly details?: readonly string[] | undefined;
 
+	/** Reveal, retry, or docs; none edits settings silently (DiagnosticAction). */
 	readonly actions: readonly DiagnosticAction[];
 }
 
@@ -152,8 +147,10 @@ export function detailLines(...lines: readonly (string | undefined)[]): readonly
 }
 
 export interface SpendContext {
+	/** The usage.alertThresholds fractions, as the usage snapshot carries them; spendTone reads the spent fraction against them. */
 	readonly thresholds: readonly number[];
 
+	/** The configured spend prefix (usage.currencySymbol); display only, never a conversion. */
 	readonly currencySymbol: string;
 
 	/** Background polling is off (usage.pollInterval 0); retry copy names Refresh now instead of the automatic retry. */
@@ -179,8 +176,10 @@ export function serverDiagnostics(
 	usage: UsageServerCardView | undefined,
 	spend: SpendContext,
 	actions: {
+		/** Open the entry's edit form; Open entry, Declare models, and Include modes all land here. */
 		readonly onEdit: () => void;
 
+		/** Retry discovery for this row; the action is disabled while this row's or any other sync is in flight. */
 		readonly onRetry: () => void;
 
 		/** This row is the one that asked for the sync, so it reports the state. */
@@ -195,6 +194,7 @@ export function serverDiagnostics(
 		/** The category whose confirm step is showing, armed by the declare button. */
 		readonly armedDeclare?: ExpectedFailureCategory | undefined;
 
+		/** Arm the confirm step for a category, or disarm it with undefined; wired together with onDeclareExpected. */
 		readonly onArmDeclare?: (category: ExpectedFailureCategory | undefined) => void;
 
 		/** This row's declare intent is unanswered; its buttons state that and refuse a second post. */

@@ -18,6 +18,7 @@ export function RecordChainFigure({
 	onEditRecord,
 	onEditEntry,
 }: {
+	/** One chain per record map; absent, and a chain of fewer than two links, renders nothing. */
 	chains: readonly RecordChainView[] | undefined;
 
 	/** Jump into the global record editor focused on the key; absent, keys render as plain text. */

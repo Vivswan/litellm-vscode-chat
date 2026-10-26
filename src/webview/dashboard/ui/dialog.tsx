@@ -38,6 +38,7 @@ export function ConfirmDialog({
 	/** The destructive verb; danger rank, reached only deliberately. */
 	confirmLabel: string;
 
+	/** A third, affirmative verb; present, it takes the primary rank and the safe verb steps down to secondary. */
 	alternateLabel?: string | undefined;
 
 	/** The safe verb; default focus, so Enter and Esc are the same answer. */
@@ -46,10 +47,13 @@ export function ConfirmDialog({
 	/** The id of the element the question is about; focus returns into it on cancel. */
 	surfaceId: string;
 
+	/** The destructive answer; the raiser decides what happens to the surface (the discard question unmounts it). */
 	onConfirm: () => void;
 
+	/** The alternate answer; rendered only together with alternateLabel. */
 	onAlternate?: (() => void) | undefined;
 
+	/** The safe answer; Esc anywhere on the page posts it too, through a window-capture listener. */
 	onCancel: () => void;
 }) {
 	const questionId = useId();

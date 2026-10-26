@@ -1,3 +1,9 @@
+/**
+ * The settings page: the scalar rows grouped most-touched first. Grouping is presentation only: a setting not placed in
+ * SETTING_GROUPS still renders in a trailing "Other" group, so a new setting can never silently vanish, and the
+ * feature-owned rows render on the Features tab instead (the owner map states which).
+ */
+
 import * as l10n from "@vscode/l10n";
 import type { FocusEvent, ReactNode } from "react";
 import { useEffect, useId, useState } from "react";
@@ -82,13 +88,7 @@ export interface EditRecordRequest extends ExternalRecordEdit {
 	readonly kind: "parameters" | "capabilities";
 }
 
-/**
- * The form's grouping and order, most-touched first. Presentation only: anything not placed here still renders in a
- * trailing "Other" group, so a new setting can never silently vanish (feature-owned rows render on the Features tab
- * instead, which the owner map states).
- *
- *   Titles are zero-arg functions -> localized text resolves at render
- */
+/** The groups in form order; titles are zero-arg functions so localized text resolves at render. */
 const SETTING_GROUPS: readonly {
 	readonly title: () => string;
 	readonly numbers: readonly NumberSettingId[];
@@ -374,7 +374,11 @@ function UiAccentRow({
 	);
 }
 
-/** One of the two threshold inputs with its trailing label; error and hint lines render at the row level. */
+/**
+ * One of the two threshold inputs with its trailing label; error and hint lines render at the row level.
+ *
+ *   onCommit -> blur (with where focus went) or Enter; the row decides whether the pair commits
+ */
 function ThresholdBox({
 	id,
 	label,
@@ -386,20 +390,12 @@ function ThresholdBox({
 	onCommit,
 }: {
 	id: string;
-
 	label: string;
-
 	text: string;
-
 	invalid: boolean;
-
 	errorId: string;
-
 	placeholder: string;
-
 	onText: (next: string) => void;
-
-	/** Blur (with where focus went) or Enter; the row decides whether the pair commits. */
 	onCommit: (event?: FocusEvent) => void;
 }) {
 	return (
@@ -730,14 +726,13 @@ export function SettingsSection({
 	editRecordRequest,
 	writeFailures,
 }: {
+	/** The scalars with their configured scopes, the two scoped records, and the catalog status, as the push carries them. */
 	settings: DashboardSettings;
 
+	/** The discovered models; the record editors' matcher inputs suggest from them. */
 	models: readonly DashboardModel[];
 
-	/**
-	 * The cross-server observed /model/info key union (DashboardState.observedModelInfoKeys), the capability editor's
-	 * hint evidence.
-	 */
+	/** The cross-server observed /model/info key union (DashboardState.observedModelInfoKeys): the capability hints' evidence. */
 	observedModelInfoKeys?: readonly string[] | undefined;
 
 	/** The shared clock tick; the catalog row's "updated N ago" reads it. */

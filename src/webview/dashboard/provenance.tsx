@@ -33,19 +33,17 @@ export function approxWidthCh(text: string): number {
 	return width;
 }
 
-/**
- * Where the badge's own ellipsis can start biting: the width of the longest badge the panel renders unclipped, because
- * a tip repeating on-screen text is a Tab stop bought for nothing.
- */
+/** The longest badge the panel renders unclipped; a tip repeating on-screen text is a Tab stop bought for nothing. */
 const BADGE_CLIP_CH = 36;
 
-/** One directive mark: the record editors' chip word, with its rule one tip away. */
+/**
+ * One directive mark: the record editors' chip word, with its rule one tip away.
+ *
+ *   mono -> the word IS a directive key (`_openrouter_model`), so it keeps the monospace register
+ */
 export interface MarkView {
 	readonly word: string;
-
 	readonly detail?: string | undefined;
-
-	/** The word IS a directive key (`_openrouter_model`), so it keeps the monospace register. */
 	readonly mono?: boolean | undefined;
 }
 

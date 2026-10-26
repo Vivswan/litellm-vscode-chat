@@ -152,16 +152,14 @@ function candidateProblem(
 /** The offset `.chip-popover` leaves between itself and its anchor, on whichever side it hangs from (dashboard.css). */
 const POPOVER_GAP_PX = 4;
 
-/**
- * The field chip's states as one variant table (ui/button.tsx's idiom), so the precedence between them is declaration
- * order rather than call-site prose: cn resolves conflicts last-wins, and `mark` is declared after `open` because
- * reversed, the open chip's border-border swallowed the invalid border. No forced-colors border suppression,
- * deliberately: a FILLED chip's fill is exactly what forced colours flatten into the page, so the repainted
- * transparent border is the only thing keeping "two chips" from reading as one run of words.
- */
+/** The field chip's states as one variant table (ui/button.tsx's idiom): precedence is declaration order, last wins. */
 export const chipVariants = cva(
 	"chip-field inline-flex flex-wrap items-baseline gap-1.5 rounded-(--radius-chip) border border-transparent bg-chip px-1 font-mono text-[12px] text-muted-foreground",
 	{
+		// `mark` is declared after `open` because reversed, the open chip's border-border swallowed the invalid border.
+		// No forced-colors border suppression, deliberately: a FILLED chip's fill is exactly what forced colours flatten
+		// into the page, so the repainted transparent border is the only thing keeping "two chips" from reading as one
+		// run of words.
 		variants: {
 			// Filled at rest - the frame makes these a bounded region and the fill is what says "these are the fields";
 			// the hairline and the input fill still arrive with the pointer or with focus, which is the moment the row
@@ -207,13 +205,16 @@ function PopoverShell({
 	onClose,
 	children,
 }: {
+	/** The dialog's accessible name (role="dialog" with aria-label); the popover renders no heading of its own. */
 	label: string;
 
 	/** Which chip edge the popover hangs from; "end" keeps it on-panel for chips near the right edge. */
 	align: "start" | "end";
 
+	/** Posted by Escape and by a press outside the chip anchor; a press on the open chip itself is its toggle, not a close. */
 	onClose: () => void;
 
+	/** The popover's body; its first input, select, textarea, or button takes focus on open. */
 	children: ReactNode;
 }) {
 	const ref = useRef<HTMLDivElement>(null);

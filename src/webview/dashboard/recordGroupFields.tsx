@@ -53,6 +53,8 @@ import { Select } from "./ui/select";
 /**
  * It goes hands-off while the row holds text the strict parse rejects: the select must not silently rewrite the
  * user's text.
+ *
+ *   hint -> the absorbed `_inherit_from` row's non-blocking note (an unknown record key), rendered beside the control
  */
 function InheritFromControl({
 	kind,
@@ -62,14 +64,9 @@ function InheritFromControl({
 	onChange,
 }: {
 	kind: RecordEditorKind;
-
 	group: PrefixGroup;
-
 	disabled: boolean;
-
-	/** The absorbed `_inherit_from` row's non-blocking note (an unknown record key), rendered beside the control. */
 	hint?: string | undefined;
-
 	onChange: (next: PrefixGroup) => void;
 }) {
 	const choice = inheritFromChoice(kind, group);
@@ -152,6 +149,11 @@ function InheritFromControl({
 	);
 }
 
+/**
+ * The row's "inheritable" checkbox; nothing renders for a key the directive cannot mark (directiveEligible).
+ *
+ *   fieldKey -> the row's key in the resolver's reading (resolvedFieldName)
+ */
 export function InheritableFlag({
 	kind,
 	group,
@@ -160,14 +162,9 @@ export function InheritableFlag({
 	onChange,
 }: {
 	kind: RecordEditorKind;
-
 	group: PrefixGroup;
-
-	/** The row's key in the resolver's reading (resolvedFieldName). */
 	fieldKey: string;
-
 	disabled: boolean;
-
 	onChange: (next: PrefixGroup) => void;
 }) {
 	const marked = directiveMarkedFields(kind, group, INHERITABLE_DIRECTIVE);
@@ -232,6 +229,12 @@ function useFocusedRow(): {
 /**
  * Prefix placeholder and help are required props because the two surfaces differ (global keys may lead with a base
  * URL; entry keys are already scoped).
+ *
+ *   hints                                    -> row-aligned non-blocking notes from the same parse (the _force
+ *                                               semantic warnings)
+ *   prefixSuggestions, paramNameSuggestions  -> the prefix and parameter-name inputs' listboxes; absent, the inputs
+ *                                               stay plain
+ *   onEnter                                  -> Enter in a row input; the editors apply the draft when it parses clean
  */
 export function ParamGroupsFields({
 	group,
@@ -246,26 +249,14 @@ export function ParamGroupsFields({
 	onEnter,
 }: {
 	group: PrefixGroup;
-
 	problems: GroupProblems | undefined;
-
-	/** Row-aligned non-blocking notes from the same parse (the _force semantic warnings). */
 	hints?: GroupHints | undefined;
-
 	disabled?: boolean | undefined;
-
 	prefixPlaceholder: string;
-
 	prefixHelp: string;
-
-	/** Suggestions for the prefix and parameter-name inputs' listboxes; absent, the inputs stay plain. */
 	prefixSuggestions?: readonly string[] | undefined;
-
 	paramNameSuggestions?: readonly string[] | undefined;
-
 	onChange: (next: PrefixGroup) => void;
-
-	/** Enter in a row input; the editors apply the draft when it parses clean. */
 	onEnter?: (() => void) | undefined;
 }) {
 	const inert = disabled === true;
@@ -486,10 +477,7 @@ export function ParamGroupsFields({
 	);
 }
 
-/**
- * Discovery caps the observed set at 512 keys per server; the cross-server union gets the same ceiling here - the list
- * is RENDERED per keystroke.
- */
+/** Discovery's 512-key cap per server, applied again to the cross-server union: the list is RENDERED per keystroke. */
 const OBSERVED_SUGGESTION_LIMIT = 512;
 
 /**
@@ -515,6 +503,11 @@ export const CAPABILITY_KEY_SUGGESTIONS: readonly string[] = capabilityKeySugges
  * A text input with its own suggestion listbox, replacing the native datalist (the webview host renders it all-bold
  * and unstylable); the catalog picker's combobox pattern. Enter WITHOUT a highlighted suggestion falls through to
  * `onEnter`, so accepting a suggestion can never double as Apply on a half-typed row.
+ *
+ *   inputClass  -> the input's base class ("key"); invalid appends the shared error class
+ *   ariaLabel   -> the input's accessible name where the visible label is a column head, not a wired <label>
+ *   describedBy -> an aria-describedby target (the wrong-record-type sentence beside a directive key)
+ *   onEnter     -> Enter with no highlighted suggestion; the editors apply the draft when it parses clean
  */
 export function SuggestInput({
 	value,
@@ -529,27 +522,14 @@ export function SuggestInput({
 	onEnter,
 }: {
 	value: string;
-
 	suggestions: readonly string[];
-
-	/** The input's base class ("key"); invalid appends the shared error class. */
 	inputClass: string;
-
 	invalid: boolean;
-
 	placeholder?: string | undefined;
-
-	/** The input's accessible name where the visible label is a column head, not a wired <label>. */
 	ariaLabel?: string | undefined;
-
-	/** An aria-describedby target (the wrong-record-type sentence beside a directive key). */
 	describedBy?: string | undefined;
-
 	disabled?: boolean | undefined;
-
 	onValue: (next: string) => void;
-
-	/** Enter with no highlighted suggestion; the editors apply the draft when it parses clean. */
 	onEnter?: (() => void) | undefined;
 }) {
 	const [open, setOpen] = useState(false);
@@ -718,16 +698,13 @@ export function numberInputProps(kind: "number" | "cost"): { min: number; step: 
 		: { min: 1, step: 1, placeholder: l10n.t("Tokens, e.g. 128000") };
 }
 
-/**
- * What an HTML number input can DISPLAY (the spec's "valid floating-point number" grammar); anything else is sanitized
- * to a blank control, so it must keep the raw text input. Tested against the UNTRIMMED text: the control renders the
- * text as it is.
- */
+/** What an HTML number input can DISPLAY (the spec's "valid floating-point number"); anything else blanks it. */
 const NUMBER_INPUT_TEXT = /^-?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$/;
 
 /**
  * The key's typed control only while the current text fits it, raw JSON text otherwise: invalid values are deliberately
- * preserved, and a typed control would misrepresent them (a number input displays a stored `"free"` as blank).
+ * preserved, and a typed control would misrepresent them (a number input displays a stored `"free"` as blank). The
+ * number grammar is tested against the UNTRIMMED text, because the control renders the text as it is.
  */
 export function capabilityControlKind(key: string, valueText: string): ReturnType<typeof capabilityValueKind> {
 	const kind = capabilityValueKind(key);
@@ -744,7 +721,11 @@ export function capabilityControlKind(key: string, valueText: string): ReturnTyp
 
 const CATALOG_SEARCH_DEBOUNCE_MS = 300;
 
-/** Only summaries cross the boundary - the catalog itself never enters the webview. */
+/**
+ * Only summaries cross the boundary - the catalog itself never enters the webview.
+ *
+ *   debounceMs -> the search debounce; a prop only so tests need not wait out the real value
+ */
 export function CatalogPicker({
 	value,
 	disabled,
@@ -753,14 +734,9 @@ export function CatalogPicker({
 	debounceMs = CATALOG_SEARCH_DEBOUNCE_MS,
 }: {
 	value: string;
-
 	disabled: boolean;
-
 	invalid: boolean;
-
 	onValue: (next: string) => void;
-
-	/** The search debounce; a prop only so tests need not wait out the real value. */
 	debounceMs?: number;
 }) {
 	const [open, setOpen] = useState(false);
@@ -866,6 +842,14 @@ export function CatalogPicker({
 	);
 }
 
+/**
+ * The capabilities twin of ParamGroupsFields: one matcher group's rows, with the fallback and inheritable flags.
+ *
+ *   prefixSuggestions -> the matcher input's listbox; absent, the input stays plain
+ *   keySuggestions    -> the capability-name suggestions (capabilityKeySuggestions); absent, the no-evidence static
+ *                        list serves
+ *   onEnter           -> Enter in a row input; the editors apply the draft when it parses clean
+ */
 export function CapabilityGroupsFields({
 	group,
 	issues,
@@ -876,20 +860,11 @@ export function CapabilityGroupsFields({
 	onEnter,
 }: {
 	group: PrefixGroup;
-
 	issues: CapabilityGroupIssues | undefined;
-
 	disabled?: boolean | undefined;
-
-	/** Suggestions for the matcher input's listbox; absent, the input stays plain. */
 	prefixSuggestions?: readonly string[] | undefined;
-
-	/** The capability-name suggestions (capabilityKeySuggestions); absent, the no-evidence static list serves. */
 	keySuggestions?: readonly string[] | undefined;
-
 	onChange: (next: PrefixGroup) => void;
-
-	/** Enter in a row input; the editors apply the draft when it parses clean. */
 	onEnter?: (() => void) | undefined;
 }) {
 	const inert = disabled === true;

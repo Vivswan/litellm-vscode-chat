@@ -12,6 +12,7 @@ interface VsCodeWebviewApi {
 /** Provided by the webview host at runtime; callable exactly once per page. */
 declare const acquireVsCodeApi: () => VsCodeWebviewApi;
 
+/** The page's one call; a second call throws, so every sender shares this handle. */
 const api = acquireVsCodeApi();
 
 function newRequestId(): string {

@@ -13,10 +13,7 @@
 import type { ReactNode } from "react";
 import { cn } from "./cn";
 
-/**
- * The group scopes a reveal can join, spelled as whole literals because Tailwind compiles only variants it can read
- * whole in the source.
- */
+/** The group scopes a reveal can join, as whole literals: Tailwind compiles only variants it reads whole in source. */
 const REVEAL_WITHIN = {
 	/** A settings row (`group/setting` on the row wrapper). */
 	setting: "group-hover/setting:opacity-100 group-focus-within/setting:opacity-100",

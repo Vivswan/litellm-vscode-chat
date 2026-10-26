@@ -1,3 +1,10 @@
+/**
+ * The server form's field primitives: the section and row grid, the text, secret, and header controls, and the save
+ * bar's class. The save bar's bleed is a CLAMP, not a pane query: 860 sits inside the band the rail's collapse makes
+ * ambiguous (the same pane width occurs on both sides, so a threshold flips, which narrowThresholds.test.ts refuses);
+ * a continuous ramp cannot flip, and 884px = cap + full bleed starts it exactly where the gutter stops being the limit.
+ */
+
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
@@ -30,26 +37,29 @@ function locationName(location: Exclude<SecretLocation, "none">): string {
 	return location === "secure" ? l10n.t("secret storage") : l10n.t("settings");
 }
 
+/**
+ * What every field control reads and writes, built once per render in ServerForm.
+ *
+ *   visibleProblems -> the problems the form shows now, computed once so decorations and the save summary agree
+ *   disabled        -> true while the save is in flight; every control refuses edits until the outcome lands
+ *   patch           -> the one write path: merges into the draft, reports dirty, and clears a test result a probed
+ *                      field invalidates
+ *   touch           -> mark a field touched on blur so its problem shows; an empty field stays quiet until Save
+ *                      touches every field
+ */
 export interface FieldRenderProps {
 	readonly draft: ServerFormDraft;
-
-	/**
-	 * The problems the form shows right now, computed once per render in ServerForm; fields render these directly, so
-	 * field decorations and the save summary cannot disagree.
-	 */
 	readonly visibleProblems: ServerFormProblems;
-
 	readonly disabled: boolean;
-
 	readonly patch: (patch: Partial<ServerFormDraft>) => void;
-
 	readonly touch: (field: ServerFormField) => void;
 }
 
 /**
  * One section of the flat page - one scroll, no folds - so a section either belongs to the required path or reads as
  * an aside, which is the whole of what `quiet` says: it dims the heading and label column; fields stay at full
- * strength (a typed value is never quiet).
+ * strength (a typed value is never quiet). The help glyph is named for its section: a page with a dozen of them would
+ * otherwise announce a dozen identical "Help" buttons.
  */
 export function FormSection({
 	title,
@@ -59,21 +69,22 @@ export function FormSection({
 	quiet,
 	children,
 }: {
+	/** The h4 heading text; the help glyph takes its accessible name from it. */
 	title: string;
 
 	/** The heading's quiet trailing fact: "optional", plus a count where the section holds rows. */
 	aside?: string;
 
-	/**
-	 * Required: a section with neither is a heading that explains nothing. The glyph is named for its section - a page
-	 * with a dozen of them announces a dozen identical "Help" buttons otherwise.
-	 */
+	/** Required: a heading with nothing to explain it is a heading that explains nothing. */
 	help: string;
 
+	/** The header's docs link, target and accessible name. */
 	docs?: { readonly href: DocsUrl; readonly label: string };
 
+	/** Dims the heading and the label column; the fields keep full strength. */
 	quiet?: boolean;
 
+	/** The rows; each adopts the section's grid tracks through subgrid. */
 	children: ReactNode;
 }) {
 	return (
@@ -110,6 +121,12 @@ export function FormSection({
 	);
 }
 
+/**
+ * One labelled row of a form section, on the section's grid tracks.
+ *
+ *   htmlFor  -> the control's id; absent for rows whose control is a group rather than one input
+ *   hintTone -> a hint that names a consequence rather than a fact (a secret about to land in plain text)
+ */
 export function FormFieldRow({
 	htmlFor,
 	label,
@@ -121,24 +138,14 @@ export function FormFieldRow({
 	wide,
 	children,
 }: {
-	/** The control's id; absent for rows whose control is a group rather than one input. */
 	htmlFor?: string;
-
 	label: string;
-
 	help?: ReactNode;
-
 	hint?: ReactNode;
-
-	/** A hint that names a consequence rather than a fact (a secret about to land in plain text). */
 	hintTone?: "warn";
-
 	problem?: string | undefined;
-
 	errorId?: string;
-
 	wide?: boolean;
-
 	children: ReactNode;
 }) {
 	const showProblem = problem !== undefined;
@@ -264,12 +271,7 @@ export function unsavedText(count: number): string {
 	return count === 1 ? l10n.t("1 unsaved change") : l10n.t("{0} unsaved changes", count);
 }
 
-/**
- * The bleed is a CLAMP, not a pane query: 860 sits inside the band the rail's collapse makes ambiguous (the same pane
- * width occurs on both sides, so a threshold flips - narrowThresholds.test.ts refuses it); a continuous ramp cannot
- * flip, and 884px = cap + full bleed starts it exactly where the gutter stops being the limit. The z-index is the
- * house footer level.
- */
+/** The save bar: sticky, bled to the pane edge by the clamp the module note explains, at the house footer's z-index. */
 export const COMMIT_BAR_CLASS =
 	"toolbar sticky bottom-0 z-[2] mt-6 mb-[-48px] flex flex-wrap items-center gap-4 border-t border-border bg-background py-3 [--bleed:clamp(0px,884px_-_100cqw,24px)] mx-[calc(0px_-_var(--bleed))] px-[var(--bleed)]";
 
@@ -291,6 +293,12 @@ export function FieldUnderRow({ children, className }: { children: ReactNode; cl
 	);
 }
 
+/**
+ * One single-line text input of the form, labelled and helped from the field's own vocabulary (serverFormFieldLabel).
+ *
+ *   mono   -> machine text (URLs, header names, scopes) reads in the mono face
+ *   narrow -> a field whose values are short (a budget): the input stops at its own measure
+ */
 export function TextField({
 	field,
 	placeholder,
@@ -312,17 +320,10 @@ export function TextField({
 		| "expectedFailures"
 		| "includeModes"
 	>;
-
 	placeholder?: string;
-
 	hint?: string;
-
-	/** Machine text (URLs, header names, scopes) reads in the mono face. */
 	mono?: boolean;
-
-	/** A field whose values are short (a budget): the input stops at its own measure. */
 	narrow?: boolean;
-
 	props: FieldRenderProps;
 }) {
 	const problem = props.visibleProblems[field];

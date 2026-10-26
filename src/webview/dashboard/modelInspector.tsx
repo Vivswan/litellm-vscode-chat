@@ -188,14 +188,15 @@ const CONSUMED_BOOLEAN_ORDER: readonly string[] = [
 
 const CONSUMED_LIST_ORDER: readonly string[] = ["reasoning_effort_levels"];
 
-/**
- * PAIRED WITH the .res-col-value share in dashboard.css: move one and this moves too, or values clip with no
- * keyboard-reachable text. The threshold sits at the practical floor (~9ch at a 360px window), so any value the
- * ellipsis could touch carries the focusable HoverTip; short values stay plain text outside the Tab order.
- */
 const VALUE_CLIP_CH = 8;
 
-/** `numeric` earns right alignment - right-aligning a word only pushes it away from the name it belongs to. */
+/**
+ * `numeric` earns right alignment - right-aligning a word only pushes it away from the name it belongs to.
+ *
+ * VALUE_CLIP_CH is PAIRED WITH the .res-col-value share in dashboard.css: move one and the other moves too, or values
+ * clip with no keyboard-reachable text. The threshold sits at the practical floor (~9ch at a 360px window), so any
+ * value the ellipsis could touch carries the focusable HoverTip; short values stay plain text outside the Tab order.
+ */
 function ValueCell({ text, numeric = false, struck = false }: { text: string; numeric?: boolean; struck?: boolean }) {
 	const body = struck ? <del>{text}</del> : text;
 	return (
@@ -278,7 +279,11 @@ function formatValue(name: string, value: CapabilityJsonValue, currencySymbol: s
 	return JSON.stringify(value) ?? "";
 }
 
-/** <del> alone carries the semantics unevenly across screen readers, so the row opens with a clipped word. */
+/**
+ * <del> alone carries the semantics unevenly across screen readers, so the row opens with a clipped word. The value is
+ * right-aligned by the SHADOW's own type (`numeric`), not the winner's: pass-through values are unvalidated, so a
+ * string can lose to a number and should sit where its own kind sits.
+ */
 function ShadowedRow({
 	value,
 	numeric,
@@ -286,15 +291,8 @@ function ShadowedRow({
 	mark,
 }: {
 	value: string;
-
-	/**
-	 * Right-aligned by the SHADOW's own type, not the winner's: pass-through values are unvalidated, so a string can
-	 * lose to a number and should sit where its own kind sits.
-	 */
 	numeric?: boolean;
-
 	source: ProvenanceView;
-
 	mark?: MarkView | undefined;
 }) {
 	return (
@@ -418,8 +416,10 @@ function FieldRow({
 	currencySymbol,
 	onEditField,
 }: {
+	/** The capability's wire name; FieldName shows its display label where one exists, and formatValue reads it. */
 	name: string;
 
+	/** The resolved field: the winning value with its level, and the shadowed losers rendered under it. */
 	field: EffectiveCapabilityField;
 
 	/** Names the entry an entry-level row belongs to, for the jump's accessible label. */
@@ -428,6 +428,7 @@ function FieldRow({
 	/** The configured cost prefix (usage.currencySymbol); the cost rows' values read it. */
 	currencySymbol: string;
 
+	/** The pencil's jump; offered only when the winner is a record level (entry, global, or their fallbacks) with a key. */
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
 	const { source, marks } = capabilityCellProvenance({
@@ -537,6 +538,8 @@ function outputLimitNote(capabilities: EffectiveCapabilities): string {
  * The column tracks are fixed shares carried by a colgroup, so every table aligns down the page and a long value clips
  * into its tip instead of shoving the badge column off the edge. The head names the columns once - a badge column
  * that never says "source" reads as decoration.
+ *
+ *   numericValues -> every value in the column is a number (the pricing table), so its head follows them to the right
  */
 function ResolutionTable({
 	nameHead,
@@ -545,12 +548,8 @@ function ResolutionTable({
 	children,
 }: {
 	nameHead: string;
-
 	valueHead: string;
-
-	/** Every value in the column is a number (the pricing table), so its head follows them to the right. */
 	numericValues?: boolean;
-
 	children: ReactNode;
 }) {
 	return (
@@ -593,6 +592,7 @@ function SupportedParamsBlock({
 	currencySymbol,
 	onEditField,
 }: {
+	/** Every resolved capability field; the block reads only supported_openai_params and renders nothing without it. */
 	fields: EffectiveCapabilities["fields"];
 
 	/** Names the entry an entry-level value belongs to, for the jump's accessible label. */
@@ -601,6 +601,7 @@ function SupportedParamsBlock({
 	/** Threaded so every capability value renders through the one formatter. */
 	currencySymbol: string;
 
+	/** The pencil's jump for the one field, offered on the same terms as FieldRow's. */
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
 	const field = capabilityField(fields, "supported_openai_params");
@@ -679,6 +680,7 @@ export function ModelInspector({
 	onEditRecord,
 	onEditEntry,
 }: {
+	/** The inspected row; its scopeKey and rawId address both feeds' requests. */
 	model: DashboardModel;
 
 	/** The configured cost prefix (usage.currencySymbol); every price on the panel renders through it. */
@@ -690,12 +692,10 @@ export function ModelInspector({
 	/** Which section the panel scrolls to on open (the Diagnostics jump links); absent, it opens at the top. */
 	anchor?: InspectorSection | undefined;
 
-	/**
-	 * Where focus lands on close when the opener is gone; the overlay's owner names a visible element (the active
-	 * tab).
-	 */
+	/** Where focus lands on close when the opener is gone; the overlay's owner names a visible element (the active tab). */
 	fallbackFocusId?: string;
 
+	/** The close request; the panel is a SlideOver, so Esc, the scrim, and the X all post it. */
 	onClose: () => void;
 
 	/** Jump into a global record editor: focus record `key` of `kind`, or create an exact-ID draft when `create`. */

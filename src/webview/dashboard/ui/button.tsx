@@ -1,12 +1,13 @@
+/**
+ * Rank is weight and colour, not boxes, and every rank STRENGTHENS on hover because each wash lifts the surface toward
+ * its own label. Secondary carries a dotted underline at rest, since without a resting mark most of the page's buttons
+ * read as prose; React decides it (`hasTextLabel`) because CSS cannot see text.
+ */
+
 import { cva, type VariantProps } from "class-variance-authority";
 import { Children, type ComponentProps, isValidElement, type ReactNode } from "react";
 import { cn } from "./cn";
 
-/**
- * Rank is weight and colour, not boxes, and every rank STRENGTHENS on hover because each wash lifts the surface
- * toward its own label. Secondary carries a dotted underline at rest, since without a resting mark most of the
- * page's buttons read as prose; React decides it (`hasTextLabel`) because CSS cannot see text.
- */
 const buttonVariants = cva(
 	[
 		// Each size hands its horizontal padding back through --btn-mx, so labels align with text and gaps measure

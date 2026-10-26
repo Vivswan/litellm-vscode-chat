@@ -92,10 +92,13 @@ function useDraftRows<T>(
 	external: T,
 	outcome: IntentOutcome | undefined
 ): {
+	/** The draft's rows while one is live, else the store's; row ids stay stable until the store value itself changes. */
 	rows: T;
 
+	/** Edited away from the store value; unchanged rows post nothing (the scalar rows' rule, in draft form). */
 	dirty: boolean;
 
+	/** The phase the Apply bar shows; "saved" holds for SAVED_NOTICE_MS after the ack. */
 	phase: DraftPhase;
 
 	/** Whether a draft of any kind is live (dirty, in flight, or acked awaiting the reflecting push). */
@@ -104,10 +107,13 @@ function useDraftRows<T>(
 	/** The reported failure of THIS draft's own write; a leftover notice from a discarded draft never resurfaces. */
 	failure: IntentFailureOutcome | undefined;
 
+	/** Replace the rows; editing exactly back onto the store value drops the draft and its correlation id with it. */
 	update: (next: T) => void;
 
+	/** Mark the dirty draft as in flight under the request id its write was posted with. */
 	apply: (requestId: string) => void;
 
+	/** Discard: drops the draft, the saved notice, and the correlation id. */
 	reset: () => void;
 } {
 	// Value identity, id-stripped: the caller re-derives `external` per render and each derivation mints fresh row
@@ -275,10 +281,7 @@ function canonicalKey(value: unknown): string {
 	);
 }
 
-/**
- * Hand-curated, mirroring docs/models.md#where-parameters-come-from: the extension has no canonical parameter inventory
- * (pass-through by design), so these are suggestions, never a restriction.
- */
+/** Hand-curated (docs/models.md#where-parameters-come-from): no canonical inventory, pass-through; suggestions only. */
 const COMMON_PARAMETER_NAMES = [
 	"max_tokens",
 	"temperature",
@@ -355,8 +358,10 @@ export function RecordStatusSlot({
 	openField,
 	refusal,
 }: {
+	/** The draft's groups in draft order; the verdict names the worst problem by its group's matcher (recordVerdict). */
 	groups: readonly PrefixGroup[];
 
+	/** Row-aligned with groups: the parse's problems per group, which the verdict reads. */
 	issues: readonly GroupIssueView[];
 
 	/** The open field popover's "groupIndex:rowIndex"; the verdict skips the one problem stated there. */
@@ -392,6 +397,7 @@ export function ModelParametersEditor({
 	hidden,
 	external,
 }: {
+	/** The record at every scope; only editScope's value is edited and written back whole, the others render read-only. */
 	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
 
 	/** The discovered models, feeding the prefix input's suggestions. */
@@ -671,6 +677,12 @@ export function ModelParametersEditor({
 	);
 }
 
+/**
+ * Structured editor for litellm-vscode-chat.models.capabilities, the capabilities twin of ModelParametersEditor. The
+ * observed-key union is both the hints' evidence and the autocomplete's server half because the global records scope
+ * over every server, so one union fits both; absent or empty it is no evidence, and the hints stay quiet while the
+ * suggestions fall back to the static vocabulary.
+ */
 export function ModelCapabilitiesEditor({
 	scoped,
 	models,
@@ -678,16 +690,13 @@ export function ModelCapabilitiesEditor({
 	hidden,
 	external,
 }: {
+	/** The record at every scope; only editScope's value is edited and written back whole, the others render read-only. */
 	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
 
 	/** The discovered models, feeding the matcher input's suggestions. */
 	models: readonly DashboardModel[];
 
-	/**
-	 * The cross-server union of observed /model/info keys: the unknown-key hints' evidence AND the server half of the
-	 * key autocomplete (the global records scope over every server, so the union fits both). Absent or empty means no
-	 * evidence - hints suppressed, suggestions fall back to the static vocabulary.
-	 */
+	/** The cross-server union of observed /model/info keys: hint evidence and the server half of the key autocomplete. */
 	observedKeys?: readonly string[] | undefined;
 
 	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */

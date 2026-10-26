@@ -1,4 +1,9 @@
-/** The pages own their content; everything here is the row language they share. */
+/**
+ * The pages own their content; everything here is the row language they share. The covered slot renders ONE truncated
+ * line, so a long failure, label, or translation can never overrun the reserved description height into the next row;
+ * the full selectable text opens as a deliberate detail block below the row, user-initiated, so the height change is
+ * intended (check-geometry registers the pair).
+ */
 
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
@@ -46,6 +51,7 @@ export interface SettingWriteFailure {
 	/** The owning settings row, absent for a failure whose payload never parsed. */
 	readonly row?: SettingRowId | undefined;
 
+	/** The fail envelope's text; the row shows its headline alone (statusErrorHeadline) in the covered slot. */
 	readonly message: string;
 }
 
@@ -121,22 +127,13 @@ export function isScalarRowId(row: string): row is NumberSettingId | BooleanSett
 	return Object.hasOwn(NUMBER_SETTING_SPECS, row) || Object.hasOwn(BOOLEAN_SETTING_SPECS, row);
 }
 
-/**
- * The one row template every row obeys. The geometry lives in dashboard.css (.setting-row and its band rules, beside
- * .settings-groups); this name is the pointer.
- */
+/** The one row template every row obeys; the geometry lives in dashboard.css (.setting-row and its band rules). */
 const SETTING_ROW_GRID = "setting-row";
 
-/**
- * The wide tier's shared tracks, owned by dashboard.css .settings-groups (rows adopt them through subgrid); this name
- * is the pointer.
- */
+/** The wide tier's shared tracks, owned by dashboard.css .settings-groups; rows adopt them through subgrid. */
 export const SETTING_GRID_TRACKS = "settings-groups";
 
-/**
- * Its alignment, growth cap, and corner reserves live in dashboard.css .setting-title; a constant because the row
- * renders the label as `label` or `span`.
- */
+/** Alignment, growth cap, and corner reserves live in dashboard.css .setting-title; the row renders label or span. */
 const SETTING_TITLE = "setting-title font-semibold";
 
 /**
@@ -232,13 +229,7 @@ function glyphTrail(title: string, help: string | undefined) {
 	);
 }
 
-/**
- * Covered text longer than this gets the Details disclosure: the covered slot renders ONE truncated line (so a long
- * failure, label, or translation can never overrun the reserved description height into the next row), and the full
- * selectable text opens as a deliberate detail block below the row - user-initiated, so the height change is intended
- * (check-geometry registers the pair). A length threshold rather than measurement: deterministic under tests with no
- * layout engine.
- */
+/** Covered text past this length opens a Details disclosure; a length, not a measurement, so tests need no layout. */
 const COVER_DETAILS_THRESHOLD = 80;
 
 /**
@@ -261,6 +252,11 @@ function coveredDetail(message: CoveredMessage | undefined): string | undefined 
  * One settings row: a configured row wears the modified accent in the gutter (the border is always there, transparent
  * when clean, so marking never shifts it) and offers the Reset for exactly that scope. The filter hides rows via the
  * hidden attribute, never by unmounting: a half-typed draft must survive being filtered away and back.
+ *
+ * Notice tones are the app-wide tone text classes (state-ok / state-warn / error), one vocabulary with the server
+ * form's test result. A compact control's classes resolve through tailwind-merge against the base template's own
+ * sub-560 classes (same variant, later input wins). A companion renders neither the actions nor the standing write
+ * failure, since a failure shared across a setting's rows would otherwise show and announce once per row.
  */
 export function SettingRow({
 	settingId,
@@ -279,52 +275,49 @@ export function SettingRow({
 	compactControl,
 	companion,
 }: {
+	/** Keys the row's standing write failure (SettingFailuresContext) and names the setting the actions act on. */
 	settingId: SettingRowId;
 
+	/** The row's name: a label pointing at titleFor when given, a plain span otherwise. */
 	title: string;
 
 	/** The id of the control the label points at; omitted where clicking the title must not write a setting. */
 	titleFor?: string | undefined;
 
+	/** The resting text the covered slot overlays; the modified note trails it. */
 	description: ReactNode;
 
+	/** The "?" glyph's text, trailing whichever sentence is visible; absent, no glyph renders. */
 	help?: string | undefined;
 
+	/** The control cell's content; min-w-0, so a wide control shrinks and clips instead of inflating the track. */
 	control: ReactNode;
 
+	/** The live parse error, the covered slot's highest-precedence tenant; it outranks the standing write failure. */
 	error?: CoveredMessage | undefined;
 
+	/** The id the error span carries, for the control's aria-describedby. */
 	errorId?: string;
 
-	/**
-	 * The lowest-precedence covered-slot tenant: a transient tone-styled status (a model probe's outcome) that rides
-	 * the same height-keeping overlay as the errors, so landing one moves nothing. Tones are the app-wide tone text
-	 * classes (state-ok / state-warn / error), one vocabulary with the server form's test result.
-	 */
+	/** The lowest-precedence covered tenant: a transient tone-styled status (a probe's outcome) on the same overlay. */
 	notice?: { readonly text: string; readonly tone: "ok" | "warning" | "error" } | undefined;
 
 	/** The built-in default, named in the modified note (number rows only). */
 	defaultText?: string | undefined;
 
+	/** The scope holding the value, or null for the default alone; it paints the modified accent and names the Reset. */
 	configuredScope: SettingScope | null;
 
+	/** The filter's verdict, applied as the hidden attribute, never by unmounting. */
 	hidden: boolean;
 
 	/** Extra placement on the description cell - the catalog row widens its status cluster's track with this. */
 	hintClassName?: string | undefined;
 
-	/**
-	 * A checkbox is compact enough to share the title's line at EVERY stacked width (the sub-560 one-column fallback
-	 * exists for the wide controls). tailwind-merge resolves these against the base template's own sub-560 classes
-	 * (same variant, later input wins).
-	 */
+	/** A checkbox shares the title's line at EVERY stacked width; the sub-560 one-column fallback is for wide controls. */
 	compactControl?: boolean;
 
-	/**
-	 * A secondary row of a setting that spans several rows (the language filter's mode row): the setting's primary row
-	 * carries the actions and the standing write failure, so a companion renders neither - a shared failure would
-	 * otherwise show and announce once per row.
-	 */
+	/** A secondary row of a multi-row setting (the language filter's mode row); see the actions rule above. */
 	companion?: boolean;
 }) {
 	// HEADLINE only: the detail line is arbitrary-length and the covering contract keeps the cell's height. A live
@@ -756,6 +749,8 @@ export function commaListCustom(values: readonly string[], lossy: boolean): bool
  * The bounds are WIRE_LIMITS entries, the numbers the host's intent schema reads, so an oversize paste is refused
  * here with a reason instead of a generic envelope failure. A stored list the box cannot round-trip (commaListCustom)
  * renders read-only with the reveal button, so the dashboard never destroys it.
+ *
+ *   lossy -> whether normalization dropped or rewrote raw entries the push cannot carry; forces the read-only fallback
  */
 export function CommaListRow({
 	settingId,
@@ -774,32 +769,18 @@ export function CommaListRow({
 	onCommit,
 }: {
 	settingId: SettingRowId;
-
 	title: string;
-
 	description: string;
-
 	help: string;
-
 	placeholder: string;
-
 	values: readonly string[];
-
-	/** Whether normalization dropped or rewrote raw entries the push cannot carry; forces the read-only fallback. */
 	lossy: boolean;
-
 	maxLength: number;
-
 	maxCount: number;
-
 	countProblem: (max: number) => string;
-
 	lengthProblem: (max: number) => string;
-
 	configuredScope: SettingScope | null;
-
 	hidden: boolean;
-
 	onCommit: (values: readonly string[]) => void;
 }) {
 	const externalText = values.join(", ");
@@ -880,6 +861,21 @@ export function CommaListRow({
 	);
 }
 
+/**
+ * One heading with its rows, the middle subgrid layer between .settings-groups and the rows. The heading line only
+ * SEATS the page's annotation; which mark it wears is the page's own decision, so this file mints no second badge or
+ * pill vocabulary.
+ *
+ *   title       -> a zero-arg function, so the localized text resolves at render; the help glyph is named "Help: {title}"
+ *   help        -> the group's explanation, behind a glyph rather than above the rows: read once, it must not cost
+ *                  every later visit
+ *   note        -> a standing annotation after the help glyph (the Features page's Coming soon badge)
+ *   isVisible   -> the filter's verdict per row; a group whose rows are all hidden collapses whole (heading included)
+ *   booleanMeta -> status content replacing specific boolean rows' descriptions (the catalog row's cluster)
+ *   tail        -> rows appended after the scalar rows (the Usage group's enum and list rows)
+ *   tailVisible -> whether anything beyond the scalar rows survives the filter (tail rows); keeps the heading alive
+ *                  for it
+ */
 export function SettingGroup({
 	title,
 	help,
@@ -893,32 +889,14 @@ export function SettingGroup({
 	tailVisible,
 }: {
 	title: () => string;
-
 	help?: (() => string) | undefined;
-
-	/**
-	 * A standing annotation seated on the heading line, after the help glyph (the Features page's Coming soon badge).
-	 * The frame only SEATS it; which mark the annotation wears is the page's own decision, so this file mints no second
-	 * badge or pill vocabulary.
-	 */
 	note?: (() => ReactNode) | undefined;
-
 	numbers: readonly NumberSettingId[];
-
 	booleans: readonly BooleanSettingId[];
-
 	settings: SettingsSlice;
-
-	/** The filter's verdict per row; a group whose rows are all hidden collapses whole (heading included). */
 	isVisible: (id: NumberSettingId | BooleanSettingId) => boolean;
-
-	/** Status content replacing specific boolean rows' descriptions (the catalog row's cluster). */
 	booleanMeta?: Partial<Record<BooleanSettingId, ReactNode>>;
-
-	/** Rows appended after the scalar rows (the Usage group's enum and list rows). */
 	tail?: ReactNode;
-
-	/** Whether anything beyond the scalar rows survives the filter (tail rows); keeps the heading alive for it. */
 	tailVisible?: boolean;
 }) {
 	const empty = numbers.every((id) => !isVisible(id)) && booleans.every((id) => !isVisible(id)) && tailVisible !== true;

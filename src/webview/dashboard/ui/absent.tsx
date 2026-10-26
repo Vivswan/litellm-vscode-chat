@@ -20,10 +20,7 @@ export function AbsentDatum({
 	/** Screen-reader-only reason text; "not reported" when omitted. Unused while children speak. */
 	reason?: string | undefined;
 
-	/**
-	 * A visible reason rendered in place of the hidden text; an element, so a conditional `false` cannot silence the
-	 * words.
-	 */
+	/** A visible reason in place of the hidden text; an element, so a conditional `false` cannot silence the words. */
 	children?: ReactElement | undefined;
 }) {
 	return (

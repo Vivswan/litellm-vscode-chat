@@ -107,10 +107,7 @@ import { SectionHeader } from "./ui/section";
 import { Select } from "./ui/select";
 import { Textarea } from "./ui/textarea";
 
-/**
- * Where a saved entry lands. A setting ID is a protocol term (English, module constant);
- * the save bar shows it because a page that writes a settings file should say so.
- */
+/** Where a saved entry lands, shown in the save bar because a page that writes a settings file should say so. */
 const SERVERS_SETTING_ID = `${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`;
 
 /**
@@ -299,6 +296,9 @@ const AUTH_FORM_IDS: readonly AuthFormId[] = ["none", "apiKey", "virtualKey", "o
  * The edit destination, mounted in the shell's pane. The boundary outward is two facts and two events: the draft is
  * dirty, the reader asked to leave, the save committed - pane choice, rail clicks, and focus on the way out belong to
  * the shell.
+ *
+ *   onTargetGone -> the draft ceased to exist (its entry left the setting): its own channel, so a dirty report can
+ *                   never mean it
  */
 export function ServerEditPage({
 	request,
@@ -309,16 +309,10 @@ export function ServerEditPage({
 	onSaved,
 }: {
 	request: ServerEditRequest;
-
 	servers: readonly DashboardServer[];
-
 	onDirtyChange: (dirty: boolean) => void;
-
-	/** The draft ceased to exist (its entry left the setting): its own channel, so a dirty report can never mean it. */
 	onTargetGone: () => void;
-
 	onRequestClose: () => void;
-
 	onSaved: () => void;
 }) {
 	// The page's own adopt round trip: the outcome decides the page's fate (ok leaves, a validation failure stays). The
@@ -557,10 +551,13 @@ function ServerForm({
 	onSavePosted,
 	onRequestClose,
 }: {
+	/** Add or edit; the draft and the frozen identity derive from it once, when the form opens (draftFor). */
 	target: ServerFormTarget;
 
+	/** Labels the setting already holds (declared and misconfigured entries); a collision refuses the add or rename. */
 	declaredLabels: readonly string[];
 
+	/** The external groups' sync stamps: a label among them is likely held by the host, so the form advises, not refuses. */
 	liveGroupLabels: readonly string[];
 
 	/** The edited entry's LIVE observed /model/info key set (liveRowForForm); the capability hints' evidence. */

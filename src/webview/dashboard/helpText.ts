@@ -344,10 +344,7 @@ export function helpDiagnosticsTools(): string {
 	);
 }
 
-/**
- * The settings rows that carry a "?", in row order; sparse on purpose - only where a longer explanation earns it.
- * Static ids (nothing localized), so the list may live at module level.
- */
+/** The rows that carry a "?", in row order, only where a longer explanation earns it; static ids, so module level. */
 export const SETTING_ROW_HELP_IDS = [
 	"chat.timeout",
 	"chat.maxToolsPerRequest",

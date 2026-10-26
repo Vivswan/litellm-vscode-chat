@@ -114,19 +114,19 @@ interface ConfigProblem {
 	/** Derived from the diagnostic's own identity, so React keeps focus on an action button across pushes. */
 	readonly key: string;
 
+	/** The tier under the host's ceiling (cappedSeverity); the copied report ranks by it too, through problemSeverity. */
 	readonly severity: DiagnosticSeverity;
 
-	/**
-	 * Leads with the consequence, keeps the cause: a reader who stops after the first clause should still know what is
-	 * not being applied.
-	 */
+	/** Leads with the consequence, keeps the cause: a reader who stops after the first clause knows what is not applied. */
 	readonly headline: string;
 
+	/** Location chips, the setting first; the record or entry rides along where the one-clause headline stopped naming it. */
 	readonly where: readonly string[];
 
 	/** The parser's structural report, when there is one. English by policy - it also rides the copyable block. */
 	readonly detail?: string | undefined;
 
+	/** Reveal where a human fixes it, or open the docs; none rewrites configuration. */
 	readonly actions: readonly DiagnosticAction[];
 }
 
@@ -1130,6 +1130,13 @@ function Support() {
 	);
 }
 
+/**
+ * The tool actions open the body as one vertical list and the header's actions slot stays empty; the blocks below are
+ * ordered by what the reader can act on.
+ *
+ *   verdictRows -> the host's published verdict rows (DashboardState.verdictRows); the paste line's headline reads
+ *                  these
+ */
 export function DiagnosticsSection({
 	servers,
 	verdictRows,
@@ -1141,24 +1148,14 @@ export function DiagnosticsSection({
 	onInspect,
 }: {
 	servers: readonly DashboardServer[];
-
-	/** The host's published verdict rows (DashboardState.verdictRows): the paste line's headline reads these. */
 	verdictRows: readonly VerdictRow[];
-
 	modelCount: number;
-
 	diagnostics: readonly ConfigDiagnosticView[];
-
 	active: boolean;
-
 	stateSeq: number;
-
 	currencySymbol: string;
-
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
 }) {
-	// The eight actions open the body as one vertical list (settled user direction; the header's actions slot stays
-	// empty); sections below are ordered by what the reader can act on.
 	return (
 		<Section
 			id="diagnostics"

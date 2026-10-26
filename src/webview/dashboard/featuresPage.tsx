@@ -163,10 +163,7 @@ function modelRefIdentity(ref: FeatureModelRef): string {
 	return tupleKey(ref.server, ref.model);
 }
 
-/**
- * The select's custom-entry sentinel: real option values are JSON tuples (always starting with "[") or the empty
- * not-set value, so this bare word can never collide with a served pair.
- */
+/** The custom-entry sentinel: real option values are JSON tuples (starting with "[") or empty, so it cannot collide. */
 const CUSTOM_OPTION = "custom";
 
 /**
@@ -562,6 +559,7 @@ function LanguageFilterListRow({
 	);
 }
 
+/** One feature's section; declaring it in FEATURE_REGISTRY makes a feature a table-row addition, never a page edit. */
 interface FeatureDescriptor {
 	readonly shipped: boolean;
 	readonly booleans?: readonly BooleanSettingId[];
@@ -575,10 +573,7 @@ interface FeatureTailContext {
 	readonly settings: DashboardSettings;
 }
 
-/**
- * The feature sections, total over FeatureId by mapped type: a new FeatureId fails compilation until it declares its
- * section here, which is what makes a feature a table-row addition instead of a page edit.
- */
+/** Total over FeatureId by mapped type: a new FeatureId fails compilation until it declares its section here. */
 export const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } = {
 	inlineCompletions: {
 		shipped: true,
@@ -629,6 +624,13 @@ export const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } 
 	},
 };
 
+/**
+ * The Features page: one section per FeatureId, as FEATURE_REGISTRY declares it, behind one filter box.
+ *
+ *   declaredServerLabels -> the declared entries' labels (state.servers, origin "declared"), all the feature model
+ *                           pickers may offer: a ref addresses a servers-entry label and external groups have none;
+ *                           absent offers nothing (fail-closed, never a wrong pick)
+ */
 export function FeaturesSection({
 	settings,
 	models,
@@ -637,18 +639,9 @@ export function FeaturesSection({
 	writeFailures,
 }: {
 	settings: DashboardSettings;
-
 	models: readonly DashboardModel[];
-
-	/**
-	 * The declared entries' labels (state.servers, origin "declared"): what the feature model pickers may offer, since
-	 * a ref addresses a servers-entry label and external groups have none. Absent offers nothing - fail-closed, never a
-	 * wrong pick.
-	 */
 	declaredServerLabels?: readonly string[] | undefined;
-
 	featureProbes?: readonly FeatureModelId[] | undefined;
-
 	writeFailures?: Partial<Record<SettingWriteMethod, SettingWriteFailure>> | undefined;
 }) {
 	const featureModelOptions = modelRefOptions(models, new Set(declaredServerLabels ?? []));

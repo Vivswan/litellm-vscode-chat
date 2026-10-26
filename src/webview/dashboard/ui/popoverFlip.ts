@@ -17,6 +17,7 @@ export interface FlipMeasurement {
 	/** The offset the stylesheet leaves between popover and anchor, either side. */
 	readonly gapPx: number;
 
+	/** The viewport's height (window.innerHeight live); the room below runs from hostBottom down to it. */
 	readonly viewportHeight: number;
 }
 

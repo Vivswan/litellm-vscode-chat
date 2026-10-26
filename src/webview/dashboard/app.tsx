@@ -77,18 +77,17 @@ function sectionIcon(section: SectionId): ReactElement {
 }
 
 /**
- * One reported intent failure; `seq` distinguishes repeats with the same text, and `row` echoes the fail envelope's
- * owning settings row so the settings page can place the notice.
+ * One reported intent failure, as the fail envelope carried it.
+ *
+ *   seq  -> distinguishes repeats with the same text
+ *   kind -> whether the intent's durable write committed before the failure (the envelope's failureKind)
+ *   row  -> the refused scalar write's owning settings row, so the settings page can place the notice; absent on every
+ *           other method's failure
  */
 interface IntentFailure {
 	readonly seq: number;
-
 	readonly message: string;
-
-	/** Whether the intent's durable write committed before the failure; see the fail envelope's failureKind. */
 	readonly kind: "validation" | "operation";
-
-	/** The refused scalar write's owning settings row; absent on every other method's failure. */
 	readonly row?: SettingRowId | undefined;
 }
 

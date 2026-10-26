@@ -7,6 +7,10 @@
  *
  *   below the collapse the rail becomes an icon rail -> nothing is hidden
  *   labels, brand, verdict, and sync time -> go visually-hidden
+ *
+ * The collapse query is `<=` rather than the house `<`: layout applies a `< 1000px` block AT 1000 while matchMedia
+ * says false there, so the two disagreed at that one integer width. `<=` evaluates the same both ways (the
+ * stylesheet's rail block carries the measurement).
  */
 import * as l10n from "@vscode/l10n";
 import type { KeyboardEvent, ReactNode } from "react";
@@ -24,38 +28,31 @@ export interface Overall {
 	readonly word: string;
 }
 
+/**
+ * One rail destination. The live count is the rail's whole claim over a tab strip, and the visible label stays inside
+ * the accessible name (Label in Name).
+ */
 export interface RailSection<Id extends string = string> {
+	/** The pane's identity; the tab's element id is `tab-${id}`, which the inspector's focus fallback names. */
 	readonly id: Id;
 
+	/** The visible word; with a countLabel the accessible name becomes "{label}, {countLabel}". */
 	readonly label: string;
 
 	/** Required: an icon rail with a missing icon is a blank square with no way back to its name. */
 	readonly icon: ReactNode;
 
-	/**
-	 * The live number this destination is about - the rail's whole claim over a tab strip. Absent when there is nothing
-	 * to count: an absent number is a fact, a zero would be a different and usually wrong one.
-	 */
+	/** The live number this destination is about; absent, not zero, when nothing is countable: zero is a different fact. */
 	readonly count?: string | undefined;
 
-	/**
-	 * The count said in words, with its own unit ("4 models", "87% of budget"): a bare "4" announces as "Servers 4",
-	 * and the tabpanel inherits that name. The visible label stays inside the accessible name (Label in Name).
-	 */
+	/** The count in words with its unit: a bare "4" announces as "Servers 4", and the tabpanel inherits that name. */
 	readonly countLabel?: string | undefined;
 
 	/** Tints the count when it is something to act on rather than merely a total. */
 	readonly countTone?: "warn" | undefined;
 }
 
-/**
- * The collapse width as a media query, spelled here as well as in the stylesheet: CSS decides what the rail LOOKS
- * like, this decides what it can DO, and neither can read the other. A test pins the two spellings together.
- *
- *   layout applies a `< 1000px` block AT 1000 while matchMedia says false there, so the two disagreed at that one
- *   integer width -> `<=` rather than the house `<`
- *   `<=`          -> evaluates the same both ways (the stylesheet's rail block carries the measurement)
- */
+/** Spelled here and in the stylesheet (a test pins both): CSS decides the rail's look, this what it can DO. */
 export const RAIL_COLLAPSE_QUERY = "(width <= 1000px)";
 
 /**
@@ -179,15 +176,19 @@ export function Rail<Id extends string>({
 	synced,
 	serverCount,
 }: {
+	/** The destinations in order; ArrowUp, ArrowDown, Home, and End move the roving tabindex through them. */
 	sections: readonly RailSection<Id>[];
 
+	/** The open pane's id; its tab is the one tab stop in the list. */
 	active: Id;
 
+	/** Switch panes; the rail then moves focus onto the chosen tab itself. */
 	onSelect: (id: Id) => void;
 
 	/** Sync has nothing to ask with no servers configured. */
 	serverCount: number;
 
+	/** The verdict pill; a tab stop only while collapsed, where its word is unpainted and the tip is the way to it. */
 	overall: Overall;
 
 	/** Already-relative "2 min ago"; absent when nothing has synced. */

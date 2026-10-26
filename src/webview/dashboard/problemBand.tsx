@@ -41,22 +41,25 @@ export function ProblemBand({
 	details,
 	actions,
 }: {
+	/** A list item inside the Diagnostics page's problem list; a div under a server row. */
 	readonly as?: "div" | "li";
 
+	/** Ranks the problem and, with tone, picks the paint tier; it also leads the headline in words for screen readers. */
 	readonly severity: DiagnosticSeverity;
 
+	/** The noun the hidden tier word names (severityLabel): the bar and hue never reach a screen reader. */
 	readonly subject: SeveritySubject;
 
-	/**
-	 * The spend scale's one override: lifts a DEGRADED band's paint to the error tier (inert elsewhere, see bandTier).
-	 */
+	/** The spend scale's one override: lifts a DEGRADED band's paint to the error tier (inert elsewhere, see bandTier). */
 	readonly tone?: "error" | undefined;
 
+	/** The problem's one line, after the hidden tier word; in color modes the tier's hue rides it. */
 	readonly headline: ReactNode;
 
 	/** Where the problem lives (the Diagnostics page's location badges), between headline and detail. */
 	readonly where?: ReactNode;
 
+	/** One paragraph per line, keyed by the line itself, so callers keep the lines distinct. */
 	readonly details?: readonly string[] | undefined;
 
 	/** The caller's action cluster, rendered last; the band does not restyle it. */

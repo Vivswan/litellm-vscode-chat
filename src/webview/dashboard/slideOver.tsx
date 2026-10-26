@@ -16,10 +16,7 @@ import { useEffect, useRef } from "react";
 import { IconClose } from "./icons";
 import { Button } from "./ui/button";
 
-/**
- * Where initial focus lands when the panel has no field to type into; Radix owns the Tab trap, so this only names a
- * sensible first stop.
- */
+/** Initial focus when the panel has no field to type into; Radix owns the Tab trap, so this only names a first stop. */
 const FOCUSABLE =
 	"a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
@@ -35,8 +32,10 @@ export function SlideOver({
 	/** Where focus lands on close when the opener no longer exists (e.g. a matcher row the editor itself removed). */
 	fallbackFocusId: string;
 
+	/** The one close route: Esc, the scrim, and the X all post here, and the owning section decides what it means. */
 	onRequestClose: () => void;
 
+	/** The panel's body; its first input, select, or textarea takes initial focus. */
 	children: ReactNode;
 }) {
 	const panelRef = useRef<HTMLDivElement>(null);

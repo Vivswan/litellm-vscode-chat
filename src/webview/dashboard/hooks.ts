@@ -24,8 +24,10 @@ export function asExtensionMessage(data: unknown): ExtensionToWebviewMessage | u
 }
 
 export interface RpcState<K extends ReadMethod> {
+	/** The newest request's answer; a different question clears it until the new answer lands, an identical one keeps it. */
 	readonly data: ResponseFor<K> | undefined;
 
+	/** Post the request; repeating the identical question keeps the current answer on screen until the new one lands. */
 	readonly send: (payload: RequestPayload<K>) => void;
 
 	/** Drop the held answer and orphan any in-flight request (a closing form's value must leave webview memory). */
@@ -85,6 +87,7 @@ export interface IntentOutcomeState<K extends AckedMethod> {
 	/** The latest ack or fail envelope for this method, whichever request posted it. */
 	readonly outcome: IntentOutcome | undefined;
 
+	/** Post the intent and return its request id, so the caller can match the envelope that answers it. */
 	readonly send: (payload: RequestPayload<K>) => string;
 
 	/** Forget the held outcome (a dismissed notice must not resurface). */

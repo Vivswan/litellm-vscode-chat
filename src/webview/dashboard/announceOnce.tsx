@@ -1,14 +1,14 @@
+/**
+ * One spoken announcement per standing failure, however many surfaces render it and however often they remount. A bare
+ * role="alert" re-announces on every mount, so an unchanged failure was re-spoken on every tab change. Keying to the
+ * failure's seq turns "this line is on screen" back into "this just happened".
+ *
+ * The VISIBLE line always renders; only the announcement dedupes.
+ */
+
 import { createContext, type ReactNode, useContext, useEffect, useRef } from "react";
 
-/**
- * One spoken announcement per standing failure, however many surfaces render it and however often they remount: a
- * bare role="alert" re-announces on every mount, so an unchanged failure was re-spoken on every tab change; keying to
- * the failure's seq turns "this line is on screen" back into "this just happened". The VISIBLE line always renders -
- * only the announcement dedupes.
- *
- *   A Set of seqs (App mints them from one counter) in App-scoped context
- *     -> a remounted App starts with nothing announced
- */
+/** The seqs already spoken (App mints them from one counter); App-scoped, so a remounted App starts with none. */
 const AnnouncedSeqs = createContext<Set<number> | undefined>(undefined);
 
 /** The dashboard-wide announcement memory; App wraps its shell in exactly one. */

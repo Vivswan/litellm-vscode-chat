@@ -156,34 +156,40 @@ function ServerRow({
 	refreshing,
 	refreshingExplicitly,
 }: {
+	/** The row's server as the host published it; its origin decides which actions the row offers at all. */
 	server: DashboardServer;
 
 	/** The server's usage card, denied cards included; absent when the proxy serves no usage data. */
 	usage: UsageServerCardView | undefined;
 
+	/** The spend scale and the English detail lines' inputs, shared by every row (serverDiagnostics). */
 	spend: SpendContext;
 
+	/** The shared clock tick (one useNow in App); the status pill's relative times read it. */
 	now: number;
 
+	/** The two-step remove is in its confirm step; the section holds it per row, so one row at most is armed. */
 	armed: boolean;
 
+	/** Open this entry's edit page; the Edit button and the diagnostics' reveal actions share it. */
 	onEdit: () => void;
 
+	/** Arm (Remove) or disarm (Cancel, or the confirm itself) the two-step remove. */
 	onArmRemove: (armed: boolean) => void;
 
 	/** Posts the hideExternalServer intent for this row; the section owns the requestId and the follow-up notice. */
 	onHideExternal: (server: ExternalDashboardServer) => void;
 
+	/** Scope the models section to this server, from the drawer; absent, its model count stays plain text. */
 	onShowModels: ((label: string) => void) | undefined;
 
-	/**
-	 *   A sync this row asked for -> is in flight
-	 */
+	/** A sync this row asked for is in flight. */
 	retrying: boolean;
 
 	/** A sync is in flight for some row; the command is fleet-wide, so none may start another. */
 	syncBusy: boolean;
 
+	/** Post the sync retry; the diagnostics' Retry action's click. */
 	onRetry: () => void;
 
 	/** Posts the declareExpectedFailure intent for this declared row; the section owns the requestId. */
@@ -583,10 +589,13 @@ export function ServersSection({
 	onAdoptServer,
 	onAddServer,
 }: {
+	/** The fleet as the host published it, every origin included; one row each. */
 	servers: readonly DashboardServer[];
 
+	/** Host groups the fleet hides, tombstoned or superseded, listed under it behind a "Show hidden groups" disclosure. */
 	hidden?: readonly HiddenGroup[];
 
+	/** The usage snapshot: the per-server cards, the alert thresholds, and the refresh state the header's button reads. */
 	usage?: DashboardUsage | undefined;
 
 	/** The configured spend prefix (usage.currencySymbol); display only, never a conversion. */
@@ -598,11 +607,13 @@ export function ServersSection({
 	/** Scope the models section to one server; absent, the drawers' model counts stay plain text. */
 	onShowModels?: ((label: string) => void) | undefined;
 
+	/** A declared row's Edit, by the label the setting holds. */
 	onEditServer: (label: string) => void;
 
 	/** An external row's Edit, which adopts rather than edits; addressed by its opaque handle. */
 	onAdoptServer: (handle: string) => void;
 
+	/** Open the add form; the header's button and the empty state's first-server button share it. */
 	onAddServer: () => void;
 }) {
 	// One outcome hook per acked method: the failure banners render each hook's latest fail (a later ok retires it),

@@ -27,10 +27,13 @@ export interface TipHandle {
 	/** The bubble's element id; point aria-describedby here when the tip describes its trigger. */
 	readonly id: string;
 
+	/** Hover or keyboard focus holds the trigger, and the tip is enabled. */
 	readonly open: boolean;
 
+	/** The placement as requested; the clamp moves the bubble along the trigger's edge, never to another side. */
 	readonly placement: TipPlacement;
 
+	/** The bubble's fixed-position coordinates; undefined until the first reveal measures the trigger. */
 	readonly style: CSSProperties | undefined;
 
 	/** Attached by TipBubble, so the clamp can measure the box it is placing. */
@@ -60,13 +63,13 @@ function focusRevealed(target: EventTarget | null): boolean {
 	}
 }
 
-/**
- * The tip's box width for the clamp: measured once laid out, the worst case until then (the bubble is display:none
- * while closed, so it has no width on first reveal); a tip that starts one clamp too far left and corrects before paint
- * beats one off-screen.
- */
+/** The bubble's width before layout: display:none while closed, so the first reveal has nothing to measure. */
 const WORST_CASE_TIP_BOX = 350;
 
+/**
+ * The bubble's width for the clamp, measured once laid out and the worst case until then: a tip that starts one clamp
+ * too far left and corrects before paint beats one off-screen.
+ */
 function tipBox(bubble: HTMLElement | null): number {
 	const measured = bubble?.offsetWidth ?? 0;
 	return measured > 0 ? measured + 8 : WORST_CASE_TIP_BOX;

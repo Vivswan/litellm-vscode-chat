@@ -307,6 +307,9 @@ function DeniedUsageFacts({ card, pollingOff }: { card: UsageForbiddenServerView
  * Usage is per SERVER, never per model, and every field can be missing (a normal shape, not a failure), so absence is
  * designed and a missing number is never a zero; only a server the snapshot does not cover gets the entry facts alone
  * (seven identical dashes would be noise).
+ *
+ *   carriedDetails -> the endpoint details the row's diagnostics already carry; the inventory prints only the
+ *                     remainder
  */
 export function ServerDrawer({
 	server,
@@ -320,22 +323,13 @@ export function ServerDrawer({
 	onShowModels,
 }: {
 	server: DashboardServer;
-
 	usage: UsageServerCardView | undefined;
-
 	notices: readonly DrawerNotice[];
-
-	/** The endpoint details the row's diagnostics already carry; the inventory prints only the remainder. */
 	carriedDetails: ReadonlySet<UsageEndpoint>;
-
 	pollingOff: boolean;
-
 	discoveryTimeoutMs: number;
-
 	now: number;
-
 	currencySymbol: string;
-
 	onShowModels: ((label: string) => void) | undefined;
 }) {
 	const numbers = usage?.kind === "usage" ? usage : undefined;

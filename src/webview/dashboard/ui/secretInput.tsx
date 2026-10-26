@@ -6,12 +6,10 @@ interface SecretInputProps extends Omit<ComponentProps<typeof Input>, "value" | 
 	/** The draft's current text; written to the node's value PROPERTY, never handed to React. */
 	readonly value: string;
 
+	/** Every input event's text; the parent re-renders with it, or node and draft diverge (the SecretInput contract). */
 	readonly onValueChange: (next: string) => void;
 
-	/**
-	 * Omit alone dies under a non-fresh spread (no excess-property check); never keeps the mirror's key
-	 * unrepresentable.
-	 */
+	/** Omit alone dies under a non-fresh spread (no excess-property check); never keeps the mirror's key unrepresentable. */
 	readonly defaultValue?: never;
 }
 

@@ -30,6 +30,11 @@ import { cn } from "./ui/cn";
  * The table's two shapes as one discriminated union, not an optional `onChange`: a writer written only to satisfy a
  * type is indistinguishable from a real handler someone forgot to wire. Every key appears in both halves for
  * destructuring.
+ *
+ *   readOnly: true    -> a static display: plain chips, no popovers, no add or edit actions (the other-scope records,
+ *                        the server drawer's entry records)
+ *   onOpenFieldChange -> reports the open field popover as "groupIndex:rowIndex", so the card's verdict can skip the
+ *                        problem it states
  */
 type RecordMatcherTableProps = {
 	kind: RecordEditorKind;
@@ -37,37 +42,19 @@ type RecordMatcherTableProps = {
 	issues: readonly GroupIssueView[];
 } & (
 	| {
-			/**
-			 * Render as a static display: plain chips, no popovers, no add or edit actions (the other-scope records,
-			 * the server drawer's entry records).
-			 */
 			readOnly: true;
-
 			disabled?: undefined;
-
 			keySuggestions?: undefined;
-
 			onChange?: undefined;
-
 			onOpenEditor?: undefined;
-
 			onOpenFieldChange?: undefined;
 	  }
 	| {
 			readOnly?: false | undefined;
-
 			disabled?: boolean | undefined;
-
 			keySuggestions?: readonly string[] | undefined;
-
 			onChange: (next: PrefixGroup[]) => void;
-
 			onOpenEditor?: ((groupIndex: number) => void) | undefined;
-
-			/**
-			 * Reports the open field popover as "groupIndex:rowIndex", so the card's verdict can skip the problem it
-			 * states.
-			 */
 			onOpenFieldChange?: ((openField: string | undefined) => void) | undefined;
 	  }
 );
@@ -358,6 +345,12 @@ export function RecordMatcherTable({
 
 /**
  *   It edits the same draft the table renders -> closing commits nothing
+ *
+ *   fallbackFocusId -> where focus lands on close when the opening pencil is gone (a removed matcher); the owner's
+ *                      stable control
+ *   note            -> one line naming where these edits land (the draft's Apply, the form's Save)
+ *   onRemove        -> Remove matcher inside the editor; the owner drops the group and closes
+ *   onEnter         -> Enter in a row input, where the owner supports Enter-to-apply
  */
 export function RecordMatcherEditorOverlay({
 	kind,
@@ -378,39 +371,20 @@ export function RecordMatcherEditorOverlay({
 	onEnter,
 }: {
 	kind: RecordEditorKind;
-
 	group: PrefixGroup;
-
 	groupProblems?: GroupProblems | undefined;
-
 	groupHints?: GroupHints | undefined;
-
 	groupIssues?: CapabilityGroupIssues | undefined;
-
 	prefixPlaceholder?: string | undefined;
-
 	prefixHelp?: string | undefined;
-
 	prefixSuggestions?: readonly string[];
-
 	keySuggestions?: readonly string[];
-
 	disabled?: boolean;
-
-	/** Where focus lands on close when the opening pencil is gone (a removed matcher); the owner's stable control. */
 	fallbackFocusId: string;
-
-	/** One line naming where these edits land (the draft's Apply, the form's Save). */
 	note: string;
-
 	onChange: (next: PrefixGroup) => void;
-
-	/** Remove matcher inside the editor; the owner drops the group and closes. */
 	onRemove: () => void;
-
 	onClose: () => void;
-
-	/** Enter in a row input, where the owner supports Enter-to-apply. */
 	onEnter?: (() => void) | undefined;
 }) {
 	const titleId = useId();
@@ -459,6 +433,7 @@ interface MatcherEditing {
 	/** Identity exactly as stored - the grammar trims nothing, so neither does identity. */
 	readonly key: string;
 
+	/** Which of the key's exact duplicates this is, counted in draft order from zero. */
 	readonly ordinal: number;
 }
 
@@ -488,6 +463,7 @@ function resolveMatcherEditing(
  * The effect clears only once the target is unresolvable, so a key that REAPPEARS cannot resurrect a closed overlay.
  */
 export function useMatcherEditing(groups: readonly PrefixGroup[]): {
+	/** The target's draft index this render; undefined once its key and ordinal no longer resolve. */
 	editingIndex: number | undefined;
 
 	/** Open on a draft index; `key` overrides the capture when the group is appended in the same tick. */
@@ -496,6 +472,7 @@ export function useMatcherEditing(groups: readonly PrefixGroup[]): {
 	/** Follow the matcher key through the overlay's own edits, with the next rows and the group's index in them. */
 	trackRename: (next: PrefixGroup, nextGroups: readonly PrefixGroup[], index: number) => void;
 
+	/** Drop the target; the overlay unmounts with it. */
 	closeEditing: () => void;
 } {
 	const [editing, setEditing] = useState<MatcherEditing | undefined>(undefined);

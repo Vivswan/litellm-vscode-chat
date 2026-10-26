@@ -78,10 +78,7 @@ function PriceParts({ model, currencySymbol }: { model: DashboardModel; currency
 	);
 }
 
-/**
- * The cost fields the detail can show, named from the shared capability vocabulary: the reader moves between this row
- * and the inspector, and a field that changed its name in transit would read as a different fact.
- */
+/** The detail's cost fields, in the shared capability vocabulary: a field renamed in transit reads as another fact. */
 const DETAIL_COSTS = [
 	["inputCost", "input_cost_per_token"],
 	["outputCost", "output_cost_per_token"],
@@ -239,10 +236,6 @@ function compareBy(sort: Sort): (a: DashboardModel, b: DashboardModel) => number
 	};
 }
 
-/**
- * Sorting without column headers: the control moves onto the section's header line. A native select, matching the
- * host's own dropdowns; direction is a separate toggle because folding it in would double the options.
- */
 const SORT_LABELS: Record<SortKey, () => string> = {
 	name: () => l10n.t("Model"),
 	family: () => l10n.t("Family"),
@@ -254,19 +247,25 @@ const SORT_LABELS: Record<SortKey, () => string> = {
 
 const SORT_KEYS = Object.keys(SORT_LABELS) as readonly SortKey[];
 
-/** The unsorted state is a real choice, not the absence of one: it is the order the servers reported. */
 const UNSORTED = "discovered";
 
+/**
+ * Sorting without column headers: the control moves onto the section's header line. A native select, matching the
+ * host's own dropdowns; direction is a separate toggle because folding it in would double the options. The unsorted
+ * state is a real choice, not the absence of one: it is the order the servers reported.
+ */
 function SortControl({
 	sort,
 	showServer,
 	onChange,
 }: {
+	/** The current sort; undefined is the "As discovered" option, and it disables the direction toggle. */
 	sort: Sort | undefined;
 
 	/** One server means no Server key to sort by; the same rule that hides it from the rows. */
 	showServer: boolean;
 
+	/** A chosen key starts ascending; the toggle flips the direction on the same key; "As discovered" posts undefined. */
 	onChange: (sort: Sort | undefined) => void;
 }) {
 	const keys = showServer ? SORT_KEYS : SORT_KEYS.filter((key) => key !== "server");
@@ -342,6 +341,9 @@ function FilterPill({
  *
  *   Which pills exist -> is the options' business (modelFilterOptions)
  *   the server group  -> follows the rows' own rule
+ *
+ * onChange takes an updater because two toggles in one React batch would otherwise both derive from the same stale
+ * `active`, and the second would silently undo the first.
  */
 function FilterPills({
 	options,
@@ -351,25 +353,22 @@ function FilterPills({
 	onChange,
 	onClearAll,
 }: {
+	/** Which pills exist, per group (modelFilterOptions); the server group is further gated by showServers. */
 	options: ModelFilterOptions;
 
+	/** The pressed pills; every pill reads its pressed state from here, none keeps its own. */
 	active: ModelFilter;
 
 	/** The rows' serverCount > 1 rule; the options' own two-server rule still applies under it. */
 	showServers: boolean;
 
-	/**
-	 * The parent decides: when the pressed pills empty the list, the empty state renders its own "Clear filters", and
-	 * two identical controls a line apart read as two different actions.
-	 */
+	/** Parent-decided: an emptied list renders its own "Clear filters", and two identical controls a line apart mislead. */
 	showClear: boolean;
 
-	/**
-	 * Takes an updater, never a computed state: two toggles in one React batch would both derive from the same stale
-	 * `active` and the second would silently undo the first.
-	 */
+	/** An updater, never a computed state: two toggles in one batch would both derive from the same stale `active`. */
 	onChange: (update: (filter: ModelFilter) => ModelFilter) => void;
 
+	/** The section's clearFilters: pills and text together, with focus moved to the filter input the button leaves. */
 	onClearAll: () => void;
 }) {
 	const groups: { key: string; label: string; pills: readonly React.ReactNode[] }[] = [
@@ -448,21 +447,16 @@ function FilterPills({
 	);
 }
 
-/**
- *   the arithmetic     -> runs on the first rendered row's measured height
- *   DEFAULT_ROW_HEIGHT -> is the fallback while nothing is measurable
- */
+/** Rows past which the list windows; the arithmetic runs on the first rendered row's measured height. */
 const WINDOW_THRESHOLD = 50;
 
-/** Exported so the tests measure against the component's own number instead of a copy that can drift. */
+/** The row height until one is measured; exported so the tests measure against the component's own number. */
 export const DEFAULT_ROW_HEIGHT = 46;
 
+/** Rows rendered past each edge of the scrollport, so a fast scroll meets rows rather than blank. */
 const OVERSCAN = 10;
 
-/**
- * The scrollport's height before there is one to measure. Generous on purpose: too small leaves a blank strip under
- * the last row until the first scroll; too large only costs a few extra rows on one paint.
- */
+/** The scrollport's height before measurement: too small blanks a strip until a scroll, too large costs rows once. */
 const FALLBACK_VIEWPORT = 1000;
 
 export function ModelsSection({
@@ -472,8 +466,10 @@ export function ModelsSection({
 	scope,
 	onInspect,
 }: {
+	/** Every discovered model across the servers; the section filters, sorts, and windows this list. */
 	models: readonly DashboardModel[];
 
+	/** The configured servers; unscoped, a single one hides the Server column, pill group, and sort key alike. */
 	serverCount: number;
 
 	/** The configured cost prefix (usage.currencySymbol); display only, never a conversion. */
@@ -482,10 +478,7 @@ export function ModelsSection({
 	/** One object so a scope without a working clear cannot be expressed. */
 	scope?: { readonly label: string; readonly onClear: () => void } | undefined;
 
-	/**
-	 * App owns the inspector, so this section only names the row; the full identity travels (one snapshot can render
-	 * under several labels).
-	 */
+	/** App owns the inspector; the full identity travels because one snapshot can render under several labels. */
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }) => void;
 }) {
 	const [filter, setFilter] = useState("");
