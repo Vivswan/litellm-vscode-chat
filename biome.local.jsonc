@@ -1,0 +1,498 @@
+// The repository's own biome layer: exclusions, the formatter, extra rules, and per-path overrides with their
+// reasons. The managed biome.json extends this file and applies last, so the floor cannot be lowered here; the one
+// relaxation is a per-path `overrides` entry below with its reason beside it (the platform's
+// docs/modules/typescript.md).
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"includes": ["**", "!**/out", "!**/dist", "!**/.vscode-test", "!**/.worktrees", "!**/*.d.ts"]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab",
+		"indentWidth": 2,
+		"lineWidth": 120
+	},
+	"javascript": {
+		"formatter": {
+			"semicolons": "always",
+			"trailingCommas": "es5",
+			"quoteStyle": "double"
+		}
+	},
+	"json": {
+		"formatter": {
+			"enabled": false
+		}
+	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		}
+	},
+	"linter": {
+		"rules": {
+			"preset": "recommended",
+			"a11y": {
+				"noLabelWithoutControl": {
+					"level": "error",
+					"options": {
+						"inputComponents": ["Checkbox", "Input", "Radio", "Select"]
+					}
+				}
+			},
+			"correctness": {
+				"noUnusedVariables": "error",
+				"noUnusedImports": "error",
+				"noUnusedFunctionParameters": "error"
+			},
+			"suspicious": {
+				"noExplicitAny": "error"
+			},
+			"style": {
+				"useBlockStatements": "error"
+			}
+		}
+	},
+	"overrides": [
+		// A forced dashboard theme must outrank the --vscode-* tokens VS Code writes onto the document element's inline
+		// style, and only !important does (theme.test.ts pins it).
+		{
+			"includes": ["src/webview/dashboard/styles/theme.css"],
+			"linter": {
+				"rules": {
+					"complexity": {
+						"noImportantStyles": "off"
+					}
+				}
+			}
+		},
+		// Logs feed the public issue report through the Logger's masking; console.* would bypass it. Tests may print.
+		{
+			"includes": ["src/**", "!src/test/**"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noConsole": "error"
+					}
+				}
+			}
+		},
+		// Layering bans, one override per tree. featureImportBan.test.ts reads the feature entries below and expects
+		// exactly one path in each `includes`, so a feature's ban never widens to a glob over several features.
+		{
+			"includes": ["src/provider/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/extension/**", "**/dashboard/**", "**/webview/**"],
+										"message": "The provider layer may import only src/shared and its own tree; move shared code to src/shared."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/dashboard/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"vscode": "The dashboard-shared tree also runs inside the webview bundle; it stays pure and localizes with @vscode/l10n."
+								},
+								"patterns": [
+									{
+										"group": ["**/extension/**", "**/provider/**", "**/webview/**"],
+										"message": "The dashboard-shared tree rides into the webview bundle; it may import only src/shared and its own tree."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/shared/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/provider/**", "**/extension/**", "**/dashboard/**", "**/webview/**"],
+										"message": "The shared layer imports no other tree; it is the bottom of the dependency graph."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		// Features never import each other. The ban is per feature because noRestrictedImports matches import specifiers,
+		// and featureImportBan.test.ts derives the required entries from the directory listing.
+		{
+			"includes": ["src/extension/features/inline/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/agentTools/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/commitGen/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/agentTools/**", "**/inline/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/consultTool/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/agentTools/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/mcp/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/participant/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/prGen/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/quickFix/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/quickFix/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/reviewComments/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/features/reviewComments/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**"],
+										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/webview/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"vscode": "Webview code runs in the browser; talk to the extension through the dashboard protocol instead."
+								},
+								"patterns": [
+									{
+										"group": [
+											"**/provider/**",
+											"**/shared/**",
+											"**/extension/**",
+											"!**/shared/config/capabilityDisplay",
+											"!**/shared/config/capabilityResolution",
+											"!**/shared/config/parameterResolution",
+											"!**/shared/config/recordResolution",
+											"!**/shared/config/settingSpec",
+											"!**/shared/errorClassification",
+											"!**/shared/failureCause",
+											"!**/shared/serverEntry",
+											"!**/shared/util/baseUrl",
+											"!**/shared/util/decimalText",
+											"!**/shared/util/displayUrl",
+											"!**/shared/util/errorText",
+											"!**/shared/util/headers",
+											"!**/shared/util/json",
+											"!**/shared/util/links",
+											"!**/shared/util/tokenCount"
+										],
+										"message": "Webview code may import the src/dashboard tree, its own tree, and only the allowlisted pure src/shared modules (they ride into the browser bundle); extension-side state stays behind the message protocol."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		// dashboard.css groups rules by component, so a state variant can precede the base rule it refines; the cascade
+		// there is decided by specificity, not by source order.
+		{
+			"includes": ["src/webview/dashboard/styles/dashboard.css"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noDescendingSpecificity": "off"
+					}
+				}
+			}
+		},
+		// A test table is data, not a function body.
+		{
+			"includes": ["src/test/**"],
+			"linter": {
+				"rules": {
+					"complexity": {
+						"noExcessiveLinesPerFunction": "off"
+					}
+				}
+			}
+		},
+		// The lint fixture's bare expression statements are the shapes scripts/lint/userTextReaders.ts must refuse.
+		{
+			"includes": ["src/test/bun/scripts/lint/userTextReadersFixture.ts"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noUnusedExpressions": "off"
+					}
+				}
+			}
+		},
+		// Floor debt, measured when the floor arrived; a tree leaves these two entries once it is clean (hits / files).
+		//   negated if-else   scripts 7/5, src/dashboard 12/2, src/extension 160/37, src/provider 75/17, src/shared 32/8, src/test 175/52, src/webview 130/22
+		//   complexity 15     scripts 28/13, src/dashboard 6/3, src/extension 60/38, src/provider 16/11, src/shared 16/12, src/test 100/51, src/webview 27/17
+		//   80 lines          scripts 6/5, src/dashboard 3/3, src/extension 28/22, src/provider 9/8, src/shared 4/4, src/webview 28/15
+		//   nested ternary    scripts 4/4, src/dashboard 11/3, src/extension 22/15, src/provider 11/5, src/shared 5/4, src/test 45/22, src/webview 59/16
+		{
+			"includes": [
+				"scripts/**",
+				"src/dashboard/**",
+				"src/extension/**",
+				"src/extension.ts",
+				"src/provider/**",
+				"src/shared/**",
+				"src/webview/**"
+			],
+			"linter": {
+				"rules": {
+					"complexity": {
+						"noExcessiveCognitiveComplexity": "off",
+						"noExcessiveLinesPerFunction": "off"
+					},
+					"style": {
+						"noNegationElse": "off",
+						"noNestedTernary": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/test/**"],
+			"linter": {
+				"rules": {
+					"complexity": {
+						"noExcessiveCognitiveComplexity": "off"
+					},
+					"style": {
+						"noNegationElse": "off",
+						"noNestedTernary": "off"
+					}
+				}
+			}
+		},
+		// Floor debt at single sites, listed until each site is reworked (hits / files).
+		//   seven parameters   src/extension 4/4, src/test 1/1: an options object per function
+		//   bare pin           src/extension 1/1, src/test 4/3: a compile-time `satisfies` wrapped in void
+		//   re-export shim     two modules whose importers move to the defining module
+		{
+			"includes": [
+				"src/extension/dashboard/resolvedModels.ts",
+				"src/extension/servers/serverSync/vscodeEnv.ts",
+				"src/extension/ui/commands.ts",
+				"src/extension/ui/usageStatusItem.ts",
+				"src/test/extension/dashboard/probeSaveEquivalence.property.test.ts"
+			],
+			"linter": {
+				"rules": {
+					"complexity": {
+						"useMaxParams": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"src/extension/tokenCounting.ts",
+				"src/test/bun/shared/config/recordResolution.test.ts",
+				"src/test/bun/webview/dashboard/provenance.test.tsx",
+				"src/test/shared/conversion/messages.property.test.ts"
+			],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noUnusedExpressions": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/extension/migrations/index.ts", "src/provider/transport/request.ts"],
+			"linter": {
+				"rules": {
+					"performance": {
+						"noBarrelFile": "off"
+					}
+				}
+			}
+		}
+	]
+}

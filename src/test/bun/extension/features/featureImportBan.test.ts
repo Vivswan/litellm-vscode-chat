@@ -34,7 +34,7 @@ describe("extension/features cross-feature import ban", () => {
 			.map((entry) => entry.name)
 			.sort();
 		expect(features.length).toBeGreaterThan(1);
-		const biome = JSON.parse(readFileSync(path.join(REPO_ROOT, "biome.json"), "utf8")) as {
+		const biome = Bun.JSONC.parse(readFileSync(path.join(REPO_ROOT, "biome.local.jsonc"), "utf8")) as {
 			overrides?: readonly BiomeOverride[];
 		};
 		const overrides = biome.overrides ?? [];
@@ -43,7 +43,7 @@ describe("extension/features cross-feature import ban", () => {
 				(candidate) =>
 					candidate.includes?.length === 1 && candidate.includes[0] === `src/extension/features/${feature}/**`
 			);
-			expect(override, `biome.json has no override for src/extension/features/${feature}/**`).toBeDefined();
+			expect(override, `biome.local.jsonc has no override for src/extension/features/${feature}/**`).toBeDefined();
 			// The right groups under a disabled rule ban nothing: the level is part of the guard, not an assumption.
 			expect(
 				override?.linter?.rules?.style?.noRestrictedImports?.level,
