@@ -138,7 +138,7 @@ export function normalizeSessionIdMode(raw: unknown): SessionIdMode {
 	return normalizeEnumSetting(raw, SESSION_ID_MODES, DEFAULT_SESSION_ID_MODE);
 }
 
-/** What LiteLLM groups a chat request under; read per request, so a change applies to the next one. */
+/** What LiteLLM groups a request under; read per request, so a change applies to the next one. */
 export function getChatSessionIdMode(): SessionIdMode {
 	return normalizeSessionIdMode(getConfig().get<unknown>(CHAT_SESSION_ID_SETTING_KEY));
 }

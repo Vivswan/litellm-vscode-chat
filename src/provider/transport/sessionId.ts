@@ -1,6 +1,6 @@
 /**
- * The LiteLLM session id of a chat request, read off the editor: the window, the open folder, and the conversation the
- * provider is about to send.
+ * The LiteLLM session id of a request, read off the editor: the window, the open folder, and for a chat request the
+ * conversation the provider is about to send.
  */
 import * as vscode from "vscode";
 import { resolveSessionIdHeader, type SessionIdContext, type SessionIdMessage } from "../../shared/config/sessionId";
@@ -38,13 +38,22 @@ function sessionIdMessages(messages: readonly vscode.LanguageModelChatRequestMes
 	});
 }
 
-/** The session id header for a chat request, or nothing when the setting is off. */
-export function chatSessionIdHeader(
-	messages: readonly vscode.LanguageModelChatRequestMessage[]
-): HeaderValue | undefined {
+/**
+ * The session id header for a request, or nothing when the setting is off. A chat request hands over its
+ * conversation; a one-shot request (a commit message, a quick fix, a completion) has none to hand over, so under `on`
+ * it rides the window's session.
+ *
+ *   The conversation is reduced only once the setting is known to be on: with it off, no turn is read at all.
+ */
+export function sessionIdHeader(messages?: readonly vscode.LanguageModelChatRequestMessage[]): HeaderValue | undefined {
 	const mode = getChatSessionIdMode();
 	if (mode === "off") {
 		return undefined;
 	}
-	return resolveSessionIdHeader({ mode, context: sessionIdContext(), messages: sessionIdMessages(messages) });
+
+	return resolveSessionIdHeader({
+		mode,
+		context: sessionIdContext(),
+		messages: messages === undefined ? undefined : sessionIdMessages(messages),
+	});
 }

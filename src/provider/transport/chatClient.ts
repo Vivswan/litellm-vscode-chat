@@ -42,7 +42,7 @@ import { mapSdkError } from "./errorMapping";
 import type { TransportFetch } from "./nodeHttpFetch";
 import { nodeHttpFetch } from "./nodeHttpFetch";
 import { buildRequestBody, resolveMaxTokens } from "./request";
-import { chatSessionIdHeader } from "./sessionId";
+import { sessionIdHeader } from "./sessionId";
 import type { ToolCallIdSource } from "./streaming/processor";
 import { StreamProcessor } from "./streaming/processor";
 import { bodylessResponseError, timeoutRequestError } from "./transportErrors";
@@ -346,9 +346,9 @@ export class ChatClient {
 				resolvedAuth.headers !== undefined ? { ...resolvedAuth.headers } : {};
 			const sessionIdTaken =
 				hasHeader(headers, SESSION_ID_HEADER_NAME) || hasHeader(customHeaders, SESSION_ID_HEADER_NAME);
-			const sessionIdHeader = sessionIdTaken ? undefined : chatSessionIdHeader(messages);
-			if (sessionIdHeader !== undefined) {
-				headers[SESSION_ID_HEADER_NAME] = sessionIdHeader;
+			const sessionId = sessionIdTaken ? undefined : sessionIdHeader(messages);
+			if (sessionId !== undefined) {
+				headers[SESSION_ID_HEADER_NAME] = sessionId;
 			}
 			const response = await client
 				.post(CHAT_COMPLETIONS_PATH, {

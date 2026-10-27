@@ -206,7 +206,7 @@ function tokenEstimationDescription(): string {
 }
 
 function sessionIdDescription(): string {
-	return l10n.t("What LiteLLM groups this chat's requests under, e.g. one session per chat.");
+	return l10n.t("What LiteLLM groups requests under, e.g. one session per chat.");
 }
 
 function toolSchemaKeywordsDescription(): string {

@@ -304,7 +304,7 @@ export function helpCommitPrompt(): string {
 /** The session id row: what LiteLLM does with it, and what each value groups by. */
 export function helpSessionId(): string {
 	return l10n.t(
-		"LiteLLM groups requests that share a session id, as other LiteLLM clients send one. On hashes the chat's opening question with this window's id, so no text leaves the machine. Folder hashes the open folder's path; Window hashes this window's own id."
+		"LiteLLM groups requests sharing a session id. On hashes the chat's opening question with this window's id, so no text leaves the machine; one-shot requests ride the window's session. Folder hashes the open folder's path; Window the window's own id."
 	);
 }
 
