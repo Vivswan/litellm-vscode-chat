@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.11](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.10...v0.6.11) (2026-10-28)
+
+
+### Features
+
+* send the session id with one-shot requests too ([#588](https://github.com/Vivswan/litellm-vscode-chat/issues/588), thanks [@theodiem](https://github.com/theodiem)) ([#607](https://github.com/Vivswan/litellm-vscode-chat/issues/607)) ([c584aa8](https://github.com/Vivswan/litellm-vscode-chat/commit/c584aa87e76c3908872d58a60c17ac7610d3b553))
+
+
+### Bug Fixes
+
+* **deps:** bump zod to 4.6.7 for CVE-2023-54404 ([#608](https://github.com/Vivswan/litellm-vscode-chat/issues/608)) ([944612a](https://github.com/Vivswan/litellm-vscode-chat/commit/944612af89df3270ab3fe5ee97d6e7054d7b7a8c))
+
 ## [0.6.10](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.9...v0.6.10) (2026-10-22)
 
 
