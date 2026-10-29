@@ -2,7 +2,7 @@
 	"name": "litellm-vscode-chat",
 	"displayName": "%litellm.displayName%",
 	"description": "%litellm.description%",
-	"version": "0.6.11",
+	"version": "0.6.12",
 	"publisher": "vivswan",
 	"license": "SEE LICENSE IN LICENSE.md",
 	"icon": "assets/logo.png",
