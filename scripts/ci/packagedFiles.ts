@@ -46,7 +46,7 @@ export interface SizeBound {
 }
 
 /**
- * Byte bounds on build output no test suite loads, set against a fresh production `bun run bundle` (the test entry
+ * Byte bounds on packaged files no test suite loads, set against a fresh production `bun run bundle` (the test entry
  * points rebuild dist as an unminified development bundle, which these bounds are not written for).
  *
  *   dist/extension.js          561,000 bytes (2026-08-13)  -> ceiling: each encoding's ranks alone are 1-2 MB
@@ -54,6 +54,7 @@ export interface SizeBound {
  *   dist/webview/dashboard.js  487,104 bytes (2026-08-13)  -> floor: a truncated emit; ceiling: zod once quadrupled it
  *   dist/webview/dashboard.css  80,769 bytes (2026-08-13)  -> floor: a truncated emit or a missing leg; ceiling: a scan
  *                                                             gone wide
+ *   assets/logo.png             96,155 bytes (2026-10-28)  -> ceiling: the Marketplace refuses an icon over 1024 KB
  */
 export const SIZE_BOUNDS: readonly SizeBound[] = [
 	{
@@ -71,6 +72,10 @@ export const SIZE_BOUNDS: readonly SizeBound[] = [
 		file: "dist/webview/dashboard.css",
 		min: { bytes: 55_000, reason: "the dashboard stylesheet looks broken" },
 		max: { bytes: 120_000, reason: "the stylesheet emit has run away" },
+	},
+	{
+		file: "assets/logo.png",
+		max: { bytes: 1_048_576, reason: "the Marketplace refuses an icon over 1024 KB at publish time" },
 	},
 ];
 
