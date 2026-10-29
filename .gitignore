@@ -10,7 +10,7 @@
 
 # Generated at bundle time from runtime dependencies' license files
 ThirdPartyNotices.txt
-# Rendered at compile time from assets/logo.svg (scripts/dev/render-icon.ts)
+# Rendered by every bundle from assets/logo.svg (scripts/dev/render-icon.mts)
 assets/logo.png
 
 # Auto-generated VS Code type definitions

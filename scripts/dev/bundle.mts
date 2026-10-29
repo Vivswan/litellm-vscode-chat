@@ -10,6 +10,7 @@ import {
 } from "../../src/shared/webviewPaths.ts";
 import { tailwindCliBin } from "../../src/test/bun/webview/dashboard/styles/tailwindCliBin.ts";
 import { assertLayersOrdered } from "./cascadeLayers.ts";
+import { renderIcon } from "./render-icon.mts";
 
 const watchMode = process.argv.includes("--watch");
 const production = process.argv.includes("--production");
@@ -26,6 +27,9 @@ if (typeof manifest.repository?.url !== "string") {
 	throw new Error("package.json repository.url must be a string: the GitHub links are built from it");
 }
 const buildDefines = { __LITELLM_REPOSITORY_URL__: JSON.stringify(manifest.repository.url) };
+
+// The icon is a build product every bundle path writes, so F5, the dev loop, the tests, and the package all have it.
+console.log(renderIcon());
 
 /**
  * Flattens Bun's AggregateError of BuildMessages into the [KIND]-tagged,
