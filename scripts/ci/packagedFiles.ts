@@ -54,7 +54,7 @@ export interface SizeBound {
  *   dist/webview/dashboard.js  487,104 bytes (2026-08-13)  -> floor: a truncated emit; ceiling: zod once quadrupled it
  *   dist/webview/dashboard.css  80,769 bytes (2026-08-13)  -> floor: a truncated emit or a missing leg; ceiling: a scan
  *                                                             gone wide
- *   assets/logo.png             96,155 bytes (2026-10-28)  -> ceiling: the Marketplace refuses an icon over 1024 KB
+ *   assets/logo.png             42,023 bytes (2026-10-29)  -> floor: a blank render; ceiling: the Marketplace cap
  */
 export const SIZE_BOUNDS: readonly SizeBound[] = [
 	{
@@ -75,6 +75,7 @@ export const SIZE_BOUNDS: readonly SizeBound[] = [
 	},
 	{
 		file: "assets/logo.png",
+		min: { bytes: 20_000, reason: "the icon render from assets/logo.svg came out blank" },
 		max: { bytes: 1_048_576, reason: "the Marketplace refuses an icon over 1024 KB at publish time" },
 	},
 ];

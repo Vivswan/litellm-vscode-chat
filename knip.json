@@ -12,6 +12,7 @@
 		"src/test/bun/scripts/lint/userTextReadersFixture.ts",
 		"src/test/bun/scripts/lint/userTextReadersCleanFixture.ts",
 		"scripts/dev/render-dashboard.ts",
+		"scripts/dev/render-icon.ts",
 		"scripts/dev/renderFixtures/*.ts",
 		"!scripts/dev/renderFixtures/shared.ts",
 		"scripts/dev/seed-demo-usage.ts",
