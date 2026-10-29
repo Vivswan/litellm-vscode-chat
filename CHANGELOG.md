@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.12](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.11...v0.6.12) (2026-10-29)
+
+
+### Bug Fixes
+
+* shrink the extension icon under the Marketplace's 1024 KB limit ([#611](https://github.com/Vivswan/litellm-vscode-chat/issues/611)) ([b2f9cbe](https://github.com/Vivswan/litellm-vscode-chat/commit/b2f9cbe9d0bbc261356ec7002161cd960d9c8f5e))
+
 ## [0.6.11](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.10...v0.6.11) (2026-10-28)
 
 
