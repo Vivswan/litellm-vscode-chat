@@ -34,6 +34,7 @@ renders/**
 .bun-version
 biome.json
 biome.local.jsonc
+assets/logo.svg
 bun.lock
 bunfig.toml
 components.json

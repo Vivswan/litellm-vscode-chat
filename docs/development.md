@@ -34,6 +34,7 @@ To reset the demo state, delete `.dev-profile/` (drops the seeded entries and re
 | Command | Description |
 |---------|-------------|
 | `bun run compile` | Build |
+| `bun run icon:render` | Render `assets/logo.png` from `assets/logo.svg` (every bundle renders it first) |
 | `bun run watch` | Watch mode |
 | `bun run lint` | Lint |
 | `bun run format` | Format |
