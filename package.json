@@ -2238,7 +2238,7 @@
 		"knip": "^6.34.0",
 		"lightningcss": "^1.32.0",
 		"msw": "^2.15.0",
-		"rolldown": "^1.2.6",
+		"rolldown": "^1.2.15",
 		"tailwindcss": "^4.3.3",
 		"typescript": "^6.0.3",
 		"typescript-eslint": "8.69.0"
