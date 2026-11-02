@@ -20,3 +20,5 @@ rules:
     check-keys: false # GitHub workflows' `on:` key is fine
   comments:
     min-spaces-from-content: 1
+  braces:
+    max-spaces-inside: 1 # biome's YAML formatter pads a flow mapping, `{ key: value }`
