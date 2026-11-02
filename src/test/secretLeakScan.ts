@@ -1,5 +1,3 @@
-import escapeStringRegExp from "escape-string-regexp";
-
 /**
  * The monkey fuzzer's leak oracle, kept free of vscode so the bun tree can pin it. The fuzzer mints a secret per
  * credentialed walk and logs more per provider group, so the scan is one matcher per batch rather than one pass per
@@ -16,7 +14,7 @@ export function findSecretLeak(
 	if (distinct.length === 0) {
 		return undefined;
 	}
-	const matcher = new RegExp(distinct.map((secret) => escapeStringRegExp(secret)).join("|"));
+	const matcher = new RegExp(distinct.map((secret) => RegExp.escape(secret)).join("|"));
 	for (const [lineIndex, line] of lines.entries()) {
 		const match = matcher.exec(line);
 		if (match !== null) {

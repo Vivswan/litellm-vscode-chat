@@ -8,6 +8,7 @@
 		// source at ES2024; this project spans both worlds, so it takes the union.
 		"lib": [
 			"ES2024",
+			"ES2025.RegExp",
 			"DOM",
 			"DOM.Iterable"
 		],
