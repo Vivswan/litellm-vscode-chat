@@ -24,6 +24,11 @@ import { DOCS_GETTING_STARTED_URL, GITHUB_REPO_URL, SETUP_HINT_DOCS_URLS } from 
 import { expectDefined } from "../../pureHelpers";
 import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
 
+/** The configured-servers gate as the commands receive it; the fixtures here all declare or observe servers. */
+const CONFIGURED = () => true;
+/** The engine has published no declared view: what the issue report sees before the first sync pass. */
+const NO_DECLARED = () => [];
+
 suite("extension/ui/commands", () => {
 	/**
 	 * Poll until `condition` holds: the gate flow is deliberately not awaited by the command, so its effects land
@@ -149,10 +154,6 @@ suite("extension/ui/commands", () => {
 	}
 
 	const outputChannel = { show: () => {} } as unknown as vscode.OutputChannel;
-	/** The configured-servers gate as the commands receive it; the fixtures here all declare or observe servers. */
-	const CONFIGURED = () => true;
-	/** The engine has published no declared view: what the issue report sees before the first sync pass. */
-	const NO_DECLARED = () => [];
 
 	async function withToasts(fn: () => Promise<void>): Promise<Toast[]> {
 		const toasts: Toast[] = [];

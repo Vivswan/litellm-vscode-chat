@@ -18,17 +18,17 @@ name: Nightly Fuzz
 
 on:
   schedule:
-    - cron: '59 7 * * *'
+    - cron: "59 7 * * *"
   workflow_dispatch:
     inputs:
       seed:
         description: Fuzz seed (blank derives a distinct seed per leg; a value replays verbatim on every leg)
         required: false
-        default: ''
+        default: ""
       iterations:
         description: Property-test runs per suite (unit legs)
         required: false
-        default: '1000'
+        default: "1000"
 
 # Scheduled runs supersede an in-flight scheduled run, but every manual
 # dispatch gets its own group so several fuzz passes (each with its own
@@ -158,9 +158,9 @@ jobs:
         env:
           LEG: ${{ matrix.leg }}
           SEEDED: ${{ matrix.seeded }}
-          FUZZ_ITERATIONS: '500'
-          CONVERSATION_ITERATIONS: '50'
-          MONKEY_ITERATIONS: '40'
+          FUZZ_ITERATIONS: "500"
+          CONVERSATION_ITERATIONS: "50"
+          MONKEY_ITERATIONS: "40"
         run: bun scripts/ci/nightly-fuzz-leg.ts docker
 
       - name: Upload failure artifacts

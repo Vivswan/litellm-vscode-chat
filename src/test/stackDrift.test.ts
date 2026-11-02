@@ -157,9 +157,9 @@ suite("stack drift guard: checks.yml docker shards", () => {
 	}
 
 	function shardLabels(job: string): string[][] {
-		const list = /^ +labels:\n((?: +- '[^'\n]*'\n)+)/m.exec(jobBlock(job));
+		const list = /^ +labels:\n((?: +- ["'][^"'\n]*["']\n)+)/m.exec(jobBlock(job));
 		assert.ok(list, `the "${job}" job declares a quoted labels matrix`);
-		return [...(list[1] as string).matchAll(/- '([^'\n]*)'/g)].map((match) =>
+		return [...(list[1] as string).matchAll(/- ["']([^"'\n]*)["']/g)].map((match) =>
 			(match[1] as string).split(",").map((label) => label.trim())
 		);
 	}

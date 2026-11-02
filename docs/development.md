@@ -31,14 +31,14 @@ Press `F5` to launch the Extension Development Host, or `bun run dev` to launch 
 
 To reset the demo state, delete `.dev-profile/` (drops the seeded entries and records with the rest of the profile); `bun run docker:down` additionally zeroes the accrued spend, since the stack's database lives on tmpfs.
 
-| Command | Description |
-|---------|-------------|
-| `bun run compile` | Build |
+| Command               | Description                                                                     |
+| --------------------- | ------------------------------------------------------------------------------- |
+| `bun run compile`     | Build                                                                           |
 | `bun run icon:render` | Render `assets/logo.png` from `assets/logo.svg` (every bundle renders it first) |
-| `bun run watch` | Watch mode |
-| `bun run lint` | Lint |
-| `bun run format` | Format |
-| `bun run test` | Run tests |
+| `bun run watch`       | Watch mode                                                                      |
+| `bun run lint`        | Lint                                                                            |
+| `bun run format`      | Format                                                                          |
+| `bun run test`        | Run tests                                                                       |
 
 [CONTRIBUTING.md](../CONTRIBUTING.md) covers environment setup, the full check list, and how to submit a pull request.
 
@@ -59,16 +59,16 @@ The fake defines eight realistic models (seven served, one blocked) and takes it
 
 The model list is deliberately small and shaped like a real deployment (`src/test/fakeStack/models.ts`):
 
-| Model | What it plays |
-|-------|---------------|
-| `claude-opus-4-5` | Everything on: reasoning, caching, tiered pricing, 1M context |
-| `gpt-5.2` | A load-balanced pair |
-| `gpt-5.2-mini` | The everyday target |
-| `gpt-5.2-omni` | Audio flags |
-| `deepseek-r2` | Reasoning without tools |
-| `llama-4-scout` | No limits or pricing declared, tools explicitly off |
-| `codestral-fim` | Declared a text-completion model (`mode: completion`); the inline-completions (FIM) target on /v1/completions, kept out of the chat picker unless an entry includes the mode |
-| `gpt-4-turbo` | Blocked in the config; must never appear in the picker - that absence is itself under test |
+| Model             | What it plays                                                                                                                                                                |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude-opus-4-5` | Everything on: reasoning, caching, tiered pricing, 1M context                                                                                                                |
+| `gpt-5.2`         | A load-balanced pair                                                                                                                                                         |
+| `gpt-5.2-mini`    | The everyday target                                                                                                                                                          |
+| `gpt-5.2-omni`    | Audio flags                                                                                                                                                                  |
+| `deepseek-r2`     | Reasoning without tools                                                                                                                                                      |
+| `llama-4-scout`   | No limits or pricing declared, tools explicitly off                                                                                                                          |
+| `codestral-fim`   | Declared a text-completion model (`mode: completion`); the inline-completions (FIM) target on /v1/completions, kept out of the chat picker unless an entry includes the mode |
+| `gpt-4-turbo`     | Blocked in the config; must never appear in the picker - that absence is itself under test                                                                                   |
 
 Pick any of them in the Copilot model picker and type a command as your message. `%help` lists everything; the ones you will reach for first:
 

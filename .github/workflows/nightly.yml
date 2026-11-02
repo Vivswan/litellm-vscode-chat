@@ -42,17 +42,17 @@ jobs:
   vscode-insiders:
     uses: ./.github/workflows/test-reusable.yml
     with:
-      os: 'ubuntu-latest'
-      vscode-version: 'insiders'
+      os: "ubuntu-latest"
+      vscode-version: "insiders"
 
   # Same image repository as the pin, so the tag is the only variable.
   # main-latest would also page on LiteLLM's own unreviewed dev builds.
   litellm-stable:
     uses: ./.github/workflows/test-reusable.yml
     with:
-      os: 'ubuntu-latest'
-      suite: 'docker'
-      litellm-image: 'ghcr.io/berriai/litellm-database:main-stable'
+      os: "ubuntu-latest"
+      suite: "docker"
+      litellm-image: "ghcr.io/berriai/litellm-database:main-stable"
 
   # Runs whatever happened to the probe jobs, and treats a CANCELLED job as
   # red: a job that hits its timeout is cancelled, not failed, and a hang is

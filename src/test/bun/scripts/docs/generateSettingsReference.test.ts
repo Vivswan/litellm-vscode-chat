@@ -10,6 +10,7 @@ import {
 	DOC_LOCALES,
 	type DocLocale,
 	END_MARKER,
+	isReferenceHeader,
 	readSpecSettings,
 	SETTINGS_DOC_PATHS,
 	type SpecSettings,
@@ -182,7 +183,8 @@ describe("settings reference generation", () => {
 		const quoted = original.replace("## Reference", `## Reference\n\n${TABLE_HEADERS.en}`);
 		assert.throws(() => applyReferenceTable(quoted, "en", table), /repeats the reference table header/);
 		const lines = original.split("\n");
-		const headerAt = lines.indexOf(TABLE_HEADERS.en);
+		const headerAt = lines.findIndex((line) => isReferenceHeader(line, "en"));
+		assert.notStrictEqual(headerAt, -1);
 		const gutted = [...lines.slice(0, headerAt + 1), ...lines.slice(headerAt + 2)].join("\n");
 		assert.throws(() => applyReferenceTable(gutted, "en", table), /separator row/);
 	});
@@ -244,7 +246,11 @@ describe("generate-settings-reference CLI", () => {
 			// locales untouched too.
 			const root = makeFixture();
 			const zhTwPath = path.join(root, SETTINGS_DOC_PATHS.zhTw);
-			fs.writeFileSync(zhTwPath, fs.readFileSync(zhTwPath, "utf8").replace(TABLE_HEADERS.zhTw, "| gone |"));
+			const zhTwLines = fs.readFileSync(zhTwPath, "utf8").split("\n");
+			const zhTwHeaderAt = zhTwLines.findIndex((line) => isReferenceHeader(line, "zhTw"));
+			assert.notStrictEqual(zhTwHeaderAt, -1);
+			zhTwLines[zhTwHeaderAt] = "| gone |";
+			fs.writeFileSync(zhTwPath, zhTwLines.join("\n"));
 			const before = fs.readFileSync(path.join(root, SETTINGS_DOC_PATHS.en), "utf8");
 			const broken = runCli(root);
 			assert.strictEqual(broken.exitCode, 1);

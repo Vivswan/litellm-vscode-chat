@@ -8,7 +8,7 @@ on:
   workflow_call:
     inputs:
       catalog-artifact:
-        description: 'Name of the artifact holding the validated dist/openrouter-models.json (uploaded by checks.yml openrouter-catalog)'
+        description: "Name of the artifact holding the validated dist/openrouter-models.json (uploaded by checks.yml openrouter-catalog)"
         required: true
         type: string
       catalog-outcome:

@@ -197,29 +197,29 @@ describe("the inspector's capabilities configure-jump", () => {
 	});
 });
 
+function Harness({ external }: { external: ExternalRecordEdit | undefined }) {
+	return (
+		<ModelParametersEditor
+			scoped={makeScopedRecord({ "gpt-5*": { temperature: 0.3 }, "*": { top_p: 0.9 }, " gpt-4*": { seed: 1 } })}
+			models={[]}
+			external={external}
+		/>
+	);
+}
+
+function CapsHarness({ external }: { external: ExternalRecordEdit | undefined }) {
+	return (
+		<ModelCapabilitiesEditor
+			scoped={makeScopedRecord({ "*": { context_length: 131072 }, " gpt-4*": { max_output_tokens: 8192 } })}
+			models={[]}
+			external={external}
+		/>
+	);
+}
+
 describe("the editors' external-edit landing", () => {
 	/** Flush the slide-over's mount-focus effect. */
 	const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
-
-	function Harness({ external }: { external: ExternalRecordEdit | undefined }) {
-		return (
-			<ModelParametersEditor
-				scoped={makeScopedRecord({ "gpt-5*": { temperature: 0.3 }, "*": { top_p: 0.9 }, " gpt-4*": { seed: 1 } })}
-				models={[]}
-				external={external}
-			/>
-		);
-	}
-
-	function CapsHarness({ external }: { external: ExternalRecordEdit | undefined }) {
-		return (
-			<ModelCapabilitiesEditor
-				scoped={makeScopedRecord({ "*": { context_length: 131072 }, " gpt-4*": { max_output_tokens: 8192 } })}
-				models={[]}
-				external={external}
-			/>
-		);
-	}
 
 	function matcherKeys(root: HTMLElement): string[] {
 		return Array.from(root.querySelectorAll(".record-table .matcher-key")).map((cell) => cell.textContent ?? "");

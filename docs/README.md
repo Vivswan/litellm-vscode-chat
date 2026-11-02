@@ -6,34 +6,34 @@ The extension connects GitHub Copilot Chat to any number of LiteLLM servers: the
 
 ## I want to...
 
-| Goal | Read |
-|------|------|
-| Set up my first server and send a chat | [Getting started](getting-started.md) |
-| Add another server, or see every field an entry can carry | [Servers: entry reference](servers.md#entry-reference) |
-| Keep an API key out of settings.json | [Servers: secrets and secret storage](servers.md#secrets-and-secret-storage) |
-| Authenticate with OAuth, or a key in a custom header | [Servers: authentication](servers.md#authentication) |
-| Attach extra HTTP headers to a server (tracing, routing tags) | [Servers: entry reference](servers.md#entry-reference) |
-| Use a gateway that cannot list its models (no `/v1/models`) | [Servers: declared models](servers.md#declared-models) |
-| Use my LiteLLM proxy's own MCP tools in chat | [Servers: MCP tools](servers.md#mcp-tools) |
-| Fix a wrong context length, or turn on vision for a model | [Models: capabilities](models.md#capabilities) |
-| Set temperature (or any request parameter) for a model family | [Models: parameters](models.md#parameters) |
-| Understand how `"gpt-5*"` and other matcher keys combine | [Models: model matching](models.md#model-matching) |
-| Use a LiteLLM model for Copilot's commit messages, titles, and other background tasks | [Models: Copilot model slots](models.md#copilot-model-slots) |
-| Generate commit messages with a LiteLLM model of my choice | [Getting started: the commit message recipe](getting-started.md#generate-commit-messages-with-your-own-model) |
-| Draft a pull request title and description with a LiteLLM model of my choice | [Getting started: the PR description recipe](getting-started.md#generate-pull-request-descriptions-with-your-own-model) |
-| Get ghost-text completions in the editor from one of my own models | [Getting started: the inline completions recipe](getting-started.md#get-inline-completions-from-a-litellm-model) |
-| Ask a question in chat and have one of my own models answer | [Getting started: the @litellm chat recipe](getting-started.md#chat-with-litellm) |
-| Let a chat agent ask one of my models for a second opinion | [Getting started: the consult tool recipe](getting-started.md#let-an-agent-ask-a-second-model) |
-| Let a chat agent diagnose or change this extension's setup for me | [Getting started: the agent tools recipe](getting-started.md#let-an-agent-manage-your-litellm-setup) |
-| Fix or explain an error in my editor with one of my own models | [Getting started: the quick fix recipe](getting-started.md#fix-or-explain-a-diagnostic) |
-| Have a model review my code and comment on the lines | [Getting started: the review comments recipe](getting-started.md#get-review-comments-on-your-code) |
-| Set a spending budget and get warned before it runs out | [Usage: budgets](usage.md#budgets) and [alerts](usage.md#alerts) |
-| See why a model's parameter or capability has the value it has | [Models: the inspectors](models.md#inspectors) |
-| Figure out why something is red or yellow in the status bar | [Troubleshooting: status bar](troubleshooting.md#status-bar) |
-| Take over a server that was added outside the extension | [Servers: external servers and adoption](servers.md#external-servers-and-adoption) |
-| Set up a second machine, or understand what Settings Sync carries | [Servers: multiple machines and Settings Sync](servers.md#multiple-machines-and-settings-sync) |
-| Look up any setting, its default, and what changed on upgrade | [Settings: reference](settings.md#reference) |
-| Diagnose a failure, from a 401 to missing models | [Troubleshooting: common issues](troubleshooting.md#common-issues) |
+| Goal                                                                                  | Read                                                                                                                    |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Set up my first server and send a chat                                                | [Getting started](getting-started.md)                                                                                   |
+| Add another server, or see every field an entry can carry                             | [Servers: entry reference](servers.md#entry-reference)                                                                  |
+| Keep an API key out of settings.json                                                  | [Servers: secrets and secret storage](servers.md#secrets-and-secret-storage)                                            |
+| Authenticate with OAuth, or a key in a custom header                                  | [Servers: authentication](servers.md#authentication)                                                                    |
+| Attach extra HTTP headers to a server (tracing, routing tags)                         | [Servers: entry reference](servers.md#entry-reference)                                                                  |
+| Use a gateway that cannot list its models (no `/v1/models`)                           | [Servers: declared models](servers.md#declared-models)                                                                  |
+| Use my LiteLLM proxy's own MCP tools in chat                                          | [Servers: MCP tools](servers.md#mcp-tools)                                                                              |
+| Fix a wrong context length, or turn on vision for a model                             | [Models: capabilities](models.md#capabilities)                                                                          |
+| Set temperature (or any request parameter) for a model family                         | [Models: parameters](models.md#parameters)                                                                              |
+| Understand how `"gpt-5*"` and other matcher keys combine                              | [Models: model matching](models.md#model-matching)                                                                      |
+| Use a LiteLLM model for Copilot's commit messages, titles, and other background tasks | [Models: Copilot model slots](models.md#copilot-model-slots)                                                            |
+| Generate commit messages with a LiteLLM model of my choice                            | [Getting started: the commit message recipe](getting-started.md#generate-commit-messages-with-your-own-model)           |
+| Draft a pull request title and description with a LiteLLM model of my choice          | [Getting started: the PR description recipe](getting-started.md#generate-pull-request-descriptions-with-your-own-model) |
+| Get ghost-text completions in the editor from one of my own models                    | [Getting started: the inline completions recipe](getting-started.md#get-inline-completions-from-a-litellm-model)        |
+| Ask a question in chat and have one of my own models answer                           | [Getting started: the @litellm chat recipe](getting-started.md#chat-with-litellm)                                       |
+| Let a chat agent ask one of my models for a second opinion                            | [Getting started: the consult tool recipe](getting-started.md#let-an-agent-ask-a-second-model)                          |
+| Let a chat agent diagnose or change this extension's setup for me                     | [Getting started: the agent tools recipe](getting-started.md#let-an-agent-manage-your-litellm-setup)                    |
+| Fix or explain an error in my editor with one of my own models                        | [Getting started: the quick fix recipe](getting-started.md#fix-or-explain-a-diagnostic)                                 |
+| Have a model review my code and comment on the lines                                  | [Getting started: the review comments recipe](getting-started.md#get-review-comments-on-your-code)                      |
+| Set a spending budget and get warned before it runs out                               | [Usage: budgets](usage.md#budgets) and [alerts](usage.md#alerts)                                                        |
+| See why a model's parameter or capability has the value it has                        | [Models: the inspectors](models.md#inspectors)                                                                          |
+| Figure out why something is red or yellow in the status bar                           | [Troubleshooting: status bar](troubleshooting.md#status-bar)                                                            |
+| Take over a server that was added outside the extension                               | [Servers: external servers and adoption](servers.md#external-servers-and-adoption)                                      |
+| Set up a second machine, or understand what Settings Sync carries                     | [Servers: multiple machines and Settings Sync](servers.md#multiple-machines-and-settings-sync)                          |
+| Look up any setting, its default, and what changed on upgrade                         | [Settings: reference](settings.md#reference)                                                                            |
+| Diagnose a failure, from a 401 to missing models                                      | [Troubleshooting: common issues](troubleshooting.md#common-issues)                                                      |
 
 ## The pages
 

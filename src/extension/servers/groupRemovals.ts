@@ -331,10 +331,14 @@ class VersionedRegion<T> {
 
 	private async writeCommitted(): Promise<void> {
 		// The max guards the suspended-adoption case: storage may hold a newer foreign version this window skipped, and
-		// the healing write must outrank it (last-write-wins).
+		// the healing write must outrank it (last-write-wins). Spelled out because Math.max takes numbers, not bigints.
 		const generation = this.commitGeneration;
 		const stored = parseVersionedRecords(this.memento.get(this.key));
-		const next = (stored.version > this.version ? stored.version : this.version) + 1n;
+		let newest = this.version;
+		if (stored.version > newest) {
+			newest = stored.version;
+		}
+		const next = newest + 1n;
 		const blob = {
 			version: next.toString(),
 			records: this.records.filter((record) => !this.transient.has(record)),
