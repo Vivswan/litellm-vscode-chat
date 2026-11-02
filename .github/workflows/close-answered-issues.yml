@@ -15,7 +15,10 @@ on:
   schedule:
     - cron: "23 7 * * *"
   workflow_dispatch:
-  issue_comment:
+  # The handed-back job checks out nothing and reads one event field, the
+  # issue number, through the environment, so a comment body never reaches
+  # a shell. zizmor cannot see that and flags the trigger itself.
+  issue_comment: # zizmor: ignore[dangerous-triggers]
     types: [created]
 
 permissions: {}
