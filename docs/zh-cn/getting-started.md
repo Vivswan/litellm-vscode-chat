@@ -358,22 +358,22 @@ after:  {"context_length":200000}
 
 扩展能按需做的一切都是命令面板命令 (`Ctrl+Shift+P` / `Cmd+Shift+P`, 然后输入 "LiteLLM"):
 
-| 命令 | 作用 |
-|---------|--------------|
-| Manage LiteLLM Provider | 中心菜单: 管理服务器和模型、打开仪表板、运行诊断 |
-| LiteLLM: Open Dashboard | [仪表板](dashboard.md)面板: 服务器、模型、用量和设置集中一处 |
-| LiteLLM: Test Connection | 连接每个服务器并报告模型数量或确切的错误 |
-| LiteLLM: Sync Models Now | 立即刷新模型列表, 绕过发现缓存 |
-| LiteLLM: Show Diagnostics | 打开仪表板的诊断区块: 每服务器连接状态、模型数量、错误, 以及上次检查时间 |
-| LiteLLM: Set Server Secret | 把服务器的 API 密钥、OAuth 客户端密钥或虚拟密钥存入[密钥存储](servers.md#密钥与密钥存储) |
-| LiteLLM: Refresh Usage Now | 立即获取支出和预算数据, 不受轮询间隔约束 |
-| LiteLLM: Refresh OpenRouter Catalog | 按需刷新能力目录 ([模型](models.md#能力)) |
-| LiteLLM: Export Settings... | 把扩展的设置保存为 JSON 文件, 包含存储的密钥, 并提醒该文件携带凭据 |
-| LiteLLM: Import Settings... | 合并之前导出的设置文件, 每个冲突的服务器都会询问 |
-| LiteLLM: Undo Last Settings Import | 把设置和密钥恢复到上次导入前的状态 |
-| LiteLLM: Generate Commit Message | 根据你已暂存的更改起草提交消息并填入源代码管理输入框 (选择加入; 见[配方](#用你自己的模型生成提交消息)) |
+| 命令                                       | 作用                                                                                                   |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Manage LiteLLM Provider                    | 中心菜单: 管理服务器和模型、打开仪表板、运行诊断                                                       |
+| LiteLLM: Open Dashboard                    | [仪表板](dashboard.md)面板: 服务器、模型、用量和设置集中一处                                           |
+| LiteLLM: Test Connection                   | 连接每个服务器并报告模型数量或确切的错误                                                               |
+| LiteLLM: Sync Models Now                   | 立即刷新模型列表, 绕过发现缓存                                                                         |
+| LiteLLM: Show Diagnostics                  | 打开仪表板的诊断区块: 每服务器连接状态、模型数量、错误, 以及上次检查时间                               |
+| LiteLLM: Set Server Secret                 | 把服务器的 API 密钥、OAuth 客户端密钥或虚拟密钥存入[密钥存储](servers.md#密钥与密钥存储)               |
+| LiteLLM: Refresh Usage Now                 | 立即获取支出和预算数据, 不受轮询间隔约束                                                               |
+| LiteLLM: Refresh OpenRouter Catalog        | 按需刷新能力目录 ([模型](models.md#能力))                                                              |
+| LiteLLM: Export Settings...                | 把扩展的设置保存为 JSON 文件, 包含存储的密钥, 并提醒该文件携带凭据                                     |
+| LiteLLM: Import Settings...                | 合并之前导出的设置文件, 每个冲突的服务器都会询问                                                       |
+| LiteLLM: Undo Last Settings Import         | 把设置和密钥恢复到上次导入前的状态                                                                     |
+| LiteLLM: Generate Commit Message           | 根据你已暂存的更改起草提交消息并填入源代码管理输入框 (选择加入; 见[配方](#用你自己的模型生成提交消息)) |
 | LiteLLM: Generate Pull Request Description | 根据你的分支起草拉取请求标题和描述并复制到剪贴板 (选择加入; 见[配方](#用你自己的模型生成拉取请求描述)) |
-| LiteLLM: Review Changes | 评审一个仓库里所有未提交的改动, 并在相关的行上留下评论 (选择加入; 见[配方](#让模型评审你的代码)) |
-| LiteLLM: Review This File | 评审你正在看的那个文件的全部内容, 并在相关的行上留下评论 (同一个选择加入) |
-| LiteLLM: Report Issue | 打开预填好的 GitHub Issue; 见[它收集什么](troubleshooting.md#报告问题) |
-| LiteLLM: Help & Feedback | 文档、Bug 报告和功能请求的快捷入口 |
+| LiteLLM: Review Changes                    | 评审一个仓库里所有未提交的改动, 并在相关的行上留下评论 (选择加入; 见[配方](#让模型评审你的代码))       |
+| LiteLLM: Review This File                  | 评审你正在看的那个文件的全部内容, 并在相关的行上留下评论 (同一个选择加入)                              |
+| LiteLLM: Report Issue                      | 打开预填好的 GitHub Issue; 见[它收集什么](troubleshooting.md#报告问题)                                 |
+| LiteLLM: Help & Feedback                   | 文档、Bug 报告和功能请求的快捷入口                                                                     |

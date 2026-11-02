@@ -129,6 +129,15 @@ const NAMES_BY_FILE: ReadonlyMap<string, ReadonlySet<string>> = new Map(
 	SCANNED_SOURCES.map((file) => [file, underscoreNames(file)])
 );
 
+/**
+ * The directive-shaped tokens a Markdown page spells, read from its rendered HTML: biome writes emphasis as `_text_`,
+ * whose underscores the renderer consumes, while a code span, where a directive is spelled, keeps its text. A regex
+ * over the source matched from a code span's `_force` to a later lone underscore and hid the directive.
+ */
+function directiveTokensInMarkdown(markdown: string): ReadonlySet<string> {
+	return new Set(Bun.markdown.html(markdown).match(DIRECTIVE_TOKEN_PATTERN) ?? []);
+}
+
 describe("shared/config record-type directive registry", () => {
 	test("every name is underscore-prefixed and minted in exactly one row, never a shared engine directive", () => {
 		const seen = new Map<string, RecordType>();
@@ -238,6 +247,12 @@ describe("shared/config record-type directive registry", () => {
 		assert.ok(found.has(INHERITABLE_DIRECTIVE), "the copy sweep no longer sees _inheritable's spelling");
 	});
 
+	test("the docs sweep keeps a code-span directive beside emphasis and a lone underscore, and drops the emphasis", () => {
+		// The shape that defeated a source-text regex: biome's _emphasis_ after a code span, then a bare underscore.
+		const tokens = directiveTokensInMarkdown("The `_retired` toggle _is_ the one, and a lone _ here (`_fallback`).");
+		assert.deepStrictEqual([...tokens].sort(), ["_fallback", "_retired"]);
+	});
+
 	test("every directive-shaped token in the docs and README files is a registered directive", () => {
 		// The docs teach the record grammar in prose and code fences, so registered spellings are expected and pass;
 		// the sweep detects renames, where a dropped registry name would leave the docs teaching it.
@@ -270,7 +285,7 @@ describe("shared/config record-type directive registry", () => {
 		for (const file of sweptFiles) {
 			const legFound = readmeFiles.has(file) ? readmeFound : docsFound;
 			const text = fs.readFileSync(path.join(REPO_ROOT, file), "utf8");
-			for (const token of new Set(text.match(DIRECTIVE_TOKEN_PATTERN) ?? [])) {
+			for (const token of directiveTokensInMarkdown(text)) {
 				legFound.add(token);
 				if (!REGISTERED_DIRECTIVES.has(token) && !allowedTokens.has(token)) {
 					failures.push(

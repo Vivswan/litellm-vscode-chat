@@ -29,14 +29,14 @@ Each row is one readable block - label, status, URL, model count, spend, and cre
 
 Each row's Status pill is one of six states:
 
-| Status | Meaning |
-|--------|---------|
-| Connected | Discovery succeeded |
-| Error | The last check failed and the server is serving no models |
-| Sync issue | The server answers, but its last settings sync reported a problem - typically the [group update limitation](servers.md#lifecycle-renames-removals-hidden-groups) - or the last check failed while the entry's [declared models](servers.md#declared-models) or the stale window's last known list keep serving |
-| Expected failure | Discovery failed only in categories the entry's [`discovery.expectedFailures`](servers.md#discovery-and-expected-failures) declares, and nothing serves through it - no declared models, and the stale window holds nothing |
-| Misconfigured | The entry itself is invalid - for example more than one [auth form](servers.md#authentication) - and is not used until fixed |
-| Not checked | Declared, but no discovery pass has seen it yet |
+| Status           | Meaning                                                                                                                                                                                                                                                                                                        |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Connected        | Discovery succeeded                                                                                                                                                                                                                                                                                            |
+| Error            | The last check failed and the server is serving no models                                                                                                                                                                                                                                                      |
+| Sync issue       | The server answers, but its last settings sync reported a problem - typically the [group update limitation](servers.md#lifecycle-renames-removals-hidden-groups) - or the last check failed while the entry's [declared models](servers.md#declared-models) or the stale window's last known list keep serving |
+| Expected failure | Discovery failed only in categories the entry's [`discovery.expectedFailures`](servers.md#discovery-and-expected-failures) declares, and nothing serves through it - no declared models, and the stale window holds nothing                                                                                    |
+| Misconfigured    | The entry itself is invalid - for example more than one [auth form](servers.md#authentication) - and is not used until fixed                                                                                                                                                                                   |
+| Not checked      | Declared, but no discovery pass has seen it yet                                                                                                                                                                                                                                                                |
 
 A row's problems render directly under it, worst first. Each line leads with the consequence ("prod is serving no models: ..."), carries the server's own error text where there was any, and offers the matching actions in place - Retry, Open entry, Fix in settings.json, Declare models, Open models file, Refresh now, or a troubleshooting link.
 
@@ -64,7 +64,7 @@ Leaving - the trail back at the top, the rail, Esc, or Discard changes - is a re
 
 **Identity** - `label` (the picker name) and `baseUrl`. The extension appends `/v1` unless the URL already ends in a version segment (like `/v1` or `/v2`), which is used as-is; the `apiVersion` field overrides both ([why](servers.md#entry-reference)).
 
-**Authentication** - a selector for the auth form: none, API key, virtual key, or OAuth. The selector *is* the [exactly-one-form rule](servers.md#authentication): where raw JSON asks you to keep the rule by hand, the form makes a second form unreachable. Choosing OAuth reveals its fields plus the optional companions - an `apiKey` or `virtualKey` sent alongside the bearer token, for gateways that check two credentials at once.
+**Authentication** - a selector for the auth form: none, API key, virtual key, or OAuth. The selector _is_ the [exactly-one-form rule](servers.md#authentication): where raw JSON asks you to keep the rule by hand, the form makes a second form unreachable. Choosing OAuth reveals its fields plus the optional companions - an `apiKey` or `virtualKey` sent alongside the bearer token, for gateways that check two credentials at once.
 
 **Secrets** - each secret-capable field offers a per-field choice between VS Code secret storage (the default) and an inline settings value:
 
@@ -75,14 +75,14 @@ Leaving - the trail back at the top, the rail, Esc, or Discard changes - is a re
 
 **Per-server model configuration** - the form carries the entry's [`models` object](servers.md#per-server-model-configuration) as two sections:
 
-- *Model parameters for this server*: one line per [matcher](models.md#model-matching) - the matcher key, what it matches, and its fields as quiet text (`temperature 0.2`) that turn into controls under the pointer or under focus, with a `[+]` to add one. Clicking a chip opens a small editor - the JSON value, a **force** toggle (a forced field beats the chat client's runtime options and the model picker's configuration, [parameters](models.md#parameters); disabled with the reason on provider-owned keys), an **inheritable** toggle, and Remove field. The pencil opens the full matcher editor.
-- *Model capabilities for this server*: the same rows for capability overrides. Field names are free-form (the vocabulary is open, [capabilities](models.md#capability-fields)); a name the extension does not consume gets a non-blocking possible-typo hint as you type - only when the server's observed `/model/info` key set is known, non-empty, and does not carry the name - and is applied as-is either way. Capability chips carry a **fallback** toggle - a fallback field applies *below* what the server reports instead of above it - and the `_openrouter_model` directive renders as a catalog chip whose editor is the OpenRouter catalog picker ([capabilities](models.md#capabilities)).
+- _Model parameters for this server_: one line per [matcher](models.md#model-matching) - the matcher key, what it matches, and its fields as quiet text (`temperature 0.2`) that turn into controls under the pointer or under focus, with a `[+]` to add one. Clicking a chip opens a small editor - the JSON value, a **force** toggle (a forced field beats the chat client's runtime options and the model picker's configuration, [parameters](models.md#parameters); disabled with the reason on provider-owned keys), an **inheritable** toggle, and Remove field. The pencil opens the full matcher editor.
+- _Model capabilities for this server_: the same rows for capability overrides. Field names are free-form (the vocabulary is open, [capabilities](models.md#capability-fields)); a name the extension does not consume gets a non-blocking possible-typo hint as you type - only when the server's observed `/model/info` key set is known, non-empty, and does not carry the name - and is applied as-is either way. Capability chips carry a **fallback** toggle - a fallback field applies _below_ what the server reports instead of above it - and the `_openrouter_model` directive renders as a catalog chip whose editor is the OpenRouter catalog picker ([capabilities](models.md#capabilities)).
 
 **Discovery** - the controls for what discovery cannot see or sees wrongly, in one section because they combine ([the discovery-less-gateway recipe](servers.md#discovery-and-expected-failures)):
 
-- *Declared models* (`discovery.declared`): a plain list of exact model IDs to register even when discovery cannot list them ([declared models](servers.md#declared-models)). In older versions declaration was a "declare this model" toggle on a capabilities row; the migration moved those into this list.
-- *Expected failures*: checkboxes for the endpoints this server is known not to serve (`modelListing`, `modelInfo`).
-- *Include skipped modes* (`discovery.includeModes`): checkboxes for the non-chat modes whose models should register anyway, one per mode the last listing dropped models of (with the count) or the entry already includes; a server with neither never sees the control ([non-chat modes](servers.md#non-chat-modes)).
+- _Declared models_ (`discovery.declared`): a plain list of exact model IDs to register even when discovery cannot list them ([declared models](servers.md#declared-models)). In older versions declaration was a "declare this model" toggle on a capabilities row; the migration moved those into this list.
+- _Expected failures_: checkboxes for the endpoints this server is known not to serve (`modelListing`, `modelInfo`).
+- _Include skipped modes_ (`discovery.includeModes`): checkboxes for the non-chat modes whose models should register anyway, one per mode the last listing dropped models of (with the count) or the entry already includes; a server with neither never sees the control ([non-chat modes](servers.md#non-chat-modes)).
 
 **Headers** - a row editor for the entry's `headers` object: extra HTTP headers on every request to this server (routing tags, tracing headers). The entry's own [auth](servers.md#authentication) headers win conflicts, so a custom `Authorization` cannot clobber the configured credential. Header values are settings, not secrets - they sit in plain text in settings.json; credentials belong in the auth forms, which can live in secret storage.
 
@@ -114,7 +114,7 @@ Each row's quiet Inspect action opens the model inspector, one side panel with a
 - A `max_tokens` line is always present, stating the value and where it came from: your configuration, the server's declared output limit, or the capped default.
 - The model's record-matching chain closes the section in the open, one Record path line per layer, each key jumping into the editor that owns it.
 
-The panel renders from the same resolution code the request path runs, so it cannot drift from real requests. Two things it honestly cannot show: runtime options the chat client sets on each request (they override any *unforced* parameter listed), and a reasoning model's Configure Model pick, which VS Code stores on its side.
+The panel renders from the same resolution code the request path runs, so it cannot drift from real requests. Two things it honestly cannot show: runtime options the chat client sets on each request (they override any _unforced_ parameter listed), and a reasoning model's Configure Model pick, which VS Code stores on its side.
 
 ### Effective capabilities
 
@@ -188,7 +188,7 @@ The Diagnostics section also renders the extension's precomputed resolution tabl
 
 - **The flat table**: one row per model with its final resolved values, each carrying a provenance chip (own, inherited by the winning record, forced, fallback, server, catalog, floor), a filter box (by model ID or by matcher key - "show everything `gpt-5*` touched"), and a per-row Inspect action opening the model's [inspector](#effective-parameters) in place, over the Diagnostics page.
 
-One honesty note about the tree: it is drawn against the models your servers serve *right now*. A record node - a regex key especially - shows the live models it currently matches, not everything it could ever match, so the tree changes when the model list does. For the definitive answer about one model, the flat table's per-model row and the inspector are the canonical view.
+One honesty note about the tree: it is drawn against the models your servers serve _right now_. A record node - a regex key especially - shows the live models it currently matches, not everything it could ever match, so the tree changes when the model list does. For the definitive answer about one model, the flat table's per-model row and the inspector are the canonical view.
 
 With no matcher records configured at all, the flat table still lists every model - values then come from the server, the catalog, and the built-in floor - and the tree collapses to the models under an implicit root with a hint that no records exist.
 
@@ -198,15 +198,15 @@ Both render the same precomputed table the request path uses, so what you see is
 
 Settings problems never fail silently; each one renders as a diagnostic with the offending key and the fix:
 
-| Diagnostic | Meaning | Fix |
-|---|---|---|
-| Invalid regex matcher | a `/slash-wrapped/` record key does not parse as a regular expression; the key is ignored | correct the pattern ([matching](models.md#model-matching)) |
-| Unforceable key | `_force` names a provider-owned field, which nothing may override; the force is ignored for that field | drop the field from the force list ([parameters](models.md#parameters)) |
-| Misconfigured auth | a server entry configures more than one auth form; the entry is not used until fixed | keep exactly one form ([authentication](servers.md#authentication)) |
-| Legacy scoped key | a global record key still uses the removed `"<baseUrl>/matcher"` server-scoped grammar; it can never match a model ID and sits inert | move it into that server entry's own record ([migration](models.md#migrated-from-prefix-keys)) |
-| Inert global headers | the migration found values in the removed global `headers` setting but no server entry to copy them into; they are applied to nothing | add the headers to a server entry, then delete the old global setting ([migration](settings.md#renamed-and-removed-settings)) |
-| Unknown `_inherit_from` key | an `_inherit_from` list names a record key that does not exist; the name is skipped and the rest of the list still applies | correct the name to an exact record key ([matching](models.md#which-record-applies)) |
-| Unrecognized capability field (advisory) | a `models.capabilities` record sets a field the extension does not consume, and the server's observed `/model/info` keys do not name it; the value is applied as an override as-is | fix the spelling if it was a typo; keep it if intentional ([capability fields](models.md#capability-fields)) |
+| Diagnostic                               | Meaning                                                                                                                                                                            | Fix                                                                                                                           |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Invalid regex matcher                    | a `/slash-wrapped/` record key does not parse as a regular expression; the key is ignored                                                                                          | correct the pattern ([matching](models.md#model-matching))                                                                    |
+| Unforceable key                          | `_force` names a provider-owned field, which nothing may override; the force is ignored for that field                                                                             | drop the field from the force list ([parameters](models.md#parameters))                                                       |
+| Misconfigured auth                       | a server entry configures more than one auth form; the entry is not used until fixed                                                                                               | keep exactly one form ([authentication](servers.md#authentication))                                                           |
+| Legacy scoped key                        | a global record key still uses the removed `"<baseUrl>/matcher"` server-scoped grammar; it can never match a model ID and sits inert                                               | move it into that server entry's own record ([migration](models.md#migrated-from-prefix-keys))                                |
+| Inert global headers                     | the migration found values in the removed global `headers` setting but no server entry to copy them into; they are applied to nothing                                              | add the headers to a server entry, then delete the old global setting ([migration](settings.md#renamed-and-removed-settings)) |
+| Unknown `_inherit_from` key              | an `_inherit_from` list names a record key that does not exist; the name is skipped and the rest of the list still applies                                                         | correct the name to an exact record key ([matching](models.md#which-record-applies))                                          |
+| Unrecognized capability field (advisory) | a `models.capabilities` record sets a field the extension does not consume, and the server's observed `/model/info` keys do not name it; the value is applied as an override as-is | fix the spelling if it was a typo; keep it if intentional ([capability fields](models.md#capability-fields))                  |
 
 ## The status bar items
 
@@ -219,10 +219,10 @@ The extension owns up to two status bar items; the dashboard is where their clic
 
 Every dashboard section is addressable from outside the panel, so commands and notifications land you on the thing they are talking about rather than on a front page:
 
-| Entry point | Opens |
-|---|---|
-| LiteLLM: Open Dashboard | the dashboard, on its first section |
-| LiteLLM: Show Diagnostics | [Diagnostics](#diagnostics) |
-| the usage status bar item | [Servers](#servers), where each row carries its spend |
+| Entry point                                                                   | Opens                                                    |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------- |
+| LiteLLM: Open Dashboard                                                       | the dashboard, on its first section                      |
+| LiteLLM: Show Diagnostics                                                     | [Diagnostics](#diagnostics)                              |
+| the usage status bar item                                                     | [Servers](#servers), where each row carries its spend    |
 | notification buttons that open the dashboard ("Configure Now", "Reconfigure") | [Servers](#servers), where connection problems are fixed |
-| the budget alert's "Open Usage" button | [Servers](#servers), where the budget's row lives |
+| the budget alert's "Open Usage" button                                        | [Servers](#servers), where the budget's row lives        |

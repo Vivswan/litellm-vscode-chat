@@ -27,7 +27,7 @@ jobs:
   test:
     uses: ./.github/workflows/test-reusable.yml
     with:
-      os: 'matrix'
+      os: "matrix"
 
   # src/test/stackDrift.test.ts pins each shard's label list to the orchestrator's known labels and their union to the full set.
   # No `if:` on the shards, because a skipped matrix job would count green in the aggregate (see the header note).
@@ -36,12 +36,12 @@ jobs:
       fail-fast: false
       matrix:
         labels:
-          - 'docker,docker-usage,docker-transport,docker-resolution,docker-group-path'
-          - 'docker-serversync,docker-fuzz,docker-conversation,host-fidelity,host-fidelity-groups,docker-monkey'
+          - "docker,docker-usage,docker-transport,docker-resolution,docker-group-path"
+          - "docker-serversync,docker-fuzz,docker-conversation,host-fidelity,host-fidelity-groups,docker-monkey"
     uses: ./.github/workflows/test-reusable.yml
     with:
-      os: 'ubuntu-latest'
-      suite: 'docker'
+      os: "ubuntu-latest"
+      suite: "docker"
       docker-only: ${{ matrix.labels }}
 
   # Decides whether this push/PR touches fuzzer-related code; the fuzz job
@@ -124,8 +124,8 @@ jobs:
       fail-fast: false
       matrix:
         labels:
-          - 'docker-fuzz,docker-conversation'
-          - 'docker-monkey'
+          - "docker-fuzz,docker-conversation"
+          - "docker-monkey"
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -146,9 +146,9 @@ jobs:
           # Each fuzzer draws and logs its own seed when FUZZ_SEED is unset;
           # the counts sit between the suite defaults and nightly's
           # 500/50/40.
-          FUZZ_ITERATIONS: '100'
-          CONVERSATION_ITERATIONS: '20'
-          MONKEY_ITERATIONS: '10'
+          FUZZ_ITERATIONS: "100"
+          CONVERSATION_ITERATIONS: "20"
+          MONKEY_ITERATIONS: "10"
           DOCKER_ONLY: ${{ matrix.labels }}
         run: xvfb-run -a bun run test:docker --only "$DOCKER_ONLY"
 

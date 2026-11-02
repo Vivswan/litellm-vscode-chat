@@ -27,6 +27,9 @@ export const TABLE_HEADERS: Record<DocLocale, string> = {
 
 const TABLE_SEPARATOR = "|---------|---------|-------------|";
 
+/** A delimiter row's cell: dashes, with an optional alignment colon at either end. */
+const DELIMITER_CELL = /^:?-+:?$/;
+
 export const BEGIN_MARKER =
 	"<!-- settings-reference:begin (generated from src/shared/config/settingSpec.ts and scripts/docs/settingsReferenceProse.ts; edit those, then run: bun scripts/docs/generate-settings-reference.ts) -->";
 export const END_MARKER = "<!-- settings-reference:end -->";
@@ -203,6 +206,35 @@ export function buildReferenceTable(
 	return lines.join("\n");
 }
 
+/** The cells of a pipe-table row, trimmed, or undefined for a line that is not one; a formatter's padding is no cell. */
+function tableCells(line: string): readonly string[] | undefined {
+	const trimmed = line.trim();
+	if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) {
+		return undefined;
+	}
+	return trimmed
+		.slice(1, -1)
+		.split("|")
+		.map((cell) => cell.trim());
+}
+
+/** Whether `line` is the locale's reference table header, however its cells are padded. */
+export function isReferenceHeader(line: string, locale: DocLocale): boolean {
+	const cells = tableCells(line);
+	const expected = tableCells(TABLE_HEADERS[locale]);
+	return (
+		cells !== undefined &&
+		expected !== undefined &&
+		cells.length === expected.length &&
+		cells.every((cell, index) => cell === expected[index])
+	);
+}
+
+function isDelimiterRow(line: string): boolean {
+	const cells = tableCells(line);
+	return cells !== undefined && cells.length > 0 && cells.every((cell) => DELIMITER_CELL.test(cell));
+}
+
 /**
  * With a marker region present the body is replaced, which is what makes regeneration idempotent; without one the
  * table found in place is wrapped, which is how a hand-written doc becomes a generated one exactly once.
@@ -225,18 +257,18 @@ export function applyReferenceTable(content: string, locale: DocLocale, table: s
 		return content.slice(0, beginAt) + region + content.slice(endAt + END_MARKER.length);
 	}
 	const lines = content.split("\n");
-	const headerAt = lines.indexOf(TABLE_HEADERS[locale]);
+	const headerAt = lines.findIndex((line) => isReferenceHeader(line, locale));
 	if (headerAt === -1) {
 		throw new Error(
 			`${SETTINGS_DOC_PATHS[locale]} has neither a marker region nor the ${TABLE_HEADERS[locale]} table header to stamp`
 		);
 	}
-	if (lines.indexOf(TABLE_HEADERS[locale], headerAt + 1) !== -1) {
+	if (lines.slice(headerAt + 1).some((line) => isReferenceHeader(line, locale))) {
 		throw new Error(
 			`${SETTINGS_DOC_PATHS[locale]} repeats the reference table header; cannot decide which table to stamp`
 		);
 	}
-	if (lines[headerAt + 1] !== TABLE_SEPARATOR) {
+	if (!isDelimiterRow(lines[headerAt + 1] ?? "")) {
 		throw new Error(`${SETTINGS_DOC_PATHS[locale]}'s reference table header is not followed by its separator row`);
 	}
 	let endLine = headerAt + 1;

@@ -7,64 +7,64 @@ on:
         description: 'Operating system to run on (ubuntu-latest, windows-latest, macos-latest, or "matrix" for all)'
         required: false
         type: string
-        default: 'ubuntu-latest'
+        default: "ubuntu-latest"
       ref:
-        description: 'Git ref to checkout'
+        description: "Git ref to checkout"
         required: false
         type: string
-        default: ''
+        default: ""
       suite:
-        description: 'Test suite to run (unit, or docker, which runs on Linux only)'
+        description: "Test suite to run (unit, or docker, which runs on Linux only)"
         required: false
         type: string
-        default: 'unit'
+        default: "unit"
       docker-only:
-        description: 'Comma-separated docker-test labels to run (docker suite on Linux only; empty runs the full set)'
+        description: "Comma-separated docker-test labels to run (docker suite on Linux only; empty runs the full set)"
         required: false
         type: string
-        default: ''
+        default: ""
       vscode-version:
-        description: 'VS Code build to run the host suites on (stable, insiders, or a version; empty is the current stable)'
+        description: "VS Code build to run the host suites on (stable, insiders, or a version; empty is the current stable)"
         required: false
         type: string
-        default: ''
+        default: ""
       litellm-image:
-        description: 'LiteLLM image reference for the docker suite (empty runs the version docker-compose.yml pins)'
+        description: "LiteLLM image reference for the docker suite (empty runs the version docker-compose.yml pins)"
         required: false
         type: string
-        default: ''
+        default: ""
   workflow_dispatch:
     inputs:
       os:
         description: 'Operating system to run on (ubuntu-latest, windows-latest, macos-latest, or "matrix" for all)'
         required: false
         type: string
-        default: 'ubuntu-latest'
+        default: "ubuntu-latest"
       ref:
-        description: 'Git ref to checkout'
+        description: "Git ref to checkout"
         required: false
         type: string
-        default: ''
+        default: ""
       suite:
-        description: 'Test suite to run (unit, or docker, which runs on Linux only)'
+        description: "Test suite to run (unit, or docker, which runs on Linux only)"
         required: false
         type: string
-        default: 'unit'
+        default: "unit"
       docker-only:
-        description: 'Comma-separated docker-test labels to run (docker suite on Linux only; empty runs the full set)'
+        description: "Comma-separated docker-test labels to run (docker suite on Linux only; empty runs the full set)"
         required: false
         type: string
-        default: ''
+        default: ""
       vscode-version:
-        description: 'VS Code build to run the host suites on (stable, insiders, or a version; empty is the current stable)'
+        description: "VS Code build to run the host suites on (stable, insiders, or a version; empty is the current stable)"
         required: false
         type: string
-        default: ''
+        default: ""
       litellm-image:
-        description: 'LiteLLM image reference for the docker suite (empty runs the version docker-compose.yml pins)'
+        description: "LiteLLM image reference for the docker suite (empty runs the version docker-compose.yml pins)"
         required: false
         type: string
-        default: ''
+        default: ""
 
 jobs:
   test:

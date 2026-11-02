@@ -13,7 +13,7 @@ Everything about models in one place: how they get into the picker, how configur
 - [Multimodal input](#multimodal-input) and [what comes back](#thinking-sources-generated-media-and-token-usage) - attachments, thinking, sources, generated media, token usage
 - [Inspectors](#inspectors) - the dashboard views that show which source produced every resolved field
 
-Three ideas carry the whole page. **Capabilities** describe what a model *can do* - they are resolved once, at registration time, and drive what the model is offered for. **Parameters** are what a request *asks of it* - they are resolved per request and go out on the wire. A **declaration** says a model *exists* when discovery cannot see it. The three never mix: a capability is never sent as a request field, and a parameter never changes what a model is registered as.
+Three ideas carry the whole page. **Capabilities** describe what a model _can do_ - they are resolved once, at registration time, and drive what the model is offered for. **Parameters** are what a request _asks of it_ - they are resolved per request and go out on the wire. A **declaration** says a model _exists_ when discovery cannot see it. The three never mix: a capability is never sent as a request field, and a parameter never changes what a model is registered as.
 
 ## How models appear
 
@@ -24,7 +24,7 @@ The extension asks each configured server what it serves - on activation, when s
 - Discovery reads `/v1/model/info` first - the rich endpoint carrying token limits, pricing, and capability flags - and falls back to the plain `/v1/models` listing when that call fails, returns no data array, or returns entries none of which are usable. A well-formed empty list registers zero models without falling back.
 - Once `/v1/model/info` has answered, discovery also reads LiteLLM's `/model_group/info` for each model's resolved Thinking Effort levels. That call is advisory: a server without the endpoint loses nothing but the menu's server signal.
 - Discovery requests are idempotent GETs, so transient failures are retried. `discovery.timeout` (default 30 seconds) is each attempt's clock, so a request with its retries may take about three times it - not a whole-pass bound: the model-info listing, the `/v1/models` fallback, the `/model_group/info` read, and any OAuth token exchange each run their own attempts, so a pass may take up to their sum. Details on the retry rules: [Troubleshooting](troubleshooting.md#timeouts-and-retries).
-- A server *expected* to fail an endpoint (a gateway with no model listing) says so in its entry's `discovery.expectedFailures`: single attempt, an info-level log line, no error noise. See [Servers](servers.md#discovery-and-expected-failures).
+- A server _expected_ to fail an endpoint (a gateway with no model listing) says so in its entry's `discovery.expectedFailures`: single attempt, an info-level log line, no error noise. See [Servers](servers.md#discovery-and-expected-failures).
 - Results are reused for `discovery.cacheTtl` (default 1 hour), because VS Code re-resolves providers often - sometimes several times per second. Failures are never cached, simultaneous refreshes share one request, and "LiteLLM: Sync Models Now" bypasses the cache when you need a fresh list immediately.
 - When a background refresh fails but the last successful discovery is within `discovery.staleServeWindow` (default ten minutes), the last known models stay available, flagged stale (a warning icon with a hover note) instead of vanishing from the picker mid-session. Raise the window for a server that sleeps or restarts for longer; set it to `0` to drop a failing server's models on the first failed refresh.
 
@@ -64,17 +64,17 @@ The two model-keyed records - `models.parameters` and `models.capabilities`, glo
 
 **A key matches exactly unless it says otherwise:**
 
-| Key | Matches | Notes |
-|---|---|---|
-| `"gpt-5"` | only the ID `gpt-5` | not `gpt-5.7`, not `gpt-5-turbo` |
-| `"gpt-5*"` | every ID starting with `gpt-5` | glob; the `*` must be last |
+| Key              | Matches                                 | Notes                                                                                                                                                                                             |
+| ---------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"gpt-5"`        | only the ID `gpt-5`                     | not `gpt-5.7`, not `gpt-5-turbo`                                                                                                                                                                  |
+| `"gpt-5*"`       | every ID starting with `gpt-5`          | glob; the `*` must be last                                                                                                                                                                        |
 | `"/gpt-[45].*/"` | whatever the regular expression matches | slash-wrapped, matched against the whole ID; add `i` after the closing slash for case-insensitive (`"/GPT-5.*/i"`); any other flag or an invalid pattern is reported in the dashboard and ignored |
-| `"*"` | every model | your defaults live here |
-| `""` | nothing | invalid; reported and ignored |
+| `"*"`            | every model                             | your defaults live here                                                                                                                                                                           |
+| `""`             | nothing                                 | invalid; reported and ignored                                                                                                                                                                     |
 
 Keys are compared character for character: nothing is trimmed (a leading space is part of the key), and exact and glob keys are case-sensitive - `/re/i` is the only case-insensitive form. A few consequences for unusual IDs and imperfect records:
 
-- An ID containing `/` (say `anthropic/claude-4`) is matched by a plain exact key. A key reads as a regex only when it *starts* with `/` **and** ends with `/` followed by nothing but letters - the flags position, where only `i` (or nothing) is supported: `"/anthropic/claude"` reads `claude` as flags and is invalid and reported, while a slash-leading key whose tail has a non-letter (`"/team/gpt-4"`) is not regex-shaped at all and stays a plain exact key. Where a slash-leading ID's own text would read as a regex, match it with the slash escaped in the body (`"/\\/anthropic.*/"`).
+- An ID containing `/` (say `anthropic/claude-4`) is matched by a plain exact key. A key reads as a regex only when it _starts_ with `/` **and** ends with `/` followed by nothing but letters - the flags position, where only `i` (or nothing) is supported: `"/anthropic/claude"` reads `claude` as flags and is invalid and reported, while a slash-leading key whose tail has a non-letter (`"/team/gpt-4"`) is not regex-shaped at all and stays a plain exact key. Where a slash-leading ID's own text would read as a regex, match it with the slash escaped in the body (`"/\\/anthropic.*/"`).
 - A key ending in `*` always reads as a glob, so an ID that literally ends in `*` needs a regex with the star escaped: `"/gpt-5\\*/"`.
 - A `*` anywhere but the end of a key (`"gpt*5"`) is not a glob and not a literal - the key is invalid, reported, and ignored, like an empty key or a malformed regex.
 - A record key starting with `_` is a directive, never a matcher, so an ID that starts with `_` can only be matched by a regex key.
@@ -91,14 +91,14 @@ Specificity orders the matching keys: an exact key is more specific than a glob 
 
 **By default, the most specific matching record wins wholesale** - its fields apply, and no other record leaks in. Two directives control the flow - the giver marks fields, the receiver decides - and the receiving side always wins:
 
-| Directive | Side | Meaning |
-|---|---|---|
-| `"_inheritable": true \| ["field", ...]` | giver | Mark all/listed fields inheritable: any more-specifically-matched model whose own record does not say otherwise inherits them (for fields it leaves unset; the nearest inheritable value wins per field) |
-| `"_inherit_from": ["key", ...]` | receiver | Inherit from exactly the named records - all their literal fields, nearest-first - and nothing else. Naming is full intent: the named record needs no `_inheritable`, its own inheritance settings do not carry over, and barriers between it and this record are bypassed. Entries are exact record keys and must also match the model - a named record that does not match contributes nothing for that model (inheritance has sources, not includes); naming a key that does not exist is flagged in the dashboard, and the rest of the list still applies |
-| `"_inherit_from": true` | receiver | Inherit everything that reaches this record - the full view of the next broader match, marked inheritable or not; barriers still apply |
-| `"_inherit_from": false` | receiver | Inherit from nothing - fully self-contained. And since broader fields can only reach more specific records through this record's resolved view, nothing flows past it either: `false` is the barrier |
+| Directive                                | Side     | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"_inheritable": true \| ["field", ...]` | giver    | Mark all/listed fields inheritable: any more-specifically-matched model whose own record does not say otherwise inherits them (for fields it leaves unset; the nearest inheritable value wins per field)                                                                                                                                                                                                                                                                                                                                                      |
+| `"_inherit_from": ["key", ...]`          | receiver | Inherit from exactly the named records - all their literal fields, nearest-first - and nothing else. Naming is full intent: the named record needs no `_inheritable`, its own inheritance settings do not carry over, and barriers between it and this record are bypassed. Entries are exact record keys and must also match the model - a named record that does not match contributes nothing for that model (inheritance has sources, not includes); naming a key that does not exist is flagged in the dashboard, and the rest of the list still applies |
+| `"_inherit_from": true`                  | receiver | Inherit everything that reaches this record - the full view of the next broader match, marked inheritable or not; barriers still apply                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `"_inherit_from": false`                 | receiver | Inherit from nothing - fully self-contained. And since broader fields can only reach more specific records through this record's resolved view, nothing flows past it either: `false` is the barrier                                                                                                                                                                                                                                                                                                                                                          |
 
-Inheritable fields travel along the specificity chain and must pass *through* every record between their source and the model: each record passes upward only what it accepts itself. A record with `"_inherit_from": false` therefore cuts the line - it shields itself *and* everything more specific from all broader records. The one way around a barrier is naming: an `"_inherit_from"` list reaches its records directly, barriers or not.
+Inheritable fields travel along the specificity chain and must pass _through_ every record between their source and the model: each record passes upward only what it accepts itself. A record with `"_inherit_from": false` therefore cuts the line - it shields itself _and_ everything more specific from all broader records. The one way around a barrier is naming: an `"_inherit_from"` list reaches its records directly, barriers or not.
 
 Worked example - the same family, configured two ways:
 
@@ -112,13 +112,13 @@ Worked example - the same family, configured two ways:
 }
 ```
 
-| Model | Result | Why |
-|---|---|---|
-| `gpt-5.6` | `max_tokens: 8192, temperature: 0.3` | silent, so it inherits what reaches it: `gpt-5*` marks `temperature` inheritable; the catch-all's `top_p` dies at `gpt-5*`'s barrier |
-| `gpt-5`, `gpt-5.7`, ... | `temperature: 0.3` | best match is `gpt-5*`, which is self-contained - the catch-all's fields stop here |
-| `claude-4` | `temperature: 1.0, top_p: 0.9` | own `temperature` wins; `top_p` crosses the silent `claude*` record untouched on its way from the catch-all. `claude*`'s own `max_tokens` does not follow: it was never marked inheritable |
-| `claude-4.1` | `max_tokens: 4000, temperature: 0.7, top_p: 0.9` | best match is `claude*`, applied wholesale, plus the catch-all's inheritable fields it leaves unset |
-| anything else | `temperature: 0.7, top_p: 0.9` | the catch-all is the best match itself |
+| Model                   | Result                                           | Why                                                                                                                                                                                        |
+| ----------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `gpt-5.6`               | `max_tokens: 8192, temperature: 0.3`             | silent, so it inherits what reaches it: `gpt-5*` marks `temperature` inheritable; the catch-all's `top_p` dies at `gpt-5*`'s barrier                                                       |
+| `gpt-5`, `gpt-5.7`, ... | `temperature: 0.3`                               | best match is `gpt-5*`, which is self-contained - the catch-all's fields stop here                                                                                                         |
+| `claude-4`              | `temperature: 1.0, top_p: 0.9`                   | own `temperature` wins; `top_p` crosses the silent `claude*` record untouched on its way from the catch-all. `claude*`'s own `max_tokens` does not follow: it was never marked inheritable |
+| `claude-4.1`            | `max_tokens: 4000, temperature: 0.7, top_p: 0.9` | best match is `claude*`, applied wholesale, plus the catch-all's inheritable fields it leaves unset                                                                                        |
+| anything else           | `temperature: 0.7, top_p: 0.9`                   | the catch-all is the best match itself                                                                                                                                                     |
 
 The `claude-4` row is the pass-through rule in action: a record with no directives is transparent - inheritable fields cross it unchanged, still carrying their source's markings, while its own unmarked fields stay put.
 
@@ -138,7 +138,7 @@ An `"_inherit_from"` list curates the ancestry explicitly - and it is also the o
 - The order of an `"_inherit_from"` list does not matter, and naming a record twice adds nothing: when two named records set the same field, the more specific one wins - "nearest-first" is specificity order, not list order.
 - A record naming itself in `"_inherit_from"` is a no-op: it contributes its own literal fields, which the record already has - own fields always beat inherited ones.
 - `"_inherit_from": false` on the `"*"` record changes nothing: the catch-all is the broadest match, so there is nothing broader to inherit or to block. Its `_inheritable` marking still gives as usual - `_inherit_from` only governs what a record receives.
-- `"_inherit_from": true` reads the next broader match's *resolved view*: that record's own fields plus whatever it accepted from further out. If that record is itself a barrier, its view is just its own fields - `true` does not see past it.
+- `"_inherit_from": true` reads the next broader match's _resolved view_: that record's own fields plus whatever it accepted from further out. If that record is itself a barrier, its view is just its own fields - `true` does not see past it.
 - Only fields flow. A directive is an instruction on its own record: a broader record's [`_openrouter_model`](#the-openrouter-catalog), `_inheritable`, or `_inherit_from` never travels with inheritance. What an inherited field carries along is its source's `_inheritable`, `_fallback`, or `_force` marking - nothing more.
 - Chains never cross levels: an entry record's `"_inherit_from"` names keys in that entry's own record, a global one names global keys. Each level resolves its whole chain independently, and only then does the entry result beat the global result field by field. Naming a key that exists only at the other level is the same as naming a nonexistent one: flagged in the dashboard, with the rest of the list still applying.
 
@@ -164,32 +164,32 @@ The `models.capabilities` records (global setting and [per-entry field](servers.
 
 **The core seven** decide registration; they always resolve (built-in defaults backstop them - `max_input_tokens` by the context-minus-output derivation instead) and take positive integers or booleans:
 
-| Field | Type | What it controls |
-|-------|------|------------------|
-| `context_length` | number | The model's context window |
-| `max_input_tokens` | number | The input budget; when nothing sets it, context length minus max output tokens |
-| `max_output_tokens` | number | The output limit, and the `max_tokens` fallback ([the exception](#the-max_tokens-exception)) |
-| `supports_function_calling` | boolean | Tool-using requests (agent mode) |
-| `supports_vision` | boolean | Whether image attachments are sent |
-| `supports_reasoning` | boolean | The Thinking Effort control in the picker |
-| `supports_audio_input` | boolean | Whether audio attachments are sent |
+| Field                       | Type    | What it controls                                                                             |
+| --------------------------- | ------- | -------------------------------------------------------------------------------------------- |
+| `context_length`            | number  | The model's context window                                                                   |
+| `max_input_tokens`          | number  | The input budget; when nothing sets it, context length minus max output tokens               |
+| `max_output_tokens`         | number  | The output limit, and the `max_tokens` fallback ([the exception](#the-max_tokens-exception)) |
+| `supports_function_calling` | boolean | Tool-using requests (agent mode)                                                             |
+| `supports_vision`           | boolean | Whether image attachments are sent                                                           |
+| `supports_reasoning`        | boolean | The Thinking Effort control in the picker                                                    |
+| `supports_audio_input`      | boolean | Whether audio attachments are sent                                                           |
 
 **The consumed fields** are everything else the extension reads somewhere; each is validated for its kind, and an invalid value is flagged with the next-best source winning instead, exactly like the core:
 
-| Field | Type | What it drives |
-|-------|------|------------------|
-| `input_cost_per_token`, `output_cost_per_token` | cost | [Pricing](#pricing) in the picker and the dashboard |
-| `cache_read_input_token_cost`, `cache_creation_input_token_cost` | cost | The cache pricing figures |
-| `long_context_input_cost_per_token`, `long_context_output_cost_per_token`, `long_context_cache_read_input_token_cost`, `long_context_cache_creation_input_token_cost` | cost | Long-context tier pricing. Write these synthesized names; discovery resolves LiteLLM's threshold-suffixed wire keys (`input_cost_per_token_above_200k_tokens`, ...) into them for you |
-| `supports_prompt_caching` | boolean | Whether prompt-cache markers are placed - one of the two capabilities that change what a request contains (`replay_reasoning_content` is the other). The feature stays double-gated: the [`chat.promptCaching` setting](settings.md#prompt-caching) must be on too |
-| `supports_pdf_input`, `supports_response_schema` | boolean | Nothing yet: both resolve and display in the [capability inspector](#inspectors) but gate no behavior - PDFs are sent to every model regardless ([multimodal input](#multimodal-input)) |
-| `replay_reasoning_content` | boolean | Whether every replayed assistant message carries a `reasoning_content` field: the model's own unsigned reasoning from that turn, or an empty string when the turn had none. DeepSeek's thinking mode refuses a tool-using request without it. Discovery turns it on when LiteLLM reports `litellm_provider: deepseek`; set it yourself for a DeepSeek model served under another provider name, or off for a model that rejects the field |
-| `supported_openai_params` | string array | `reasoning_effort` in the list is the second signal for the Thinking Effort control, beside `supports_reasoning`; whichever of the two resolved at the higher precedence level decides, the flag winning ties |
-| `reasoning_effort_levels` | string array | The Thinking Effort menu's levels, in menu order ([per-model configuration](#per-model-configuration)). Any level name works - the menu offers your strings verbatim and sends them as-is. Decides only the menu's contents, never whether the control exists |
+| Field                                                                                                                                                                 | Type         | What it drives                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `input_cost_per_token`, `output_cost_per_token`                                                                                                                       | cost         | [Pricing](#pricing) in the picker and the dashboard                                                                                                                                                                                                                                                                                                                                                                                       |
+| `cache_read_input_token_cost`, `cache_creation_input_token_cost`                                                                                                      | cost         | The cache pricing figures                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `long_context_input_cost_per_token`, `long_context_output_cost_per_token`, `long_context_cache_read_input_token_cost`, `long_context_cache_creation_input_token_cost` | cost         | Long-context tier pricing. Write these synthesized names; discovery resolves LiteLLM's threshold-suffixed wire keys (`input_cost_per_token_above_200k_tokens`, ...) into them for you                                                                                                                                                                                                                                                     |
+| `supports_prompt_caching`                                                                                                                                             | boolean      | Whether prompt-cache markers are placed - one of the two capabilities that change what a request contains (`replay_reasoning_content` is the other). The feature stays double-gated: the [`chat.promptCaching` setting](settings.md#prompt-caching) must be on too                                                                                                                                                                        |
+| `supports_pdf_input`, `supports_response_schema`                                                                                                                      | boolean      | Nothing yet: both resolve and display in the [capability inspector](#inspectors) but gate no behavior - PDFs are sent to every model regardless ([multimodal input](#multimodal-input))                                                                                                                                                                                                                                                   |
+| `replay_reasoning_content`                                                                                                                                            | boolean      | Whether every replayed assistant message carries a `reasoning_content` field: the model's own unsigned reasoning from that turn, or an empty string when the turn had none. DeepSeek's thinking mode refuses a tool-using request without it. Discovery turns it on when LiteLLM reports `litellm_provider: deepseek`; set it yourself for a DeepSeek model served under another provider name, or off for a model that rejects the field |
+| `supported_openai_params`                                                                                                                                             | string array | `reasoning_effort` in the list is the second signal for the Thinking Effort control, beside `supports_reasoning`; whichever of the two resolved at the higher precedence level decides, the flag winning ties                                                                                                                                                                                                                             |
+| `reasoning_effort_levels`                                                                                                                                             | string array | The Thinking Effort menu's levels, in menu order ([per-model configuration](#per-model-configuration)). Any level name works - the menu offers your strings verbatim and sends them as-is. Decides only the menu's contents, never whether the control exists                                                                                                                                                                             |
 
 Cost fields take non-negative per-token cost numbers; writing a zero pair yourself means genuinely free ([pricing](#pricing)).
 
-**Everything else** - any other field not starting with `_` - is an open extra: kept as written (any name works, even awkward ones like `toString`), resolved through the same matching, precedence, and inheritance as every other field, and shown with provenance in the [capability inspector](#inspectors) and the [Resolved models view](dashboard.md#resolved-models). Its values come only from your records: discovery reads the server's report for the core and consumed fields only, so a custom server-side field never supplies a value - its *name* still counts as typo evidence below. Registration does not consume open extras yet; a future version may.
+**Everything else** - any other field not starting with `_` - is an open extra: kept as written (any name works, even awkward ones like `toString`), resolved through the same matching, precedence, and inheritance as every other field, and shown with provenance in the [capability inspector](#inspectors) and the [Resolved models view](dashboard.md#resolved-models). Its values come only from your records: discovery reads the server's report for the core and consumed fields only, so a custom server-side field never supplies a value - its _name_ still counts as typo evidence below. Registration does not consume open extras yet; a future version may.
 
 Validation is advisory, never gating. A field name the extension does not consume gets a "not a field this extension knows" note in the inspector only when there is real evidence it may be a typo: the server's own `/model/info` key set is known, non-empty, and does not contain the field. Without that evidence - a declared-only entry, an expected `modelInfo` failure, the `/models` fallback - there is no note at all. Either way the value is applied as an override as-is: you are always right about your own server.
 
@@ -197,17 +197,17 @@ Validation is advisory, never gating. A field name the extension does not consum
 
 Discovery reads capabilities from model info:
 
-| Capability | Read from model info | Notes |
-|------------|----------------------|-------|
-| Tool calling | `supports_function_calling` (or `supports_tool_choice`); provider routes carry `supports_tools` | On when undeclared; off only on an explicit `false` |
-| Vision | `supports_vision` | |
-| Audio input | `supports_audio_input` | |
-| Reasoning | `supports_reasoning`, or `reasoning_effort` among `supported_openai_params` | An explicit `supports_reasoning: false` wins |
-| Reasoning effort levels | LiteLLM's resolved `supported_reasoning_efforts` from `/model_group/info`; on a proxy from before that field, its `supports_<level>_reasoning_effort` flags and `reasoning_effort_levels` list from model info | The proxy's list is the Thinking Effort menu (`null` is the proxy saying unknown). Without the field the extension applies LiteLLM's own flag rule: a declared list wins whole; otherwise Medium and High always, Minimal and Low unless `false`, Extra High and Max only when `true`, Off unless `false` (Azure's gpt-5 family needs `true`). With no flag at all the menu falls back to its built-in list |
-| Prompt caching | `supports_prompt_caching` | Overridable like every field; the feature stays double-gated by `chat.promptCaching` ([Settings](settings.md#prompt-caching)) |
-| Reasoning replay | `litellm_provider`, or a providers-array entry's `provider`, equal to `deepseek` | Not a model info flag: discovery sets `replay_reasoning_content` from the provider name on both listing shapes. A model name load-balanced over deepseek and non-deepseek deployments reports nothing, so your record decides. A provider group whose entries mix deepseek and other providers resolves it to `false`, since every contributor must demand it, so a `_fallback` value does not apply there; write a plain override instead |
-| Pricing | the eight cost fields (`input_cost_per_token`, ...) | An input/output pair of exactly 0/0 is LiteLLM's stamp for "no pricing data" and reads as no report at all ([pricing](#pricing)) |
-| Token limits | model info's token limit fields | See [Token limits](#token-limits) |
+| Capability              | Read from model info                                                                                                                                                                                           | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tool calling            | `supports_function_calling` (or `supports_tool_choice`); provider routes carry `supports_tools`                                                                                                                | On when undeclared; off only on an explicit `false`                                                                                                                                                                                                                                                                                                                                                                                        |
+| Vision                  | `supports_vision`                                                                                                                                                                                              |                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Audio input             | `supports_audio_input`                                                                                                                                                                                         |                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Reasoning               | `supports_reasoning`, or `reasoning_effort` among `supported_openai_params`                                                                                                                                    | An explicit `supports_reasoning: false` wins                                                                                                                                                                                                                                                                                                                                                                                               |
+| Reasoning effort levels | LiteLLM's resolved `supported_reasoning_efforts` from `/model_group/info`; on a proxy from before that field, its `supports_<level>_reasoning_effort` flags and `reasoning_effort_levels` list from model info | The proxy's list is the Thinking Effort menu (`null` is the proxy saying unknown). Without the field the extension applies LiteLLM's own flag rule: a declared list wins whole; otherwise Medium and High always, Minimal and Low unless `false`, Extra High and Max only when `true`, Off unless `false` (Azure's gpt-5 family needs `true`). With no flag at all the menu falls back to its built-in list                                |
+| Prompt caching          | `supports_prompt_caching`                                                                                                                                                                                      | Overridable like every field; the feature stays double-gated by `chat.promptCaching` ([Settings](settings.md#prompt-caching))                                                                                                                                                                                                                                                                                                              |
+| Reasoning replay        | `litellm_provider`, or a providers-array entry's `provider`, equal to `deepseek`                                                                                                                               | Not a model info flag: discovery sets `replay_reasoning_content` from the provider name on both listing shapes. A model name load-balanced over deepseek and non-deepseek deployments reports nothing, so your record decides. A provider group whose entries mix deepseek and other providers resolves it to `false`, since every contributor must demand it, so a `_fallback` value does not apply there; write a plain override instead |
+| Pricing                 | the eight cost fields (`input_cost_per_token`, ...)                                                                                                                                                            | An input/output pair of exactly 0/0 is LiteLLM's stamp for "no pricing data" and reads as no report at all ([pricing](#pricing))                                                                                                                                                                                                                                                                                                           |
+| Token limits            | model info's token limit fields                                                                                                                                                                                | See [Token limits](#token-limits)                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 A wrong flag on the server side is worth fixing there: the extension trusts the declaration in both directions, offering what is declared and withholding what is not. When the server is not yours to fix, override the flag instead.
 
@@ -230,7 +230,7 @@ A server entry can carry the same record scoped to its own models (`models.capab
 
 ### Fallback values: `_fallback`
 
-An override says "the server is wrong"; a fallback says "in case the server is silent". The `_fallback` directive turns fields of a record into gap-fillers that apply *below* server-reported values:
+An override says "the server is wrong"; a fallback says "in case the server is silent". The `_fallback` directive turns fields of a record into gap-fillers that apply _below_ server-reported values:
 
 ```jsonc
 "litellm-vscode-chat.models.capabilities": {
@@ -268,7 +268,7 @@ The extension bundles a snapshot of [OpenRouter](https://openrouter.ai)'s public
   }
   ```
 
-  Fields derived this way rank *above* what the server reports - the directive says the server's data is not to be trusted for this model. Your explicit fields in the same record still win over the catalog's. An unknown catalog ID shows a warning in the [capability inspector](#inspectors) and the model falls back to the other sources; it is never an error. The dashboard's capability editor offers a search picker for the ID.
+  Fields derived this way rank _above_ what the server reports - the directive says the server's data is not to be trusted for this model. Your explicit fields in the same record still win over the catalog's. An unknown catalog ID shows a warning in the [capability inspector](#inspectors) and the model falls back to the other sources; it is never an error. The dashboard's capability editor offers a search picker for the ID.
 
   And like every directive, `_openrouter_model` belongs to the record it sits in: it is never inherited - only fields flow between records - and a more specific matching record shadows it along with the rest of the record's fields, so restate the directive there if that model still needs it.
 
@@ -303,7 +303,7 @@ What a model costs comes from exactly two places - LiteLLM's `/model/info` repor
 
 - The server's report is the baseline, with one reading rule: an input/output cost pair of exactly 0/0 is LiteLLM's stamp for models with no pricing data, so it counts as undeclared - no price is shown, and stray cache or long-context costs beside the stamp are dropped with it.
 - Your cost fields beat the server's field by field, like any capability override; `_fallback`-marked ones fill in only where the server reports nothing.
-- A 0/0 pair *you* write is different from the server's stamp: you said the model is free, so it prices as genuinely free - $0 in / $0 out and the cheapest badge.
+- A 0/0 pair _you_ write is different from the server's stamp: you said the model is free, so it prices as genuinely free - $0 in / $0 out and the cheapest badge.
 - The OpenRouter catalog never supplies pricing, so a well-known model ID on a free deployment cannot inherit the public rate card.
 
 ### Token limits
@@ -353,12 +353,12 @@ When you configure nothing - or nothing that matches a given model - your model 
 
 One header is the extension's own, and it is not a parameter: `x-litellm-session-id`, which a LiteLLM proxy groups requests by on its Logs page. It is on by default, one session per chat, the way Claude Code and opencode send theirs. [`chat.sessionId`](settings.md#reference) picks another grouping or turns it off.
 
-| `chat.sessionId` | The session id |
-|---|---|
-| `on` | A hash of the window's id and the last question before the assistant's first answer, or of the opening image when there is no question. Two chats that open alike in one window share a session |
-| `folder` | A hash of the open folder's path. No folder open sends nothing |
-| `window` | A hash of the VS Code window's own id, which changes when the window closes |
-| `off` | No header |
+| `chat.sessionId` | The session id                                                                                                                                                                                  |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `on`             | A hash of the window's id and the last question before the assistant's first answer, or of the opening image when there is no question. Two chats that open alike in one window share a session |
+| `folder`         | A hash of the open folder's path. No folder open sends nothing                                                                                                                                  |
+| `window`         | A hash of the VS Code window's own id, which changes when the window closes                                                                                                                     |
+| `off`            | No header                                                                                                                                                                                       |
 
 The one-shot features send the same header, so a commit message, a PR description, a quick fix, a review, a consult answer, or an inline completion counts toward the folder's or the window's session like a chat turn does. Under `on` they ride the window's session: a one-shot request has no chat to be identified by.
 
@@ -467,8 +467,8 @@ Temperature stays free-form in `models.parameters` on purpose: the Configure men
 ### Pricing in the picker
 
 - The effective per-token costs - the server's report plus your overrides ([pricing](#pricing)) - are converted to the per-million-token figures the model picker and the [dashboard](dashboard.md)'s models list display, along with cache and long-context tier costs where declared.
-- A *server-reported* cost pair of exactly zero is treated as undeclared rather than free, because LiteLLM stamps zeros onto models with no pricing data. A zero pair you wrote yourself displays as free - $0 in / $0 out, with the cheapest badge.
-- The cheapest/fastest aggregates carry no *server* pricing - there the proxy's routing decides what a request actually costs - though a user cost record matching the aggregate's [suffixed ID](#provider-routes-and-aggregates) still prices it.
+- A _server-reported_ cost pair of exactly zero is treated as undeclared rather than free, because LiteLLM stamps zeros onto models with no pricing data. A zero pair you wrote yourself displays as free - $0 in / $0 out, with the cheapest badge.
+- The cheapest/fastest aggregates carry no _server_ pricing - there the proxy's routing decides what a request actually costs - though a user cost record matching the aggregate's [suffixed ID](#provider-routes-and-aggregates) still prices it.
 
 What requests actually cost, per server and against budgets, lives in [Usage](usage.md#the-usage-panel).
 
@@ -476,13 +476,13 @@ What requests actually cost, per server and against budgets, lives in [Usage](us
 
 The chat picker is not the only place Copilot chooses a model. A handful of slots drive its background work - utility tasks, inline completions (ghost text), workspace embeddings, instant apply - and some of them can be repointed at the models this extension registers. One thing to know before touching any of them: **every setting in this section is owned by VS Code or the GitHub Copilot Chat extension, not by this one**. Their IDs, allowed values, and what each slot accepts are version-dependent; this page documents them as observed, and when one does nothing on your build, check its current spelling in the Settings editor first.
 
-| Slot | Setting | LiteLLM models |
-|------|---------|----------------|
-| Utility tasks: chat titles, summaries, settings search | `chat.utilityModel` | Yes, in the dropdown |
-| Small, fast utility tasks: commit messages, rename and branch suggestions | `chat.utilitySmallModel` | Yes, in the dropdown |
-| Inline completions (ghost text) | `github.copilot.selectedCompletionModel` | Version-dependent |
-| Workspace embeddings (semantic search) | `github.copilot.chat.workspace.preferredEmbeddingsModel` | No ([embedding-mode models never register](#what-registers)) |
-| Instant apply: short-context edits | `github.copilot.chat.instantApply.shortContextModelName` | Version-dependent |
+| Slot                                                                      | Setting                                                  | LiteLLM models                                               |
+| ------------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------ |
+| Utility tasks: chat titles, summaries, settings search                    | `chat.utilityModel`                                      | Yes, in the dropdown                                         |
+| Small, fast utility tasks: commit messages, rename and branch suggestions | `chat.utilitySmallModel`                                 | Yes, in the dropdown                                         |
+| Inline completions (ghost text)                                           | `github.copilot.selectedCompletionModel`                 | Version-dependent                                            |
+| Workspace embeddings (semantic search)                                    | `github.copilot.chat.workspace.preferredEmbeddingsModel` | No ([embedding-mode models never register](#what-registers)) |
+| Instant apply: short-context edits                                        | `github.copilot.chat.instantApply.shortContextModelName` | Version-dependent                                            |
 
 The two utility slots are the dependable ones. Their dropdowns in the Settings UI list every model registered outside Copilot itself - this extension's included - and write the chosen model's qualified identifier for you, so set them there rather than typing the value. A fast, inexpensive model is the right pick for `chat.utilitySmallModel`.
 
@@ -493,18 +493,18 @@ The other three take a model identifier string in settings.json, and the vocabul
 
 A window reload (`Developer: Reload Window`) is often needed before a repointed slot takes effect.
 
-**Where `chat.byokUtilityModelDefault` fits.** This setting decides what handles utility tasks when no explicit utility model is set and the *main* chat model is a BYOK model - which is exactly when you are chatting on a LiteLLM model; it has no effect while the main model is Copilot's own. "Main Agent Model" (`mainAgent`) routes utility flows to the LiteLLM model you are chatting with, keeping them on your proxy and your pricing; "GitHub Copilot" (`copilot`, the default) keeps Copilot's models handling them; "None" (`none`) turns the default off. Either is a legitimate choice - and a model named in `chat.utilityModel` or `chat.utilitySmallModel` always beats this fallback.
+**Where `chat.byokUtilityModelDefault` fits.** This setting decides what handles utility tasks when no explicit utility model is set and the _main_ chat model is a BYOK model - which is exactly when you are chatting on a LiteLLM model; it has no effect while the main model is Copilot's own. "Main Agent Model" (`mainAgent`) routes utility flows to the LiteLLM model you are chatting with, keeping them on your proxy and your pricing; "GitHub Copilot" (`copilot`, the default) keeps Copilot's models handling them; "None" (`none`) turns the default off. Either is a legitimate choice - and a model named in `chat.utilityModel` or `chat.utilitySmallModel` always beats this fallback.
 
 ## Multimodal input
 
 What an attachment becomes on the wire depends on its type and the model's resolved [capabilities](#capabilities):
 
-| Attachment | Capability gate | On other models |
-|------------|-----------------|-----------------|
-| Images (attachments, and images replayed from earlier turns) | Sent only to models that declare vision support | The text goes through and the images are dropped, with a note in the "LiteLLM" output channel |
-| PDFs (sent as file blocks on user messages) | Not capability-gated (`supports_pdf_input` resolves and displays but gates nothing yet) | A model that cannot take PDFs fails with its server's own error message |
-| Audio (WAV, MP3; sent as audio input blocks) | Sent only to models that declare audio input support | Dropped with an output-channel note |
-| Text-decodable files (plain text, JSON, source files) | None: decoded and sent as text everywhere | - |
+| Attachment                                                   | Capability gate                                                                         | On other models                                                                               |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Images (attachments, and images replayed from earlier turns) | Sent only to models that declare vision support                                         | The text goes through and the images are dropped, with a note in the "LiteLLM" output channel |
+| PDFs (sent as file blocks on user messages)                  | Not capability-gated (`supports_pdf_input` resolves and displays but gates nothing yet) | A model that cannot take PDFs fails with its server's own error message                       |
+| Audio (WAV, MP3; sent as audio input blocks)                 | Sent only to models that declare audio input support                                    | Dropped with an output-channel note                                                           |
+| Text-decodable files (plain text, JSON, source files)        | None: decoded and sent as text everywhere                                               | -                                                                                             |
 
 Tool results forward text, plus images on vision models. Binary content in assistant history has no wire shape; only its text survives replay.
 

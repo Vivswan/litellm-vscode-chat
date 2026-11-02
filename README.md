@@ -77,12 +77,12 @@ Press `F5` to launch the Extension Development Host. [Development](docs/developm
 
 Your prompts and completions travel only between VS Code and the LiteLLM servers you configure. A chat turn goes wherever the model the chat picker names goes: a built-in Copilot model unless you selected one of yours.
 
-| Feature | What is sent | To | When |
-| --- | --- | --- | --- |
-| Chat | your prompt, attachments, tool definitions | the model the chat picker names | each turn |
-| Inline completions | the file content around your cursor | the server behind `inlineCompletions.model` | automatically as you type; ships off and needs an explicit model |
-| Commit message generation | the staged or working-tree diff, untracked file names, your last five commit subjects | the server behind `commitGeneration.model` | on your invocation only |
-| Quick fixes | the diagnostic messages and the surrounding code | the chat picker's model, or `quickFix.model` when the chat view cannot answer | when you pick Fix or Explain |
+| Feature                   | What is sent                                                                          | To                                                                            | When                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Chat                      | your prompt, attachments, tool definitions                                            | the model the chat picker names                                               | each turn                                                        |
+| Inline completions        | the file content around your cursor                                                   | the server behind `inlineCompletions.model`                                   | automatically as you type; ships off and needs an explicit model |
+| Commit message generation | the staged or working-tree diff, untracked file names, your last five commit subjects | the server behind `commitGeneration.model`                                    | on your invocation only                                          |
+| Quick fixes               | the diagnostic messages and the surrounding code                                      | the chat picker's model, or `quickFix.model` when the chat view cannot answer | when you pick Fix or Explain                                     |
 
 Requests to your LiteLLM servers count toward the same usage tracking and budget alerts as chat. Turns that go to a built-in Copilot model do not.
 

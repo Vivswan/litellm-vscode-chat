@@ -8,24 +8,24 @@ This page is indexed by symptom: find what you are seeing, and each entry says w
 
 Two items sit in the bottom-right corner. The left one is the **connection item** - it answers "can I chat right now?":
 
-| Item | Status | Meaning |
-|------|--------|---------|
-| `$(warning) LiteLLM` | Not Configured | No servers configured - click to set up |
-| `$(loading~spin) LiteLLM` | Loading | Fetching models from servers |
-| `$(check) LiteLLM` | Connected | All servers reachable; the tooltip carries the model count |
-| `$(warning) LiteLLM` | Degraded | Some servers failing (unreachable, or their provider-group sync failed); the tooltip says how many models are still available |
-| `$(error) LiteLLM` | Error | All servers failed - the Diagnostics section has each server's error |
+| Item                      | Status         | Meaning                                                                                                                       |
+| ------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `$(warning) LiteLLM`      | Not Configured | No servers configured - click to set up                                                                                       |
+| `$(loading~spin) LiteLLM` | Loading        | Fetching models from servers                                                                                                  |
+| `$(check) LiteLLM`        | Connected      | All servers reachable; the tooltip carries the model count                                                                    |
+| `$(warning) LiteLLM`      | Degraded       | Some servers failing (unreachable, or their provider-group sync failed); the tooltip says how many models are still available |
+| `$(error) LiteLLM`        | Error          | All servers failed - the Diagnostics section has each server's error                                                          |
 
 Clicking it opens the [dashboard](dashboard.md); the Diagnostics section has the per-server detail.
 
 Next to it, the **usage item** answers "how close am I to a budget?" - a spend percentage for the worst server:
 
-| It shows | Meaning |
-|----------|---------|
-| a plain percentage, e.g. `42%` | every server is under its alert thresholds |
-| the percentage on a warning background | some server crossed the lowest threshold (default 80%) |
-| the percentage on an error background | some server crossed the highest threshold (default 95%) |
-| nothing | no budget data is fresh (the connection item already signals outages), usage features do not apply to your servers, or `usage.statusBar` hides it |
+| It shows                               | Meaning                                                                                                                                           |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a plain percentage, e.g. `42%`         | every server is under its alert thresholds                                                                                                        |
+| the percentage on a warning background | some server crossed the lowest threshold (default 80%)                                                                                            |
+| the percentage on an error background  | some server crossed the highest threshold (default 95%)                                                                                           |
+| nothing                                | no budget data is fresh (the connection item already signals outages), usage features do not apply to your servers, or `usage.statusBar` hides it |
 
 Clicking it opens the dashboard's [Servers page](dashboard.md#usage-on-the-servers-page), where each row carries its spend. How budgets, thresholds, and polling fit together is on the [Usage](usage.md#the-status-bar) page. (With a single configured threshold, that threshold is both the lowest and the highest, so crossing it goes straight to the error background.)
 
@@ -33,14 +33,14 @@ So: **red on the left** means requests cannot get through - work through [Common
 
 ## Diagnostic tools
 
-| Tool | What it gives you |
-|------|-------------------|
-| "LiteLLM: Test Connection" (Command Palette) | Verifies a server end to end: connects, reports the number of models found, shows detailed error messages on failure, and updates the status bar. The dashboard's Test connection button does the same for a draft entry before you save it |
-| "LiteLLM: Show Diagnostics" | Opens the dashboard on its Diagnostics section: the overall status, the configured-server count, the last check timestamp, and one outcome line per server with its URL |
-| The "LiteLLM" output channel | The full log: configuration changes, model fetch attempts and results, and errors with full details. Open the Output panel (`Ctrl+Shift+U` / `Cmd+Shift+U`) and select "LiteLLM" from the dropdown |
-| The dashboard's inspectors | Per model, which source set every parameter and capability field - the tool for "why is this value what it is" questions ([Models: inspectors](models.md#inspectors)) |
-| "LiteLLM: Help & Feedback" | Shortcuts for reporting bugs, requesting features, or opening the documentation |
-| Copilot's agent, through the agent tools | With `agentTools.enabled` on, ask agent mode to diagnose: it reads the same status, logs, and per-model sources through its tools, and with a write switch on it applies the fix after you confirm ([Getting started: Let an agent manage your LiteLLM setup](getting-started.md#let-an-agent-manage-your-litellm-setup)) |
+| Tool                                         | What it gives you                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "LiteLLM: Test Connection" (Command Palette) | Verifies a server end to end: connects, reports the number of models found, shows detailed error messages on failure, and updates the status bar. The dashboard's Test connection button does the same for a draft entry before you save it                                                                               |
+| "LiteLLM: Show Diagnostics"                  | Opens the dashboard on its Diagnostics section: the overall status, the configured-server count, the last check timestamp, and one outcome line per server with its URL                                                                                                                                                   |
+| The "LiteLLM" output channel                 | The full log: configuration changes, model fetch attempts and results, and errors with full details. Open the Output panel (`Ctrl+Shift+U` / `Cmd+Shift+U`) and select "LiteLLM" from the dropdown                                                                                                                        |
+| The dashboard's inspectors                   | Per model, which source set every parameter and capability field - the tool for "why is this value what it is" questions ([Models: inspectors](models.md#inspectors))                                                                                                                                                     |
+| "LiteLLM: Help & Feedback"                   | Shortcuts for reporting bugs, requesting features, or opening the documentation                                                                                                                                                                                                                                           |
+| Copilot's agent, through the agent tools     | With `agentTools.enabled` on, ask agent mode to diagnose: it reads the same status, logs, and per-model sources through its tools, and with a write switch on it applies the fix after you confirm ([Getting started: Let an agent manage your LiteLLM setup](getting-started.md#let-an-agent-manage-your-litellm-setup)) |
 
 ## Common issues
 

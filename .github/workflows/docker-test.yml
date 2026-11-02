@@ -10,10 +10,10 @@ on:
   workflow_dispatch:
     inputs:
       docker-only:
-        description: 'Comma-separated docker-test labels to run (empty runs the full set)'
+        description: "Comma-separated docker-test labels to run (empty runs the full set)"
         required: false
         type: string
-        default: ''
+        default: ""
 
 permissions:
   contents: read
@@ -22,6 +22,6 @@ jobs:
   docker-stack:
     uses: ./.github/workflows/test-reusable.yml
     with:
-      os: 'ubuntu-latest'
-      suite: 'docker'
+      os: "ubuntu-latest"
+      suite: "docker"
       docker-only: ${{ inputs.docker-only }}

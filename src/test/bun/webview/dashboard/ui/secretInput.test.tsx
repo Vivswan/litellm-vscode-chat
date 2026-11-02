@@ -35,22 +35,23 @@ test("an initial prefill lands in the value property only - never in any attribu
 	expectOnlyInValueProperty(SECRET);
 });
 
+// The harness parent below is the form's shape in miniature: state in, value prop back.
+function Harness({ onValue }: { onValue: (next: string) => void }) {
+	const [value, setValue] = useState(SECRET);
+	return (
+		<SecretInput
+			id="secret-under-test"
+			type="password"
+			value={value}
+			onValueChange={(next) => {
+				setValue(next);
+				onValue(next);
+			}}
+		/>
+	);
+}
+
 test("typing reports through onValueChange and the echoed re-render leaves the node alone", () => {
-	// The harness parent below is the form's shape in miniature: state in, value prop back.
-	function Harness({ onValue }: { onValue: (next: string) => void }) {
-		const [value, setValue] = useState(SECRET);
-		return (
-			<SecretInput
-				id="secret-under-test"
-				type="password"
-				value={value}
-				onValueChange={(next) => {
-					setValue(next);
-					onValue(next);
-				}}
-			/>
-		);
-	}
 	const seen: string[] = [];
 	const root = mount(<Harness onValue={(next) => seen.push(next)} />);
 	expectOnlyInValueProperty(SECRET);

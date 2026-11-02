@@ -226,7 +226,7 @@ Both halves are required. With the switch on but no model picked, nothing regist
 
 **The agent decides when to call it**, which is the part to weigh before enabling. That is what makes it a tool rather than a command: once it is on, the agent may consult on its own initiative, sending whatever question and background it judges the other model needs. The tool itself is read-only - it asks a model and hands the answer back as text, and cannot read files, run commands, or change anything - but the text it sends is the agent's choice, not yours.
 
-Nothing is attached automatically. The consulted model gets only what the agent writes into the call - the question and an optional `context` - never your chat history, your open files, or your workspace as such. Read that precisely: the agent is *told* to put the relevant code, errors, and background into `context`, so material it has read from your workspace can end up there. What reaches the other model is whatever the agent chose to type, and nothing else.
+Nothing is attached automatically. The consulted model gets only what the agent writes into the call - the question and an optional `context` - never your chat history, your open files, or your workspace as such. Read that precisely: the agent is _told_ to put the relevant code, errors, and background into `context`, so material it has read from your workspace can end up there. What reaches the other model is whatever the agent chose to type, and nothing else.
 
 The outgoing prompt is capped at 60,000 characters, a fixed limit like the commit recipe's diff cap; past it the context is trimmed first, with a marker so the consulted model knows material was cut, and the question is only shortened once the context is gone. Coming back, the reply is fitted to whatever token budget the calling model advertised, again with a marker. The request runs under the same `chat.timeout` setting as chat and sends no `max_tokens`, so the consulted model's own default bounds the answer.
 
@@ -358,22 +358,22 @@ Privacy: both paths send the diagnostic messages and the attached lines off your
 
 Everything the extension can do on demand is a Command Palette command (`Ctrl+Shift+P` / `Cmd+Shift+P`, then type "LiteLLM"):
 
-| Command | What it does |
-|---------|--------------|
-| Manage LiteLLM Provider | The hub menu: manage servers and models, open the dashboard, run diagnostics |
-| LiteLLM: Open Dashboard | The [dashboard](dashboard.md) panel: servers, models, usage, and settings in one place |
-| LiteLLM: Test Connection | Connects to each server and reports the model count or the exact error |
-| LiteLLM: Sync Models Now | Refreshes the model lists immediately, bypassing the discovery cache |
-| LiteLLM: Show Diagnostics | Opens the dashboard's Diagnostics section: per-server connection state, model counts, errors, and the last check time |
-| LiteLLM: Set Server Secret | Stores a server's API key, OAuth client secret, or virtual key in [secret storage](servers.md#secrets-and-secret-storage) |
-| LiteLLM: Refresh Usage Now | Fetches spend and budget data immediately, regardless of the polling interval |
-| LiteLLM: Refresh OpenRouter Catalog | Refreshes the capability catalog on demand ([Models](models.md#capabilities)) |
-| LiteLLM: Export Settings... | Saves the extension's settings to a JSON file, stored secrets included, with a warning that the file holds credentials |
-| LiteLLM: Import Settings... | Merges a previously exported settings file, with a prompt per colliding server |
-| LiteLLM: Undo Last Settings Import | Restores settings and secrets to their state before the last import |
-| LiteLLM: Generate Commit Message | Drafts a commit message from your staged changes into the Source Control input (opt-in; see the [recipe](#generate-commit-messages-with-your-own-model)) |
+| Command                                    | What it does                                                                                                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Manage LiteLLM Provider                    | The hub menu: manage servers and models, open the dashboard, run diagnostics                                                                                        |
+| LiteLLM: Open Dashboard                    | The [dashboard](dashboard.md) panel: servers, models, usage, and settings in one place                                                                              |
+| LiteLLM: Test Connection                   | Connects to each server and reports the model count or the exact error                                                                                              |
+| LiteLLM: Sync Models Now                   | Refreshes the model lists immediately, bypassing the discovery cache                                                                                                |
+| LiteLLM: Show Diagnostics                  | Opens the dashboard's Diagnostics section: per-server connection state, model counts, errors, and the last check time                                               |
+| LiteLLM: Set Server Secret                 | Stores a server's API key, OAuth client secret, or virtual key in [secret storage](servers.md#secrets-and-secret-storage)                                           |
+| LiteLLM: Refresh Usage Now                 | Fetches spend and budget data immediately, regardless of the polling interval                                                                                       |
+| LiteLLM: Refresh OpenRouter Catalog        | Refreshes the capability catalog on demand ([Models](models.md#capabilities))                                                                                       |
+| LiteLLM: Export Settings...                | Saves the extension's settings to a JSON file, stored secrets included, with a warning that the file holds credentials                                              |
+| LiteLLM: Import Settings...                | Merges a previously exported settings file, with a prompt per colliding server                                                                                      |
+| LiteLLM: Undo Last Settings Import         | Restores settings and secrets to their state before the last import                                                                                                 |
+| LiteLLM: Generate Commit Message           | Drafts a commit message from your staged changes into the Source Control input (opt-in; see the [recipe](#generate-commit-messages-with-your-own-model))            |
 | LiteLLM: Generate Pull Request Description | Drafts a pull request title and description from your branch onto the clipboard (opt-in; see the [recipe](#generate-pull-request-descriptions-with-your-own-model)) |
-| LiteLLM: Review Changes | Reviews every uncommitted change in a repository and leaves comments on the lines (opt-in; see the [recipe](#get-review-comments-on-your-code)) |
-| LiteLLM: Review This File | Reviews the file you are looking at, whole, and leaves comments on the lines (same opt-in) |
-| LiteLLM: Report Issue | Opens a prefilled GitHub issue; see [what it collects](troubleshooting.md#reporting-an-issue) |
-| LiteLLM: Help & Feedback | Shortcuts to the documentation, bug reports, and feature requests |
+| LiteLLM: Review Changes                    | Reviews every uncommitted change in a repository and leaves comments on the lines (opt-in; see the [recipe](#get-review-comments-on-your-code))                     |
+| LiteLLM: Review This File                  | Reviews the file you are looking at, whole, and leaves comments on the lines (same opt-in)                                                                          |
+| LiteLLM: Report Issue                      | Opens a prefilled GitHub issue; see [what it collects](troubleshooting.md#reporting-an-issue)                                                                       |
+| LiteLLM: Help & Feedback                   | Shortcuts to the documentation, bug reports, and feature requests                                                                                                   |

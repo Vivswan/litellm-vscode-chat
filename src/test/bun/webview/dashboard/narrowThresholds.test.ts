@@ -300,21 +300,23 @@ async function rootFontSizeDeclarations(): Promise<string[]> {
 				found.push(`${file}: ${property} under ${enclosing.map((rule) => rule.line).join(" > ")}`);
 			}
 		};
+		const enterRule = (rule: Rule) => {
+			const style = styleOf(rule);
+			if (style !== undefined) {
+				enclosing.push({ selectors: style.selectors, line: lines[style.loc.line]?.trim() ?? "" });
+			}
+		};
+		const exitRule = (rule: Rule) => {
+			if (styleOf(rule) !== undefined) {
+				enclosing.pop();
+			}
+		};
 		transform({
 			filename: file,
 			code: Buffer.from(css),
 			visitor: {
-				Rule: (rule) => {
-					const style = styleOf(rule);
-					if (style !== undefined) {
-						enclosing.push({ selectors: style.selectors, line: lines[style.loc.line]?.trim() ?? "" });
-					}
-				},
-				RuleExit: (rule) => {
-					if (styleOf(rule) !== undefined) {
-						enclosing.pop();
-					}
-				},
+				Rule: enterRule,
+				RuleExit: exitRule,
 				Declaration: { "font-size": report("font-size"), font: report("font") },
 			},
 		});
