@@ -14,7 +14,7 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    # Nightly: the scheduled run carries the fleet's scheduled scans, and
+    # Nightly: the scheduled run is the site leg's rebuild and link-rot check, and
     # CodeQL keeps its weekly rescan through fleet.yml's plan output.
     - cron: "3 4 * * *"
 
