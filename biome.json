@@ -26,8 +26,14 @@
   },
   "overrides": [
     {
-      "includes": ["biome.json", ".github/repo-platform-manifest.json", ".github/settings.yml"],
+      "includes": [
+        "biome.json",
+        ".github/repo-platform-manifest.json",
+        ".github/settings.yml",
+        "**/LICENSE.md"
+      ],
       "formatter": { "enabled": false },
+      "linter": { "enabled": false },
       "assist": { "enabled": false }
     }
   ]
