@@ -11,7 +11,7 @@
     ".github/copilot-instructions.md": {"class": "mirror", "kind": "symlink", "hash": "79909577a70fc4971a7fcfd3cbec6a1af7182ca2dadc87f2979dce5e28f93ca0"},
     ".github/dependabot.yml": {"class": "managed", "hash": "08797f7ab8d963e4b940fe249ac348e778e16591e7508cbc4e26be57738b7ce8"},
     ".github/instructions/review.instructions.md": {"class": "managed", "hash": "3390ceea1180610460f4f2cf3e40af3921f1aba288f4c11c39fbcd780dcdfdf8"},
-    ".github/repo-platform-manifest.json": {"class": "managed", "hash": null, "commit": "421edb2494e7c50fc6cb1bbf8d9583f91f7fde2c"},
+    ".github/repo-platform-manifest.json": {"class": "managed", "hash": null, "commit": "e0ba72fe8cfc2bd9c7d2dbcc1adbc45e10c7f492"},
     ".github/settings.local.yml": {"class": "starter"},
     ".github/settings.yml": {"class": "managed", "hash": "ef1219bae1fa74defa89609aa6daf410133db7dfbec736ca6f0d351bfa6f69db"},
     ".github/workflows/auto-assign.yml": {"class": "managed", "hash": "42534cbfecfcc71acbee7f232d2c2b6c03b523e8158fdbac354d25a27aaf6510"},
@@ -34,7 +34,7 @@
     ".yamllint": {"class": "managed", "hash": "fee607a335900a21b55c30315bb9a42a2bb57d32a95b346dfd0a4e564ca1c7e3"},
     "AGENTS.md": {"class": "split", "grammar": "managed-region", "begin": "<!-- BEGIN REPO-PLATFORM MANAGED -->", "end": "<!-- END REPO-PLATFORM MANAGED -->", "hash": "c69b2750e1b8585e950137ec412746972a3cdfeea9e997216f11d7913700b17b"},
     "CLAUDE.md": {"class": "mirror", "kind": "symlink", "hash": "a54ff182c7e8acf56acfd6e4b9c3ff41e2c41a31c9b211b2deb9df75d9a478f9"},
-    "LICENSE.md": {"class": "split", "grammar": "managed-region", "begin": "<!-- BEGIN REPO-PLATFORM MANAGED -->", "end": "<!-- END REPO-PLATFORM MANAGED -->", "hash": "2b922ff66f7ace533dbb1b97735c44ff171e9fd2dce6eda25d93f657ddc57b72"},
+    "LICENSE.md": {"class": "split", "grammar": "managed-region", "begin": "<!-- BEGIN REPO-PLATFORM MANAGED -->", "end": "<!-- END REPO-PLATFORM MANAGED -->", "hash": "e59746865d1920a21ca5b722fe65ce44117d0cee735ba9dc5440e8cb0e16a2c8"},
     "biome.json": {"class": "managed", "hash": "3c70a65c8369bd170f12806c2cc5ba9385df0ec69c45db53fe411b38686f22cc"},
     "biome.local.jsonc": {"class": "starter"},
     "release-please-config.json": {"class": "starter"}
