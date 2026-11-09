@@ -35,6 +35,8 @@ import {
 	SECRET_FIELD_IDS,
 	SECRET_FIELD_NESTED_PATHS,
 } from "../../../shared/serverEntry";
+import type { UsageEndpointOverrides } from "../../../shared/usageEndpoints";
+import { isUsageEndpointId } from "../../../shared/usageEndpoints";
 import { canonicalBaseUrl, canonicalUrl, normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import {
 	HEADER_NAME_PATTERN,
@@ -154,6 +156,46 @@ function parseMcpOptIn(raw: unknown, report: (what: string) => void): McpOptIn |
 		return undefined;
 	}
 	return { url };
+}
+
+/**
+ * The one shape rule for a moved usage path: it is appended to the server root as written, so it must start with "/",
+ * and the daily-activity call appends its own query, so it carries no "?" or "#". An absolute URL fails the first
+ * half on purpose: the entry's credentials were paired with its base URL, never with another host.
+ */
+function usableUsageEndpointPath(value: string): string | undefined {
+	const path = trimHttpWhitespace(value);
+	return path.startsWith("/") && !/[?#]/.test(path) ? path : undefined;
+}
+
+/**
+ * Like budget and mcp, a malformed member is a diagnostic and is ignored: the endpoint keeps its default path and the
+ * entry stays usable. Members are named on purpose (an unknown one like the unknown mcp key), because a typo silently
+ * reading as "the default path" would be invisible while the client kept calling a path the user did not name.
+ */
+function parseUsageEndpoints(raw: unknown, report: (what: string) => void): UsageEndpointOverrides | undefined {
+	const members = objectSlot(raw, notAnObject("a usageEndpoints value", "ignored"), report);
+	if (members === undefined) {
+		return undefined;
+	}
+	const overrides: { -readonly [K in keyof UsageEndpointOverrides]: string } = {};
+	for (const [key, value] of Object.entries(members)) {
+		if (!isUsageEndpointId(key)) {
+			report(`has an unknown usageEndpoints key "${key}", ignored`);
+			continue;
+		}
+		if (typeof value !== "string") {
+			report(`has a usageEndpoints.${key} that is not a string, ignored`);
+			continue;
+		}
+		const path = usableUsageEndpointPath(value);
+		if (path === undefined) {
+			report(`has a usageEndpoints.${key} that is not a path starting with "/" and free of "?" and "#", ignored`);
+			continue;
+		}
+		overrides[key] = path;
+	}
+	return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
 
 type FlatAuthFields = { -readonly [K in OptionalEntryFieldId]?: string };
@@ -708,6 +750,13 @@ function acceptEntries(
 			const mcp = parseMcpOptIn(record.mcp, report);
 			if (mcp !== undefined) {
 				entry.mcp = mcp;
+			}
+		}
+
+		if (record.usageEndpoints !== undefined) {
+			const usageEndpoints = parseUsageEndpoints(record.usageEndpoints, report);
+			if (usageEndpoints !== undefined) {
+				entry.usageEndpoints = usageEndpoints;
 			}
 		}
 		accepted.push({ index, entry });

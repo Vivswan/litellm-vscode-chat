@@ -84,6 +84,7 @@ suite("extension/dashboard/intents: the servers setting", () => {
 				discovery: { expectedFailures: ["modelInfo"], declared: ["gpt-4"], includeModes: ["completion"] },
 				budget: 25,
 				mcp: { url: "https://gateway.internal/mcp" },
+				usageEndpoints: { keyInfo: "/customer/key/info" },
 			};
 			const recorded = makeEnv([raw]);
 			const view = declaredViewsFromSetting(recorded.env.readServersSetting()).views[0];

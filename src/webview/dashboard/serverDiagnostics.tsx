@@ -5,8 +5,6 @@
 import * as l10n from "@vscode/l10n";
 import { servedModelsBreakdown } from "../../dashboard/presenters";
 import { formatMoney, spendTone, stalenessText } from "../../dashboard/spendFormat";
-import type { UsageEndpointId } from "../../dashboard/usageEndpoints";
-import { USAGE_ENDPOINT_PATHS } from "../../dashboard/usageEndpoints";
 import type {
 	DashboardServer,
 	InactiveEntryNotice,
@@ -16,6 +14,8 @@ import type {
 } from "../../dashboard/viewModels";
 import { failureClassification, failureTexts } from "../../shared/failureCause";
 import type { ExpectedFailureCategory } from "../../shared/serverEntry";
+import type { UsageEndpointId, UsageEndpointOverrides } from "../../shared/usageEndpoints";
+import { usageEndpointPath } from "../../shared/usageEndpoints";
 import type { DocsUrl } from "./docsLinks";
 import { DOCS_LINK_AUTHENTICATION, DOCS_LINK_OPENAI_COMPATIBLE, DOCS_LINK_PARAMS_INACTIVE } from "./docsLinks";
 import { DocsLink } from "./help";
@@ -514,7 +514,7 @@ export function serverDiagnostics(
 	}
 	let usageDetailsCarried: ReadonlySet<UsageEndpoint> = new Set();
 	if (usage !== undefined) {
-		const problems = usageDiagnostics(server.label, usage, spend, actions);
+		const problems = usageDiagnostics(server, usage, spend, actions);
 		found.push(...problems.lines);
 		usageDetailsCarried = problems.usageDetailsCarried;
 	}
@@ -531,7 +531,7 @@ export function serverDiagnostics(
  * predicate.
  */
 function usageDiagnostics(
-	label: string,
+	server: DashboardServer,
 	card: UsageServerCardView,
 	spend: SpendContext,
 	actions: {
@@ -540,6 +540,9 @@ function usageDiagnostics(
 		readonly refreshingExplicitly?: boolean;
 	}
 ): RowDiagnostics {
+	const { label } = server;
+	// Only a declared row has an entry, so only it can have moved a path; every other origin reads the defaults.
+	const paths = server.config?.usageEndpoints;
 	const carried = new Set<UsageEndpoint>();
 	// Attaching an endpoint's detail to a diagnostic and marking it consumed are one move; an absent detail marks
 	// nothing, so "carried" always means "a diagnostic prints it".
@@ -580,8 +583,8 @@ function usageDiagnostics(
 						label
 					),
 					details: detailLines(
-						carry("keyInfo", forbiddenRowDetail("keyInfo", card.keyInfo)),
-						carry("dailyActivity", forbiddenRowDetail("dailyActivity", card.dailyActivity))
+						carry("keyInfo", forbiddenRowDetail("keyInfo", card.keyInfo, paths)),
+						carry("dailyActivity", forbiddenRowDetail("dailyActivity", card.dailyActivity, paths))
 					),
 					actions: refreshNow("usage-denied-refresh"),
 				},
@@ -596,10 +599,11 @@ function usageDiagnostics(
 			key: "spend-denied",
 			severity: "degraded",
 			headline: l10n.t(
-				"{0} can't read its spend: this key isn't allowed to. Ask whoever issued the key to allow /key/info, then use Refresh now - the extension won't re-check on its own.",
-				label
+				"{0} can't read its spend: this key isn't allowed to. Ask whoever issued the key to allow {1}, then use Refresh now - the extension won't re-check on its own.",
+				label,
+				usageEndpointPath("keyInfo", paths)
 			),
-			details: detailLines(carry("keyInfo", forbiddenRowDetail("keyInfo", card.keyInfo))),
+			details: detailLines(carry("keyInfo", forbiddenRowDetail("keyInfo", card.keyInfo, paths))),
 			actions: refreshNow("spend-denied-refresh"),
 		});
 	}
@@ -611,7 +615,7 @@ function usageDiagnostics(
 				"{0} can't read request statistics: this key isn't allowed to. After the key's permissions change, use Refresh now to re-check.",
 				label
 			),
-			details: detailLines(carry("dailyActivity", forbiddenRowDetail("dailyActivity", card.dailyActivity))),
+			details: detailLines(carry("dailyActivity", forbiddenRowDetail("dailyActivity", card.dailyActivity, paths))),
 			actions: refreshNow("statistics-denied-refresh"),
 		});
 	}
@@ -628,7 +632,7 @@ function usageDiagnostics(
 						"{0}'s spend numbers didn't refresh: the last check failed; it retries automatically with increasing delay.",
 						label
 					),
-			details: detailLines(carry("keyInfo", keyInfoDetail(card, spend.discoveryTimeoutMs))),
+			details: detailLines(carry("keyInfo", keyInfoDetail(card, spend.discoveryTimeoutMs, paths))),
 			actions: refreshNow("usage-refresh-failed-refresh"),
 		});
 	}
@@ -836,18 +840,23 @@ export function spendMissingReason(standing: UsageEndpointStandingView, pollingO
 	}
 }
 
-/** The path a detail line may print: only the shared table's strings ever reach a template. */
-type UsageEndpointPath = (typeof USAGE_ENDPOINT_PATHS)[UsageEndpoint];
+/**
+ * Every detail template takes the endpoint id and the entry's moved paths, so the printed path can only come from the
+ * one resolver the client calls through: a template can never name a path the request did not use.
+ */
+type UsageEndpointPaths = UsageEndpointOverrides | undefined;
 
 /**
  * The one English template for a forbidden endpoint standing, so pasted issue reports stay uniform; the fix and
  * re-probe live in the surrounding diagnostic, refusal alone here.
  */
-function forbiddenLine(path: UsageEndpointPath, status: number | undefined): string {
+function forbiddenLine(endpoint: UsageEndpoint, paths: UsageEndpointPaths, status: number | undefined): string {
+	const path = usageEndpointPath(endpoint, paths);
 	return `LiteLLM ${path}:${status !== undefined ? ` HTTP ${status} -` : ""} this key may not read usage data`;
 }
 
-function notServedLine(path: UsageEndpointPath, status: number | undefined): string {
+function notServedLine(endpoint: UsageEndpoint, paths: UsageEndpointPaths, status: number | undefined): string {
+	const path = usageEndpointPath(endpoint, paths);
 	return `LiteLLM ${path}: not served on this server${status !== undefined ? ` (HTTP ${status})` : ""}`;
 }
 
@@ -855,9 +864,13 @@ function notServedLine(path: UsageEndpointPath, status: number | undefined): str
  * English by policy (pasted into issue reports), built from closed enums and numbers only - response text never exists
  * here. The advisory headline already says whether a retry is automatic; no branch repeats it.
  */
-export function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: number): string | undefined {
+export function keyInfoDetail(
+	server: UsageServerView,
+	discoveryTimeoutMs: number,
+	paths: UsageEndpointPaths
+): string | undefined {
 	const standing = server.keyInfo;
-	const path = USAGE_ENDPOINT_PATHS.keyInfo;
+	const path = usageEndpointPath("keyInfo", paths);
 	switch (standing.kind) {
 		case "ok":
 			return server.spend === undefined ? `LiteLLM ${path}: OK, no spend field` : undefined;
@@ -865,8 +878,8 @@ export function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: numbe
 			return server.spend === undefined ? `LiteLLM ${path}: waiting on the first fetch` : undefined;
 		case "unavailable":
 			return standing.reason === "forbidden"
-				? forbiddenLine(path, standing.status)
-				: `${notServedLine(path, standing.status)}; request stats still update`;
+				? forbiddenLine("keyInfo", paths, standing.status)
+				: `${notServedLine("keyInfo", paths, standing.status)}; request stats still update`;
 		case "error": {
 			if (standing.classification === "timeout") {
 				return `LiteLLM ${path}: timed out (discovery.timeout allows ${discoveryTimeoutMs}ms per attempt). If the server is just slow, raise the discovery.timeout setting.`;
@@ -882,17 +895,17 @@ export function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: numbe
 	}
 }
 
-/** The /user/daily/activity detail line, same English-template rules as keyInfoDetail. */
-export function activityDetail(server: UsageServerView): string | undefined {
+/** The daily-activity detail line, same English-template rules as keyInfoDetail. */
+export function activityDetail(server: UsageServerView, paths: UsageEndpointPaths): string | undefined {
 	const standing = server.dailyActivity;
-	const path = USAGE_ENDPOINT_PATHS.dailyActivity;
+	const path = usageEndpointPath("dailyActivity", paths);
 	switch (standing.kind) {
 		case "ok":
 		case "unknown":
 			return undefined;
 		case "unavailable":
 			// Unsupported needs no detail: the fact's own reason covers it.
-			return standing.reason === "forbidden" ? forbiddenLine(path, standing.status) : undefined;
+			return standing.reason === "forbidden" ? forbiddenLine("dailyActivity", paths, standing.status) : undefined;
 		case "error": {
 			const how =
 				standing.status !== undefined
@@ -908,27 +921,34 @@ export function activityDetail(server: UsageServerView): string | undefined {
 }
 
 /**
- * The Requests fact's reason when /user/daily/activity has no retained window, keyed by the standing: the one map for
- * both drawers. The Refresh now remedy for a denied key lives in the row's diagnostic, not here.
+ * The Requests fact's reason when the daily-activity endpoint has no retained window, keyed by the standing: the one
+ * map for both drawers. The Refresh now remedy for a denied key lives in the row's diagnostic, not here.
  */
-export function requestsMissingReason(standing: UsageEndpointStandingView): string {
+export function requestsMissingReason(standing: UsageEndpointStandingView, paths: UsageEndpointPaths): string {
 	if (standing.kind === "unavailable") {
 		return standing.reason === "forbidden"
 			? l10n.t("this key isn't allowed to read request statistics on this server")
-			: l10n.t("this server does not serve /user/daily/activity (a normal shape on some setups)");
+			: l10n.t(
+					"this server does not serve {0} (a normal shape on some setups)",
+					usageEndpointPath("dailyActivity", paths)
+				);
 	}
 	return l10n.t("couldn't be fetched yet - retries on the next refresh");
 }
 
 /**
  * The English detail line for one denied endpoint standing (a mixed 404-plus-403 server states both facts); same
- * English-by-policy, closed-enums-only rules as keyInfoDetail. Takes the endpoint id so the printed path can only come
- * from the shared table.
+ * English-by-policy, closed-enums-only rules as keyInfoDetail.
  */
-function forbiddenRowDetail(endpoint: UsageEndpoint, standing: UsageEndpointStandingView): string | undefined {
+function forbiddenRowDetail(
+	endpoint: UsageEndpoint,
+	standing: UsageEndpointStandingView,
+	paths: UsageEndpointPaths
+): string | undefined {
 	if (standing.kind !== "unavailable") {
 		return undefined;
 	}
-	const path = USAGE_ENDPOINT_PATHS[endpoint];
-	return standing.reason === "forbidden" ? forbiddenLine(path, standing.status) : notServedLine(path, standing.status);
+	return standing.reason === "forbidden"
+		? forbiddenLine(endpoint, paths, standing.status)
+		: notServedLine(endpoint, paths, standing.status);
 }

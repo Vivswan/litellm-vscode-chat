@@ -5,15 +5,13 @@ import type { StoredServerSecrets } from "../../../../extension/servers/serverSy
 import type { DeclaredServer } from "../../../../extension/servers/serverSync/setting";
 import {
 	activityWindow,
-	dailyActivityUrl,
-	keyInfoUrl,
 	UsageClient,
 	type UsageClientOptions,
 	type UsageConnection,
 	type UsageDay,
 	usageConnectionFor,
+	usageEndpointUrl,
 	usageUnavailabilityOf,
-	userInfoUrl,
 } from "../../../../extension/servers/usage/spendClient";
 import { retryBudgetMs } from "../../../../provider/transport/retry";
 import { RequestError } from "../../../../provider/transport/transportErrors";
@@ -63,22 +61,41 @@ async function expectRequestError(promise: Promise<unknown>, kind: RequestError[
 suite("extension/servers/usage spendClient", () => {
 	useMsw();
 
-	suite("URL helpers", () => {
-		test("state the root-level endpoints the requests really call", () => {
-			assert.strictEqual(keyInfoUrl(TEST_BASE_URL, undefined), KEY_INFO_URL);
-			assert.strictEqual(userInfoUrl(TEST_BASE_URL, undefined), USER_INFO_URL);
-			assert.strictEqual(dailyActivityUrl(TEST_BASE_URL, undefined), DAILY_ACTIVITY_URL);
+	suite("usageEndpointUrl", () => {
+		test("states the root-level endpoints the requests really call", () => {
+			assert.strictEqual(usageEndpointUrl("keyInfo", { baseUrl: TEST_BASE_URL }), KEY_INFO_URL);
+			assert.strictEqual(usageEndpointUrl("userInfo", { baseUrl: TEST_BASE_URL }), USER_INFO_URL);
+			assert.strictEqual(usageEndpointUrl("dailyActivity", { baseUrl: TEST_BASE_URL }), DAILY_ACTIVITY_URL);
 		});
 
 		test("a version segment in the base URL is stripped back to the server root", () => {
-			assert.strictEqual(keyInfoUrl(`${TEST_BASE_URL}/v1`, undefined), KEY_INFO_URL);
-			assert.strictEqual(userInfoUrl(`${TEST_BASE_URL}/v2`, undefined), USER_INFO_URL);
-			assert.strictEqual(dailyActivityUrl(`${TEST_BASE_URL}/v1/`, undefined), DAILY_ACTIVITY_URL);
+			assert.strictEqual(usageEndpointUrl("keyInfo", { baseUrl: `${TEST_BASE_URL}/v1` }), KEY_INFO_URL);
+			assert.strictEqual(usageEndpointUrl("userInfo", { baseUrl: `${TEST_BASE_URL}/v2` }), USER_INFO_URL);
+			assert.strictEqual(usageEndpointUrl("dailyActivity", { baseUrl: `${TEST_BASE_URL}/v1/` }), DAILY_ACTIVITY_URL);
 		});
 
 		test("an explicit apiVersion means the base URL already is the server root", () => {
-			assert.strictEqual(keyInfoUrl(`${TEST_BASE_URL}/v1`, "v2"), `${TEST_BASE_URL}/v1/key/info`);
-			assert.strictEqual(keyInfoUrl(TEST_BASE_URL, ""), KEY_INFO_URL);
+			assert.strictEqual(
+				usageEndpointUrl("keyInfo", { baseUrl: `${TEST_BASE_URL}/v1`, apiVersion: "v2" }),
+				`${TEST_BASE_URL}/v1/key/info`
+			);
+			assert.strictEqual(usageEndpointUrl("keyInfo", { baseUrl: TEST_BASE_URL, apiVersion: "" }), KEY_INFO_URL);
+		});
+
+		test("an override is appended to the server root like the defaults, never to the base URL as written", () => {
+			// The repository has both rules: mcpEndpointOf appends to the base URL as written (/v1 included), the usage
+			// paths sit at the server root. An override must follow the usage rule, and an endpoint the entry leaves
+			// alone keeps its default.
+			const usageEndpoints = { userInfo: "/customer/info", dailyActivity: "/customer/daily/activity" };
+			assert.strictEqual(
+				usageEndpointUrl("userInfo", { baseUrl: `${TEST_BASE_URL}/v1`, usageEndpoints }),
+				`${TEST_BASE_URL}/customer/info`
+			);
+			assert.strictEqual(
+				usageEndpointUrl("dailyActivity", { baseUrl: TEST_BASE_URL, usageEndpoints }),
+				`${TEST_BASE_URL}/customer/daily/activity`
+			);
+			assert.strictEqual(usageEndpointUrl("keyInfo", { baseUrl: TEST_BASE_URL, usageEndpoints }), KEY_INFO_URL);
 		});
 	});
 
@@ -113,6 +130,22 @@ suite("extension/servers/usage spendClient", () => {
 			assert.strictEqual(key.softBudget, 80);
 			assert.strictEqual(key.budgetResetAt, Date.parse("2026-09-01T00:00:00.000Z"));
 			assert.strictEqual(key.hasUser, true);
+		});
+
+		test("a connection carrying usageEndpoints is fetched at the override path, not the default", async () => {
+			let defaultCalls = 0;
+			mswServer.use(
+				http.get(KEY_INFO_URL, () => {
+					defaultCalls += 1;
+					return HttpResponse.json({ info: { spend: 1 } });
+				}),
+				http.get(`${TEST_BASE_URL}/customer/key/info`, () => HttpResponse.json({ info: { spend: 7 } }))
+			);
+
+			const key = await client().fetchKeyInfo(connection({ usageEndpoints: { keyInfo: "/customer/key/info" } }));
+
+			assert.strictEqual(key.spend, 7);
+			assert.strictEqual(defaultCalls, 0, "the default path is never called once the entry moves it");
 		});
 
 		test("keyless connections send no auth headers at all", async () => {
@@ -483,7 +516,7 @@ suite("extension/servers/usage spendClient", () => {
 			assert.strictEqual(resolved.baseUrl, TEST_BASE_URL);
 			// The URL a fetch would really hit: a double slash here would 404 on LiteLLM and misclassify the server as
 			// usage-unsupported.
-			assert.strictEqual(keyInfoUrl(resolved.baseUrl, undefined), KEY_INFO_URL);
+			assert.strictEqual(usageEndpointUrl("keyInfo", resolved), KEY_INFO_URL);
 		});
 
 		test("refuses a virtual key or API key that cannot be sent as an HTTP header, naming the field", () => {
@@ -520,7 +553,7 @@ suite("extension/servers/usage spendClient", () => {
 			);
 			assert.strictEqual(connection.apiKey, "stored-key");
 			assert.deepStrictEqual(connection.virtualKey, { header: "x-litellm-key", value: "vk-1" });
-			assert.throws(() => new URL(keyInfoUrl(connection.baseUrl, connection.apiVersion)), TypeError);
+			assert.throws(() => new URL(usageEndpointUrl("keyInfo", connection)), TypeError);
 		});
 	});
 

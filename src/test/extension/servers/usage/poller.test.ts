@@ -997,6 +997,36 @@ suite("extension/servers/usage poller", () => {
 		);
 	});
 
+	test("the entry's usageEndpoints reach the client's connection, and the failure summary names those paths", async () => {
+		// Parser to poller to connection to client: the request must go where the entry says, and the toast must
+		// agree with it (a summary reading the default table would send the user to check an endpoint the extension
+		// never called).
+		const h = makeHarness({
+			intervalMs: 0,
+			servers: [
+				{
+					label: "alpha",
+					baseUrl: "https://litellm.example.com",
+					usageEndpoints: { keyInfo: "/customer/key/info", dailyActivity: "/customer/daily/activity" },
+				},
+			],
+		});
+		h.client.keyInfoResult = unavailableError(401);
+		h.client.dailyResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
+
+		const outcome = await h.poller.refreshNow();
+
+		assert.deepStrictEqual(h.client.keyConnections[0]?.usageEndpoints, {
+			keyInfo: "/customer/key/info",
+			dailyActivity: "/customer/daily/activity",
+		});
+		assert.ok(outcome !== undefined);
+		assert.strictEqual(
+			usageRefreshFailureSummary(outcome),
+			"alpha: /customer/key/info 401 forbidden, /customer/daily/activity timeout"
+		);
+	});
+
 	test("the refresh toast renders whole under the zh-cn bundle: every template and failure word is localized", () => {
 		// l10n:check sees only l10n.t literals, so a raw template or vocabulary word in the summary passes it and
 		// reaches a zh-cn user as a half-English toast; the English pins above hold under the fallback either way.

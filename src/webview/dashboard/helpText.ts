@@ -13,7 +13,7 @@ import type { BooleanSettingId, LanguageFilterMode, NumberSettingId } from "../.
 
 export function helpServersSection(): string {
 	return l10n.t(
-		"The LiteLLM servers this extension fetches models from, saved in the litellm-vscode-chat.servers user setting. Spend and budget read each key's own /key/info; spend tracking needs a database-backed proxy."
+		"The LiteLLM servers this extension fetches models from, saved in the litellm-vscode-chat.servers user setting. Spend and budget read each key's own /key/info by default; spend tracking needs a database-backed proxy."
 	);
 }
 

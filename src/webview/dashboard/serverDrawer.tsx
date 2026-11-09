@@ -15,6 +15,7 @@ import type {
 	UsageServerCardView,
 	UsageServerView,
 } from "../../dashboard/viewModels";
+import type { UsageEndpointOverrides } from "../../shared/usageEndpoints";
 import { capabilityIssueViews, type GroupIssueView, paramIssueViews } from "./recordIssues";
 import { RecordMatcherTable } from "./recordMatcherTable";
 import type { DrawerNotice, UsageEndpoint } from "./serverDiagnostics";
@@ -182,7 +183,7 @@ function BudgetFact({ server, currencySymbol }: { server: UsageServerView; curre
  * (visually-hidden "not reported" intact). The present-window branch keeps per-dash reasons - there the denominators
  * miss independently.
  */
-function RequestFacts({ server }: { server: UsageServerView }) {
+function RequestFacts({ server, paths }: { server: UsageServerView; paths: UsageEndpointOverrides | undefined }) {
 	// Retained statistics from a failing endpoint must not read as current: spend freshness says nothing about the
 	// activity window. "unknown" stays unmarked - nothing failed yet.
 	const outdated = server.dailyActivity.kind === "error" || server.dailyActivity.kind === "unavailable";
@@ -191,7 +192,7 @@ function RequestFacts({ server }: { server: UsageServerView }) {
 		return (
 			<>
 				<Fact label={l10n.t("Requests, 30 days")}>
-					<Absent reason={requestsMissingReason(server.dailyActivity)} />
+					<Absent reason={requestsMissingReason(server.dailyActivity, paths)} />
 				</Fact>
 				<Fact label={l10n.t("Success rate")}>
 					<Absent />
@@ -228,11 +229,14 @@ function RequestFacts({ server }: { server: UsageServerView }) {
 
 function UsageFacts({
 	server,
+	paths,
 	pollingOff,
 	now,
 	currencySymbol,
 }: {
 	server: UsageServerView;
+	/** The entry's moved usage paths, so a reason naming an endpoint names the path really called. */
+	paths: UsageEndpointOverrides | undefined;
 	pollingOff: boolean;
 	now: number;
 	currencySymbol: string;
@@ -255,7 +259,7 @@ function UsageFacts({
 					<Absent reason={l10n.t("the key does not report a reset date")} />
 				)}
 			</Fact>
-			<RequestFacts server={server} />
+			<RequestFacts server={server} paths={paths} />
 			<Fact label={l10n.t("Spend last updated")}>
 				{server.lastUpdatedAt === undefined ? (
 					<Absent reason={neverUpdated === spendReason ? undefined : neverUpdated} />
@@ -275,7 +279,15 @@ function UsageFacts({
  * does not look like a shorter kind of server. Reasons come from the same per-fact maps the reporting drawer reads,
  * one per refused endpoint, on the fact that owns it; the remedy lives in the row's diagnostic.
  */
-function DeniedUsageFacts({ card, pollingOff }: { card: UsageForbiddenServerView; pollingOff: boolean }) {
+function DeniedUsageFacts({
+	card,
+	paths,
+	pollingOff,
+}: {
+	card: UsageForbiddenServerView;
+	paths: UsageEndpointOverrides | undefined;
+	pollingOff: boolean;
+}) {
 	return (
 		<>
 			<Fact label={l10n.t("Spend")}>
@@ -288,7 +300,7 @@ function DeniedUsageFacts({ card, pollingOff }: { card: UsageForbiddenServerView
 				<Absent />
 			</Fact>
 			<Fact label={l10n.t("Requests, 30 days")}>
-				<Absent reason={requestsMissingReason(card.dailyActivity)} />
+				<Absent reason={requestsMissingReason(card.dailyActivity, paths)} />
 			</Fact>
 			<Fact label={l10n.t("Success rate")}>
 				<Absent />
@@ -331,12 +343,14 @@ export function ServerDrawer({
 	onShowModels: ((label: string) => void) | undefined;
 }) {
 	const numbers = usage?.kind === "usage" ? usage : undefined;
+	// Only a declared row has an entry, so only it can have moved a usage path.
+	const paths = server.config?.usageEndpoints;
 	const details =
 		numbers === undefined
 			? []
 			: detailLines(
-					carriedDetails.has("keyInfo") ? undefined : keyInfoDetail(numbers, discoveryTimeoutMs),
-					carriedDetails.has("dailyActivity") ? undefined : activityDetail(numbers)
+					carriedDetails.has("keyInfo") ? undefined : keyInfoDetail(numbers, discoveryTimeoutMs, paths),
+					carriedDetails.has("dailyActivity") ? undefined : activityDetail(numbers, paths)
 				);
 	return (
 		<>
@@ -425,9 +439,15 @@ export function ServerDrawer({
 					</Fact>
 				) : null}
 				{numbers !== undefined ? (
-					<UsageFacts server={numbers} pollingOff={pollingOff} now={now} currencySymbol={currencySymbol} />
+					<UsageFacts
+						server={numbers}
+						paths={paths}
+						pollingOff={pollingOff}
+						now={now}
+						currencySymbol={currencySymbol}
+					/>
 				) : usage?.kind === "forbidden" ? (
-					<DeniedUsageFacts card={usage} pollingOff={pollingOff} />
+					<DeniedUsageFacts card={usage} paths={paths} pollingOff={pollingOff} />
 				) : null}
 			</dl>
 			{details.map((detail) => (

@@ -113,6 +113,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `discovery.includeModes`     | 字符串数组    | 照常注册其模型的非聊天模式 (例如 `"completion"`); [服务器 - 非聊天模式](servers.md#非聊天模式)                                                                                                                                                                                                                                |
 | `budget`                     | 数字          | 手动预算, 以服务器自身的计费货币计, 大于 0; 在[用量警报](usage.md#预算)中优先于密钥自身的 `max_budget`; 两者都显示                                                                                                                                                                                                            |
 | `mcp`                        | `true` 或对象 | 让此服务器自身的 MCP 工具可在聊天中使用; `true` 发布 `<baseUrl>/mcp`, `{ "url": "..." }` 指定另一个端点 (仅在与条目同源时带上凭据); [服务器 - MCP 工具](servers.md#mcp-工具)                                                                                                                                                  |
+| `usageEndpoints`             | 对象          | 当此服务器不在 LiteLLM 自身的路径提供用量数据时, 它提供这些数据的位置: `keyInfo`、`dailyActivity`、`userInfo`, 各为相对于服务器根的路径, 替换该终结点的默认路径; 移动的只是路径, 响应保持 LiteLLM 的形状; [服务器 - 用量终结点路径](servers.md#用量终结点路径)                                                                |
 
 可作密钥的字段 (`auth.apiKey`、`auth.oauth.clientSecret`、`auth.virtualKey.value`、OAuth 伴随凭据) 可以存放在 VS Code 密钥存储而非设置文件中: [服务器 - 密钥](servers.md#密钥与密钥存储)。
 

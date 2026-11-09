@@ -34,6 +34,7 @@ import type {
 	SecretLocation,
 	SkippedModeCounts,
 } from "../shared/serverEntry";
+import type { UsageEndpointOverrides } from "../shared/usageEndpoints";
 
 /** A per-entry modelParameters record: model-ID prefix to request parameters. Non-secret user configuration. */
 export type EntryModelParametersPayload = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
@@ -79,6 +80,8 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
 	/** The entry's manual usage budget in USD, when set. */
 	readonly budget?: number | undefined;
 	readonly mcp?: McpOptIn | undefined;
+	/** The entry's moved usage paths; the row's endpoint detail lines resolve through them (usageEndpointPath). */
+	readonly usageEndpoints?: UsageEndpointOverrides | undefined;
 }
 
 /**

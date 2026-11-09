@@ -6,7 +6,7 @@
  *   Deliberately vscode-free -> the unit suites drive it directly
  */
 
-import type { UsageEndpointId } from "../../../dashboard/usageEndpoints";
+import type { UsageEndpointId } from "../../../shared/usageEndpoints";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import type { BudgetStatus } from "./budget";
 import type { DailyUsage, KeyUsage, UsageUnavailableReason, UserUsage } from "./spendClient";

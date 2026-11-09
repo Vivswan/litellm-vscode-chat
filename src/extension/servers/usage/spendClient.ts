@@ -15,7 +15,6 @@
 
 import * as l10n from "@vscode/l10n";
 import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
-import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
 import { narrowGroupCredentials, refusedCredentialFields } from "../../../provider/catalog/groupModels";
 import type { OAuthConfig, TimeoutBudget, VirtualKeyConfig } from "../../../provider/transport/auth";
 import { OAuthTokenSource } from "../../../provider/transport/auth";
@@ -26,29 +25,13 @@ import { retryFetch } from "../../../provider/transport/retry";
 import { RequestError } from "../../../provider/transport/transportErrors";
 import { CONFIG_SECTION, DISCOVERY_MAX_RETRIES } from "../../../shared/config/settingSpec";
 import type { RejectedCredentialField } from "../../../shared/serverEntry";
+import type { UsageEndpointId, UsageEndpointOverrides } from "../../../shared/usageEndpoints";
+import { usageEndpointPath } from "../../../shared/usageEndpoints";
 import { normalizeBaseUrl, serverRootOf } from "../../../shared/util/baseUrl";
 import type { HeaderValue } from "../../../shared/util/headers";
 import { isRecord } from "../../../shared/util/json";
 import { sleepUnlessAborted } from "../../../shared/util/timer";
 import type { DeclaredServer } from "../serverSync/setting";
-
-// The URL builders over the shared USAGE_ENDPOINT_PATHS table: each takes the entry's apiVersion so serverRootOf can
-// undo a version segment the user wrote into the base URL.
-
-/** The absolute own-key info endpoint (no `key` param: the caller's own key). */
-export function keyInfoUrl(baseUrl: string, apiVersion: string | undefined): string {
-	return `${serverRootOf(baseUrl, apiVersion)}${USAGE_ENDPOINT_PATHS.keyInfo}`;
-}
-
-/** The absolute user-rollup endpoint; only called when the key carries a user. */
-export function userInfoUrl(baseUrl: string, apiVersion: string | undefined): string {
-	return `${serverRootOf(baseUrl, apiVersion)}${USAGE_ENDPOINT_PATHS.userInfo}`;
-}
-
-/** The absolute daily-activity endpoint; requests carry start_date/end_date. */
-export function dailyActivityUrl(baseUrl: string, apiVersion: string | undefined): string {
-	return `${serverRootOf(baseUrl, apiVersion)}${USAGE_ENDPOINT_PATHS.dailyActivity}`;
-}
 
 /**
  * One server's connection material for usage calls, fully resolved. Values exist extension-side only; this shape is
@@ -59,12 +42,27 @@ export interface UsageConnection {
 	readonly baseUrl: string;
 	/** The entry's apiVersion override, forwarded to serverRootOf; see DeclaredServer.apiVersion. */
 	readonly apiVersion?: string | undefined;
+	/** The entry's moved usage paths; every GET resolves its path through them (usageEndpointPath). */
+	readonly usageEndpoints?: UsageEndpointOverrides | undefined;
 	/** Empty string for keyless servers, matching the transport convention. */
 	readonly apiKey: HeaderValue | "";
 	/** The entry's custom headers (there is no global headers setting); auth headers win conflicts. */
 	readonly headers: Readonly<Record<string, HeaderValue>>;
 	readonly oauth?: OAuthConfig | undefined;
 	readonly virtualKey?: VirtualKeyConfig | undefined;
+}
+
+/**
+ * The absolute URL of one usage endpoint on a connection: the server root (serverRootOf undoes a version segment the
+ * user wrote into the base URL, unless the entry's apiVersion says the base URL already is the root) plus the path the
+ * entry resolves for the endpoint. The daily-activity caller appends its own window query.
+ */
+export function usageEndpointUrl(
+	endpoint: UsageEndpointId,
+	connection: Pick<UsageConnection, "baseUrl" | "apiVersion" | "usageEndpoints">
+): string {
+	const root = serverRootOf(connection.baseUrl, connection.apiVersion);
+	return `${root}${usageEndpointPath(endpoint, connection.usageEndpoints)}`;
 }
 
 /**
@@ -100,6 +98,7 @@ export function usageConnectionFor(
 			label: entry.label,
 			baseUrl: normalizeBaseUrl(entry.baseUrl),
 			...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
+			...(entry.usageEndpoints !== undefined ? { usageEndpoints: entry.usageEndpoints } : {}),
 			apiKey: credentials.apiKey,
 			headers: entry.headers ?? {},
 			...(credentials.oauth !== undefined ? { oauth: credentials.oauth } : {}),
@@ -362,8 +361,9 @@ export class UsageClient {
 		this.oauthTokens = new OAuthTokenSource(this.sleep);
 	}
 
+	/** The caller's own key (no `key` param). */
 	async fetchKeyInfo(connection: UsageConnection, signal?: AbortSignal): Promise<KeyUsage> {
-		return parseKeyUsage(await this.getJson(connection, keyInfoUrl(connection.baseUrl, connection.apiVersion), signal));
+		return parseKeyUsage(await this.getJson(connection, usageEndpointUrl("keyInfo", connection), signal));
 	}
 
 	async fetchDailyActivity(
@@ -371,17 +371,16 @@ export class UsageClient {
 		window: ActivityWindow,
 		signal?: AbortSignal
 	): Promise<DailyUsage> {
-		const url = `${dailyActivityUrl(connection.baseUrl, connection.apiVersion)}?${new URLSearchParams({
+		const url = `${usageEndpointUrl("dailyActivity", connection)}?${new URLSearchParams({
 			start_date: window.startDate,
 			end_date: window.endDate,
 		}).toString()}`;
 		return parseDailyUsage(await this.getJson(connection, url, signal));
 	}
 
+	/** The user-level rollup; only called when the key carries a user. */
 	async fetchUserInfo(connection: UsageConnection, signal?: AbortSignal): Promise<UserUsage> {
-		return parseUserUsage(
-			await this.getJson(connection, userInfoUrl(connection.baseUrl, connection.apiVersion), signal)
-		);
+		return parseUserUsage(await this.getJson(connection, usageEndpointUrl("userInfo", connection), signal));
 	}
 
 	/**

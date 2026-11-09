@@ -3,15 +3,17 @@
  *
  *   This is a second statement of the parser's shape (src/extension/servers/serverSync/ setting.ts)
  *     -> stays one until that parser is rewritten as a schema
- *   the three enums are spliced from the shared constants -> the manifest cannot offer a category, mode, or header type
- *                                                            the code never learned
+ *   the three enums and the usage endpoint members are spliced from the shared constants
+ *     -> the manifest cannot offer a category, mode, header type, or usage endpoint the code never learned
  */
+
 import {
 	ENTRY_VIEW_FIELD_IDS,
 	EXPECTED_FAILURE_CATEGORIES,
 	NON_CHAT_MODES,
 	SERVER_ENTRY_KEYS,
 } from "../../../src/shared/serverEntry";
+import { USAGE_ENDPOINT_PATHS } from "../../../src/shared/usageEndpoints";
 import { HEADER_SCALAR_TYPES } from "../../../src/shared/util/headers";
 
 export type JsonObject = { readonly [key: string]: JsonValue };
@@ -122,6 +124,17 @@ export const SERVERS_ENTRY_SCHEMA: JsonObject = {
 				url: { type: "string", format: "uri", description: nls("mcp.url") },
 			},
 		},
+		usageEndpoints: {
+			type: "object",
+			additionalProperties: false,
+			markdownDescription: nls("usageEndpoints"),
+			properties: Object.fromEntries(
+				Object.keys(USAGE_ENDPOINT_PATHS).map((endpoint) => [
+					endpoint,
+					{ type: "string", description: nls(`usageEndpoints.${endpoint}`) },
+				])
+			),
+		},
 	},
 };
 
@@ -139,6 +152,7 @@ const ENTRY_VIEW_FIELD_PATHS: Readonly<Record<(typeof ENTRY_VIEW_FIELD_IDS)[numb
 	includeModes: "discovery.includeModes",
 	budget: "budget",
 	mcp: "mcp",
+	usageEndpoints: "usageEndpoints",
 };
 
 function objectNode(value: JsonValue | undefined): JsonObject | undefined {

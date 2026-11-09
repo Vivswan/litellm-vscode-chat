@@ -11,7 +11,7 @@ import type {
 	UsageServerView,
 } from "../../../../dashboard/viewModels";
 import { ServersSection } from "../../../../webview/dashboard/servers";
-import { makeDeclaredServer, makeForbiddenUsageServer, makeUsage, makeUsageServer } from "../fixtures";
+import { makeDeclaredServer, makeForbiddenUsageServer, makeUsage, makeUsageServer, provenSecrets } from "../fixtures";
 import {
 	accessibleNameOf,
 	buttonByText,
@@ -575,6 +575,60 @@ describe("the usage diagnostics", () => {
 		expect(postedCalls()).toEqual([{ method: "refreshUsage", payload: null }]);
 		// NOT counted: it clears itself on the next poll.
 		expect(textOf(root, ".section-meta")).not.toContain("needs attention");
+	});
+
+	test("every endpoint detail names the path the entry's usageEndpoints made the client call", () => {
+		// The dashboard and the request must agree: a detail naming /key/info for a server whose entry reads usage
+		// from /customer/key/info would send the reader to curl an endpoint the extension never called. One case per
+		// detail template: the row diagnostic, the drawer's inventory, and the denied card.
+		const usageEndpoints = { keyInfo: "/customer/key/info", dailyActivity: "/customer/daily/activity" };
+		const servers = [prodServer({ config: { secrets: provenSecrets(), usageEndpoints } })];
+		const usage = makeUsage({
+			servers: [
+				makeUsageServer({
+					label: "Prod",
+					fresh: false,
+					keyInfo: { kind: "error", status: 429 },
+					dailyActivity: { kind: "error", classification: "network" },
+				}),
+			],
+		});
+		const root = mountServers(usage, servers);
+		const line = root.querySelector(".row-diagnostic") as HTMLElement;
+		expect(textOf(line, ".row-diagnostic-detail")).toBe("LiteLLM /customer/key/info: HTTP 429 on the last attempt");
+		const row = openRow(root);
+		expect(textOf(row, ".usage-detail")).toContain("LiteLLM /customer/daily/activity: network error");
+		cleanup();
+
+		const denied = makeUsage({
+			servers: [
+				makeForbiddenUsageServer({
+					label: "Prod",
+					dailyActivity: { kind: "unavailable", reason: "unsupported", status: 404 },
+				}),
+			],
+		});
+		const deniedRoot = mountServers(denied, servers);
+		const deniedLine = deniedRoot.querySelector(".row-diagnostic") as HTMLElement;
+		expect(deniedLine.textContent).toContain("LiteLLM /customer/key/info: HTTP 403 - this key may not read usage data");
+		expect(deniedLine.textContent).toContain("LiteLLM /customer/daily/activity: not served on this server (HTTP 404)");
+		expect(factOf(openRow(deniedRoot), "Requests, 30 days")).toContain("does not serve /customer/daily/activity");
+		cleanup();
+
+		// The two localized reasons that name a path: the spend-denied headline and the reporting drawer's Requests fact.
+		const partlyDenied = makeUsage({
+			servers: [
+				makeUsageServer({
+					label: "Prod",
+					spend: undefined,
+					keyInfo: { kind: "unavailable", reason: "forbidden", status: 403 },
+					dailyActivity: { kind: "unavailable", reason: "unsupported", status: 404 },
+				}),
+			],
+		});
+		const partlyRoot = mountServers(partlyDenied, servers);
+		expect(textOf(partlyRoot, ".row-diagnostic")).toContain("allow /customer/key/info");
+		expect(factOf(openRow(partlyRoot), "Requests, 30 days")).toContain("does not serve /customer/daily/activity");
 	});
 
 	test("with polling off, the transient headline names Refresh now instead of the automatic retry", () => {

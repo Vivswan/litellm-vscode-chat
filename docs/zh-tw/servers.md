@@ -58,6 +58,7 @@
 | `discovery.includeModes`     | 字串陣列      | 照常註冊其模型的非聊天 `model_info.mode` 值, 例如代理把聊天模型標成 `"completion"` 時 ([下文](#非聊天模式))                                                                                                                                      |
 | `budget`                     | 數字          | 用於[用量警示](usage.md#預算)的手動預算 (以伺服器自身的計費貨幣計)。優先於金鑰自身的 `max_budget`; 儀表板兩者都顯示                                                                                                                              |
 | `mcp`                        | `true` 或物件 | 讓此伺服器自身的 MCP 工具可在聊天中使用 ([下文](#mcp-工具))。`true` 發布 `<baseUrl>/mcp`; `{ "url": "..." }` 指定另一個端點                                                                                                                      |
+| `usageEndpoints`             | 物件          | 當此伺服器不在 LiteLLM 自身的路徑提供用量資料時, 它提供這些資料的位置 ([下文](#用量端點路徑)): `keyInfo`、`dailyActivity`、`userInfo`, 各為相對於伺服器根的路徑                                                                                  |
 
 一個完整的項目:
 
@@ -77,7 +78,8 @@
     "includeModes": ["completion"]
   },
   "budget": 50,
-  "mcp": true
+  "mcp": true,
+  "usageEndpoints": { "userInfo": "/customer/info", "dailyActivity": "/customer/daily/activity" }
 }
 ```
 
@@ -224,6 +226,28 @@ LiteLLM 代理可以透過 Model Context Protocol 提供工具。項目的 `mcp`
 - **儲存的祕密必須仍然屬於這台伺服器。** 放在[祕密儲存體](#祕密與祕密儲存體)中的祕密會記住它是為哪個目的地儲存的。若您在儲存之後修改了項目的 `baseUrl`, 它的 MCP 伺服器會拒絕啟動, 直到您為新的 URL 重新儲存一次祕密 - 與聊天路徑和一次性功能的拒絕規則相同。位於另一個來源的端點不受影響: 它從不攜帶項目的認證, 因此無論如何都以無認證方式啟動。
 - 移除該欄位 (或設為 `false`) 即取消發布該伺服器。
 - 工具的結果是一般的聊天內容: 工具回傳什麼, 就會交給回答這一回合的模型。
+
+## 用量端點路徑
+
+[用量功能](usage.md#需求)從伺服器根讀取三個端點: `/key/info`、`/user/daily/activity` 與 `/user/info`。在他處提供同樣資料的部署 - 重寫路徑的閘道, 或 LiteLLM 的 customer 端點 - 在項目的 `usageEndpoints` 中指定它的路徑:
+
+```jsonc
+{
+  "label": "prod",
+  "baseUrl": "https://gateway.internal",
+  "auth": { "apiKey": "sk-..." },
+  "usageEndpoints": {
+    "userInfo": "/customer/info",
+    "dailyActivity": "/customer/daily/activity"
+  }
+}
+```
+
+- 每個端點一個成員: `keyInfo` (預設 `/key/info`)、`dailyActivity` (預設 `/user/daily/activity`)、`userInfo` (預設 `/user/info`)。不寫的成員保留預設路徑。
+- 每個值都是相對於伺服器根的路徑, 也就是預設路徑所附加的那個根: 基礎 URL 去掉結尾版本區段後的部分 (`https://gateway.internal/v1` 讀取 `https://gateway.internal/customer/info`), 或在項目的 `apiVersion` 指定了版本時為原樣的基礎 URL。它必須以 `/` 開頭, 且不含 `?` 或 `#`; 逐日活動請求會自行附加 `start_date` 與 `end_date` 查詢。不接受絕對 URL。
+- 移動的只是路徑。回應仍須具有 LiteLLM 賦予該端點的形狀: 金鑰的欄位在 `info` 下, 使用者的在 `user_info` 下, 活動為帶逐日 `metrics` 的 `results`。
+- 不是這種路徑的成員, 或延伸模組不認識的成員名, 會在伺服器列下方回報並忽略: 該端點保留預設路徑, 項目照常運作。
+- 儀表板的伺服器表單尚無這些路徑的控制項; 請在 settings.json 中編輯。儲存表單會原樣保留它們。
 
 ## 各伺服器模型設定
 

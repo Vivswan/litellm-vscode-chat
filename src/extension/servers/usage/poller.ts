@@ -9,12 +9,12 @@
 
 import { isDeepStrictEqual } from "node:util";
 import * as l10n from "@vscode/l10n";
-import type { UsageEndpointId } from "../../../dashboard/usageEndpoints";
-import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
 import { RequestError } from "../../../provider/transport/transportErrors";
 import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 import { rejectedCredentialKinds } from "../../../shared/failureCause";
 import type { RejectedCredentialField } from "../../../shared/serverEntry";
+import type { UsageEndpointId, UsageEndpointOverrides } from "../../../shared/usageEndpoints";
+import { usageEndpointPath } from "../../../shared/usageEndpoints";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import type { Clock, Timer } from "../../../shared/util/timer";
@@ -84,6 +84,8 @@ export interface UsageEndpointFailure {
 
 export interface UsageServerRefreshOutcome {
 	readonly label: string;
+	/** The entry's moved usage paths, so the summary names the path each failure was really fetched at. */
+	readonly usageEndpoints?: UsageEndpointOverrides | undefined;
 	readonly failures: readonly UsageEndpointFailure[];
 	readonly succeededAny: boolean;
 	/** The pass never reached the network: the entry's stored secrets could not be read. */
@@ -105,7 +107,7 @@ export interface UsageRefreshOutcome {
 }
 
 /** "unsupported" never reaches the toast (actionableFailureText filters it), so only "forbidden" has a word. */
-function describeEndpointFailure(failure: UsageEndpointFailure): string {
+function describeEndpointFailure(failure: UsageEndpointFailure, overrides: UsageEndpointOverrides | undefined): string {
 	const how =
 		failure.status !== undefined
 			? String(failure.status)
@@ -115,7 +117,7 @@ function describeEndpointFailure(failure: UsageEndpointFailure): string {
 					? l10n.t("network error")
 					: l10n.t("failed");
 	const reason = failure.reason === "forbidden" ? ` ${l10n.t("forbidden")}` : "";
-	return `${USAGE_ENDPOINT_PATHS[failure.endpoint]} ${how}${reason}`;
+	return `${usageEndpointPath(failure.endpoint, overrides)} ${how}${reason}`;
 }
 
 /**
@@ -141,7 +143,11 @@ function actionableFailureText(server: UsageServerRefreshOutcome): string | unde
 	if (failures.length === 0) {
 		return undefined;
 	}
-	return l10n.t("{0}: {1}", server.label, failures.map(describeEndpointFailure).join(", "));
+	return l10n.t(
+		"{0}: {1}",
+		server.label,
+		failures.map((failure) => describeEndpointFailure(failure, server.usageEndpoints)).join(", ")
+	);
 }
 
 /**
@@ -665,6 +671,7 @@ export class UsagePoller {
 		);
 		return {
 			label: entry.label,
+			...(entry.usageEndpoints !== undefined ? { usageEndpoints: entry.usageEndpoints } : {}),
 			failures,
 			succeededAny,
 			...(secretsUnreadable ? { secretsUnreadable: true } : {}),

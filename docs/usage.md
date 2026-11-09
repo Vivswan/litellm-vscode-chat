@@ -27,6 +27,8 @@ Usage features need a LiteLLM server that runs with a database - the standard se
 | `/user/daily/activity` | request counts, success rate, and cache-read token counts for the last 30 days                                              |
 | `/user/info`           | the owning user's spend, `max_budget`, and `budget_reset_at` - read only when `/key/info` reports the key belongs to a user |
 
+A server that serves this data at other paths - a gateway that rewrites them, or LiteLLM's customer endpoints - names them in the entry's `usageEndpoints` ([Servers - Usage endpoint paths](servers.md#usage-endpoint-paths)); the extension then reads those paths and expects the same response shapes.
+
 On a server without a database these endpoints do not exist. The extension detects that once and hides every usage surface for that server silently: an empty spend cell on its dashboard row, no status bar item, no alerts, no error noise, nothing to configure. Availability is per server, so a mixed fleet works fine - usage appears exactly where the data exists.
 
 That detection sticks: background polls do not re-check an endpoint already found missing. If you enable the database later, run "LiteLLM: Refresh Usage Now" - or edit the server's entry - and the extension re-probes availability.
