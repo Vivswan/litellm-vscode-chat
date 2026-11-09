@@ -15,6 +15,8 @@ export const USAGE_ENDPOINT_PATHS = {
 
 export type UsageEndpointId = keyof typeof USAGE_ENDPOINT_PATHS;
 
+export const USAGE_ENDPOINT_IDS = Object.keys(USAGE_ENDPOINT_PATHS) as readonly UsageEndpointId[];
+
 /** The one membership check for the endpoint ids, so the settings parser cannot accept a member the table lacks. */
 export function isUsageEndpointId(value: unknown): value is UsageEndpointId {
 	return typeof value === "string" && Object.hasOwn(USAGE_ENDPOINT_PATHS, value);

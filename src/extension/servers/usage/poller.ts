@@ -14,7 +14,7 @@ import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 import { rejectedCredentialKinds } from "../../../shared/failureCause";
 import type { RejectedCredentialField } from "../../../shared/serverEntry";
 import type { UsageEndpointId, UsageEndpointOverrides } from "../../../shared/usageEndpoints";
-import { usageEndpointPath } from "../../../shared/usageEndpoints";
+import { USAGE_ENDPOINT_IDS, usageEndpointPath } from "../../../shared/usageEndpoints";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import type { Clock, Timer } from "../../../shared/util/timer";
@@ -256,13 +256,16 @@ export class UsagePoller {
 	}
 
 	/**
-	 * React to a servers-setting change: drop servers whose label left the setting, and re-probe availability for the
-	 * rest (an edited entry may point at a different proxy or carry new credentials). Removal is presence, not
-	 * acceptance (the sync engine's rule, via stillDeclaredIn): a mid-edit malformed entry keeps its state, standings,
-	 * and crossings, so repairing it cannot re-fire already-shown alerts.
+	 * React to a servers-setting change: drop servers whose label left the setting, forget the standings of usage
+	 * endpoints whose path moved (forgetMovedPaths), and re-probe availability for the rest (an edited entry may point
+	 * at a different proxy or carry new credentials). Removal is presence, not acceptance (the sync engine's rule, via
+	 * stillDeclaredIn): a mid-edit malformed entry keeps its state, standings, and crossings, so repairing it cannot
+	 * re-fire already-shown alerts.
 	 */
 	applyServersChange(): void {
-		this.prune(stillDeclaredIn(this.env.readServersSetting()));
+		const raw = this.env.readServersSetting();
+		this.prune(stillDeclaredIn(raw));
+		this.forgetMovedPaths(parseServersSetting(raw).entries);
 		this.probePending = true;
 		if (this.env.pollIntervalMs() > 0) {
 			this.schedule(this.serversChangeRefreshDelayMs());
@@ -657,6 +660,7 @@ export class UsagePoller {
 			{
 				label: entry.label,
 				baseUrl: entry.baseUrl,
+				usageEndpoints: entry.usageEndpoints,
 				endpoints,
 				availability,
 				lastUpdatedAt,
@@ -700,6 +704,36 @@ export class UsagePoller {
 					memory.delete(label);
 				}
 			}
+		}
+	}
+
+	/**
+	 * A standing describes the path it was probed at, so an endpoint whose path the entry moved reads as unknown at
+	 * once rather than at the next pass: with polling off that pass is the user's, and until then the dashboard would
+	 * attribute the old path's answer to a path never requested. The endpoints that stayed keep their standings; the
+	 * data, the crossings, and the availability verdict stay too (the same key answers at the new path) until the
+	 * probe answers.
+	 */
+	private forgetMovedPaths(entries: readonly DeclaredServer[]): void {
+		for (const entry of entries) {
+			const previous = this.store.get(entry.label);
+			if (previous === undefined) {
+				continue;
+			}
+			const moved = USAGE_ENDPOINT_IDS.filter(
+				(endpoint) =>
+					usageEndpointPath(endpoint, previous.usageEndpoints) !== usageEndpointPath(endpoint, entry.usageEndpoints)
+			);
+			if (moved.length === 0) {
+				continue;
+			}
+			const endpoints: Record<UsageEndpointId, UsageEndpointState> = { ...previous.endpoints };
+			for (const endpoint of moved) {
+				endpoints[endpoint] = { kind: "unknown" };
+				this.errorStreaks.get(entry.label)?.delete(endpoint);
+				this.tokenRetryGranted.get(entry.label)?.delete(endpoint);
+			}
+			this.store.upsert({ ...previous, usageEndpoints: entry.usageEndpoints, endpoints }, []);
 		}
 	}
 

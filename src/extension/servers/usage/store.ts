@@ -6,7 +6,7 @@
  *   Deliberately vscode-free -> the unit suites drive it directly
  */
 
-import type { UsageEndpointId } from "../../../shared/usageEndpoints";
+import type { UsageEndpointId, UsageEndpointOverrides } from "../../../shared/usageEndpoints";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import type { BudgetStatus } from "./budget";
 import type { DailyUsage, KeyUsage, UsageUnavailableReason, UserUsage } from "./spendClient";
@@ -61,6 +61,11 @@ export interface ServerUsageState {
 	/** The declared entry's label: the store key and the join key back to the server rows. */
 	readonly label: string;
 	readonly baseUrl: string;
+	/**
+	 * The entry's moved usage paths at the pass that wrote this state: what each standing describes. A standing says
+	 * nothing about another path, so the poller forgets an endpoint's standing when its path moves.
+	 */
+	readonly usageEndpoints?: UsageEndpointOverrides | undefined;
 	readonly endpoints: UsageEndpointStates;
 	/**
 	 * The card-visibility verdict. Usually usageAvailabilityOf(endpoints), but sticky: the poller keeps a
