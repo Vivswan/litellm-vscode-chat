@@ -177,7 +177,7 @@ The extension rejects a request before sending it when its own token estimate ex
 }
 ```
 
-The key matches exactly; use `"*"` to set a floor for every model. (Older versions had `defaultContextLength` / `defaultMaxInputTokens` / `defaultMaxOutputTokens` settings for this; they are gone, migrated into a `"*"` record automatically.) See [Models: capabilities](models.md#capabilities).
+The key matches exactly; use `"*"` to set a floor for every model. (Versions up to 0.4.4 had `defaultContextLength` / `defaultMaxInputTokens` / `defaultMaxOutputTokens` settings for this; they are gone, and their values belong in a `"*"` record.) See [Models: capabilities](models.md#capabilities).
 
 ### "A parameter I configured is not taking effect"
 
@@ -287,20 +287,20 @@ In both states the entry is only skipped for the pass, and nothing is lost: its 
 
 ## Settings from an older version
 
-If a setting seems to have vanished after an upgrade, it was renamed or restructured: a one-time migration moves everything automatically -
+If a setting seems to have vanished after an upgrade, it was renamed or restructured in 0.4.5. The one-time migration that moved everything shipped in the 0.4.5 to 0.6.x builds and is gone from current ones, so an install coming from 0.4.4 or earlier must upgrade through one of those builds first, or move each value by hand -
 
 - setting names into their new sections (`requestTimeout` to `chat.timeout`, `modelParameters` to `models.parameters`, and so on),
 - flat server entries into the `auth`/`models`/`discovery` shape,
 - the `default*` token settings into a `models.capabilities` `"*"` record,
 - the `_declare` directive into the entry's `discovery.declared` list,
-- and the old global `headers` setting into each entry's own `headers` object (a copy no entry can receive is left in place, inert, with a dashboard hint).
+- and the old global `headers` setting into each entry's own `headers` object (a value left in the old setting is inert and gets a dashboard hint).
 
-Nothing needs re-entering; the [rename table](settings.md#renamed-and-removed-settings) maps every old name to its new home.
+Stored secrets need no re-entering either way; the [rename table](settings.md#renamed-and-removed-settings) maps every old name to its new home.
 
-Two migration effects worth knowing when a matcher stops matching:
+Two rename effects worth knowing when a matcher stops matching:
 
-- Record keys used to be implicit prefixes; the migration appended `*` to every existing key, so old keys match exactly what they matched before. Only keys you write from now on are exact by default ([model matching](models.md#model-matching)).
-- Server-URL-scoped keys in the global records moved into the matching server entry. A scoped key whose URL matches no entry is left in place - inert, since it can never match a model ID - and the dashboard flags it with a hint to move it into a server entry.
+- Record keys used to be implicit prefixes; the migration appended `*` to every existing key (a hand move needs the same), so old keys match exactly what they matched before. Keys written since are exact by default ([model matching](models.md#model-matching)).
+- Server-URL-scoped keys in the global records belong in the matching server entry. One still in a global record is inert, since it can never match a model ID, and the dashboard flags it with a hint to move it into a server entry.
 
 ## Reporting an issue
 

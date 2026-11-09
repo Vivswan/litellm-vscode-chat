@@ -540,16 +540,16 @@ suite("extension/settingsTransfer/importPlan", () => {
 			]);
 		});
 
-		test("a pre-redesign flat entry lands restructured, its flat secrets moved to secret storage", () => {
-			// Old-format export files (flat credential fields, envelope v1) must keep importing AND work immediately:
-			// the entry lands in the current shape (the same restructure the activation migration applies), so its
-			// group never syncs credential-less while waiting for the next activation. The lone oauthTokenUrl is a
-			// partial OAuth the old runtime ignored; the restructure drops it like the migration does.
+		test("a flat 0.4.4-and-earlier entry lands as written minus its secret text, the other flat fields noted as unknown keys", () => {
+			// A file in the 0.4.4-and-earlier flat entry shape is restructured by nothing any more, so the entry lands as
+			// the parser reads it today: the flat apiKey is a secret position and moves into secret storage under the
+			// base URL, while the flat oauthTokenUrl stays as written and is noted like any key outside the vocabulary.
 			const incoming = [server("Old", { apiKey: "sk-test-flat", oauthTokenUrl: "http://idp.test/token" })];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
 			assert.strictEqual(plan.incomingServers[0]?.kept, true, "the flat shape must not be dropped");
+			assert.deepStrictEqual(plan.notes, [{ subject: '"Old"', text: 'has an unknown key "oauthTokenUrl", ignored' }]);
 			const application = resolveImportPlan(plan, {});
-			assert.deepStrictEqual(application.serversValue, [server("Old")]);
+			assert.deepStrictEqual(application.serversValue, [server("Old", { oauthTokenUrl: "http://idp.test/token" })]);
 			assert.deepStrictEqual(application.secretWrites, [
 				{
 					label: "Old",
@@ -561,7 +561,11 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-test-flat"));
 		});
 
-		test("a pre-redesign flat OAuth export lands new-shaped, its client secret stamped for URL and client", () => {
+		test("a flat 0.4.4-and-earlier OAuth entry lands with no OAuth form, its client secret out of the file and stamped for none", () => {
+			// The parser reads OAuth from auth.oauth alone, so the flat token URL and client ID are unknown keys and the
+			// entry sends no OAuth. The flat client secret is still a secret position: its text leaves the settings
+			// file, stamped for the destination the entry has (none), so an OAuth form added later re-pairs it
+			// deliberately.
 			const incoming = [
 				server("Old", {
 					oauthTokenUrl: "http://idp.test/token",
@@ -570,16 +574,16 @@ suite("extension/settingsTransfer/importPlan", () => {
 				}),
 			];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
+			assert.deepStrictEqual(
+				plan.notes.map((remark) => remark.text),
+				['has an unknown key "oauthTokenUrl", ignored', 'has an unknown key "oauthClientId", ignored']
+			);
 			const application = resolveImportPlan(plan, {});
 			assert.deepStrictEqual(application.serversValue, [
-				{ ...server("Old"), auth: { oauth: { tokenUrl: "http://idp.test/token", clientId: "cid" } } },
+				server("Old", { oauthTokenUrl: "http://idp.test/token", oauthClientId: "cid" }),
 			]);
 			assert.deepStrictEqual(application.secretWrites, [
-				{
-					label: "Old",
-					secrets: { oauthClientSecret: "cs-test-1" },
-					owners: { oauthClientSecret: { tokenUrl: "http://idp.test/token", clientId: "cid" } },
-				},
+				{ label: "Old", secrets: { oauthClientSecret: "cs-test-1" }, owners: { oauthClientSecret: {} } },
 			]);
 			assert.ok(!JSON.stringify(application.serversValue).includes("cs-test-1"));
 		});

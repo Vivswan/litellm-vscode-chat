@@ -21,9 +21,9 @@ type MutableSecrets = { -readonly [K in SecretFieldId]?: string };
 export interface StrippedEntry {
 	readonly entry: Readonly<Record<string, unknown>>;
 	/**
-	 * Flat-vs-nested collisions resolve by the settings-redesign migration's OWN rule, so a transfer can never
-	 * change which credentials an entry sends. A record-shaped `auth` wins WHOLESALE and flat secret text beside
-	 * it is DISCARDED, never moved into the blob, exactly as the activation migration discards it.
+	 * Flat-vs-nested collisions: a record-shaped `auth` wins WHOLESALE and flat secret text beside it is DISCARDED,
+	 * never moved into the blob. The parser reads credentials from `auth` alone, so an entry carrying both never
+	 * sends the flat value, and a transfer must not make it start to.
 	 */
 	readonly secrets: StoredServerSecrets;
 	/**
@@ -84,7 +84,7 @@ function certifyStrippedAuth(auth: unknown): boolean {
 export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): StrippedEntry {
 	const entry = cloneJson(rawEntry) as Record<string, unknown>;
 	const secrets: MutableSecrets = {};
-	// Beside a record-shaped auth object they DISCARD instead (the migration's nested-wins-wholesale rule; see
+	// Beside a record-shaped auth object they DISCARD instead (the nested-wins-wholesale rule; see
 	// StrippedEntry.secrets); without one they move 1:1. A container left at one of these keys could still hide text;
 	// that flags the entry rather than being guessed at.
 	const nestedAuthWins = isRecord(rawEntry.auth);

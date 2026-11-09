@@ -22,7 +22,6 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import ts from "typescript";
-import { DECLARE_DIRECTIVE } from "../../../../extension/migrations/settingsRedesign/legacyIds";
 import { parseCapabilityRecord } from "../../../../shared/config/capabilityResolution";
 import { parseParameterRecord } from "../../../../shared/config/parameterResolution";
 import type { ParsedRecord, RecordType } from "../../../../shared/config/recordResolution";
@@ -272,11 +271,10 @@ describe("shared/config record-type directive registry", () => {
 		const sweptFiles = [...docFiles, ...readmeFiles].sort();
 		// Non-directive tokens the docs legitimately spell, each pinned below so a dropped mention retires its entry.
 		//
-		//   DECLARE_DIRECTIVE  -> the retired name the migration docs teach, imported from the migration's own
-		//                         quarantine so retiring the migration breaks this line with it
+		//   _declare           -> the retired capability directive the rename table still names as an old spelling
 		//   _reasoning_effort  -> the tail of the capability flag supports_<level>_reasoning_effort, split off by the
 		//                         <level> placeholder
-		const allowedTokens: ReadonlySet<string> = new Set([DECLARE_DIRECTIVE, "_reasoning_effort"]);
+		const allowedTokens: ReadonlySet<string> = new Set(["_declare", "_reasoning_effort"]);
 		// Per-leg token sets, so the docs completeness pins below keep their original claim (documented in docs/, not
 		// merely mentioned in a README).
 		const docsFound = new Set<string>();

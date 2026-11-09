@@ -30,7 +30,6 @@ import type { RejectedCredentialField, SecretFieldId, SecretOwner } from "../../
 import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS, SERVER_ENTRY_KEYS } from "../../shared/serverEntry";
 import { trimHttpWhitespace } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
-import { restructureServers } from "../migrations/settingsRedesign/entries";
 import { buildGroupArgs } from "../servers/serverSync/engine";
 import type { StoredSecretOwners, StoredServerSecrets } from "../servers/serverSync/secrets";
 import { secretDestination } from "../servers/serverSync/secrets";
@@ -76,9 +75,9 @@ export type IncomingServer =
 			readonly kept: true;
 			readonly label: string;
 			/**
-			 * The entry as it lands before respellEntryUrls: the file's entry normalized to the current settings shape (the
-			 * settings-redesign restructure, so a pre-redesign flat export lands working entries instead of waiting for the
-			 * next activation's migration), secret values stripped out.
+			 * The entry as it lands before respellEntryUrls: the file's entry as written, secret values stripped out. The
+			 * flat credential fields of the 0.4.4-and-earlier entry shape are secret positions too, so their text lands in
+			 * secret storage; every other flat field rides along as an unknown key, noted.
 			 */
 			readonly entry: Readonly<Record<string, unknown>>;
 			/** The stripped secret values that will be stored: a value the request path could not send is already gone. */
@@ -234,7 +233,8 @@ function judgeEntry(raw: unknown, report: ServerEntryReport, parsed: DeclaredSer
 	for (const field of refused) {
 		delete secrets[field];
 	}
-	const unknownKeys = Object.keys(raw).filter((key) => !SERVER_ENTRY_KEYS.includes(key));
+	// Judged on the stripped entry: a flat secret field the surgery moved into the blob is stored, not ignored.
+	const unknownKeys = Object.keys(stripped.entry).filter((key) => !SERVER_ENTRY_KEYS.includes(key));
 	return {
 		kept: true,
 		label: parsed.label,
@@ -288,13 +288,7 @@ export function planSettingsImport(
 				skippedKeys.push({ key, reason: "wrong-type" });
 				continue;
 			}
-			// Normalize to the current settings shape FIRST - the same restructure
-			// the activation migration applies, index-stable. A pre-redesign flat
-			// export otherwise lands entries the parser reads as credential-less
-			// until the next activation (its group syncs with the wrong credential), and
-			// the flat-vs-nested collision rule stays the migration's one rule.
-			const restructured = restructureServers(value).value;
-			const incoming: readonly unknown[] = Array.isArray(restructured) ? restructured : value;
+			const incoming: readonly unknown[] = value;
 			const reports = serverSettingReports(incoming);
 			const accepted = new Map(acceptedEntries(incoming).map(({ index, entry }) => [index, entry]));
 			incoming.forEach((raw: unknown, index) => {

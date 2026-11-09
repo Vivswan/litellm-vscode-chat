@@ -10,7 +10,11 @@ import type { ModelCapabilitiesRecord } from "../../shared/config/capabilityReso
 import { filterUnrecognizedKeyDiagnostics, lintCapabilityRecords } from "../../shared/config/capabilityResolution";
 import { lintParameterRecords } from "../../shared/config/parameterResolution";
 import type { RecordDiagnostic } from "../../shared/config/recordResolution";
-import { acceptsNumberSetting } from "../../shared/config/settingSpec";
+import {
+	acceptsNumberSetting,
+	MODEL_CAPABILITIES_SETTING_KEY,
+	MODEL_PARAMETERS_SETTING_KEY,
+} from "../../shared/config/settingSpec";
 import type { RecordShapeReport } from "../../shared/config/settings";
 import {
 	normalizeModelCapabilities,
@@ -19,15 +23,10 @@ import {
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 } from "../../shared/config/settings";
 import { presentCarriers } from "../../shared/serverEntry";
-import { collectLegacyHints } from "../migrations/settingsRedesign/hints";
-import {
-	LEGACY_HEADERS_ID,
-	NEW_MODEL_CAPABILITIES_ID,
-	NEW_MODEL_PARAMETERS_ID,
-} from "../migrations/settingsRedesign/legacyIds";
 import type { DeclaredServerView } from "../servers/serverSync/engine";
 import { rejectsWithOwnRow } from "../servers/serverSync/rejects";
 import type { ServerEntryReport } from "../servers/serverSync/setting";
+import { collectLegacyHints, LEGACY_HEADERS_ID } from "./legacySettingHints";
 import type { SettingsReader } from "./state";
 
 /** The field under `auth` (or `auth.oauth`) a dropped credential lives in, as the servers setting spells it. */
@@ -93,8 +92,8 @@ function capabilityLint(
 
 export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDiagnosticView[] {
 	const diagnostics: ConfigDiagnosticView[] = [];
-	const modelParametersValue = input.reader.get(NEW_MODEL_PARAMETERS_ID);
-	const modelCapabilitiesValue = input.reader.get(NEW_MODEL_CAPABILITIES_ID);
+	const modelParametersValue = input.reader.get(MODEL_PARAMETERS_SETTING_KEY);
+	const modelCapabilitiesValue = input.reader.get(MODEL_CAPABILITIES_SETTING_KEY);
 
 	// The records normalizer is the one classifier of a map's shape; its refusals land here so a "oops" map or a
 	// "gpt-4": "oops" entry does not read as "no overrides" with nothing saying why.

@@ -7,7 +7,6 @@ import { parseBudgetText, parseDeclaredModelsText } from "../../../dashboard/ser
 import { assembleEntryAuth } from "../../../extension/dashboard/entryAuth";
 import { parseAgentToolInput } from "../../../extension/features/agentTools/inputSchema";
 import { buildCommitPrompt } from "../../../extension/features/commitGen/commitMessage";
-import { transformEntryRecord } from "../../../extension/migrations/settingsRedesign/records";
 import { parseServersSetting } from "../../../extension/servers/serverSync/setting";
 import { planSettingsImport, resolveImportPlan } from "../../../extension/settingsTransfer/importPlan";
 import { parseGroupConfiguration } from "../../../provider/catalog/groupModels";
@@ -835,11 +834,6 @@ suite("one trim rule: padded user values are kept verbatim or refused, never rep
 				"import rename lands the HTTP-trimmed label",
 				() => renamedImportLabel(` ${padded("Prod2")} `),
 				["Prod", padded("Prod2")],
-			],
-			[
-				"transformEntryRecord declared IDs",
-				() => transformEntryRecord({ [` ${padded("gpt")} `]: { _declare: true } }, "capabilities").declared,
-				[padded("gpt")],
 			],
 			["parseBudgetText: HTTP edges", () => parseBudgetText(" 100 "), { ok: true, value: 100 }],
 			["parseBudgetText: U+00A0 refused", () => parseBudgetText(`${NBSP}100`), { ok: false, text: `${NBSP}100` }],

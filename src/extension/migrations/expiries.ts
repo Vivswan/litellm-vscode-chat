@@ -26,7 +26,6 @@ export interface MigrationExpiry {
 }
 
 export const MIGRATION_EXPIRIES = [
-	{ state: "settings-redesign", file: "settingsRedesign/apply.ts", introduced: "2026-08-08", expires: "2026-11-08" },
 	{ state: "unstamped-server-secrets", file: "stampSecretOwners.ts", introduced: "2026-08-19", expires: "2026-11-19" },
 	{ state: "bare-array-blobs", file: "bareArrayBlobs.ts", introduced: "2026-08-23", expires: "2026-11-23" },
 	{ state: "legacy-registry-state", file: "legacyRegistryCleanup.ts", introduced: "2026-08-24", expires: "2026-11-24" },

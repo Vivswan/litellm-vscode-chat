@@ -185,7 +185,7 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 				oauthClientSecret: "sk-test-flat-cs",
 				virtualKeyValue: "sk-test-flat-vk",
 			});
-			// Non-secret flat fields ride through as inert junk for the activation-time restructure; the secret
+			// Non-secret flat fields ride through as written (the import notes each as an unknown key); the secret
 			// positions are emptied.
 			assert.deepStrictEqual(stripped.entry, {
 				label: "A",
@@ -203,9 +203,9 @@ describe("extension/settingsTransfer/secretSurgery", () => {
 		});
 
 		test("a record auth wins WHOLESALE: a flat secret beside it is discarded, never moved into the blob", () => {
-			// The settings-redesign migration drops every flat auth field once a nested auth object exists, so the
-			// transfer must too - taking the flat virtualKeyValue into the blob would make an export+import round trip
-			// send a credential the migrated live entry never sends.
+			// The parser reads credentials from `auth` alone, so an entry carrying both never sends the flat value -
+			// taking the flat virtualKeyValue into the blob would make an export+import round trip send a credential
+			// the live entry never sends.
 			const raw = {
 				label: "A",
 				baseUrl: "http://a.test",

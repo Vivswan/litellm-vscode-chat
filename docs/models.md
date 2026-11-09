@@ -148,9 +148,9 @@ Resolution never happens per request: each model's flat result is computed once 
 
 ### Migrated from prefix keys
 
-Keys in older versions were implicit prefixes: `"gpt-5"` also matched `gpt-5.7` and `gpt-5-turbo`. The upgrade migration appends `*` to every existing key (and turns the old match-everything `""` into `"*"`), so old configs keep matching exactly what they matched before. Only keys you write from now on use the exact-by-default rule.
+Keys in 0.4.4 and earlier were implicit prefixes: `"gpt-5"` also matched `gpt-5.7` and `gpt-5-turbo`. The upgrade migration of the 0.4.5 to 0.6.x builds appended `*` to every existing key (and turned the old match-everything `""` into `"*"`), so migrated configs keep matching exactly what they matched before; a config moved by hand needs the same `*` on each key that was a prefix. Keys written since use the exact-by-default rule.
 
-Older versions also allowed server-URL-scoped keys in the global records (`"https://litellm.example.com/gpt-4"`). The migration moves each one into the matching server entry's record, merged losslessly. A scoped key whose URL matches no entry is left in place - it can never match a model ID, so it is inert - and the dashboard flags it with a hint to move it into a server entry. The full rename story: [Settings](settings.md#renamed-and-removed-settings).
+Older versions also allowed server-URL-scoped keys in the global records (`"https://litellm.example.com/gpt-4"`). Their home is now the matching server entry's record; a scoped key still in a global record can never match a model ID, so it is inert, and the dashboard flags it with a hint to move it into a server entry. The full rename story: [Settings](settings.md#renamed-and-removed-settings).
 
 ## Capabilities
 
@@ -318,7 +318,7 @@ For a [load-balanced pool](#load-balanced-pools), the registered limits are the 
 
 #### Migrated from the removed default settings
 
-Older versions had three global fallback settings: `defaultContextLength`, `defaultMaxOutputTokens`, and `defaultMaxInputTokens`. They are gone; the upgrade migration writes any values you had set into a `"*"` record:
+Versions up to 0.4.4 had three global fallback settings: `defaultContextLength`, `defaultMaxOutputTokens`, and `defaultMaxInputTokens`. They are gone; their values belong in a `"*"` record (the upgrade migration of the 0.4.5 to 0.6.x builds wrote it, and a hand move writes the same):
 
 ```jsonc
 "litellm-vscode-chat.models.capabilities": {
@@ -334,7 +334,7 @@ Older versions had three global fallback settings: `defaultContextLength`, `defa
 
 The first two ride `_fallback` because the old settings only filled gaps below the server's report. The record is also marked `_inheritable: true`, because the old defaults applied to every model no matter what else you had configured: without the marking, any model with a more specific record of its own would lose the defaults wholesale; with it, they follow every model that does not opt out - each field still a fallback wherever it lands, since [inherited fields keep their source's marking](#fallback-values-_fallback).
 
-`defaultMaxInputTokens` always outranked the server's input limit, so it migrates as a plain override - same behavior, new home. Full rename table: [Settings](settings.md#renamed-and-removed-settings).
+`defaultMaxInputTokens` always outranked the server's input limit, so it moves as a plain override - same behavior, new home. Full rename table: [Settings](settings.md#renamed-and-removed-settings).
 
 ## Parameters
 
