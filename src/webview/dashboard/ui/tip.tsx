@@ -8,10 +8,10 @@
  *   the bubble stays mounted while hidden    -> aria-describedby always resolves, and aria-hidden keeps the text out of
  *                                               the trigger's name while the description still reads it (announced
  *                                               exactly once)
- *   Coordinates are measured, position: fixed - it escapes every ancestor clip, at one price
- *                                            -> no ancestor of a trigger may establish a containing block for fixed
- *                                               descendants (transform, filter, contain: layout/paint...); the pane's
- *                                               container-type: inline-size is NOT one
+ *   Coordinates are measured in viewport space, and the open bubble is a manual popover in the top layer
+ *                                            -> no ancestor clip, containing block, or stacking context reaches it; a
+ *                                               fixed child of the rail's sticky column was painted over by every
+ *                                               positioned element later in the document (#630)
  *   The horizontal clamp measures the bubble -> a SHORT tip stays against its trigger
  *   a worst-case clamp would open a gap no pointer could cross
  *                                            -> The horizontal clamp measures the bubble
@@ -169,9 +169,24 @@ export function useTip(placement: TipPlacement, enabled = true): TipHandle {
 
 /** The tip's bubble; render it inside the element carrying the handle's triggerProps. */
 export function TipBubble({ tip, children }: { tip: TipHandle; children: ReactNode }) {
+	// Still a DOM child of its trigger, so the hover and Escape logic above is untouched; only the paint moves to the
+	// top layer. An engine without the Popover API keeps the in-place rendering.
+	useLayoutEffect(() => {
+		const bubble = tip.bubbleRef.current;
+		if (bubble === null || typeof bubble.showPopover !== "function") {
+			return;
+		}
+		if (tip.open) {
+			bubble.showPopover();
+		} else {
+			bubble.hidePopover();
+		}
+	}, [tip.open, tip.bubbleRef]);
+
 	return (
 		<span
 			className="tip-bubble"
+			popover="manual"
 			ref={tip.bubbleRef as RefObject<HTMLSpanElement | null>}
 			role="tooltip"
 			id={tip.id}

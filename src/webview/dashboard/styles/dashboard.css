@@ -1227,24 +1227,27 @@
 		min-width: 24px;
 		min-height: 24px;
 	}
-	/* The page's one tooltip bubble (ui/tip.tsx decides when it shows and
-		 measures where; ONLY that primitive renders this class). It mirrors the
-		 editor's hover widget, on the same theme tokens. Fixed positioning is
-		 load-bearing: tips render inside the tables' scroll containers and the
-		 rail's own scrolling 48px column, whose overflow boxes clip any
-		 absolutely-positioned child, and position: fixed escapes every ancestor
-		 clip. The font resets so heading styles cannot leak in. Hidden rather
-		 than unmounted, so an aria-describedby pointing at it always resolves.
-		 Deliberately hoverable (WCAG 1.4.13): no pointer-events: none here, and
-		 the ::before bridge below spans the gap back to the trigger so the
-		 pointer can travel onto the tip without the trigger's hover ending. */
+	/* The page's one tooltip bubble; ONLY ui/tip.tsx renders this class, and
+		 an open one is a manual popover in the top layer (that file says why).
+		 position: fixed keeps the measured viewport coordinates there, and inset,
+		 margin, height, and overflow undo the UA popover defaults that would
+		 center and scroll the box. The font resets so heading styles cannot leak
+		 in. Hidden rather than unmounted, so an aria-describedby pointing at it
+		 always resolves. Deliberately hoverable (WCAG 1.4.13): no pointer-events:
+		 none here, and the ::before bridge below spans the gap back to the
+		 trigger so the pointer can travel onto the tip without the trigger's
+		 hover ending. */
 	.tip-bubble {
 		display: none;
 		position: fixed;
+		inset: auto;
 		z-index: 100;
 		width: max-content;
+		height: auto;
 		max-width: min(320px, calc(100vw - 48px));
+		margin: 0;
 		padding: 6px 10px;
+		overflow: visible;
 		background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
 		color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
 		border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
