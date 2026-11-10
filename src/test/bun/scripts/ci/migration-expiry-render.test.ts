@@ -21,7 +21,7 @@ describe("renderMigrationExpiryTable", () => {
 		const rendered = renderMigrationExpiryTable(ENTRIES, new Date("2026-09-01T12:34:56Z"));
 		expect(rendered).toBe(
 			[
-				"Expired migrations fail the build; delete the migration and move its storage keys into the activation cleanup.",
+				"Expired migrations fail the build; delete the migration and the storage keys only it read.",
 				"",
 				"| Migration | Introduced | Expires | Days remaining |",
 				"| --- | --- | --- | --- |",

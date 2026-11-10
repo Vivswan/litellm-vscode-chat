@@ -380,12 +380,12 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 		});
 	});
 
-	suite("FINGERPRINT STABILITY across the entry restructure (R3's migration depends on this pin)", () => {
-		// The migration rewrites entries from the flat pre-redesign fields to the nested auth shape without touching
-		// SERVER_SYNC_FINGERPRINTS_KEY or any SecretStorage value. That is sound only while a migrated entry flattens
-		// to the same group args as its flat original, for every credential combination the old world honored. The
-		// key-order assertion pins the descriptor order as a shape fact, not a fingerprint fact: the legacy projection
-		// (migrations/fingerprintProjection.ts) owns its own key order.
+	suite("GROUP ARGS: the nested auth shape renders exactly the flat descriptor's fields", () => {
+		// A hand-built DeclaredServer and the parsed nested `auth` record must render the same group args, key order
+		// included, for every credential combination: the descriptor (shared/serverEntry.ts OPTIONAL_ENTRY_FIELDS) is
+		// the one source of the rendering, and the parser adds nothing to it. The key-order assertion pins the
+		// descriptor order as a shape fact, not a fingerprint fact: the "i1:" print reads only the identity projection
+		// (serverSync/engine.ts groupIdentityArgs).
 		const pin = (flat: DeclaredServer, nested: Record<string, unknown>, stored: StoredServerSecrets = {}) => {
 			const { entries, problems } = parseServersSetting([nested]);
 			assert.deepStrictEqual(problems, [], JSON.stringify(nested));
@@ -473,7 +473,7 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 			);
 		});
 
-		test("the old apiKey+virtualKey combo (no oauth) maps to the apiKey form with a sibling companion", () => {
+		test("the apiKey+virtualKey combo (no oauth) maps to the apiKey form with a sibling companion", () => {
 			pin(
 				{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1", virtualKeyHeader: "x-vk", virtualKeyValue: "vk-1" },
 				{
@@ -485,8 +485,8 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 		});
 
 		test("stored-only secrets keep resolving: a no-auth entry with a stored apiKey still sends the bearer", () => {
-			// The quick-start shape: the entry omits auth entirely and the value sits in SecretStorage; the migration
-			// writes no auth object for it.
+			// The quick-start shape: the entry omits auth entirely and the value sits in SecretStorage, so the stored
+			// blob is the only source of the bearer and buildGroupArgs must read it from there.
 			pin({ label: "A", baseUrl: "http://a.test" }, { label: "A", baseUrl: "http://a.test" }, { apiKey: "sk-stored" });
 			assert.strictEqual(
 				buildGroupArgs(parseServersSetting([{ label: "A", baseUrl: "http://a.test" }]).entries[0] as DeclaredServer, {
@@ -504,39 +504,40 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 			);
 		});
 
-		// The ruled exceptions: auth fragments the old runtime never honored on the wire drop at migration, so THESE
-		// entries' fingerprints change once on upgrade - a single group update with identical wire behavior.
-		test("ACCEPTED EXCEPTION: a wire-inert partial-oauth fragment drops and the fingerprint changes once", () => {
+		// Wire-inert auth fragments (a client id with no token URL, a virtual-key value with no header) have no nested
+		// spelling: the parser refuses them, so a hand-built descriptor carrying one renders different args from the
+		// parsed plain entry, and the difference is confined to the fragment.
+		test("a partial-oauth fragment has no nested spelling: the parsed entry renders without it", () => {
 			const flat: DeclaredServer = { label: "A", baseUrl: "http://a.test", apiKey: "sk-1", oauthClientId: "c1" };
-			// entries.ts drops the lone oauth piece: the migrated entry is the plain apiKey form.
+			// The nested shape has no place for a lone client id: the parsed entry is the plain apiKey form.
 			const { entries, problems } = parseServersSetting([
 				{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-1" } },
 			]);
 			assert.deepStrictEqual(problems, []);
-			const migrated = entries[0];
-			assert.ok(migrated, "the migrated entry must parse");
+			const parsed = entries[0];
+			assert.ok(parsed, "the nested entry must parse");
 			const flatArgs = buildGroupArgs(flat, {});
-			const migratedArgs = buildGroupArgs(migrated, {});
-			assert.notDeepStrictEqual(migratedArgs, flatArgs, "the fragment was in the old args, so the args differ");
-			assert.strictEqual(migratedArgs.baseUrl, flatArgs.baseUrl);
-			assert.strictEqual(migratedArgs.apiKey, flatArgs.apiKey, "every wire-relevant credential is unchanged");
-			assert.strictEqual(migratedArgs.oauthTokenUrl, undefined, "neither side could ever exchange a token");
+			const parsedArgs = buildGroupArgs(parsed, {});
+			assert.notDeepStrictEqual(parsedArgs, flatArgs, "the fragment is in the flat args, so the args differ");
+			assert.strictEqual(parsedArgs.baseUrl, flatArgs.baseUrl);
+			assert.strictEqual(parsedArgs.apiKey, flatArgs.apiKey, "every wire-relevant credential is unchanged");
+			assert.strictEqual(parsedArgs.oauthTokenUrl, undefined, "neither side could ever exchange a token");
 		});
 
-		test("ACCEPTED EXCEPTION: a header-less virtualKey value drops and the fingerprint changes once", () => {
+		test("a header-less virtualKey value has no nested spelling: the parsed entry renders without it", () => {
 			const flat: DeclaredServer = { label: "A", baseUrl: "http://a.test", apiKey: "sk-1", virtualKeyValue: "vk-1" };
 			const { entries, problems } = parseServersSetting([
 				{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-1" } },
 			]);
 			assert.deepStrictEqual(problems, []);
-			const migrated = entries[0];
-			assert.ok(migrated, "the migrated entry must parse");
+			const parsed = entries[0];
+			assert.ok(parsed, "the nested entry must parse");
 			const flatArgs = buildGroupArgs(flat, {});
-			const migratedArgs = buildGroupArgs(migrated, {});
-			assert.notDeepStrictEqual(migratedArgs, flatArgs);
-			assert.strictEqual(migratedArgs.apiKey, flatArgs.apiKey);
+			const parsedArgs = buildGroupArgs(parsed, {});
+			assert.notDeepStrictEqual(parsedArgs, flatArgs);
+			assert.strictEqual(parsedArgs.apiKey, flatArgs.apiKey);
 			assert.strictEqual(
-				migratedArgs.virtualKeyValue,
+				parsedArgs.virtualKeyValue,
 				undefined,
 				"a value without its header never left the process on either side"
 			);

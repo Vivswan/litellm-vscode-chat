@@ -8,14 +8,7 @@ import { liveStatusItemSlots } from "../../extension/ui/status";
 import type { LiteLLMChatModelProvider } from "../../provider";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { MODEL_CAPABILITIES_SETTING_KEY } from "../../shared/config/settings";
-import {
-	apiKeySecret,
-	FINGERPRINT_SALT_SECRET,
-	GROUP_MIGRATION_COMPLETE_KEY,
-	HAS_SHOWN_WELCOME_KEY,
-	MIGRATED_SERVER_LABELS_KEY,
-	SERVER_REGISTRY_KEY,
-} from "../../shared/config/storageKeys";
+import { FINGERPRINT_SALT_SECRET, HAS_SHOWN_WELCOME_KEY } from "../../shared/config/storageKeys";
 import { catalogFixtureText } from "../catalogFixture";
 import { blockCatalogNetwork } from "../hostApiHelpers";
 import { expectDefined } from "../pureHelpers";
@@ -97,18 +90,8 @@ suite("production activation", () => {
 		catalogNetworkGuard = blockCatalogNetwork();
 
 		storage = makeExtensionStorage({
-			[GROUP_MIGRATION_COMPLETE_KEY]: true,
 			[HAS_SHOWN_WELCOME_KEY]: true,
-			[MIGRATED_SERVER_LABELS_KEY]: { "http://localhost:49997": ["Leftover"] },
-			// Leftover legacy-registry state: the activation-time cleanup must delete the blob, the completion flag,
-			// the label map (the retired label-scoped expansion's read source, unread since that expansion was
-			// deleted), and the entry's stored secret.
-			[SERVER_REGISTRY_KEY]: {
-				version: 1,
-				servers: [{ id: "srv-prod-1", label: "Leftover", baseUrl: "http://localhost:49997" }],
-			},
 		});
-		storage.secretStore.set(apiKeySecret("srv-prod-1"), "sk-leftover");
 		const originalUpdate = storage.memento.update.bind(storage.memento);
 		(storage.memento as { update: (key: string, value: unknown) => Thenable<void> }).update = (key, value) => {
 			mementoWrites.push(key);
@@ -215,13 +198,6 @@ suite("production activation", () => {
 			infoMessages.filter((message) => message.includes("Welcome")),
 			[]
 		);
-	});
-
-	test("activation deletes the leftover legacy-registry state and its stored secret", () => {
-		assert.strictEqual(storage.memento.get(SERVER_REGISTRY_KEY), undefined);
-		assert.strictEqual(storage.memento.get(GROUP_MIGRATION_COMPLETE_KEY), undefined);
-		assert.strictEqual(storage.secretStore.get(apiKeySecret("srv-prod-1")), undefined);
-		assert.strictEqual(storage.memento.get(MIGRATED_SERVER_LABELS_KEY), undefined);
 	});
 
 	test("the group-agnostic refresh serves no models", async () => {

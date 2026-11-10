@@ -2066,15 +2066,15 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 		assert.deepStrictEqual(env.getFingerprints(), { A: "after" });
 	});
 
-	test("a carried legacy-format record never overwrites a store record another window projected", async () => {
-		// Only pre-projection records lack the "i1:" prefix, and the engine carries them purely as last-known-good, so
-		// the projected store record is strictly newer knowledge; the engine's next duplicate response confirms against
-		// the store and adopts it into the session map.
+	test('a carried un-prefixed record never overwrites an "i1:" store record another window wrote', async () => {
+		// Un-prefixed records are pre-0.6.1 and only ever carried as last-known-good, so the store's "i1:" record is
+		// strictly newer knowledge; the engine's next duplicate response confirms against the store and adopts it into
+		// the session map.
 		const { env, storage } = makeEnv("durable");
-		await env.setFingerprints({ A: "i1:projected-elsewhere", B: "i1:fresh" });
+		await env.setFingerprints({ A: "i1:written-elsewhere", B: "i1:fresh" });
 		await env.setFingerprints({ A: "legacy-carried", B: "i1:fresh" });
 		assert.deepStrictEqual(storage.mementoStore.get(SERVER_SYNC_FINGERPRINTS_KEY), {
-			A: "i1:projected-elsewhere",
+			A: "i1:written-elsewhere",
 			B: "i1:fresh",
 		});
 	});

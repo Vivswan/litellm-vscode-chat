@@ -1,12 +1,8 @@
 import type * as vscode from "vscode";
 import type { Logger } from "../../shared/logger";
-import type { FingerprintSaltSession } from "../fingerprintSalt";
 import { canonicalUrlSpellingsMigration } from "./canonicalUrlSpellings";
 import type { MigrationStateId } from "./expiries";
-import { fingerprintProjectionMigration } from "./fingerprintProjection";
-import { legacyRegistryCleanupMigration } from "./legacyRegistryCleanup";
 import { oauthStampClientIdMigration } from "./oauthStampClientId";
-import { stampSecretOwnersMigration } from "./stampSecretOwners";
 
 // The expiry registry lives in its own zero-import leaf so the release-PR comment script can static-import it without
 // this module's vscode graph.
@@ -16,13 +12,6 @@ export interface MigrationContext {
 	globalState: vscode.Memento;
 	secrets: vscode.SecretStorage;
 	logger: Logger;
-	/**
-	 * The session's fingerprint-salt view. A migration that persists fingerprints must call confirmDurable() at
-	 * decision time and defer unless it reports "durable": records written under a salt later sessions will not see
-	 * would match nothing. The one exception is a rewrite gated on a stored record equal to a print computed this
-	 * session (canonicalUrlSpellings.ts): that equality already proves the salt.
-	 */
-	fingerprintSalt: FingerprintSaltSession;
 }
 
 /**
@@ -58,9 +47,6 @@ export interface ExtensionMigration<State extends string = MigrationStateId> {
  * order.
  */
 export const MIGRATIONS = [
-	legacyRegistryCleanupMigration,
-	stampSecretOwnersMigration,
-	fingerprintProjectionMigration,
 	oauthStampClientIdMigration,
 	canonicalUrlSpellingsMigration,
 ] as const satisfies readonly ExtensionMigration[];
@@ -68,9 +54,9 @@ export const MIGRATIONS = [
 type RegisteredMigrationState = (typeof MIGRATIONS)[number]["state"];
 
 /**
- * The expiry rows no runner registration answers to: the out-of-runner read-time views (bareArrayBlobs.ts), which
- * migrate on read instead of at activation. With ExtensionMigration's `state` type, the expiry table and the live
- * migrations cannot drift.
+ * The expiry rows no runner registration answers to: out-of-runner read-time views, which migrate on read instead of
+ * at activation. None exists today; the type stays for the next one. With ExtensionMigration's `state` type, the
+ * expiry table and the live migrations cannot drift.
  *
  *   a row whose migration was deleted -> a missing key
  *   a view that gained a registration -> an excess property or, once the Exclude has emptied, a `true` where only
@@ -79,7 +65,7 @@ type RegisteredMigrationState = (typeof MIGRATIONS)[number]["state"];
 type OutOfRunnerStates = Record<Exclude<MigrationStateId, RegisteredMigrationState>, true> &
 	Partial<Record<RegisteredMigrationState, never>>;
 
-void ({ "bare-array-blobs": true } satisfies OutOfRunnerStates);
+void ({} satisfies OutOfRunnerStates);
 
 /** Best-effort: a failing migration logs once and the rest still run; never rejects. */
 export async function runMigrations(

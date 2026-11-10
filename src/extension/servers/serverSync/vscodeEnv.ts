@@ -326,11 +326,10 @@ export function createServerSyncEnv(
 			if ((await fingerprintSalt.confirmDurable()) !== "durable") {
 				return;
 			}
-			// Format dominance: a current-format ("i1:") store record is never overwritten by a carried legacy-format
-			// one. Only pre-projection records lack the prefix, and the engine carries them purely as last-known-good,
-			// so a store record another window already projected is strictly newer knowledge; keeping it costs nothing
-			// here (the engine's next duplicate response confirms against the store and adopts it into the session
-			// map).
+			// Format dominance: an "i1:" store record is never overwritten by a carried un-prefixed one. Un-prefixed
+			// records are pre-0.6.1 and only ever carried as last-known-good, so the store's "i1:" record is strictly
+			// newer knowledge; keeping it costs nothing here (the engine's next duplicate response confirms against the
+			// store and adopts it into the session map).
 			const stored = validatedStringRecord(context.globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY));
 			const next: Record<string, string> = { ...map };
 			for (const [label, record] of Object.entries(map)) {

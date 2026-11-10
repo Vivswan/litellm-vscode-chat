@@ -287,7 +287,7 @@ In both states the entry is only skipped for the pass, and nothing is lost: its 
 
 ## Settings from an older version
 
-If a setting seems to have vanished after an upgrade, it was renamed or restructured in 0.4.5. The one-time migration that moved everything shipped in the 0.4.5 to 0.6.x builds and is gone from current ones, so an install coming from 0.4.4 or earlier must upgrade through one of those builds first, or move each value by hand -
+If a setting seems to have vanished after an upgrade, it was renamed or restructured in 0.4.5. The one-time migration that moved everything shipped in the 0.4.5 to 0.6.x builds and is gone from current ones, so an install coming from 0.4.4 or earlier must upgrade through a 0.6.1 to 0.6.x build first (it migrates on activation), or move each value by hand -
 
 - setting names into their new sections (`requestTimeout` to `chat.timeout`, `modelParameters` to `models.parameters`, and so on),
 - flat server entries into the `auth`/`models`/`discovery` shape,
@@ -295,7 +295,7 @@ If a setting seems to have vanished after an upgrade, it was renamed or restruct
 - the `_declare` directive into the entry's `discovery.declared` list,
 - and the old global `headers` setting into each entry's own `headers` object (a value left in the old setting is inert and gets a dashboard hint).
 
-Stored secrets need no re-entering either way; the [rename table](settings.md#renamed-and-removed-settings) maps every old name to its new home.
+Stored secrets need no re-entering either way; the [rename table](settings.md#renamed-and-removed-settings) maps every old name to its new home. A group hidden in a build before 0.5 reappears once after the upgrade and needs hiding again.
 
 Two rename effects worth knowing when a matcher stops matching:
 
