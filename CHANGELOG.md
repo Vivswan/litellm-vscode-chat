@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.0](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.12...v0.7.0) (2026-11-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* an install upgrading from a release older than 0.6.1 must install a 0.6.1 to 0.6.x build first (it migrates on activation); current builds leave the old stored state in place.
+* an install upgrading from 0.4.4 or earlier must install a 0.4.5 to 0.6.x build first (it migrates on activation) or rename the settings by hand with the rename table in docs/settings.md; current builds leave the old names in place, ignored.
+
+### Features
+
+* drop the expired settings-redesign migration; 0.4.4-and-earlier settings need an intermediate upgrade ([f7e9abc](https://github.com/Vivswan/litellm-vscode-chat/commit/f7e9abcd6fda7477be8aaa2007a5da515a7e2533)), closes [#637](https://github.com/Vivswan/litellm-vscode-chat/issues/637)
+* drop the four remaining dated migrations; installs older than 0.6.1 need an intermediate upgrade ([d52143e](https://github.com/Vivswan/litellm-vscode-chat/commit/d52143e39a570f2d27d18e517cbb54230c0eb523))
+* **usage:** per-server usage endpoint path overrides ([#633](https://github.com/Vivswan/litellm-vscode-chat/issues/633), thanks @SimonGolms) ([#640](https://github.com/Vivswan/litellm-vscode-chat/issues/640)) ([e5e7752](https://github.com/Vivswan/litellm-vscode-chat/commit/e5e7752b1be48031de8448e808d9df7007a26045))
+
+
+### Bug Fixes
+
+* **dashboard:** lift tooltips into the top layer so pane content cannot paint over them ([#630](https://github.com/Vivswan/litellm-vscode-chat/issues/630), thanks [@o-l-a-v](https://github.com/o-l-a-v)) ([#638](https://github.com/Vivswan/litellm-vscode-chat/issues/638)) ([49ab275](https://github.com/Vivswan/litellm-vscode-chat/commit/49ab2758e6777072d7efd65e50d8847ab4751587))
+* **lint:** leave CHANGELOG.md as release-please writes it, so release PRs pass the format check ([#643](https://github.com/Vivswan/litellm-vscode-chat/issues/643)) ([3c1bcf4](https://github.com/Vivswan/litellm-vscode-chat/commit/3c1bcf43417233a1249463afffaf14d7add24385))
+
 ## [0.6.12](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.11...v0.6.12) (2026-10-29)
 
 
