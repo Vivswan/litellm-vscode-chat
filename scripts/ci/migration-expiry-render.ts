@@ -28,7 +28,7 @@ export function renderMigrationExpiryTable(expiries: readonly MigrationExpiry[],
 		return "";
 	}
 	const lines = [
-		"Expired migrations fail the build; delete the migration and move its storage keys into the activation cleanup.",
+		"Expired migrations fail the build; delete the migration and the storage keys only it read.",
 		"",
 		"| Migration | Introduced | Expires | Days remaining |",
 		"| --- | --- | --- | --- |",

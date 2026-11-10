@@ -2,12 +2,6 @@
  * Central registry of every persistent storage key the extension uses.
  */
 
-/**
- * globalState: the retired legacy ServerConfig[] server registry blob. The legacy-registry cleanup deletes it (and the
- * per-server secrets its entries reference).
- */
-export const SERVER_REGISTRY_KEY = "litellm.serverRegistry";
-
 /** globalState: set once the first-run welcome message has been shown. */
 export const HAS_SHOWN_WELCOME_KEY = "litellm.hasShownWelcome";
 
@@ -18,63 +12,11 @@ export const HAS_SHOWN_WELCOME_KEY = "litellm.hasShownWelcome";
  */
 export const LAST_CONNECTION_STATUS_KEY = "litellm.lastConnectionStatus";
 
-/** globalState: the retired provider-group migration's completion flag. The legacy-registry cleanup deletes it. */
-export const GROUP_MIGRATION_COMPLETE_KEY = "litellm.groupMigrationComplete";
-
-/**
- * globalState: the retired provider-group migration's seeded-progress records. The legacy-registry cleanup deletes the
- * key, deleting each record's per-server secret first.
- */
-export const SEEDED_PROVIDER_GROUPS_KEY = "litellm.seededProviderGroups";
-
-/**
- * globalState: registry server IDs the retired provider-group migration parked for manual review. The legacy-registry
- * cleanup deletes it.
- */
-export const SKIPPED_MIGRATION_SERVERS_KEY = "litellm.skippedMigrationServers";
-
-/**
- * globalState: the retired provider-group migration's in-flight submission marker. The legacy-registry cleanup deletes
- * it.
- */
-export const PENDING_GROUP_SUBMISSION_KEY = "litellm.pendingGroupSubmission";
-
-/**
- * globalState: server IDs whose migrated secret the retired provider-group migration could not delete. The
- * legacy-registry cleanup deletes each listed secret, then the key.
- */
-export const PENDING_SECRET_DELETIONS_KEY = "litellm.pendingSecretDeletions";
-
-/**
- * globalState: baseUrl -> labels for servers the retired provider-group migration seeded, once the retired
- * label-scoped modelParameters expansion's read source. The legacy-registry cleanup deletes it.
- */
-export const MIGRATED_SERVER_LABELS_KEY = "litellm.migratedServerLabels";
-
-/**
- * globalState: [label, prefix] pairs the retired label-scoped modelParameters expansion had already resolved into a
- * declared entry's own record. The legacy-registry cleanup deletes it.
- */
-export const MIGRATED_ENTRY_PARAMETER_COPIES_KEY = "litellm.migratedEntryParameterCopies";
-
-/**
- * globalState: ids of registry servers the retired provider-group migration seeded, once the orphan cleanup's only
- * accepted evidence. The legacy-registry cleanup deletes it.
- */
-export const MIGRATED_SERVER_IDS_KEY = "litellm.migratedServerIds";
-
 /**
  * The catalog itself is a file under globalStorage - globalState is not transactional and can revert, so a lost
  * timestamp costs at most an early refresh, never data.
  */
 export const OPENROUTER_CATALOG_METADATA_KEY = "litellm.openRouterCatalogMetadata";
-
-/**
- * globalState: the removed global `headers` setting's last value, parked by older builds' settings-redesign migration.
- *
- * The key survives only as a purge target in legacyRegistryCleanup's LEGACY_STATE_KEYS.
- */
-export const PARKED_GLOBAL_HEADERS_KEY = "litellm.parkedGlobalHeaders";
 
 /**
  * globalState: the last opened issue report. The fingerprint is the diagnostics snapshot's signature - version,
@@ -99,11 +41,6 @@ export const MCP_ENTRY_VERSIONS_KEY = "litellm.mcpEntryVersions";
  * files.
  */
 export const REVIEW_COMMENT_THREADS_KEY = "litellm.reviewCommentThreads";
-
-/** SecretStorage: API key for one server of the retired legacy registry; a legacy-registry cleanup target. */
-export function apiKeySecret(serverId: string): string {
-	return `litellm.apiKey.${serverId}`;
-}
 
 /**
  * globalState: label -> non-secret fingerprint of the last provider-group configuration the server sync engine pushed
@@ -163,16 +100,3 @@ export const PRE_IMPORT_SNAPSHOT_SECRET = "litellm.preImportSnapshot";
  * over a failed read).
  */
 export const FINGERPRINT_SALT_SECRET = "litellm.fingerprintSalt";
-
-/**
- * SecretStorage: the pre-registry single-server configuration of v0.2.2 and earlier. Deleted by the legacy-registry
- * cleanup, never imported.
- */
-export const LEGACY_BASE_URL_SECRET = "litellm.baseUrl";
-export const LEGACY_API_KEY_SECRET = "litellm.apiKey";
-
-/**
- * globalState: the retired single-server migration's interrupted-cleanup marker; its object form lists orphaned
- * per-server secret ids. The legacy-registry cleanup deletes the listed secrets, then the key.
- */
-export const LEGACY_CLEANUP_PENDING_KEY = "litellm.legacyCleanupPending";

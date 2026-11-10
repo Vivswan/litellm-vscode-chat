@@ -1,8 +1,10 @@
 /**
  * The dead-man switch that keeps migrations from accumulating: every member of MIGRATIONS (plus any out-of-runner
- * migration module, today the bareArrayBlobs read-time view) declares the date its legacy state stops being worth
- * carrying - its introduction date plus three months - and a fail-closed test turns the build red once today is past
- * it. ZERO imports on purpose: scripts/ci/migration-expiry-table.ts static-imports this module, and the release-PR
+ * migration module, a view that migrates on read instead of at activation; none exists today) declares the date its
+ * legacy state stops being worth carrying - its introduction date plus three months - and a fail-closed test turns the
+ * build red once today is past it.
+ *
+ * ZERO imports on purpose: scripts/ci/migration-expiry-table.ts static-imports this module, and the release-PR
  * workflow runs that script with bare bun and --no-install (no node_modules), so this leaf must stay dependency-free -
  * the bun smoke test enforces it.
  *
@@ -26,15 +28,6 @@ export interface MigrationExpiry {
 }
 
 export const MIGRATION_EXPIRIES = [
-	{ state: "unstamped-server-secrets", file: "stampSecretOwners.ts", introduced: "2026-08-19", expires: "2026-11-19" },
-	{ state: "bare-array-blobs", file: "bareArrayBlobs.ts", introduced: "2026-08-23", expires: "2026-11-23" },
-	{ state: "legacy-registry-state", file: "legacyRegistryCleanup.ts", introduced: "2026-08-24", expires: "2026-11-24" },
-	{
-		state: "full-args-sync-fingerprints",
-		file: "fingerprintProjection.ts",
-		introduced: "2026-09-01",
-		expires: "2026-12-01",
-	},
 	{
 		state: "token-url-only-oauth-stamps",
 		file: "oauthStampClientId.ts",

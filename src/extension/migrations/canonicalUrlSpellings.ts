@@ -31,8 +31,13 @@ import { acceptedEntries, respellEntryUrls } from "../servers/serverSync/setting
 import { createSettingsAccess } from "../settingsAccess";
 import type { ServersSettingStore } from "../settingsWriteTurn";
 import { replaceServersSetting } from "../settingsWriteTurn";
-import type { FingerprintMemento } from "./fingerprintProjection";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
+
+/** The two Memento operations the fingerprint carry needs, so a test can hand in a plain map-backed record. */
+export interface FingerprintMemento {
+	get(key: string): unknown;
+	update(key: string, value: unknown): Thenable<void>;
+}
 
 export async function canonicalizeUrlSpellingsFor(
 	settings: ServersSettingStore,

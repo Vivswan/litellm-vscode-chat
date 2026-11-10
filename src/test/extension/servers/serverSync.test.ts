@@ -13,7 +13,6 @@ import {
 	readServerSecretsRecord,
 	resolveOwnedSecrets,
 	secretDestination,
-	stampServerSecretOwner,
 	updateServerSecret,
 } from "../../../extension/servers/serverSync/secrets";
 import type { DeclaredServer } from "../../../extension/servers/serverSync/setting";
@@ -149,20 +148,13 @@ suite("extension/servers/serverSync", () => {
 			});
 		});
 
-		test("a pre-stamping blob reads with empty owners; stampServerSecretOwner back-fills without overwriting", async () => {
+		test("a pre-stamping blob reads with empty owners", async () => {
 			const store = makeSecretStore({
 				[serverSecretsKey("Old")]: JSON.stringify({ apiKey: "sk-1", virtualKeyValue: "vk-1" }),
 			});
-			assert.deepStrictEqual((await readServerSecretsRecord(store, "Old")).owners, {});
-
-			await stampServerSecretOwner(store, "Old", "apiKey", "http://a.test");
-			// Never overwrites: a second stamp for another destination is a no-op.
-			await stampServerSecretOwner(store, "Old", "apiKey", "http://b.test");
-			// Never invents: stamping a field with no value writes nothing.
-			await stampServerSecretOwner(store, "Old", "oauthClientSecret", "http://idp.test");
 			assert.deepStrictEqual(await readServerSecretsRecord(store, "Old"), {
 				values: { apiKey: "sk-1", virtualKeyValue: "vk-1" },
-				owners: { apiKey: "http://a.test" },
+				owners: {},
 			});
 		});
 

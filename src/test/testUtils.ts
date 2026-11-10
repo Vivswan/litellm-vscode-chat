@@ -1,7 +1,6 @@
 import { http, type JsonBodyType } from "msw";
 import * as vscode from "vscode";
 import type { FingerprintSaltSession, FingerprintSaltState } from "../extension/fingerprintSalt";
-import type { MigrationContext } from "../extension/migrations";
 import { LiteLLMChatModelProvider, type LiteLLMChatModelProviderOptions } from "../provider";
 import { DiscoveryCache } from "../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../provider/catalog/groupDiscovery";
@@ -15,7 +14,7 @@ import type { ServerStatus } from "../shared/servers";
 import { normalizeBaseUrl } from "../shared/util/baseUrl";
 import { fixedHeaderValue, type HeaderValue } from "../shared/util/headers";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeLogger, toHeaderMap } from "./pureHelpers";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, toHeaderMap } from "./pureHelpers";
 
 export function fakeFingerprintSaltSession(state: FingerprintSaltState = "durable"): FingerprintSaltSession {
 	return { state: () => state, confirmDurable: async () => state };
@@ -323,19 +322,6 @@ export function makeExtensionStorage(initialMemento?: Record<string, unknown>): 
 	} as unknown as vscode.SecretStorage;
 
 	return { memento, secrets, mementoStore, secretStore };
-}
-
-export function makeMigrationContext(
-	storage: FakeExtensionStorage = makeExtensionStorage(),
-	overrides: Partial<MigrationContext> = {}
-): MigrationContext {
-	return {
-		globalState: storage.memento,
-		secrets: storage.secrets,
-		logger: makeLogger().logger,
-		fingerprintSalt: fakeFingerprintSaltSession(),
-		...overrides,
-	};
 }
 
 type StorageOperation = "mementoUpdate" | "secretGet" | "secretStore" | "secretDelete";

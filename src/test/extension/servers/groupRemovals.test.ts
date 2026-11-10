@@ -320,14 +320,20 @@ suite("extension/servers/groupRemovals", () => {
 			assert.deepStrictEqual(junkRecords.tombstones(), []);
 		});
 
-		test("a bare-array blob is no longer accepted here: the wrap migration owns it", () => {
-			// Pre-versioning bare arrays are wrapped into { version, records } by migrations/bareArrayBlobs.ts BEFORE
-			// the store is constructed; a bare array reaching this parser is corrupt state and reads empty.
-			const { store } = makeStore({
+		test("a bare-array blob reads as corrupt: empty, re-entering the protocol at version 0", async () => {
+			// The pre-versioning shape; no build reads it any more, so a bare array reaching this parser is corrupt
+			// state: its records are gone, and the first persist writes version 1 over it like any corrupt blob.
+			const { store, storage } = makeStore({
 				[REMOVED_GROUP_TOMBSTONES_KEY]: [{ label: "Old", baseUrl: "http://old.test" }],
 			});
 			assert.strictEqual(store.isTombstoned(stamped("Old", "http://old.test")), false);
 			assert.deepStrictEqual(store.tombstones(), []);
+
+			await store.addTombstone({ by: "entry", label: "New", baseUrl: "http://new.test" });
+			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), {
+				version: "1",
+				records: [{ by: "entry", label: "New", baseUrl: "http://new.test" }],
+			});
 		});
 
 		test("a broken persisted version re-enters versioning at 0 instead of freezing adoption", async () => {

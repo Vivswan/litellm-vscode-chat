@@ -5,7 +5,7 @@ import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "../
 import { MIGRATION_EXPIRIES, MIGRATIONS, runMigrations } from "../../../extension/migrations";
 import { Logger } from "../../../shared/logger";
 import { expectDefined } from "../../pureHelpers";
-import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
+import { makeExtensionStorage } from "../../testUtils";
 import { REPO_ROOT } from "../../util/repoRoot";
 
 function makeContext(): { ctx: MigrationContext; lines: string[] } {
@@ -20,7 +20,6 @@ function makeContext(): { ctx: MigrationContext; lines: string[] } {
 			globalState: storage.memento,
 			secrets: storage.secrets,
 			logger,
-			fingerprintSalt: fakeFingerprintSaltSession(),
 		},
 		lines,
 	};
@@ -174,10 +173,9 @@ suite("extension/migrations/runner", () => {
 				assert.ok(
 					today <= entry.expires,
 					`Migration "${entry.state}" expired on ${entry.expires}. Delete src/extension/migrations/${entry.file}, its ` +
-						"tests, its MIGRATIONS registration, and this MIGRATION_EXPIRIES entry; move any globalState keys it alone " +
-						"kept alive into legacyRegistryCleanup.ts's cleanup list so leftover state still gets deleted (when the " +
-						"cleanup itself is what expired, delete its keys from storageKeys.ts instead). Or deliberately push the " +
-						"date out."
+						"tests, its MIGRATIONS registration, and this MIGRATION_EXPIRIES entry, and delete the storage keys only it " +
+						"read from storageKeys.ts (the leftover state stays in users' globalState, unread). Or deliberately push " +
+						"the date out."
 				);
 			}
 		});

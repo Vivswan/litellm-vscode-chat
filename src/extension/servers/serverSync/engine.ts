@@ -291,10 +291,9 @@ export function groupIdentityArgs(args: Record<string, string>): Record<string, 
 }
 
 /**
- * The "i1:" prefix lets migrations/fingerprintProjection.ts and the fuzz oracle tell this rendering from the
- * legacy one (both otherwise opaque hex); older versions compare records only by equality, so it is
- * downgrade-safe. The engine compares against this rendering ONLY, so an unmatched record sends the entry back
- * to the host.
+ * The "i1:" prefix marks the identity rendering (otherwise opaque hex); older versions compare records only by
+ * equality, so it is downgrade-safe. The engine compares against this rendering ONLY: an unmatched record, a pre-0.6.1
+ * un-prefixed one included, sends the entry back to the host, which answers duplicate as it always did.
  */
 export function groupArgsFingerprint(args: Record<string, string>): string {
 	return `i1:${fingerprint(JSON.stringify(groupIdentityArgs(args)))}`;

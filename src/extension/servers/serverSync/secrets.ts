@@ -6,7 +6,6 @@
  *   dashboard save, palette command, import, adoption -> write the stamp
  *   resolveOwnedSecrets                               -> the one check that admits a stored value into a pairing
  *   field stored before stamping existed              -> no stamp, resolves as before
- *   migrations/stampSecretOwners.ts                   -> back-fills declared entries
  *   two windows writing one label at once             -> last-write-wins (no compare-and-swap)
  *   a misplaced value                                 -> is still refused where it lands
  */
@@ -179,25 +178,6 @@ export async function updateServerSecret(
 			}
 		}
 		await writeRecord(secrets, label, { values, owners });
-	});
-}
-
-/**
- * Stamp one already-stored field's ownership without touching its value; a no-op when the field has no value or already
- * carries a stamp.
- */
-export async function stampServerSecretOwner(
-	secrets: SecretStore,
-	label: string,
-	field: SecretFieldId,
-	owner: SecretOwner
-): Promise<void> {
-	await serializedWrite(label, async () => {
-		const record = await readServerSecretsRecord(secrets, label);
-		if (record.values[field] === undefined || record.owners[field] !== undefined) {
-			return;
-		}
-		await writeRecord(secrets, label, { values: record.values, owners: { ...record.owners, [field]: owner } });
 	});
 }
 

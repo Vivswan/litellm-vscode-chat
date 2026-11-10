@@ -13,9 +13,8 @@ import { type HeaderValue, headerNameKey } from "./util/headers";
 
 /**
  * The order carries no meaning for the sync fingerprints: the "i1:" print reads only the identity projection
- * (serverSync/engine.ts groupIdentityArgs) and the legacy projection owns its key order
- * (migrations/fingerprintProjection.ts LEGACY_ARGS_KEY_ORDER). The `format` flag reaches only the generated provider
- * configuration in package.json (scripts/dev/manifest); the readers here walk `id` and `secret`.
+ * (serverSync/engine.ts groupIdentityArgs). The `format` flag reaches only the generated provider configuration in
+ * package.json (scripts/dev/manifest); the readers here walk `id` and `secret`.
  *
  *   secret ones flagged -> inline storage is legal for those; a SecretStorage blob is the alternative
  */
