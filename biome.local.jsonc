@@ -68,6 +68,14 @@
 				"enabled": false
 			}
 		},
+		// release-please writes this file on every release PR, with `*` bullets and its own blank lines; formatting it
+		// here would fail that PR's format check on each release, so it stays as its generator writes it.
+		{
+			"includes": ["CHANGELOG.md"],
+			"formatter": {
+				"enabled": false
+			}
+		},
 		// No React under scripts/: the React domain's rules read the lightningcss visitors there ({ Rule, Declaration,
 		// Variable }) as components defined inside functions. Spelled as the domain, which every fleet biome understands,
 		// rather than the rule, whose group moved between 2.5 and 2.6.
