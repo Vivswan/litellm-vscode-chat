@@ -505,6 +505,7 @@ suite("extension/dashboard/panel", () => {
 				discovery: { expectedFailures: ["modelInfo"], declared: ["gpt-4"], includeModes: ["completion"] },
 				budget: 25,
 				mcp: { url: "https://gateway.internal/mcp" },
+				usageEndpoints: { keyInfo: "/customer/key/info" },
 			};
 			const { views } = declaredViewsFromSetting([raw, { label: "Bare", baseUrl: "http://b.test" }]);
 			const entry = parseServersSetting([raw]).entries[0];

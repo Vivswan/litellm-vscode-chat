@@ -33,7 +33,6 @@ import { CMD } from "../../../shared/config/commandIds";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fingerprint } from "../../../shared/util/fingerprint";
-import { expectDefined } from "../../pureHelpers";
 import { withConfig } from "../../testUtils";
 import { inlineOnlyIdentity } from "../dashboard/recordedEnv";
 import { makeSecretStore, makeSyncEnv } from "./serverSyncHelpers";
@@ -439,17 +438,27 @@ suite("extension/servers/serverSync", () => {
 			]);
 		});
 
-		test("the mcp opt-in never reaches the group args, so editing it cannot change a fingerprint", () => {
-			// MCP is read extension-side only: turning it on, pointing it at another URL, and turning it off must
-			// all render byte-identically, or a user toggling tools would silently re-push the provider group (and,
-			// since the host is add-only, could lose it).
+		test("the extension-side-only fields never reach the group args, so editing them cannot change a fingerprint", () => {
+			// mcp and usageEndpoints are read extension-side only: every shape of each must render byte-identically,
+			// or a user toggling tools or moving a usage path would silently re-push the provider group (and, since
+			// the host is add-only, could lose it).
 			const base = { label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-1" } as const;
-			const rendered = [undefined, true as const, { url: "https://gateway.internal/tools/mcp" }, { url: "" }].map(
-				(mcp) => JSON.stringify(buildGroupArgs({ ...base, ...(mcp !== undefined ? { mcp } : {}) }, {}))
-			);
-
-			assert.deepStrictEqual(new Set(rendered).size, 1, "every mcp shape renders the same group args");
-			assert.ok(!expectDefined(rendered[0]).includes("mcp"), "the args carry no mcp key at all");
+			const cases: readonly { field: "mcp" | "usageEndpoints"; shapes: readonly unknown[] }[] = [
+				{ field: "mcp", shapes: [true, { url: "https://gateway.internal/tools/mcp" }, { url: "" }] },
+				{
+					field: "usageEndpoints",
+					shapes: [
+						{ keyInfo: "/customer/key/info" },
+						{ keyInfo: "/customer/key/info", dailyActivity: "/customer/daily/activity", userInfo: "/customer/info" },
+					],
+				},
+			];
+			const plain = JSON.stringify(buildGroupArgs(base, {}));
+			for (const { field, shapes } of cases) {
+				const rendered = shapes.map((shape) => JSON.stringify(buildGroupArgs({ ...base, [field]: shape }, {})));
+				assert.deepStrictEqual(new Set(rendered), new Set([plain]), `every ${field} shape renders the plain args`);
+				assert.ok(!plain.includes(field), `the args carry no ${field} key at all`);
+			}
 		});
 	});
 

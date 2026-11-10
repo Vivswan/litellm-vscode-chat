@@ -58,6 +58,7 @@ Every property an entry can carry:
 | `discovery.includeModes`     | string[]         | Non-chat `model_info.mode` values whose models register anyway, e.g. `"completion"` when the proxy labels chat models that way ([below](#non-chat-modes))                                                                                                                                                                                      |
 | `budget`                     | number           | Manual budget, in the server's billing currency, for [usage alerts](usage.md#budgets). Outranks the key's own `max_budget`; the dashboard shows both                                                                                                                                                                                           |
 | `mcp`                        | `true` or object | Make this server's own MCP tools available in chat ([below](#mcp-tools)). `true` publishes `<baseUrl>/mcp`; `{ "url": "..." }` names another endpoint                                                                                                                                                                                          |
+| `usageEndpoints`             | object           | Where this server serves the usage data when not at LiteLLM's own paths ([below](#usage-endpoint-paths)): `keyInfo`, `dailyActivity`, `userInfo`, each a path relative to the server root                                                                                                                                                      |
 
 A complete entry:
 
@@ -77,7 +78,8 @@ A complete entry:
     "includeModes": ["completion"]
   },
   "budget": 50,
-  "mcp": true
+  "mcp": true,
+  "usageEndpoints": { "userInfo": "/customer/info", "dailyActivity": "/customer/daily/activity" }
 }
 ```
 
@@ -224,6 +226,28 @@ The dashboard's server form carries the same two controls, in its own **MCP** se
 - **A stored secret must still belong to this server.** Secrets in [secret storage](#secrets-and-secret-storage) remember which destination they were stored for. If you change an entry's `baseUrl` after storing one, its MCP server refuses to start until you store the secret again for the new URL - the same refusal the chat path and the one-shot features make. An endpoint on another origin is not affected: it never carries the entry's credentials, so it starts bare either way.
 - Removing the field (or setting it to `false`) unpublishes the server.
 - Tool results are ordinary chat content: what a tool returns goes to whichever model answers the turn.
+
+## Usage endpoint paths
+
+The [usage features](usage.md#requirements) read three endpoints at the server root: `/key/info`, `/user/daily/activity`, and `/user/info`. A deployment that serves the same data elsewhere - a gateway that rewrites paths, or LiteLLM's customer endpoints - names its paths in the entry's `usageEndpoints`:
+
+```jsonc
+{
+  "label": "prod",
+  "baseUrl": "https://gateway.internal",
+  "auth": { "apiKey": "sk-..." },
+  "usageEndpoints": {
+    "userInfo": "/customer/info",
+    "dailyActivity": "/customer/daily/activity"
+  }
+}
+```
+
+- One member per endpoint: `keyInfo` (default `/key/info`), `dailyActivity` (default `/user/daily/activity`), `userInfo` (default `/user/info`). A member left out keeps its default.
+- Each value is a path relative to the server root, the root the default paths use too: the base URL less a trailing version segment (`https://gateway.internal/v1` reads `https://gateway.internal/customer/info`), or, when the entry's `apiVersion` names a version, the base URL as written. It must start with `/` and carry no `?` or `#`; the daily-activity request appends its own `start_date` and `end_date` query. Absolute URLs are not accepted.
+- Only the path moves. The response must still have the shape LiteLLM gives that endpoint: the key's fields under `info`, the user's under `user_info`, the activity as `results` with per-day `metrics`.
+- A member that is not such a path, or a member name the extension does not know, is reported under the server's row and ignored: that endpoint keeps its default and the entry keeps working.
+- The dashboard's server form has no control for these paths yet; edit them in settings.json. Saving the form keeps them as they are.
 
 ## Per-server model configuration
 

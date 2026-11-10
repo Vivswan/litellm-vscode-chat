@@ -300,6 +300,11 @@ export async function applySaveServerSetting(
 		const mcpUrl = intent.server.mcp === true ? undefined : canonicalUrl(intent.server.mcp.url ?? "");
 		newEntry.mcp = mcpUrl === undefined ? true : { url: mcpUrl };
 	}
+	// The form has no control for the usage endpoint paths (settings.json is their editing surface), so an edit keeps
+	// the shown entry's own, as the parser read them; the add form's upsert replaces the whole entry, these included.
+	if (showing?.usageEndpoints !== undefined) {
+		newEntry.usageEndpoints = showing.usageEndpoints;
+	}
 
 	// The entry's auth object, assembled once by the shared assembler: pairing (OAuth as one unit, the virtual key pair
 	// both-or-neither) is enforced against the resolved secrets - a value resting in SecretStorage counts as present -

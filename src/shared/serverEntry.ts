@@ -1,12 +1,13 @@
 /**
  * The one descriptor of a server entry's flat credential fields, shared by the settings parser, the sync engine, and
  * the dashboard protocol.
- * The entry's extension-side-only fields (headers, models.*, discovery.*, budget, mcp) stay out of the descriptor
- * because they must never reach the provider-group args or their fingerprint; they get the deliberately separate
- * sibling registry at the bottom of this file (ENTRY_VIEW_FIELD_SET), whose order is NOT load-bearing.
+ * The entry's extension-side-only fields (headers, models.*, discovery.*, budget, mcp, usageEndpoints) stay out of
+ * the descriptor because they must never reach the provider-group args or their fingerprint; they get the deliberately
+ * separate sibling registry at the bottom of this file (ENTRY_VIEW_FIELD_SET), whose order is NOT load-bearing.
  */
 
 import type { ModelRecordMap } from "./config/modelMatcher";
+import type { UsageEndpointOverrides } from "./usageEndpoints";
 import { canonicalStoredBaseUrl, canonicalUrl, normalizeBaseUrl } from "./util/baseUrl";
 import { type HeaderValue, headerNameKey } from "./util/headers";
 
@@ -316,6 +317,8 @@ export interface EntryViewFieldValues {
 	readonly includeModes: readonly NonChatMode[];
 	readonly budget: number;
 	readonly mcp: McpOptIn;
+	/** Where this server serves each usage endpoint, when not at LiteLLM's default path (usageEndpointPath). */
+	readonly usageEndpoints: UsageEndpointOverrides;
 }
 
 const ENTRY_VIEW_FIELD_SET = {
@@ -328,6 +331,7 @@ const ENTRY_VIEW_FIELD_SET = {
 	includeModes: true,
 	budget: true,
 	mcp: true,
+	usageEndpoints: true,
 } as const satisfies Readonly<Record<keyof EntryViewFieldValues, true>>;
 
 export type EntryViewFieldId = keyof typeof ENTRY_VIEW_FIELD_SET;
@@ -349,6 +353,7 @@ export const SERVER_ENTRY_KEYS: readonly string[] = [
 	"discovery",
 	"budget",
 	"mcp",
+	"usageEndpoints",
 ];
 
 /** The extension-side fields as parsed entries and views carry them: present only with usable content. */

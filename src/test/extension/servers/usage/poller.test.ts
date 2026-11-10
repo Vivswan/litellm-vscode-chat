@@ -723,6 +723,37 @@ suite("extension/servers/usage poller", () => {
 		assert.deepStrictEqual(h.poller.store.get("alpha")?.endpoints.keyInfo, { kind: "ok" });
 	});
 
+	test("a moved usage path never inherits the old path's standing, even with polling off", async () => {
+		// A standing describes the path it was probed at. With polling off nothing re-probes until the user does, so a
+		// 403 left standing from /key/info after keyInfo moved would print against /customer/key/info, a path never
+		// requested. The move forgets that endpoint's standing alone, at once; the next refresh probes the new path.
+		const h = makeHarness({ intervalMs: 0, servers: [{ label: "alpha", baseUrl: "https://litellm.example.com" }] });
+		h.client.keyInfoResult = unavailableError(403);
+		await h.poller.refreshNow();
+		assert.deepStrictEqual(stateOf(h, "alpha").endpoints.keyInfo, {
+			kind: "unavailable",
+			reason: "forbidden",
+			status: 403,
+		});
+
+		h.setServers([
+			{ label: "alpha", baseUrl: "https://litellm.example.com", usageEndpoints: { keyInfo: "/customer/key/info" } },
+		]);
+		h.poller.applyServersChange();
+
+		const moved = stateOf(h, "alpha");
+		assert.deepStrictEqual(moved.endpoints.keyInfo, { kind: "unknown" }, "the moved endpoint's standing is forgotten");
+		assert.deepStrictEqual(moved.endpoints.dailyActivity, { kind: "ok" }, "an endpoint that stayed keeps its standing");
+		assert.strictEqual(h.client.calls.keyInfo, 1, "polling off: no background request");
+		assert.deepStrictEqual(h.timer.pending(), [], "polling off: nothing scheduled");
+
+		h.client.keyInfoResult = KEY_OK;
+		await h.poller.refreshNow();
+		assert.strictEqual(h.client.calls.keyInfo, 2);
+		assert.deepStrictEqual(h.client.keyConnections[1]?.usageEndpoints, { keyInfo: "/customer/key/info" });
+		assert.deepStrictEqual(stateOf(h, "alpha").endpoints.keyInfo, { kind: "ok" });
+	});
+
 	test("applyServersChange with polling off prunes but issues no background requests", async () => {
 		const h = makeHarness({ intervalMs: 0 });
 		await h.poller.refreshNow();
@@ -994,6 +1025,36 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(
 			usageRefreshFailureSummary(outcome),
 			"alpha: /key/info 401 forbidden, /user/daily/activity timeout; beta: /key/info 401 forbidden, /user/daily/activity timeout"
+		);
+	});
+
+	test("the entry's usageEndpoints reach the client's connection, and the failure summary names those paths", async () => {
+		// Parser to poller to connection to client: the request must go where the entry says, and the toast must
+		// agree with it (a summary reading the default table would send the user to check an endpoint the extension
+		// never called).
+		const h = makeHarness({
+			intervalMs: 0,
+			servers: [
+				{
+					label: "alpha",
+					baseUrl: "https://litellm.example.com",
+					usageEndpoints: { keyInfo: "/customer/key/info", dailyActivity: "/customer/daily/activity" },
+				},
+			],
+		});
+		h.client.keyInfoResult = unavailableError(401);
+		h.client.dailyResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
+
+		const outcome = await h.poller.refreshNow();
+
+		assert.deepStrictEqual(h.client.keyConnections[0]?.usageEndpoints, {
+			keyInfo: "/customer/key/info",
+			dailyActivity: "/customer/daily/activity",
+		});
+		assert.ok(outcome !== undefined);
+		assert.strictEqual(
+			usageRefreshFailureSummary(outcome),
+			"alpha: /customer/key/info 401 forbidden, /customer/daily/activity timeout"
 		);
 	});
 

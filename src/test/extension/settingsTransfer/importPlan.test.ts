@@ -392,6 +392,18 @@ suite("extension/settingsTransfer/importPlan", () => {
 			// The entry lands as written: the import repairs nothing it only reads.
 			assert.deepStrictEqual(resolveImportPlan(plan, {}).serversValue, incoming);
 		});
+
+		test("usageEndpoints is a known entry key: kept without a note, its own member diagnostics riding as notes", () => {
+			// What would drift silently: SERVER_ENTRY_KEYS missing a key the parser reads, so an import would note the
+			// user's usage paths as unknown while every other surface honoured them.
+			const incoming = [server("A", { usageEndpoints: { userInfo: "/customer/info", keyinfo: "/x" } })];
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
+			assert.strictEqual(plan.incomingServers[0]?.kept, true);
+			assert.deepStrictEqual(plan.notes, [
+				{ subject: '"A"', text: 'has an unknown usageEndpoints key "keyinfo", ignored' },
+			]);
+			assert.deepStrictEqual(resolveImportPlan(plan, {}).serversValue, incoming);
+		});
 	});
 
 	suite("resolveImportPlan", () => {

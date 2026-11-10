@@ -58,6 +58,7 @@
 | `discovery.includeModes`     | 字符串数组    | 照常注册其模型的非聊天 `model_info.mode` 值, 例如代理把聊天模型标成 `"completion"` 时 ([下文](#非聊天模式))                                                                                                                                  |
 | `budget`                     | 数字          | 用于[用量警报](usage.md#预算)的手动预算 (以服务器自身的计费货币计)。优先于密钥自身的 `max_budget`; 仪表板两者都显示                                                                                                                          |
 | `mcp`                        | `true` 或对象 | 让此服务器自身的 MCP 工具可在聊天中使用 ([下文](#mcp-工具))。`true` 发布 `<baseUrl>/mcp`; `{ "url": "..." }` 指定另一个端点                                                                                                                  |
+| `usageEndpoints`             | 对象          | 当此服务器不在 LiteLLM 自身的路径提供用量数据时, 它提供这些数据的位置 ([下文](#用量终结点路径)): `keyInfo`、`dailyActivity`、`userInfo`, 各为相对于服务器根的路径                                                                            |
 
 一个完整的条目:
 
@@ -77,7 +78,8 @@
     "includeModes": ["completion"]
   },
   "budget": 50,
-  "mcp": true
+  "mcp": true,
+  "usageEndpoints": { "userInfo": "/customer/info", "dailyActivity": "/customer/daily/activity" }
 }
 ```
 
@@ -224,6 +226,28 @@ LiteLLM 代理可以通过 Model Context Protocol 提供工具。条目的 `mcp`
 - **存储的密钥必须仍然属于这台服务器。** 放在[密钥存储](#密钥与密钥存储)中的密钥会记住它是为哪个目标存储的。如果你在存储之后修改了条目的 `baseUrl`, 它的 MCP 服务器会拒绝启动, 直到你为新的 URL 重新存储一次密钥 - 与聊天路径和一次性功能的拒绝规则相同。位于另一个源的端点不受影响: 它从不携带条目的凭据, 因此无论如何都以无凭据方式启动。
 - 移除该字段 (或设为 `false`) 即取消发布该服务器。
 - 工具的结果是普通的聊天内容: 工具返回什么, 就会交给回答这一回合的模型。
+
+## 用量终结点路径
+
+[用量功能](usage.md#要求)从服务器根读取三个终结点: `/key/info`、`/user/daily/activity` 和 `/user/info`。在别处提供同样数据的部署 - 重写路径的网关, 或 LiteLLM 的 customer 终结点 - 在条目的 `usageEndpoints` 中指定它的路径:
+
+```jsonc
+{
+  "label": "prod",
+  "baseUrl": "https://gateway.internal",
+  "auth": { "apiKey": "sk-..." },
+  "usageEndpoints": {
+    "userInfo": "/customer/info",
+    "dailyActivity": "/customer/daily/activity"
+  }
+}
+```
+
+- 每个终结点一个成员: `keyInfo` (默认 `/key/info`)、`dailyActivity` (默认 `/user/daily/activity`)、`userInfo` (默认 `/user/info`)。不写的成员保留默认路径。
+- 每个值都是相对于服务器根的路径, 也就是默认路径所追加的那个根: 基础 URL 去掉末尾版本段后的部分 (`https://gateway.internal/v1` 读取 `https://gateway.internal/customer/info`), 或在条目的 `apiVersion` 指定了版本时为原样的基础 URL。它必须以 `/` 开头, 且不含 `?` 或 `#`; 逐日活动请求会自行附加 `start_date` 和 `end_date` 查询。不接受绝对 URL。
+- 移动的只是路径。响应仍须具有 LiteLLM 赋予该终结点的形状: 密钥的字段在 `info` 下, 用户的在 `user_info` 下, 活动为带逐日 `metrics` 的 `results`。
+- 不是这种路径的成员, 或扩展不认识的成员名, 会在服务器行下方报告并忽略: 该终结点保留默认路径, 条目照常工作。
+- 仪表板的服务器表单尚无这些路径的控件; 请在 settings.json 中编辑。保存表单会原样保留它们。
 
 ## 每服务器模型配置
 

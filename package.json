@@ -1614,6 +1614,25 @@
 											"description": "%litellm.config.servers.mcp.url.description%"
 										}
 									}
+								},
+								"usageEndpoints": {
+									"type": "object",
+									"additionalProperties": false,
+									"markdownDescription": "%litellm.config.servers.usageEndpoints.description%",
+									"properties": {
+										"keyInfo": {
+											"type": "string",
+											"description": "%litellm.config.servers.usageEndpoints.keyInfo.description%"
+										},
+										"dailyActivity": {
+											"type": "string",
+											"description": "%litellm.config.servers.usageEndpoints.dailyActivity.description%"
+										},
+										"userInfo": {
+											"type": "string",
+											"description": "%litellm.config.servers.usageEndpoints.userInfo.description%"
+										}
+									}
 								}
 							}
 						}

@@ -374,6 +374,7 @@
 											"!**/shared/errorClassification",
 											"!**/shared/failureCause",
 											"!**/shared/serverEntry",
+											"!**/shared/usageEndpoints",
 											"!**/shared/util/baseUrl",
 											"!**/shared/util/decimalText",
 											"!**/shared/util/displayUrl",
