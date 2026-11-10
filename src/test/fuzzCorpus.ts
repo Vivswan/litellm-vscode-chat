@@ -289,19 +289,6 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 ];
 
 /**
- * Corpus for the settings-redesign migration fuzzer: old-world configuration snapshots that once failed an invariant,
- * replayed before the random iterations. To add one, take the shrunken counterexample's snapshot from the failure
- * report and append it with a name referencing the issue.
- */
-export interface MigrationCorpusEntry {
-	name: string;
-	/** Setting id -> configured layers, exactly the pure transform's snapshot shape. */
-	snapshot: Record<string, { globalValue?: unknown; workspaceValue?: unknown; workspaceFolderValue?: unknown }>;
-}
-
-export const MIGRATION_FUZZ_CORPUS: MigrationCorpusEntry[] = [];
-
-/**
  * Corpus for the dashboard request-schema fuzzer: webview envelopes that parseDashboardRequest once ACCEPTED and must
  * refuse, replayed by the schema property suite before its random mutation runs so the hole stays covered after the
  * generators change. To add one, take the shrunken counterexample's mutant request from the failure report and append

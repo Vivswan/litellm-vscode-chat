@@ -4,12 +4,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { activate } from "../../extension";
-import { applySettingsRedesign, readRedesignSnapshot } from "../../extension/migrations/settingsRedesign/apply";
-import { planSettingsRedesign } from "../../extension/migrations/settingsRedesign/transform";
 import { liveStatusItemSlots } from "../../extension/ui/status";
 import type { LiteLLMChatModelProvider } from "../../provider";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
-import { MODEL_CAPABILITIES_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
+import { MODEL_CAPABILITIES_SETTING_KEY } from "../../shared/config/settings";
 import {
 	apiKeySecret,
 	FINGERPRINT_SALT_SECRET,
@@ -43,8 +41,6 @@ suite("production activation", () => {
 	// possible moment.
 	let modelChangeEventsSinceRegistration = 0;
 	let modelChangeCounter: vscode.Disposable | undefined;
-	let modelParametersAtRegistration: Record<string, unknown> | undefined;
-	let modelParametersBefore: Record<string, unknown> | undefined;
 
 	/** A capturing output channel: the Logger only needs the LogSink half (info/error). */
 	function fakeOutputChannel(lines: string[]): unknown {
@@ -100,18 +96,6 @@ suite("production activation", () => {
 		// a slow run must never let a live response install a snapshot mid-suite.
 		catalogNetworkGuard = blockCatalogNetwork();
 
-		// A modelParameters key under the LEGACY id: the awaited migrations must rename the setting (starring
-		// implicit-prefix keys) before the provider registers. Seeded through settings.json, since the host refuses
-		// value writes to the uncontributed legacy id.
-		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		modelParametersBefore = config.inspect<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY)?.globalValue;
-		await withExternalSettingsEdit(
-			(settings) => {
-				settings[`${CONFIG_SECTION}.modelParameters`] = { "Leftover/gpt-4": { temperature: 0.25 } };
-			},
-			() => vscode.workspace.getConfiguration(CONFIG_SECTION).inspect("modelParameters")?.globalValue !== undefined
-		);
-
 		storage = makeExtensionStorage({
 			[GROUP_MIGRATION_COMPLETE_KEY]: true,
 			[HAS_SHOWN_WELCOME_KEY]: true,
@@ -153,9 +137,6 @@ suite("production activation", () => {
 			modelChangeCounter = registered.onDidChangeLanguageModelChatInformation(() => {
 				modelChangeEventsSinceRegistration += 1;
 			});
-			modelParametersAtRegistration = vscode.workspace
-				.getConfiguration(CONFIG_SECTION)
-				.get<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY);
 			return { dispose() {} };
 		};
 		try {
@@ -178,11 +159,6 @@ suite("production activation", () => {
 		for (const dir of tempDirs.splice(0)) {
 			await fs.rm(dir, { recursive: true, force: true }).then(undefined, () => {});
 		}
-		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		await config.update(MODEL_PARAMETERS_SETTING_KEY, modelParametersBefore, vscode.ConfigurationTarget.Global);
-		// The legacy seed is consumed by the rename at activation; clear any remnant a failed run could leave
-		// (deletions are exempt from the unknown-key refusal).
-		await config.update("modelParameters", undefined, vscode.ConfigurationTarget.Global).then(undefined, () => {});
 	});
 
 	test("the manifest declares onStartupFinished so activation never depends on Copilot Chat", async () => {
@@ -238,22 +214,6 @@ suite("production activation", () => {
 		assert.deepStrictEqual(
 			infoMessages.filter((message) => message.includes("Welcome")),
 			[]
-		);
-	});
-
-	test("the settings rename completes before the provider registers", () => {
-		// The settings-redesign rename is awaited before registerLanguageModelChatProvider, so the session's first
-		// request can never race it: the legacy key arrives star-appended into an explicit matcher. The deleted
-		// label-scoped expansion must add nothing: the seeded label map produces no base-URL copy.
-		const captured = expectDefined(
-			modelParametersAtRegistration,
-			"the registration stub must have captured the setting"
-		);
-		assert.deepStrictEqual(captured["Leftover/gpt-4*"], { temperature: 0.25 }, "the original key survives, starred");
-		assert.strictEqual(
-			captured["http://localhost:49997/gpt-4"],
-			undefined,
-			"the deleted label-scoped expansion must not resurrect base-URL copies"
 		);
 	});
 
@@ -371,172 +331,6 @@ suite("production activation", () => {
 			await fired;
 		} finally {
 			await config.update("models.openRouterCatalog", before, vscode.ConfigurationTarget.Global);
-		}
-	});
-
-	/**
-	 * The layout `<tmp>/lvt/<pid>/<label>` is .vscode-test.mjs's and this scan is the one other place that knows it,
-	 * so the two move together. Content matching rather than newest-mtime: a concurrent run of another worktree has the
-	 * same shape under its own pid.
-	 */
-	async function locateUserSettingsFile(sentinel: string): Promise<string> {
-		const label = "activation-production";
-		const runs = path.join(os.tmpdir(), "lvt");
-		const roots = process.env.VSCODE_TEST_USER_DATA_DIR
-			? [path.join(process.env.VSCODE_TEST_USER_DATA_DIR, label)]
-			: (await fs.readdir(runs).catch(() => []))
-					.filter((name) => /^\d+$/.test(name))
-					.map((name) => path.join(runs, name, label));
-		for (const root of roots) {
-			const candidate = path.join(root, "User", "settings.json");
-			const content = await fs.readFile(candidate, "utf8").catch(() => undefined);
-			if (content?.includes(sentinel)) {
-				return candidate;
-			}
-		}
-		assert.fail(`no user settings.json carries the sentinel (scanned ${roots.length} candidate dir(s))`);
-	}
-
-	/**
-	 * Write external edits into this host's user settings.json and make the host reload them: a registered write
-	 * (chat.timeout carrying a unique sentinel) locates the file by content, the edit lands beside it, and a second
-	 * registered write forces the configuration reload.
-	 */
-	async function withExternalSettingsEdit(
-		edit: (settings: Record<string, unknown>) => void,
-		reloaded: () => boolean
-	): Promise<void> {
-		const config = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const timeoutBefore = config().inspect<number>("chat.timeout")?.globalValue;
-		// A unique, registered-valid sentinel value: content search needs it to be one of a kind in the file.
-		const sentinel = 300000 + (Date.now() % 100000) * 10 + (process.pid % 10);
-		try {
-			await config().update("chat.timeout", sentinel, vscode.ConfigurationTarget.Global);
-			const settingsFile = await locateUserSettingsFile(String(sentinel));
-			const settings = JSON.parse(await fs.readFile(settingsFile, "utf8")) as Record<string, unknown>;
-			edit(settings);
-			for (const [key, value] of Object.entries(settings)) {
-				if (value === undefined) {
-					delete settings[key];
-				}
-			}
-			await fs.writeFile(settingsFile, JSON.stringify(settings, null, "\t"));
-			// A write through the configuration API reloads the user configuration from disk, which picks the external
-			// edit up without depending on the file watcher; the poll below is only a safety net.
-			await config().update("chat.timeout", sentinel + 1, vscode.ConfigurationTarget.Global);
-			const deadline = Date.now() + 10000;
-			while (!reloaded() && Date.now() < deadline) {
-				await new Promise((resolve) => setTimeout(resolve, 100));
-			}
-		} finally {
-			await config().update("chat.timeout", timeoutBefore, vscode.ConfigurationTarget.Global);
-		}
-	}
-
-	test("the host inspects and clears stale user-settings values for an uncontributed setting id", async function () {
-		// The settings-redesign migration's host assumptions, pinned with an id that was never contributed so the pin
-		// cannot rot: (1) the host REFUSES writing a value to an unregistered key, so a value can only exist from the
-		// real upgrade scenario, reproduced here by editing settings.json directly; (2) inspect() still reports such a
-		// stale value; (3) update(id, undefined, Global) is exempt from the refusal and clears it.
-		this.timeout(20000);
-		const config = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const probeId = "pinnedUncontributedProbe";
-		assert.strictEqual(config().inspect<number>(probeId)?.globalValue, undefined, "the probe id must start absent");
-		await assert.rejects(
-			async () => config().update(probeId, 42, vscode.ConfigurationTarget.Global),
-			// Matched loosely: the behavior is the pin, the host's wording is not.
-			/registered/,
-			"a VALUE write to an unregistered id must be refused (otherwise this pin seeds the easy way)"
-		);
-
-		try {
-			await withExternalSettingsEdit(
-				(settings) => {
-					settings[`${CONFIG_SECTION}.${probeId}`] = 42;
-				},
-				() => config().inspect<number>(probeId)?.globalValue !== undefined
-			);
-			const inspected = config().inspect<number>(probeId);
-			assert.ok(inspected !== undefined, "inspect() must return a result for an uncontributed id");
-			assert.strictEqual(inspected.globalValue, 42, "the stale uncontributed value must be readable");
-
-			await config().update(probeId, undefined, vscode.ConfigurationTarget.Global);
-			assert.strictEqual(
-				config().inspect<number>(probeId)?.globalValue,
-				undefined,
-				"update(id, undefined, Global) must clear the stale uncontributed value"
-			);
-		} finally {
-			// Belt and braces: if the delete leg failed, the probe must not leak into later runs against a kept
-			// user-data dir.
-			await config()
-				.update(probeId, undefined, vscode.ConfigurationTarget.Global)
-				.then(undefined, () => {});
-		}
-	});
-
-	test("the settings-redesign applier migrates a seeded old-world configuration end to end", async function () {
-		// The applier against the REAL configuration API and the registered manifest: legacy ids seeded the only way an
-		// upgrade produces them (external settings.json edits), then applySettingsRedesign executes its plan at the
-		// Global target and the new world is read back through inspect().
-		this.timeout(30000);
-		const config = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const seededIds = ["requestTimeout", "modelParameters", "defaultContextLength", "headers"];
-		const newIds = ["chat.timeout", "models.parameters", "models.capabilities", "servers"];
-		const logger = {
-			log: (line: string) => channelLines.push(line),
-			error: (line: string) => channelLines.push(line),
-		} as unknown as Parameters<typeof applySettingsRedesign>[1];
-		try {
-			// A clean slate on the new-name ids: earlier tests leave values there, and the rename's sync-race rule
-			// would otherwise keep them and drop the seeds below without writing.
-			for (const id of newIds) {
-				await config().update(id, undefined, vscode.ConfigurationTarget.Global);
-			}
-			await withExternalSettingsEdit(
-				(settings) => {
-					settings[`${CONFIG_SECTION}.requestTimeout`] = 45000;
-					settings[`${CONFIG_SECTION}.modelParameters`] = { gpt: { temperature: 0.2 } };
-					settings[`${CONFIG_SECTION}.defaultContextLength`] = 64000;
-					settings[`${CONFIG_SECTION}.headers`] = { "x-env": "prod" };
-					settings[`${CONFIG_SECTION}.servers`] = [
-						{ label: "prod", baseUrl: "https://gw", apiKey: "sk-e2e", modelParameters: { gpt: { seed: 7 } } },
-					];
-				},
-				() => config().inspect<number>("requestTimeout")?.globalValue !== undefined
-			);
-			assert.strictEqual(config().inspect<number>("requestTimeout")?.globalValue, 45000, "the seed must land");
-
-			await applySettingsRedesign(config(), logger);
-
-			assert.strictEqual(config().inspect<number>("chat.timeout")?.globalValue, 45000);
-			assert.deepStrictEqual(config().inspect("models.parameters")?.globalValue, {
-				"gpt*": { temperature: 0.2 },
-			});
-			assert.deepStrictEqual(config().inspect("models.capabilities")?.globalValue, {
-				"*": { context_length: 64000, _fallback: ["context_length"], _inheritable: true },
-			});
-			assert.deepStrictEqual(config().inspect("servers")?.globalValue, [
-				{
-					label: "prod",
-					baseUrl: "https://gw",
-					auth: { apiKey: "sk-e2e" },
-					headers: { "x-env": "prod" },
-					models: { parameters: { "gpt*": { seed: 7 } } },
-				},
-			]);
-			for (const id of seededIds) {
-				assert.strictEqual(config().inspect(id)?.globalValue, undefined, `${id} must be deleted`);
-			}
-
-			const rerun = planSettingsRedesign(readRedesignSnapshot(config()));
-			assert.deepStrictEqual(rerun.writes, [], "re-planning the migrated user settings must write nothing");
-		} finally {
-			for (const id of [...seededIds, ...newIds]) {
-				await config()
-					.update(id, undefined, vscode.ConfigurationTarget.Global)
-					.then(undefined, () => {});
-			}
 		}
 	});
 

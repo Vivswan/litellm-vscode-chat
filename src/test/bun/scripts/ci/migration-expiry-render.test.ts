@@ -11,7 +11,7 @@ import { CHILD_PROCESS_TIMEOUT_MS } from "../../childProcessTimeout";
 // Synthetic rows typed as the real registry entry type, taken through the index re-export on purpose: this pins that
 // the re-export stays in place for consumers (the type itself is the leaf's, so it cannot drift).
 const ENTRIES: readonly MigrationExpiry[] = [
-	{ state: "settings-redesign", file: "settingsRedesign/apply.ts", introduced: "2026-08-08", expires: "2026-11-08" },
+	{ state: "example-state", file: "example.ts", introduced: "2026-08-08", expires: "2026-11-08" },
 	{ state: "expires-today", file: "expiresToday.ts", introduced: "2026-06-01", expires: "2026-09-01" },
 	{ state: "overdue", file: "overdue.ts", introduced: "2026-05-30", expires: "2026-08-30" },
 ];
@@ -25,7 +25,7 @@ describe("renderMigrationExpiryTable", () => {
 				"",
 				"| Migration | Introduced | Expires | Days remaining |",
 				"| --- | --- | --- | --- |",
-				"| `settings-redesign` (`src/extension/migrations/settingsRedesign/apply.ts`) | 2026-08-08 | 2026-11-08 | 68 |",
+				"| `example-state` (`src/extension/migrations/example.ts`) | 2026-08-08 | 2026-11-08 | 68 |",
 				"| `expires-today` (`src/extension/migrations/expiresToday.ts`) | 2026-06-01 | 2026-09-01 | 0 |",
 				"| `overdue` (`src/extension/migrations/overdue.ts`) | 2026-05-30 | 2026-08-30 | -2 |",
 				"",

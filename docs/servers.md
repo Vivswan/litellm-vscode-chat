@@ -14,7 +14,7 @@ Three concepts carry everything else:
 
 The `servers` setting is machine-scoped: it lives in your user settings only, a workspace cannot override it (a cloned repository can never re-point your servers at another host), and Settings Sync does not carry it - servers and credentials stay on the machine where you entered them. To move them to another machine, use ["LiteLLM: Export Settings..."](settings.md#export-and-import), which carries secret-storage values too.
 
-Entries from older versions (flat `apiKey`, `oauth*`, `virtualKey*`, `modelParameters`, ... fields) are restructured automatically by a one-time migration. Secrets already in secret storage are untouched - the restructure changes only settings text, and nothing needs re-entering.
+Entries from 0.4.4 and earlier (flat `apiKey`, `oauth*`, `virtualKey*`, `modelParameters`, ... fields) were restructured by a one-time migration that current builds no longer carry: upgrade through a 0.4.5 to 0.6.x build first, or restructure them by hand ([rename table](settings.md#renamed-and-removed-settings)). Secrets already in secret storage are untouched either way - the restructure changes only settings text, and nothing needs re-entering.
 
 ## Quick start
 

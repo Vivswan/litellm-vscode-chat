@@ -147,8 +147,8 @@ suite("extension/migrations/runner", () => {
 		test("every module in migrations/ is covered by a registered expiry", () => {
 			// The directory is the truth the registry must keep up with: a new migration module - runner-registered or
 			// not - fails here until it carries a MIGRATION_EXPIRIES row (a support module inside a registered
-			// migration's own directory, like settingsRedesign/'s, rides its entry). The type system cannot see a
-			// module nothing imports, which is exactly what a new out-of-runner view is until its row names it.
+			// migration's own directory rides its entry). The type system cannot see a module nothing imports, which
+			// is exactly what a new out-of-runner view is until its row names it.
 			const registeredFiles: readonly string[] = MIGRATION_EXPIRIES.map((entry) => entry.file);
 			for (const name of fs.readdirSync(migrationsDir)) {
 				// index.ts (the runner and registrations) and expiries.ts (the expiry registry itself) are registry

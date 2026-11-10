@@ -657,8 +657,8 @@ export interface DashboardUsage {
 }
 
 /**
- * The legacy leftovers worth a dashboard hint; mirrors the migration's LegacyHintKind (never imported: that module is
- * host-only).
+ * The legacy leftovers worth a dashboard hint; mirrors LegacyHintKind in extension/dashboard/legacySettingHints.ts
+ * (never imported: this module is shared with the webview and reaches nothing under extension/).
  */
 type LegacyHintViewKind = "inert-url-scoped-key" | "inert-global-headers";
 

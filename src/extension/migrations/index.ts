@@ -6,7 +6,6 @@ import type { MigrationStateId } from "./expiries";
 import { fingerprintProjectionMigration } from "./fingerprintProjection";
 import { legacyRegistryCleanupMigration } from "./legacyRegistryCleanup";
 import { oauthStampClientIdMigration } from "./oauthStampClientId";
-import { settingsRedesignMigration } from "./settingsRedesign/apply";
 import { stampSecretOwnersMigration } from "./stampSecretOwners";
 
 // The expiry registry lives in its own zero-import leaf so the release-PR comment script can static-import it without
@@ -60,7 +59,6 @@ export interface ExtensionMigration<State extends string = MigrationStateId> {
  */
 export const MIGRATIONS = [
 	legacyRegistryCleanupMigration,
-	settingsRedesignMigration,
 	stampSecretOwnersMigration,
 	fingerprintProjectionMigration,
 	oauthStampClientIdMigration,

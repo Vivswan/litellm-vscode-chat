@@ -60,10 +60,9 @@ export const RECORD_TYPE_DIRECTIVES = {
 export type RecordType = keyof typeof RECORD_TYPE_DIRECTIVES;
 
 /**
- * Field identity inside a record, one rule for the parsers and for the settings-redesign migration's record merges:
- * capability keys and list entries lose edge HTTP whitespace (the one trim rule, so a U+00A0 stays), matching the
- * editor, which judges and saves keys the same way, so a hand-padded key means the same field on every surface;
- * parameter keys are taken as written.
+ * Field identity inside a record, one rule for the parsers: capability keys and list entries lose edge HTTP
+ * whitespace (the one trim rule, so a U+00A0 stays), matching the editor, which judges and saves keys the same way, so
+ * a hand-padded key means the same field on every surface; parameter keys are taken as written.
  */
 export function canonicalFieldKey(type: RecordType, key: string): string {
 	return type === "capabilities" ? trimHttpWhitespace(key) : key;
