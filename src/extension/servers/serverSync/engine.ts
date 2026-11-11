@@ -31,7 +31,7 @@ import { OPTIONAL_ENTRY_FIELDS, pickEntryViewFields, pickNonSecretOptionalFields
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { errorLabel } from "../../../shared/util/errorLabel";
 import { fingerprint } from "../../../shared/util/fingerprint";
-import { labeledSnapshots, resolveGroupOwnership } from "../../dashboard/declaredJoin";
+import { type JoinPass, labeledSnapshots, resolveGroupOwnership } from "../../dashboard/declaredJoin";
 import type { DeclaredGroupClaim, GroupKey } from "../groupRemovals";
 import type { StoredSecretsRecord, StoredServerSecrets } from "./secrets";
 import { inlineSecretValues, resolveOwnedSecrets, secretLocations } from "./secrets";
@@ -341,15 +341,21 @@ function isDuplicateGroupError(error: unknown): boolean {
  * Why a label's last add did not land, keyed to the fingerprint it concerned; the persisted map holds
  * last-known-good only, so this is the retry signal between passes.
  *
- *   blocked on this print, unforced, not seen as declared  -> no host call; the error stands (no host update API)
- *   blocked, seen serving the label as declared            -> the matching record confirms, else one more duplicate
- *   blocked, forced pass                                   -> retry anyway; the user may have fixed the group natively
- *   upsertFailed, the entry reverted                       -> in sync without a call
+ *   blocked on this print, unforced, label not yet reported  -> no host call; nothing shown until the host reports it
+ *   blocked on this print, unforced, reported elsewhere      -> no host call; the error stands (no host update API)
+ *   blocked, seen serving the label as declared              -> the matching record confirms, else one more duplicate
+ *   blocked, forced pass                                     -> retry anyway; the user may have fixed the group natively
+ *   blocked, a user's sync (judgeRefusals)                   -> retried, and a refusal the host has not explained is judged
+ *   upsertFailed, the entry reverted                         -> in sync without a call
  */
-interface RetryState {
-	kind: "blocked" | "upsertFailed";
-	fingerprint: string;
-}
+type RetryState =
+	| {
+			kind: "blocked";
+			fingerprint: string;
+			/** Whether the conflict has been shown and logged; false while the host has yet to report the label. */
+			judged: boolean;
+	  }
+	| { kind: "upsertFailed"; fingerprint: string };
 
 /**
  * Keeps provider groups in step with the servers setting. syncNow is serialized: a call during an in-flight pass queues
@@ -418,13 +424,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 		identity: DeclaredGroupIdentity | undefined,
 		snapshots: readonly ServerModelsSnapshot[]
 	): GroupKey | undefined {
-		if (identity === undefined) {
-			return undefined;
-		}
-		const joined = resolveGroupOwnership({
-			labeled: labeledSnapshots(snapshots),
-			declared: [identity],
-		}).matchedByDeclared.get(0)?.entry.snapshot;
+		const joined = this.joinOf(identity, snapshots)?.snapshot;
 		return joined === undefined
 			? undefined
 			: {
@@ -433,6 +433,21 @@ export class ServerSyncEngine implements vscode.Disposable {
 					entryLabel: joined.entryLabel,
 					baseUrl: joined.status.baseUrl,
 				};
+	}
+
+	/** The join behind joinedGroupOf with the pass that made it; a label-URL join names no ID of the entry's. */
+	private joinOf(
+		identity: DeclaredGroupIdentity | undefined,
+		snapshots: readonly ServerModelsSnapshot[]
+	): { readonly snapshot: ServerModelsSnapshot; readonly pass: JoinPass } | undefined {
+		if (identity === undefined) {
+			return undefined;
+		}
+		const match = resolveGroupOwnership({
+			labeled: labeledSnapshots(snapshots),
+			declared: [identity],
+		}).matchedByDeclared.get(0);
+		return match === undefined ? undefined : { snapshot: match.entry.snapshot, pass: match.pass };
 	}
 
 	/**
@@ -459,10 +474,10 @@ export class ServerSyncEngine implements vscode.Disposable {
 		}
 	}
 	private running: Promise<void> | undefined;
-	private queued: { force: boolean; promise: Promise<void>; resolve: () => void } | undefined;
+	private queued: { force: boolean; judgeRefusals: boolean; promise: Promise<void>; resolve: () => void } | undefined;
 	private timer: ReturnType<typeof setTimeout> | undefined;
 	private holds = 0;
-	private heldRequest: { force: boolean; waiters: (() => void)[] } | undefined;
+	private heldRequest: { force: boolean; judgeRefusals: boolean; waiters: (() => void)[] } | undefined;
 	private disposed = false;
 	/** Listeners on completed sync passes; see onDidSync. */
 	private readonly syncListeners = new Set<() => void>();
@@ -573,7 +588,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 			return;
 		}
 		if (this.holds > 0) {
-			this.heldRequest ??= { force: false, waiters: [] };
+			this.heldRequest ??= { force: false, judgeRefusals: false, waiters: [] };
 			return;
 		}
 		if (this.timer !== undefined) {
@@ -599,7 +614,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 		if (this.timer !== undefined) {
 			clearTimeout(this.timer);
 			this.timer = undefined;
-			this.heldRequest ??= { force: false, waiters: [] };
+			this.heldRequest ??= { force: false, judgeRefusals: false, waiters: [] };
 		}
 		try {
 			// The finally of a finishing pass relaunches its queued follow-up before this continuation resumes; the
@@ -618,20 +633,26 @@ export class ServerSyncEngine implements vscode.Disposable {
 						waiter();
 					}
 				};
-				void this.syncNow(request.force).then(settle, settle);
+				void this.syncNow(request.force, { judgeRefusals: request.judgeRefusals }).then(settle, settle);
 			}
 		}
 	}
 
-	async syncNow(force = false): Promise<void> {
+	/**
+	 * `judgeRefusals` marks a user's sync (Sync Models Now): a duplicate refusal the host has not explained is judged on
+	 * it rather than deferred (see hostReported); one judged while the entry's own group is still discovering heals on
+	 * that group's report.
+	 */
+	async syncNow(force = false, { judgeRefusals = false }: { readonly judgeRefusals?: boolean } = {}): Promise<void> {
 		// Checked here, not only at scheduling: the queued follow-up relaunch below routes through syncNow, and this
 		// guard is what stops it from starting a pass after disposal.
 		if (this.disposed) {
 			return;
 		}
 		if (this.holds > 0) {
-			this.heldRequest ??= { force: false, waiters: [] };
+			this.heldRequest ??= { force: false, judgeRefusals: false, waiters: [] };
 			this.heldRequest.force ||= force;
+			this.heldRequest.judgeRefusals ||= judgeRefusals;
 			const request = this.heldRequest;
 			return new Promise<void>((resolve) => {
 				request.waiters.push(resolve);
@@ -643,12 +664,13 @@ export class ServerSyncEngine implements vscode.Disposable {
 				const promise = new Promise<void>((resolvePromise) => {
 					resolve = resolvePromise;
 				});
-				this.queued = { force, promise, resolve };
+				this.queued = { force, judgeRefusals, promise, resolve };
 			}
 			this.queued.force ||= force;
+			this.queued.judgeRefusals ||= judgeRefusals;
 			return this.queued.promise;
 		}
-		this.running = this.runOnce(force);
+		this.running = this.runOnce(force, judgeRefusals);
 		try {
 			await this.running;
 		} finally {
@@ -658,7 +680,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 			if (queued !== undefined) {
 				// runOnce never rethrows, but the queued waiters must settle even if that ever changes, so rejection
 				// also resolves them.
-				void this.syncNow(queued.force).then(queued.resolve, queued.resolve);
+				void this.syncNow(queued.force, { judgeRefusals: queued.judgeRefusals }).then(queued.resolve, queued.resolve);
 			}
 		}
 	}
@@ -682,9 +704,9 @@ export class ServerSyncEngine implements vscode.Disposable {
 		this.heldRequest = undefined;
 	}
 
-	private async runOnce(force: boolean): Promise<void> {
+	private async runOnce(force: boolean, judgeRefusals: boolean): Promise<void> {
 		try {
-			await this.syncPass(force);
+			await this.syncPass(force, judgeRefusals);
 		} catch (error) {
 			// Individual upserts handle their own failures; this catches the stores themselves misbehaving. Never
 			// rethrown: sync runs on activation and on configuration events.
@@ -752,6 +774,17 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
+	 * Records a refused configuration as a judged conflict, and logs it the first time the host's report of the label
+	 * proves the name is held by a group this entry does not own, on the refusing pass or a later one.
+	 */
+	private judgeBlocked(label: string, printed: string, alreadyJudged: boolean): void {
+		this.retry.set(label, { kind: "blocked", fingerprint: printed, judged: true });
+		if (!alreadyJudged) {
+			this.env.log("Provider group exists and the host has no update path", { label });
+		}
+	}
+
+	/**
 	 * Without the carry the pass-end whole-key write would destroy the only copy.
 	 *
 	 *   Carry the record for an entry this pass leaves unsynced -> this window's last-known-good
@@ -773,7 +806,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 		this.fingerprints = { ...this.fingerprints, [label]: lastGood };
 	}
 
-	private async syncPass(force: boolean): Promise<void> {
+	private async syncPass(force: boolean, judgeRefusals: boolean): Promise<void> {
 		const rawSetting = this.env.readServersSetting();
 		const { entries, problems } = parseServersSetting(rawSetting);
 		for (const problem of problems) {
@@ -841,13 +874,30 @@ export class ServerSyncEngine implements vscode.Disposable {
 			// (groupIdentityArgs covers nothing else; credentials overlay at serve time), while a record only pins the add
 			// this window made under the name, which a group re-pointed natively in chatLanguageModels.json keeps.
 			//
-			//   no record, one group seen as declared (#398)  -> the duplicate refusal is the add-only steady state
-			//   record matches, one group seen elsewhere       -> blocked, not in sync
-			//   blocked on this print, not seen as declared     -> stays blocked; no group or two groups seen settles nothing
+			//   no record, one group seen as declared (#398)     -> the duplicate refusal is the add-only steady state
+			//   record matches, one group seen elsewhere          -> blocked, not in sync
+			//   blocked on this print, its group not yet reported -> nothing shown; its own group's report judges it
+			//   blocked on this print, reported but not as declared -> stays blocked; two groups seen settles nothing
 			const observed = this.observedBaseUrls(entry.label);
+			// The same narrowing the provider applies, collected rather than logged: the dashboard names the dropped
+			// credential beside the entry (configDiagnostics.ts), where the user can re-enter it.
+			const parsed = parseGroupConfiguration(args);
+			const identity = declaredGroupIdentity(entry, parsed);
+			// A duplicate refusal before the host has reported this entry's group (a cold start runs the forced pass first,
+			// and a group enters the window only once its discovery completes) proves only that a group of that name
+			// exists; the group's own report decides whether it is this entry's (#631). It reports under the label, or
+			// it joins the identity by ID (a pre-label group reports under its host's name; its connection ID names it).
+			// A label-URL join alone is not that report: an unstamped group's label IS its URL host, so an entry labeled
+			// by its host would read any other group at that URL as its own. Any other group's report, one at the
+			// entry's own URL included, says nothing about this one.
+			const join = this.joinOf(identity, this.liveSnapshots());
+			const hostReported = observed.length > 0 || (join !== undefined && join.pass !== "label-url");
 			const servedAsDeclared = observed.length === 1 && observed[0] === normalizeBaseUrl(entry.baseUrl);
 			const servedElsewhere = observed.length === 1 && !servedAsDeclared;
 			const blockedAsPrinted = retryState?.kind === "blocked" && retryState.fingerprint === printed;
+			// A conflict once judged stays judged: the group leaving the window later proves nothing and lifts nothing.
+			const previouslyJudged =
+				retryState?.kind === "blocked" && retryState.fingerprint === printed && retryState.judged;
 			const recordConfirms = (record: string | undefined) =>
 				record === printed && !servedElsewhere && (!blockedAsPrinted || servedAsDeclared);
 			if (secretsUnreadable) {
@@ -888,8 +938,13 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// The last-known-good fingerprint is carried so a later revert of the entry can still match it.
 				//
 				//   retrying without a user gesture -> would just hammer the command
-				syncFailure = syncFailureOf("blocked");
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
+				if (hostReported || previouslyJudged) {
+					syncFailure = syncFailureOf("blocked");
+					if (!previouslyJudged) {
+						this.judgeBlocked(entry.label, printed, false);
+					}
+				}
 			} else if (!(await this.confirmSaltDurable())) {
 				//   a store mutation mid-pass -> must stop further adds
 				syncFailure = syncFailureOf("saltUnavailable");
@@ -946,11 +1001,17 @@ export class ServerSyncEngine implements vscode.Disposable {
 							// The host holds the name for a group this entry does not provably own (the entry changed, the
 							// name was taken, or the group was re-pointed natively) and cannot update or replace it. The
 							// refused fingerprint goes into the retry state as "blocked" (not the map) so unforced passes
-							// keep the error without hammering and a forced pass retries after the user fixes the group.
+							// keep the verdict without hammering and a forced pass retries after the user fixes the group.
 							this.carryLastGood(entry.label, previous, next, storeRecord);
-							this.retry.set(entry.label, { kind: "blocked", fingerprint: printed });
-							syncFailure = syncFailureOf("blocked");
-							this.env.log("Provider group exists and the host has no update path", { label: entry.label });
+							// A user's sync judges a refusal the host has not explained: a group holding the name under
+							// another name, with no stamp, reports under its URL host and never under this label.
+							if (hostReported || previouslyJudged || judgeRefusals) {
+								syncFailure = syncFailureOf("blocked");
+								this.judgeBlocked(entry.label, printed, previouslyJudged);
+							} else {
+								this.retry.set(entry.label, { kind: "blocked", fingerprint: printed, judged: false });
+								this.env.log("Provider group exists; its own report decides the verdict", { label: entry.label });
+							}
 						}
 					} else {
 						// The set also replaces a stale "blocked", whose unforced-pass shortcut would otherwise skip the
@@ -965,15 +1026,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 					}
 				}
 			}
-			// The same narrowing the provider applies, collected rather than logged: the dashboard names the dropped
-			// credential beside the entry (configDiagnostics.ts), where the user can re-enter it. A failure the pass
-			// already decided above outranks the refusal; the field detail rides beside either.
-			const parsed = parseGroupConfiguration(args);
+			// A failure the pass already decided above outranks the refusal; the field detail rides beside either.
 			const rejections = parsed?.rejections ?? [];
 			if (rejections.length > 0) {
 				syncFailure ??= syncFailureOf("credentialsRefused");
 			}
-			const identity = declaredGroupIdentity(entry, parsed);
 			views.push({
 				...identity,
 				...pickNonSecretOptionalFields(entry),

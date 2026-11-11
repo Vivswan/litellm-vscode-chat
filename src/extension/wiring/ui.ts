@@ -167,7 +167,7 @@ export function wireUiCommands(
 		deps.outputChannel,
 		logger,
 		deps.hasConfiguredServers,
-		() => deps.syncEngine.syncNow(true)
+		() => deps.syncEngine.syncNow(true, { judgeRefusals: true })
 	);
 
 	registerHelpAndFeedbackCommand(context);

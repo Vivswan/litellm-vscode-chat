@@ -754,9 +754,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			}
 		});
 
-		test("a group observed only after the blocked pass still enters the ledger on the next pass, so its removal is tracked", async () => {
+		test("a group observed only after the deferred pass still enters the ledger on the next pass, so its removal is tracked", async () => {
 			// The host's file is out of reach, so the served identity is the only evidence, and at cold start the pass
-			// runs before the host has reported the blocked entry's group: nothing is recorded. The wiring re-runs a
+			// runs before the host has reported the refused entry's group: nothing is recorded. The wiring re-runs a
 			// pass when the group enters the window; that pass records the served identity, and the later removal names
 			// it.
 			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://new.test" }]);
@@ -933,10 +933,11 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.deepStrictEqual(recorded.entryBaseUrls, { Prod: "http://old.test" });
 
-			// The URL changes but the add-only host refuses the update: the live group keeps the OLD connection, so the
-			// ledger must not move.
+			// The URL changes but the add-only host refuses the update: the live group keeps the OLD connection, which
+			// the host still reports, so the ledger must not move.
 			recorded.setting = [{ label: "Prod", baseUrl: "http://new.test" }];
 			recorded.duplicateLabels.add("Prod");
+			recorded.observedGroups = { Prod: ["http://old.test"] };
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 			assert.deepStrictEqual(
@@ -1011,9 +1012,11 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1);
 
-			// The entry's identity changes, but the host cannot update the existing group.
+			// The entry's identity changes, but the host cannot update the existing group, which it still reports at the
+			// old URL.
 			recorded.setting = [{ label: "A", baseUrl: "http://changed.test" }];
 			recorded.duplicateLabels.add("A");
+			recorded.observedGroups = { A: ["http://a.test"] };
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
@@ -1041,9 +1044,11 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1);
 
-			// The identity change is refused: the host cannot update the existing group.
+			// The identity change is refused: the host cannot update the existing group, which it keeps reporting at
+			// a.test.
 			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.duplicateLabels.add("A");
+			recorded.observedGroups = { A: ["http://a.test"] };
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 			assert.deepStrictEqual(
@@ -1120,9 +1125,10 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1);
 
-			// The entry's identity changes and the host refuses the duplicate: blocked.
+			// The entry's identity changes and the host refuses the duplicate while reporting the group at a.test: blocked.
 			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.duplicateLabels.add("A");
+			recorded.observedGroups = { A: ["http://a.test"] };
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 
@@ -1214,9 +1220,11 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 
-			// The identity change is refused as a duplicate: blocked, actionable text.
+			// The identity change is refused as a duplicate while the host reports the group at a.test: blocked,
+			// actionable text.
 			recorded.setting = [{ label: "A", baseUrl: "http://b.test" }];
 			recorded.duplicateLabels.add("A");
+			recorded.observedGroups = { A: ["http://a.test"] };
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
 
@@ -1236,9 +1244,10 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 			assert.strictEqual(recorded.upserts.length, 1, "the shortcut still avoids hammering the host");
 		});
 
-		test("a new entry under a name the host already uses gets the actionable error immediately", async () => {
+		test("a new entry under a name the host already uses gets the actionable error as soon as the host reports that group", async () => {
 			const recorded = makeSyncEnv([{ label: "Taken", baseUrl: "http://a.test" }]);
 			recorded.duplicateLabels.add("Taken");
+			recorded.observedGroups = { Taken: ["http://other.test"] };
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 
@@ -1249,6 +1258,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 		test("a genuine name conflict recovers once the conflicting group is removed natively", async () => {
 			const recorded = makeSyncEnv([{ label: "Taken", baseUrl: "http://a.test" }]);
 			recorded.duplicateLabels.add("Taken");
+			recorded.observedGroups = { Taken: ["http://other.test"] };
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
@@ -1303,8 +1313,9 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 
 		test("a lost record heals once the host is seen serving the label at the declared URL, and only then", async () => {
 			// Cold start with no record: the forced activation pass runs before the host reports the group, so the
-			// duplicate refusal has no proof and the entry blocks. The group entering the window re-runs a pass;
-			// a group served at another URL is a real conflict and stays blocked without a host call.
+			// duplicate refusal proves only that a group of that name exists, and nothing is shown until the group's own
+			// report arrives (#631). The group entering the window re-runs a pass; a group served at the declared URL
+			// heals the entry, one served at another URL is a real conflict and blocks without a host call.
 			const cases: { observed: string; outcome: "healed" | "blocked" }[] = [
 				{ observed: "http://prod.test/", outcome: "healed" },
 				{ observed: "http://other.test", outcome: "blocked" },
@@ -1319,15 +1330,20 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				const engine = new ServerSyncEngine(recorded.env);
 				await engine.syncNow(true);
 				assert.strictEqual(
-					engine.getDeclared()[0]?.syncFailure?.class,
-					"blocked",
-					`${observed}: before the host reports`
+					engine.getDeclared()[0]?.syncFailure,
+					undefined,
+					`${observed}: before the host reports, no verdict is shown`
 				);
 				assert.strictEqual(hostCalls.count, 1);
 				assert.strictEqual(
+					recorded.logged.filter(([message]) => message.includes("its own report decides")).length,
+					1,
+					`${observed}: the refusal is logged as awaiting the report`
+				);
+				assert.strictEqual(
 					classifyOverall(applySyncFailures([serving], engine.getDeclared())),
-					"degraded",
-					`${observed}: the serving row reads as a failing server until the host is heard`
+					"connected",
+					`${observed}: the serving row stays a healthy server until the host is heard`
 				);
 
 				recorded.observedGroups = { Prod: [observed] };
@@ -1356,12 +1372,127 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				);
 				assert.strictEqual(
 					recorded.logged.filter(([message]) => message.includes("no update path")).length,
-					1,
-					`${observed}: the first refusal is the only conflict logged`
+					healed ? 0 : 1,
+					`${observed}: the conflict is logged once, when the report makes it one, and never for a heal`
 				);
 				const judged = applySyncFailures([serving], engine.getDeclared());
 				assert.strictEqual(unexpectedFailureCount(judged), healed ? 0 : 1, `${observed}: the window's failures`);
 				assert.strictEqual(classifyOverall(judged), healed ? "connected" : "degraded", `${observed}: the verdict`);
+			}
+		});
+
+		test("a user's sync judges a refusal the host has not explained", async () => {
+			// A group holding the name under another name, with no stamp (one the user added through the host's own
+			// UI), reports under its URL host and never under this label, so the deferral alone would leave the refusal
+			// unexplained for good; Sync Models Now judges it outright, and a judgement made while the entry's own
+			// group is still discovering heals on that group's report.
+			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			recorded.duplicateLabels.add("Prod");
+			recorded.liveSnapshots = [
+				{
+					status: makeServerStatus({ serverId: "group:native", label: "other.test", baseUrl: "http://other.test" }),
+					models: [],
+				},
+			];
+			const hostCalls = countHostCalls(recorded);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow(true);
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncFailure, undefined, "activation and the unforced pass defer");
+			const conflictLines = () => recorded.logged.filter(([message]) => message.includes("no update path")).length;
+
+			await engine.syncNow(true, { judgeRefusals: true });
+			assert.deepStrictEqual(engine.getDeclared()[0]?.syncFailure, { class: "blocked" }, "the user's sync judges it");
+			assert.strictEqual(hostCalls.count, 2, "the user's sync retried the add once");
+			assert.strictEqual(conflictLines(), 1, "the conflict is logged when judged");
+
+			await engine.syncNow();
+			assert.deepStrictEqual(engine.getDeclared()[0]?.syncFailure, { class: "blocked" }, "the verdict stands unforced");
+			assert.strictEqual(hostCalls.count, 2, "no further host call");
+			assert.strictEqual(conflictLines(), 1, "and is logged once");
+		});
+
+		test("a user's sync queued behind a running pass keeps its judgement", async () => {
+			// Requests arriving during a pass coalesce into one follow-up; the user's gesture must survive that merge.
+			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			recorded.duplicateLabels.add("Prod");
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const originalAdd = recorded.env.addProviderGroup.bind(recorded.env);
+			recorded.env.addProviderGroup = async (args) => {
+				await gate;
+				return originalAdd(args);
+			};
+			const engine = new ServerSyncEngine(recorded.env, 0);
+			const first = engine.syncNow(true);
+			const queued = engine.syncNow(true, { judgeRefusals: true });
+			release();
+			await first;
+			await queued;
+			assert.deepStrictEqual(
+				engine.getDeclared()[0]?.syncFailure,
+				{ class: "blocked" },
+				"the queued user's sync judged it"
+			);
+		});
+
+		test("another group's report never judges an entry whose own group is still discovering", async () => {
+			// A group enters the window only once its discovery completes, so at a cold start a fast server's group
+			// can stand in the window while a slow one's is still pending; that says nothing about the pending entry,
+			// whose duplicate refusal must wait for its own group. A sibling entry's group at the very same URL is
+			// still another group, and so is an unstamped group there whose label (its URL host) is the entry's.
+			const sibling = {
+				status: makeServerStatus({
+					serverId: "group:other",
+					label: "Other",
+					entryLabel: "Other",
+					baseUrl: "http://prod.test",
+				}),
+				models: [],
+			};
+			const hostNamed = {
+				status: makeServerStatus({ serverId: "group:external", label: "prod.test", baseUrl: "http://prod.test" }),
+				models: [],
+			};
+			for (const { label, reported } of [
+				{ label: "Prod", reported: liveGroup("group:unrelated") },
+				{ label: "Prod", reported: sibling },
+				{ label: "prod.test", reported: hostNamed },
+			]) {
+				const recorded = makeSyncEnv([{ label, baseUrl: "http://prod.test" }]);
+				await new ServerSyncEngine(recorded.env).syncNow();
+				assert.deepStrictEqual(recorded.entryBaseUrls, { [label]: "http://prod.test" }, "the ledger remembers the URL");
+				// The record is lost (a failed fingerprint write beside a landed ledger write), so the next start's refusal
+				// has no proof of its own.
+				recorded.fingerprints = {};
+				recorded.duplicateLabels.add(label);
+				recorded.liveSnapshots = [reported];
+				const hostCalls = countHostCalls(recorded);
+				const engine = new ServerSyncEngine(recorded.env);
+				await engine.syncNow(true);
+				await engine.syncNow();
+				const which = reported.status.serverId;
+				assert.strictEqual(
+					engine.getDeclared()[0]?.syncFailure,
+					undefined,
+					`${which}: no verdict while the entry's own group is pending`
+				);
+				assert.strictEqual(hostCalls.count, 1, `${which}: the deferred passes do not hammer the host`);
+
+				recorded.observedGroups = { [label]: ["http://prod.test"] };
+				await engine.syncNow();
+				assert.strictEqual(
+					engine.getDeclared()[0]?.syncFailure,
+					undefined,
+					`${which}: its own report at the declared URL confirms it`
+				);
+				assert.deepStrictEqual(
+					Object.keys(recorded.fingerprints),
+					[label],
+					`${which}: the confirmed add records its fingerprint`
+				);
 			}
 		});
 
@@ -1599,7 +1730,8 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 
 		test("a store record for a different configuration does not confirm; the conflict stays", async () => {
 			// The confirmation is positive-only: a stale store can under-report but never invent a match, so anything
-			// but an exact fingerprint match keeps the actionable name-conflict classification.
+			// but an exact fingerprint match keeps the actionable name-conflict classification once the host reports the
+			// name's group elsewhere.
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			let seeded = false;
 			recorded.env.getFingerprints = () => {
@@ -1610,6 +1742,7 @@ suite("extension/servers/serverSync: ServerSyncEngine", () => {
 				return { A: "some-other-configuration" };
 			};
 			recorded.duplicateLabels.add("A");
+			recorded.observedGroups = { A: ["http://other.test"] };
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncFailure?.class, "blocked");
