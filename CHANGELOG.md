@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.7.0...v0.7.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **sync:** judge a duplicate group refusal only once the host has reported the label ([#631](https://github.com/Vivswan/litellm-vscode-chat/issues/631), thanks [@o-l-a-v](https://github.com/o-l-a-v)) ([#647](https://github.com/Vivswan/litellm-vscode-chat/issues/647)) ([43cf139](https://github.com/Vivswan/litellm-vscode-chat/commit/43cf13950228d500c5f42b7aed5cbc6e4a060ae6))
+
 ## [0.7.0](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.6.12...v0.7.0) (2026-11-10)
 
 
