@@ -144,9 +144,11 @@ function transportSuite(title: string, directMode: boolean): void {
 				// (v1.93 swallowed the same drop: its HTTP client read the unterminated body as end of stream and the
 				// proxy synthesized a finish and its own [DONE], which this leg pinned as a clean completion until the
 				// upgrade.)
+				// Observed on main-stable: the frame also carries `"type": "internal_server_error"`, which the detail
+				// line prints ahead of the code.
 				assert.match(
 					String(outcome.error),
-					/^RequestError: The server reported an error while it was streaming this reply, so the response was interrupted\.[\s\S]*\n\nDetails: LiteLLM stream error \(500\): litellm\.APIConnectionError\b/,
+					/^RequestError: The server reported an error while it was streaming this reply, so the response was interrupted\.[\s\S]*\n\nDetails: LiteLLM stream error(?: internal_server_error)? \(500\): litellm\.APIConnectionError\b/,
 					"the forwarded upstream death must surface as the classified in-band error frame"
 				);
 				assert.ok(
@@ -181,14 +183,23 @@ function transportSuite(title: string, directMode: boolean): void {
 			await assertModelStillAnswers();
 		});
 
-		test(`${COMMAND_SIGIL}nodone:5 completes cleanly: EOF without [DONE] is tolerated end to end`, async function () {
+		test(`${COMMAND_SIGIL}nodone:5 keeps all five chunks: EOF without [DONE] completes cleanly direct, and through the proxy completes or ends in LiteLLM's classified no-finish frame`, async function () {
 			this.timeout(60000);
 			const outcome = await runToOutcome(model, `${COMMAND_SIGIL}nodone:5`);
-			// Direct: the stream loop treats plain EOF as end of stream (finishStream runs on reader exhaustion).
-			// Proxy: LiteLLM tolerates the missing sentinel the same way, forwarding all five deltas (v1.93 was seen
-			// ending the stream with its own [DONE]; the clean completion this asserts holds on v1.99.1 too).
-			assert.strictEqual(outcome.error, undefined, `clean EOF must not fail the request: ${String(outcome.error)}`);
 			assert.strictEqual(extractText(outcome.parts), "chunk1 chunk2 chunk3 chunk4 chunk5 ");
+
+			// The proxy's answer to a stream that ends with no finish_reason moved between LiteLLM versions:
+			//   v1.93, v1.99.1 -> a clean end (v1.93 adds its own [DONE])
+			//   main-stable    -> an in-band error frame naming the missing finish_reason
+			const noFinishFrame =
+				/\n\nDetails: LiteLLM stream error internal_server_error \(500\): litellm\.APIConnectionError\b[\s\S]*Stream ended before a finish_reason was received/;
+			const proxyReportedNoFinish = !directMode && noFinishFrame.test(String(outcome.error));
+
+			// Direct, the stream loop treats plain EOF as end of stream (finishStream runs on reader exhaustion).
+			if (!proxyReportedNoFinish) {
+				assert.strictEqual(outcome.error, undefined, `clean EOF must not fail the request: ${String(outcome.error)}`);
+			}
+
 			await assertModelStillAnswers();
 		});
 
