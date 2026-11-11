@@ -215,19 +215,20 @@ suite("extension/servers the observation event schedules the pass that acts on t
 				[{ by: "group", groupId, label: HOST, baseUrl: H }],
 				"nothing observed, so no group joined the entry and the tombstone stands"
 			);
+			// The host has reported nothing under this entry yet, so the refusal has no verdict: the row waits, neither
+			// in sync nor failing.
 			assert.deepStrictEqual(fixture.pushedState().servers, [
 				{
 					baseUrl: H,
 					config: INLINE_KEY_PROVEN,
 					credentials: "present",
-					cause: { kind: "sync", failureClass: "blocked" },
 					hasOAuth: false,
 					hasVirtualKey: false,
 					label: "L1",
 					lastChecked: undefined,
 					origin: "declared",
 					servedModelCount: 0,
-					state: "error",
+					state: "unchecked",
 				},
 			]);
 

@@ -48,7 +48,7 @@ export function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): La
  * Only the identity pass proves the serving group carries the entry's label, which is what buildServers flags entries
  * on: any other pass means the entry's own modelParameters may not apply.
  */
-type JoinPass = "identity" | "connection" | "label-url";
+export type JoinPass = "identity" | "connection" | "label-url";
 
 export interface GroupOwnershipInputs {
 	readonly labeled: readonly LabeledSnapshot[];
