@@ -14,8 +14,8 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    # Nightly: the scheduled run is the site leg's rebuild and link-rot check, and
-    # CodeQL keeps its weekly rescan through fleet.yml's plan output.
+    # Nightly, public repositories only: the scheduled run is the site leg's rebuild and link-rot check, and
+    # CodeQL keeps its weekly rescan through fleet.yml's plan output. A private repository's night skips every job.
     - cron: "3 4 * * *"
 
 permissions:
@@ -41,7 +41,10 @@ jobs:
   # Every platform call carries the fleet ceiling, ONE fixed block: the union of what any job of the called workflows
   # asks, each job narrowing itself to its own need. GitHub validates a called job's grant against it before the job's
   # `if` runs, so the block is unconditional and the same text on every platform call.
+  # The nightly runs in public repositories only: a private repository pays for every job that runs and has no code
+  # scanning, and a skipped job bills nothing. The gate carries the same clause, so the two skip together.
   platform:
+    if: github.event_name != 'schedule' || !github.event.repository.private
     uses: Vivswan/repo-platform/.github/workflows/fleet.yml@stable
     permissions:
       actions: read
@@ -65,9 +68,10 @@ jobs:
   # THE gate: this job's own check run (named all-green, created by the GitHub Actions app) is the ruleset's required
   # check. It passes only when each needed result is success. `checks` (the schedule run) and `release-gate` (every
   # event but the release PR and a dispatch) may skip; `platform` never may, so an all-skipped run cannot pass.
+  # A private repository's nightly is the one run with no gate: `platform` stands down there and this job with it.
   all-green:
     needs: [checks, platform, release-gate]
-    if: always()
+    if: always() && (github.event_name != 'schedule' || !github.event.repository.private)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
