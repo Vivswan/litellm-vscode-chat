@@ -29,10 +29,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Repo-owned: edit checks.yml, not this file (no secrets; permissions cap at contents: read). The nightly run is the platform's alone.
+  # Repo-owned: edit checks.yml, not this file. The call carries the repository's secrets; a job that reads one declares what
+  # it uses (an environment for an environment secret). Permissions still cap at contents: read. The nightly run is the platform's alone.
   checks:
     if: github.event_name != 'schedule'
     uses: ./.github/workflows/checks.yml
+    # The called workflow is this repository's own, so it inherits the repository's secrets by design.
+    # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
+    secrets: inherit # zizmor: ignore[secrets-inherit]
 
   # Every platform call carries the fleet ceiling, ONE fixed block: the union of what any job of the called workflows
   # asks, each job narrowing itself to its own need. GitHub validates a called job's grant against it before the job's
