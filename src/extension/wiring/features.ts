@@ -10,11 +10,7 @@ import { createCommitProbe, wireCommitGeneration } from "../features/commitGen/w
 import { createConsultProbe, wireConsultTool } from "../features/consultTool/wiring";
 import { createFimProbe, wireInlineCompletions } from "../features/inline/wiring";
 import { wireMcpServers } from "../features/mcp/wiring";
-import type { ChatParticipantWiring, SnapshotSource } from "../features/participant/wiring";
-import { wireChatParticipant } from "../features/participant/wiring";
 import { createPrProbe, wirePrGeneration } from "../features/prGen/wiring";
-import { createQuickFixProbe, wireQuickFix } from "../features/quickFix/wiring";
-import { registerQuickFixSlashCommands } from "../features/quickFixChatCommands";
 import { createReviewProbe, wireReviewComments } from "../features/reviewComments/wiring";
 import { createSettingsAccess } from "../settingsAccess";
 
@@ -31,9 +27,8 @@ export function wireFeatures(
 	deps: {
 		readonly ua: HeaderValue;
 		readonly outputChannel: vscode.OutputChannel;
-		readonly getSnapshots: () => readonly SnapshotSource[];
 	}
-): { readonly featureProbes: FeatureProbes; readonly chatParticipant: ChatParticipantWiring } {
+): { readonly featureProbes: FeatureProbes } {
 	const oneShot = new OneShotClient({ userAgent: deps.ua });
 	const log = (message: string, data?: unknown): void => {
 		logger.log(message, data);
@@ -44,31 +39,14 @@ export function wireFeatures(
 	wireMcpServers(context, logger, { oneShot });
 	const prGen = wirePrGeneration(context, logger, { oneShot, outputChannel: deps.outputChannel });
 	const review = wireReviewComments(context, logger, { oneShot, outputChannel: deps.outputChannel });
-	const chatParticipant = wireChatParticipant(context, logger, { getSnapshots: deps.getSnapshots });
-	wireQuickFix(context, logger, {
-		oneShot,
-		outputChannel: deps.outputChannel,
-		// Read per invocation, never captured: the participant comes and goes with its setting and with what the host
-		// accepted.
-		isParticipantAvailable: () => chatParticipant.isRegistered(),
-	});
-	// Registration happens here rather than inside either feature - features may not import each other, and composing
-	// them is exactly this module's job. Once, at activation: registration is not a runtime toggle, and it deliberately
-	// outlives the quickFix enable setting, which gates the lightbulb rather than what @litellm can be asked.
-	//
-	//   quick fixes teach the participant /fix and /explain -> the lightbulb's primary path opens chat with them
-	//                                                          already submitted
-	registerQuickFixSlashCommands(chatParticipant.slashCommands);
 	return {
 		featureProbes: {
 			inlineCompletions: createFimProbe(inline.fimSend),
 			commitGeneration: createCommitProbe(context.secrets, oneShot, log),
 			consultTool: createConsultProbe(consult.consultSend),
 			prGeneration: createPrProbe(prGen.prSend),
-			quickFix: createQuickFixProbe(context.secrets, oneShot, log),
 			reviewComments: createReviewProbe(review.reviewSend),
 		},
-		chatParticipant,
 	};
 }
 

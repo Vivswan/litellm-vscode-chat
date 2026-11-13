@@ -54,8 +54,7 @@ export type FailureLineMessage =
 	| "Commit message generation failed"
 	| "Pull request description generation failed"
 	| "Review failed"
-	| "Review reply failed"
-	| "Quick fix fallback failed";
+	| "Review reply failed";
 
 /**
  * Every discovery and registration log line and every boundary failure line, with the data each carries, because
@@ -167,7 +166,6 @@ const LINE_SHAPES: {
 	"Pull request description generation failed": FAILURE_SHAPE,
 	"Review failed": FAILURE_SHAPE,
 	"Review reply failed": FAILURE_SHAPE,
-	"Quick fix fallback failed": FAILURE_SHAPE,
 };
 
 /** The one path from a discovery line to the host's logger. */

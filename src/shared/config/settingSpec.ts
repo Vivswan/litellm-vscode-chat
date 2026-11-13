@@ -26,29 +26,23 @@ export const UI_ACCENT_SETTING_KEY = "ui.accent";
 export const INLINE_COMPLETIONS_LANGUAGE_FILTER_SETTING_KEY = "inlineCompletions.languageFilter";
 export const COMMIT_GENERATION_PROMPT_SETTING_KEY = "commitGeneration.prompt";
 
-/**
- * The features that pick their model through an explicit `<feature>.model` setting.
- *
- * The exception is quickFix, whose model backs only its FALLBACK path: enabled with no model still works, because the
- * primary path routes through the @litellm participant on whichever model the chat picker names.
- */
+/** The features that pick their model through an explicit `<feature>.model` setting. */
 export const FEATURE_MODEL_IDS = [
 	"inlineCompletions",
 	"commitGeneration",
 	"prGeneration",
 	"consultTool",
-	"quickFix",
 	"reviewComments",
 ] as const;
 
 export type FeatureModelId = (typeof FEATURE_MODEL_IDS)[number];
 
 /**
- * Every feature with an enable setting: the model-picking features plus the two that run on the chat request's own
- * model and so have no model key - the chat participant and the agent tools. The one FeatureId vocabulary the
- * per-layer tables (settings keys, dashboard descriptors, diagnostics flags, contribution pins) key on.
+ * Every feature with an enable setting: the model-picking features plus the agent tools, which run on the chat
+ * request's own model and so have no model key. The one FeatureId vocabulary the per-layer tables (settings keys,
+ * dashboard descriptors, diagnostics flags, contribution pins) key on.
  */
-export const FEATURE_IDS = [...FEATURE_MODEL_IDS, "chatParticipant", "agentTools"] as const;
+export const FEATURE_IDS = [...FEATURE_MODEL_IDS, "agentTools"] as const;
 
 export type FeatureId = (typeof FEATURE_IDS)[number];
 
@@ -71,7 +65,6 @@ export const FEATURE_MODEL_SETTING_KEYS = {
 	commitGeneration: "commitGeneration.model",
 	prGeneration: "prGeneration.model",
 	consultTool: "consultTool.model",
-	quickFix: "quickFix.model",
 	reviewComments: "reviewComments.model",
 } as const satisfies Record<FeatureModelId, string>;
 
@@ -325,11 +318,7 @@ export const BOOLEAN_SETTING_SPECS = {
 	"commitGeneration.enabled": { default: false },
 	"prGeneration.enabled": { default: false },
 	"consultTool.enabled": { default: false },
-	"quickFix.enabled": { default: false },
 	"reviewComments.enabled": { default: false },
-	// The participant is on by default: it costs nothing until invoked and uses the chat request's own model, so it has
-	// no model key.
-	"chatParticipant.enabled": { default: true },
 	// The agent tools are opt-in twice over: the feature switch registers the read tools, and each write tool registers
 	// only under its own switch.
 	"agentTools.enabled": { default: false },
@@ -352,9 +341,7 @@ export const FEATURE_ENABLE_SETTING_KEYS = {
 	commitGeneration: "commitGeneration.enabled",
 	prGeneration: "prGeneration.enabled",
 	consultTool: "consultTool.enabled",
-	quickFix: "quickFix.enabled",
 	reviewComments: "reviewComments.enabled",
-	chatParticipant: "chatParticipant.enabled",
 	agentTools: "agentTools.enabled",
 } as const satisfies Record<FeatureId, BooleanSettingId>;
 
@@ -511,12 +498,10 @@ const SECTIONS = [
 	},
 	{ id: "prGeneration", settings: [FEATURE_ENABLE_SETTING_KEYS.prGeneration, FEATURE_MODEL_SETTING_KEYS.prGeneration] },
 	{ id: "consultTool", settings: [FEATURE_ENABLE_SETTING_KEYS.consultTool, FEATURE_MODEL_SETTING_KEYS.consultTool] },
-	{ id: "quickFix", settings: [FEATURE_ENABLE_SETTING_KEYS.quickFix, FEATURE_MODEL_SETTING_KEYS.quickFix] },
 	{
 		id: "reviewComments",
 		settings: [FEATURE_ENABLE_SETTING_KEYS.reviewComments, FEATURE_MODEL_SETTING_KEYS.reviewComments],
 	},
-	{ id: "chatParticipant", settings: [FEATURE_ENABLE_SETTING_KEYS.chatParticipant] },
 	{ id: "agentTools", settings: AGENT_TOOLS_SETTING_KEYS },
 ] as const satisfies readonly ConfigurationSection[];
 
@@ -613,11 +598,8 @@ export const SETTING_PRESENTATION: Readonly<Record<SettingId, SettingPresentatio
 	"prGeneration.model": MACHINE_OVERRIDABLE_MARKDOWN,
 	"consultTool.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"consultTool.model": MACHINE_OVERRIDABLE_MARKDOWN,
-	"quickFix.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
-	"quickFix.model": MACHINE_OVERRIDABLE_MARKDOWN,
 	"reviewComments.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"reviewComments.model": MACHINE_OVERRIDABLE_MARKDOWN,
-	"chatParticipant.enabled": MACHINE_OVERRIDABLE_MARKDOWN,
 	"agentTools.enabled": MACHINE_MARKDOWN,
 	"agentTools.setSetting.enabled": MACHINE_MARKDOWN,
 	"agentTools.editModelRecords.enabled": MACHINE_MARKDOWN,

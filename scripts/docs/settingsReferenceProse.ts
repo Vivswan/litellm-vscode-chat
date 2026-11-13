@@ -43,11 +43,11 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 	"chat.timeout": {
 		en:
 			"Hard time budget for one chat completion call, and for one commit-message, pull-request-description, " +
-			"consult-tool, quick-fix or review-comment call, in milliseconds. Chat requests are never retried, so this is " +
+			"consult-tool or review-comment call, in milliseconds. Chat requests are never retried, so this is " +
 			"the total time one request may take, streaming included. Raise it " +
 			"for long reasoning runs or slow infrastructure",
-		zhCn: "单次聊天补全调用, 以及单次提交消息生成、拉取请求描述生成、咨询工具、快速修复或评审评论调用的硬性时间预算, 毫秒。聊天请求从不重试, 所以这是一个请求可占用的总时间, 含流式传输。为长推理运行或缓慢的基础设施调大它",
-		zhTw: "單次聊天補全呼叫, 以及單次提交訊息產生、提取要求描述產生、諮詢工具、快速修復或審查評論呼叫的硬性時間預算, 毫秒。聊天請求從不重試, 所以這是一個請求可占用的總時間, 含串流。為長推理運行或緩慢的基礎設施調大它",
+		zhCn: "单次聊天补全调用, 以及单次提交消息生成、拉取请求描述生成、咨询工具或评审评论调用的硬性时间预算, 毫秒。聊天请求从不重试, 所以这是一个请求可占用的总时间, 含流式传输。为长推理运行或缓慢的基础设施调大它",
+		zhTw: "單次聊天補全呼叫, 以及單次提交訊息產生、提取要求描述產生、諮詢工具或審查評論呼叫的硬性時間預算, 毫秒。聊天請求從不重試, 所以這是一個請求可占用的總時間, 含串流。為長推理運行或緩慢的基礎設施調大它",
 	},
 	"chat.maxToolsPerRequest": {
 		en:
@@ -251,19 +251,6 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		zhCn: '咨询工具询问的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则',
 		zhTw: '諮詢工具詢問的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則',
 	},
-	"quickFix.enabled": {
-		en:
-			"Show Fix and Explain quick fixes on diagnostics. Both open the chat view and send the question to " +
-			"`@litellm`, with the diagnostics and the lines they sit on attached; when the chat view cannot answer they " +
-			"fall back to `quickFix.model`. See [the quick fix recipe](getting-started.md#fix-or-explain-a-diagnostic)",
-		zhCn: "在诊断上显示「修复」和「解释」快速修复。两者都会打开聊天视图并把问题直接发送给 `@litellm`, 附上诊断及其所在的行; 聊天视图无法作答时改用 `quickFix.model`。参见[快速修复配方](getting-started.md#修复或解释一条诊断)",
-		zhTw: "在診斷上顯示「修復」和「解釋」快速修復。兩者都會開啟聊天檢視並把問題直接傳送給 `@litellm`, 附上診斷及其所在的行; 聊天檢視無法作答時改用 `quickFix.model`。參見[快速修復配方](getting-started.md#修復或解釋一條診斷)",
-	},
-	"quickFix.model": {
-		en: 'The model behind the quick-fix FALLBACK path only - the chat path uses whichever model the chat picker names. Same `{ "server", "model" }` shape and rules as `inlineCompletions.model`; `null` leaves the fallback idle',
-		zhCn: '仅用于快速修复的后备路径 - 聊天路径使用聊天选择器指定的模型。与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则; `null` 表示后备路径保持闲置',
-		zhTw: '僅用於快速修復的後備路徑 - 聊天路徑使用聊天選擇器指定的模型。與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則; `null` 表示後備路徑保持閒置',
-	},
 	"reviewComments.enabled": {
 		en: 'Opt-in for AI review comments on your changes. Off by default; no comment threads exist and no review is sent until enabled, except the dashboard\'s explicit "Test model" button ([recipe](getting-started.md#get-review-comments-on-your-code))',
 		zhCn: "选择启用对改动的 AI 评审评论。默认关闭; 启用前不存在任何评审会话, 也不会发出任何评审请求, 仪表板中显式的「测试模型」按钮除外 ([配方](getting-started.md#让模型评审你的代码))",
@@ -273,14 +260,6 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		en: 'The model that writes review comments; the same `{ "server", "model" }` shape and rules as `inlineCompletions.model`',
 		zhCn: '撰写评审评论的模型; 与 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形状和规则',
 		zhTw: '撰寫審查評論的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則',
-	},
-	"chatParticipant.enabled": {
-		en:
-			"The @litellm chat participant, answering with the chat request's own model (no model setting). On by default. " +
-			"Goes away in January 2027, when VS Code retires chat participants; " +
-			"[`/litellm`](getting-started.md#let-an-agent-manage-your-litellm-setup) covers help with your setup",
-		zhCn: "@litellm 聊天参与者, 使用聊天请求自身的模型作答 (没有模型设置)。默认开启。将于 2027 年 1 月随 VS Code 停用聊天参与者而移除; [`/litellm`](getting-started.md#让代理管理你的-litellm-设置) 可帮助你处理设置",
-		zhTw: "@litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟。將於 2027 年 1 月隨 VS Code 停用聊天參與者而移除; [`/litellm`](getting-started.md#讓代理管理您的-litellm-設定) 可協助您處理設定",
 	},
 	"agentTools.enabled": {
 		en:

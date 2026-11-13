@@ -1,6 +1,6 @@
 /**
- * The quick-fix editor, the SCM input box, and the persisted review comments take the reply from the shared send with
- * no door of their own, so this pins the one mask they rely on. Without it, a configured value the model echoed
+ * The SCM input box and the persisted review comments take the reply from the shared send with no door of their own,
+ * so this pins the one mask they rely on. Without it, a configured value the model echoed
  * would reach the user's editor or workspaceState whole.
  */
 import * as assert from "node:assert";
@@ -32,7 +32,7 @@ suite("extension/features featureChatSend", () => {
 		);
 		const reply = await withConfig(SERVERS_CONFIG, () =>
 			featureChatSend(
-				"quickFix",
+				"consultTool",
 				{ oneShot: new OneShotClient({ userAgent: fixedHeaderValue("test-agent") }), secrets: memorySecretStorage() },
 				MODEL,
 				[{ role: "user", content: "Which key?" }],
