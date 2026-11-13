@@ -9,6 +9,7 @@ import {
 } from "./historyConversion";
 import type { ProviderSnapshot } from "./modelsMarkdown";
 import { type ResolvedReference, withReferences } from "./references";
+import { carriesRetirementNotice, retirementNotice } from "./retirementNotice";
 import type { SlashCommandRegistry } from "./slashCommands";
 
 /**
@@ -56,9 +57,12 @@ export interface ParticipantDeps {
 
 /**
  * The log line is a shape-gated classification, never the error's message, because handler errors can wrap
- * response-derived text and logs feed public issue reports.
+ * response-derived text and logs feed public issue reports. `noticed` says the answer ends with the retirement notice,
+ * which the wiring records for the turns that follow.
  */
-export type ParticipantOutcome = { readonly kind: "completed" } | { readonly kind: "failed"; readonly log: string };
+export type ParticipantOutcome =
+	| { readonly kind: "completed"; readonly noticed: boolean }
+	| { readonly kind: "failed"; readonly log: string };
 
 /** Total cancellation test: a hostile error whose property walk throws must degrade, not reject. */
 function isCanceledError(error: unknown): boolean {
@@ -93,6 +97,9 @@ export async function handleParticipantTurn(
 	deps: ParticipantDeps
 ): Promise<ParticipantOutcome> {
 	const isCancellation = deps.isCancellation ?? isCanceledError;
+	const history = historyMessages(request.history);
+	// Once per session, on the first answer that completes: a failed turn carries no notice and does not use it up.
+	const noticeDue = !request.history.some((turn) => "response" in turn && carriesRetirementNotice(turn));
 	// One read per turn at most, on the paths that build model content: the command listing and any command that never
 	// asks never open a document.
 	const readAttachments = async (): Promise<readonly ResolvedReference[]> =>
@@ -114,27 +121,31 @@ export async function handleParticipantTurn(
 			await command.run({
 				prompt: request.prompt,
 				attachments: readAttachments,
-				history: historyMessages(request.history),
+				history,
 				snapshots: deps.snapshots,
 				report: (markdown) => deps.stream.report(markdown),
 				send,
 			});
-			return { kind: "completed" };
+			if (noticeDue) {
+				deps.stream.report(retirementNotice());
+			}
+			return { kind: "completed", noticed: noticeDue };
 		}
 		if (request.prompt.trim() === "") {
 			const listing = deps.commands
 				.list()
 				.map((entry) => `- \`/${entry.name}\` - ${entry.description}`)
 				.join("\n");
-			deps.stream.report(listing === "" ? noCommandsText() : `${commandListingIntro()}\n\n${listing}`);
-			return { kind: "completed" };
+			const answer = listing === "" ? noCommandsText() : `${commandListingIntro()}\n\n${listing}`;
+			deps.stream.report(`${answer}${retirementNotice()}`);
+			return { kind: "completed", noticed: true };
 		}
 		const content = requestContent({ prompt: request.prompt, command: request.command });
-		await send([
-			...historyMessages(request.history),
-			{ role: "user", content: withReferences(content, await readAttachments()) },
-		]);
-		return { kind: "completed" };
+		await send([...history, { role: "user", content: withReferences(content, await readAttachments()) }]);
+		if (noticeDue) {
+			deps.stream.report(retirementNotice());
+		}
+		return { kind: "completed", noticed: noticeDue };
 	} catch (error) {
 		let cancelled = false;
 		try {

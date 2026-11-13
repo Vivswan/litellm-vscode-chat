@@ -435,7 +435,9 @@ const SETTING_ROW_HELP: Readonly<Record<SettingRowHelpId, () => string>> = {
 			"Reviewing sends the diff of each changed file - or, for one file, its whole content - to your LiteLLM server."
 		),
 	"chatParticipant.enabled": () =>
-		l10n.t("Type @litellm in chat; it answers with the model the picker has selected, and bills like chat."),
+		l10n.t(
+			"Type @litellm in chat; it answers with the model the picker has selected, and bills like chat. Going away in January 2027; the /litellm skill covers help with your setup."
+		),
 	"agentTools.enabled": () =>
 		l10n.t(
 			"The agent decides when to call a tool. Read output (labels, base URLs, model IDs, log lines) goes to the model the agent runs on; a server edit triggers the usual discovery and usage requests to that host."

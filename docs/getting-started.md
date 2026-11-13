@@ -199,6 +199,8 @@ Privacy is the part to read twice: inline completions send the file content arou
 
 ### Chat with @litellm
 
+> `@litellm` goes away in January 2027, because VS Code is retiring chat participants. To chat with one of your models, pick it in the model picker and ask. For help with your LiteLLM setup, type `/litellm`: see [Let an agent manage your LiteLLM setup](#let-an-agent-manage-your-litellm-setup).
+
 Type `@litellm` in the chat view and ask. Unlike the recipes above this one is already on - it ships enabled and costs nothing until you invoke it - so the only setting is the one that turns it off:
 
 ```jsonc
@@ -247,6 +249,8 @@ Copilot's agent mode can also read and change this extension's own setup, throug
 ```
 
 All seven are user settings: a workspace cannot turn them on, and the set-setting tool refuses them, so an agent cannot switch itself on. Enable only the writes you want; the read tools alone answer most questions.
+
+**Type `/litellm` to start.** The extension ships a skill of that name: it tells the agent which tool answers what, and which switch to ask you for when a tool is off. The agent also loads it on its own when a question is about your LiteLLM setup.
 
 **The read tools** answer from what the extension already knows and touch none of your servers. Each also takes a single prompt through its `#` handle:
 

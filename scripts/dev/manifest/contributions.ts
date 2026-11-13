@@ -23,6 +23,7 @@ import {
 	MCP_PROVIDER_ID,
 	PARTICIPANT_ID,
 	PARTICIPANT_NAME,
+	SKILL_NAME,
 	TOOL_NAME,
 	VENDOR_ID,
 } from "../../../src/shared/config/commandIds";
@@ -608,10 +609,42 @@ export function renderWalkthroughs(
 	];
 }
 
+interface ContributedSkill {
+	readonly path: string;
+}
+
+/** A repo-relative file's text in the source checkout, or undefined when the checkout has no such file. */
+function sourceCheckoutText(relative: string): string | undefined {
+	const file = path.join(SOURCE_CHECKOUT, relative);
+	return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : undefined;
+}
+
+/**
+ * The host loads a skill only from skills/<name>/SKILL.md whose frontmatter `name` equals the folder, and drops any
+ * other silently, so both are refused here rather than shipped as an absent /litellm. The name is required as the
+ * frontmatter's first line, which makes the rule a prefix test with no YAML to parse.
+ */
+export function renderChatSkills(
+	name: string = SKILL_NAME,
+	readSkill: (relative: string) => string | undefined = sourceCheckoutText
+): ContributedSkill[] {
+	const relative = `skills/${name}/SKILL.md`;
+	const skill = readSkill(relative);
+	if (skill === undefined) {
+		throw new Error(`the ${name} skill has no file at ${relative}`);
+	}
+	if (!skill.startsWith(`---\nname: ${name}\n`)) {
+		throw new Error(`${relative} must open with the frontmatter line "name: ${name}", its folder's name`);
+	}
+
+	return [{ path: `./${relative}` }];
+}
+
 export function renderContributes(): Record<string, unknown> {
 	return {
 		languageModelChatProviders: renderLanguageModelChatProviders(),
 		chatParticipants: renderChatParticipants(),
+		chatSkills: renderChatSkills(),
 		languageModelTools: renderLanguageModelTools(),
 		mcpServerDefinitionProviders: renderMcpServerDefinitionProviders(),
 		commands: renderCommands(),

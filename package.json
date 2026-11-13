@@ -245,6 +245,11 @@
 				]
 			}
 		],
+		"chatSkills": [
+			{
+				"path": "./skills/litellm/SKILL.md"
+			}
+		],
 		"languageModelTools": [
 			{
 				"name": "litellm_consult",

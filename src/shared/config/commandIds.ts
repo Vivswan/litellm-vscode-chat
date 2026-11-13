@@ -19,6 +19,11 @@ export const PARTICIPANT_ID = "litellm.participant";
  * happens to share the spelling.
  */
 export const PARTICIPANT_NAME = "litellm";
+/**
+ * The chatSkills contribution's name: the folder under skills/ and what the user types after "/". The host loads a
+ * skill only when the two agree.
+ */
+export const SKILL_NAME = "litellm";
 /** The languageModelTools contribution's name (the consult tool). */
 export const TOOL_NAME = "litellm_consult";
 /**

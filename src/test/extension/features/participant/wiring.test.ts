@@ -8,6 +8,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { retirementNotice } from "../../../../extension/features/participant/retirementNotice";
 import type { SnapshotSource } from "../../../../extension/features/participant/snapshots";
 import { wireChatParticipant } from "../../../../extension/features/participant/wiring";
 import { Logger } from "../../../../shared/logger";
@@ -273,14 +274,25 @@ suite("extension/features/participant wiring", () => {
 			const { request, sends } = fakeRequest({ prompt: "explain this", fragments: ["Hel", "lo"] }); // typos: ignore
 			const { stream, reported } = recordingStream();
 			const source = new vscode.CancellationTokenSource();
+			let metadata: unknown;
 			try {
-				await handler(request, EMPTY_CONTEXT, stream, source.token);
+				const result = await handler(request, EMPTY_CONTEXT, stream, source.token);
+				metadata = (result as vscode.ChatResult | undefined)?.metadata;
 			} finally {
 				source.dispose();
 			}
 			assert.strictEqual(sends.length, 1, "exactly one request, to the request's own model");
 			assert.strictEqual(sends[0]?.token, source.token, "the turn's token must ride along so cancel works");
-			assert.deepStrictEqual(reported, ["Hel", "lo"], "fragments forward in order, unmerged"); // typos: ignore
+			assert.deepStrictEqual(
+				reported,
+				["Hel", "lo", retirementNotice()], // typos: ignore
+				"fragments forward in order, unmerged, then the session's one retirement notice"
+			);
+			assert.deepStrictEqual(
+				metadata,
+				{ command: "", failed: false, retirementNotice: true },
+				"the turn is marked: the mark is what keeps the notice off later answers and out of the history"
+			);
 			const [message] = sends[0]?.messages ?? [];
 			assert.strictEqual(message?.role, vscode.LanguageModelChatMessageRole.User);
 		});
@@ -708,7 +720,7 @@ suite("extension/features/participant wiring", () => {
 			const { request, sends } = fakeRequest({ prompt: "anything", command: "seamtest" });
 			const { stream, reported } = recordingStream();
 			await handler(request, EMPTY_CONTEXT, stream, new vscode.CancellationTokenSource().token);
-			assert.deepStrictEqual(reported, ["seam answered"]);
+			assert.deepStrictEqual(reported, ["seam answered", retirementNotice()]);
 			assert.strictEqual(sends.length, 0);
 		});
 	});

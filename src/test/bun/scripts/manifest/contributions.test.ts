@@ -3,6 +3,7 @@ import * as assert from "node:assert";
 import {
 	renderAgentTool,
 	renderChatParticipants,
+	renderChatSkills,
 	renderLanguageModelChatProviders,
 	renderMenus,
 	renderWalkthroughs,
@@ -242,6 +243,20 @@ describe("manifest contributions renderer", () => {
 					exists
 				),
 			/walkthrough step second names a media file that does not exist: assets\/missing\.md/
+		);
+	});
+
+	test("a skill with no file, or one whose frontmatter names another skill, is refused: the host would drop it silently", () => {
+		const files = new Map([
+			["skills/demo/SKILL.md", "---\nname: demo\ndescription: Use when demonstrating.\n---\n"],
+			["skills/renamed/SKILL.md", "---\nname: demo\ndescription: Use when demonstrating.\n---\n"],
+		]);
+		const read = (relative: string): string | undefined => files.get(relative);
+		assert.deepStrictEqual(renderChatSkills("demo", read), [{ path: "./skills/demo/SKILL.md" }]);
+		assert.throws(() => renderChatSkills("absent", read), /the absent skill has no file at skills\/absent\/SKILL\.md/);
+		assert.throws(
+			() => renderChatSkills("renamed", read),
+			/skills\/renamed\/SKILL\.md must open with the frontmatter line "name: renamed"/
 		);
 	});
 });

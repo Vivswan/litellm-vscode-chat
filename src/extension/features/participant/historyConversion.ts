@@ -4,6 +4,8 @@
  * is equally neutral: the wiring maps each ChatMessage onto the host's LanguageModelChatMessage constructors.
  */
 
+import { carriesRetirementNotice, withoutRetirementNotice } from "./retirementNotice";
+
 type ChatMessageRole = "user" | "assistant";
 
 /** One converted history message, ready to map onto a LanguageModelChatMessage. */
@@ -24,6 +26,8 @@ export interface HistoryRequestTurn {
  */
 export interface HistoryResponseTurn {
 	readonly response: readonly unknown[];
+	/** What this participant's handler returned for the turn; the retirement notice's mark rides in its metadata. */
+	readonly result?: { readonly metadata?: unknown };
 }
 
 export type HistoryTurn = HistoryRequestTurn | HistoryResponseTurn;
@@ -106,7 +110,8 @@ export function historyMessages(turns: readonly HistoryTurn[]): ChatMessage[] {
 			}
 			continue;
 		}
-		const content = turn.response.map((part) => partText(part) ?? "").join("");
+		const answer = turn.response.map((part) => partText(part) ?? "").join("");
+		const content = carriesRetirementNotice(turn) ? withoutRetirementNotice(answer) : answer;
 		if (content.trim() !== "") {
 			messages.push({ role: "assistant", content });
 		}

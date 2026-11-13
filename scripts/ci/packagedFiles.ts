@@ -4,11 +4,12 @@
  * is added here deliberately.
  */
 const ALLOWED_PACKAGED_FILE =
-	/^(package\.json|README\.md|CHANGELOG\.md|LICENSE\.md|ThirdPartyNotices\.txt|dist\/extension\.js|dist\/chunks\/[A-Za-z0-9_.-]+\.js|dist\/webview\/dashboard\.js|dist\/webview\/dashboard\.css|dist\/openrouter-models\.json)$|^assets\/.+\.(png|md)$|^package\.nls(\.[A-Za-z0-9_-]+)?\.json$|^l10n\/bundle\.l10n(\.[A-Za-z0-9_-]+)?\.json$/;
+	/^(package\.json|README\.md|CHANGELOG\.md|LICENSE\.md|ThirdPartyNotices\.txt|dist\/extension\.js|dist\/chunks\/[A-Za-z0-9_.-]+\.js|dist\/webview\/dashboard\.js|dist\/webview\/dashboard\.css|dist\/openrouter-models\.json)$|^assets\/.+\.(png|md)$|^package\.nls(\.[A-Za-z0-9_-]+)?\.json$|^l10n\/bundle\.l10n(\.[A-Za-z0-9_-]+)?\.json$|^skills\/[a-z0-9-]+\/SKILL\.md$/;
 
 /**
  * Without package.nls.json the host renders raw %key% placeholders; without the English bundle vscode.l10n and the
- * webview injection have nothing to read.
+ * webview injection have nothing to read; without the skill file the manifest's chatSkills entry names nothing and
+ * the host drops /litellm silently.
  */
 export const REQUIRED_PACKAGED_FILES = [
 	"dist/extension.js",
@@ -16,6 +17,7 @@ export const REQUIRED_PACKAGED_FILES = [
 	"dist/webview/dashboard.css",
 	"package.nls.json",
 	"l10n/bundle.l10n.json",
+	"skills/litellm/SKILL.md",
 	"ThirdPartyNotices.txt",
 ] as const;
 
