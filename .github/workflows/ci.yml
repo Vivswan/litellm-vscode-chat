@@ -153,6 +153,7 @@ jobs:
     # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit # zizmor: ignore[secrets-inherit]
 
+  # By the draft's id, not its tag: the update-release hook may rename the draft.
   publish-release:
     needs: [release, update-release]
     if: >-
@@ -172,7 +173,7 @@ jobs:
       vulnerability-alerts: read
     uses: Vivswan/repo-platform/.github/workflows/fleet-release-publish.yml@stable
     with:
-      tag: ${{ needs.release.outputs.tag_name }}
+      release-id: ${{ needs.release.outputs.release_id }}
 
   # Repo-owned: edit update-release-pr.yml, not this file. The ceiling is update-release's, under the same contract.
   update-release-pr:
