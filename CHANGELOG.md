@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.0](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.7.1...v1.0.0) (2026-11-13)
+
+
+### Features
+
+* add the /litellm skill and announce the January 2027 removal of the chat participant ([#654](https://github.com/Vivswan/litellm-vscode-chat/issues/654)) ([#655](https://github.com/Vivswan/litellm-vscode-chat/issues/655)) ([e032fe8](https://github.com/Vivswan/litellm-vscode-chat/commit/e032fe86622b6f080d4250a4c5399cee081bc4f7))
+
+
+### Miscellaneous Chores
+
+* **release:** make the next release 1.0.0 ([87be934](https://github.com/Vivswan/litellm-vscode-chat/commit/87be9341d2ab31fa476cc120f21b73d89dfc586a))
+
 ## [0.7.1](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.7.0...v0.7.1) (2026-11-11)
 
 
