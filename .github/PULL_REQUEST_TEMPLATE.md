@@ -7,7 +7,8 @@ resolves a community issue or PR credits its author: `fix: trim base URL slashes
 
 Body: show the change in fenced blocks, then the fewest words. Everything above
 <details> is capped at 150 words outside the fenced blocks; the blocks are free.
-Straight quotes and plain ASCII punctuation, as in the code.
+One small table may stand in for the `## How` bullets when it explains the
+mechanism faster. Straight quotes and plain ASCII punctuation, as in the code.
 
 Publish nothing that tells a reader who you are (name, employer, login, email,
 host), how you work, or how your machine is set up.
@@ -20,72 +21,71 @@ your home, `example-user` for your login, `example-user@example.com` for an emai
 A figure, a setting, a log, or a list of installed tools copied from your own
 setup becomes a hand-written value the text calls an example; the repository's
 own output and test totals stay as captured.
+
+This file is the shape for a change to something that runs, where its output or
+its flow moved. Another kind of change opens with its own file, through
+`gh pr create --template <file>` or `?template=<file>` on the compare URL:
+
+  a pure refactor: it runs, and neither moved    this file, with one `## What this changes`
+                                                 heading in place of Before and After, its
+                                                 one block carrying a `before:` and an
+                                                 `after:` line
+  something new, added beside what exists        additive.md
+  read, not run; an evaluation measures it       measured.md
+  a contract or a document: nothing runs         contract.md
 -->
 
 ## Before
 
-<!--
+<!-- the flow as it ran: plain ASCII, arrows between steps, a branch on its own indented line; only when the flow moved -->
+
 ```text
-request -> 401 -> wrapped as a network error -> "server unreachable" toast
+step -> step -> step
 ```
 
-The kind of change sets the headings:
+<!-- the real captured output, complete enough to stand alone; only when the output changed -->
 
-  bug fix or behavior change      ## Before and ## After, the same blocks under each
-  feature                         ## What this adds
-  pure refactor                   ## What this changes
-  contract, schema, or docs       ## What this specifies
-
-A single-heading form renames `## Before` to its heading, holds the blocks there,
-and deletes `## After`. An unused heading or an empty details section is deleted,
-never left in.
-
-Under one heading, a single block carries a `before:` line and an `after:` line.
-
-Insert only the blocks the change moved, in this order: the flow (plain ASCII,
-arrows between steps), then the real output or the numbers (counts, sizes,
-timings), or the contract itself. An output-only fix shows the output alone.
--->
+```text
+$ command
+output as it was
+```
 
 ## After
 
-<!--
+<!-- the same order: the flow as it runs now, then the real output now; each block only when that facet moved -->
+
 ```text
-request -> 401 -> auth error -> "check the API key" toast
+step -> step -> branch? -> yes: step
+                        -> no:  step
 ```
--->
+
+```text
+$ command
+output as it is now
+```
 
 ## How
 
-<!--
-- **The status is read before the wrapper runs,** so a 401 never becomes a network error.
+<!-- 3 to 6 bullets, one sentence each, about 15 words, a bold lead-in; the mechanism, never the flow again.
+When the diff touches a library-shaped category, the last bullet is **Library:** package, covers what (or: searched where; none fits because) -->
 
-By default 3 to 6 bullets like that one: one sentence each, about 15 words, a bold
-lead-in. One small table may replace them when it explains the mechanism faster.
-A change that adds, moves, touches, reuses, or depends on a parser, fetcher,
-retry loop, or similar library-shaped code carries one more bullet:
-
-- **Library:** `<package>`, covers <what>. Or: searched <where>; none fits because <reason>.
--->
+- **...**
+- **...**
+- **...**
 
 ## Proof
 
-<!--
-- **Tests:** 2458 bun tests green (1 new).
-- **Gate:** `bun run check` green.
+<!-- 2 to 4 bullets: focused tests or stable checks, latest totals only; never one line per review round -->
 
-By default 2 to 4 bullets like those, latest totals only.
--->
+- **Tests:** ...
+- **Gate:** ...
 
 <details>
 <summary>Technical details</summary>
 
-<!--
-- **Refused: a retry on 401.** The server's answer is final, so a retry only repeats it.
-- **Files:** `src/provider/transport/errorMapping.ts`.
+<!-- one fact per line, for a bot reviewer or the next agent; nothing part one already says.
+In a release-please repository the commit-override block is the last element here. Delete this section when there is no such detail. -->
 
-Keep reviewer notes, refused alternatives, and the file list here, one fact per
-line. Delete the section when it is empty.
--->
+- **...**
 
 </details>
