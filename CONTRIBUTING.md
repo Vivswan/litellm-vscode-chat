@@ -72,7 +72,7 @@ Conventions live in [AGENTS.md](AGENTS.md). In short:
 
 1. Fork the repo and create a branch for your change.
 2. Make sure the checks under "Running checks" pass locally.
-3. Open a PR. The [pull request template](.github/PULL_REQUEST_TEMPLATE.md) prefills the body's shape and carries the rules for the title and each section.
+3. Open a PR. The [pull request template](.github/PULL_REQUEST_TEMPLATE.md) prefills the body's shape and carries the rules for the title and each section. It fits a change to something that runs; a feature, a measured change, or a contract has its own shape under [`.github/PULL_REQUEST_TEMPLATE/`](.github/PULL_REQUEST_TEMPLATE), opened with `gh pr create --template additive.md` or `?template=additive.md` on the compare URL.
 4. A title that credits a community author, `(#N, thanks @login)`, needs that login's row in [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
 
 Two gates refuse what the local checks never see:
