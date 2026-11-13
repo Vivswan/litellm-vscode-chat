@@ -365,7 +365,7 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 					}
 					return recorded.fimProbeResult;
 				},
-				quickFix: async (model: FeatureModelRef) => {
+				consultTool: async (model: FeatureModelRef) => {
 					recorded.fimProbes.push(model);
 					if (recorded.probeError !== undefined) {
 						throw recorded.probeError;

@@ -40,7 +40,7 @@ function sessionIdMessages(messages: readonly vscode.LanguageModelChatRequestMes
 
 /**
  * The session id header for a request, or nothing when the setting is off. A chat request hands over its
- * conversation; a one-shot request (a commit message, a quick fix, a completion) has none to hand over, so under `on`
+ * conversation; a one-shot request (a commit message, a completion) has none to hand over, so under `on`
  * it rides the window's session.
  *
  *   The conversation is reduced only once the setting is known to be on: with it off, no turn is read at all.

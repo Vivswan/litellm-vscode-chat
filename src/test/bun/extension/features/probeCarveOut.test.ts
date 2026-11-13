@@ -58,44 +58,22 @@ const LOCALES: readonly LocaleShapes[] = [
 ];
 
 /**
- * The one probe-carrying feature whose enable copy makes no withholding claim: the quick-fix chat path costs nothing
- * until invoked, so its description never says "nothing is sent until enabled". Every other probe feature must claim,
- * in every locale and on both surfaces.
+ * The per-cell rule, fail-closed on vacuity: every probe-carrying feature must still make the withholding claim in
+ * this locale (a translation that drops the claim, or rewords it past the recognizer, fails here by name), and the
+ * text that claims must carve out the Test model button.
  */
-const CLAIMLESS_FEATURES: ReadonlySet<string> = new Set(["quickFix"]);
-
-/**
- * The per-cell rule, fail-closed on vacuity in both directions: a claim-bearing feature must still make the
- * withholding claim in this locale (a translation that drops the claim, or rewords it past the recognizer, fails here
- * by name), a claimless-registered feature must still be claimless (copy that gains the claim invalidates its
- * exception entry instead of silently ungating it), and any text that does claim must carve out the Test model button.
- */
-function assertCell(cell: string, feature: string, locale: LocaleShapes, text: string): void {
-	const claims = locale.claim.test(text);
-	if (CLAIMLESS_FEATURES.has(feature)) {
-		expect(claims, `${cell} is registered claimless but now claims; update CLAIMLESS_FEATURES`).toBe(false);
-	} else {
-		expect(claims, `${cell} must carry the withholding claim (nothing is sent until enabled) in this locale`).toBe(
-			true
-		);
-	}
-	if (claims) {
-		expect(
-			locale.carveOut.test(text),
-			`${cell} claims nothing is sent until enabled but does not carve out the Test model button`
-		).toBe(true);
-	}
+function assertCell(cell: string, locale: LocaleShapes, text: string): void {
+	expect(
+		locale.claim.test(text),
+		`${cell} must carry the withholding claim (nothing is sent until enabled) in this locale`
+	).toBe(true);
+	expect(
+		locale.carveOut.test(text),
+		`${cell} claims nothing is sent until enabled but does not carve out the Test model button`
+	).toBe(true);
 }
 
 describe("dashboard probe carve-out copy", () => {
-	test("the claimless exception names only shipped probe features", () => {
-		const features = probeFeatures();
-		expect(features.length).toBeGreaterThan(0);
-		for (const feature of CLAIMLESS_FEATURES) {
-			expect(features, `claimless exception "${feature}" is a shipped probe feature`).toContain(feature);
-		}
-	});
-
 	test("every probe-carrying feature's enable description keeps the claim and its carve-out, per locale", () => {
 		const features = probeFeatures();
 		expect(features.length).toBeGreaterThan(0);
@@ -105,7 +83,7 @@ describe("dashboard probe carve-out copy", () => {
 				const description = nls[`litellm.config.${feature}.enabled.description`];
 				expect(description, `${locale.nlsFile} describes ${feature}.enabled`).toBeDefined();
 				if (description !== undefined) {
-					assertCell(`${locale.nlsFile}: ${feature}.enabled`, feature, locale, description);
+					assertCell(`${locale.nlsFile}: ${feature}.enabled`, locale, description);
 				}
 			}
 		}
@@ -121,12 +99,7 @@ describe("dashboard probe carve-out copy", () => {
 			// Per locale, not per block: an English carve-out must not satisfy the rule for a Chinese claim that lost
 			// its own.
 			for (const locale of LOCALES) {
-				assertCell(
-					`settingsReferenceProse (${locale.proseKey}): ${feature}.enabled`,
-					feature,
-					locale,
-					prose[locale.proseKey]
-				);
+				assertCell(`settingsReferenceProse (${locale.proseKey}): ${feature}.enabled`, locale, prose[locale.proseKey]);
 			}
 		}
 	});

@@ -2,7 +2,6 @@ import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import {
 	renderAgentTool,
-	renderChatParticipants,
 	renderChatSkills,
 	renderLanguageModelChatProviders,
 	renderMenus,
@@ -96,95 +95,6 @@ describe("manifest contributions renderer", () => {
 		);
 		assert.strictEqual(write.toolReferenceName, "xWrite");
 		assert.strictEqual(write.displayName, "%litellm.tool.runAction.displayName%");
-	});
-
-	test("the participant renders the live command order with per-command stickiness and numbered examples", () => {
-		const [participant] = renderChatParticipants({
-			commands: ["b", "a"],
-			presentation: {
-				a: { isSticky: true, category: "x_a", examples: 1 },
-				b: { isSticky: false, category: "x_b", examples: 2 },
-			},
-			disambiguation: [{ category: "x_top", key: "top", examples: 1 }],
-		});
-		assert.deepStrictEqual(participant?.disambiguation, [
-			{
-				category: "x_top",
-				description: "%litellm.participant.disambiguation.top.description%",
-				examples: ["%litellm.participant.disambiguation.top.example1%"],
-			},
-		]);
-		assert.deepStrictEqual(participant?.commands, [
-			{
-				name: "b",
-				description: "%litellm.participant.command.b.description%",
-				isSticky: false,
-				sampleRequest: "%litellm.participant.command.b.sampleRequest%",
-				disambiguation: [
-					{
-						category: "x_b",
-						description: "%litellm.participant.command.b.disambiguation.description%",
-						examples: [
-							"%litellm.participant.command.b.disambiguation.example1%",
-							"%litellm.participant.command.b.disambiguation.example2%",
-						],
-					},
-				],
-			},
-			{
-				name: "a",
-				description: "%litellm.participant.command.a.description%",
-				isSticky: true,
-				sampleRequest: "%litellm.participant.command.a.sampleRequest%",
-				disambiguation: [
-					{
-						category: "x_a",
-						description: "%litellm.participant.command.a.disambiguation.description%",
-						examples: ["%litellm.participant.command.a.disambiguation.example1%"],
-					},
-				],
-			},
-		]);
-	});
-
-	test("a reused, malformed, or example-less category, a command without a row, and no participant block are refused", () => {
-		const row = { isSticky: true, category: "x_a", examples: 1 };
-		const top = { category: "x_top", key: "top", examples: 1 };
-		assert.throws(
-			() => renderChatParticipants({ commands: ["a"], presentation: { a: row }, disambiguation: [] }),
-			/participant contributes no disambiguation block/
-		);
-		assert.throws(
-			() =>
-				renderChatParticipants({
-					commands: ["a"],
-					presentation: { a: row },
-					disambiguation: [{ ...top, category: "x_a" }],
-				}),
-			/\/a: disambiguation category x_a is used twice/
-		);
-		assert.throws(
-			() =>
-				renderChatParticipants({
-					commands: ["a"],
-					presentation: { a: { ...row, category: "Bad-Id" } },
-					disambiguation: [top],
-				}),
-			/category Bad-Id is not a lower-case identifier/
-		);
-		assert.throws(
-			() =>
-				renderChatParticipants({
-					commands: ["a"],
-					presentation: { a: { ...row, examples: 0 } },
-					disambiguation: [top],
-				}),
-			/category x_a shows no examples/
-		);
-		assert.throws(
-			() => renderChatParticipants({ commands: ["a", "ghost"], presentation: { a: row }, disambiguation: [top] }),
-			/slash command \/ghost has no participant presentation/
-		);
 	});
 
 	test("the provider configuration keeps baseUrl required and orders each descriptor property type, flags, then prose", () => {

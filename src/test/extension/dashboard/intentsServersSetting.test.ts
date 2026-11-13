@@ -1634,7 +1634,7 @@ suite("extension/dashboard/intents: the servers setting", () => {
 			const notice = await executeDashboardIntent(
 				{
 					method: "testFeatureModel",
-					payload: { feature: "quickFix", model: { server: "Main", model: "gpt-5.2" } },
+					payload: { feature: "consultTool", model: { server: "Main", model: "gpt-5.2" } },
 				},
 				recorded.env
 			);
@@ -1645,7 +1645,7 @@ suite("extension/dashboard/intents: the servers setting", () => {
 			const emptyNotice = await executeDashboardIntent(
 				{
 					method: "testFeatureModel",
-					payload: { feature: "quickFix", model: { server: "Main", model: "gpt-5.2" } },
+					payload: { feature: "consultTool", model: { server: "Main", model: "gpt-5.2" } },
 				},
 				empty.env
 			);
@@ -1724,7 +1724,7 @@ suite("extension/dashboard/intents: the servers setting", () => {
 				const notice = await executeDashboardIntent(
 					{
 						method: "testFeatureModel",
-						payload: { feature: "quickFix", model: { server: "Main", model: "gpt-test" } },
+						payload: { feature: "consultTool", model: { server: "Main", model: "gpt-test" } },
 					},
 					recorded.env
 				);
