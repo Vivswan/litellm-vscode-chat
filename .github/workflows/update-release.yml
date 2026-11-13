@@ -19,15 +19,13 @@ on:
         type: string
 
 jobs:
-  # The Marketplace publish stores no token. vsce trades the job's OIDC
-  # token for a 15-minute credential, granted by a Trusted Publishing
-  # policy on the publisher (marketplace.visualstudio.com/manage). The
-  # policy names this repository and a workflow file, so renaming this
-  # file or its caller needs the policy changed with it.
+  # A Trusted Publishing policy on the publisher lets this job publish
+  # (marketplace.visualstudio.com/manage). It names this repository and
+  # a workflow file, so renaming this file or its caller needs the
+  # policy changed with it.
   #
   # If a step fails after the Marketplace publish, the release stays an
-  # invisible draft. Finish by hand as fleet-release.yml's header
-  # describes.
+  # invisible draft. Finish by hand as fleet-release.yml's header says.
   #
   # The VSIX is not attested here: the fleet's publish leg attests every
   # uploaded asset into the release's attestation.json.
