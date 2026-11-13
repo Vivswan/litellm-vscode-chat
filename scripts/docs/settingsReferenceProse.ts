@@ -275,9 +275,12 @@ export const SETTING_PROSE: Readonly<Record<SettingId, SettingProse>> = {
 		zhTw: '撰寫審查評論的模型; 與 `inlineCompletions.model` 相同的 `{ "server", "model" }` 形狀和規則',
 	},
 	"chatParticipant.enabled": {
-		en: "The @litellm chat participant, answering with the chat request's own model (no model setting). On by default",
-		zhCn: "@litellm 聊天参与者, 使用聊天请求自身的模型作答 (没有模型设置)。默认开启",
-		zhTw: "@litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟",
+		en:
+			"The @litellm chat participant, answering with the chat request's own model (no model setting). On by default. " +
+			"Goes away in January 2027, when VS Code retires chat participants; " +
+			"[`/litellm`](getting-started.md#let-an-agent-manage-your-litellm-setup) covers help with your setup",
+		zhCn: "@litellm 聊天参与者, 使用聊天请求自身的模型作答 (没有模型设置)。默认开启。将于 2027 年 1 月随 VS Code 停用聊天参与者而移除; [`/litellm`](getting-started.md#让代理管理你的-litellm-设置) 可帮助你处理设置",
+		zhTw: "@litellm 聊天參與者, 使用聊天請求自身的模型作答 (沒有模型設定)。預設開啟。將於 2027 年 1 月隨 VS Code 停用聊天參與者而移除; [`/litellm`](getting-started.md#讓代理管理您的-litellm-設定) 可協助您處理設定",
 	},
 	"agentTools.enabled": {
 		en:

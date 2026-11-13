@@ -6,12 +6,17 @@ import {
 } from "../../../../../extension/features/participant/handler";
 import type { ChatMessage } from "../../../../../extension/features/participant/historyConversion";
 import type { ProviderSnapshot } from "../../../../../extension/features/participant/modelsMarkdown";
+import { retirementMetadata } from "../../../../../extension/features/participant/retirementNotice";
 import {
 	createSlashCommandRegistry,
 	TESTS_INSTRUCTION,
 } from "../../../../../extension/features/participant/slashCommands";
+import { SKILL_NAME } from "../../../../../shared/config/commandIds";
 
 const SNAPSHOTS: ProviderSnapshot[] = [{ label: "alpha", models: [{ id: "gpt-test", capabilities: "tools" }] }];
+
+/** The result of a turn whose answer ended with the retirement notice, as the host hands it back in the history. */
+const NOTICED = { metadata: retirementMetadata(true) };
 
 function fakeDeps(
 	fragments: () => AsyncIterable<string>,
@@ -57,10 +62,10 @@ describe("extension/features/participant handleParticipantTurn", () => {
 	test("the default path sends converted history plus the prompt and streams every fragment", async () => {
 		const { deps, reported, requests } = fakeDeps(() => replies("Retries ", "never ", "apply."));
 		const outcome = await handleParticipantTurn(
-			turn({ history: [{ prompt: "earlier" }, { response: [{ value: { value: "before" } }] }] }),
+			turn({ history: [{ prompt: "earlier" }, { response: [{ value: { value: "before" } }], result: NOTICED }] }),
 			deps
 		);
-		expect(outcome).toEqual({ kind: "completed" });
+		expect(outcome).toEqual({ kind: "completed", noticed: false });
 		expect(requests).toEqual([
 			[
 				{ role: "user", content: "earlier" },
@@ -74,7 +79,7 @@ describe("extension/features/participant handleParticipantTurn", () => {
 	test("/tests routes through the registry and shapes the request", async () => {
 		const { deps, requests } = fakeDeps(() => replies("test code"));
 		const outcome = await handleParticipantTurn(turn({ command: "tests", prompt: "the parser" }), deps);
-		expect(outcome).toEqual({ kind: "completed" });
+		expect(outcome).toEqual({ kind: "completed", noticed: true });
 		expect(requests).toHaveLength(1);
 		expect(requests[0]?.at(-1)?.content).toBe(`${TESTS_INSTRUCTION}\n\nthe parser`);
 	});
@@ -82,16 +87,70 @@ describe("extension/features/participant handleParticipantTurn", () => {
 	test("/models answers from snapshots without a model request", async () => {
 		const { deps, reported, requests } = fakeDeps(() => replies("never streamed"));
 		const outcome = await handleParticipantTurn(turn({ command: "models", prompt: "" }), deps);
-		expect(outcome).toEqual({ kind: "completed" });
+		expect(outcome).toEqual({ kind: "completed", noticed: true });
 		expect(requests).toEqual([]);
-		expect(reported).toHaveLength(1);
+		expect(reported).toHaveLength(2);
 		expect(reported[0]).toContain("`gpt-test`");
+	});
+
+	test("the retirement notice shows once per session, on the first answer that completes", async () => {
+		const failure = new Error("boom");
+		failure.name = "RequestError";
+		const failed = fakeDeps(() => replies(), { sendRequest: () => Promise.reject(failure) });
+		const failedOutcome = await handleParticipantTurn(turn({ prompt: "first try" }), failed.deps);
+		expect(failedOutcome.kind).toBe("failed");
+		expect(failed.reported).toHaveLength(1);
+
+		// A failed turn carried no notice and does not use it up: the retry is still the first answer that completes.
+		const retried = fakeDeps(() => replies("answer"));
+		const afterFailure = [
+			{ prompt: "first try" },
+			{ response: [{ value: { value: failed.reported[0] } }], result: { metadata: retirementMetadata(false) } },
+		];
+		const retriedOutcome = await handleParticipantTurn(turn({ history: afterFailure, prompt: "again" }), retried.deps);
+		const notice = retried.reported[1] ?? "";
+		expect(retriedOutcome).toEqual({ kind: "completed", noticed: true });
+		expect(retried.reported).toEqual(["answer", notice]);
+		expect(notice).toContain("January 2027");
+		expect(notice).toContain(`/${SKILL_NAME}`);
+
+		const later = fakeDeps(() => replies("later answer"));
+		const afterNotice = [
+			...afterFailure,
+			{ prompt: "again" },
+			{ response: [{ value: { value: "x" } }], result: NOTICED },
+		];
+		const laterOutcome = await handleParticipantTurn(turn({ history: afterNotice, prompt: "more" }), later.deps);
+		expect(laterOutcome).toEqual({ kind: "completed", noticed: false });
+		expect(later.reported).toEqual(["later answer"]);
+	});
+
+	test("a marked answer loses its notice before it reaches the model, whatever language it was shown in", async () => {
+		const { deps, requests } = fakeDeps(() => replies("second answer"));
+		const shownInAnotherLanguage = "first answer\n\n---\n\na notice in the language the session started in";
+		await handleParticipantTurn(
+			turn({
+				history: [
+					{ prompt: "first question" },
+					{ response: [{ value: { value: shownInAnotherLanguage } }], result: NOTICED },
+				],
+				prompt: "second question",
+			}),
+			deps
+		);
+		expect(requests).toEqual([
+			[
+				{ role: "user", content: "first question" },
+				{ role: "assistant", content: "first answer" },
+				{ role: "user", content: "second question" },
+			],
+		]);
 	});
 
 	test("a command the registry does not know degrades to the plain-prompt path, command preserved", async () => {
 		const { deps, requests } = fakeDeps(() => replies("plain answer"));
 		const outcome = await handleParticipantTurn(turn({ command: "unknown", prompt: "still a question" }), deps);
-		expect(outcome).toEqual({ kind: "completed" });
+		expect(outcome).toEqual({ kind: "completed", noticed: true });
 		expect(requests).toEqual([[{ role: "user", content: "/unknown still a question" }]]);
 	});
 
@@ -119,7 +178,7 @@ describe("extension/features/participant handleParticipantTurn", () => {
 	test("an unknown command with an empty prompt gets the listing, not a bare slash token", async () => {
 		const { deps, reported, requests } = fakeDeps(() => replies("never streamed"));
 		const outcome = await handleParticipantTurn(turn({ command: "unknown", prompt: "  " }), deps);
-		expect(outcome).toEqual({ kind: "completed" });
+		expect(outcome).toEqual({ kind: "completed", noticed: true });
 		expect(requests).toEqual([]);
 		expect(reported).toHaveLength(1);
 		expect(reported[0]).toContain("/tests");
@@ -128,10 +187,10 @@ describe("extension/features/participant handleParticipantTurn", () => {
 	test("an empty turn lists the commands instead of sending an empty request", async () => {
 		const { deps, reported, requests } = fakeDeps(() => replies("never streamed"));
 		const outcome = await handleParticipantTurn(turn({ prompt: "   " }), deps);
-		expect(outcome).toEqual({ kind: "completed" });
+		expect(outcome).toEqual({ kind: "completed", noticed: true });
 		expect(requests).toEqual([]);
 		expect(reported).toHaveLength(1);
-		for (const name of ["/tests", "/docs", "/models"]) {
+		for (const name of ["/tests", "/docs", "/models", `/${SKILL_NAME}`]) {
 			expect(reported[0]).toContain(name);
 		}
 	});
@@ -141,8 +200,9 @@ describe("extension/features/participant handleParticipantTurn", () => {
 			commands: createSlashCommandRegistry([]),
 		});
 		const outcome = await handleParticipantTurn(turn({ prompt: "" }), deps);
-		expect(outcome).toEqual({ kind: "completed" });
-		expect(reported).toEqual(["Ask me anything."]);
+		expect(outcome).toEqual({ kind: "completed", noticed: true });
+		expect(reported).toHaveLength(1);
+		expect(reported[0]?.startsWith("Ask me anything.\n\n---\n\n")).toBe(true);
 	});
 
 	test("a failed request reports friendly text and returns a classification, never the error text", async () => {

@@ -9,6 +9,7 @@ import { participantFollowups } from "./followups";
 import { handleParticipantTurn, type ParticipantRequest } from "./handler";
 import type { ChatMessage, HistoryTurn } from "./historyConversion";
 import type { ResolvedReference } from "./references";
+import { retirementMetadata } from "./retirementNotice";
 import type { SlashCommandRegistry } from "./slashCommands";
 import { createSlashCommandRegistry } from "./slashCommands";
 import type { SnapshotSource } from "./snapshots";
@@ -172,6 +173,7 @@ export function wireChatParticipant(
 			metadata: {
 				command: request.command ?? "",
 				failed: outcome.kind === "failed",
+				...retirementMetadata(outcome.kind === "completed" && outcome.noticed),
 			},
 		};
 	};
