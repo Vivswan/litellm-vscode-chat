@@ -101,8 +101,9 @@ jobs:
     # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit # zizmor: ignore[secrets-inherit]
 
-  # The legs below gate on the plan's modules output, a substring test on the compact JSON array, hence the quoted module
-  # name; `platform` sits in a needs list because a job reads outputs only from its direct dependencies.
+  # The legs below gate on the plan's modules output, a JSON array of the selected module names; `platform` sits in a
+  # needs list because a job reads outputs only from its direct dependencies.
+  #   platform's result first -> an unrun platform publishes no modules, and fromJSON of nothing fails the job
   #   !cancelled() first -> each condition names the results it gates on (see post-green)
   #   no lane here       -> the called job holds its own, keyed by the judged commit, so a burst of merges cancels no cut
   #   needs post-green   -> the repository's own green-gated work lands before the tag is minted
@@ -113,7 +114,8 @@ jobs:
       needs.post-green.result == 'success' &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      contains(needs.platform.outputs.modules, '"release-please"')
+      needs.platform.result == 'success' &&
+      contains(fromJSON(needs.platform.outputs.modules), 'release-please')
     permissions:
       actions: read
       attestations: write
@@ -163,7 +165,8 @@ jobs:
       needs.release.result == 'success' &&
       needs.update-release.result == 'success' &&
       needs.release.outputs.release_created == 'true' &&
-      contains(needs.platform.outputs.modules, '"npm"') &&
+      needs.platform.result == 'success' &&
+      contains(fromJSON(needs.platform.outputs.modules), 'npm') &&
       !github.event.repository.fork
     permissions:
       actions: read
@@ -237,7 +240,8 @@ jobs:
       !cancelled() &&
       needs.release.result == 'success' &&
       needs.release.outputs.prs_created == 'true' &&
-      contains(needs.platform.outputs.modules, '"npm"') &&
+      needs.platform.result == 'success' &&
+      contains(fromJSON(needs.platform.outputs.modules), 'npm') &&
       !github.event.repository.fork
     permissions:
       actions: read
@@ -264,7 +268,8 @@ jobs:
       !cancelled() &&
       needs.all-green.result == 'success' &&
       github.ref == 'refs/heads/main' &&
-      contains(needs.platform.outputs.modules, '"site"')
+      needs.platform.result == 'success' &&
+      contains(fromJSON(needs.platform.outputs.modules), 'site')
     concurrency:
       group: pages
       cancel-in-progress: true
