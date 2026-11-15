@@ -16,7 +16,7 @@ on:
   pull_request:
     types: [opened]
   # Nightly sweep: every open unassigned issue and PR, whether created with a workflow token (no open event fired)
-  # or opened by Dependabot or from a fork (an open event fired, but with a token the job cannot write with).
+  # or opened from a fork (an open event fired, but with a token the job cannot write with).
   schedule:
     - cron: "13 6 * * *"
 
