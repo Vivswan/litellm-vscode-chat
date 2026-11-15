@@ -39,6 +39,7 @@ jobs:
           path: target
 
       - name: Check out the platform at stable
+        id: platform
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Vivswan/repo-platform
@@ -67,10 +68,11 @@ jobs:
         if: steps.migrate.outcome == 'success'
         continue-on-error: true
         env:
+          BUILD: ${{ steps.platform.outputs.commit }}
           PRIVATE: ${{ github.event.repository.private }}
         run: >-
           bun build/.github/scripts/sync/writer/sync.ts --files build/files.yml --tree build/files --target target
-          --build "$(git -C build rev-parse HEAD)" --repository "$GITHUB_REPOSITORY" --private "$PRIVATE"
+          --build "$BUILD" --repository "$GITHUB_REPOSITORY" --private "$PRIVATE"
           --summary "$RUNNER_TEMP/summary.json" > "$RUNNER_TEMP/sync.log" 2>&1
 
       - name: Deliver onto the branch
