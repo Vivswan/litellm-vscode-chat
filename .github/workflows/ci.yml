@@ -233,7 +233,8 @@ jobs:
     secrets: inherit # zizmor: ignore[secrets-inherit]
 
   # The pre-release between releases (docs/modules/npm.md): only a commit that creates or refreshes the release PR
-  # publishes, so `next` moves with what the next release will carry. No lane here, as on npm-latest.
+  # publishes, so `next` moves with what the next release will carry. The PR's branch names the version that release
+  # will cut, which the pre-release is minted from. No lane here, as on npm-latest.
   npm-next:
     needs: [platform, release]
     if: >-
@@ -257,6 +258,7 @@ jobs:
     with:
       channel: next
       sha: ${{ github.sha }}
+      release-branch: ${{ needs.release.outputs.pr_head_branch }}
 
   # Same run as the gate, so github.sha IS the judged commit and a red main never reaches the site.
   #   needs release   -> a release commit's own deploy serves its new tag; an order, not a gate (!cancelled()), so a
