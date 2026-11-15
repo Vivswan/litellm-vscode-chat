@@ -1,4 +1,4 @@
-# Sources, tests, and build inputs — the package ships the bundled dist/extension.js
+# Sources, tests, and build inputs: the package ships the bundled dist/extension.js
 # (with its lazy tokenizer chunks) and the dashboard webview bundle only
 src/**
 out/**
