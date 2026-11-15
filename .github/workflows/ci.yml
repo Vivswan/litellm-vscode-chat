@@ -153,13 +153,44 @@ jobs:
     # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit # zizmor: ignore[secrets-inherit]
 
-  # By the draft's id, not its tag: the update-release hook may rename the draft.
-  publish-release:
-    needs: [release, update-release]
+  # The release's npm publish, before the GitHub release goes live (docs/modules/npm.md). No lane here: the called job
+  # holds the one both npm legs share. The tag is the cut's: release-please names the version it wrote into package.json.
+  # Never in a fork: it carries the registration, but npm trusts the upstream repository alone.
+  npm-latest:
+    needs: [platform, release, update-release]
     if: >-
       !cancelled() &&
       needs.release.result == 'success' &&
       needs.update-release.result == 'success' &&
+      needs.release.outputs.release_created == 'true' &&
+      contains(needs.platform.outputs.modules, '"npm"') &&
+      !github.event.repository.fork
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
+      issues: write
+      pages: write
+      pull-requests: write
+      security-events: write
+      vulnerability-alerts: read
+    uses: Vivswan/repo-platform/.github/workflows/fleet-npm-publish.yml@stable
+    with:
+      channel: latest
+      sha: ${{ github.sha }}
+      tag: ${{ needs.release.outputs.tag_name }}
+
+  # By the draft's id, not its tag: the update-release hook may rename the draft.
+  #   needs npm-latest -> a failed npm publish leaves the release a draft, and "re-run failed jobs" finishes both;
+  #                       skipped is a repository without the npm module
+  publish-release:
+    needs: [release, update-release, npm-latest]
+    if: >-
+      !cancelled() &&
+      needs.release.result == 'success' &&
+      needs.update-release.result == 'success' &&
+      (needs.npm-latest.result == 'success' || needs.npm-latest.result == 'skipped') &&
       needs.release.outputs.release_created == 'true'
     permissions:
       actions: read
@@ -197,6 +228,31 @@ jobs:
     # The called workflow is this repository's own, so it inherits the repository's secrets by design.
     # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit # zizmor: ignore[secrets-inherit]
+
+  # The pre-release between releases (docs/modules/npm.md): only a commit that creates or refreshes the release PR
+  # publishes, so `next` moves with what the next release will carry. No lane here, as on npm-latest.
+  npm-next:
+    needs: [platform, release]
+    if: >-
+      !cancelled() &&
+      needs.release.result == 'success' &&
+      needs.release.outputs.prs_created == 'true' &&
+      contains(needs.platform.outputs.modules, '"npm"') &&
+      !github.event.repository.fork
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
+      issues: write
+      pages: write
+      pull-requests: write
+      security-events: write
+      vulnerability-alerts: read
+    uses: Vivswan/repo-platform/.github/workflows/fleet-npm-publish.yml@stable
+    with:
+      channel: next
+      sha: ${{ github.sha }}
 
   # Same run as the gate, so github.sha IS the judged commit and a red main never reaches the site.
   #   needs release   -> a release commit's own deploy serves its new tag; an order, not a gate (!cancelled()), so a

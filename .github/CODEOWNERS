@@ -3,7 +3,6 @@
 # Vivswan/repo-platform; this section is replaced on every sync.
 
 * @vivswan
-/.github/ @vivswan
 
 # Repository-specific owners go below the END marker; they stay yours
 # across every sync. CODEOWNERS applies the LAST matching pattern,
