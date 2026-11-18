@@ -30,9 +30,14 @@ concurrency:
 
 jobs:
   # Repo-owned: edit checks.yml, not this file. The call carries the repository's secrets; a job that reads one declares what
-  # it uses (an environment for an environment secret). Permissions still cap at contents: read. The nightly run is the platform's alone.
+  # it uses (an environment for an environment secret). The nightly run is the platform's alone.
   checks:
     if: github.event_name != 'schedule'
+    # The checks ceiling: pull-requests write lets a job keep one sticky comment on the pull request
+    # (docs/fleet-guidelines.md). A called job cannot exceed its caller, so it is granted here.
+    permissions:
+      contents: read
+      pull-requests: write
     uses: ./.github/workflows/checks.yml
     # The called workflow is this repository's own, so it inherits the repository's secrets by design.
     # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
@@ -264,11 +269,11 @@ jobs:
       release-branch: ${{ needs.release.outputs.pr_head_branch }}
 
   # Same run as the gate, so github.sha IS the judged commit and a red main never reaches the site.
-  #   needs release   -> a release commit's own deploy serves its new tag; an order, not a gate (!cancelled()), so a
-  #                      skipped or red release still deploys
-  #   no push clause  -> every main run deploys, so the nightly schedule IS the rebuild and a dispatch IS the manual deploy
+  #   needs publish-release -> a release commit's own deploy serves its new tag and its published release; an order,
+  #                            not a gate (!cancelled()), so a skipped or red release or publish still deploys
+  #   no push clause        -> every main run deploys, so the nightly schedule IS the rebuild and a dispatch IS the manual deploy
   site:
-    needs: [platform, all-green, release]
+    needs: [platform, all-green, publish-release]
     if: >-
       !cancelled() &&
       needs.all-green.result == 'success' &&
