@@ -54,7 +54,7 @@ A VS Code extension that puts LiteLLM behind GitHub Copilot Chat through the Lan
 - **A silent refresh never throws.** On failure it serves the entry's declared models plus stale-flagged discovered ones inside `discovery.staleServeWindow` (`src/provider/catalog/groupDiscovery.ts`).
 - **A 401 is never re-wrapped as a network error** (`src/provider/transport/errorMapping.ts`).
 - **Catalog levels fill capabilities only, never pricing** (`src/provider/catalog/modelCatalog.ts`).
-- **One-shot features take nothing from the records except `_fim_template`** (`src/extension/features/`). Features never import each other; `features/quickFixChatCommands.ts` is the one declared bridge.
+- **One-shot features take nothing from the records except `_fim_template`** (`src/extension/features/`). Features never import each other.
 - **Migrations are idempotent, state-detecting, and expire** (`src/extension/migrations/expiries.ts`). A passed expiry turns the build red until the migration is deleted.
 - **The two `models.*` record settings are `restricted`; every `.enabled`, `.model`, and `models.openRouterCatalog` is machine-overridable** (`src/shared/config/settingSpec.ts`).
 - **Every `contributes` block of `package.json` and `docs/settings.md` with its zh-cn/zh-tw twins are generated output** (`bun run manifest:generate`, `bun run docs:settings`; the sources are the code constants plus the presentation tables in `scripts/dev/manifest/`). Edit the source, run the generator, commit; the hook's `check:static` and CI refuse drift and name the command.

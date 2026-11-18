@@ -43,6 +43,22 @@ describe("shared/util errorLabel", () => {
 				)
 			)
 		).toBe("unreadable-error");
+		// The Proxy above throws on the classification read; this one gets past it and throws on the name.
+		const hostileName = new Error("boom");
+		Object.defineProperty(hostileName, "name", {
+			get() {
+				throw new Error("hostile getter");
+			},
+		});
+		expect(errorLabel(hostileName)).toBe("unreadable-error");
+	});
+
+	test("a classification outranks the error's name, so transport failures stay distinguishable in the log", () => {
+		const failure = Object.assign(new Error("boom"), {
+			name: "RequestError",
+			logClassification: "RequestError(http, status 404, chat)",
+		});
+		expect(errorLabel(failure)).toBe("RequestError(http, status 404, chat)");
 	});
 
 	test("no tree declares its own copy: exactly one errorLabel exists in shipped source", () => {

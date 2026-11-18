@@ -164,7 +164,6 @@ const STRUCTURED_SETTING_ROUTES = {
 	"commitGeneration.model": featureModelRoute("commitGeneration"),
 	"prGeneration.model": featureModelRoute("prGeneration"),
 	"consultTool.model": featureModelRoute("consultTool"),
-	"quickFix.model": featureModelRoute("quickFix"),
 	"reviewComments.model": featureModelRoute("reviewComments"),
 	"inlineCompletions.languageFilter": languageFilterRoute,
 	"commitGeneration.prompt": valueRoute("setCommitPrompt"),

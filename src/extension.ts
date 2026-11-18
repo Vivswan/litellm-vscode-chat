@@ -97,11 +97,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// After wireServers: both surfaces classify the verdict owner's rows and read its declared set.
 	const { statusBar, notifier } = wireStatusSurfaces(context, logger, hasConfiguredServers, servers.verdict);
 	// Before the dashboard so its test probes reuse the features' exact send pipelines.
-	const features = wireFeatures(context, logger, {
-		ua,
-		outputChannel,
-		getSnapshots: () => provider.getServerSnapshots(),
-	});
+	const features = wireFeatures(context, logger, { ua, outputChannel });
 	const dashboard = wireDashboard(context, logger, {
 		provider,
 		syncEngine: servers.syncEngine,

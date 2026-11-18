@@ -19,9 +19,9 @@ export type OneShotChatFeature = Exclude<FeatureModelId, "inlineCompletions">;
  * other. models.parameters records deliberately do NOT apply on this send composition, and no max_tokens rides
  * along, so the model's own default bounds the answer.
  *
- * The reply enters the extension here, so this is where it passes the door: every feature on this pipeline (the
- * quick-fix editor, the SCM input box, persisted review comments, the PR fields, the consult result) receives it
- * masked and masks again only where its own parse may respell a value.
+ * The reply enters the extension here, so this is where it passes the door: every feature on this pipeline (the SCM
+ * input box, persisted review comments, the PR fields, the consult result) receives it masked and masks again only
+ * where its own parse may respell a value.
  */
 export async function featureChatSend(
 	feature: OneShotChatFeature,

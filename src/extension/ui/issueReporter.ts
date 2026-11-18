@@ -28,7 +28,7 @@ export interface ErrorContext {
 /** One feature's report facts: the opt-in and whether a model ref is set - flags only, never which model or label. */
 interface FeatureFlagFacts {
 	readonly enabled: boolean;
-	/** Absent for features with no model key (the chat participant uses the request's own model). */
+	/** Absent for features with no model key (the agent tools run on the chat request's own model). */
 	readonly modelConfigured?: boolean | undefined;
 }
 
@@ -57,9 +57,7 @@ const FEATURE_PROSE_NAMES: Readonly<Record<FeatureId, string>> = {
 	commitGeneration: "Commit generation",
 	prGeneration: "PR generation",
 	consultTool: "Consult tool",
-	quickFix: "Quick fix",
 	reviewComments: "Review comments",
-	chatParticipant: "Chat participant",
 	agentTools: "Agent tools",
 };
 

@@ -462,7 +462,6 @@ function probeEmptyAnswerText(feature: FeatureModelId): string {
 			);
 		case "commitGeneration":
 		case "consultTool":
-		case "quickFix":
 			return l10n.t("The model answered with no text. Try again, or pick a different model.");
 	}
 }
@@ -484,7 +483,6 @@ function probeAnswerText(feature: FeatureModelId, characters: number): string {
 				: l10n.t("Title received - {0} characters", characters);
 		case "commitGeneration":
 		case "consultTool":
-		case "quickFix":
 		case "reviewComments":
 			return characters === 1
 				? l10n.t("Reply received - 1 character")

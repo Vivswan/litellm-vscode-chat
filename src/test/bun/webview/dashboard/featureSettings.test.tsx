@@ -438,9 +438,6 @@ test("every FeatureId renders its section in registry order, enable rows include
 	expect(root.querySelector("#setting-commitGeneration\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-prGeneration\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-reviewComments\\.model")).not.toBeNull();
-	expect(root.querySelector("#setting-chatParticipant\\.enabled")).not.toBeNull();
-	// The participant has an enable row and deliberately no model row.
-	expect(root.querySelector("#setting-chatParticipant\\.model")).toBeNull();
 	// The agent tools carry their per-tool switches as plain boolean rows, no model row.
 	expect(root.querySelector("#setting-agentTools\\.enabled")).not.toBeNull();
 	expect(root.querySelector("#setting-agentTools\\.secretValues\\.enabled")).not.toBeNull();

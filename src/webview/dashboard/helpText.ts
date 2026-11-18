@@ -361,9 +361,7 @@ export const SETTING_ROW_HELP_IDS = [
 	"commitGeneration.enabled",
 	"prGeneration.enabled",
 	"consultTool.enabled",
-	"quickFix.enabled",
 	"reviewComments.enabled",
-	"chatParticipant.enabled",
 	"agentTools.enabled",
 	"agentTools.secretValues.enabled",
 ] as const satisfies readonly (NumberSettingId | BooleanSettingId)[];
@@ -426,17 +424,9 @@ const SETTING_ROW_HELP: Readonly<Record<SettingRowHelpId, () => string>> = {
 		),
 	"consultTool.enabled": () =>
 		l10n.t("The agent decides when to consult, sending the question and background it writes to your LiteLLM server."),
-	"quickFix.enabled": () =>
-		l10n.t(
-			"Picking Fix or Explain sends the diagnostic and its lines to @litellm, on whichever model the chat picker names."
-		),
 	"reviewComments.enabled": () =>
 		l10n.t(
 			"Reviewing sends the diff of each changed file - or, for one file, its whole content - to your LiteLLM server."
-		),
-	"chatParticipant.enabled": () =>
-		l10n.t(
-			"Type @litellm in chat; it answers with the model the picker has selected, and bills like chat. Going away in January 2027; the /litellm skill covers help with your setup."
 		),
 	"agentTools.enabled": () =>
 		l10n.t(

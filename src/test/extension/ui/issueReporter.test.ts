@@ -33,9 +33,7 @@ suite("IssueReporter", () => {
 				commitGeneration: { enabled: false, modelConfigured: false },
 				prGeneration: { enabled: false, modelConfigured: false },
 				consultTool: { enabled: false, modelConfigured: false },
-				quickFix: { enabled: false, modelConfigured: false },
 				reviewComments: { enabled: false, modelConfigured: false },
-				chatParticipant: { enabled: true },
 				agentTools: { enabled: false },
 			},
 			mcpEntryCount: 0,
@@ -123,9 +121,7 @@ suite("IssueReporter", () => {
 					commitGeneration: { enabled: false, modelConfigured: true },
 					prGeneration: { enabled: false, modelConfigured: false },
 					consultTool: { enabled: false, modelConfigured: false },
-					quickFix: { enabled: false, modelConfigured: false },
 					reviewComments: { enabled: false, modelConfigured: false },
-					chatParticipant: { enabled: true },
 					agentTools: { enabled: false },
 				},
 			})
@@ -138,8 +134,8 @@ suite("IssueReporter", () => {
 		]) {
 			assert.ok(body.includes(`\n${line}\n`), `body must carry the exact line: ${line}`);
 		}
-		assert.ok(body.includes("\n- Chat participant enabled: yes\n"));
-		assert.ok(!body.includes("Chat participant model configured"));
+		assert.ok(body.includes("\n- Agent tools enabled: no\n"));
+		assert.ok(!body.includes("Agent tools model configured"));
 	});
 
 	test("buildBody includes error details and stack trace", () => {

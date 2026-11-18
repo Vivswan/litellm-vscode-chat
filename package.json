@@ -134,117 +134,6 @@
 				}
 			}
 		],
-		"chatParticipants": [
-			{
-				"id": "litellm.participant",
-				"name": "litellm",
-				"fullName": "LiteLLM",
-				"description": "%litellm.participant.description%",
-				"when": "config.litellm-vscode-chat.chatParticipant.enabled",
-				"isSticky": true,
-				"sampleRequest": "%litellm.participant.sampleRequest%",
-				"disambiguation": [
-					{
-						"category": "litellm_model_catalog",
-						"description": "%litellm.participant.disambiguation.catalog.description%",
-						"examples": [
-							"%litellm.participant.disambiguation.catalog.example1%",
-							"%litellm.participant.disambiguation.catalog.example2%"
-						]
-					},
-					{
-						"category": "litellm_own_model_answer",
-						"description": "%litellm.participant.disambiguation.ownModel.description%",
-						"examples": [
-							"%litellm.participant.disambiguation.ownModel.example1%",
-							"%litellm.participant.disambiguation.ownModel.example2%"
-						]
-					}
-				],
-				"commands": [
-					{
-						"name": "tests",
-						"description": "%litellm.participant.command.tests.description%",
-						"isSticky": true,
-						"sampleRequest": "%litellm.participant.command.tests.sampleRequest%",
-						"disambiguation": [
-							{
-								"category": "litellm_test_generation",
-								"description": "%litellm.participant.command.tests.disambiguation.description%",
-								"examples": [
-									"%litellm.participant.command.tests.disambiguation.example1%",
-									"%litellm.participant.command.tests.disambiguation.example2%"
-								]
-							}
-						]
-					},
-					{
-						"name": "docs",
-						"description": "%litellm.participant.command.docs.description%",
-						"isSticky": true,
-						"sampleRequest": "%litellm.participant.command.docs.sampleRequest%",
-						"disambiguation": [
-							{
-								"category": "litellm_documentation_writing",
-								"description": "%litellm.participant.command.docs.disambiguation.description%",
-								"examples": [
-									"%litellm.participant.command.docs.disambiguation.example1%",
-									"%litellm.participant.command.docs.disambiguation.example2%"
-								]
-							}
-						]
-					},
-					{
-						"name": "models",
-						"description": "%litellm.participant.command.models.description%",
-						"isSticky": false,
-						"sampleRequest": "%litellm.participant.command.models.sampleRequest%",
-						"disambiguation": [
-							{
-								"category": "litellm_model_listing",
-								"description": "%litellm.participant.command.models.disambiguation.description%",
-								"examples": [
-									"%litellm.participant.command.models.disambiguation.example1%",
-									"%litellm.participant.command.models.disambiguation.example2%"
-								]
-							}
-						]
-					},
-					{
-						"name": "fix",
-						"description": "%litellm.participant.command.fix.description%",
-						"isSticky": true,
-						"sampleRequest": "%litellm.participant.command.fix.sampleRequest%",
-						"disambiguation": [
-							{
-								"category": "litellm_fix_diagnostic",
-								"description": "%litellm.participant.command.fix.disambiguation.description%",
-								"examples": [
-									"%litellm.participant.command.fix.disambiguation.example1%",
-									"%litellm.participant.command.fix.disambiguation.example2%"
-								]
-							}
-						]
-					},
-					{
-						"name": "explain",
-						"description": "%litellm.participant.command.explain.description%",
-						"isSticky": true,
-						"sampleRequest": "%litellm.participant.command.explain.sampleRequest%",
-						"disambiguation": [
-							{
-								"category": "litellm_explain_diagnostic",
-								"description": "%litellm.participant.command.explain.disambiguation.description%",
-								"examples": [
-									"%litellm.participant.command.explain.disambiguation.example1%",
-									"%litellm.participant.command.explain.disambiguation.example2%"
-								]
-							}
-						]
-					}
-				]
-			}
-		],
 		"chatSkills": [
 			{
 				"path": "./skills/litellm/SKILL.md"
@@ -1077,7 +966,6 @@
 										"commitGeneration",
 										"prGeneration",
 										"consultTool",
-										"quickFix",
 										"reviewComments"
 									],
 									"description": "The feature whose picked model receives a fixed probe prompt (a billable model request)."
@@ -2056,41 +1944,6 @@
 				}
 			},
 			{
-				"title": "%litellm.config.section.quickFix%",
-				"properties": {
-					"litellm-vscode-chat.quickFix.enabled": {
-						"type": "boolean",
-						"scope": "machine-overridable",
-						"default": false,
-						"markdownDescription": "%litellm.config.quickFix.enabled.description%"
-					},
-					"litellm-vscode-chat.quickFix.model": {
-						"type": [
-							"object",
-							"null"
-						],
-						"scope": "machine-overridable",
-						"default": null,
-						"required": [
-							"server",
-							"model"
-						],
-						"properties": {
-							"server": {
-								"type": "string",
-								"description": "%litellm.config.featureModel.server.description%"
-							},
-							"model": {
-								"type": "string",
-								"description": "%litellm.config.featureModel.model.description%"
-							}
-						},
-						"additionalProperties": false,
-						"markdownDescription": "%litellm.config.quickFix.model.description%"
-					}
-				}
-			},
-			{
 				"title": "%litellm.config.section.reviewComments%",
 				"properties": {
 					"litellm-vscode-chat.reviewComments.enabled": {
@@ -2122,17 +1975,6 @@
 						},
 						"additionalProperties": false,
 						"markdownDescription": "%litellm.config.reviewComments.model.description%"
-					}
-				}
-			},
-			{
-				"title": "%litellm.config.section.chatParticipant%",
-				"properties": {
-					"litellm-vscode-chat.chatParticipant.enabled": {
-						"type": "boolean",
-						"scope": "machine-overridable",
-						"default": true,
-						"markdownDescription": "%litellm.config.chatParticipant.enabled.description%"
 					}
 				}
 			},

@@ -158,7 +158,6 @@ const shapedInput: Record<AgentToolId, fc.Arbitrary<unknown>> = {
 				"commitGeneration",
 				"prGeneration",
 				"consultTool",
-				"quickFix",
 				"reviewComments"
 			),
 		}),

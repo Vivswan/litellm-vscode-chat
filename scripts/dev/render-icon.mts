@@ -3,9 +3,8 @@
  *
  *   The PNG is a build product, never committed: every bundle (scripts/dev/bundle.mts, so bundle, bundle:dev,
  *   bundle:watch, and vscode:prepublish through bundle) renders it first, `bun run icon:render` renders it alone, and
- *   the packaging gate (scripts/ci/packagedFiles.ts) bounds its size. The chat participant and the Marketplace read
- *   the PNG; the Marketplace takes PNG only, at most 1024 KB, and 512 px keeps the icon crisp at every size VS Code
- *   shows it.
+ *   the packaging gate (scripts/ci/packagedFiles.ts) bounds its size. The Marketplace reads the PNG: it takes PNG
+ *   only, at most 1024 KB, and 512 px keeps the icon crisp at every size VS Code shows it.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";

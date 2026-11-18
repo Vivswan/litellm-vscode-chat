@@ -53,26 +53,12 @@ function featureNameEntry(feature: FeatureId): FeatureNameEntry {
 				englishSentence: "consult tool",
 				logSurface: "ConsultTool",
 			};
-		case "quickFix":
-			return {
-				title: l10n.t("Quick fixes"),
-				sentence: l10n.t("quick fix"),
-				englishSentence: "quick fix",
-				logSurface: "QuickFix",
-			};
 		case "reviewComments":
 			return {
 				title: l10n.t("Review comments"),
 				sentence: l10n.t("review comments"),
 				englishSentence: "review comments",
 				logSurface: "ReviewComments",
-			};
-		case "chatParticipant":
-			return {
-				title: l10n.t("Chat participant (@litellm)"),
-				sentence: l10n.t("chat participant"),
-				englishSentence: "chat participant",
-				logSurface: "ChatParticipant",
 			};
 		case "agentTools":
 			return {

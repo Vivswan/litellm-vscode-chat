@@ -10,6 +10,8 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import ts from "typescript";
+import { runtimeImports } from "../../../runtimeImportGraph";
 import { REPO_ROOT } from "../../../util/repoRoot";
 
 interface BiomeOverride {
@@ -24,6 +26,24 @@ interface BiomeOverride {
 			};
 		};
 	};
+}
+
+/**
+ * Every module a file names: the shared scanner's runtime edges (static, side-effect, dynamic, re-export), plus the
+ * type-only declarations it erases, because a root file reaching into a feature for a type is a bridge too.
+ */
+function namedModules(file: string): string[] {
+	const source = readFileSync(file, "utf8");
+	const declared = ts
+		.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+		.statements.filter((statement) => ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement))
+		.flatMap((statement) =>
+			statement.moduleSpecifier !== undefined && ts.isStringLiteralLike(statement.moduleSpecifier)
+				? [statement.moduleSpecifier.text]
+				: []
+		);
+
+	return [...runtimeImports(file, source).specs, ...declared];
 }
 
 describe("extension/features cross-feature import ban", () => {
@@ -64,12 +84,11 @@ describe("extension/features cross-feature import ban", () => {
 		}
 	});
 
-	test("exactly one features/-root file bridges into a feature directory", () => {
+	test("no features/-root file bridges into a feature directory", () => {
 		// The features/ root sits outside every per-feature biome override, so a root file CAN import from a feature
-		// tree - which is how the one declared cross-feature bridge (quickFixChatCommands.ts, teaching the participant
-		// /fix and /explain) works at all. That reachability must not become a habit: everything else outside
-		// features/<feature>/ reaches a feature only through its wiring module, so a second bridge fails here until it
-		// is a deliberate, named decision.
+		// tree, and one once did: a bridge teaching a second feature's commands to the first. That reachability must
+		// not become a habit: everything outside features/<feature>/ reaches a feature only through its wiring module,
+		// so a bridge fails here until it is a deliberate, named decision.
 		const featuresDir = path.join(REPO_ROOT, "src", "extension", "features");
 		const entries = readdirSync(featuresDir, { withFileTypes: true });
 		const featureDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
@@ -78,12 +97,12 @@ describe("extension/features cross-feature import ban", () => {
 			.map((entry) => entry.name)
 			.sort();
 		expect(rootFiles.length).toBeGreaterThan(1);
-		const importsFeatureDir = (file: string): boolean => {
-			const source = readFileSync(path.join(featuresDir, file), "utf8");
-			return featureDirs.some((dir) => new RegExp(`from\\s+"\\./${dir}/`).test(source));
-		};
+		const importsFeatureDir = (file: string): boolean =>
+			namedModules(path.join(featuresDir, file)).some((module) =>
+				featureDirs.some((dir) => module === `./${dir}` || module.startsWith(`./${dir}/`))
+			);
 		const bridges = rootFiles.filter(importsFeatureDir);
-		expect(bridges).toEqual(["quickFixChatCommands.ts"]);
+		expect(bridges).toEqual([]);
 	});
 
 	test("outside the features tree, only a feature's wiring module is imported from its directory", () => {

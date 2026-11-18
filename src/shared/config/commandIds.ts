@@ -12,13 +12,6 @@ import type { AgentWriteToolId, FeatureId } from "./settingSpec";
 /** The vendor this extension registers with the language-model host; provider groups carry it. */
 export const VENDOR_ID = "litellm";
 
-/** The chatParticipants contribution's id (the @litellm participant). */
-export const PARTICIPANT_ID = "litellm.participant";
-/**
- * The participant's handle: what the user types after "@" and what the quick fixes submit. Not VENDOR_ID, which
- * happens to share the spelling.
- */
-export const PARTICIPANT_NAME = "litellm";
 /**
  * The chatSkills contribution's name: the folder under skills/ and what the user types after "/". The host loads a
  * skill only when the two agree.
@@ -186,7 +179,6 @@ export function reviewFileCommandTitle(): string {
  *
  *   openGroupsFile -> the host's provider-groups JSON, the fallback for deleting a group the Manage Language Models
  *                     editor cannot reach
- *   quickFixChat   -> takes a structured payload no user could type, so a palette entry would fail on every invocation
  */
 export const INTERNAL_CMD = {
 	manageServers: "litellm.manageServers",
@@ -194,7 +186,6 @@ export const INTERNAL_CMD = {
 	openOutput: "litellm.openOutput",
 	openSettingKey: "litellm.openSettingKey",
 	openUsage: "litellm.openUsage",
-	quickFixChat: "litellm.quickFixChat",
 	toggleInlineCompletionsLanguage: "litellm.toggleInlineCompletionsLanguage",
 } as const;
 

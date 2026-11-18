@@ -783,7 +783,7 @@ suite("one trim rule: padded user values are kept verbatim or refused, never rep
 			],
 			[
 				"normalizeFeatureModelRef",
-				() => normalizeFeatureModelRef({ server: ` ${padded("Prod")} `, model: padded("gpt") }, "quickFix"),
+				() => normalizeFeatureModelRef({ server: ` ${padded("Prod")} `, model: padded("gpt") }, "consultTool"),
 				{ server: padded("Prod"), model: padded("gpt") },
 			],
 			[

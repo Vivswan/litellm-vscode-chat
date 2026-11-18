@@ -28,7 +28,6 @@ suite("extension/ui/diagnostics", () => {
 				{
 					"commitGeneration.enabled": true,
 					"commitGeneration.model": { server: "Prod", model: "gpt-4" },
-					"chatParticipant.enabled": false,
 					servers,
 				},
 				() =>
@@ -63,16 +62,14 @@ suite("extension/ui/diagnostics", () => {
 				// A secure key cannot be ruled out without a group report.
 				apiKeyConfigured: "unknown",
 				baseUrlConfigured: true,
-				// Flags only, never the model or label the configured ref names; the participant carries no model flag
-				// by construction.
+				// Flags only, never the model or label the configured ref names; the agent tools carry no model flag by
+				// construction.
 				featureFlags: {
 					inlineCompletions: { enabled: false, modelConfigured: false },
 					commitGeneration: { enabled: true, modelConfigured: true },
 					prGeneration: { enabled: false, modelConfigured: false },
 					consultTool: { enabled: false, modelConfigured: false },
-					quickFix: { enabled: false, modelConfigured: false },
 					reviewComments: { enabled: false, modelConfigured: false },
-					chatParticipant: { enabled: false },
 					agentTools: { enabled: false },
 				},
 				// The opted-in entry counts; the plain one does not.

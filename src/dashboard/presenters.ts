@@ -471,9 +471,7 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "chat.timeout":
 			return {
 				label: l10n.t("Request timeout"),
-				description: l10n.t(
-					"Hard bound for one chat, commit-message, pull-request-description, consult-tool, or quick-fix call."
-				),
+				description: l10n.t("Hard bound for one chat, commit-message, pull-request-description, or consult-tool call."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 			};
 		case "chat.maxToolsPerRequest":
@@ -629,22 +627,10 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 					"Lets a chat agent ask a second LiteLLM model for another opinion. Requires enabling this and choosing a model below."
 				),
 			};
-		case "quickFix.enabled":
-			return {
-				label: l10n.t("Enable quick fixes"),
-				description: l10n.t(
-					"Fix and Explain actions on diagnostics, answered through @litellm chat or the model below."
-				),
-			};
 		case "reviewComments.enabled":
 			return {
 				label: l10n.t("Enable review comments"),
 				description: l10n.t("AI review comments on your changes from a LiteLLM model."),
-			};
-		case "chatParticipant.enabled":
-			return {
-				label: l10n.t("Enable the @litellm participant"),
-				description: l10n.t("Answers @litellm chat turns with the request's own model; costs nothing until invoked."),
 			};
 		case "agentTools.enabled":
 			return {

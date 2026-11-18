@@ -187,7 +187,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/agentTools/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
 									}
 								]
@@ -207,7 +207,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/agentTools/**", "**/inline/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
 									}
 								]
@@ -227,7 +227,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/mcp/**", "**/prGen/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
 									}
 								]
@@ -247,7 +247,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"group": ["**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
 									}
 								]
@@ -267,27 +267,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/participant/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/extension/features/participant/**"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**", "**/quickFix/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/prGen/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
 									}
 								]
@@ -307,27 +287,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/quickFix/**", "**/reviewComments/**"],
-										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/extension/features/quickFix/**"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"patterns": [
-									{
-										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/reviewComments/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/reviewComments/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
 									}
 								]
@@ -347,7 +307,7 @@
 							"options": {
 								"patterns": [
 									{
-										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/participant/**", "**/prGen/**", "**/quickFix/**"],
+										"group": ["**/agentTools/**", "**/inline/**", "**/commitGen/**", "**/consultTool/**", "**/mcp/**", "**/prGen/**"],
 										"message": "Features may not import each other; shared code goes to src/shared, the feature's wiring seam, or the features/ root."
 									}
 								]

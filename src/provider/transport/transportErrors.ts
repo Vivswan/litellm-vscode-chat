@@ -86,11 +86,10 @@ export type TransportErrorSurface =
 	| "commitGeneration"
 	| "consultTool"
 	| "prGeneration"
-	| "quickFix"
 	| "reviewComments";
 
 /**
- * Five features share their surface's name; inlineCompletions is the /completions FIM path, so it maps to
+ * Four features share their surface's name; inlineCompletions is the /completions FIM path, so it maps to
  * "completion". The features' shared send helper derives its surface from this table, so a feature cannot send under
  * another feature's error copy.
  */
@@ -99,7 +98,6 @@ export const FEATURE_ERROR_SURFACE: Record<FeatureModelId, TransportErrorSurface
 	commitGeneration: "commitGeneration",
 	prGeneration: "prGeneration",
 	consultTool: "consultTool",
-	quickFix: "quickFix",
 	reviewComments: "reviewComments",
 };
 
@@ -113,8 +111,6 @@ export interface MapErrorContext {
 	 *   "consultTool" is the consult tool's /chat/completions call: its failure is thrown back into the chat view that
 	 *     invoked the tool -> it joins chat-style too
 	 *   "prGeneration" is the PR title-and-description call -> surfaced like commit generation
-	 *   "quickFix" is the quick-fix fallback's /chat/completions call, surfaced as a notification by its command
-	 *     boundary -> it joins chat-style as well
 	 *   "reviewComments" is the review commands' /chat/completions call, surfaced as a notification by its command
 	 *     boundary -> it joins chat-style too
 	 */
@@ -692,52 +688,6 @@ const SURFACE_COPY: Record<TransportErrorSurface, SurfaceCopy> = {
 			detail: midResponseDroppedDetail,
 		},
 		phrase: "pull request description generation",
-	},
-	quickFix: {
-		join: "detailsLeadIn",
-		httpVocabulary: "request",
-		// The fallback call runs under the chat timeout setting, so that IS the bound to raise; only the wording names
-		// the quick fix.
-		timeout: (timeoutMs) => ({
-			display: l10n.t(
-				'LiteLLM quick fix timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
-				timeoutMs,
-				CONFIG_SECTION
-			),
-			english: `LiteLLM quick fix timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`,
-		}),
-		notFound: {
-			// Sync Models refreshes the chat catalog, which the quick-fix model setting never reads - the advice is the
-			// setting itself.
-			headline: () => ({
-				display: l10n.t(
-					"The server did not recognize this quick fix request. Check that the configured quick fix model is one the server still serves."
-				),
-				english:
-					"The server did not recognize this quick fix request. Check that the configured quick fix model is one the server still serves.",
-			}),
-			detail: standardNotFoundDetail,
-		},
-		contextWindow: () => ({
-			display: l10n.t(
-				"The code and diagnostics are too large for this model - fix a smaller range, or pick a quick fix model with a larger context window."
-			),
-			english:
-				"The code and diagnostics are too large for this model - fix a smaller range, or pick a quick fix model with a larger context window.",
-		}),
-		dropped: {
-			// The fallback call is non-streaming, so a dropped connection leaves no cut-short answer - nothing was
-			// written at all.
-			headline: () => ({
-				display: l10n.t(
-					"The connection dropped before the reply arrived, so no answer was written. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
-				),
-				english:
-					"The connection dropped before the reply arrived, so no answer was written. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
-			}),
-			detail: midResponseDroppedDetail,
-		},
-		phrase: "quick fix",
 	},
 	reviewComments: {
 		join: "detailsLeadIn",

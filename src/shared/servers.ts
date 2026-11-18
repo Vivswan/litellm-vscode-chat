@@ -105,9 +105,8 @@ export function unexpectedFailureCount(statuses: readonly ServerStatus[]): numbe
 }
 
 /**
- * Typed to the two fields it actually reads, not the whole ServerStatus, so surfaces holding a narrower mirror of a
- * status - the chat participant's snapshot shape, for one - can hide removed groups through THIS predicate instead of
- * restating the rule.
+ * Typed to the two fields it actually reads, not the whole ServerStatus, so a surface holding a narrower mirror of a
+ * status can hide removed groups through THIS predicate instead of restating the rule.
  */
 export function isHiddenGroupServerStatus(status: {
 	readonly state: ServerStatus["state"];

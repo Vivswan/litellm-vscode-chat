@@ -1,16 +1,13 @@
 /**
  * Identities, gates, and model-facing text come from the constants (commandIds.ts, settingSpec.ts, serverEntry.ts, the
- * slash-command tables, the agent tools' envelopes); what only a manifest can say - menu placement and groups, icons,
- * stickiness, disambiguation categories, walkthrough steps and media - is authored here, typed against those constants
- * so a renamed command or a new slash command fails to compile before it renders. Prose stays in package.nls.json
- * behind %key% names the renderers derive from the ids.
+ * agent tools' envelopes); what only a manifest can say - menu placement and groups, icons, walkthrough steps and
+ * media - is authored here, typed against those constants so a renamed command fails to compile before it renders.
+ * Prose stays in package.nls.json behind %key% names the renderers derive from the ids.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AGENT_TOOL_MODEL_DESCRIPTIONS } from "../../../src/extension/features/agentTools/inputSchema";
 import { CONSULT_TOOL_MODEL_DESCRIPTION } from "../../../src/extension/features/consultTool/invocation";
-import { builtinSlashCommands, type SlashCommandName } from "../../../src/extension/features/participant/slashCommands";
-import { quickFixSlashCommands } from "../../../src/extension/features/quickFixChatCommands";
 import {
 	AGENT_TOOL_IDS,
 	AGENT_TOOLS,
@@ -21,8 +18,6 @@ import {
 	COMMENT_CONTROLLER_ID,
 	CONSULT_TOOL_READY_CONTEXT_KEY,
 	MCP_PROVIDER_ID,
-	PARTICIPANT_ID,
-	PARTICIPANT_NAME,
 	SKILL_NAME,
 	TOOL_NAME,
 	VENDOR_ID,
@@ -57,7 +52,7 @@ function settingClause(key: BooleanSettingId): string {
 /*
  * The rendered shapes below are exact interfaces, one per contribution point, because the host's schemas declare
  * additionalProperties: false: a key outside them makes VS Code reject the whole contribution, so a stray key must be
- * a compile error here rather than a silently absent participant or tool. Every object literal is annotated with its
+ * a compile error here rather than a silently absent tool or skill. Every object literal is annotated with its
  * shape where it is built (a map callback's return is otherwise inferred, and inference skips the excess-key check).
  */
 
@@ -295,139 +290,6 @@ function renderLanguageModelTools(): ContributedTool[] {
 	];
 }
 
-/** A disambiguation block: the classifier's category id and how many examples the nls table carries for it. */
-interface Disambiguation {
-	/** Machine-readable and stable, so deliberately not localized. */
-	readonly category: string;
-	readonly examples: number;
-}
-
-interface SlashCommandPresentation extends Disambiguation {
-	/** Whether the command stays in the chat input after an answer. */
-	readonly isSticky: boolean;
-}
-
-export interface ParticipantInputs {
-	readonly commands: readonly string[];
-	readonly presentation: Readonly<Record<string, SlashCommandPresentation>>;
-	readonly disambiguation: readonly (Disambiguation & { readonly key: string })[];
-}
-
-/**
- * /models lists from the snapshots and takes no prompt, so it does not stay in the input the way the prompt commands
- * do.
- */
-const SLASH_COMMANDS = {
-	tests: { isSticky: true, category: "litellm_test_generation", examples: 2 },
-	docs: { isSticky: true, category: "litellm_documentation_writing", examples: 2 },
-	models: { isSticky: false, category: "litellm_model_listing", examples: 2 },
-	fix: { isSticky: true, category: "litellm_fix_diagnostic", examples: 2 },
-	explain: { isSticky: true, category: "litellm_explain_diagnostic", examples: 2 },
-} as const satisfies Record<SlashCommandName, SlashCommandPresentation>;
-
-/**
- * The live tables, read at render time: the slash-command factories resolve their descriptions through l10n per
- * call.
- */
-function liveParticipantInputs(): ParticipantInputs {
-	return {
-		commands: [...builtinSlashCommands(), ...quickFixSlashCommands()].map((command) => command.name),
-		presentation: SLASH_COMMANDS,
-		disambiguation: [
-			{ category: "litellm_model_catalog", key: "catalog", examples: 2 },
-			{ category: "litellm_own_model_answer", key: "ownModel", examples: 2 },
-		],
-	};
-}
-
-const CATEGORY_ID = /^[a-z][a-z0-9_]+$/;
-
-interface ContributedDisambiguation {
-	readonly category: string;
-	readonly description: string;
-	readonly examples: readonly string[];
-}
-
-interface ContributedSlashCommand {
-	readonly name: string;
-	readonly description: string;
-	readonly isSticky: boolean;
-	readonly sampleRequest: string;
-	readonly disambiguation: readonly ContributedDisambiguation[];
-}
-
-interface ContributedParticipant {
-	readonly id: string;
-	readonly name: string;
-	readonly fullName: string;
-	readonly description: string;
-	readonly when: string;
-	readonly isSticky: boolean;
-	readonly sampleRequest: string;
-	readonly disambiguation: readonly ContributedDisambiguation[];
-	readonly commands: readonly ContributedSlashCommand[];
-}
-
-/**
- * The categories are the classifier's intent ids: each must be a lower-case identifier and unique across the
- * participant and its commands, or routing is ambiguous by our own making; a block with no example, or a participant
- * with no block, gives the classifier nothing to route on. A live command without a presentation row is a compile
- * error for the real table and a refusal for injected inputs.
- */
-export function renderChatParticipants(inputs: ParticipantInputs = liveParticipantInputs()): ContributedParticipant[] {
-	if (inputs.disambiguation.length === 0) {
-		throw new Error("the participant contributes no disambiguation block");
-	}
-	const categories = new Set<string>();
-	const block = (where: string, keyPrefix: string, disambiguation: Disambiguation): ContributedDisambiguation => {
-		if (!CATEGORY_ID.test(disambiguation.category)) {
-			throw new Error(`${where}: disambiguation category ${disambiguation.category} is not a lower-case identifier`);
-		}
-		if (categories.has(disambiguation.category)) {
-			throw new Error(`${where}: disambiguation category ${disambiguation.category} is used twice`);
-		}
-		categories.add(disambiguation.category);
-		if (disambiguation.examples < 1) {
-			throw new Error(`${where}: disambiguation category ${disambiguation.category} shows no examples`);
-		}
-		return {
-			category: disambiguation.category,
-			description: `%${keyPrefix}.description%`,
-			examples: Array.from({ length: disambiguation.examples }, (_, index) => `%${keyPrefix}.example${index + 1}%`),
-		};
-	};
-	return [
-		{
-			id: PARTICIPANT_ID,
-			name: PARTICIPANT_NAME,
-			fullName: "LiteLLM",
-			description: "%litellm.participant.description%",
-			// Without this gate the host keeps offering @litellm after the setting is off, with no handler behind it.
-			when: settingClause(FEATURE_ENABLE_SETTING_KEYS.chatParticipant),
-			// Off, @litellm drops out of the input after every answer and the user re-types it.
-			isSticky: true,
-			sampleRequest: "%litellm.participant.sampleRequest%",
-			disambiguation: inputs.disambiguation.map((entry) =>
-				block("participant", `litellm.participant.disambiguation.${entry.key}`, entry)
-			),
-			commands: inputs.commands.map((name): ContributedSlashCommand => {
-				const presentation = inputs.presentation[name];
-				if (presentation === undefined) {
-					throw new Error(`slash command /${name} has no participant presentation`);
-				}
-				const keyPrefix = `litellm.participant.command.${name}`;
-				return {
-					name,
-					description: `%${keyPrefix}.description%`,
-					isSticky: presentation.isSticky,
-					sampleRequest: `%${keyPrefix}.sampleRequest%`,
-					disambiguation: [block(`/${name}`, `${keyPrefix}.disambiguation`, presentation)],
-				};
-			}),
-		},
-	];
-}
-
 function renderMcpServerDefinitionProviders(): { readonly id: string; readonly label: string }[] {
 	return [{ id: MCP_PROVIDER_ID, label: "%litellm.mcp.label%" }];
 }
@@ -643,7 +505,6 @@ export function renderChatSkills(
 export function renderContributes(): Record<string, unknown> {
 	return {
 		languageModelChatProviders: renderLanguageModelChatProviders(),
-		chatParticipants: renderChatParticipants(),
 		chatSkills: renderChatSkills(),
 		languageModelTools: renderLanguageModelTools(),
 		mcpServerDefinitionProviders: renderMcpServerDefinitionProviders(),

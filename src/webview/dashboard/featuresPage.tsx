@@ -70,8 +70,6 @@ function featureModelDescription(feature: FeatureModelId): string {
 			return l10n.t("Which model drafts PR descriptions; Not set keeps the feature idle.");
 		case "consultTool":
 			return l10n.t("Which model the consult tool asks; Not set keeps the feature idle.");
-		case "quickFix":
-			return l10n.t("Which model backs the quick-fix fallback; Not set keeps it idle.");
 		case "reviewComments":
 			return l10n.t("Which model writes review comments; Not set keeps the feature idle.");
 	}
@@ -87,8 +85,6 @@ function featureModelTitle(feature: FeatureModelId): string {
 			return l10n.t("PR generation model");
 		case "consultTool":
 			return l10n.t("Consult tool model");
-		case "quickFix":
-			return l10n.t("Quick fix model");
 		case "reviewComments":
 			return l10n.t("Review comments model");
 	}
@@ -620,9 +616,7 @@ export const FEATURE_REGISTRY: { readonly [K in FeatureId]: FeatureDescriptor } 
 	},
 	prGeneration: { shipped: true },
 	consultTool: { shipped: true },
-	quickFix: { shipped: true },
 	reviewComments: { shipped: true },
-	chatParticipant: { shipped: true },
 	agentTools: {
 		shipped: true,
 		booleans: AGENT_TOOLS_SETTING_KEYS.filter((id) => id !== FEATURE_ENABLE_SETTING_KEYS.agentTools),
