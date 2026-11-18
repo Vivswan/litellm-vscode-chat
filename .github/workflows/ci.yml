@@ -64,6 +64,9 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--'))
     uses: ./.github/workflows/release-gate.yml
+    # The called workflow is this repository's own, so it inherits the repository's secrets by design.
+    # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
+    secrets: inherit # zizmor: ignore[secrets-inherit]
 
   # THE gate: this job's own check run (named all-green, created by the GitHub Actions app) is the ruleset's required
   # check. It passes only when each needed result is success. `checks` (the schedule run) and `release-gate` (every
