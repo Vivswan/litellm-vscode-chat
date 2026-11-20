@@ -2237,7 +2237,7 @@
 		"zod": "^4.6.7"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.6.3",
+		"@biomejs/biome": "^2.6.7",
 		"@happy-dom/global-registrator": "^21.0.4",
 		"@resvg/resvg-js": "^2.6.2",
 		"@tailwindcss/cli": "^4.3.3",
