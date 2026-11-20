@@ -80,9 +80,20 @@ jobs:
   all-green:
     needs: [checks, platform, release-gate]
     if: always() && (github.event_name != 'schedule' || !github.event.repository.private)
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
+      # alls-green runs `python -m`, on the standard library alone. uv fetches a python of its own (never the runner's)
+      # into a venv under the job's temp directory and puts it first on PATH.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.13"
+          activate-environment: true
+          venv-path: ${{ runner.temp }}/gate-python
+          enable-cache: false
+          ignore-empty-workdir: true
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
