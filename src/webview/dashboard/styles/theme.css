@@ -803,6 +803,7 @@ body.vscode-high-contrast-light {
 	--color-accent-soft: var(--accent-soft);
 	--color-control-outline: var(--control-outline);
 	--color-disabled-foreground: var(--disabled-foreground);
+	/* biome-ignore lint/correctness/noMissingVarFunction: Tailwind's namespace reset is a property name, not a reference to --radius. */
 	--radius-*: initial;
 	--radius-xs: 1px;
 	--radius-sm: calc(var(--radius) - 2px);

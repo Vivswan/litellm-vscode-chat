@@ -23,7 +23,7 @@ jobs:
   # drives release-please versioning. The job id is the check-run name the
   # ruleset requires.
   pr-title:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       # The judge the commit-names gate runs on commit subjects, so no title passes here and lands red there.

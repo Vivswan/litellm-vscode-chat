@@ -22,7 +22,7 @@ jobs:
   # so the push would fail after the whole job had run.
   sync:
     if: github.event.label.name == 'repo-platform:sync' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && vars.CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 10
     # One run per pull request at a time: a second label while one runs waits its turn. On the job, not the workflow,
     # so a run another label skips never takes the pending slot from a queued sync.
