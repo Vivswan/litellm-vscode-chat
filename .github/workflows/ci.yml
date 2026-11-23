@@ -33,10 +33,11 @@ jobs:
   # it uses (an environment for an environment secret). The nightly run is the platform's alone.
   checks:
     if: github.event_name != 'schedule'
-    # The checks ceiling: pull-requests write lets a job keep one sticky comment on the pull request
-    # (docs/fleet-guidelines.md). A called job cannot exceed its caller, so it is granted here.
+    # The checks ceiling: contents write lets a job publish release assets with the run's own token, pull-requests write
+    # lets a job keep one sticky comment on the pull request (docs/fleet-guidelines.md). A called job cannot exceed its
+    # caller, so both are granted here; the checks.yml starter keeps every job at contents: read until a job raises itself.
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
     uses: ./.github/workflows/checks.yml
     # The called workflow is this repository's own, so it inherits the repository's secrets by design.
