@@ -4,7 +4,7 @@
  *     -> a green probe proves what a real generation would do
  */
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import { createCommitProbe } from "../../../../extension/features/commitGen/wiring";
 import { OneShotClient } from "../../../../provider/transport/oneShotClient";
 import { fixedHeaderValue } from "../../../../shared/util/headers";

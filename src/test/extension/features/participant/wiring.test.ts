@@ -1,7 +1,7 @@
 /**
  * What the adapter must get right is narrow but load-bearing: the REQUEST's own model does the sending, the
  * cancellation token rides along, streamed fragments reach the response stream in order, and /models answers from the
- * injected snapshots without a single fetch (msw's onUnhandledRequest: "error" fails the suite on any stray request).
+ * injected snapshots without a single fetch (msw's onUnhandledFrame: "error" fails the suite on any stray request).
  */
 import * as assert from "node:assert";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";

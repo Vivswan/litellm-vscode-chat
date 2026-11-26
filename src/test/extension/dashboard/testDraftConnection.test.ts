@@ -4,7 +4,7 @@
  * idempotent-GET retry budget - the same contract production discovery applies to declared entries.
  */
 import * as assert from "node:assert";
-import { http } from "msw";
+import { http } from "msw/http";
 import { createDraftConnectionProbe } from "../../../extension/dashboard/testDraftConnection";
 import { RequestError } from "../../../provider/transport/transportErrors";
 import { fixedHeaderValue } from "../../../shared/util/headers";

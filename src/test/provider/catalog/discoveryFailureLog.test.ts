@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import type { LiteLLMChatModelProviderOptions } from "../../../provider";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
@@ -25,8 +25,7 @@ suite("provider/catalog/groupDiscovery failure log", () => {
 	}[] = [
 		{
 			name: "an HTTP 500 whose body carries the token",
-			// The SDK obeys x-should-retry, so it reads this body instead of cancelling it for a retry; see
-			// emptyErrorResponse for why a retried msw body deadlocks.
+			// The SDK obeys x-should-retry, so it reads this body instead of retrying the 500 unread.
 			respond: () =>
 				HttpResponse.json({ error: { message: SECRET } }, { status: 500, headers: { "x-should-retry": "false" } }),
 			level: "error",

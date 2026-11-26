@@ -1,7 +1,7 @@
 /**
  * The zero-network property is the load-bearing one: provideCodeActions runs on every cursor move in a file with
  * diagnostics, so a request there would send the user's code somewhere without them clicking anything. It is pinned
- * twice over - by msw's onUnhandledRequest: "error" and by a request spy, because a request to an ALREADY-MOCKED
+ * twice over - by msw's onUnhandledFrame: "error" and by a request spy, because a request to an ALREADY-MOCKED
  * endpoint would satisfy msw and still be a request.
  */
 import * as assert from "node:assert";
@@ -12,7 +12,7 @@ import nodeHttp from "node:http";
 import nodeHttps from "node:https";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import type { QuickFixChatArgs } from "../../../../extension/features/quickFix/actionsProvider";
 import { createQuickFixActionsProvider } from "../../../../extension/features/quickFix/actionsProvider";
@@ -320,7 +320,7 @@ suite("extension/features/quickFix wiring", () => {
 	});
 
 	test("a disabled invocation answers with the enable hint and reaches neither chat nor a model", async () => {
-		// No msw handler for the chat endpoint: any request would fail the test through onUnhandledRequest: "error".
+		// No msw handler for the chat endpoint: any request would fail the test through onUnhandledFrame: "error".
 		const document = await sampleDocument();
 		const [fix] = createQuickFixActionsProvider().provideCodeActions(
 			document,

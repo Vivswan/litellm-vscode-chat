@@ -1,4 +1,5 @@
-import { HttpResponse, http, type JsonBodyType, type RequestHandler } from "msw";
+import type { JsonBodyType, RequestHandler } from "msw";
+import { HttpResponse, http } from "msw/http";
 import { setupServer } from "msw/node";
 import { OPENROUTER_MODELS_URL } from "../../shared/config/openRouterCatalog";
 
@@ -35,7 +36,7 @@ let activeSuites = 0;
 export function useMsw(): void {
 	suiteSetup(() => {
 		if (activeSuites === 0) {
-			mswServer.listen({ onUnhandledRequest: "error" });
+			mswServer.listen({ onUnhandledFrame: "error" });
 		}
 		activeSuites += 1;
 	});
@@ -64,11 +65,7 @@ export function discoveryHandlers(payload: JsonBodyType, groupPayload?: JsonBody
 	];
 }
 
-/**
- * Responses with retryable statuses (5xx) must use this: the SDK cancels the unread body before retrying, and
- * cancelling an msw-mocked body never settles (msw 2.15), deadlocking the retry. The SDK skips the cancel for a null
- * body.
- */
+/** A bodiless response carrying `status` and any `headers`: the shape of a proxy's error answers in these suites. */
 export function emptyErrorResponse(status: number, headers?: Record<string, string>): Response {
 	return new HttpResponse(null, headers ? { status, headers } : { status });
 }

@@ -4,7 +4,7 @@
  * every kind of credential at once.
  */
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import { createMcpServerDefinitionProvider } from "../../../../extension/features/mcp/provider";
 import { McpVersionCounters } from "../../../../extension/features/mcp/versions";

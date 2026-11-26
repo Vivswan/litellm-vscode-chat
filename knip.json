@@ -26,9 +26,5 @@
 	"ignoreDependencies": [
 		"@vscode/test-electron",
 		"@tailwindcss/cli"
-	],
-	"ignoreBinaries": [
-		"down",
-		"logs"
 	]
 }
