@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { http } from "msw";
+import { http } from "msw/http";
 import * as vscode from "vscode";
 import { CompletionCache } from "../../../../extension/features/inline/completionCache";
 import type {

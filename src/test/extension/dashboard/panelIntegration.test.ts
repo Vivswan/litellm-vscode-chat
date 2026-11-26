@@ -91,7 +91,7 @@ suite("extension/dashboard/panelIntegration", () => {
 			}
 		}
 		// Let the servers-setting change listener finish its sync pass so no stray traffic leaks into later suites (msw
-		// runs onUnhandledRequest: "error").
+		// runs onUnhandledFrame: "error").
 		await declaredEventually((views) => views.length === 0, "the servers setting to sync away");
 	});
 

@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import { failureTexts } from "../../shared/failureCause";
 import type { AggregatedStatus } from "../../shared/servers";

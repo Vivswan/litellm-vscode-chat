@@ -169,7 +169,11 @@ export async function retryFetch<T>(
 						? new APIConnectionTimeoutError()
 						: new APIConnectionError({ cause: error instanceof Error ? error : undefined });
 				};
-				const response = await request(signal).catch(failAttempt);
+				// Started inside a promise chain, so a fetch that throws before returning its promise (an intercepted fetch
+				// handed a URL with credentials) fails the attempt the way a rejection does.
+				const response = await Promise.resolve()
+					.then(() => request(signal))
+					.catch(failAttempt);
 				// Raced against the signal, so a body that never flows and never watches it still ends on the clock.
 				const text = await abortableWait(response.text(), signal).catch((error: unknown) => {
 					// The headers already named the verdict; only the caller's or the budget's abort outranks it.

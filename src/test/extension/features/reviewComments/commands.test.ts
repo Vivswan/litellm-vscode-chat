@@ -7,7 +7,7 @@
 import * as assert from "node:assert";
 import * as os from "node:os";
 import * as path from "node:path";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import type { API, Change, Repository } from "../../../../extension/features/gitApi";
 import type { ReviewCommandDeps } from "../../../../extension/features/reviewComments/commands";
@@ -194,7 +194,7 @@ suite("extension/features/reviewComments commands", () => {
 
 	test("disabled: the enable hint, zero traffic", async () => {
 		// No msw handler is registered for the chat URL, so any request would fail the suite through
-		// onUnhandledRequest: "error".
+		// onUnhandledFrame: "error".
 		await withCommentSpies(async () => {
 			liveController();
 			await withConfig({ ...ENABLED_CONFIG, "reviewComments.enabled": false }, () => runReviewFile(deps));

@@ -4,7 +4,7 @@
  * would reach the user's editor or workspaceState whole.
  */
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import { featureChatSend } from "../../../extension/features/featureChatSend";
 import { OneShotClient } from "../../../provider/transport/oneShotClient";
