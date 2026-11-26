@@ -4,11 +4,13 @@
 version: 2
 updates:
   - package-ecosystem: "github-actions"
-    # `/` alone reads .github/workflows, so the composite actions are listed too. Dependabot expands the glob with
-    # Ruby's Dir.glob over the checkout: a match with no YAML file is skipped, a glob matching nothing adds no directory.
+    # Dependabot expands a glob with Ruby's Dir.glob, and reads a directory for the YAML files directly in it.
+    #   /                      -> .github/workflows and a root action file, its one special case
+    #   /.github/actions/**/*  -> the folder and every directory under it, at any depth (`**` alone: one level)
+    # A matched directory with no YAML file is skipped, and a glob matching nothing adds no directory.
     directories:
       - "/"
-      - "/.github/actions/*"
+      - "/.github/actions/**/*"
     # One PR per cycle for all action bumps, not one PR per action.
     groups:
       actions:
