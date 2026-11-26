@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import type { GenerateCommitDeps } from "../../../../extension/features/commitGen/generateCommitCommand";
 import { runGenerateCommitMessage } from "../../../../extension/features/commitGen/generateCommitCommand";
@@ -150,7 +150,7 @@ suite("extension/features/commitGen generateCommitCommand", () => {
 	});
 
 	test("disabled and model-less invocations send nothing", async () => {
-		// No msw handler for the chat endpoint: any request would fail the test through onUnhandledRequest: "error".
+		// No msw handler for the chat endpoint: any request would fail the test through onUnhandledFrame: "error".
 		const repo = fakeRepo({ staged: "+staged line" });
 
 		await withConfig({ ...ENABLED_CONFIG, "commitGeneration.enabled": false }, () =>

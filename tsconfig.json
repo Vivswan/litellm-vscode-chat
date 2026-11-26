@@ -1,6 +1,6 @@
 {
 	"compilerOptions": {
-		"module": "Node16",
+		"module": "node20",
 		"target": "ES2024",
 		"lib": ["ES2024", "ES2025.RegExp"],
 		"sourceMap": true,

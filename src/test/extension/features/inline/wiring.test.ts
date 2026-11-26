@@ -3,7 +3,7 @@
  * end to end.
  */
 import * as assert from "node:assert";
-import { http } from "msw";
+import { http } from "msw/http";
 import * as vscode from "vscode";
 import {
 	InlineLanguageStatusRow,
@@ -202,7 +202,7 @@ suite("extension/features/inline wiring", () => {
 
 	test("enabled without a model makes zero fetches: the provider answers nothing and sends nothing", async () => {
 		// No msw handler for the completions URL is registered: any request would fail the suite through
-		// onUnhandledRequest: "error".
+		// onUnhandledFrame: "error".
 		await withWiringSpies(async (spies) => {
 			await withConfig({ "inlineCompletions.enabled": true }, async () => {
 				wireInlineCompletions(fakeContext(), quietLogger(), {

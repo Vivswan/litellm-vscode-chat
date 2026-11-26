@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import type { KeyUsage, UserUsage } from "../../../../extension/servers/usage/spendClient";
 import { UsageClient, usageUnavailabilityOf } from "../../../../extension/servers/usage/spendClient";
 import { RequestError } from "../../../../provider/transport/transportErrors";
@@ -317,7 +317,8 @@ suite("extension/servers/usage spendClient payload properties", () => {
 	test("non-OK statuses classify deterministically from the status alone; bodies never leak", async function () {
 		this.timeout(240000);
 		// 4xx fails on the first attempt; 501 and 5xx exhaust the retry budget first, so the retried path gets one
-		// pinned example below. The status-to-verdict mapping is pure and covered by its own property.
+		// pinned example below. The status-to-verdict mapping is pure and covered by its own property. 407 is left out:
+		// fetch answers a proxy-authentication status with a network error (Fetch standard), so no client sees it.
 		let servedStatus = 400;
 		mswServer.use(
 			http.get(KEY_INFO_URL, () =>
@@ -340,7 +341,10 @@ suite("extension/servers/usage spendClient payload properties", () => {
 		};
 		await fc.assert(
 			fc.asyncProperty(
-				fc.oneof(fc.constantFrom(400, 401, 403, 404, 405, 451), fc.integer({ min: 400, max: 499 })),
+				fc.oneof(
+					fc.constantFrom(400, 401, 403, 404, 405, 451),
+					fc.integer({ min: 400, max: 499 }).filter((status) => status !== 407)
+				),
 				async (status) => {
 					const thrown = await expectFailure(status);
 					assert.strictEqual(thrown.kind, status === 401 || status === 403 ? "auth" : "http");

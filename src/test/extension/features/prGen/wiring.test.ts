@@ -4,7 +4,7 @@
  * `apply`, so driving it is driving the deferred path.
  */
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import type { API, Branch, Repository } from "../../../../extension/features/gitApi";
 import type {
@@ -612,7 +612,7 @@ suite("extension/features/prGen send", () => {
 	}
 
 	test("a label matching no entry throws the classified error, zero fetches", async () => {
-		// No msw handler is registered for the chat URL: any request would fail the suite through onUnhandledRequest:
+		// No msw handler is registered for the chat URL: any request would fail the suite through onUnhandledFrame:
 		// "error".
 		await withConfig({ ...SEND_CONFIG, servers: [] }, async () => {
 			const send = sendOf();

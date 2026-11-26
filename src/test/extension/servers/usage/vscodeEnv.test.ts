@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import type * as vscode from "vscode";
 import type { UsageConnection } from "../../../../extension/servers/usage/spendClient";
 import { createUsagePollerEnv } from "../../../../extension/servers/usage/vscodeEnv";

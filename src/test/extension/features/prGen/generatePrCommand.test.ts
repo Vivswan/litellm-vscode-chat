@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import { featureChatSend } from "../../../../extension/features/featureChatSend";
 import type { API, Branch, Change, Commit, Repository } from "../../../../extension/features/gitApi";

@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import type { TimeoutBudget } from "../../../provider/transport/auth";
 import type { OneShotChatMessage, OneShotConnection } from "../../../provider/transport/oneShotClient";
@@ -572,7 +572,7 @@ suite("provider/transport/oneShotClient", () => {
 
 	suite("authHeaders", () => {
 		test("composes what a request would carry, without making one", async () => {
-			// No msw handler is registered for the server: any request would fail the suite through onUnhandledRequest:
+			// No msw handler is registered for the server: any request would fail the suite through onUnhandledFrame:
 			// "error".
 			const headers = await client().authHeaders(
 				connection({

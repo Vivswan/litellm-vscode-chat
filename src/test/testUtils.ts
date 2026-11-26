@@ -1,4 +1,5 @@
-import { http, type JsonBodyType } from "msw";
+import type { JsonBodyType } from "msw";
+import { http } from "msw/http";
 import * as vscode from "vscode";
 import type { FingerprintSaltSession, FingerprintSaltState } from "../extension/fingerprintSalt";
 import { LiteLLMChatModelProvider, type LiteLLMChatModelProviderOptions } from "../provider";

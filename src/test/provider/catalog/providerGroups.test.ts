@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../../provider/catalog/groupDiscovery";

@@ -4,7 +4,7 @@
  * keeps the public rendering, and the marker reaches none of them.
  */
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import { runGenerateCommitMessage } from "../../extension/features/commitGen/generateCommitCommand";
 import { wireConsultTool } from "../../extension/features/consultTool/wiring";

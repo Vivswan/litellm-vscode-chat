@@ -3,7 +3,7 @@
  * one pins what only the host can prove.
  */
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import * as vscode from "vscode";
 import {
 	CONTEXT_TRUNCATION_MARKER,
@@ -316,7 +316,7 @@ suite("extension/features/consultTool wiring", () => {
 	});
 
 	test("a label matching no entry throws the classified error, zero fetches", async () => {
-		// No msw handler for the chat URL is registered: any request would fail the suite through onUnhandledRequest:
+		// No msw handler for the chat URL is registered: any request would fail the suite through onUnhandledFrame:
 		// "error".
 		await withWiringSpies(async (spies) => {
 			await withConfig({ ...ENABLED_CONFIG, servers: [] }, async () => {
@@ -554,7 +554,7 @@ suite("extension/features/consultTool wiring", () => {
 
 		test("an input the schema calls invalid still reaches invoke, and the tool's own parse refuses it", async () => {
 			// No msw handler for the chat URL: a consultation escaping the parse would fail the suite through
-			// onUnhandledRequest: "error" - which is exactly how the missing host-side validation was found.
+			// onUnhandledFrame: "error" - which is exactly how the missing host-side validation was found.
 			await withConfig(ENABLED_CONFIG, async () => {
 				await assert.rejects(
 					Promise.resolve(

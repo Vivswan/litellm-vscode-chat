@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import {
 	fetchModels,
 	mapModelInfoEntry,

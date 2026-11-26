@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw/http";
 import type OpenAI from "openai";
 import * as vscode from "vscode";
 import { createServerClient, ServerClientCache, type ServerClientConfig } from "../../../provider/transport/clients";
